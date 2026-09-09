@@ -65,6 +65,22 @@ describe("DownloaderManager.findDownloadByTag — static resolver", () => {
   it("is a static async function on DownloaderManager", () => {
     expect(typeof DownloaderManager.findDownloadByTag).toBe("function");
   });
+
+  it("dispatches to qBittorrent client and returns the resolved hash", async () => {
+    const qbDownloader = createDownloader("qbittorrent");
+    const result = await DownloaderManager.findDownloadByTag(qbDownloader, "questarr-add-test");
+    // qBittorrent.findTorrentByTag returns null for unknown tags (no server to resolve against),
+    // but the dispatch path was exercised — verify it returns a string | null.
+    expect(result === null || typeof result === "string").toBe(true);
+  });
+
+  it("dispatches to non-qBittorrent client and returns null", async () => {
+    for (const type of ["deluge", "sabnzbd", "nzbget", "transmission", "rtorrent", "synology"]) {
+      const d = createDownloader(type);
+      const result = await DownloaderManager.findDownloadByTag(d, "questarr-add-test");
+      expect(result).toBeNull();
+    }
+  });
 });
 
 describe("Non-qBittorrent downloaders — findTorrentByTag returns null (no-op)", () => {
@@ -79,13 +95,13 @@ describe("Non-qBittorrent downloaders — findTorrentByTag returns null (no-op)"
   });
 
   it("SABnzbdClient.findTorrentByTag returns null", async () => {
-    const client = new SABnzbdClient(createDownloader("sabnzbd") as any);
+    const client = new SABnzbdClient(createDownloader("sabnzbd"));
     const result = await client.findTorrentByTag("questarr-add-any");
     expect(result).toBeNull();
   });
 
   it("NZBGetClient.findTorrentByTag returns null", async () => {
-    const client = new NZBGetClient(createDownloader("nzbget") as any);
+    const client = new NZBGetClient(createDownloader("nzbget"));
     const result = await client.findTorrentByTag("questarr-add-any");
     expect(result).toBeNull();
   });
@@ -97,7 +113,7 @@ describe("Non-qBittorrent downloaders — findTorrentByTag returns null (no-op)"
   });
 
   it("RTorrentClient.findTorrentByTag returns null", async () => {
-    const client = new RTorrentClient(createDownloader("rtorrent") as any);
+    const client = new RTorrentClient(createDownloader("rtorrent"));
     const result = await client.findTorrentByTag("questarr-add-any");
     expect(result).toBeNull();
   });

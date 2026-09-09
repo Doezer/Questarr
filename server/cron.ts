@@ -38,6 +38,12 @@ const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 // downloads as owned during the brief SABnzbd queue→history transition window.
 const downloadMissCount = new Map<string, number>();
 const DOWNLOAD_MISS_THRESHOLD = 3;
+
+// Track consecutive unresolved tag-resolution attempts per download
+// so an async qBittorrent add that never resolves doesn't stay
+// "downloading" forever.
+const downloadTagMissCount = new Map<string, number>();
+const ASYNC_TAG_RESOLVE_THRESHOLD = 3;
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interval gates actual sync)
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
@@ -580,9 +586,31 @@ export async function checkDownloadStatus() {
               "Resolved async qBittorrent hash for tracked download"
             );
           } else {
-            // Torrent hasn't appeared yet; skip this download for now.
+            // Torrent hasn't appeared yet. Bound the retry so an add
+            // that the client silently dropped can't stay "downloading"
+            // forever.
+            const tagMisses = (downloadTagMissCount.get(download.id) ?? 0) + 1;
+            downloadTagMissCount.set(download.id, tagMisses);
+            if (tagMisses >= ASYNC_TAG_RESOLVE_THRESHOLD) {
+              downloadTagMissCount.delete(download.id);
+              await storage.updateGameDownloadStatus(
+                download.id,
+                "failed",
+                "The download client never registered this download."
+              );
+              notifyUser("downloadUpdate", download.gameId);
+              igdbLogger.warn(
+                {
+                  downloadId: download.id,
+                  tag: originalTag,
+                  threshold: ASYNC_TAG_RESOLVE_THRESHOLD,
+                },
+                "Async qBittorrent tag resolution exceeded threshold — marking as failed"
+              );
+              continue;
+            }
             igdbLogger.debug(
-              { downloadId: download.id, tag: originalTag },
+              { downloadId: download.id, tag: originalTag, tagMisses },
               "Async qBittorrent download not yet visible — skipping"
             );
             continue;

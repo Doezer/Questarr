@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { emptyDirMock, readdirMock, loggerMocks } = vi.hoisted(() => ({
   emptyDirMock: vi.fn().mockResolvedValue(undefined),
@@ -88,6 +88,15 @@ describe("ArchiveService", () => {
     readdirMock.mockResolvedValue([]);
     process.env.SEVENZIP_PATH = fakeSevenZipPath;
     process.env.UNRAR_PATH = fakeUnrarPath;
+  });
+
+  // Several tests below call vi.useFakeTimers() and restore real timers manually at the end
+  // of the test body. If an assertion throws first, that restore is skipped, leaving fake
+  // timers active for every test that runs afterward in the same worker — a real setTimeout
+  // elsewhere would then never fire. Force a reset unconditionally so one failure here can't
+  // cascade into unrelated tests/files sharing this worker.
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("detects supported archive extensions", () => {

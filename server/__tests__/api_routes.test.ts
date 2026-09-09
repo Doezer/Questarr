@@ -22,6 +22,7 @@ import {
   createSocketMock,
 } from "./fixtures/common-route-mocks.js";
 import { registerRoutes, parseCategories } from "../routes.js";
+import { matchUnmatchedFolder } from "../library-scanner.js";
 import { storage } from "../storage.js";
 import { searchAllIndexers } from "../search.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
@@ -76,6 +77,13 @@ vi.mock("../root-folders.js", async () => {
     }),
   };
 });
+vi.mock("../library-scanner.js", () => ({
+  scanRootFolderById: vi.fn().mockResolvedValue(undefined),
+  scanAllEnabledRootFolders: vi.fn().mockResolvedValue(undefined),
+  getAllScanProgress: vi.fn().mockReturnValue([]),
+  getAllUnmatched: vi.fn().mockReturnValue([]),
+  matchUnmatchedFolder: vi.fn(),
+}));
 
 // Neutralize the IP-keyed rate limiters so cumulative requests across this large
 // test file don't trip a shared 30-req/min counter; keep all other exports
@@ -3305,6 +3313,41 @@ describe("API Routes - Extended Coverage", () => {
         folderId,
         expect.objectContaining({ path: path.resolve("/mnt/games") })
       );
+    });
+  });
+
+  describe("POST /api/library/scan/unmatched/match", () => {
+    const validBody = { rootFolderId: "rf-1", folderName: "Some Game", igdbId: 42 };
+
+    it("returns 404 when matchUnmatchedFolder reports the root folder is gone", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(new Error("Root folder not found"));
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: "Root folder not found" });
+    });
+
+    it("returns 404 when matchUnmatchedFolder reports the unmatched entry is gone", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(
+        new Error("No matching unmatched entry for this root folder")
+      );
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: "No matching unmatched entry for this root folder" });
+    });
+
+    it("returns 500 for any other matchUnmatchedFolder failure", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(
+        new Error("Selected IGDB game not found in top candidates")
+      );
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: "Selected IGDB game not found in top candidates" });
     });
   });
 });

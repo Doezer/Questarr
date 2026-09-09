@@ -1977,7 +1977,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (error) {
         const msg = error instanceof Error ? error.message : "Unknown error";
         routesLogger.error({ error }, "error resolving unmatched folder");
-        res.status(500).json({ error: msg });
+        // matchUnmatchedFolder throws these two plain-Error messages for the
+        // "client asked to match something that no longer exists" cases —
+        // report them as 404s rather than 500s; everything else (IGDB
+        // lookup failure, filesystem error) stays a 500.
+        const notFound =
+          msg === "Root folder not found" ||
+          msg === "No matching unmatched entry for this root folder";
+        res.status(notFound ? 404 : 500).json({ error: msg });
       }
     }
   );

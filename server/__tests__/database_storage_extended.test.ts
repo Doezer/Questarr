@@ -418,6 +418,75 @@ describe("DatabaseStorage Extended Coverage", () => {
     });
   });
 
+  describe("GameDownload: updateGameDownloadHash (async qBittorrent resolution)", () => {
+    async function setup() {
+      const userId = await createUser();
+      const game = await storage.addGame({
+        title: "Async Game",
+        igdbId: 7000,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      const downloader = await storage.addDownloader({
+        name: "qBit",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        apiKey: "",
+        enabled: true,
+        priority: 1,
+      } as InsertDownloader);
+      return { userId, game, downloader };
+    }
+
+    it("updates the hash when the record has a correlation tag (questarr-add-*)", async () => {
+      const { game, downloader } = await setup();
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "questarr-add-abc123",
+        downloadTitle: "Async Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // Resolve the tag to the real hash.
+      await storage.updateGameDownloadHash(download!.id, "realhash456");
+
+      const updated = await storage.getGameDownload(download!.id);
+      expect(updated?.downloadHash).toBe("realhash456");
+    });
+
+    it("does NOT update the hash when the record already has a real hash", async () => {
+      const { game, downloader } = await setup();
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "already_real_hash",
+        downloadTitle: "Sync Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // Attempt to update — should be a no-op because hash doesn't start with questarr-add-.
+      await storage.updateGameDownloadHash(download!.id, "should_not_apply");
+
+      const current = await storage.getGameDownload(download!.id);
+      expect(current?.downloadHash).toBe("already_real_hash");
+    });
+
+    it("is a no-op when the download record does not exist", async () => {
+      // Should not throw.
+      await expect(
+        storage.updateGameDownloadHash("nonexistent-id", "anyhash")
+      ).resolves.toBeUndefined();
+    });
+  });
+
   describe("Import task history", () => {
     it("creates a task, starts it, updates it, and adds items", async () => {
       const userId = await createUser();

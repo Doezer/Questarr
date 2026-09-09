@@ -183,6 +183,66 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     );
   });
 
+  it("prefers result.id over result.correlationTag when both are present", async () => {
+    // Edge case: downloader returns both a real hash AND a correlationTag.
+    // The route must use the real hash (id), not the tag.
+    vi.mocked(DownloaderManager.addDownloadWithFallback).mockResolvedValue({
+      success: true,
+      id: "realhash_preferred",
+      correlationTag: "questarr-add-should_ignore",
+      downloaderId: "d-1",
+      downloaderName: "qBittorrent",
+      attemptedDownloaders: ["qBittorrent"],
+    });
+    vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+      {
+        id: "d-1",
+        name: "qBittorrent",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        enabled: true,
+        priority: 1,
+      } as any,
+    ]);
+    vi.mocked(storage.addGameDownload).mockResolvedValue({
+      id: "gd-edge",
+      gameId: "game-edge",
+      downloaderId: "d-1",
+      downloadHash: "realhash_preferred",
+      downloadTitle: "Edge Game",
+      status: "downloading",
+      downloadType: "torrent",
+      errorMessage: null,
+      fileSize: null,
+      addedAt: new Date(),
+      completedAt: null,
+    });
+    vi.mocked(storage.getGame).mockResolvedValue({
+      id: "game-edge",
+      title: "Edge Game",
+      userId: "user-1",
+      status: "wanted",
+    } as any);
+
+    const res = await request(app).post("/api/downloads").send({
+      url: "https://example.com/edge.torrent",
+      title: "Edge Game",
+      gameId: "game-edge",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    // Must use the real hash, NOT the correlationTag.
+    expect(storage.addGameDownload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gameId: "game-edge",
+        downloadHash: "realhash_preferred",
+        status: "downloading",
+      })
+    );
+  });
+
   it("does NOT create a game_downloads record when the downloader fails", async () => {
     vi.mocked(DownloaderManager.addDownloadWithFallback).mockResolvedValue({
       success: false,

@@ -21,6 +21,7 @@ import type { ImportConfig } from "@shared/schema";
 import { PathMappingSettings } from "./PathMappingSettings";
 import { FileBrowser } from "./FileBrowser";
 import { PlatformPicker } from "./PlatformPicker";
+import { RootFolderDiscovery } from "./RootFolderDiscovery";
 
 type HardlinkPairCheck = {
   sourcePath: string;
@@ -95,6 +96,7 @@ export default function ImportSettings() {
         <TabsList>
           <TabsTrigger value="config">General Config</TabsTrigger>
           <TabsTrigger value="paths">Path Mappings</TabsTrigger>
+          <TabsTrigger value="discover">Discover</TabsTrigger>
           <TabsTrigger value="help">Help</TabsTrigger>
         </TabsList>
 
@@ -334,6 +336,10 @@ export default function ImportSettings() {
 
         <TabsContent value="paths" className="space-y-4">
           <PathMappingSettings />
+        </TabsContent>
+
+        <TabsContent value="discover" className="space-y-4">
+          <RootFolderDiscovery />
         </TabsContent>
 
         <TabsContent value="help" className="space-y-4">

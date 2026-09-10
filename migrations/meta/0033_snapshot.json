@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6b11f9d6-5a73-42a2-9478-fa94f5947f82",
-  "prevId": "262110c6-f8a2-4512-a61f-88003c76bfdf",
+  "id": "8d8b1bf7-aff1-49af-bccf-cca3cfc005da",
+  "prevId": "6b11f9d6-5a73-42a2-9478-fa94f5947f82",
   "tables": {
     "api_keys": {
       "name": "api_keys",
@@ -1767,6 +1767,14 @@
         },
         "import_platform_ids": {
           "name": "import_platform_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "hidden_platforms": {
+          "name": "hidden_platforms",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

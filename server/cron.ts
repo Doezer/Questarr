@@ -614,8 +614,14 @@ export async function checkDownloadStatus() {
               // only when no sibling download for the same game is still
               // actively downloading.
               const siblings = await storage.getDownloadsByGameId(download.gameId);
+              const activeStatuses = new Set([
+                "downloading",
+                "paused",
+                "unpacking",
+                "completed_pending_import",
+              ]);
               const hasActiveSibling = siblings.some(
-                (s) => s.id !== download.id && s.status === "downloading"
+                (s) => s.id !== download.id && activeStatuses.has(s.status)
               );
               if (!hasActiveSibling) {
                 const failedGame = await storage.getGame(download.gameId);

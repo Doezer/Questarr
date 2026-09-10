@@ -498,6 +498,33 @@ function validateUserSettingsEnums(
       message: "Invalid transfer mode",
     });
   }
+
+  // JSON array columns round-trip through the client, so a malformed payload
+  // (
+  // "oops", 42, {...}) would be persisted verbatim and later crash consumers
+  // that iterate or spread it. Reject anything that is not an array of the
+  // declared element type.
+  const arrayFields: Array<{ key: string; element: "string" | "number" }> = [
+    { key: "importPlatformIds", element: "number" },
+    { key: "hiddenPlatforms", element: "string" },
+    { key: "ignoredExtensions", element: "string" },
+  ];
+  for (const { key, element } of arrayFields) {
+    const raw = value[key];
+    if (raw === undefined || raw === null) continue;
+    const typeOk =
+      Array.isArray(raw) &&
+      raw.every((item) =>
+        element === "number" ? typeof item === "number" : typeof item === "string"
+      );
+    if (!typeOk) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `${key} must be an array of ${element}s`,
+      });
+    }
+  }
 }
 
 export const insertReleaseBlacklistSchema = createInsertSchema(releaseBlacklist).omit({

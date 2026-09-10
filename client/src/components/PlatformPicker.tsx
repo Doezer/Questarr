@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import type { ImportConfig } from "@shared/schema";
 
 type IgdbPlatform = { id: number; name: string };
 type AppConfig = { igdb?: { configured?: boolean } };
@@ -101,4 +100,3 @@ export function PlatformPicker({
 }
 
 export type { IgdbPlatform };
-export type PlatformPickerConfig = Pick<ImportConfig, "importPlatformIds">;

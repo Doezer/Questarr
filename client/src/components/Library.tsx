@@ -148,7 +148,11 @@ export default function Library() {
   }, [games]);
 
   const visiblePlatforms = useMemo(() => {
-    const hidden = new Set(userSettings?.hiddenPlatforms ?? []);
+    // `hiddenPlatforms` is a JSON column and may arrive as a non-array from a
+    // legacy or malformed row; spreading it would throw and crash the render.
+    const hidden = new Set<string>(
+      Array.isArray(userSettings?.hiddenPlatforms) ? userSettings.hiddenPlatforms : []
+    );
     return uniquePlatforms.filter((platform) => !hidden.has(platform));
   }, [uniquePlatforms, userSettings?.hiddenPlatforms]);
 

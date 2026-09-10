@@ -1248,6 +1248,7 @@ export class MemStorage implements IStorage {
       overwriteExisting: insertSettings.overwriteExisting ?? false,
       transferMode: insertSettings.transferMode ?? "hardlink",
       importPlatformIds: insertSettings.importPlatformIds ?? [],
+      hiddenPlatforms: insertSettings.hiddenPlatforms ?? [],
       ignoredExtensions: insertSettings.ignoredExtensions ?? [],
       minFileSize: insertSettings.minFileSize ?? 0,
       libraryRoot: insertSettings.libraryRoot ?? "/data",

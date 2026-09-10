@@ -65,6 +65,7 @@ export const userSettings = sqliteTable("user_settings", {
   overwriteExisting: integer("overwrite_existing", { mode: "boolean" }).notNull().default(false),
   transferMode: text("transfer_mode").notNull().default("hardlink"),
   importPlatformIds: text("import_platform_ids", { mode: "json" }).$type<number[]>().default([]),
+  hiddenPlatforms: text("hidden_platforms", { mode: "json" }).$type<string[]>().default([]),
   ignoredExtensions: text("ignored_extensions", { mode: "json" }).$type<string[]>().default([]),
   minFileSize: integer("min_file_size").notNull().default(0),
   libraryRoot: text("library_root").notNull().default("/data"),

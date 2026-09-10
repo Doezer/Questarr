@@ -66,6 +66,7 @@ import {
   type DownloaderDebugLoggingResponse,
 } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
+import HiddenPlatformsSettings from "@/components/HiddenPlatformsSettings";
 import ImportSettings from "@/components/ImportSettings";
 
 interface CertInfo {
@@ -1096,6 +1097,8 @@ export default function SettingsPage() {
             </Card>
 
             {contentFilteringCard}
+
+            <HiddenPlatformsSettings />
           </TabsContent>
 
           <TabsContent value="discovery" className="space-y-6">

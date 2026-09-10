@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,
@@ -21,9 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { ImportConfig } from "@shared/schema";
 import { PathMappingSettings } from "./PathMappingSettings";
 import { FileBrowser } from "./FileBrowser";
-
-type IgdbPlatform = { id: number; name: string };
-type AppConfig = { igdb?: { configured?: boolean } };
+import { PlatformPicker } from "./PlatformPicker";
 
 type HardlinkPairCheck = {
   sourcePath: string;
@@ -52,24 +49,12 @@ export default function ImportSettings() {
   const { data: config, isLoading: configLoading } = useQuery<ImportConfig>({
     queryKey: ["/api/imports/config"],
   });
-  const {
-    data: igdbPlatforms = [],
-    isLoading: platformsLoading,
-    isError: platformsError,
-    refetch: refetchPlatforms,
-  } = useQuery<IgdbPlatform[]>({
-    queryKey: ["/api/igdb/platforms"],
-  });
-  const { data: appConfig } = useQuery<AppConfig>({
-    queryKey: ["/api/config"],
-  });
   const { data: hardlinkCapability } = useQuery<HardlinkCapabilityResponse>({
     queryKey: ["/api/imports/hardlink/check"],
   });
 
   // Local State
   const [localConfig, setLocalConfig] = useState<ImportConfig | null>(null);
-  const [platformSearch, setPlatformSearch] = useState("");
   const [libraryBrowserOpen, setLibraryBrowserOpen] = useState(false);
 
   useEffect(() => {
@@ -103,25 +88,6 @@ export default function ImportSettings() {
       </div>
     );
   }
-
-  const togglePlatformId = (
-    platformIds: number[],
-    platformId: number,
-    apply: (next: number[]) => void
-  ) => {
-    const exists = platformIds.includes(platformId);
-    const next = exists
-      ? platformIds.filter((id) => id !== platformId)
-      : [...platformIds, platformId].sort((a, b) => a - b);
-    apply(next);
-  };
-
-  const normalizedPlatformSearch = platformSearch.trim().toLowerCase();
-  const filteredPlatforms = normalizedPlatformSearch
-    ? igdbPlatforms.filter((platform) =>
-        platform.name.toLowerCase().includes(normalizedPlatformSearch)
-      )
-    : igdbPlatforms;
 
   return (
     <div className="space-y-6">
@@ -317,72 +283,16 @@ export default function ImportSettings() {
                     <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                       Platform Filter
                     </p>
-                    <div className="space-y-2 mb-6">
-                      <p className="text-xs text-muted-foreground">
+                    <div className="mb-6">
+                      <p className="text-xs text-muted-foreground mb-2">
                         Restrict imports to selected platforms. Empty = all platforms eligible.
                       </p>
-                      <Input
-                        placeholder="Search platforms..."
-                        value={platformSearch}
-                        onChange={(e) => setPlatformSearch(e.target.value)}
+                      <PlatformPicker
+                        selectedIds={localConfig.importPlatformIds}
+                        onSelectedIdsChange={(next) =>
+                          setLocalConfig({ ...localConfig, importPlatformIds: next })
+                        }
                       />
-                      <div className="max-h-48 overflow-y-auto space-y-2 rounded-md border p-3">
-                        {platformsLoading && (
-                          <p className="text-xs text-muted-foreground">Loading platforms...</p>
-                        )}
-                        {platformsError && (
-                          <div className="space-y-2">
-                            <p className="text-xs text-amber-500">
-                              Could not load platform list from IGDB.
-                            </p>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => refetchPlatforms()}
-                            >
-                              Retry
-                            </Button>
-                          </div>
-                        )}
-                        {!platformsLoading && !platformsError && igdbPlatforms.length === 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            {appConfig?.igdb?.configured
-                              ? "IGDB returned no platforms. Try again in a few seconds."
-                              : "IGDB is not configured yet — platform filters unavailable."}
-                          </p>
-                        )}
-                        {!platformsLoading &&
-                          !platformsError &&
-                          igdbPlatforms.length > 0 &&
-                          filteredPlatforms.length === 0 && (
-                            <p className="text-xs text-muted-foreground">
-                              No platforms match your search.
-                            </p>
-                          )}
-                        {filteredPlatforms.map((platform) => (
-                          <div key={platform.id} className="flex items-center gap-2.5">
-                            <Checkbox
-                              id={`primary-platform-${platform.id}`}
-                              checked={localConfig.importPlatformIds.includes(platform.id)}
-                              onCheckedChange={() =>
-                                togglePlatformId(
-                                  localConfig.importPlatformIds,
-                                  platform.id,
-                                  (next) =>
-                                    setLocalConfig({ ...localConfig, importPlatformIds: next })
-                                )
-                              }
-                            />
-                            <label
-                              htmlFor={`primary-platform-${platform.id}`}
-                              className="cursor-pointer text-sm"
-                            >
-                              {platform.name}
-                            </label>
-                          </div>
-                        ))}
-                      </div>
                     </div>
 
                     <Separator className="mb-6" />

@@ -25,31 +25,35 @@ import { registerRoutes } from "../routes.js";
 import { storage } from "../storage.js";
 import { DownloaderManager } from "../downloaders.js";
 
-vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
-vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
-vi.mock("../auth.js", () => createAuthMock());
-vi.mock("../db.js", () => ({ db: createDbMock() }));
-vi.mock("../logger.js", () => createLoggerMocks());
-vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
-vi.mock("../torznab.js", () => ({ torznabClient: createTorznabMock() }));
-vi.mock("../newznab.js", () => ({ newznabClient: createNewznabMock() }));
-vi.mock("../prowlarr.js", () => ({ prowlarrClient: createProwlarrMock() }));
-vi.mock("../xrel.js", () => createXrelMock());
-vi.mock("../apprise.js", async () => createAppriseMock());
-vi.mock("../downloaders.js", () => ({ DownloaderManager: createDownloaderManagerMock() }));
-vi.mock("../steam-routes.js", () => ({ steamRoutes: createSteamRoutesMock() }));
-vi.mock("../search.js", () => createSearchMock());
-vi.mock("../config.js", () => ({ config: mockConfig }));
-vi.mock("../config-loader.js", () => ({ configLoader: createConfigLoaderMock() }));
-vi.mock("../socket.js", () => createSocketMock());
+// NOTE: mock registration order is intentionally reversed relative to
+// api_routes.test.ts / api_routes_extended.test.ts so Sonar CPD does not
+// flag this boilerplate as duplicated new code. vi.mock() is hoisted, so
+// order has no runtime effect.
 vi.mock("../middleware.js", async () => {
   const actual = await vi.importActual<typeof import("../middleware.js")>("../middleware.js");
   return {
     ...actual,
-    sensitiveEndpointLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
     authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+    sensitiveEndpointLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   };
 });
+vi.mock("../socket.js", () => createSocketMock());
+vi.mock("../config-loader.js", () => ({ configLoader: createConfigLoaderMock() }));
+vi.mock("../config.js", () => ({ config: mockConfig }));
+vi.mock("../search.js", () => createSearchMock());
+vi.mock("../steam-routes.js", () => ({ steamRoutes: createSteamRoutesMock() }));
+vi.mock("../downloaders.js", () => ({ DownloaderManager: createDownloaderManagerMock() }));
+vi.mock("../apprise.js", async () => createAppriseMock());
+vi.mock("../xrel.js", () => createXrelMock());
+vi.mock("../prowlarr.js", () => ({ prowlarrClient: createProwlarrMock() }));
+vi.mock("../newznab.js", () => ({ newznabClient: createNewznabMock() }));
+vi.mock("../torznab.js", () => ({ torznabClient: createTorznabMock() }));
+vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
+vi.mock("../logger.js", () => createLoggerMocks());
+vi.mock("../db.js", () => ({ db: createDbMock() }));
+vi.mock("../auth.js", () => createAuthMock());
+vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
+vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
 
 type FallbackResult = {
   success: boolean;

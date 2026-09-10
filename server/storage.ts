@@ -151,6 +151,15 @@ type ImportTaskUpdate = Pick<
   | "errorMessage"
 >;
 
+/**
+ * Result of resolving a temporary questarr-add-* correlation tag to a real hash.
+ * - "updated": the tag row now carries the real hash.
+ * - "merged": the tag row was deleted because a real-hash row already tracked
+ *   the same torrent; callers must stop processing the deleted record.
+ * - "noop": nothing changed (record missing or already has a real hash).
+ */
+export type UpdateGameDownloadHashOutcome = "updated" | "merged" | "noop";
+
 export interface IStorage {
   // System Config methods
   getSystemConfig(key: string): Promise<string | undefined>;
@@ -227,8 +236,9 @@ export interface IStorage {
   // to the real torrent hash once it becomes known. No-op if the record already
   // has a real hash or doesn't exist. If another row already tracks the same
   // (downloaderId, downloadHash) — e.g. claimed before cron resolved the tag —
-  // the stale tag row is deleted instead of violating the unique index.
-  updateGameDownloadHash(id: string, downloadHash: string): Promise<void>;
+  // the stale tag row is deleted and "merged" is returned, so callers can stop
+  // processing the now-deleted record instead of acting on a stale id.
+  updateGameDownloadHash(id: string, downloadHash: string): Promise<UpdateGameDownloadHashOutcome>;
   // Attaches a "game_link_required" download to the given game and drops it back into
   // the normal "manual_review_required" path-review flow.
   relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined>;
@@ -963,10 +973,13 @@ export class MemStorage implements IStorage {
     }
   }
 
-  async updateGameDownloadHash(id: string, downloadHash: string): Promise<void> {
+  async updateGameDownloadHash(
+    id: string,
+    downloadHash: string
+  ): Promise<UpdateGameDownloadHashOutcome> {
     const gd = this.gameDownloads.get(id);
     if (!gd || !gd.downloadHash.startsWith("questarr-add-")) {
-      return;
+      return "noop";
     }
     // Claim race: the torrent may already be tracked under its real hash
     // (e.g. claimed via /api/downloads/claim before cron resolved the tag).
@@ -979,10 +992,11 @@ export class MemStorage implements IStorage {
         other.downloadHash === downloadHash
       ) {
         this.gameDownloads.delete(id);
-        return;
+        return "merged";
       }
     }
     this.gameDownloads.set(id, { ...gd, downloadHash });
+    return "updated";
   }
 
   async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload> {
@@ -2454,7 +2468,10 @@ export class DatabaseStorage implements IStorage {
     await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
   }
 
-  async updateGameDownloadHash(id: string, downloadHash: string): Promise<void> {
+  async updateGameDownloadHash(
+    id: string,
+    downloadHash: string
+  ): Promise<UpdateGameDownloadHashOutcome> {
     const [current] = await db
       .select({
         downloaderId: gameDownloads.downloaderId,
@@ -2463,7 +2480,7 @@ export class DatabaseStorage implements IStorage {
       .from(gameDownloads)
       .where(eq(gameDownloads.id, id));
     if (!current || !current.downloadHash.startsWith("questarr-add-")) {
-      return;
+      return "noop";
     }
     // Claim race: the torrent may already be tracked under its real hash
     // (e.g. claimed via /api/downloads/claim before cron resolved the tag).
@@ -2480,13 +2497,14 @@ export class DatabaseStorage implements IStorage {
       );
     if (existing.some((row) => row.id !== id)) {
       await db.delete(gameDownloads).where(eq(gameDownloads.id, id));
-      return;
+      return "merged";
     }
     try {
       await db
         .update(gameDownloads)
         .set({ downloadHash })
         .where(and(eq(gameDownloads.id, id), like(gameDownloads.downloadHash, "questarr-add-%")));
+      return "updated";
     } catch (error) {
       // TOCTOU: /api/downloads/claim may have inserted the real-hash row
       // between our check and update, violating the unique index on
@@ -2509,7 +2527,7 @@ export class DatabaseStorage implements IStorage {
         );
       if (retry.some((row) => row.id !== id)) {
         await db.delete(gameDownloads).where(eq(gameDownloads.id, id));
-        return;
+        return "merged";
       }
       throw error;
     }

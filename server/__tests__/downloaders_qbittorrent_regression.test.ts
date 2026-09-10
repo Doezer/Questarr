@@ -1557,14 +1557,13 @@ describe("QBittorrentClient.findTorrentByTag — async correlation tag resolutio
     expect(result).toBeNull();
   });
 
-  it("returns null on API error (does not throw)", async () => {
+  it("propagates API errors instead of reporting no match", async () => {
     const client = new QBittorrentClient(createDownloader());
     mockTagLookup(client, new Error("boom"));
 
-    // Should not throw — returns null.
-    const result = await client.findTorrentByTag("questarr-add-error");
-
-    expect(result).toBeNull();
+    // A transport/API failure must not be mistaken for "torrent not visible
+    // yet" — cron skips the cycle on a thrown error rather than counting a miss.
+    await expect(client.findTorrentByTag("questarr-add-error")).rejects.toThrow("boom");
   });
 
   it("returns the first match when multiple torrents share the tag", async () => {

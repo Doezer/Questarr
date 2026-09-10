@@ -247,6 +247,54 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
     expect(mockGetDownloadStatus).not.toHaveBeenCalled();
   });
 
+  it("skips the cycle without counting a miss when the tag lookup fails", async () => {
+    // A transport/auth failure must not be treated as "torrent not visible yet":
+    // otherwise three consecutive client outages would mark the download failed.
+    mockTagScenario({
+      gdId: "gd-async-error",
+      tag: "questarr-add-unreachable",
+      title: "Unreachable Game",
+      resolvedHash: null,
+      remoteId: null,
+    });
+    mockFindDownloadByTag.mockRejectedValue(new Error("qBittorrent unreachable"));
+
+    // Well past ASYNC_TAG_RESOLVE_THRESHOLD — still no failure verdict.
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
+    expect(mockUpdateGameStatus).not.toHaveBeenCalled();
+    expect(mockUpdateGameDownloadHash).not.toHaveBeenCalled();
+  });
+
+  it("stops processing the row when the tag row is merged into a real-hash row", async () => {
+    // The real-hash row already exists (claim race), so updateGameDownloadHash
+    // deletes the stale tag row and reports "merged". The stale object must not
+    // drive ownership updates, imports, or notifications afterwards.
+    mockTagScenario({
+      gdId: "gd-async-merged",
+      tag: "questarr-add-raced",
+      title: "Raced Game",
+      resolvedHash: "realhash-raced",
+      remoteId: "realhash-raced",
+      remoteStatus: "completed",
+      remoteProgress: 100,
+    });
+    mockUpdateGameDownloadHash.mockResolvedValue("merged");
+
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadHash).toHaveBeenCalledWith("gd-async-merged", "realhash-raced");
+    // Must not mark the deleted row completed, import it, or notify completion.
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
+    expect(mockUpdateGameStatus).not.toHaveBeenCalled();
+    expect(mockProcessImport).not.toHaveBeenCalled();
+    expect(mockNotifyUser).not.toHaveBeenCalled();
+  });
+
   it("marks tag FAILED after threshold and resets game to wanted with no active sibling", async () => {
     // No sibling still downloading — game should reset to wanted.
     mockTagScenario({

@@ -588,9 +588,32 @@ export async function checkDownloadStatus() {
         // wasn't known upfront). Resolve it now so we can match the torrent.
         if (download.downloadHash.startsWith("questarr-add-")) {
           const originalTag = download.downloadHash;
-          const resolvedHash = await DownloaderManager.findDownloadByTag(downloader, originalTag);
+          let resolvedHash: string | null;
+          try {
+            resolvedHash = await DownloaderManager.findDownloadByTag(downloader, originalTag);
+          } catch (error) {
+            // Auth/transport/API failure — the torrent's visibility is unknown.
+            // Skip this cycle without incrementing the miss counter, otherwise
+            // a client outage would falsely mark the download failed.
+            igdbLogger.warn(
+              { error, downloadId: download.id, tag: originalTag },
+              "Correlation tag lookup failed — skipping this cycle"
+            );
+            continue;
+          }
           if (resolvedHash) {
-            await storage.updateGameDownloadHash(download.id, resolvedHash);
+            const outcome = await storage.updateGameDownloadHash(download.id, resolvedHash);
+            if (outcome === "merged") {
+              // The tag row was dropped because a real-hash row already tracks
+              // this torrent (claim race). The stale object is gone, so stop
+              // here rather than updating ownership or importing a dead id.
+              downloadTagMissCount.delete(download.id);
+              igdbLogger.info(
+                { downloadId: download.id, tag: originalTag, resolvedHash },
+                "Correlation tag row merged into existing real-hash row — skipping"
+              );
+              continue;
+            }
             download.downloadHash = resolvedHash;
             igdbLogger.info(
               { downloadId: download.id, tag: originalTag, resolvedHash },

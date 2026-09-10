@@ -66,12 +66,14 @@ describe("DownloaderManager.findDownloadByTag — static resolver", () => {
     expect(typeof DownloaderManager.findDownloadByTag).toBe("function");
   });
 
-  it("dispatches to qBittorrent client and returns the resolved hash", async () => {
+  it("propagates a lookup failure from the qBittorrent client", async () => {
     const qbDownloader = createDownloader("qbittorrent");
-    const result = await DownloaderManager.findDownloadByTag(qbDownloader, "questarr-add-test");
-    // qBittorrent.findTorrentByTag returns null for unknown tags (no server to resolve against),
-    // but the dispatch path was exercised — verify it returns a string | null.
-    expect(result === null || typeof result === "string").toBe(true);
+    // No qBittorrent server is reachable here, so the lookup rejects instead of
+    // being swallowed as a "torrent not visible yet" null. Cron relies on this
+    // to skip the cycle rather than burning a retry.
+    await expect(
+      DownloaderManager.findDownloadByTag(qbDownloader, "questarr-add-test")
+    ).rejects.toThrow();
   });
 
   it("dispatches to non-qBittorrent client and returns null", async () => {

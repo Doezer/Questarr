@@ -862,26 +862,24 @@ export class QBittorrentClient implements DownloaderClient {
    * Returns the torrent hash, or null if not found.
    */
   async findTorrentByTag(tag: string): Promise<string | null> {
-    try {
-      await this.authenticate();
-      const response = await this.makeRequest(
-        "GET",
-        `/api/v2/torrents/info?tag=${encodeURIComponent(tag)}`
+    // Transport/auth/API failures propagate so callers can skip the cycle
+    // instead of mistaking a broken lookup for "torrent not visible yet".
+    await this.authenticate();
+    const response = await this.makeRequest(
+      "GET",
+      `/api/v2/torrents/info?tag=${encodeURIComponent(tag)}`
+    );
+    const torrents = (await response.json()) as QBittorrentTorrent[];
+    const match = torrents?.[0];
+    if (match?.hash) {
+      downloadersLogger.info(
+        { tag, hash: match.hash, name: match.name },
+        "Resolved async qBittorrent add: correlation tag → hash"
       );
-      const torrents = (await response.json()) as QBittorrentTorrent[];
-      const match = torrents?.[0];
-      if (match?.hash) {
-        downloadersLogger.info(
-          { tag, hash: match.hash, name: match.name },
-          "Resolved async qBittorrent add: correlation tag → hash"
-        );
-        return match.hash;
-      }
-      return null;
-    } catch (error) {
-      downloadersLogger.warn({ error, tag }, "Failed to find torrent by correlation tag");
-      return null;
+      return match.hash;
     }
+    // Successful lookup with no matching torrent: the add hasn't landed yet.
+    return null;
   }
 
   async getDownloadStatus(id: string): Promise<DownloadStatus | null> {

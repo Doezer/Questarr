@@ -3853,6 +3853,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "URL and title are required" });
         }
 
+        // gameId comes from the request body, so verify ownership before
+        // touching the downloader: otherwise a user who knows another user's
+        // game UUID could link a download to that game and flip its status.
+        if (gameId && !(await resolveOwnedGame(gameId, req.user!.id, res))) return;
+
         const enabledDownloaders = await storage.getEnabledDownloaders();
         if (enabledDownloaders.length === 0) {
           return res.status(400).json({ error: "No downloaders configured" });

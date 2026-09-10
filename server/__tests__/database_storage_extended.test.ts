@@ -454,7 +454,9 @@ describe("DatabaseStorage Extended Coverage", () => {
       } as InsertGameDownload);
 
       // Resolve the tag to the real hash.
-      await storage.updateGameDownloadHash(download!.id, "realhash456");
+      await expect(storage.updateGameDownloadHash(download!.id, "realhash456")).resolves.toBe(
+        "updated"
+      );
 
       const updated = await storage.getGameDownload(download!.id);
       expect(updated?.downloadHash).toBe("realhash456");
@@ -474,7 +476,9 @@ describe("DatabaseStorage Extended Coverage", () => {
       } as InsertGameDownload);
 
       // Attempt to update — should be a no-op because hash doesn't start with questarr-add-.
-      await storage.updateGameDownloadHash(download!.id, "should_not_apply");
+      await expect(storage.updateGameDownloadHash(download!.id, "should_not_apply")).resolves.toBe(
+        "noop"
+      );
 
       const current = await storage.getGameDownload(download!.id);
       expect(current?.downloadHash).toBe("already_real_hash");
@@ -482,9 +486,9 @@ describe("DatabaseStorage Extended Coverage", () => {
 
     it("is a no-op when the download record does not exist", async () => {
       // Should not throw.
-      await expect(
-        storage.updateGameDownloadHash("nonexistent-id", "anyhash")
-      ).resolves.toBeUndefined();
+      await expect(storage.updateGameDownloadHash("nonexistent-id", "anyhash")).resolves.toBe(
+        "noop"
+      );
     });
 
     it("merges the stale tag row when the real-hash row already exists (claim race)", async () => {
@@ -515,10 +519,11 @@ describe("DatabaseStorage Extended Coverage", () => {
         fileSize: null,
       } as InsertGameDownload);
 
-      // Must not throw a UNIQUE-constraint violation.
+      // Must not throw a UNIQUE-constraint violation, and must report the
+      // merge so cron stops processing the deleted row.
       await expect(
         storage.updateGameDownloadHash(tagDownload!.id, "realhash-collide-xyz")
-      ).resolves.toBeUndefined();
+      ).resolves.toBe("merged");
 
       // Stale tag row is gone; the real-hash row survives exactly once.
       expect(await storage.getGameDownload(tagDownload!.id)).toBeUndefined();

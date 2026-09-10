@@ -148,6 +148,46 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     return res;
   }
 
+  it("rejects tracking a download against a game owned by another user", async () => {
+    // gameId is attacker-controlled body input; the route must verify
+    // ownership before touching the downloader or game status.
+    const gameId = "123e4567-e89b-12d3-a456-4266141740ff";
+    mockEnabledQb();
+    vi.mocked(storage.getGame).mockResolvedValue({
+      id: gameId,
+      title: "Someone Else's Game",
+      userId: "user-2",
+      status: "wanted",
+    } as never);
+
+    const res = await request(app).post("/api/downloads").send({
+      url: "https://example.com/idor.torrent",
+      title: "Someone Else's Game",
+      gameId,
+    });
+
+    expect(res.status).toBe(403);
+    expect(DownloaderManager.addDownloadWithFallback).not.toHaveBeenCalled();
+    expect(storage.addGameDownload).not.toHaveBeenCalled();
+    expect(storage.updateGameStatus).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when the referenced game does not exist", async () => {
+    const gameId = "123e4567-e89b-12d3-a456-4266141740ee";
+    mockEnabledQb();
+    vi.mocked(storage.getGame).mockResolvedValue(undefined as never);
+
+    const res = await request(app).post("/api/downloads").send({
+      url: "https://example.com/missing.torrent",
+      title: "Missing Game",
+      gameId,
+    });
+
+    expect(res.status).toBe(404);
+    expect(DownloaderManager.addDownloadWithFallback).not.toHaveBeenCalled();
+    expect(storage.addGameDownload).not.toHaveBeenCalled();
+  });
+
   it("creates a game_downloads record when downloader returns a correlationTag (async, no hash)", async () => {
     // Simulate qBittorrent v5+ async add: pending_count with no hash yet.
     // The downloader returns a correlationTag instead of an id.

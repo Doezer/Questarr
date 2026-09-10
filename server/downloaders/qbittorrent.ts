@@ -9,7 +9,7 @@ import { downloadersLogger } from "../logger.js";
 import { randomUUID } from "node:crypto";
 import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
-import type { DownloadRequest, DownloaderClient } from "./types.js";
+import type { DownloadRequest, DownloadResult, DownloaderClient } from "./types.js";
 import {
   fetchWithMagnetDetection,
   extractHashFromUrl,
@@ -83,9 +83,7 @@ export class QBittorrentClient implements DownloaderClient {
     );
   }
 
-  async addDownload(
-    request: DownloadRequest
-  ): Promise<{ success: boolean; id?: string; message: string }> {
+  async addDownload(request: DownloadRequest): Promise<DownloadResult> {
     try {
       if (!request.url) {
         return {

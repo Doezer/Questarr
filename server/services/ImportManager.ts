@@ -134,6 +134,16 @@ export class ImportManager {
     return "PC";
   }
 
+  private async runExtract(archivePath: string, extractDir: string): Promise<string> {
+    try {
+      await this.archiveService.extract(archivePath, extractDir);
+      return extractDir;
+    } catch (err) {
+      await fs.remove(extractDir).catch(() => undefined);
+      throw err;
+    }
+  }
+
   private async extractIfArchive(sourcePath: string): Promise<string> {
     if (isSensitivePath(sourcePath)) {
       throw new Error("Refusing to process a sensitive system path");
@@ -141,8 +151,7 @@ export class ImportManager {
 
     if (this.archiveService.isArchive(sourcePath)) {
       const extractDir = sourcePath + "_extracted";
-      await this.archiveService.extract(sourcePath, extractDir);
-      return extractDir;
+      return this.runExtract(sourcePath, extractDir);
     }
 
     // Directory: scan for archive files inside (handles torrent dirs containing .rar etc.)
@@ -158,8 +167,7 @@ export class ImportManager {
     // 7zip handles multi-part archives when given the first part
     const mainArchive = path.join(sourcePath, archiveEntries[0]);
     const extractDir = sourcePath + "_extracted";
-    await this.archiveService.extract(mainArchive, extractDir);
-    return extractDir;
+    return this.runExtract(mainArchive, extractDir);
   }
 
   private async readSourceFiles(sourcePath: string): Promise<{
@@ -415,6 +423,9 @@ export class ImportManager {
           "[ImportManager] Manual review required"
         );
         await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+        if (processingPath !== localPath) {
+          await fs.remove(processingPath).catch(() => undefined);
+        }
         return;
       }
 
@@ -607,19 +618,23 @@ export class ImportManager {
       throw new Error("Proposed path is outside configured library root");
     }
 
-    const processPath = overridePlan.unpack
-      ? await this.extractIfArchive(resolvedOriginalPath)
-      : resolvedOriginalPath;
-
-    const planToExecute: ImportReview = {
-      ...overridePlan,
-      fileCategories: undefined,
-      originalPath: processPath,
-    };
-
     const transferMode = overridePlan.transferMode ?? config.transferMode;
 
+    let processPath = resolvedOriginalPath;
+
     try {
+      processPath = overridePlan.unpack
+        ? await this.extractIfArchive(resolvedOriginalPath)
+        : resolvedOriginalPath;
+
+      const planToExecute: ImportReview = {
+        ...overridePlan,
+        // Recomputed server-side below when sorting is enabled — never trust
+        // client-supplied categories.
+        fileCategories: undefined,
+        originalPath: processPath,
+      };
+
       const strategy = new PCImportStrategy();
       if (config.sortExtras) {
         const categorizedPlan = await strategy.planImport(
@@ -649,7 +664,7 @@ export class ImportManager {
       throw err;
     } finally {
       if (processPath !== resolvedOriginalPath) {
-        await fs.remove(processPath);
+        await fs.remove(processPath).catch(() => undefined);
       }
     }
   }

@@ -16,7 +16,7 @@ import {
   Settings2,
   X,
 } from "lucide-react";
-import { type Game } from "@shared/schema";
+import { type Game, type UserSettings } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
@@ -115,6 +115,13 @@ export default function Library() {
     errorMessage: "Failed to update game visibility",
   });
 
+  // Platforms the user chose to hide from the filter dropdown (Settings →
+  // Appearance → Hidden Platforms). They stay in the library and in filtering;
+  // only the dropdown list is narrowed.
+  const { data: userSettings } = useQuery<UserSettings>({
+    queryKey: ["/api/settings"],
+  });
+
   // ⚡ Bolt: Consolidate multiple array traversals into a single pass to
   // optimize render performance and reduce unnecessary allocations.
   const { uniqueGenres, uniquePlatforms } = useMemo(() => {
@@ -139,6 +146,15 @@ export default function Library() {
       uniquePlatforms: Array.from(platformSet).sort((a, b) => a.localeCompare(b)),
     };
   }, [games]);
+
+  const visiblePlatforms = useMemo(() => {
+    // `hiddenPlatforms` is a JSON column and may arrive as a non-array from a
+    // legacy or malformed row; spreading it would throw and crash the render.
+    const hidden = new Set<string>(
+      Array.isArray(userSettings?.hiddenPlatforms) ? userSettings.hiddenPlatforms : []
+    );
+    return uniquePlatforms.filter((platform) => !hidden.has(platform));
+  }, [uniquePlatforms, userSettings?.hiddenPlatforms]);
 
   const filteredGames = useMemo(() => {
     const filtered = games.filter((game) => {
@@ -496,7 +512,7 @@ export default function Library() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Platforms</SelectItem>
-                      {uniquePlatforms.map((platform) => (
+                      {visiblePlatforms.map((platform) => (
                         <SelectItem key={platform} value={platform}>
                           {platform}
                         </SelectItem>

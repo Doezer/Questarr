@@ -239,6 +239,13 @@
       "when": 1788941321979,
       "tag": "0032_gorgeous_sandman",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1789061295503,
+      "tag": "0033_talented_salo",
+      "breakpoints": true
     }
   ]
 }

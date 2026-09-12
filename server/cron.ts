@@ -1,4 +1,5 @@
 import { storage } from "./storage.js";
+import { normalizeDownloadHash } from "./download-hash.js";
 import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
@@ -38,6 +39,12 @@ const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 // downloads as owned during the brief SABnzbd queue→history transition window.
 const downloadMissCount = new Map<string, number>();
 const DOWNLOAD_MISS_THRESHOLD = 3;
+
+// Track consecutive unresolved tag-resolution attempts per download
+// so an async qBittorrent add that never resolves doesn't stay
+// "downloading" forever.
+const downloadTagMissCount = new Map<string, number>();
+const ASYNC_TAG_RESOLVE_THRESHOLD = 3;
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interval gates actual sync)
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
@@ -538,6 +545,11 @@ export async function checkDownloadStatus() {
       downloadMissCount.delete(key);
     }
   });
+  downloadTagMissCount.forEach((_, key) => {
+    if (!activeDownloadIds.has(key)) {
+      downloadTagMissCount.delete(key);
+    }
+  });
 
   // Group by downloader
   const downloadsByDownloader = new Map<string, typeof downloadingDownloads>();
@@ -566,6 +578,109 @@ export async function checkDownloadStatus() {
       );
 
       for (const download of downloads) {
+        // Defensive: getDownloadingGameDownloads excludes terminal failed rows,
+        // but a status written after that query ran could still surface one here.
+        // Skip it rather than restarting a new miss cycle. The guard also covers
+        // MemStorage, whose filter is narrower (status === "downloading").
+        if (download.status === "failed" && download.downloadHash.startsWith("questarr-add-")) {
+          continue;
+        }
+        // For async qBittorrent adds, the tracking record may have been created
+        // with the correlation tag as a temporary downloadHash (the real hash
+        // wasn't known upfront). Resolve it now so we can match the torrent.
+        if (download.downloadHash.startsWith("questarr-add-")) {
+          const originalTag = download.downloadHash;
+          let resolvedHash: string | null;
+          try {
+            resolvedHash = await DownloaderManager.findDownloadByTag(downloader, originalTag);
+          } catch (error) {
+            // Auth/transport/API failure — the torrent's visibility is unknown.
+            // Skip this cycle without incrementing the miss counter, otherwise
+            // a client outage would falsely mark the download failed.
+            igdbLogger.warn(
+              { error, downloadId: download.id, tag: originalTag },
+              "Correlation tag lookup failed — skipping this cycle"
+            );
+            continue;
+          }
+          if (resolvedHash) {
+            const outcome = await storage.updateGameDownloadHash(download.id, resolvedHash);
+            // The tag is done with this row either way, so drop any accumulated
+            // misses now instead of leaving the entry resident until the row hits
+            // a terminal state.
+            downloadTagMissCount.delete(download.id);
+            if (outcome === "merged") {
+              // The tag row was dropped because a real-hash row already tracks
+              // this torrent (claim race). The stale object is gone, so stop
+              // here rather than updating ownership or importing a dead id.
+              igdbLogger.info(
+                { downloadId: download.id, tag: originalTag, resolvedHash },
+                "Correlation tag row merged into existing real-hash row — skipping"
+              );
+              continue;
+            }
+            // Normalize to match what storage just persisted, so the in-memory
+            // row doesn't diverge from the DB for the rest of this tick.
+            download.downloadHash = normalizeDownloadHash(resolvedHash);
+            igdbLogger.info(
+              { downloadId: download.id, tag: originalTag, resolvedHash },
+              "Resolved async qBittorrent hash for tracked download"
+            );
+          } else {
+            // Torrent hasn't appeared yet. Bound the retry so an add
+            // that the client silently dropped can't stay "downloading"
+            // forever.
+            const tagMisses = (downloadTagMissCount.get(download.id) ?? 0) + 1;
+            downloadTagMissCount.set(download.id, tagMisses);
+            if (tagMisses >= ASYNC_TAG_RESOLVE_THRESHOLD) {
+              downloadTagMissCount.delete(download.id);
+              await storage.updateGameDownloadStatus(
+                download.id,
+                "failed",
+                "The download client never registered this download."
+              );
+              notifyUser("downloadUpdate", download.gameId);
+              // Mirror the normal error path: reset the game to "wanted"
+              // only when no sibling download for the same game is still
+              // actively downloading.
+              const siblings = await storage.getDownloadsByGameId(download.gameId);
+              const activeStatuses = new Set([
+                "downloading",
+                "paused",
+                "unpacking",
+                "completed_pending_import",
+              ]);
+              const hasActiveSibling = siblings.some(
+                (s) => s.id !== download.id && activeStatuses.has(s.status)
+              );
+              if (!hasActiveSibling) {
+                const failedGame = await storage.getGame(download.gameId);
+                if (failedGame && failedGame.status !== "wanted") {
+                  await storage.updateGameStatus(download.gameId, { status: "wanted" });
+                  igdbLogger.debug(
+                    { gameId: download.gameId, oldStatus: failedGame.status, newStatus: "wanted" },
+                    "Reset game status after async tag resolution failure"
+                  );
+                }
+              }
+              igdbLogger.warn(
+                {
+                  downloadId: download.id,
+                  tag: originalTag,
+                  threshold: ASYNC_TAG_RESOLVE_THRESHOLD,
+                },
+                "Async qBittorrent tag resolution exceeded threshold — marking as failed"
+              );
+              continue;
+            }
+            igdbLogger.debug(
+              { downloadId: download.id, tag: originalTag, tagMisses },
+              "Async qBittorrent download not yet visible — skipping"
+            );
+            continue;
+          }
+        }
+
         // Skip rows whose import is already in flight — the earlier tick's
         // processImport() is still extracting (large archives take minutes).
         // Re-invoking here would start a second extraction into the same

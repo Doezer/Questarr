@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Downloader } from "../../shared/schema.js";
 import { QBittorrentClient } from "../downloaders/qbittorrent.js";
@@ -1392,6 +1393,7 @@ describe("qbittorrent regression coverage", () => {
         })
       ).resolves.toEqual({
         success: true,
+        correlationTag: expect.stringMatching(/^questarr-add-/),
         message: "Download queued in qBittorrent",
       });
 
@@ -1491,5 +1493,89 @@ describe("qbittorrent regression coverage", () => {
       "HTTP 500: Server Error - boom"
     );
     expect(authenticateSpy).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("QBittorrentClient.findTorrentByTag — async correlation tag resolution", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock.mockReset();
+    vi.mocked(isSafeUrl).mockResolvedValue(true);
+  });
+
+  type PrivateClient = {
+    authenticate(force?: boolean): Promise<void>;
+    makeRequest(method: string, path: string, body?: string | Buffer): Promise<Response>;
+  };
+
+  const mockTagLookup = (client: QBittorrentClient, torrents: unknown[] | Error) => {
+    const privateClient = client as unknown as PrivateClient;
+    vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+    const makeRequestSpy = vi.spyOn(privateClient, "makeRequest");
+    if (torrents instanceof Error) {
+      makeRequestSpy.mockRejectedValue(torrents);
+    } else {
+      makeRequestSpy.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => torrents,
+      } as Response);
+    }
+    return makeRequestSpy;
+  };
+
+  it("returns the torrent hash when a matching tag is found", async () => {
+    const client = new QBittorrentClient(createDownloader());
+    const makeRequestSpy = mockTagLookup(client, [
+      { hash: "resolvedhash123", name: "Async Game", state: "downloading", progress: 0.5 },
+    ]);
+
+    const result = await client.findTorrentByTag("questarr-add-abc123");
+
+    expect(result).toBe("resolvedhash123");
+    expect(makeRequestSpy).toHaveBeenCalledWith(
+      "GET",
+      `/api/v2/torrents/info?tag=${encodeURIComponent("questarr-add-abc123")}`
+    );
+  });
+
+  it("returns null when no torrent matches the tag", async () => {
+    const client = new QBittorrentClient(createDownloader());
+    mockTagLookup(client, []);
+
+    const result = await client.findTorrentByTag("questarr-add-notyet");
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the API response has no hash field", async () => {
+    const client = new QBittorrentClient(createDownloader());
+    mockTagLookup(client, [{ name: "Broken Entry", state: "error" }]);
+
+    const result = await client.findTorrentByTag("questarr-add-broken");
+
+    expect(result).toBeNull();
+  });
+
+  it("propagates API errors instead of reporting no match", async () => {
+    const client = new QBittorrentClient(createDownloader());
+    mockTagLookup(client, new Error("boom"));
+
+    // A transport/API failure must not be mistaken for "torrent not visible
+    // yet" — cron skips the cycle on a thrown error rather than counting a miss.
+    await expect(client.findTorrentByTag("questarr-add-error")).rejects.toThrow("boom");
+  });
+
+  it("returns the first match when multiple torrents share the tag", async () => {
+    const client = new QBittorrentClient(createDownloader());
+    mockTagLookup(client, [
+      { hash: "firsthash", name: "Game 1" },
+      { hash: "secondhash", name: "Game 2" },
+    ]);
+
+    const result = await client.findTorrentByTag("questarr-add-multi");
+
+    // Should return the first match.
+    expect(result).toBe("firsthash");
   });
 });

@@ -2,6 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
+import { normalizeDownloadHash } from "./download-hash.js";
 import { igdbClient } from "./igdb.js";
 import type { IGDBGame } from "./igdb.js";
 import { db } from "./db.js";
@@ -3853,6 +3854,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "URL and title are required" });
         }
 
+        // gameId comes from the request body, so verify ownership before
+        // touching the downloader: otherwise a user who knows another user's
+        // game UUID could link a download to that game and flip its status.
+        if (gameId && !(await resolveOwnedGame(gameId, req.user!.id, res))) return;
+
         const enabledDownloaders = await storage.getEnabledDownloaders();
         if (enabledDownloaders.length === 0) {
           return res.status(400).json({ error: "No downloaders configured" });
@@ -3874,13 +3880,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json(result);
         }
 
-        // If gameId is provided, track this download and update game status
-        if (gameId && result.success && result.id && result.downloaderId) {
+        // If gameId is provided, track this download and update game status.
+        // For async qBittorrent adds (pending_count with no hash yet), the
+        // downloader returns a correlationTag we use as a temporary downloadHash
+        // so the tracking record exists upfront. The cron resolves the real hash.
+        const rawDownloadHash = result.id ?? result.correlationTag;
+        const downloadHash = rawDownloadHash
+          ? normalizeDownloadHash(rawDownloadHash)
+          : rawDownloadHash;
+        if (gameId && result.success && downloadHash && result.downloaderId) {
           try {
             await storage.addGameDownload({
               gameId,
               downloaderId: result.downloaderId,
-              downloadHash: result.id,
+              downloadHash,
               downloadTitle: title,
               status: "downloading",
               downloadType: downloadType || "torrent",

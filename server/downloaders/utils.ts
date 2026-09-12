@@ -351,3 +351,8 @@ export function buildRemoteImportPath(downloadDir: string, relativePath: string)
   }
   return `${normalizedDir}/${normalizedRelative}`;
 }
+
+// Shared no-op for downloaders that don't support tag-based torrent lookup.
+export async function findTorrentByTagNull(_tag: string): Promise<string | null> {
+  return null;
+}

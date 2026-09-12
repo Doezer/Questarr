@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import {
   users,
+  gameDownloads,
   type InsertGame,
   type InsertDownloader,
   type InsertGameDownload,
@@ -532,6 +533,166 @@ describe("DatabaseStorage Extended Coverage", () => {
       const keys = await storage.getTrackedDownloadKeys();
       expect(keys.has(`${downloader.id}:realhash-collide-xyz`)).toBe(true);
       expect(keys.has(`${downloader.id}:questarr-add-collide-xyz`)).toBe(false);
+    });
+
+    it("merges the tag row into a real-hash row stored with different casing", async () => {
+      const { game, downloader } = await setup();
+
+      // /api/downloads stored this torrent under the uppercase form of its
+      // hex infohash, while cron resolves the tag to the lowercase form.
+      const realDownload = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+        downloadTitle: "Casing Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const tagDownload = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "questarr-add-casing",
+        downloadTitle: "Casing Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // The unique index compares raw text, so without normalization the two
+      // casings coexist as separate rows for the same torrent.
+      await expect(
+        storage.updateGameDownloadHash(tagDownload!.id, "abcdef0123456789abcdef0123456789abcdef01")
+      ).resolves.toBe("merged");
+
+      expect(await storage.getGameDownload(tagDownload!.id)).toBeUndefined();
+      const rows = await storage.getDownloadsByGameId(game.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].downloadHash).toBe("abcdef0123456789abcdef0123456789abcdef01");
+      expect(realDownload).toBeDefined();
+    });
+
+    it("normalizes an uppercase torrent hash on insert", async () => {
+      const { game, downloader } = await setup();
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+        downloadTitle: "Insert Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      expect(download?.downloadHash).toBe("abcdef0123456789abcdef0123456789abcdef01");
+    });
+
+    it("leaves a case-sensitive usenet id untouched on insert", async () => {
+      const { game, downloader } = await setup();
+
+      // SABnzbd nzo_ids are case-sensitive opaque strings; lowercasing them
+      // would break the exact-match lookup in getDownloadStatus.
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "SABnzbd_NZO_AbC123",
+        downloadTitle: "Usenet Game",
+        status: "downloading",
+        downloadType: "usenet",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      expect(download?.downloadHash).toBe("SABnzbd_NZO_AbC123");
+    });
+
+    it("merges into a real-hash row that predates normalization (legacy uppercase)", async () => {
+      const { game, downloader } = await setup();
+
+      // Rows written before the normalization fix can hold the uppercase form
+      // of the hex infohash. addGameDownload now normalizes, so the legacy row
+      // is inserted directly to reproduce the pre-fix stored state.
+      const legacyRealId = randomUUID();
+      await db.insert(gameDownloads).values({
+        id: legacyRealId,
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "FEDCBA9876543210FEDCBA9876543210FEDCBA98",
+        downloadTitle: "Legacy Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+        addedAt: new Date(),
+        completedAt: null,
+      });
+
+      const tagDownload = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "questarr-add-legacy",
+        downloadTitle: "Legacy Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // The lookup must find the uppercase row, otherwise the tag row is moved
+      // to the lowercase hash and the same torrent ends up tracked twice.
+      await expect(
+        storage.updateGameDownloadHash(tagDownload!.id, "fedcba9876543210fedcba9876543210fedcba98")
+      ).resolves.toBe("merged");
+
+      expect(await storage.getGameDownload(tagDownload!.id)).toBeUndefined();
+      const rows = await storage.getDownloadsByGameId(game.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(legacyRealId);
+    });
+  });
+
+  describe("GameDownload: getDownloadingGameDownloads", () => {
+    it("excludes terminal failed rows so cron does not re-poll them", async () => {
+      const userId = await createUser();
+      const game = await storage.addGame({
+        title: "Terminal Game",
+        igdbId: 8000,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      const downloader = await storage.addDownloader({
+        name: "qBit",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        apiKey: "",
+        enabled: true,
+        priority: 1,
+      } as InsertDownloader);
+
+      const active = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-active",
+        downloadTitle: "Active-GROUP",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+      // An async tag row whose retries were exhausted. Terminal, so the query
+      // must drop it rather than surfacing it to cron again every cycle.
+      const failed = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "questarr-add-exhausted",
+        downloadTitle: "Exhausted-GROUP",
+        status: "failed",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const ids = (await storage.getDownloadingGameDownloads()).map((d) => d.id);
+      expect(ids).toContain(active!.id);
+      expect(ids).not.toContain(failed!.id);
     });
   });
 

@@ -66,6 +66,7 @@ import {
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
+import { normalizeDownloadHash } from "./download-hash.js";
 import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import {
@@ -981,21 +982,25 @@ export class MemStorage implements IStorage {
     if (!gd || !gd.downloadHash.startsWith("questarr-add-")) {
       return "noop";
     }
+    const normalizedHash = normalizeDownloadHash(downloadHash);
     // Claim race: the torrent may already be tracked under its real hash
     // (e.g. claimed via /api/downloads/claim before cron resolved the tag).
     // The unique index on (downloaderId, downloadHash) forbids converging both
-    // rows, so drop the stale tag row and keep the real-hash row.
+    // rows, so drop the stale tag row and keep the real-hash row. The lookup is
+    // case-insensitive because rows written before normalization can hold the
+    // uppercase form of the same hex hash; comparing raw text would miss them
+    // and leave the torrent tracked twice.
     for (const [otherId, other] of this.gameDownloads) {
       if (
         otherId !== id &&
         other.downloaderId === gd.downloaderId &&
-        other.downloadHash === downloadHash
+        other.downloadHash.toLowerCase() === normalizedHash.toLowerCase()
       ) {
         this.gameDownloads.delete(id);
         return "merged";
       }
     }
-    this.gameDownloads.set(id, { ...gd, downloadHash });
+    this.gameDownloads.set(id, { ...gd, downloadHash: normalizedHash });
     return "updated";
   }
 
@@ -1004,6 +1009,7 @@ export class MemStorage implements IStorage {
     const gameDownload: GameDownload = {
       ...insertGameDownload,
       id,
+      downloadHash: normalizeDownloadHash(insertGameDownload.downloadHash),
       status: insertGameDownload.status || "downloading",
       downloadType: insertGameDownload.downloadType || "torrent",
       errorMessage: insertGameDownload.errorMessage ?? null,
@@ -2365,6 +2371,7 @@ export class DatabaseStorage implements IStorage {
           inArray(gameDownloads.status, [
             "completed",
             "error",
+            "failed",
             "imported",
             "manual_review_required",
             GAME_LINK_REQUIRED_STATUS,
@@ -2482,17 +2489,21 @@ export class DatabaseStorage implements IStorage {
     if (!current || !current.downloadHash.startsWith("questarr-add-")) {
       return "noop";
     }
+    const normalizedHash = normalizeDownloadHash(downloadHash);
     // Claim race: the torrent may already be tracked under its real hash
     // (e.g. claimed via /api/downloads/claim before cron resolved the tag).
     // The unique index on (downloaderId, downloadHash) forbids converging both
-    // rows, so drop the stale tag row and keep the real-hash row.
+    // rows, so drop the stale tag row and keep the real-hash row. The lookup is
+    // case-insensitive because rows written before normalization can hold the
+    // uppercase form of the same hex hash; comparing raw text would miss them
+    // and leave the torrent tracked twice.
     const existing = await db
       .select({ id: gameDownloads.id })
       .from(gameDownloads)
       .where(
         and(
           eq(gameDownloads.downloaderId, current.downloaderId),
-          eq(gameDownloads.downloadHash, downloadHash)
+          eq(sql`lower(${gameDownloads.downloadHash})`, normalizedHash.toLowerCase())
         )
       );
     if (existing.some((row) => row.id !== id)) {
@@ -2502,7 +2513,7 @@ export class DatabaseStorage implements IStorage {
     try {
       await db
         .update(gameDownloads)
-        .set({ downloadHash })
+        .set({ downloadHash: normalizedHash })
         .where(and(eq(gameDownloads.id, id), like(gameDownloads.downloadHash, "questarr-add-%")));
       return "updated";
     } catch (error) {
@@ -2522,7 +2533,7 @@ export class DatabaseStorage implements IStorage {
         .where(
           and(
             eq(gameDownloads.downloaderId, current.downloaderId),
-            eq(gameDownloads.downloadHash, downloadHash)
+            eq(sql`lower(${gameDownloads.downloadHash})`, normalizedHash.toLowerCase())
           )
         );
       if (retry.some((row) => row.id !== id)) {
@@ -2537,7 +2548,11 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [gameDownload] = await db
       .insert(gameDownloads)
-      .values({ ...insertGameDownload, id })
+      .values({
+        ...insertGameDownload,
+        id,
+        downloadHash: normalizeDownloadHash(insertGameDownload.downloadHash),
+      })
       .onConflictDoNothing()
       .returning();
     return gameDownload;

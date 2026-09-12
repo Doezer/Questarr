@@ -2,6 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
+import { normalizeDownloadHash } from "./download-hash.js";
 import { igdbClient } from "./igdb.js";
 import type { IGDBGame } from "./igdb.js";
 import { db } from "./db.js";
@@ -3883,7 +3884,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // For async qBittorrent adds (pending_count with no hash yet), the
         // downloader returns a correlationTag we use as a temporary downloadHash
         // so the tracking record exists upfront. The cron resolves the real hash.
-        const downloadHash = result.id ?? result.correlationTag;
+        const rawDownloadHash = result.id ?? result.correlationTag;
+        const downloadHash = rawDownloadHash
+          ? normalizeDownloadHash(rawDownloadHash)
+          : rawDownloadHash;
         if (gameId && result.success && downloadHash && result.downloaderId) {
           try {
             await storage.addGameDownload({

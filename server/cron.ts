@@ -1,4 +1,5 @@
 import { storage } from "./storage.js";
+import { normalizeDownloadHash } from "./download-hash.js";
 import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
@@ -577,9 +578,10 @@ export async function checkDownloadStatus() {
       );
 
       for (const download of downloads) {
-        // Terminal failed tag records stay visible to getDownloadingGameDownloads
-        // (it only excludes completed/error/imported/etc). Skip them so a
-        // failed questarr-add-* row doesn't restart a new miss cycle.
+        // Defensive: getDownloadingGameDownloads excludes terminal failed rows,
+        // but a status written after that query ran could still surface one here.
+        // Skip it rather than restarting a new miss cycle. The guard also covers
+        // MemStorage, whose filter is narrower (status === "downloading").
         if (download.status === "failed" && download.downloadHash.startsWith("questarr-add-")) {
           continue;
         }
@@ -603,18 +605,23 @@ export async function checkDownloadStatus() {
           }
           if (resolvedHash) {
             const outcome = await storage.updateGameDownloadHash(download.id, resolvedHash);
+            // The tag is done with this row either way, so drop any accumulated
+            // misses now instead of leaving the entry resident until the row hits
+            // a terminal state.
+            downloadTagMissCount.delete(download.id);
             if (outcome === "merged") {
               // The tag row was dropped because a real-hash row already tracks
               // this torrent (claim race). The stale object is gone, so stop
               // here rather than updating ownership or importing a dead id.
-              downloadTagMissCount.delete(download.id);
               igdbLogger.info(
                 { downloadId: download.id, tag: originalTag, resolvedHash },
                 "Correlation tag row merged into existing real-hash row — skipping"
               );
               continue;
             }
-            download.downloadHash = resolvedHash;
+            // Normalize to match what storage just persisted, so the in-memory
+            // row doesn't diverge from the DB for the rest of this tick.
+            download.downloadHash = normalizeDownloadHash(resolvedHash);
             igdbLogger.info(
               { downloadId: download.id, tag: originalTag, resolvedHash },
               "Resolved async qBittorrent hash for tracked download"

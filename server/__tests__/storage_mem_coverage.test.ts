@@ -868,3 +868,58 @@ describe("MemStorage - Integration API keys", () => {
     expect(await storage.removeApiKey("no-such-id", "owner")).toBe(false);
   });
 });
+
+describe("MemStorage - download hash normalization", () => {
+  let storage: MemStorageType;
+
+  beforeEach(() => {
+    storage = new MemStorage();
+  });
+
+  it("normalizes a torrent hash on insert and merge", async () => {
+    const game = await storage.addGame(makeGame({ userId: "u1" }));
+
+    // /api/downloads stored the uppercase form of the hex infohash.
+    const real = await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId: "d1",
+      downloadHash: "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+      downloadTitle: "Casing Game",
+      downloadType: "torrent",
+      status: "downloading",
+    } as never); // NOSONAR
+    expect(real.downloadHash).toBe("abcdef0123456789abcdef0123456789abcdef01");
+
+    // cron resolves the tag to the lowercase form of the same torrent.
+    const tag = await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId: "d1",
+      downloadHash: "questarr-add-casing",
+      downloadTitle: "Casing Game",
+      downloadType: "torrent",
+      status: "downloading",
+    } as never); // NOSONAR
+
+    await expect(
+      storage.updateGameDownloadHash(tag.id, "abcdef0123456789abcdef0123456789abcdef01")
+    ).resolves.toBe("merged");
+
+    const rows = await storage.getDownloadsByGameId(game.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].downloadHash).toBe("abcdef0123456789abcdef0123456789abcdef01");
+  });
+
+  it("leaves a case-sensitive usenet id untouched", async () => {
+    const game = await storage.addGame(makeGame({ userId: "u1" }));
+    const dl = await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId: "d1",
+      downloadHash: "SABnzbd_NZO_AbC123",
+      downloadTitle: "Usenet Game",
+      downloadType: "usenet",
+      status: "downloading",
+    } as never); // NOSONAR
+
+    expect(dl.downloadHash).toBe("SABnzbd_NZO_AbC123");
+  });
+});

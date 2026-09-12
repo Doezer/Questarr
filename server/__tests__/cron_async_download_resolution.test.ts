@@ -221,8 +221,10 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
   });
 
   it("skips failed questarr-add-* records without restarting tag resolution", async () => {
-    // Terminal failed tag rows remain visible to getDownloadingGameDownloads;
-    // they must not trigger findDownloadByTag or a new miss cycle.
+    // getDownloadingGameDownloads excludes terminal failed rows, so this shape
+    // no longer reaches cron from real storage. The guard is defensive: if a
+    // failed tag row does surface (e.g. a status written after the query ran),
+    // it must not trigger findDownloadByTag or a new miss cycle.
     const failedTagDownload = {
       id: "gd-failed-tag",
       gameId: "game-1",

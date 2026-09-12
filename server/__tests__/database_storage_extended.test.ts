@@ -441,6 +441,34 @@ describe("DatabaseStorage Extended Coverage", () => {
       return { userId, game, downloader };
     }
 
+    async function addRow(opts: {
+      gameId: string;
+      downloaderId: string;
+      hash: string;
+      title?: string;
+      downloadType?: "torrent" | "usenet";
+    }) {
+      return await storage.addGameDownload({
+        gameId: opts.gameId,
+        downloaderId: opts.downloaderId,
+        downloadHash: opts.hash,
+        downloadTitle: opts.title ?? "Async Game",
+        status: "downloading",
+        downloadType: opts.downloadType ?? "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+    }
+
+    // Asserts the tag row folds into the surviving real-hash row and returns
+    // that row, so each merge test only has to assert its own identity.
+    async function expectMergedTagRow(tagId: string, resolvedHash: string, gameId: string) {
+      await expect(storage.updateGameDownloadHash(tagId, resolvedHash)).resolves.toBe("merged");
+      expect(await storage.getGameDownload(tagId)).toBeUndefined();
+      const rows = await storage.getDownloadsByGameId(gameId);
+      expect(rows).toHaveLength(1);
+      return rows[0];
+    }
+
     it("updates the hash when the record has a correlation tag (questarr-add-*)", async () => {
       const { game, downloader } = await setup();
 
@@ -540,71 +568,50 @@ describe("DatabaseStorage Extended Coverage", () => {
 
       // /api/downloads stored this torrent under the uppercase form of its
       // hex infohash, while cron resolves the tag to the lowercase form.
-      const realDownload = await storage.addGameDownload({
+      const realDownload = await addRow({
         gameId: game.id,
         downloaderId: downloader.id,
-        downloadHash: "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
-        downloadTitle: "Casing Game",
-        status: "downloading",
-        downloadType: "torrent",
-        fileSize: null,
-      } as InsertGameDownload);
-
-      const tagDownload = await storage.addGameDownload({
+        hash: "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+        title: "Casing Game",
+      });
+      const tagDownload = await addRow({
         gameId: game.id,
         downloaderId: downloader.id,
-        downloadHash: "questarr-add-casing",
-        downloadTitle: "Casing Game",
-        status: "downloading",
-        downloadType: "torrent",
-        fileSize: null,
-      } as InsertGameDownload);
+        hash: "questarr-add-casing",
+        title: "Casing Game",
+      });
 
-      // The unique index compares raw text, so without normalization the two
-      // casings coexist as separate rows for the same torrent.
-      await expect(
-        storage.updateGameDownloadHash(tagDownload!.id, "abcdef0123456789abcdef0123456789abcdef01")
-      ).resolves.toBe("merged");
-
-      expect(await storage.getGameDownload(tagDownload!.id)).toBeUndefined();
-      const rows = await storage.getDownloadsByGameId(game.id);
-      expect(rows).toHaveLength(1);
-      expect(rows[0].downloadHash).toBe("abcdef0123456789abcdef0123456789abcdef01");
+      const surviving = await expectMergedTagRow(
+        tagDownload!.id,
+        "abcdef0123456789abcdef0123456789abcdef01",
+        game.id
+      );
+      expect(surviving.downloadHash).toBe("abcdef0123456789abcdef0123456789abcdef01");
       expect(realDownload).toBeDefined();
     });
 
-    it("normalizes an uppercase torrent hash on insert", async () => {
+    // Same insert path, two hash shapes: a hex torrent hash is canonicalized,
+    // a SABnzbd nzo_id is an opaque case-sensitive string that must survive
+    // verbatim or getDownloadStatus's exact match breaks.
+    it.each([
+      [
+        "torrent",
+        "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+        "abcdef0123456789abcdef0123456789abcdef01",
+      ],
+      ["usenet", "SABnzbd_NZO_AbC123", "SABnzbd_NZO_AbC123"],
+    ] as const)("stores a %s hash as %s on insert", async (downloadType, hash, expected) => {
       const { game, downloader } = await setup();
 
-      const download = await storage.addGameDownload({
+      const download = await addRow({
         gameId: game.id,
         downloaderId: downloader.id,
-        downloadHash: "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
-        downloadTitle: "Insert Game",
-        status: "downloading",
-        downloadType: "torrent",
-        fileSize: null,
-      } as InsertGameDownload);
+        hash,
+        title: "Insert Game",
+        downloadType,
+      });
 
-      expect(download?.downloadHash).toBe("abcdef0123456789abcdef0123456789abcdef01");
-    });
-
-    it("leaves a case-sensitive usenet id untouched on insert", async () => {
-      const { game, downloader } = await setup();
-
-      // SABnzbd nzo_ids are case-sensitive opaque strings; lowercasing them
-      // would break the exact-match lookup in getDownloadStatus.
-      const download = await storage.addGameDownload({
-        gameId: game.id,
-        downloaderId: downloader.id,
-        downloadHash: "SABnzbd_NZO_AbC123",
-        downloadTitle: "Usenet Game",
-        status: "downloading",
-        downloadType: "usenet",
-        fileSize: null,
-      } as InsertGameDownload);
-
-      expect(download?.downloadHash).toBe("SABnzbd_NZO_AbC123");
+      expect(download?.downloadHash).toBe(expected);
     });
 
     it("merges into a real-hash row that predates normalization (legacy uppercase)", async () => {
@@ -627,26 +634,19 @@ describe("DatabaseStorage Extended Coverage", () => {
         completedAt: null,
       });
 
-      const tagDownload = await storage.addGameDownload({
+      const tagDownload = await addRow({
         gameId: game.id,
         downloaderId: downloader.id,
-        downloadHash: "questarr-add-legacy",
-        downloadTitle: "Legacy Game",
-        status: "downloading",
-        downloadType: "torrent",
-        fileSize: null,
-      } as InsertGameDownload);
+        hash: "questarr-add-legacy",
+        title: "Legacy Game",
+      });
 
-      // The lookup must find the uppercase row, otherwise the tag row is moved
-      // to the lowercase hash and the same torrent ends up tracked twice.
-      await expect(
-        storage.updateGameDownloadHash(tagDownload!.id, "fedcba9876543210fedcba9876543210fedcba98")
-      ).resolves.toBe("merged");
-
-      expect(await storage.getGameDownload(tagDownload!.id)).toBeUndefined();
-      const rows = await storage.getDownloadsByGameId(game.id);
-      expect(rows).toHaveLength(1);
-      expect(rows[0].id).toBe(legacyRealId);
+      const surviving = await expectMergedTagRow(
+        tagDownload!.id,
+        "fedcba9876543210fedcba9876543210fedcba98",
+        game.id
+      );
+      expect(surviving.id).toBe(legacyRealId);
     });
   });
 

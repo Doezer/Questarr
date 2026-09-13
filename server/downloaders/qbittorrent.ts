@@ -11,6 +11,7 @@ import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
+  downloaderAllowsCredentials,
   fetchWithMagnetDetection,
   extractHashFromUrl,
   fixNzbUrlEncoding,
@@ -1295,6 +1296,13 @@ export class QBittorrentClient implements DownloaderClient {
       // Try without authentication
       this.cookie = null;
       return;
+    }
+
+    if (!downloaderAllowsCredentials(this.downloader)) {
+      throw new Error(
+        "qBittorrent: refusing to send credentials over unencrypted HTTP. " +
+          "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."
+      );
     }
 
     const url = this.getBaseUrl() + "/api/v2/auth/login";

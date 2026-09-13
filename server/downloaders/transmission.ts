@@ -9,7 +9,11 @@ import { downloadersLogger } from "../logger.js";
 import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fetchWithMagnetDetection, logDownloaderDebugResponse } from "./utils.js";
+import {
+  fetchWithMagnetDetection,
+  downloaderAllowsCredentials,
+  logDownloaderDebugResponse,
+} from "./utils.js";
 
 interface TransmissionTorrent {
   id: number;
@@ -693,6 +697,12 @@ export class TransmissionClient implements DownloaderClient {
     }
 
     if (this.downloader.username && this.downloader.password) {
+      if (!downloaderAllowsCredentials(this.downloader)) {
+        throw new Error(
+          "Transmission: refusing to send credentials over unencrypted HTTP. " +
+            "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."
+        );
+      }
       const auth = Buffer.from(
         `${this.downloader.username}:${this.downloader.password}`,
         "utf-8"

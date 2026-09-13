@@ -245,6 +245,12 @@ export const downloaders = sqliteTable("downloaders", {
   allowSelfSignedCertificate: integer("allow_self_signed_certificate", { mode: "boolean" })
     .notNull()
     .default(false),
+  // Opt-in per-downloader bypass allowing credentials to be sent over plain
+  // HTTP. Off by default: passwords and API keys must not travel in clear text
+  // unless the user explicitly acknowledges the risk (e.g. a download client on
+  // a trusted LAN that does not support TLS). Requires `useSsl` to be false
+  // (otherwise the connection is already encrypted and this flag is irrelevant).
+  allowInsecureLan: integer("allow_insecure_lan", { mode: "boolean" }).notNull().default(false),
   username: text("username"),
   password: text("password"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),

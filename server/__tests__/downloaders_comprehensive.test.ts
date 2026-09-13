@@ -57,6 +57,8 @@ describe("Downloader Comprehensive Tests", () => {
       removeCompleted: null,
       postImportCategory: null,
       settings: null,
+      allowSelfSignedCertificate: false,
+      allowInsecureLan: true,
     };
 
     const sessionResponse = {
@@ -190,6 +192,8 @@ describe("Downloader Comprehensive Tests", () => {
       removeCompleted: null,
       postImportCategory: null,
       settings: null,
+      allowSelfSignedCertificate: false,
+      allowInsecureLan: true,
     };
 
     const xmlResponseSuccess = `
@@ -252,6 +256,8 @@ describe("Downloader Comprehensive Tests", () => {
       removeCompleted: null,
       postImportCategory: null,
       settings: null,
+      allowSelfSignedCertificate: false,
+      allowInsecureLan: true,
     };
 
     const loginResponse = {
@@ -358,6 +364,8 @@ describe("Downloader Comprehensive Tests", () => {
       removeCompleted: null,
       postImportCategory: null,
       settings: null,
+      allowSelfSignedCertificate: false,
+      allowInsecureLan: true,
     };
 
     const emptyQueueResponse = {
@@ -649,6 +657,8 @@ describe("Downloader Comprehensive Tests", () => {
       removeCompleted: null,
       postImportCategory: null,
       settings: null,
+      allowSelfSignedCertificate: false,
+      allowInsecureLan: true,
     };
 
     it("should add NZB successfully", async () => {
@@ -754,6 +764,8 @@ describe("Downloader Comprehensive Tests", () => {
         removeCompleted: null,
         postImportCategory: null,
         settings: null,
+        allowSelfSignedCertificate: false,
+        allowInsecureLan: true,
       };
 
       const qbittorrent: Downloader = {
@@ -777,6 +789,8 @@ describe("Downloader Comprehensive Tests", () => {
         removeCompleted: null,
         postImportCategory: null,
         settings: null,
+        allowSelfSignedCertificate: false,
+        allowInsecureLan: true,
       };
 
       fetchMock

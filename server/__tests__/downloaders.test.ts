@@ -72,6 +72,8 @@ function createMockDownloader(
     removeCompleted: false,
     postImportCategory: null,
     settings: null,
+    allowSelfSignedCertificate: false,
+    allowInsecureLan: true,
     ...overrides,
   };
 }

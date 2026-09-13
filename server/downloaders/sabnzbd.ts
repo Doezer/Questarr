@@ -5,6 +5,7 @@ import https from "https";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
+  downloaderAllowsCredentials,
   fixNzbUrlEncoding,
   logDownloaderDebugResponse,
   stripTrailingPathSeparators,
@@ -129,7 +130,15 @@ export class SABnzbdClient implements DownloaderClient {
     }
 
     const url = new URL(`${baseUrl}${apiPath}`);
-    url.searchParams.set("apikey", this.downloader.username || "");
+    if (this.downloader.username) {
+      if (!downloaderAllowsCredentials(this.downloader)) {
+        throw new Error(
+          "SABnzbd: refusing to send API key over unencrypted HTTP. " +
+            "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."
+        );
+      }
+      url.searchParams.set("apikey", this.downloader.username);
+    }
     url.searchParams.set("mode", mode);
     url.searchParams.set("output", "json");
 

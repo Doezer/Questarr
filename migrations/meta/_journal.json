@@ -246,6 +246,13 @@
       "when": 1757808000000,
       "tag": "0033_indexer_allow_insecure_lan",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1757808001000,
+      "tag": "0034_downloader_allow_insecure_lan",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,7 @@ import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
+  downloaderAllowsCredentials,
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
@@ -319,6 +320,13 @@ export class SynologyDownloadStationClient implements DownloaderClient {
 
     if (!this.downloader.username || !this.downloader.password) {
       throw new Error("Synology Download Station requires a username and password");
+    }
+
+    if (!downloaderAllowsCredentials(this.downloader)) {
+      throw new Error(
+        "Synology: refusing to send credentials over unencrypted HTTP. " +
+          "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."
+      );
     }
 
     await this.ensureApiInfo();

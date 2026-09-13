@@ -1,10 +1,29 @@
 import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import { isDownloaderDebugLoggingEnabled } from "./debug-logging.js";
-import type { DownloadFile } from "@shared/schema.js";
+import type { Downloader, DownloadFile } from "@shared/schema.js";
 
 export const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+
+/**
+ * Returns true when it is safe to include credentials (passwords, API keys,
+ * HTTP Basic Auth headers) in a request to this downloader.
+ *
+ * Credentials must only travel over an encrypted channel.  Two cases qualify:
+ *   1. The connection already uses TLS (`useSsl = true`).
+ *   2. The user has explicitly opted in to sending credentials over a plain
+ *      HTTP connection on a trusted LAN (`allowInsecureLan = true`).
+ *
+ * When neither condition holds the caller must omit credentials and, where
+ * meaningful, surface an error asking the user to enable SSL or to acknowledge
+ * the insecure-LAN opt-in.
+ */
+export function downloaderAllowsCredentials(
+  downloader: Pick<Downloader, "useSsl" | "allowInsecureLan">
+): boolean {
+  return downloader.useSsl === true || downloader.allowInsecureLan === true;
+}
 
 // Prowlarr (and some Newznab/Torznab indexers) wrap external download URLs in a proxy
 // URL whose `link` query parameter is a standard base64 value that can contain `+`.

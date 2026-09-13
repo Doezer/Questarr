@@ -253,6 +253,8 @@ describe("qBittorrent authenticate() debug logging", () => {
       removeCompleted: false,
       postImportCategory: null,
       settings: null,
+      allowSelfSignedCertificate: false,
+      allowInsecureLan: true,
       createdAt: now,
       updatedAt: now,
       ...overrides,

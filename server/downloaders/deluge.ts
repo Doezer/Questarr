@@ -9,6 +9,7 @@ import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
+  downloaderAllowsCredentials,
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
@@ -120,6 +121,13 @@ export class DelugeClient implements DownloaderClient {
 
   private async authenticate(): Promise<void> {
     if (this.cookie) return;
+
+    if (this.downloader.password && !downloaderAllowsCredentials(this.downloader)) {
+      throw new Error(
+        "Deluge: refusing to send password over unencrypted HTTP. " +
+          "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."
+      );
+    }
 
     const password = this.downloader.password || "";
     const response = await this.makeRequest("auth.login", [password]);

@@ -83,7 +83,7 @@ async function osvQueryBatch(queries) {
 
 async function osvVulnDetails(id, cache) {
   if (cache.has(id)) return cache.get(id);
-  const response = await fetch(`${OSV_VULN_URL}${id}`);
+  const response = await fetch(`${OSV_VULN_URL}${encodeURIComponent(id)}`);
   if (!response.ok) {
     const fallback = { id, cves: [id], summary: "(details unavailable)", cwes: [] };
     cache.set(id, fallback);

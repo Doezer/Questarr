@@ -1,7 +1,10 @@
 import { XMLParser } from "fast-xml-parser";
 import { type Indexer } from "@shared/schema";
-import { DEFAULT_GAME_CATEGORIES, discoverCapsCategories } from "./indexer-caps.js";
-import { indexerAllowsApiKey } from "./indexer-caps.js";
+import {
+  DEFAULT_GAME_CATEGORIES,
+  discoverCapsCategories,
+  indexerAllowsApiKey,
+} from "./indexer-caps.js";
 import { routesLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 

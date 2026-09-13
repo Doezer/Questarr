@@ -662,6 +662,21 @@ export async function checkDownloadStatus() {
                   { downloadId: download.id, downloadHash: download.downloadHash, downloaderId },
                   "Download completed but no remote path was available for import"
                 );
+                try {
+                  const notification = await storage.addNotification({
+                    type: "warning",
+                    title: "Import needs attention",
+                    message: `"${gameTitle}" finished downloading but the file path could not be resolved from the download client. Check Settings → Path Mappings or trigger the import manually.`,
+                    link: "/downloads",
+                    userId: game?.userId ?? undefined,
+                  });
+                  notifyUser("notification", notification);
+                } catch (notifErr) {
+                  igdbLogger.error(
+                    { notifErr, downloadId: download.id },
+                    "Failed to create path-unavailable notification"
+                  );
+                }
               }
             } else {
               // Update DB - mark as completed

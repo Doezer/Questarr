@@ -251,7 +251,12 @@ export class ImportManager {
   private async verifyLocalPath(
     downloadId: string,
     localPath: string,
-    meta: { downloaderName: string; remoteDownloadPath: string }
+    meta: {
+      downloaderName: string;
+      remoteDownloadPath: string;
+      gameTitle?: string;
+      userId?: string;
+    }
   ): Promise<boolean> {
     if (await fs.pathExists(localPath)) {
       this.pathRetryCount.delete(downloadId);
@@ -283,6 +288,22 @@ export class ImportManager {
       "[ImportManager] Path not accessible after retries — check path mappings under Settings → Path Mappings"
     );
     await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+    if (meta.gameTitle && meta.userId) {
+      await this.storage
+        .addNotification({
+          userId: meta.userId,
+          type: "warning",
+          title: "Import needs attention",
+          message: `"${meta.gameTitle}" finished downloading but its local path could not be accessed. Check Settings → Path Mappings or trigger the import manually.`,
+          link: "/downloads",
+        })
+        .catch((err) =>
+          logger.error(
+            { err, downloadId },
+            "[ImportManager] Failed to create path-inaccessible notification"
+          )
+        );
+    }
     return false;
   }
 
@@ -376,7 +397,12 @@ export class ImportManager {
 
       logger.debug({ localPath }, "[ImportManager] Checking path accessibility");
       if (
-        !(await this.verifyLocalPath(downloadId, localPath, { downloaderName, remoteDownloadPath }))
+        !(await this.verifyLocalPath(downloadId, localPath, {
+          downloaderName,
+          remoteDownloadPath,
+          gameTitle: game.title,
+          userId: game.userId ?? undefined,
+        }))
       ) {
         return;
       }

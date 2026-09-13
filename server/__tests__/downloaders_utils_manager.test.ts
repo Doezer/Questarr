@@ -8,6 +8,7 @@ import {
   extractHashFromUrl,
   fetchWithMagnetDetection,
   fixNzbUrlEncoding,
+  resolveDownloadRelativePath,
 } from "../downloaders/utils.js";
 import { NZBGetClient } from "../downloaders/nzbget.js";
 import { QBittorrentClient } from "../downloaders/qbittorrent.js";
@@ -110,6 +111,82 @@ describe("downloaders utils", () => {
     expect(buildRemoteImportPath("/downloads/deluge/complete", "My Game Release")).toBe(
       "/downloads/deluge/complete/My Game Release"
     );
+  });
+
+  describe("resolveDownloadRelativePath", () => {
+    it("returns the torrent name when files list is absent", () => {
+      expect(resolveDownloadRelativePath({ name: "Game Title NSP" })).toBe("Game Title NSP");
+    });
+
+    it("returns the torrent name when files list is empty", () => {
+      expect(resolveDownloadRelativePath({ name: "Game Title NSP", files: [] })).toBe(
+        "Game Title NSP"
+      );
+    });
+
+    it("returns the torrent name when there are multiple files (multi-file torrent)", () => {
+      expect(
+        resolveDownloadRelativePath({
+          name: "Game Title NSP",
+          files: [
+            {
+              name: "Game Title NSP/base.nsp",
+              size: 1,
+              progress: 100,
+              priority: "normal",
+              wanted: true,
+            },
+            {
+              name: "Game Title NSP/update.nsp",
+              size: 1,
+              progress: 100,
+              priority: "normal",
+              wanted: true,
+            },
+          ],
+        })
+      ).toBe("Game Title NSP");
+    });
+
+    it("returns the single file name for a bare single-file torrent", () => {
+      // Single-file torrent where the file sits directly in downloadDir (no subfolder).
+      // The torrent display name can differ from the real filename (e.g. NSP releases).
+      expect(
+        resolveDownloadRelativePath({
+          name: "Bayonetta 3 v1.0.0 NSP",
+          files: [
+            { name: "bayonetta_3.nsp", size: 1, progress: 100, priority: "normal", wanted: true },
+          ],
+        })
+      ).toBe("bayonetta_3.nsp");
+    });
+
+    it("returns the relative path for a single-file torrent stored inside a subfolder", () => {
+      // qBittorrent reports file.name as the full relative path including the torrent folder.
+      expect(
+        resolveDownloadRelativePath({
+          name: "Zelda ToTK v1.2 NSP",
+          files: [
+            {
+              name: "Zelda ToTK v1.2 NSP/zelda_totk.nsp",
+              size: 1,
+              progress: 100,
+              priority: "normal",
+              wanted: true,
+            },
+          ],
+        })
+      ).toBe("Zelda ToTK v1.2 NSP/zelda_totk.nsp");
+    });
+
+    it("returns the torrent name when the only file has an empty name", () => {
+      expect(
+        resolveDownloadRelativePath({
+          name: "Game Title NSP",
+          files: [{ name: "", size: 1, progress: 100, priority: "normal", wanted: true }],
+        })
+      ).toBe("Game Title NSP");
+    });
   });
 
   it("extracts and normalizes magnet hashes for hex and base32 inputs", () => {

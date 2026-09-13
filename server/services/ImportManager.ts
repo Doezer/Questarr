@@ -295,7 +295,7 @@ export class ImportManager {
           type: "warning",
           title: "Import needs attention",
           message: `"${meta.gameTitle}" finished downloading but its local path could not be accessed. Check Settings → Path Mappings or trigger the import manually.`,
-          link: "/downloads",
+          link: "/library",
         })
         .catch((err) =>
           logger.error(

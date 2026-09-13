@@ -1,4 +1,4 @@
-# Questarr — CWEs addressed per release (v1.2.0 → v1.4.3)
+# Questarr — CWEs addressed per release (v1.2.0 → v1.5.0)
 
 Method: same as [`docs/CVE_FIXES_BY_RELEASE.md`](CVE_FIXES_BY_RELEASE.md) — diffed `package-lock.json` at each
 tag boundary and cross-checked every bumped package through OSV.dev. Each advisory is then mapped to its CWE
@@ -192,12 +192,12 @@ No dependency bump in this release crosses a `fixed` OSV boundary — no CWE fix
 
 ## v1.4.2 (from v1.4.1) — hotfix tag off v1.4.1, not reachable from main
 
-Fixed the same two advisories as v1.4.3 below (ip-address and socket.io-parser). Skipped in this diff-based
+Fixed the same two advisories as v1.5.0 below (ip-address and socket.io-parser). Skipped in this diff-based
 report; see the v1.4.2 tag for the full record.
 
 ---
 
-## v1.4.3 (from v1.4.1, via main)
+## v1.5.0 (from v1.4.1, via main)
 
 ### CWE-400: Uncontrolled Resource Consumption
 

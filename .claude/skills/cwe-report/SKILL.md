@@ -1,0 +1,11 @@
+---
+name: cwe-report
+description: Report which CWEs (weakness categories) were addressed in each Questarr release by diffing package-lock.json across version tags and checking OSV.dev
+disable-model-invocation: false
+---
+
+1. If the user asked about the full release history, run `node scripts/cwe-report.mjs` (no args) — it walks every consecutive `v*` tag boundary plus the unreleased range from the latest tag to `HEAD`, diffing resolved `package-lock.json` versions (direct and transitive) and checking OSV.dev for advisories fixed by each bump, then maps each advisory to its CWE IDs (e.g. CWE-79 XSS, CWE-89 SQL Injection) from `database_specific.cwes`.
+2. If the user asked about a specific version or range, run `node scripts/cwe-report.mjs <fromTag> <toTag>` for just that boundary instead. List tags first with `git tag --list 'v*' --sort=v:refname` if the exact tag names aren't already known.
+3. Present the script's output to the user as-is — it is already grouped per version boundary, then by scope (Production/Development dependencies) and by CWE ID (ascending numeric order) within each. Do not add, infer, or embellish CWE claims beyond what the script printed; OSV.dev is the source of truth here.
+4. If the user wants the report saved, write it to `docs/CWE_FIXES_BY_RELEASE.md` (or a path they specify). Do not auto-edit `docs/CHANGELOG.md` — CWE attribution needs human review before it becomes part of published release notes.
+5. If the script errors (network failure reaching OSV.dev, a ref missing `package-lock.json`, etc.), report the specific error to the user rather than retrying blindly or guessing at results.

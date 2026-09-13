@@ -2,11 +2,12 @@
 /* global console */
 /* global process */
 /* global fetch */
-// Reports which CVEs were fixed in each release by diffing package-lock.json's resolved
-// versions (direct + transitive) across git tag boundaries and checking OSV.dev for
-// vulnerabilities present in the old version(s) but absent from the new version(s) of
-// each changed package. See docs/DEPENDENCIES.md for how overrides/CVE fixes are tracked
-// manually - this script cross-checks that history automatically.
+// Reports which CWEs (Common Weakness Enumerations) were addressed in each release by
+// diffing package-lock.json's resolved versions (direct + transitive) across git tag
+// boundaries and checking OSV.dev for vulnerabilities present in the old version(s) but
+// absent from the new version(s) of each changed package. Each advisory is then mapped to
+// its CWE IDs (e.g. CWE-79 XSS, CWE-89 SQL Injection) extracted from the OSV response's
+// database_specific.cwes field, giving a weakness-category view of what was fixed.
 import { execSync } from "node:child_process";
 import semver from "semver";
 
@@ -84,14 +85,22 @@ async function osvVulnDetails(id, cache) {
   if (cache.has(id)) return cache.get(id);
   const response = await fetch(`${OSV_VULN_URL}${encodeURIComponent(id)}`);
   if (!response.ok) {
-    const fallback = { id, cve: id, summary: "(details unavailable)", severity: "UNKNOWN" };
+    const fallback = { id, cves: [id], summary: "(details unavailable)", cwes: [] };
     cache.set(id, fallback);
     return fallback;
   }
   const vuln = await response.json();
-  const cve = (vuln.aliases ?? []).find((alias) => alias.startsWith("CVE-")) ?? vuln.id;
-  const severity = (vuln.database_specific?.severity ?? "UNKNOWN").toUpperCase();
-  const detail = { id: vuln.id, cve, summary: vuln.summary ?? "(no summary)", severity };
+  const cves = (vuln.aliases ?? []).filter((alias) => alias.startsWith("CVE-"));
+  if (cves.length === 0) cves.push(vuln.id);
+
+  // CWE IDs appear in database_specific.cwes as [{cwe_id: "CWE-79", name: "..."}, ...]
+  // Some advisories (e.g. older GHSA records) use a plain string array instead.
+  const rawCwes = vuln.database_specific?.cwes ?? [];
+  const cwes = rawCwes.map((entry) =>
+    typeof entry === "string" ? { id: entry, name: "" } : { id: entry.cwe_id, name: entry.name ?? "" }
+  );
+
+  const detail = { id: vuln.id, cves, summary: vuln.summary ?? "(no summary)", cwes };
   cache.set(id, detail);
   return detail;
 }
@@ -130,8 +139,6 @@ async function fixedVulnsForBoundary(changed) {
   return perPackageFixes;
 }
 
-const SEVERITY_ORDER = ["CRITICAL", "HIGH", "MODERATE", "LOW", "UNKNOWN"];
-
 async function reportBoundary(oldRef, newRef, label, vulnCache) {
   const oldLock = readLockfile(oldRef);
   const newLock = readLockfile(newRef);
@@ -150,39 +157,57 @@ async function reportBoundary(oldRef, newRef, label, vulnCache) {
   console.log(`## ${label}\n`);
   if (fixes.length === 0) {
     console.log(
-      `No known CVE fixes (${changed.length} package${changed.length === 1 ? "" : "s"} bumped, none matched a patched OSV.dev advisory).\n`
+      `No known CWE fixes (${changed.length} package${changed.length === 1 ? "" : "s"} bumped, none matched a patched OSV.dev advisory).\n`
     );
     return;
   }
 
-  // Bucket every fix line by scope (prod/dev) first, then by severity within each scope.
-  const buckets = { prod: new Map(), dev: new Map() };
-  for (const sev of SEVERITY_ORDER) {
-    buckets.prod.set(sev, []);
-    buckets.dev.set(sev, []);
-  }
+  // Aggregate: map CWE ID → list of fix-line strings, split by prod/dev scope.
+  // Advisories with no CWE data are collected under a synthetic "(No CWE)" bucket.
+  const NO_CWE = "(No CWE data in advisory)";
+  const cweMap = { prod: new Map(), dev: new Map() };
 
   for (const { name, oldVersions, newVersions, fixedIds, isDev } of fixes) {
     const details = await Promise.all(fixedIds.map((id) => osvVulnDetails(id, vulnCache)));
     const oldLabel = oldVersions.join("/") || "(absent)";
     const newLabel = newVersions.join("/") || "(removed)";
-    const scope = isDev ? buckets.dev : buckets.prod;
-    for (const { cve, summary, severity } of details) {
-      const line = `- **${name}** ${oldLabel} → ${newLabel} — fixes ${cve} (${severity}): ${summary}`;
-      (scope.get(severity) ?? scope.get("UNKNOWN")).push(line);
+    const scopeMap = isDev ? cweMap.dev : cweMap.prod;
+
+    for (const { cves, summary, cwes } of details) {
+      const cveStr = cves.join(", ");
+      if (cwes.length === 0) {
+        const bucket = scopeMap.get(NO_CWE) ?? [];
+        bucket.push(`- **${name}** ${oldLabel} → ${newLabel} — fixes ${cveStr}: ${summary}`);
+        scopeMap.set(NO_CWE, bucket);
+      } else {
+        for (const { id: cweId, name: cweName } of cwes) {
+          const key = cweName ? `${cweId}: ${cweName}` : cweId;
+          const bucket = scopeMap.get(key) ?? [];
+          bucket.push(`- **${name}** ${oldLabel} → ${newLabel} — fixes ${cveStr}: ${summary}`);
+          scopeMap.set(key, bucket);
+        }
+      }
     }
   }
 
-  for (const [scopeLabel, bucket] of [
-    ["Production dependencies", buckets.prod],
-    ["Development dependencies", buckets.dev],
+  for (const [scopeLabel, scopeMap] of [
+    ["Production dependencies", cweMap.prod],
+    ["Development dependencies", cweMap.dev],
   ]) {
-    if (![...bucket.values()].some((lines) => lines.length > 0)) continue;
+    if (scopeMap.size === 0) continue;
     console.log(`### ${scopeLabel}\n`);
-    for (const severity of SEVERITY_ORDER) {
-      const lines = bucket.get(severity);
-      if (lines.length === 0) continue;
-      console.log(`#### ${severity}\n`);
+    // Sort CWE entries: numeric CWE-NNN first by number, then the no-data bucket last.
+    const sortedKeys = [...scopeMap.keys()].sort((a, b) => {
+      const aNum = parseInt(a.replace(/^CWE-/, ""), 10);
+      const bNum = parseInt(b.replace(/^CWE-/, ""), 10);
+      if (a === NO_CWE) return 1;
+      if (b === NO_CWE) return -1;
+      if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+      return a.localeCompare(b);
+    });
+    for (const key of sortedKeys) {
+      const lines = scopeMap.get(key);
+      console.log(`#### ${key}\n`);
       for (const line of lines) console.log(line);
       console.log("");
     }
@@ -191,16 +216,13 @@ async function reportBoundary(oldRef, newRef, label, vulnCache) {
   const noFixCount = changed.length - fixes.length;
   if (noFixCount > 0) {
     console.log(
-      `${noFixCount} other package${noFixCount === 1 ? "" : "s"} bumped in this range with no known CVE fix.`
+      `${noFixCount} other package${noFixCount === 1 ? "" : "s"} bumped in this range with no known CWE fix.`
     );
   }
   console.log("");
 }
 
 function sortedVersionTags() {
-  // Filtering happens here rather than via `git tag --list 'v*'` because single-quote
-  // globs only survive on POSIX shells - execSync on Windows runs through cmd.exe, which
-  // passes the quote characters through literally and matches nothing.
   const tags = git("tag --list")
     .split("\n")
     .filter((tag) => tag.startsWith("v") && semver.valid(tag.replace(/^v/, "")));

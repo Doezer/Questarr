@@ -1875,7 +1875,12 @@ export default function SettingsPage() {
                     min="1"
                     max="4"
                     value={igdbRateLimitPerSecond}
-                    onChange={(e) => setIgdbRateLimitPerSecond(parseInt(e.target.value) || 3)}
+                    onChange={(e) => {
+                      const parsed = parseInt(e.target.value);
+                      setIgdbRateLimitPerSecond(
+                        isNaN(parsed) ? 3 : Math.min(4, Math.max(1, parsed))
+                      );
+                    }}
                     className="w-32"
                   />
                   <div className="text-xs text-muted-foreground space-y-1">

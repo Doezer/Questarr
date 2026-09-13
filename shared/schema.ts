@@ -520,6 +520,9 @@ export const updateUserSettingsSchema = createInsertSchema(userSettings)
     updatedAt: true,
   })
   .partial()
+  .extend({
+    igdbRateLimitPerSecond: z.number().int().min(1).max(4).optional(),
+  })
   .superRefine(validateUserSettingsEnums);
 
 // Shared password policy: minimum length plus a mix of letters and digits,

@@ -2046,6 +2046,42 @@ describe("API Routes - Extended Coverage", () => {
         expect(response.status).toBe(400);
         expect(response.body.error).toBe("Invalid settings data");
       });
+
+      it("should accept igdbRateLimitPerSecond at boundary value 1", async () => {
+        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as any);
+        vi.mocked(storage.updateUserSettings).mockResolvedValue({ id: "s-1" } as any);
+
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 1 });
+        expect(response.status).toBe(200);
+      });
+
+      it("should accept igdbRateLimitPerSecond at boundary value 4", async () => {
+        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as any);
+        vi.mocked(storage.updateUserSettings).mockResolvedValue({ id: "s-1" } as any);
+
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 4 });
+        expect(response.status).toBe(200);
+      });
+
+      it("should reject igdbRateLimitPerSecond below 1", async () => {
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 0 });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid settings data");
+      });
+
+      it("should reject igdbRateLimitPerSecond above 4", async () => {
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 5 });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid settings data");
+      });
     });
   });
 

@@ -1,6 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
 import { type Indexer } from "@shared/schema";
 import { DEFAULT_GAME_CATEGORIES, discoverCapsCategories } from "./indexer-caps.js";
+import { indexerAllowsApiKey } from "./indexer-caps.js";
 import { routesLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 
@@ -111,7 +112,9 @@ class NewznabClient {
       const url = this.buildApiUrl(indexer.url);
 
       // Build Newznab search parameters
-      url.searchParams.set("apikey", indexer.apiKey);
+      if (indexerAllowsApiKey(indexer)) {
+        url.searchParams.set("apikey", indexer.apiKey);
+      }
       url.searchParams.set("t", "search"); // Newznab search function
       url.searchParams.set("q", params.query);
 
@@ -396,7 +399,9 @@ class NewznabClient {
       }
 
       const url = this.buildApiUrl(indexer.url);
-      url.searchParams.set("apikey", indexer.apiKey);
+      if (indexerAllowsApiKey(indexer)) {
+        url.searchParams.set("apikey", indexer.apiKey);
+      }
       url.searchParams.set("t", "caps");
 
       const response = await safeFetch(url.toString(), {
@@ -476,7 +481,9 @@ class NewznabClient {
     }
 
     const url = this.buildApiUrl(indexer.url);
-    url.searchParams.set("apikey", indexer.apiKey);
+    if (indexerAllowsApiKey(indexer)) {
+      url.searchParams.set("apikey", indexer.apiKey);
+    }
     url.searchParams.set("t", "caps");
 
     if (!(await isSafeUrl(url.toString()))) {

@@ -39,21 +39,41 @@ export const DEFAULT_GAME_CATEGORIES: readonly IndexerCapsCategory[] = Object.fr
 export const CAPS_DISCOVERY_TIMEOUT_MS = 15000;
 
 /**
+ * Returns true when the indexer is allowed to include its API key in outbound
+ * requests. API keys are only sent over HTTPS unless the user has explicitly
+ * opted in to the insecure-LAN bypass (`allowInsecureLan`). This prevents
+ * credentials from travelling in clear text over an unencrypted connection.
+ */
+export function indexerAllowsApiKey(indexer: Pick<Indexer, "url" | "allowInsecureLan">): boolean {
+  try {
+    const { protocol } = new URL(indexer.url);
+    if (protocol === "https:") return true;
+    return indexer.allowInsecureLan === true;
+  } catch {
+    // Malformed URL — don't send the key
+    return false;
+  }
+}
+
+/**
  * Build a list of reasonable candidate caps URLs to try in order. Indexers
  * vary in whether their stored base URL already includes the /api path
  * segment, so try both the normalized (`buildApiUrl`) form and the raw
  * stored URL as-is before giving up.
  */
 export function buildCapsUrlCandidates(
-  indexer: Pick<Indexer, "url" | "apiKey">,
+  indexer: Pick<Indexer, "url" | "apiKey" | "allowInsecureLan">,
   buildApiUrl: (indexerUrl: string) => URL
 ): URL[] {
   const candidates: URL[] = [];
   const seen = new Set<string>();
+  const sendKey = indexerAllowsApiKey(indexer);
 
   const add = (url: URL) => {
     url.searchParams.set("t", "caps");
-    url.searchParams.set("apikey", indexer.apiKey);
+    if (sendKey) {
+      url.searchParams.set("apikey", indexer.apiKey);
+    }
     const key = url.toString();
     if (!seen.has(key)) {
       candidates.push(url);

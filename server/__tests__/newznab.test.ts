@@ -29,6 +29,7 @@ const mockIndexer = {
   priority: 1,
   rssEnabled: true,
   autoSearchEnabled: true,
+  allowInsecureLan: false,
   categories: [],
 };
 
@@ -186,7 +187,7 @@ describe("NewznabClient", () => {
     it("tries a second caps URL variant when the first one fails outright", async () => {
       // A bare-root indexer URL (no /api path segment) produces two distinct
       // candidates: the normalized (buildApiUrl) form and the raw URL as-is.
-      const rootIndexer = { ...mockIndexer, url: "http://example.com" };
+      const rootIndexer = { ...mockIndexer, url: "http://example.com", allowInsecureLan: true };
       (isSafeUrl as Mock).mockResolvedValue(true);
       (safeFetch as Mock)
         .mockRejectedValueOnce(new Error("ECONNREFUSED"))
@@ -249,7 +250,7 @@ describe("NewznabClient", () => {
         text: async () => mockCapsWithVersionXml,
       });
 
-      await newznabClient.logVersionInfo(mockIndexer);
+      await newznabClient.logVersionInfo({ ...mockIndexer, allowInsecureLan: true });
 
       expect(isSafeUrl).toHaveBeenNthCalledWith(1, "http://example.com/api");
       expect(isSafeUrl).toHaveBeenNthCalledWith(2, "http://example.com/api?apikey=secret&t=caps");
@@ -275,7 +276,11 @@ describe("NewznabClient", () => {
         text: async () => mockCapsWithVersionXml,
       });
 
-      await newznabClient.logVersionInfo({ ...mockIndexer, url: "http://example.com" });
+      await newznabClient.logVersionInfo({
+        ...mockIndexer,
+        url: "http://example.com",
+        allowInsecureLan: true,
+      });
 
       expect(isSafeUrl).toHaveBeenNthCalledWith(1, "http://example.com");
       expect(isSafeUrl).toHaveBeenNthCalledWith(2, "http://example.com/api?apikey=secret&t=caps");
@@ -319,5 +324,71 @@ describe("NewznabClient", () => {
       expect(res.results.items.length).toBe(1);
       expect(res.errors.length).toBe(1);
     });
+  });
+});
+
+describe("NewznabClient — HTTP API-key policy", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("omits the API key from a search request to an HTTP indexer without allowInsecureLan", async () => {
+    (isSafeUrl as Mock).mockResolvedValue(true);
+    (safeFetch as Mock).mockResolvedValue({ ok: true, text: async () => mockSearchXml });
+
+    await newznabClient.search({ ...mockIndexer, allowInsecureLan: false }, { query: "test" });
+
+    const [url] = (safeFetch as Mock).mock.calls[0] as [string];
+    expect(new URL(url).searchParams.has("apikey")).toBe(false);
+  });
+
+  it("includes the API key in a search request to an HTTP indexer with allowInsecureLan", async () => {
+    (isSafeUrl as Mock).mockResolvedValue(true);
+    (safeFetch as Mock).mockResolvedValue({ ok: true, text: async () => mockSearchXml });
+
+    await newznabClient.search({ ...mockIndexer, allowInsecureLan: true }, { query: "test" });
+
+    const [url] = (safeFetch as Mock).mock.calls[0] as [string];
+    expect(new URL(url).searchParams.get("apikey")).toBe("secret");
+  });
+
+  it("includes the API key in a search request to an HTTPS indexer", async () => {
+    (isSafeUrl as Mock).mockResolvedValue(true);
+    (safeFetch as Mock).mockResolvedValue({ ok: true, text: async () => mockSearchXml });
+
+    const httpsIndexer = {
+      ...mockIndexer,
+      url: "https://example.com/api",
+      allowInsecureLan: false,
+    };
+    await newznabClient.search(httpsIndexer, { query: "test" });
+
+    const [url] = (safeFetch as Mock).mock.calls[0] as [string];
+    expect(new URL(url).searchParams.get("apikey")).toBe("secret");
+  });
+
+  it("omits the API key from a testConnection request to an HTTP indexer without allowInsecureLan", async () => {
+    (isSafeUrl as Mock).mockResolvedValue(true);
+    (safeFetch as Mock).mockResolvedValue({ ok: true, text: async () => mockCapsXml });
+
+    await newznabClient.testConnection({ ...mockIndexer, allowInsecureLan: false });
+
+    const [url] = (safeFetch as Mock).mock.calls[0] as [string];
+    expect(new URL(url).searchParams.has("apikey")).toBe(false);
+  });
+
+  it("includes the API key in a testConnection request to an HTTPS indexer", async () => {
+    (isSafeUrl as Mock).mockResolvedValue(true);
+    (safeFetch as Mock).mockResolvedValue({ ok: true, text: async () => mockCapsXml });
+
+    const httpsIndexer = {
+      ...mockIndexer,
+      url: "https://example.com/api",
+      allowInsecureLan: false,
+    };
+    await newznabClient.testConnection(httpsIndexer);
+
+    const [url] = (safeFetch as Mock).mock.calls[0] as [string];
+    expect(new URL(url).searchParams.get("apikey")).toBe("secret");
   });
 });

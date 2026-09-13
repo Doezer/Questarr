@@ -1,5 +1,9 @@
 import { type Indexer } from "@shared/schema";
-import { DEFAULT_GAME_CATEGORIES, discoverCapsCategories } from "./indexer-caps.js";
+import {
+  DEFAULT_GAME_CATEGORIES,
+  discoverCapsCategories,
+  indexerAllowsApiKey,
+} from "./indexer-caps.js";
 import { torznabLogger } from "./logger.js";
 import { isPrivateNetworkAddress, isSafeUrl, safeFetch } from "./ssrf.js";
 import { XMLParser } from "fast-xml-parser";
@@ -267,7 +271,9 @@ export class TorznabClient {
 
     // Set common Torznab parameters
     url.searchParams.set("t", "search");
-    url.searchParams.set("apikey", indexer.apiKey);
+    if (indexerAllowsApiKey(indexer)) {
+      url.searchParams.set("apikey", indexer.apiKey);
+    }
 
     if (params.query) {
       url.searchParams.set("q", params.query);
@@ -313,7 +319,9 @@ export class TorznabClient {
   private async fetchServerInfo(indexer: Indexer): Promise<TorznabServerInfo> {
     const url = this.buildApiUrl(indexer.url);
     url.searchParams.set("t", "caps");
-    url.searchParams.set("apikey", indexer.apiKey);
+    if (indexerAllowsApiKey(indexer)) {
+      url.searchParams.set("apikey", indexer.apiKey);
+    }
 
     if (!(await isSafeUrl(url.toString()))) {
       throw new Error(`Unsafe URL detected: ${url.toString()}`);
@@ -457,7 +465,9 @@ export class TorznabClient {
                   "link",
                   Buffer.from(torznabItem.link).toString("base64")
                 );
-                prowlarrUrl.searchParams.set("apikey", indexer.apiKey);
+                if (indexerAllowsApiKey(indexer)) {
+                  prowlarrUrl.searchParams.set("apikey", indexer.apiKey);
+                }
                 torznabItem.link = prowlarrUrl.toString();
               }
             } else {

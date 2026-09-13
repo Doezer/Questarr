@@ -26,6 +26,7 @@ import {
   FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { RequiredFormLabel } from "@/components/ui/required-form-label";
 import {
   Select,
@@ -307,6 +308,7 @@ export default function IndexersPage() {
       categories: [],
       rssEnabled: true,
       autoSearchEnabled: true,
+      allowInsecureLan: false,
     },
   });
 
@@ -363,6 +365,7 @@ export default function IndexersPage() {
       categories: indexer.categories || [],
       rssEnabled: indexer.rssEnabled,
       autoSearchEnabled: indexer.autoSearchEnabled,
+      allowInsecureLan: indexer.allowInsecureLan ?? false,
     });
     setIsDialogOpen(true);
     // Fetch available categories from the indexer
@@ -381,6 +384,7 @@ export default function IndexersPage() {
       categories: [],
       rssEnabled: true,
       autoSearchEnabled: true,
+      allowInsecureLan: false,
     });
     setAvailableCategories([]);
     setIsDialogOpen(true);
@@ -678,6 +682,29 @@ export default function IndexersPage() {
                       />
                     </FormControl>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="allowInsecureLan"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
+                    <div className="space-y-0">
+                      <FormLabel className="text-sm">Allow insecure LAN connection</FormLabel>
+                      <FormDescription className="text-xs">
+                        Sends the API key over plain HTTP (no encryption). Only enable this for a
+                        trusted local-network indexer that does not support HTTPS. Enabling this on
+                        an internet-facing indexer exposes your API key in clear text.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Checkbox
+                        checked={!!field.value}
+                        onCheckedChange={(checked) => field.onChange(!!checked)}
+                        data-testid="checkbox-indexer-allow-insecure-lan"
+                      />
+                    </FormControl>
                   </FormItem>
                 )}
               />

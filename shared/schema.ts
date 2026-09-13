@@ -216,6 +216,12 @@ export const indexers = sqliteTable("indexers", {
   categories: text("categories", { mode: "json" }).$type<string[]>().default([]),
   rssEnabled: integer("rss_enabled", { mode: "boolean" }).notNull().default(true),
   autoSearchEnabled: integer("auto_search_enabled", { mode: "boolean" }).notNull().default(true),
+  // Opt-in per-indexer bypass allowing API keys to be sent over plain HTTP.
+  // Off by default: API keys must not travel in clear text unless the user
+  // explicitly acknowledges the risk (e.g. an indexer on a trusted LAN that
+  // does not support TLS). When this flag is false and the indexer URL uses
+  // HTTP, API keys are omitted from every outbound request.
+  allowInsecureLan: integer("allow_insecure_lan", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),

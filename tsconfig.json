@@ -7,7 +7,6 @@
     "noEmit": true,
     "module": "ESNext",
     "strict": true,
-    "noFallthroughCasesInSwitch": true,
     "lib": ["esnext", "dom", "dom.iterable"],
     "jsx": "preserve",
     "esModuleInterop": true,

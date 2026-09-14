@@ -270,7 +270,10 @@ export default function SettingsPage() {
       setAutoSearchUnreleased(userSettings.autoSearchUnreleased ?? false);
       setAutoDownloadEnabled(userSettings.autoDownloadEnabled);
       setSearchIntervalHours(userSettings.searchIntervalHours);
-      setIgdbRateLimitPerSecond(userSettings.igdbRateLimitPerSecond);
+      const rateLimit = userSettings.igdbRateLimitPerSecond;
+      setIgdbRateLimitPerSecond(
+        Number.isInteger(rateLimit) ? Math.min(4, Math.max(1, rateLimit)) : 3
+      );
       if (userSettings.notificationPreferences) {
         try {
           setNotifPrefs({

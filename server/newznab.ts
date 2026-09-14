@@ -103,7 +103,10 @@ class NewznabClient {
   }
 
   /**
-   * Search a single Newznab indexer
+   * Searches one Newznab indexer and normalizes its RSS items.
+   * The API key is omitted when the indexer's transport policy forbids sending it.
+   *
+   * @throws When URL validation, the request, or response parsing fails.
    */
   async search(indexer: Indexer, params: NewznabSearchParams): Promise<NewznabResult[]> {
     try {
@@ -393,7 +396,8 @@ class NewznabClient {
   }
 
   /**
-   * Test connection to a Newznab indexer
+   * Tests a Newznab caps endpoint without sending an API key over a disallowed transport.
+   * Failures are returned in the result rather than thrown.
    */
   async testConnection(indexer: Indexer): Promise<{ success: boolean; message: string }> {
     try {
@@ -478,6 +482,12 @@ class NewznabClient {
     }
   }
 
+  /**
+   * Reads server identity fields from a Newznab caps response, omitting the API key
+   * when the indexer's transport policy forbids sending it.
+   *
+   * @throws When URL validation or the caps request fails.
+   */
   private async fetchServerInfo(indexer: Indexer): Promise<NewznabServerInfo> {
     if (!(await isSafeUrl(indexer.url))) {
       throw new Error(`Unsafe URL detected: ${indexer.url}`);

@@ -164,6 +164,14 @@ export class NZBGetClient implements DownloaderClient {
     return String(Object.values(rec)[0]);
   }
 
+  /**
+   * Sends an NZBGet XML-RPC request, adding Basic authentication when configured.
+   *
+   * @param requireHttps - Whether redirects must remain on HTTPS, used for requests
+   * whose payload contains an archive password.
+   * @throws When configured credentials are not permitted by the transport policy,
+   * the request fails, or NZBGet returns an XML-RPC fault.
+   */
   private async makeXMLRPCRequest(
     method: string,
     params: unknown[] = [],

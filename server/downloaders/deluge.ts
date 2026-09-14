@@ -119,6 +119,12 @@ export class DelugeClient implements DownloaderClient {
     return `${base}/json`;
   }
 
+  /**
+   * Authenticates with the Deluge Web UI unless a session cookie is already present.
+   *
+   * @throws When a configured password is not permitted by the transport policy or
+   * Deluge rejects the login.
+   */
   private async authenticate(): Promise<void> {
     if (this.cookie) return;
 

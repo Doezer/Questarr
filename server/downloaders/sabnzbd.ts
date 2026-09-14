@@ -118,6 +118,11 @@ export class SABnzbdClient implements DownloaderClient {
     }
   }
 
+  /**
+   * Builds a SABnzbd API URL, including the configured API key when permitted.
+   *
+   * @throws When an API key is configured but the transport policy forbids sending it.
+   */
   private getApiUrl(mode: string, params: Record<string, string> = {}): string {
     const baseUrl = this.getBaseUrl();
 

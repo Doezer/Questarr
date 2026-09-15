@@ -70,4 +70,51 @@ describe("ImportReviewModal", () => {
       title: "Select Destination",
     });
   });
+
+  describe("password-protected archives", () => {
+    it("shows the password prompt, pre-enables Unpack Archive, and requires a password to confirm", () => {
+      render(
+        <ImportReviewModal
+          open
+          onOpenChange={vi.fn()}
+          downloadId="download-1"
+          downloadTitle="Encrypted.rar"
+          passwordRequired
+        />
+      );
+
+      expect(screen.getByText("Password Required")).toBeInTheDocument();
+      const passwordField = screen.getByLabelText("Archive Password");
+      expect(passwordField).toBeInTheDocument();
+
+      // Unpack Archive is forced on and locked while a password is required.
+      expect(screen.getByRole("switch")).toBeChecked();
+      expect(screen.getByRole("switch")).toBeDisabled();
+
+      // Destination path is pre-filled from importConfig, so the only missing
+      // requirement is the password — confirming without one should be blocked.
+      fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Validation Error",
+          description: expect.stringContaining("password-protected"),
+        })
+      );
+    });
+
+    it("does not show a password field or title when the archive isn't password-protected", () => {
+      render(
+        <ImportReviewModal
+          open
+          onOpenChange={vi.fn()}
+          downloadId="download-1"
+          downloadTitle="Test Download"
+        />
+      );
+
+      expect(screen.queryByText("Password Required")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Archive Password/)).not.toBeInTheDocument();
+    });
+  });
 });

@@ -347,7 +347,8 @@ describe("ImportManager", () => {
 
     expect(archiveService.extract).toHaveBeenCalledWith(
       "/data/downloads/file.zip",
-      "/data/downloads/file.zip_extracted"
+      "/data/downloads/file.zip_extracted",
+      undefined
     );
   });
 
@@ -483,7 +484,8 @@ describe("ImportManager", () => {
 
     expect(archiveService.extract).toHaveBeenCalledWith(
       "/data/downloads/file.zip",
-      "/data/downloads/file.zip_extracted"
+      "/data/downloads/file.zip_extracted",
+      undefined
     );
     expect(storage.updateGameDownloadStatus).toHaveBeenCalled();
   });
@@ -691,7 +693,8 @@ describe("ImportManager", () => {
 
     expect(archiveService.extract).toHaveBeenCalledWith(
       "/downloads/game.zip",
-      "/downloads/game.zip_extracted"
+      "/downloads/game.zip_extracted",
+      undefined
     );
 
     execSpy.mockRestore();
@@ -785,6 +788,173 @@ describe("ImportManager", () => {
       "archive is corrupt"
     );
     expect(storage.updateGameDownloadStatus).not.toHaveBeenCalledWith("dl-1", "error");
+  });
+
+  // ─── Password-protected archive handling ─────────────────────────────────────
+
+  it("processImport: ArchivePasswordRequiredError → manual review with the marker-prefixed message", async () => {
+    const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "Game.rar",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "Archive Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue({ ...baseConfig, autoUnpack: true });
+    archiveService.isArchive.mockReturnValue(true);
+    archiveService.extract.mockRejectedValue(
+      new ArchivePasswordRequiredError(
+        "This archive is password-protected — a password is required to extract it."
+      )
+    );
+    pathService.translatePath.mockResolvedValue("/data/downloads/file.rar");
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await manager.processImport("dl-1", "/remote/path");
+
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+      "dl-1",
+      "manual_review_required",
+      "ARCHIVE_PASSWORD_REQUIRED:This archive is password-protected — a password is required to extract it."
+    );
+    expect(storage.updateGameDownloadStatus).not.toHaveBeenCalledWith("dl-1", "error");
+  });
+
+  it("processImport: passes the given password through to archiveService.extract", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "Game.rar",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "Archive Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue({ ...baseConfig, autoUnpack: true });
+    archiveService.isArchive.mockReturnValue(true);
+    archiveService.extract.mockResolvedValue(["/data/downloads/file_extracted/game.rom"]);
+    pathService.translatePath.mockResolvedValue("/data/downloads/file.rar");
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await manager.processImport("dl-1", "/remote/path", "hunter2");
+
+    expect(archiveService.extract).toHaveBeenCalledWith(
+      "/data/downloads/file.rar",
+      "/data/downloads/file.rar_extracted",
+      "hunter2"
+    );
+  });
+
+  it("confirmImport: passes overridePlan.password through to archiveService.extract when unpack=true", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/safe/root" }));
+    archiveService.isArchive.mockReturnValue(true);
+    archiveService.extract.mockResolvedValue(["/downloads/game.rom"]);
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await manager.confirmImport("dl-1", {
+      strategy: "pc",
+      originalPath: "/downloads/game.rar",
+      proposedPath: "/safe/root/PC/My Game",
+      needsReview: false,
+      transferMode: "move",
+      unpack: true,
+      password: "hunter2",
+    });
+
+    expect(archiveService.extract).toHaveBeenCalledWith(
+      "/downloads/game.rar",
+      "/downloads/game.rar_extracted",
+      "hunter2"
+    );
+  });
+
+  it("confirmImport: wrong retry password still surfaces as manual_review_required with the marker prefix", async () => {
+    const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/safe/root" }));
+    archiveService.isArchive.mockReturnValue(true);
+    archiveService.extract.mockRejectedValue(
+      new ArchivePasswordRequiredError("The provided password was rejected — it may be incorrect.")
+    );
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await expect(
+      manager.confirmImport("dl-1", {
+        strategy: "pc",
+        originalPath: "/downloads/game.rar",
+        proposedPath: "/safe/root/PC/My Game",
+        needsReview: false,
+        transferMode: "move",
+        unpack: true,
+        password: "wrongpass",
+      })
+    ).rejects.toThrow(ArchivePasswordRequiredError);
+
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+      "dl-1",
+      "manual_review_required",
+      "ARCHIVE_PASSWORD_REQUIRED:The provided password was rejected — it may be incorrect."
+    );
   });
 
   // ─── extractRemoteHost edge cases (via resolveLocalPath → processImport) ────

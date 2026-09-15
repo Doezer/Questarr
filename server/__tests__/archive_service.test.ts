@@ -375,32 +375,25 @@ describe("ArchiveService", () => {
   });
 
   describe("Password-protected archives", () => {
-    it("rejects with ArchivePasswordRequiredError, without retrying, when unrar reports a password issue", async () => {
-      const service = await freshArchiveService();
-      const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
-      mockExecAlways(new Error("exit code 3"), "", "Cannot open <game.rar>\nwrong password");
+    it.each([
+      ["unrar", "/downloads/game.rar", "/tmp/rar-out", "Cannot open <game.rar>\nwrong password"],
+      ["7-Zip", "/downloads/game.zip", "/tmp/out", "Wrong password?"],
+    ])(
+      "rejects with ArchivePasswordRequiredError, without retrying, when %s reports a password issue",
+      async (_tool, filePath, outDir, stderr) => {
+        const service = await freshArchiveService();
+        const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
+        mockExecAlways(new Error("exit code 2"), "", stderr);
 
-      await expect(
-        service.extract("/downloads/game.rar", "/tmp/rar-out") // NOSONAR - mocked fs
-      ).rejects.toThrow(ArchivePasswordRequiredError);
+        await expect(
+          service.extract(filePath, outDir) // NOSONAR - mocked fs
+        ).rejects.toThrow(ArchivePasswordRequiredError);
 
-      // No retries — a password failure is deterministic, so only the first test attempt runs.
-      expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
-      expect(emptyDirMock).not.toHaveBeenCalled();
-    });
-
-    it("rejects with ArchivePasswordRequiredError, without retrying, when 7-Zip reports a wrong password", async () => {
-      const service = await freshArchiveService();
-      const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
-      mockExecAlways(new Error("exit code 2"), "", "Wrong password?");
-
-      await expect(
-        service.extract("/downloads/game.zip", "/tmp/out") // NOSONAR - mocked fs
-      ).rejects.toThrow(ArchivePasswordRequiredError);
-
-      expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
-      expect(emptyDirMock).not.toHaveBeenCalled();
-    });
+        // No retries — a password failure is deterministic, so only the first test attempt runs.
+        expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
+        expect(emptyDirMock).not.toHaveBeenCalled();
+      }
+    );
 
     it("passes a given password to unrar via -p<password> on both test and extract", async () => {
       const service = await freshArchiveService();

@@ -197,13 +197,18 @@ export class ArchiveService {
   }
 
   private async extractWithUnrar(filePath: string, outputDir: string): Promise<string[]> {
-    // Trailing separator tells unrar the operand is a destination directory.
-    await runUnrar(["x", "-y", "-p-", "--", filePath, outputDir + path.sep]);
+    // Trailing separator tells unrar the operand is a destination directory. -idq suppresses
+    // the per-file "Extracting..." progress output — without it, a large multi-file archive
+    // can exceed execFile's maxBuffer and fail with ERR_CHILD_PROCESS_STDIO_MAXBUFFER after
+    // extraction has already started.
+    await runUnrar(["x", "-idq", "-y", "-p-", "--", filePath, outputDir + path.sep]);
     return this.listExtractedFiles(outputDir);
   }
 
   private async extractWith7zip(filePath: string, outputDir: string): Promise<string[]> {
-    await runSevenZip(["x", "-y", `-o${outputDir}`, "--", filePath]);
+    // -bso0/-bsp0 silence 7-Zip's normal output and progress streams for the same
+    // maxBuffer-overflow reason as unrar's -idq above.
+    await runSevenZip(["x", "-bso0", "-bsp0", "-y", `-o${outputDir}`, "--", filePath]);
     return this.listExtractedFiles(outputDir);
   }
 

@@ -163,7 +163,15 @@ describe("ArchiveService", () => {
       expect(calls[0][0]).toBe(fakeSevenZipPath);
       expect(calls[0][1]).toEqual(["t", "-y", "--", "/downloads/game.zip"]);
       expect(calls[1][0]).toBe(fakeSevenZipPath);
-      expect(calls[1][1]).toEqual(["x", "-y", "-o/tmp/out", "--", "/downloads/game.zip"]);
+      expect(calls[1][1]).toEqual([
+        "x",
+        "-bso0",
+        "-bsp0",
+        "-y",
+        "-o/tmp/out",
+        "--",
+        "/downloads/game.zip",
+      ]);
       expect(emptyDirMock).toHaveBeenCalledWith("/tmp/out"); // NOSONAR - mocked fs, no real dir access
     });
 
@@ -276,6 +284,7 @@ describe("ArchiveService", () => {
       expect(calls[1][0]).toBe(fakeUnrarPath);
       expect(calls[1][1]).toEqual([
         "x",
+        "-idq",
         "-y",
         "-p-",
         "--",

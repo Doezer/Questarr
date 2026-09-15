@@ -15,6 +15,7 @@ import { blockJitter, cellNoise, pillarCells, rubbleSpots } from "./vault-decor"
 import {
   generateLevel,
   gridToWorld,
+  rectContains,
   worldToGrid,
   type DoorDef,
   type GeneratedLevel,
@@ -576,18 +577,20 @@ export class InfiltrationGame {
     return cells;
   }
 
-  /** The cells of the facility's outer shell, as opposed to its partitions. */
+  /**
+   * The cells of the facility's outer shell, as opposed to its partitions.
+   *
+   * Everything in `facility` that is not in `level.interior` is the ring the
+   * generator clamped to at least 1x1 — reading that boundary here rather than
+   * re-deriving it keeps this in step with whatever the generator decided for
+   * a facility too small to spare two cells to the wall.
+   */
   private facilityShellCells(): GridPos[] {
-    const { facility } = this.level;
+    const { facility, interior } = this.level;
     const cells: GridPos[] = [];
     for (let x = facility.x; x < facility.x + facility.w; x++) {
       for (let z = facility.z; z < facility.z + facility.h; z++) {
-        const onEdge =
-          x === facility.x ||
-          z === facility.z ||
-          x === facility.x + facility.w - 1 ||
-          z === facility.z + facility.h - 1;
-        if (onEdge) cells.push({ x, z });
+        if (!rectContains(interior, { x, z })) cells.push({ x, z });
       }
     }
     return cells;
@@ -1911,13 +1914,7 @@ export class InfiltrationGame {
   private updateEntry() {
     if (this.inside) return;
     const cell = worldToGrid(this.player.position.x, this.player.position.z, this.level);
-    const { facility } = this.level;
-    const within =
-      cell.x > facility.x &&
-      cell.z > facility.z &&
-      cell.x < facility.x + facility.w - 1 &&
-      cell.z < facility.z + facility.h - 1;
-    if (!within) return;
+    if (!rectContains(this.level.interior, cell)) return;
     this.inside = true;
     this.reportObjective();
   }
@@ -2215,10 +2212,14 @@ export class InfiltrationGame {
       other.seen = false;
     }
     this.hackProgress = 0;
+    // The respawn puts the player back on the apron, so the approach is ahead
+    // of them again and the HUD's first milestone is unmet once more.
+    this.inside = false;
 
     this.resetPlayerToSpawn();
     this.iso.jumpTo(this.player.position);
 
+    this.reportObjective();
     this.callbacks.onCaught?.();
   }
 

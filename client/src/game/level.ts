@@ -68,6 +68,13 @@ export interface GeneratedLevel {
   doors: DoorDef[];
   /** The facility's footprint, perimeter wall included. */
   facility: Rect;
+  /**
+   * The BSP area inside the perimeter wall: the facility minus its own ring.
+   * Kept at least 1x1 even when the facility itself is too small to spare two
+   * cells to the wall, which is why this is exposed rather than re-derived —
+   * a caller subtracting 2 directly loses that clamp.
+   */
+  interior: Rect;
   /** The approach outside the facility: open ground, no roof, no patrols. */
   apron: Rect;
   apronSide: ApronSide;
@@ -116,7 +123,7 @@ function sameCell(a: GridPos, b: GridPos): boolean {
 }
 
 /** True when the cell falls inside the rectangle's floor area. */
-function rectContains(rect: Rect, cell: GridPos): boolean {
+export function rectContains(rect: Rect, cell: GridPos): boolean {
   return (
     cell.x >= rect.x && cell.x < rect.x + rect.w && cell.z >= rect.z && cell.z < rect.z + rect.h
   );
@@ -697,6 +704,7 @@ export function generateLevel(seed: number, overrides: Partial<LevelConfig> = {}
     walls,
     doors,
     facility,
+    interior,
     apron,
     apronSide: compound.apronSide,
     gate,

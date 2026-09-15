@@ -27,15 +27,11 @@ function containsCell(rect: { x: number; z: number; w: number; h: number }, cell
 /** Cells of the facility's perimeter ring that are not walled: the way in. */
 function perimeterHoles(level: GeneratedLevel): string[] {
   const walls = new Set(level.walls.map(cellKey));
-  const { facility } = level;
-  const interior = {
-    x: facility.x + 1,
-    z: facility.z + 1,
-    w: facility.w - 2,
-    h: facility.h - 2,
-  };
-  return rectCells(facility)
-    .filter((cell) => !containsCell(interior, cell))
+  // Reads the generator's own interior rather than rebuilding it: rebuilding
+  // dropped the Math.max(1, ...) clamp the generator applies for a facility
+  // too small to spare two cells to the wall, and diverged from it there.
+  return rectCells(level.facility)
+    .filter((cell) => !containsCell(level.interior, cell))
     .map(cellKey)
     .filter((key) => !walls.has(key));
 }

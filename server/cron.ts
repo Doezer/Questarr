@@ -15,12 +15,14 @@ import { importManager } from "./services/index.js";
 import {
   downloadRulesSchema,
   DEFAULT_NOTIFICATION_PREFERENCES,
+  type DownloadStatus,
   type Game,
   type InsertNotification,
   type NotificationEvent,
   type NotificationPreferences,
 } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
+import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import {
   releaseMatchesGame,
   normalizeTitle,
@@ -43,6 +45,9 @@ const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interva
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 const CLIENT_VERSION_LOG_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const OWNED_STATUSES = new Set(["owned", "completed", "downloading"]);
+
+// Prevent concurrent runs of the untracked-download sync cron task.
+let syncUntrackedDownloadsInProgress = false;
 
 const GAME_UPDATE_TITLE_TO_EVENT: Record<string, NotificationEvent> = {
   "Game Released": "gameReleased",
@@ -926,6 +931,11 @@ export async function checkDownloadStatus() {
 }
 
 export async function syncUntrackedDownloads(): Promise<void> {
+  if (syncUntrackedDownloadsInProgress) {
+    return;
+  }
+  syncUntrackedDownloadsInProgress = true;
+
   try {
     const wantedGamesByUser = await storage.getWantedGamesGroupedByUser();
     if (wantedGamesByUser.size === 0) {
@@ -937,14 +947,27 @@ export async function syncUntrackedDownloads(): Promise<void> {
       return;
     }
 
-    const trackedKeys = await storage.getTrackedDownloadKeys();
+    const trackedKeys = new Set(
+      [...(await storage.getTrackedDownloadKeys())].map((key) => key.toLowerCase())
+    );
     const linkedHashes = new Set<string>();
+
+    const RECOVERABLE_STATUSES = new Set<DownloadStatus["status"]>([
+      "downloading",
+      "paused",
+      "error",
+      "repairing",
+      "unpacking",
+      "completed_pending_import",
+    ]);
 
     for (const downloader of enabledDownloaders) {
       try {
         const activeDownloads = await DownloaderManager.getAllDownloads(downloader);
         const untrackedDownloads = activeDownloads.filter(
-          (d) => !trackedKeys.has(`${downloader.id}:${d.id.toLowerCase()}`)
+          (d) =>
+            !trackedKeys.has(`${downloader.id}:${d.id.toLowerCase()}`) &&
+            RECOVERABLE_STATUSES.has(d.status)
         );
 
         if (untrackedDownloads.length === 0) {
@@ -965,17 +988,23 @@ export async function syncUntrackedDownloads(): Promise<void> {
             continue;
           }
 
-          let matchedGame: Game | undefined;
+          // Collect all matching wanted games across users. Only link when
+          // exactly one game matches to avoid arbitrarily assigning a shared
+          // downloader item to the wrong user.
+          const matchingGames: Game[] = [];
           for (const [, games] of wantedGamesByUser) {
-            matchedGame = games.find((game) =>
-              releaseMatchesGame(remoteDownload.name, game.title)
-            );
-            if (matchedGame) break;
+            for (const game of games) {
+              if (releaseMatchesGame(remoteDownload.name, game.title)) {
+                matchingGames.push(game);
+              }
+            }
           }
 
-          if (!matchedGame) {
+          if (matchingGames.length !== 1) {
             continue;
           }
+
+          const matchedGame = matchingGames[0];
 
           // Avoid creating duplicate active downloads for the same game.
           const siblings = await storage.getDownloadsByGameId(matchedGame.id);
@@ -993,7 +1022,7 @@ export async function syncUntrackedDownloads(): Promise<void> {
           const added = await storage.addGameDownload({
             gameId: matchedGame.id,
             downloaderId: downloader.id,
-            downloadType: "torrent",
+            downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
             downloadHash: remoteDownload.id,
             downloadTitle: remoteDownload.name,
             status: "downloading",
@@ -1027,6 +1056,8 @@ export async function syncUntrackedDownloads(): Promise<void> {
     }
   } catch (error) {
     igdbLogger.error({ error }, "Error in syncUntrackedDownloads");
+  } finally {
+    syncUntrackedDownloadsInProgress = false;
   }
 }
 

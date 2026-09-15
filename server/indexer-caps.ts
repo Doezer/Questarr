@@ -132,9 +132,11 @@ export async function discoverCapsCategories<T>(options: {
       break;
     }
     try {
-      const response = await safeFetch(url.toString(), {
+      const urlStr = url.toString();
+      const response = await safeFetch(urlStr, {
         headers: options.fetchHeaders,
         signal: AbortSignal.timeout(remainingMs),
+        requireHttps: urlStr.startsWith("https:"),
       });
 
       if (!response.ok) {

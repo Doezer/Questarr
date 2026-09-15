@@ -103,11 +103,11 @@ describe("SABnzbd HTTP credential policy", () => {
     fetchMock.mockReset();
   });
 
-  it("throws when HTTP and allowInsecureLan=false and apikey is set", async () => {
+  it("returns failure when HTTP and allowInsecureLan=false and apikey is set", async () => {
     const client = new SABnzbdClient(makeDownloader({ type: "sabnzbd", username: "mykey" }));
-    await expect(client.testConnection()).rejects.toThrow(
-      "SABnzbd: refusing to send API key over unencrypted HTTP"
-    );
+    const result = await client.testConnection();
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("SABnzbd: refusing to send API key over unencrypted HTTP");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

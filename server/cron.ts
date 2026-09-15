@@ -274,6 +274,9 @@ export function startCronJobs() {
     igdbLogger.info("Running initial cron job checks...");
     checkGameUpdates().catch((err) => igdbLogger.error({ err }, "Error in checkGameUpdates"));
     checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
+    syncUntrackedDownloads().catch((err) =>
+      igdbLogger.error({ err }, "Error in syncUntrackedDownloads")
+    );
     checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
     checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
     checkSteamWishlist().catch((err) => igdbLogger.error({ err }, "Error in checkSteamWishlist"));
@@ -287,6 +290,9 @@ export function startCronJobs() {
 
   setInterval(() => {
     checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
+    syncUntrackedDownloads().catch((err) =>
+      igdbLogger.error({ err }, "Error in syncUntrackedDownloads")
+    );
   }, DOWNLOAD_CHECK_INTERVAL_MS);
 
   setInterval(() => {
@@ -916,6 +922,111 @@ export async function checkDownloadStatus() {
         downloadMissCount.delete(dl.id);
       }
     }
+  }
+}
+
+export async function syncUntrackedDownloads(): Promise<void> {
+  try {
+    const wantedGamesByUser = await storage.getWantedGamesGroupedByUser();
+    if (wantedGamesByUser.size === 0) {
+      return;
+    }
+
+    const enabledDownloaders = await storage.getEnabledDownloaders();
+    if (enabledDownloaders.length === 0) {
+      return;
+    }
+
+    const trackedKeys = await storage.getTrackedDownloadKeys();
+    const linkedHashes = new Set<string>();
+
+    for (const downloader of enabledDownloaders) {
+      try {
+        const activeDownloads = await DownloaderManager.getAllDownloads(downloader);
+        const untrackedDownloads = activeDownloads.filter(
+          (d) => !trackedKeys.has(`${downloader.id}:${d.id.toLowerCase()}`)
+        );
+
+        if (untrackedDownloads.length === 0) {
+          continue;
+        }
+
+        igdbLogger.info(
+          {
+            downloaderId: downloader.id,
+            untrackedCount: untrackedDownloads.length,
+          },
+          "Found untracked downloads; attempting to link to wanted games"
+        );
+
+        for (const remoteDownload of untrackedDownloads) {
+          const hashKey = `${downloader.id}:${remoteDownload.id.toLowerCase()}`;
+          if (linkedHashes.has(hashKey)) {
+            continue;
+          }
+
+          let matchedGame: Game | undefined;
+          for (const [, games] of wantedGamesByUser) {
+            matchedGame = games.find((game) =>
+              releaseMatchesGame(remoteDownload.name, game.title)
+            );
+            if (matchedGame) break;
+          }
+
+          if (!matchedGame) {
+            continue;
+          }
+
+          // Avoid creating duplicate active downloads for the same game.
+          const siblings = await storage.getDownloadsByGameId(matchedGame.id);
+          const hasActiveSibling = siblings.some(
+            (s) =>
+              s.status === "downloading" ||
+              s.status === "paused" ||
+              s.status === "unpacking" ||
+              s.status === "completed_pending_import"
+          );
+          if (hasActiveSibling) {
+            continue;
+          }
+
+          const added = await storage.addGameDownload({
+            gameId: matchedGame.id,
+            downloaderId: downloader.id,
+            downloadType: "torrent",
+            downloadHash: remoteDownload.id,
+            downloadTitle: remoteDownload.name,
+            status: "downloading",
+            fileSize: remoteDownload.size ?? null,
+          });
+
+          if (!added) {
+            continue;
+          }
+
+          linkedHashes.add(hashKey);
+          await storage.updateGameStatus(matchedGame.id, { status: "downloading" });
+
+          igdbLogger.info(
+            {
+              gameId: matchedGame.id,
+              downloadHash: remoteDownload.id,
+              downloadTitle: remoteDownload.name,
+            },
+            "Linked untracked download to wanted game"
+          );
+
+          notifyUser("downloadUpdate", matchedGame.id);
+        }
+      } catch (error) {
+        igdbLogger.error(
+          { error, downloaderId: downloader.id },
+          "Error syncing untracked downloads"
+        );
+      }
+    }
+  } catch (error) {
+    igdbLogger.error({ error }, "Error in syncUntrackedDownloads");
   }
 }
 

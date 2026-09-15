@@ -277,11 +277,11 @@ export class SABnzbdClient implements DownloaderClient {
       return { success: false, message: "Invalid SABnzbd response - missing version field" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      const redactedUrl = redactApiKey(this.getApiUrl("version"));
-      downloadersLogger.error({ error, url: redactedUrl }, "SABnzbd connection test failed");
+      const baseUrl = this.getBaseUrl();
+      downloadersLogger.error({ error, url: baseUrl }, "SABnzbd connection test failed");
       return {
         success: false,
-        message: `Failed to connect to SABnzbd at ${redactedUrl}: ${errorMessage}`,
+        message: `Failed to connect to SABnzbd at ${baseUrl}: ${errorMessage}`,
       };
     }
   }

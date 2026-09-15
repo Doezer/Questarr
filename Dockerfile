@@ -31,14 +31,41 @@ ENV PUID=1000
 ENV PGID=1000
 ENV UMASK=022
 
-# Install su-exec (for privilege dropping), shadow (for usermod/groupmod), and
-# Python + Apprise for local CLI notifications.
-RUN apk add --no-cache su-exec shadow python3 py3-pip && \
-    python3 -m pip install --no-cache-dir --break-system-packages apprise
+# Install su-exec (for privilege dropping), shadow (for usermod/groupmod), 7zip (Alpine's
+# own musl-native 7-Zip build for .zip/.7z/.iso/.tar/.gz/.bz2 — replaces the glibc-linked
+# 7za that the npm 7zip-bin package bundles, which can never execute on this musl-only base
+# image: there's no /lib64/ld-linux-x86-64.so.2 for it, so every run fails with ENOENT
+# regardless of the executable bit — see ArchiveService.ts), gcompat (glibc compatibility
+# shim, needed below to run RARLAB's official unrar binary), curl (to fetch that binary
+# with strict HTTPS enforcement, see below), and Python + Apprise for local CLI
+# notifications.
+RUN apk add --no-cache 7zip curl gcompat py3-pip python3 shadow su-exec && \
+    python3 -m pip install --no-cache-dir --break-system-packages apprise==1.9.4
+
+# Fetch RARLAB's official unrar binary for RAR extraction (legacy and RAR5, including
+# multi-volume sets). Alpine dropped its own `unrar` package because RARLAB's license
+# doesn't meet Alpine's packaging policy for main/community — the binary itself remains
+# free to use and redistribute, so we bundle it directly instead. Pinned to an exact
+# version for reproducible builds; gcompat above provides the glibc dynamic loader this
+# binary needs on musl. `--proto '=https'` makes curl refuse to follow a redirect to
+# anything but https, so a compromised or misconfigured redirect can't silently downgrade
+# this download to plaintext.
+# Checksum below was computed against rarlab.com by CodeRabbit's review sandbox (this
+# authoring environment has no network access to rarlab.com to verify it independently) —
+# double-check it against the vendor's published hash before relying on this in production.
+ARG RARLAB_UNRAR_VERSION=712
+ARG RARLAB_UNRAR_SHA256=630d9a9dd131367273667bee079ad103f469f1b7cdbc9b42a4f283cc2993bab2
+RUN curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/unrar.tar.gz \
+      "https://www.rarlab.com/rar/rarlinux-x64-${RARLAB_UNRAR_VERSION}.tar.gz" && \
+    echo "${RARLAB_UNRAR_SHA256}  /tmp/unrar.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/unrar.tar.gz -C /tmp && \
+    install -Dm755 /tmp/rar/unrar /usr/local/bin/unrar && \
+    rm -rf /tmp/unrar.tar.gz /tmp/rar
 
 # Reuse node_modules from base and prune dev dependencies (avoids a second npm ci)
 COPY --from=base /app/node_modules ./node_modules
 COPY package*.json ./
+
 RUN npm prune --omit=dev
 
 # Copy necessary files from build stage

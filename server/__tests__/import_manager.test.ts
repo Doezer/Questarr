@@ -743,6 +743,50 @@ describe("ImportManager", () => {
     execSpy.mockRestore();
   });
 
+  it("confirmImport: extraction failure (unpack=true) sets manual_review_required status and rejects — extraction runs inside the try block", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/safe/root" }));
+    archiveService.isArchive.mockReturnValue(true);
+    archiveService.extract.mockRejectedValue(new Error("archive is corrupt"));
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await expect(
+      manager.confirmImport("dl-1", {
+        strategy: "pc",
+        originalPath: "/downloads/broken.zip",
+        proposedPath: "/safe/root/PC/My Game",
+        needsReview: false,
+        transferMode: "move",
+        unpack: true,
+      })
+    ).rejects.toThrow("archive is corrupt");
+
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+      "dl-1",
+      "manual_review_required",
+      "archive is corrupt"
+    );
+    expect(storage.updateGameDownloadStatus).not.toHaveBeenCalledWith("dl-1", "error");
+  });
+
   // ─── extractRemoteHost edge cases (via resolveLocalPath → processImport) ────
 
   it("extractRemoteHost: URL with port → hostname extracted without port", async () => {
@@ -903,6 +947,49 @@ describe("ImportManager", () => {
     await manager.processImport("dl-1", "/remote/path");
 
     expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "manual_review_required");
+
+    planSpy.mockRestore();
+  });
+
+  it("processImport: needsReview with autoUnpack → cleans up the extracted processingPath", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue(makeImportConfig({ autoUnpack: true }));
+    pathService.translatePath.mockResolvedValue("/data/downloads/game.zip");
+    archiveService.isArchive.mockReturnValue(true);
+    archiveService.extract.mockResolvedValue(["/data/downloads/game.zip_extracted/game.exe"]);
+
+    const { PCImportStrategy } = await import("../services/ImportStrategies.js");
+    const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+      needsReview: true,
+      reviewReason: "Multiple files found, cannot determine primary",
+      originalPath: "/data/downloads/game.zip_extracted",
+      proposedPath: undefined,
+      strategy: "pc",
+    });
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await manager.processImport("dl-1", "/remote/path");
+
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "manual_review_required");
+    expect(fsMock.remove).toHaveBeenCalledWith("/data/downloads/game.zip_extracted");
 
     planSpy.mockRestore();
   });

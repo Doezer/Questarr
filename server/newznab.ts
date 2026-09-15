@@ -167,11 +167,15 @@ class NewznabClient {
         "searching newznab indexer"
       );
 
+      const sendsApiKey = indexerAllowsApiKey(indexer);
+      const requireHttps = sendsApiKey && url.protocol === "https:";
+
       const response = await safeFetch(url.toString(), {
         headers: {
           "User-Agent": "Questarr/1.0",
         },
         signal: AbortSignal.timeout(30000), // 30 second timeout
+        requireHttps,
       });
 
       if (!response.ok) {

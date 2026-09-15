@@ -112,11 +112,16 @@ export class TorznabClient {
     );
 
     try {
+      const originUrl = new URL(searchUrl);
+      const sendsApiKey = indexerAllowsApiKey(indexer);
+      const requireHttps = sendsApiKey && originUrl.protocol === "https:";
+
       const response = await safeFetch(searchUrl, {
         headers: {
           "User-Agent": "Questarr/1.0",
         },
         signal: AbortSignal.timeout(30000),
+        requireHttps,
       });
 
       if (!response.ok) {

@@ -180,6 +180,7 @@ describe("TorznabClient — download link rewriting", () => {
     const prowlarrIndexer = makeIndexer({
       url: "http://localhost:9696/5/api",
       apiKey: "prowlarr-api-key",
+      allowInsecureLan: true,
     });
     const prowlarrProxyUrlFromAlias =
       "http://127.0.0.1:9696/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTE%3D&apikey=prowlarr-api-key";
@@ -194,6 +195,25 @@ describe("TorznabClient — download link rewriting", () => {
     expect(rewritten.searchParams.get("link")).toBe(
       "aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTE="
     );
+  });
+
+  it("removes API key from existing HTTP Prowlarr proxy URL when policy disallows it", async () => {
+    const httpProxyIndexer = makeIndexer({
+      url: "http://localhost:9696/5/api",
+      apiKey: "prowlarr-api-key",
+      allowInsecureLan: false,
+    });
+    const prowlarrProxyUrlWithKey =
+      "http://127.0.0.1:9696/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbS8%3D&apikey=prowlarr-api-key";
+    mockFetchResponse(makeTorznabXml(prowlarrProxyUrlWithKey));
+
+    const result = await client.searchGames(httpProxyIndexer, { query: "game" });
+
+    const rewritten = new URL(result.items[0].link);
+    expect(rewritten.hostname).toBe("localhost");
+    expect(rewritten.pathname).toBe("/5/download");
+    expect(rewritten.searchParams.get("apikey")).toBeNull();
+    expect(rewritten.searchParams.get("link")).toBe("aHR0cHM6Ly9leGFtcGxlLmNvbS8=");
   });
 
   // Prowlarr builds its download links from the address the request arrived on, so its
@@ -308,6 +328,7 @@ describe("TorznabClient — download link rewriting", () => {
     const prowlarrIndexer = makeIndexer({
       url: "http://localhost:9696/prowlarr/5/api",
       apiKey: "prowlarr-api-key",
+      allowInsecureLan: true,
     });
     const prowlarrProxyUrlFromAlias =
       "http://127.0.0.1:9696/prowlarr/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTI%3D&apikey=prowlarr-api-key";

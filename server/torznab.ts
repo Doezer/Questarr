@@ -451,6 +451,9 @@ export class TorznabClient {
                 // Prowlarr already returned a proxy URL. Avoid double-wrapping when only
                 // the host form differs (localhost vs 127.0.0.1, a Docker service name vs
                 // the container IP it resolves to) by doing a host rewrite only.
+                if (!indexerAllowsApiKey(indexer)) {
+                  linkUrl.searchParams.delete("apikey");
+                }
                 linkUrl.protocol = indexerUrlObj.protocol;
                 linkUrl.host = indexerUrlObj.host;
                 // Assigning `host` without a port leaves the previous port in place, which

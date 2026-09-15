@@ -269,7 +269,8 @@ export class TorznabClient {
   }
 
   /**
-   * Build the search URL for a Torznab indexer
+   * Builds a Torznab search URL, omitting the API key when the indexer's transport
+   * policy forbids sending it.
    */
   private buildSearchUrl(indexer: Indexer, params: TorznabSearchParams): string {
     const url = this.buildApiUrl(indexer.url);
@@ -321,6 +322,12 @@ export class TorznabClient {
     return url.toString();
   }
 
+  /**
+   * Reads server identity fields from a Torznab caps response, omitting the API key
+   * when the indexer's transport policy forbids sending it.
+   *
+   * @throws When URL validation or the caps request fails.
+   */
   private async fetchServerInfo(indexer: Indexer): Promise<TorznabServerInfo> {
     const url = this.buildApiUrl(indexer.url);
     url.searchParams.set("t", "caps");
@@ -400,7 +407,8 @@ export class TorznabClient {
   }
 
   /**
-   * Parse individual Torznab item
+   * Normalizes one Torznab item and rewrites download links to the configured indexer.
+   * Generated Prowlarr proxy URLs include the API key only when transport policy permits it.
    */
   // XML parsing requires any due to dynamic structure
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

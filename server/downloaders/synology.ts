@@ -313,6 +313,12 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     this.getTaskApiDescriptor();
   }
 
+  /**
+   * Authenticates with Synology Download Station and stores the returned session ID.
+   *
+   * @param force - Whether to authenticate again when a session is already active.
+   * @throws When credentials are missing, forbidden by the transport policy, or rejected.
+   */
   private async authenticate(force = false): Promise<void> {
     if (this.sessionId && !force) {
       return;

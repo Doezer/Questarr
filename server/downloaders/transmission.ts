@@ -672,6 +672,12 @@ export class TransmissionClient implements DownloaderClient {
     return { seeders, leechers };
   }
 
+  /**
+   * Sends a Transmission RPC request and retries once with a server-provided session ID.
+   *
+   * @throws When configured credentials are not permitted by the transport policy or
+   * the RPC request fails.
+   */
   // Transmission API response structure
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async makeRequest(method: string, arguments_: any): Promise<any> {

@@ -1287,6 +1287,13 @@ export class QBittorrentClient implements DownloaderClient {
     return (await response.text()).trim();
   }
 
+  /**
+   * Authenticates with qBittorrent and stores its session cookie when one is returned.
+   *
+   * @param force - Whether to authenticate again when a session cookie already exists.
+   * @throws When configured credentials are not permitted by the transport policy or
+   * the authentication request fails.
+   */
   private async authenticate(force = false): Promise<void> {
     if (this.cookie && !force) {
       return; // Already authenticated

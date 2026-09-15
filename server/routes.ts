@@ -2953,6 +2953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         categories: categories || [],
         rssEnabled: rssEnabled ?? true,
         autoSearchEnabled: autoSearchEnabled ?? true,
+        allowInsecureLan: false,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -3103,6 +3104,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           postImportCategory: postImportCategory || null,
           settings: settings || null,
           allowSelfSignedCertificate: allowSelfSignedCertificate ?? false,
+          allowInsecureLan: false,
           createdAt: new Date(),
           updatedAt: new Date(),
         };

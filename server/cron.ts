@@ -1000,7 +1000,19 @@ export async function syncUntrackedDownloads(): Promise<void> {
             }
           }
 
-          if (matchingGames.length !== 1) {
+          if (matchingGames.length === 0) {
+            continue;
+          }
+
+          if (matchingGames.length > 1) {
+            igdbLogger.warn(
+              {
+                downloadHash: remoteDownload.id,
+                downloadTitle: remoteDownload.name,
+                matchingGameIds: matchingGames.map((g) => g.id),
+              },
+              "Untracked download matches multiple wanted games; skipping to avoid ambiguous assignment"
+            );
             continue;
           }
 
@@ -1008,12 +1020,8 @@ export async function syncUntrackedDownloads(): Promise<void> {
 
           // Avoid creating duplicate active downloads for the same game.
           const siblings = await storage.getDownloadsByGameId(matchedGame.id);
-          const hasActiveSibling = siblings.some(
-            (s) =>
-              s.status === "downloading" ||
-              s.status === "paused" ||
-              s.status === "unpacking" ||
-              s.status === "completed_pending_import"
+          const hasActiveSibling = siblings.some((s) =>
+            RECOVERABLE_STATUSES.has(s.status)
           );
           if (hasActiveSibling) {
             continue;

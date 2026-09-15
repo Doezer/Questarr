@@ -1,5 +1,5 @@
 import { logger } from "./logger.js";
-import { db } from "./db.js";
+import { db, pingDatabase } from "./db.js";
 import { sql } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
@@ -248,10 +248,7 @@ export async function ensureDatabase(): Promise<void> {
   try {
     logger.info(`Checking database connection...`);
 
-    const result = db.get(sql`SELECT 1`);
-    if (!result) {
-      throw new Error("Database connection test failed");
-    }
+    await pingDatabase();
     logger.info("Database connection successful");
 
     await runMigrations();

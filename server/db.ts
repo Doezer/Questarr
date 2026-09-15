@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { sql } from "drizzle-orm";
 import * as schema from "../shared/schema.js";
 import path from "path";
 import fs from "fs";
@@ -57,3 +58,17 @@ sqlite.pragma("foreign_keys = ON");
 // Create the drizzle database instance
 export const db = drizzle(sqlite, { schema });
 export const pool = sqlite;
+
+/**
+ * Verify the database is reachable.
+ *
+ * Callers must not reach for a driver-specific escape hatch (better-sqlite3's
+ * `.get()` has no node-postgres equivalent), so the liveness check lives here
+ * behind one name.
+ */
+export async function pingDatabase(): Promise<void> {
+  const result = db.get(sql`SELECT 1`);
+  if (!result) {
+    throw new Error("Database connection test failed");
+  }
+}

@@ -4,8 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { igdbClient } from "./igdb.js";
 import type { IGDBGame } from "./igdb.js";
-import { db } from "./db.js";
-import { sql } from "drizzle-orm";
+import { pingDatabase } from "./db.js";
 import {
   insertGameSchema,
   insertGameDownloadSchema,
@@ -1293,7 +1292,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Check database connectivity
     try {
-      await db.get(sql`SELECT 1`);
+      await pingDatabase();
     } catch (error) {
       routesLogger.error({ error }, "database health check failed");
       isHealthy = false;

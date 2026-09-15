@@ -156,7 +156,7 @@
     "@types/supertest": "^7.2.1",
     "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "5.0.0",
     "@vitest/ui": "4.1.11",
     "autoprefixer": "10.5.5",
     "cross-env": "^10.1.0",

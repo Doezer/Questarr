@@ -133,6 +133,7 @@
     "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@eslint/js": "^10.0.1",
     "@lizenz/checker": "0.0.2",
     "@playwright/test": "^1.62.0",

@@ -9,6 +9,7 @@ import {
   buildBasicAuthHeader,
   fixNzbUrlEncoding,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 
 interface NZBGetListResult {
@@ -599,5 +600,9 @@ export class NZBGetClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Failed to get NZBGet free space");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 }

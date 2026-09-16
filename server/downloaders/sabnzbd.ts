@@ -9,6 +9,7 @@ import {
   fixNzbUrlEncoding,
   logDownloaderDebugResponse,
   stripTrailingPathSeparators,
+  findTorrentByTagNull,
 } from "./utils.js";
 
 /**
@@ -751,5 +752,9 @@ export class SABnzbdClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Failed to get SABnzbd free space");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 }

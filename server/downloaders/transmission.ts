@@ -14,6 +14,7 @@ import {
   assertCredentialsAllowed,
   buildBasicAuthHeader,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 
 interface TransmissionTorrent {
@@ -484,6 +485,10 @@ export class TransmissionClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Error getting free space from Transmission");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 
   /** Maps a Transmission torrent payload to Questarr's normalized download status. */

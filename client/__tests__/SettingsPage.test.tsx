@@ -367,6 +367,85 @@ describe("SettingsPage", () => {
     });
   });
 
+  it("clamps IGDB rate limit input to minimum 1 when a lower value is entered", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+
+    const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
+    fireEvent.change(rateLimitInput, { target: { value: "0" } });
+    expect(rateLimitInput).toHaveValue(1);
+  });
+
+  it("clamps IGDB rate limit input to maximum 4 when a higher value is entered", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+
+    const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
+    fireEvent.change(rateLimitInput, { target: { value: "5" } });
+    expect(rateLimitInput).toHaveValue(4);
+  });
+
+  it("defaults IGDB rate limit to 3 when non-numeric input is entered", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+
+    const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
+    fireEvent.change(rateLimitInput, { target: { value: "abc" } });
+    expect(rateLimitInput).toHaveValue(3);
+  });
+
+  it("clamps an out-of-range persisted IGDB rate limit when loading settings", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/api/settings")) {
+        return {
+          ok: true,
+          json: async () => ({ ...defaultUserSettings, igdbRateLimitPerSecond: 10 }),
+        } as Response;
+      }
+      if (url.includes("/api/config")) {
+        return { ok: true, json: async () => defaultConfig } as Response;
+      }
+      if (url.includes("/api/blacklist")) {
+        return { ok: true, json: async () => [] } as Response;
+      }
+      if (url.includes("/api/api-keys")) {
+        return { ok: true, json: async () => [] } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    }) as typeof fetch;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+
+    const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
+    expect(rateLimitInput).toHaveValue(4);
+  });
+
   it("switches to the System tab and toggles downloader debug logging", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     vi.mocked(apiRequest).mockImplementation(async (method: string, url: string) => {

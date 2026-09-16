@@ -639,41 +639,51 @@ describe("TorznabClient — HTTP API-key policy", () => {
     );
   });
 
-  it("omits the API key from a search request to an HTTP indexer without allowInsecureLan", async () => {
-    const indexer = makeIndexer({ url: "http://indexer.example.com/api", allowInsecureLan: false });
+  it.each([
+    [
+      "omits the API key from a search request to an HTTP indexer without allowInsecureLan",
+      { url: "http://indexer.example.com/api", allowInsecureLan: false },
+      false,
+    ],
+    [
+      "includes the API key in a search request to an HTTP indexer with allowInsecureLan",
+      { url: "http://indexer.example.com/api", allowInsecureLan: true },
+      true,
+    ],
+    [
+      "includes the API key in a search request to an HTTPS indexer",
+      { url: "https://indexer.example.com/api", allowInsecureLan: false },
+      true,
+    ],
+  ] as const)("%s", async (_name, overrides, expectApiKey) => {
+    const indexer = makeIndexer(overrides);
 
     await client.searchGames(indexer, { query: "game" }).catch(() => {});
 
     const [url] = mockSafeFetch.mock.calls[0] as [string];
-    expect(new URL(url).searchParams.has("apikey")).toBe(false);
+    if (expectApiKey) {
+      expect(new URL(url).searchParams.get("apikey")).toBe("testkey");
+    } else {
+      expect(new URL(url).searchParams.has("apikey")).toBe(false);
+    }
   });
 
-  it("includes the API key in a search request to an HTTP indexer with allowInsecureLan", async () => {
-    const indexer = makeIndexer({ url: "http://indexer.example.com/api", allowInsecureLan: true });
-
-    await client.searchGames(indexer, { query: "game" }).catch(() => {});
-
-    const [url] = mockSafeFetch.mock.calls[0] as [string];
-    expect(new URL(url).searchParams.get("apikey")).toBe("testkey");
-  });
-
-  it("includes the API key in a search request to an HTTPS indexer", async () => {
-    const indexer = makeIndexer({
-      url: "https://indexer.example.com/api",
-      allowInsecureLan: false,
-    });
-
-    await client.searchGames(indexer, { query: "game" }).catch(() => {});
-
-    const [url] = mockSafeFetch.mock.calls[0] as [string];
-    expect(new URL(url).searchParams.get("apikey")).toBe("testkey");
-  });
-
-  it("omits the API key from a Prowlarr proxy URL when the indexer URL is HTTP without allowInsecureLan", async () => {
+  it.each([
+    [
+      "omits the API key from a Prowlarr proxy URL when the indexer URL is HTTP without allowInsecureLan",
+      "http://prowlarr:9696/5/api",
+      false,
+    ],
+    [
+      "includes the API key in a Prowlarr proxy URL when the indexer URL is HTTPS",
+      "https://prowlarr:9696/5/api",
+      true,
+    ],
+  ] as const)("%s", async (_name, indexerUrl, expectApiKey) => {
     const rawExternalUrl = "https://tracker.example/torrents/download/42.torrent";
     mockFetchResponse(makeTorznabXml(rawExternalUrl));
     const indexer = makeIndexer({
-      url: "http://prowlarr:9696/5/api",
+      url: indexerUrl,
       apiKey: "prowlarr-key",
       allowInsecureLan: false,
     });
@@ -681,21 +691,10 @@ describe("TorznabClient — HTTP API-key policy", () => {
     const result = await client.searchGames(indexer, { query: "game" });
 
     const link = new URL(result.items[0].link);
-    expect(link.searchParams.has("apikey")).toBe(false);
-  });
-
-  it("includes the API key in a Prowlarr proxy URL when the indexer URL is HTTPS", async () => {
-    const rawExternalUrl = "https://tracker.example/torrents/download/42.torrent";
-    mockFetchResponse(makeTorznabXml(rawExternalUrl));
-    const indexer = makeIndexer({
-      url: "https://prowlarr:9696/5/api",
-      apiKey: "prowlarr-key",
-      allowInsecureLan: false,
-    });
-
-    const result = await client.searchGames(indexer, { query: "game" });
-
-    const link = new URL(result.items[0].link);
-    expect(link.searchParams.get("apikey")).toBe("prowlarr-key");
+    if (expectApiKey) {
+      expect(link.searchParams.get("apikey")).toBe("prowlarr-key");
+    } else {
+      expect(link.searchParams.has("apikey")).toBe(false);
+    }
   });
 });

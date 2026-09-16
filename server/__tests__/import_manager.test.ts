@@ -24,7 +24,7 @@ vi.mock("../downloaders.js", () => ({
 }));
 
 import { ImportManager } from "../services/ImportManager.js";
-import { makeImportConfig } from "./helpers/import-test-helpers.js";
+import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
 describe("ImportManager", () => {
   const storage = {
@@ -796,41 +796,32 @@ describe("ImportManager", () => {
   // what it's actually asserting (SonarCloud flagged the un-factored version as
   // duplicated new code — see c9aabda for the same fix applied to an earlier
   // near-identical test group in this file).
-  function mockRarDownloadForProcessImport(): void {
+  function mockRarDownload(
+    options: {
+      downloadTitle?: string;
+      gameTitle?: string;
+      libraryRoot?: string;
+      translatedPath?: string;
+    } = {}
+  ): void {
     storage.getGameDownload.mockResolvedValue({
       id: "dl-1",
       gameId: "g1",
       downloaderId: "d1",
-      downloadTitle: "Game.rar",
+      downloadTitle: options.downloadTitle ?? "",
     });
-    storage.getGame.mockResolvedValue({
-      id: "g1",
-      title: "Archive Game",
-      userId: "u1",
-      status: "wanted",
-      platforms: [6],
-    });
-    storage.getImportConfig.mockResolvedValue({ ...baseConfig, autoUnpack: true });
+    storage.getGame.mockResolvedValue(
+      makeGame({ title: options.gameTitle ?? "Archive Game", platforms: [6] })
+    );
+    storage.getImportConfig.mockResolvedValue(
+      options.libraryRoot
+        ? makeImportConfig({ libraryRoot: options.libraryRoot })
+        : { ...baseConfig, autoUnpack: true }
+    );
     archiveService.isArchive.mockReturnValue(true);
-    pathService.translatePath.mockResolvedValue("/data/downloads/file.rar");
-  }
-
-  function mockRarDownloadForConfirmImport(): void {
-    storage.getGameDownload.mockResolvedValue({
-      id: "dl-1",
-      gameId: "g1",
-      downloaderId: "d1",
-      downloadTitle: "",
-    });
-    storage.getGame.mockResolvedValue({
-      id: "g1",
-      title: "My Game",
-      userId: "u1",
-      status: "wanted",
-      platforms: [6],
-    });
-    storage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/safe/root" }));
-    archiveService.isArchive.mockReturnValue(true);
+    if (options.translatedPath) {
+      pathService.translatePath.mockResolvedValue(options.translatedPath);
+    }
   }
 
   function createManager(): ImportManager {
@@ -844,7 +835,7 @@ describe("ImportManager", () => {
 
   it("processImport: ArchivePasswordRequiredError → manual review with the marker-prefixed message", async () => {
     const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
-    mockRarDownloadForProcessImport();
+    mockRarDownload({ downloadTitle: "Game.rar", translatedPath: "/data/downloads/file.rar" });
     archiveService.extract.mockRejectedValue(
       new ArchivePasswordRequiredError(
         "This archive is password-protected — a password is required to extract it."
@@ -862,7 +853,7 @@ describe("ImportManager", () => {
   });
 
   it("processImport: passes the given password through to archiveService.extract", async () => {
-    mockRarDownloadForProcessImport();
+    mockRarDownload({ downloadTitle: "Game.rar", translatedPath: "/data/downloads/file.rar" });
     archiveService.extract.mockResolvedValue(["/data/downloads/file_extracted/game.rom"]);
 
     await createManager().processImport("dl-1", "/remote/path", "hunter2");
@@ -875,7 +866,7 @@ describe("ImportManager", () => {
   });
 
   it("confirmImport: passes overridePlan.password through to archiveService.extract when unpack=true", async () => {
-    mockRarDownloadForConfirmImport();
+    mockRarDownload({ gameTitle: "My Game", libraryRoot: "/safe/root" });
     archiveService.extract.mockResolvedValue(["/downloads/game.rom"]);
 
     await createManager().confirmImport("dl-1", {
@@ -897,7 +888,7 @@ describe("ImportManager", () => {
 
   it("confirmImport: wrong retry password still surfaces as manual_review_required with the marker prefix", async () => {
     const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
-    mockRarDownloadForConfirmImport();
+    mockRarDownload({ gameTitle: "My Game", libraryRoot: "/safe/root" });
     archiveService.extract.mockRejectedValue(
       new ArchivePasswordRequiredError("The provided password was rejected — it may be incorrect.")
     );

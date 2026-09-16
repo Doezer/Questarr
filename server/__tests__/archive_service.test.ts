@@ -416,46 +416,35 @@ describe("ArchiveService", () => {
       expect(vi.mocked(execFile).mock.calls).toHaveLength(3);
     });
 
-    it("passes a given password to unrar via -p<password> on both test and extract", async () => {
-      const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
-      readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
-
-      await service.extract("/downloads/game.rar", "/tmp/rar-out", "hunter2"); // NOSONAR - mocked fs
-
-      const calls = vi.mocked(execFile).mock.calls;
-      expect(calls[0][1]).toEqual(["t", "-y", "-phunter2", "--", "/downloads/game.rar"]);
-      expect(calls[1][1]).toEqual([
-        "x",
-        "-idq",
-        "-y",
-        "-phunter2",
-        "--",
+    it.each([
+      [
+        "unrar",
         "/downloads/game.rar",
-        "/tmp/rar-out" + path.sep,
-      ]);
-    });
-
-    it("passes a given password to 7-Zip via -p<password> on both test and extract", async () => {
-      const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
-      readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
-
-      await service.extract("/downloads/game.zip", "/tmp/out", "hunter2"); // NOSONAR - mocked fs
-
-      const calls = vi.mocked(execFile).mock.calls;
-      expect(calls[0][1]).toEqual(["t", "-y", "-phunter2", "--", "/downloads/game.zip"]);
-      expect(calls[1][1]).toEqual([
-        "x",
-        "-bso0",
-        "-bsp0",
-        "-y",
-        "-phunter2",
-        "-o/tmp/out",
-        "--",
+        "/tmp/rar-out",
+        ["t", "-y", "-phunter2", "--", "/downloads/game.rar"],
+        ["x", "-idq", "-y", "-phunter2", "--", "/downloads/game.rar", "/tmp/rar-out" + path.sep],
+      ],
+      [
+        "7-Zip",
         "/downloads/game.zip",
-      ]);
-    });
+        "/tmp/out",
+        ["t", "-y", "-phunter2", "--", "/downloads/game.zip"],
+        ["x", "-bso0", "-bsp0", "-y", "-phunter2", "-o/tmp/out", "--", "/downloads/game.zip"],
+      ],
+    ])(
+      "passes a given password to %s via -p<password> on both test and extract",
+      async (_tool, filePath, outDir, expectedTestArgs, expectedExtractArgs) => {
+        const service = await freshArchiveService();
+        mockExecAlways(null, "", "");
+        readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
+
+        await service.extract(filePath, outDir, "hunter2"); // NOSONAR - mocked fs
+
+        const calls = vi.mocked(execFile).mock.calls;
+        expect(calls[0][1]).toEqual(expectedTestArgs);
+        expect(calls[1][1]).toEqual(expectedExtractArgs);
+      }
+    );
 
     it("reports a rejected-password message distinct from the initial 'required' message on a wrong retry password", async () => {
       const service = await freshArchiveService();

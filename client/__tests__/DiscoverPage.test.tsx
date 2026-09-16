@@ -105,9 +105,9 @@ describe("DiscoverPage", () => {
     vi.mocked(apiRequest).mockImplementation((method: string, url: string) => {
       // Specifically mock the includeHidden=true route again
       if (url.includes("/api/games?includeHidden=true")) {
-        return Promise.resolve({ json: async () => games }) as any;
+        return Promise.resolve({ json: async () => games } as Response);
       }
-      return Promise.resolve({ json: async () => ({ configured: true }) }) as any;
+      return Promise.resolve({ json: async () => ({ configured: true }) } as Response);
     });
 
     render(
@@ -142,9 +142,9 @@ describe("DiscoverPage", () => {
     }) as typeof fetch;
     vi.mocked(apiRequest).mockImplementation((_method: string, url: string) => {
       if (url.includes("/api/igdb/platforms")) {
-        return Promise.resolve({ json: async () => platforms }) as any;
+        return Promise.resolve({ json: async () => platforms } as Response);
       }
-      return Promise.resolve({ json: async () => [] }) as any;
+      return Promise.resolve({ json: async () => [] } as Response);
     });
 
     render(

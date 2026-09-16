@@ -57,7 +57,9 @@ export default function ImportSettings() {
   const { data: userSettings } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
   });
-  const { data: igdbPlatforms = [] } = useQuery<{ id: number; name: string }[]>({
+  const { data: igdbPlatforms = [], isLoading: platformsLoading } = useQuery<
+    { id: number; name: string }[]
+  >({
     queryKey: ["/api/igdb/platforms"],
   });
   const selectedPlatformNames = resolveSelectedPlatformNames(
@@ -67,6 +69,23 @@ export default function ImportSettings() {
   const selectedPlatformLabels = igdbPlatforms
     .filter((platform) => selectedPlatformNames.has(platform.name))
     .map((platform) => platform.name);
+  // `selectedPlatformNames` returns every platform for an empty selection, so
+  // its size cannot tell an unrestricted selection from a restricted one. Read
+  // the restriction straight off the stored ids; otherwise the summary below
+  // calls an active selection unrestricted, and an unrestricted one
+  // "Eligible: <every platform>".
+  const restrictedPlatformIds = Array.isArray(userSettings?.importPlatformIds)
+    ? userSettings.importPlatformIds
+    : [];
+  // Platform ids can outlive an IGDB entry, and the list may still be loading,
+  // so an active restriction does not always come with names to show.
+  const platformEligibilitySummary = (() => {
+    if (restrictedPlatformIds.length === 0) return "All platforms are currently eligible.";
+    if (selectedPlatformLabels.length > 0) return `Eligible: ${selectedPlatformLabels.join(", ")}`;
+    return platformsLoading
+      ? "Loading eligible platforms..."
+      : "Eligible platform names unavailable.";
+  })();
   // Local State
   const [localConfig, setLocalConfig] = useState<ImportConfig | null>(null);
   const [libraryBrowserOpen, setLibraryBrowserOpen] = useState(false);
@@ -309,9 +328,7 @@ export default function ImportSettings() {
                         Leave that list empty to make all platforms eligible.
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {selectedPlatformLabels.length === 0
-                          ? "All platforms are currently eligible."
-                          : `Eligible: ${selectedPlatformLabels.join(", ")}`}
+                        {platformEligibilitySummary}
                       </p>
                     </div>
 

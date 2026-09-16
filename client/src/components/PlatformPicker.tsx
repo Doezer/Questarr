@@ -4,8 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { type IgdbPlatform } from "@shared/platforms";
-
-type AppConfig = { igdb?: { configured?: boolean } };
+import { type Config } from "@shared/schema";
 
 export interface PlatformPickerProps {
   selectedIds: number[];
@@ -34,7 +33,7 @@ export function PlatformPicker({
     queryKey: ["/api/igdb/platforms"],
   });
   const igdbPlatforms = Array.isArray(igdbPlatformsData) ? igdbPlatformsData : [];
-  const { data: appConfig } = useQuery<AppConfig>({
+  const { data: appConfig } = useQuery<Config>({
     queryKey: ["/api/config"],
   });
 
@@ -77,7 +76,7 @@ export function PlatformPicker({
         )}
         {!platformsLoading && !platformsError && igdbPlatforms.length === 0 && (
           <p className="text-xs text-muted-foreground">
-            {appConfig?.igdb?.configured
+            {appConfig?.igdb.configured
               ? "IGDB returned no platforms. Try again in a few seconds."
               : "IGDB is not configured yet — platform filters unavailable."}
           </p>

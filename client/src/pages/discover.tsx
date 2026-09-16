@@ -3,9 +3,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Settings2, AlertCircle } from "lucide-react";
 import GameCarouselSection from "@/components/GameCarouselSection";
-import { type Game, type Config, type UserSettings } from "@shared/schema";
 import { visibleIgdbPlatforms } from "@shared/platforms";
-import { type GameStatus } from "@/components/StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import { mapGameToInsertGame } from "@/lib/utils";
@@ -26,6 +24,8 @@ import RssFeedList from "@/components/RssFeedList";
 import RssSettings from "@/components/RssSettings";
 import { Rss } from "lucide-react";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
+import { type Game, type Config, type UserSettings } from "@shared/schema";
+import { type GameStatus } from "@/components/StatusBadge";
 
 const EMPTY_GAMES: Game[] = [];
 

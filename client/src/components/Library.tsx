@@ -116,9 +116,8 @@ export default function Library() {
     errorMessage: "Failed to update game visibility",
   });
 
-  // Platforms the user chose to hide from the filter dropdown (Settings →
-  // Appearance → Hidden Platforms). They stay in the library and in filtering;
-  // only the dropdown list is narrowed.
+  // The platforms the user selected in Settings → Platforms. Only these appear
+  // in the filter dropdown; games on other platforms stay in the library.
   const { data: userSettings } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
   });
@@ -158,10 +157,12 @@ export default function Library() {
     const filtered = uniquePlatforms.filter((platform) =>
       isPlatformNameSelected(platform, allowed, userSettings?.importPlatformIds)
     );
-    // If the platform list has not loaded (or failed), `allowed` is empty and
-    // every platform would be hidden, blanking the dropdown. Fall back to the
-    // unfiltered list, matching the Discover dropdown.
-    return filtered.length > 0 ? filtered : uniquePlatforms;
+    // An empty `allowed` means one of two things: while the IGDB platform list
+    // is still loading (or errored) every name is filtered out and the dropdown
+    // would blank, so fall back to the unfiltered list. Once the list is present
+    // an empty `filtered` is a genuine zero-overlap selection — return it, or
+    // the dropdown would offer platforms the user did not select.
+    return igdbPlatforms.length === 0 ? uniquePlatforms : filtered;
   }, [uniquePlatforms, igdbPlatforms, userSettings?.importPlatformIds]);
 
   // The Platforms setting can drop the platform currently being filtered on.

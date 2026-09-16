@@ -5,7 +5,7 @@ import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
-import Library from "../src/components/Library";
+import Library from "@/components/Library";
 import { createTestQueryClient } from "./test-utils";
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -146,5 +146,17 @@ describe("Library platform filter visibility", () => {
 
     expect(await screen.findByText("Nintendo Switch")).toBeInTheDocument();
     expect(screen.getByText("PlayStation 5")).toBeInTheDocument();
+  });
+
+  it("offers no platforms when the selection matches nothing in the library", async () => {
+    // Mac (14) is a valid IGDB id that no game in this library uses. The
+    // selection resolves once the platform list loads, so the empty result is
+    // genuine: the dropdown must not fall back to offering unselected
+    // platforms just because the intersection came out empty.
+    await renderLibrary({ importPlatformIds: [14] });
+
+    await waitFor(() => expect(screen.queryByText("Nintendo Switch")).not.toBeInTheDocument());
+    expect(screen.queryByText("PC (Microsoft Windows)")).not.toBeInTheDocument();
+    expect(screen.queryByText("PlayStation 5")).not.toBeInTheDocument();
   });
 });

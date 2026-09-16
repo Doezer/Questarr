@@ -135,6 +135,36 @@ describe("PlatformsSettings", () => {
     expect(screen.getByText("No platforms match your search.")).toBeInTheDocument();
   });
 
+  it("drops a malformed stored id so saving still passes validation", async () => {
+    // A hand-edited or legacy row can hold a non-numeric member. Preserving it
+    // would send an invalid payload and fail schema validation on every save.
+    mockFetch({ importPlatformIds: [130, "bad", 999] });
+    renderSection();
+
+    await waitFor(() => expect(screen.getByLabelText("Nintendo Switch")).toBeChecked());
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() =>
+      expect(apiRequestMock).toHaveBeenCalledWith("PATCH", "/api/settings", {
+        importPlatformIds: [130, 999],
+      })
+    );
+  });
+
+  it("does not pre-check zero or negative persisted ids", async () => {
+    mockFetch({ importPlatformIds: [0, -6, 130] });
+    renderSection();
+
+    await waitFor(() => expect(screen.getByLabelText("Nintendo Switch")).toBeChecked());
+    // 0 and -6 are not valid IGDB ids and must not surface as selections.
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() =>
+      expect(apiRequestMock).toHaveBeenCalledWith("PATCH", "/api/settings", {
+        importPlatformIds: [130],
+      })
+    );
+  });
+
   it("toggles a platform checkbox", async () => {
     mockFetch();
     renderSection();

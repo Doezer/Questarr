@@ -19,6 +19,17 @@ import { PlatformPicker } from "./PlatformPicker";
  * Checked platforms are the ones you use — everything unchecked is hidden.
  * Leaving the list empty means "no restriction" and shows every platform.
  */
+
+/**
+ * The persisted shape is `z.array(z.number().int().min(1))`. The settings API
+ * returns stored JSON without revalidating it, so a hand-edited or legacy row
+ * can hold a string, zero, a negative, or an unsafe integer. Saving such a
+ * value back fails server validation, locking the user out of saving.
+ */
+function isSelectablePlatformId(id: unknown): id is number {
+  return typeof id === "number" && Number.isSafeInteger(id) && id > 0;
+}
+
 export default function PlatformsSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -44,7 +55,7 @@ export default function PlatformsSettings() {
   useEffect(() => {
     if (loadedRef.current || !settings || igdbPlatforms.length === 0) return;
     const saved = settings.importPlatformIds;
-    setSelectedIds(Array.isArray(saved) ? saved.filter((id) => typeof id === "number") : []);
+    setSelectedIds(Array.isArray(saved) ? saved.filter(isSelectablePlatformId) : []);
     loadedRef.current = true;
   }, [settings, igdbPlatforms]);
 
@@ -72,9 +83,10 @@ export default function PlatformsSettings() {
     const knownIds = new Set(igdbPlatforms.map((p) => p.id));
     const selectedKnown = selectedIds.filter((id) => knownIds.has(id));
     // Keep any stored id IGDB no longer reports, so an upstream removal can't
-    // silently widen the selection.
+    // silently widen the selection. Malformed members are dropped rather than
+    // preserved: sending one back would fail schema validation on every save.
     const stored = Array.isArray(settings.importPlatformIds) ? settings.importPlatformIds : [];
-    const preserved = stored.filter((id) => !knownIds.has(id));
+    const preserved = stored.filter((id) => isSelectablePlatformId(id) && !knownIds.has(id));
     updateSettingsMutation.mutate(
       [...new Set([...preserved, ...selectedKnown])].sort((a, b) => a - b)
     );

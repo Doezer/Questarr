@@ -353,6 +353,49 @@ export class ImportManager {
     }
   }
 
+  private async flagNeedsReview(
+    downloadId: string,
+    game: { title: string },
+    plan: ImportReview,
+    processingPath: string,
+    localPath: string
+  ): Promise<void> {
+    logger.info(
+      { gameTitle: game.title, reviewReason: plan.reviewReason },
+      "[ImportManager] Manual review required"
+    );
+    await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+    if (processingPath !== localPath) {
+      await fs.remove(processingPath).catch(() => undefined);
+    }
+  }
+
+  private async autoDeleteIfConfigured(
+    downloadId: string,
+    download: NonNullable<Awaited<ReturnType<IStorage["getGameDownload"]>>>,
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    config: Awaited<ReturnType<IStorage["getImportConfig"]>>
+  ): Promise<void> {
+    if (
+      !config.autoDeleteAfterImport ||
+      (config.transferMode !== "copy" && config.transferMode !== "move")
+    ) {
+      return;
+    }
+    try {
+      await this.performAutoDelete(downloadId, download, game);
+    } catch (autoDeleteErr) {
+      // The import itself already succeeded and was finalized (status "imported", library
+      // path set) — a failure here must not fall through to the outer catch, which would
+      // demote the download back to manual_review_required and risk a duplicate transfer
+      // on retry.
+      logger.error(
+        { err: autoDeleteErr, downloadId },
+        "[ImportManager] Auto-delete after import failed unexpectedly"
+      );
+    }
+  }
+
   async processImport(
     downloadId: string,
     remoteDownloadPath: string,
@@ -444,14 +487,7 @@ export class ImportManager {
       );
 
       if (plan.needsReview) {
-        logger.info(
-          { gameTitle: game.title, reviewReason: plan.reviewReason },
-          "[ImportManager] Manual review required"
-        );
-        await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
-        if (processingPath !== localPath) {
-          await fs.remove(processingPath).catch(() => undefined);
-        }
+        await this.flagNeedsReview(downloadId, game, plan, processingPath, localPath);
         return;
       }
 
@@ -463,25 +499,7 @@ export class ImportManager {
       }
 
       await this.finalizeImport(downloadId, game, result.destDir);
-
-      if (
-        config.autoDeleteAfterImport &&
-        (config.transferMode === "copy" || config.transferMode === "move")
-      ) {
-        try {
-          await this.performAutoDelete(downloadId, download, game);
-        } catch (autoDeleteErr) {
-          // The import itself already succeeded and was finalized (status
-          // "imported", library path set) — a failure here must not fall
-          // through to the outer catch, which would demote the download
-          // back to manual_review_required and risk a duplicate transfer
-          // on retry.
-          logger.error(
-            { err: autoDeleteErr, downloadId },
-            "[ImportManager] Auto-delete after import failed unexpectedly"
-          );
-        }
-      }
+      await this.autoDeleteIfConfigured(downloadId, download, game, config);
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] Import failed");
       if (processingPath && localPath && processingPath !== localPath) {

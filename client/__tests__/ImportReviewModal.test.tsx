@@ -1,16 +1,26 @@
 /** @vitest-environment jsdom */
 import React from "react";
 import "@testing-library/jest-dom";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ImportReviewModal from "../src/components/ImportReviewModal";
 
-const { mockInvalidateQueries, mockToast, mockFileBrowser } = vi.hoisted(() => ({
+const { mockInvalidateQueries, mockToast, mockFileBrowser, mockApiRequest } = vi.hoisted(() => ({
   mockInvalidateQueries: vi.fn(),
   mockToast: vi.fn(),
   mockFileBrowser: vi.fn(),
+  mockApiRequest: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/queryClient", () => ({
+  apiRequest: mockApiRequest,
+}));
+
+// Real react-query's useMutation wraps mutationFn in an internal cache/state machine that
+// makes onSuccess/onError hard to observe synchronously in a test. This mock instead runs
+// mutationFn (and, on rejection, onError; on success, onSuccess) directly, so a test can
+// fire the mutation and await the same options.mutationFn/onError the component wired up —
+// exercising the same POST-body and toast-title logic actual use, without a QueryClient.
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-query")>();
   return {
@@ -20,8 +30,17 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
       isLoading: false,
       error: null,
     }),
-    useMutation: () => ({
-      mutate: vi.fn(),
+    useMutation: (options: {
+      mutationFn: () => Promise<unknown>;
+      onSuccess?: () => void;
+      onError?: (error: unknown) => void;
+    }) => ({
+      mutate: () => {
+        options
+          .mutationFn()
+          .then(() => options.onSuccess?.())
+          .catch((error: unknown) => options.onError?.(error));
+      },
       isPending: false,
     }),
     useQueryClient: () => ({
@@ -115,6 +134,77 @@ describe("ImportReviewModal", () => {
 
       expect(screen.queryByText("Password Required")).not.toBeInTheDocument();
       expect(screen.queryByLabelText(/Archive Password/)).not.toBeInTheDocument();
+    });
+
+    it("submits the entered password and unpack:true when confirming", async () => {
+      render(
+        <ImportReviewModal
+          open
+          onOpenChange={vi.fn()}
+          downloadId="download-1"
+          downloadTitle="Encrypted.rar"
+          passwordRequired
+        />
+      );
+
+      // Destination defaults to the bare library root, which the component's own
+      // guard rejects ("must be a subfolder") — point it at a subfolder instead so
+      // that guard doesn't short-circuit before the password path is exercised.
+      fireEvent.change(screen.getByLabelText("Destination Path"), {
+        target: { value: "/games/library/PC/Encrypted" },
+      });
+      fireEvent.change(screen.getByLabelText("Archive Password"), {
+        target: { value: "hunter2" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+
+      await waitFor(() =>
+        expect(mockApiRequest).toHaveBeenCalledWith(
+          "POST",
+          "/api/imports/download-1/confirm",
+          expect.objectContaining({ unpack: true, password: "hunter2" })
+        )
+      );
+      await waitFor(() =>
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Import Confirmed" })
+        )
+      );
+    });
+
+    it("shows an Incorrect Password toast when the confirm request rejects with passwordRequired", async () => {
+      mockApiRequest.mockRejectedValueOnce(
+        Object.assign(new Error("The provided password was rejected — it may be incorrect."), {
+          data: { passwordRequired: true },
+        })
+      );
+
+      render(
+        <ImportReviewModal
+          open
+          onOpenChange={vi.fn()}
+          downloadId="download-1"
+          downloadTitle="Encrypted.rar"
+          passwordRequired
+        />
+      );
+
+      fireEvent.change(screen.getByLabelText("Destination Path"), {
+        target: { value: "/games/library/PC/Encrypted" },
+      });
+      fireEvent.change(screen.getByLabelText("Archive Password"), {
+        target: { value: "wrongpass" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+
+      await waitFor(() =>
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Incorrect Password",
+            description: "The provided password was rejected — it may be incorrect.",
+          })
+        )
+      );
     });
   });
 });

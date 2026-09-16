@@ -395,6 +395,27 @@ describe("ArchiveService", () => {
       }
     );
 
+    it("does not misclassify a corrupt archive as password-protected just because its path contains the word 'password'", async () => {
+      const service = await freshArchiveService();
+      const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
+      mockExecAlways(
+        new Error("exit code 2"),
+        "",
+        "Cannot open the file MyPasswordVault.rar as archive: CRC failed"
+      );
+
+      vi.useFakeTimers();
+      const resultPromise = service.extract("/downloads/MyPasswordVault.rar", "/tmp/out"); // NOSONAR - mocked fs
+      const assertion = expect(resultPromise).rejects.not.toThrow(ArchivePasswordRequiredError);
+      await vi.runAllTimersAsync();
+      await assertion;
+      vi.useRealTimers();
+
+      // Falls through to the normal retry loop (3 attempts) and the generic
+      // corruption message, exactly like any other non-password failure.
+      expect(vi.mocked(execFile).mock.calls).toHaveLength(3);
+    });
+
     it("passes a given password to unrar via -p<password> on both test and extract", async () => {
       const service = await freshArchiveService();
       mockExecAlways(null, "", "");

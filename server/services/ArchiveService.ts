@@ -40,11 +40,15 @@ export class ArchivePasswordRequiredError extends Error {}
 
 // Both unrar and 7-Zip mention "password" in every message they produce for an encrypted
 // archive they can't read (unrar: e.g. a prompt-refusal or "wrong password" notice; 7-Zip:
-// "Wrong password?"), and neither tool uses that word for any other failure category, so
-// this is a reliable way to distinguish "needs a password" from actual corruption without
-// having to pin exact, version-specific wording from either tool.
+// "Wrong password?"). Matching on the bare word "password" would also fire on a genuinely
+// corrupt archive whose path/filename happens to contain it (e.g. "MyPasswordVault.rar"),
+// since runTool's error text can include the file path — so this requires one of the actual
+// diagnostic phrases both tools use for an encryption failure, not just the word appearing
+// anywhere in the message.
 function isPasswordProtectedError(message: string): boolean {
-  return /password/i.test(message);
+  return /wrong password|password protected|password is incorrect|password required|enter password/i.test(
+    message
+  );
 }
 
 // Resolves a CLI tool to a fixed, unwriteable absolute path — rather than letting execFile
@@ -149,37 +153,52 @@ function runUnrar(args: string[]): Promise<ExecFileResult> {
 }
 
 export class ArchiveService {
+  // -y: assume yes on any prompt; -p<password> supplies a password when one is given,
+  // otherwise -p- refuses to prompt for one (fail instead of hanging on an encrypted
+  // archive); --: end of switches, so a filename starting with "-" can't be parsed as a flag.
+  private async runSingleTest(
+    filePath: string,
+    tool: ArchiveTool,
+    password?: string
+  ): Promise<void> {
+    if (tool === "unrar") {
+      await runUnrar(["t", "-y", password ? `-p${password}` : "-p-", "--", filePath]);
+    } else {
+      await runSevenZip(["t", "-y", ...(password ? [`-p${password}`] : []), "--", filePath]);
+    }
+  }
+
+  // Some failures short-circuit the retry loop entirely because retrying can never change the
+  // outcome: a missing binary won't appear, and a password-protected archive fails identically
+  // every time. Both re-throw as a more specific error type for the caller; anything else
+  // returns normally so testArchive's loop can retry it as a possible transient read.
+  private classifyNonRetryableFailure(err: unknown, password?: string): void {
+    if (err instanceof NonRetryableArchiveError) {
+      throw err;
+    }
+    if (err instanceof Error && isPasswordProtectedError(err.message)) {
+      throw new ArchivePasswordRequiredError(
+        password
+          ? "The provided password was rejected — it may be incorrect."
+          : "This archive is password-protected — a password is required to extract it."
+      );
+    }
+  }
+
   private async testArchive(filePath: string, tool: ArchiveTool, password?: string): Promise<void> {
     logger.debug({ filePath, tool, hasPassword: !!password }, "Testing archive before extraction");
 
     let lastErr: unknown;
     for (let attempt = 1; attempt <= ARCHIVE_TEST_MAX_ATTEMPTS; attempt++) {
       try {
-        if (tool === "unrar") {
-          // -y: assume yes on any prompt; -p<password> supplies a password when one is
-          // given, otherwise -p- refuses to prompt for one (fail instead of hanging on an
-          // encrypted archive); --: end of switches, so a filename starting with "-" can't
-          // be parsed as a flag.
-          await runUnrar(["t", "-y", password ? `-p${password}` : "-p-", "--", filePath]);
-        } else {
-          await runSevenZip(["t", "-y", ...(password ? [`-p${password}`] : []), "--", filePath]);
-        }
+        await this.runSingleTest(filePath, tool, password);
         if (attempt > 1) {
           logger.info({ filePath, tool, attempt }, "Archive test succeeded after retry");
         }
         return;
       } catch (err) {
+        this.classifyNonRetryableFailure(err, password);
         lastErr = err;
-        if (err instanceof NonRetryableArchiveError) {
-          throw err;
-        }
-        if (err instanceof Error && isPasswordProtectedError(err.message)) {
-          throw new ArchivePasswordRequiredError(
-            password
-              ? "The provided password was rejected — it may be incorrect."
-              : "This archive is password-protected — a password is required to extract it."
-          );
-        }
         if (attempt < ARCHIVE_TEST_MAX_ATTEMPTS) {
           logger.warn(
             { err, filePath, tool, attempt },

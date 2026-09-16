@@ -83,8 +83,10 @@ vi.mock("../xrel.js", () => ({
   DEFAULT_XREL_BASE: "http://example.com",
 }));
 
+const mockAppriseSend = vi.fn();
+
 vi.mock("../apprise.js", () => ({
-  appriseClient: { send: vi.fn() },
+  appriseClient: { send: mockAppriseSend },
 }));
 
 const { checkDownloadStatus } = await import("../cron.js");
@@ -269,6 +271,52 @@ describe("Cron - checkDownloadStatus", () => {
       status: "wanted",
     });
     expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", baseDownload.gameId);
+  });
+
+  it("should not reset the game to wanted when a sibling download is still unpacking", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetDownloadsByGameId.mockResolvedValue([
+      baseDownload,
+      { ...baseDownload, id: "dlrecord-3", status: "unpacking" },
+    ]);
+
+    mockGetAllDownloads.mockResolvedValue([]);
+    mockGetDownloadStatus.mockResolvedValue(null);
+
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      baseDownload.id,
+      "failed",
+      expect.any(String)
+    );
+    expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, {
+      status: "wanted",
+    });
+  });
+
+  it("should send an apprise-only failure notification without an in-app notification", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetUserSettings.mockResolvedValue({
+      notificationPreferences: JSON.stringify({
+        downloadFailed: { inApp: false, apprise: true },
+      }),
+    });
+
+    mockGetAllDownloads.mockResolvedValue([]);
+    mockGetDownloadStatus.mockResolvedValue(null);
+
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+
+    expect(mockAddNotification).toHaveBeenCalled();
+    expect(mockAppriseSend).toHaveBeenCalled();
+    expect(mockNotifyUser).not.toHaveBeenCalledWith("notification", expect.anything());
   });
 
   it("should not call getDownloadStatus when the bulk map already contains the download", async () => {

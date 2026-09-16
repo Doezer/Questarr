@@ -992,25 +992,38 @@ export async function checkDownloadStatus() {
 
           const missedSettings = await storage.getUserSettings(game?.userId ?? "");
           const missedPrefs = resolvePrefs(missedSettings);
-          const missedErrorMessage =
-            "Download disappeared from the downloader before completing. It may have " +
-            'failed and been automatically removed; the game was reset to "wanted" so ' +
-            "it can be re-searched. If it actually finished, you may need to import it manually.";
+
+          // If a sibling download for the same game is still actively in progress, leave
+          // the game status as-is to avoid a false regression. Mirrors the active-status
+          // set used for the analogous async tag-resolution failure path above.
+          const siblings = await storage.getDownloadsByGameId(download.gameId);
+          const activeStatuses = new Set([
+            "downloading",
+            "paused",
+            "unpacking",
+            "completed_pending_import",
+          ]);
+          const hasActiveSibling = siblings.some(
+            (s) => s.id !== download.id && activeStatuses.has(s.status)
+          );
+          const willResetGame = !hasActiveSibling && !!game && game.status !== "wanted";
+
+          const missedErrorMessage = willResetGame
+            ? "Download disappeared from the downloader before completing. It may have " +
+              'failed and been automatically removed; the game was reset to "wanted" so ' +
+              "it can be re-searched. If it actually finished, you may need to import it manually."
+            : "Download disappeared from the downloader before completing. It may have " +
+              "failed and been automatically removed. If it actually finished, you may need " +
+              "to import it manually.";
 
           await storage.updateGameDownloadStatus(download.id, "failed", missedErrorMessage);
           notifyUser("downloadUpdate", download.gameId);
 
-          // If a sibling download for the same game is still actively downloading, leave
-          // the game status as-is to avoid a false regression.
-          const siblings = await storage.getDownloadsByGameId(download.gameId);
-          const hasActiveDownload = siblings.some(
-            (s) => s.id !== download.id && s.status === "downloading"
-          );
-          if (!hasActiveDownload && game && game.status !== "wanted") {
+          if (willResetGame) {
             await storage.updateGameStatus(download.gameId, { status: "wanted" });
           }
 
-          if (missedPrefs.downloadFailed.inApp) {
+          if (missedPrefs.downloadFailed.inApp || missedPrefs.downloadFailed.apprise) {
             const notification = await storage.addNotification({
               type: "error",
               title: "Download Failed",
@@ -1018,14 +1031,18 @@ export async function checkDownloadStatus() {
               link: `modal:game:${download.gameId}`,
               userId: game?.userId ?? undefined,
             });
-            notifyUser("notification", notification);
+            if (missedPrefs.downloadFailed.inApp) notifyUser("notification", notification);
             if (missedPrefs.downloadFailed.apprise) appriseClient.send(notification);
           }
 
           igdbLogger.info(
-            { gameId: download.gameId, gameTitle },
-            "Marked download as failed and reset game status to 'wanted' after it " +
-              "disappeared from the downloader"
+            { gameId: download.gameId, gameTitle, resetGameToWanted: willResetGame },
+            willResetGame
+              ? "Marked download as failed and reset game status to 'wanted' after it " +
+                  "disappeared from the downloader"
+              : "Marked download as failed after it disappeared from the downloader " +
+                  "(game status left unchanged — an active sibling download or an " +
+                  "already-non-owned status)"
           );
         }
       }

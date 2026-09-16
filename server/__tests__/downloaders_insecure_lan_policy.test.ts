@@ -207,31 +207,54 @@ describe("SABnzbd HTTP credential policy (allow)", () => {
   });
 });
 
-describe("Transmission HTTP credential policy (allow)", () => {
-  it("does not throw when HTTP and allowInsecureLan=true", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      headers: { get: () => null, getSetCookie: () => [] },
-      text: async () => JSON.stringify({ arguments: { fields: [] }, result: "success" }),
-      json: async () => ({ arguments: { fields: [] }, result: "success" }),
-    });
-    const client = new TransmissionClient(
-      makeDownloader({ type: "transmission", allowInsecureLan: true })
-    );
-    await expect(client.testConnection()).resolves.not.toThrow();
-    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect((options.headers as Record<string, string>)["Authorization"]).toMatch(/^Basic /);
-  });
-});
+// Transmission, NZBGet and rTorrent all authenticate the same way once the
+// policy permits it -- a Basic Authorization header -- so their opt-in cases
+// share one table instead of three near-identical describe/it pairs.
+const rtorrentVersionResponse = {
+  ok: true,
+  headers: { get: () => "text/xml" },
+  text: async () =>
+    '<?xml version="1.0"?><methodResponse><params><param><value><string>0.9.8</string></value></param></params></methodResponse>',
+};
 
-describe("NZBGet HTTP credential policy (allow)", () => {
-  it("sends Authorization header when HTTP and allowInsecureLan=true", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      headers: { get: () => "application/json" },
-      text: async () => JSON.stringify({ result: { version: "21" }, id: 1, error: null }),
-    });
-    const client = new NZBGetClient(makeDownloader({ type: "nzbget", allowInsecureLan: true }));
+describe("Basic-Auth-header credential policy (allow)", () => {
+  it.each([
+    [
+      "Transmission: HTTP and allowInsecureLan=true",
+      (d: Downloader) => new TransmissionClient(d),
+      { type: "transmission", allowInsecureLan: true },
+      {
+        ok: true,
+        headers: { get: () => null, getSetCookie: () => [] },
+        text: async () => JSON.stringify({ arguments: { fields: [] }, result: "success" }),
+        json: async () => ({ arguments: { fields: [] }, result: "success" }),
+      },
+    ],
+    [
+      "NZBGet: HTTP and allowInsecureLan=true",
+      (d: Downloader) => new NZBGetClient(d),
+      { type: "nzbget", allowInsecureLan: true },
+      {
+        ok: true,
+        headers: { get: () => "application/json" },
+        text: async () => JSON.stringify({ result: { version: "21" }, id: 1, error: null }),
+      },
+    ],
+    [
+      "rTorrent: HTTP and allowInsecureLan=true",
+      (d: Downloader) => new RTorrentClient(d),
+      { type: "rtorrent", allowInsecureLan: true },
+      rtorrentVersionResponse,
+    ],
+    [
+      "rTorrent: HTTPS (useSsl=true)",
+      (d: Downloader) => new RTorrentClient(d),
+      { type: "rtorrent", useSsl: true, url: "https://localhost:9091" },
+      rtorrentVersionResponse,
+    ],
+  ] as const)("%s", async (_name, makeClient, overrides, response) => {
+    fetchMock.mockResolvedValueOnce(response);
+    const client = makeClient(makeDownloader(overrides));
     await client.testConnection();
     const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect((options.headers as Record<string, string>)["Authorization"]).toMatch(/^Basic /);
@@ -250,26 +273,6 @@ describe("Deluge HTTP credential policy (allow)", () => {
     // With no password, should proceed (empty string password with allowInsecureLan=false
     // is allowed because the guard only fires when password is truthy)
     await expect(client.testConnection()).resolves.not.toThrow();
-  });
-});
-
-describe("rTorrent HTTP credential policy (allow)", () => {
-  const rtorrentVersionResponse = {
-    ok: true,
-    headers: { get: () => "text/xml" },
-    text: async () =>
-      '<?xml version="1.0"?><methodResponse><params><param><value><string>0.9.8</string></value></param></params></methodResponse>',
-  };
-
-  it.each([
-    ["HTTP and allowInsecureLan=true", { type: "rtorrent", allowInsecureLan: true }],
-    ["HTTPS (useSsl=true)", { type: "rtorrent", useSsl: true, url: "https://localhost:9091" }],
-  ] as const)("sends Basic Authentication when %s", async (_label, overrides) => {
-    fetchMock.mockResolvedValueOnce(rtorrentVersionResponse);
-    const client = new RTorrentClient(makeDownloader(overrides));
-    await client.testConnection();
-    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect((options.headers as Record<string, string>)["Authorization"]).toMatch(/^Basic /);
   });
 });
 

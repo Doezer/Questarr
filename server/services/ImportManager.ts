@@ -17,6 +17,7 @@ import { GAME_LINK_REQUIRED_STATUS } from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath } from "../path-security.js";
+import { notifyUser } from "../socket.js";
 
 const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
   nes: 18,
@@ -279,7 +280,12 @@ export class ImportManager {
   private async verifyLocalPath(
     downloadId: string,
     localPath: string,
-    meta: { downloaderName: string; remoteDownloadPath: string }
+    meta: {
+      downloaderName: string;
+      remoteDownloadPath: string;
+      gameTitle?: string;
+      userId?: string;
+    }
   ): Promise<boolean> {
     if (await fs.pathExists(localPath)) {
       this.pathRetryCount.delete(downloadId);
@@ -311,6 +317,23 @@ export class ImportManager {
       "[ImportManager] Path not accessible after retries — check path mappings under Settings → Path Mappings"
     );
     await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+    if (meta.gameTitle && meta.userId) {
+      try {
+        const notification = await this.storage.addNotification({
+          userId: meta.userId,
+          type: "warning",
+          title: "Import needs attention",
+          message: `"${meta.gameTitle}" finished downloading but its local path could not be accessed. Check Settings → Path Mappings or trigger the import manually.`,
+          link: "/library",
+        });
+        notifyUser("notification", notification);
+      } catch (err) {
+        logger.error(
+          { err, downloadId },
+          "[ImportManager] Failed to create path-inaccessible notification"
+        );
+      }
+    }
     return false;
   }
 
@@ -451,7 +474,12 @@ export class ImportManager {
 
       logger.debug({ localPath }, "[ImportManager] Checking path accessibility");
       if (
-        !(await this.verifyLocalPath(downloadId, localPath, { downloaderName, remoteDownloadPath }))
+        !(await this.verifyLocalPath(downloadId, localPath, {
+          downloaderName,
+          remoteDownloadPath,
+          gameTitle: game.title,
+          userId: game.userId ?? undefined,
+        }))
       ) {
         return;
       }

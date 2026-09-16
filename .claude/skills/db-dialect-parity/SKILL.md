@@ -69,12 +69,26 @@ Known traps, each of which has already caused a bug here:
 If a construct genuinely has no portable spelling, add a helper to
 `server/sql-compat.ts` rather than branching at the call site.
 
-## 3. Verify before committing
+## 3. Add a behavioural test when the change is dialect-sensitive
+
+`server/__tests__/dialect-parity.test.ts` runs the same assertions against both
+backends via `describe.each`, using `setupTestDb()` from
+`server/__tests__/helpers/db-harness.ts`. Postgres runs in-process through
+PGlite, so there is no container to start.
+
+If you touch an aggregate, a `LIKE`, a JSON column, a transaction, or a 64-bit
+value, add a case there. Write the expectation dialect-independently: **if the
+result differs between backends, that is the bug.**
+
+Narrow the loop with `TEST_DIALECTS=sqlite` while iterating, but never commit
+having only run one dialect.
+
+## 4. Verify before committing
 
 ```bash
 npm run check    # includes the 38 compile-time schema parity assertions
 npm run lint
-npm run test:run # includes shared/__tests__/schema-parity.test.ts
+npm run test:run # includes both parity suites, across both dialects
 npm run db:generate:pg && git status --porcelain migrations-pg   # must be empty
 ```
 

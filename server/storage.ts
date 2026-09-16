@@ -2376,12 +2376,15 @@ export class DatabaseStorage implements IStorage {
           END
         `,
         downloadTypes: distinctJoin(gameDownloads.downloadType),
+        // lower() is required, not cosmetic: SQLite's LIKE is case-insensitive
+        // for ASCII but Postgres's is not, so an uppercased "Update" in a
+        // release title would match on one dialect and not the other.
         hasUpdateDownload: sql<number>`max(CASE
-          WHEN ${gameDownloads.downloadTitle} LIKE '%update%'
-            OR ${gameDownloads.downloadTitle} LIKE '%patch%'
-            OR ${gameDownloads.downloadTitle} LIKE '%hotfix%'
-            OR ${gameDownloads.downloadTitle} LIKE '%crackfix%'
-            OR ${gameDownloads.downloadTitle} LIKE '%fix%'
+          WHEN lower(${gameDownloads.downloadTitle}) LIKE '%update%'
+            OR lower(${gameDownloads.downloadTitle}) LIKE '%patch%'
+            OR lower(${gameDownloads.downloadTitle}) LIKE '%hotfix%'
+            OR lower(${gameDownloads.downloadTitle}) LIKE '%crackfix%'
+            OR lower(${gameDownloads.downloadTitle}) LIKE '%fix%'
           THEN 1 ELSE 0 END)`.mapWith(Number),
       })
       .from(gameDownloads)

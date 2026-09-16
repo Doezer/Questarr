@@ -1,6 +1,7 @@
 import { logger } from "./logger.js";
 import { connectSqlite } from "./db/connect-sqlite.js";
 import { connectPostgres } from "./db/connect-postgres.js";
+import { connectPglite } from "./db/connect-pglite.js";
 import type { AppDatabase, Dialect } from "./db/types.js";
 
 export type { AppDatabase, Dialect } from "./db/types.js";
@@ -41,10 +42,42 @@ function resolveDialect(): Dialect {
   process.exit(1);
 }
 
-/** Which backend is active. */
-export const dialect: Dialect = resolveDialect();
+/**
+ * Which driver to construct.
+ *
+ * QUESTARR_DB_DRIVER is an internal, undocumented escape hatch for tests -- it
+ * is deliberately absent from .env.example. It exists so the test harness can
+ * run the Postgres code path in-process via PGlite. Because it selects the
+ * driver rather than merely the dialect, it also decides the dialect: a Postgres
+ * driver paired with SQLite table objects would build the wrong SQL.
+ */
+type Driver = "better-sqlite3" | "node-postgres" | "pglite";
 
-const connection = dialect === "postgres" ? connectPostgres() : connectSqlite();
+function resolveDriver(): Driver {
+  const override = process.env.QUESTARR_DB_DRIVER;
+  if (override === "pglite" || override === "node-postgres" || override === "better-sqlite3") {
+    return override;
+  }
+  if (override) {
+    logger.error(
+      `Unknown QUESTARR_DB_DRIVER '${override}'. Valid values: better-sqlite3, node-postgres, pglite.`
+    );
+    process.exit(1);
+  }
+  return resolveDialect() === "postgres" ? "node-postgres" : "better-sqlite3";
+}
+
+const driver: Driver = resolveDriver();
+
+/** Which backend is active. */
+export const dialect: Dialect = driver === "better-sqlite3" ? "sqlite" : "postgres";
+
+const connection =
+  driver === "pglite"
+    ? await connectPglite()
+    : driver === "node-postgres"
+      ? connectPostgres()
+      : connectSqlite();
 
 /**
  * The Drizzle handle.

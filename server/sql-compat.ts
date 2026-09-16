@@ -1,41 +1,48 @@
 import { sql, type SQL, type AnyColumn } from "drizzle-orm";
+import { dialect } from "./db.js";
 
 /**
  * Cross-dialect SQL helpers.
  *
- * Most of `storage.ts` is written with Drizzle's dialect-neutral query builder
- * and needs nothing from this module. These are the few constructs that have no
- * single spelling which works on both SQLite and Postgres.
- *
- * Currently SQLite-only; the Postgres branches land with the connection factory
- * (see docs/DATABASE.md). Keeping them behind these helpers means the dialect
- * switch touches this file instead of a dozen call sites in storage.ts.
+ * Most of storage.ts is written with Drizzle's dialect-neutral query builder and
+ * needs nothing from here. These are the constructs that have no single spelling
+ * working on both SQLite and Postgres. Keeping them behind these helpers means a
+ * dialect difference is fixed in one place rather than at a dozen call sites.
  */
 
 /**
  * Case-insensitive substring match.
  *
  * Callers pass a BARE term -- this helper does the `%` wrapping and the
- * lower-casing, so the two halves can never drift apart.
+ * lower-casing, so the two halves cannot drift apart.
  *
- * SQLite's LIKE is already case-insensitive for ASCII, but the explicit
- * `lower()` on both sides keeps the behaviour identical for non-ASCII titles
- * and matches what Postgres's ILIKE will do.
+ * SQLite's LIKE is already case-insensitive for ASCII but Postgres's is not,
+ * which is exactly the kind of difference that would otherwise surface as
+ * "search works on my machine". Postgres gets ILIKE.
+ *
+ * The ::text cast matters: the searchable JSON columns (games.genres,
+ * games.platforms) are TEXT on SQLite but JSONB on Postgres, and Postgres will
+ * not apply a string operator to jsonb. Casting yields the same JSON text
+ * SQLite stores, so a substring match behaves identically on both.
  */
 export function containsCI(column: AnyColumn, term: string): SQL {
   const pattern = `%${term.toLowerCase()}%`;
-  return sql`lower(${column}) LIKE ${pattern}`;
+  return dialect === "postgres"
+    ? sql`${column}::text ILIKE ${pattern}`
+    : sql`lower(${column}) LIKE ${pattern}`;
 }
 
 /**
  * Concatenate the distinct values of a column into one comma-separated string.
  *
- * SQLite's `group_concat(DISTINCT x)` cannot take a custom separator and
- * defaults to ",". Postgres's equivalent is `string_agg(DISTINCT x, ',')`,
- * which produces the same string, so consumers can keep calling `.split(",")`.
+ * SQLite's group_concat(DISTINCT x) cannot take a custom separator and defaults
+ * to ",". Postgres's string_agg requires one, so it is given "," explicitly and
+ * the two produce the same string -- consumers keep calling .split(",").
  */
 export function distinctJoin(column: AnyColumn): SQL<string> {
-  return sql<string>`group_concat(DISTINCT ${column})`;
+  return dialect === "postgres"
+    ? sql<string>`string_agg(DISTINCT ${column}::text, ',')`
+    : sql<string>`group_concat(DISTINCT ${column})`;
 }
 
 /**

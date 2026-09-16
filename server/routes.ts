@@ -856,7 +856,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Health check endpoint
-  app.get("/api/health", async (req, res) => {
+  app.get("/api/health", async (_req, res) => {
     // 🛡️ Sentinel: Harden health check endpoint.
     // This liveness probe only confirms the server is responsive.
     // For readiness checks (e.g., database connectivity), use the /api/ready endpoint.
@@ -864,7 +864,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // SSL Settings - Get
-  app.get("/api/settings/ssl", authenticateToken, async (req, res) => {
+  app.get("/api/settings/ssl", authenticateToken, async (_req, res) => {
     try {
       const sslConfig = configLoader.getSslConfig();
 
@@ -980,7 +980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/settings/ssl/generate",
     authenticateToken,
     sensitiveEndpointLimiter,
-    async (req, res) => {
+    async (_req, res) => {
       try {
         const { generateSelfSignedCert } = await import("./ssl.js");
         const { certPath, keyPath } = await generateSelfSignedCert();
@@ -1218,7 +1218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // authentication (enforced by the default-deny API auth boundary below);
   // the unauthenticated setup flow instead uses the `igdb` field on
   // GET /api/auth/status, which exposes only the configured/source booleans.
-  app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
+  app.get("/api/config", sensitiveEndpointLimiter, async (_req, res) => {
     try {
       // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
       // Only expose boolean flags indicating if services are configured, not
@@ -1289,7 +1289,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/ready", async (req, res) => {
+  app.get("/api/ready", async (_req, res) => {
     let isHealthy = true;
 
     // Check database connectivity
@@ -2507,7 +2507,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Get available genres (for UI dropdowns/filters)
-  app.get("/api/igdb/genres", igdbRateLimiter, async (req, res) => {
+  app.get("/api/igdb/genres", igdbRateLimiter, async (_req, res) => {
     try {
       const genres = await igdbClient.getGenres();
       res.set("Cache-Control", CC_IGDB_METADATA);
@@ -2519,7 +2519,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get available platforms (for UI dropdowns/filters)
-  app.get("/api/igdb/platforms", igdbRateLimiter, async (req, res) => {
+  app.get("/api/igdb/platforms", igdbRateLimiter, async (_req, res) => {
     try {
       const platforms = await igdbClient.getPlatforms();
       res.set("Cache-Control", CC_IGDB_METADATA);
@@ -2572,7 +2572,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Indexer management routes
 
   // Get all indexers
-  app.get("/api/indexers", async (req, res) => {
+  app.get("/api/indexers", async (_req, res) => {
     try {
       const indexers = await storage.getAllIndexers();
       res.json(indexers.map(maskIndexer));
@@ -2583,7 +2583,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get enabled indexers only
-  app.get("/api/indexers/enabled", async (req, res) => {
+  app.get("/api/indexers/enabled", async (_req, res) => {
     try {
       const indexers = await storage.getEnabledIndexers();
       res.json(indexers.map(maskIndexer));
@@ -2726,7 +2726,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  app.get("/api/downloaders", async (req, res) => {
+  app.get("/api/downloaders", async (_req, res) => {
     try {
       const downloaders = await storage.getAllDownloaders();
       res.json(downloaders.map(maskDownloader));
@@ -2737,7 +2737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get enabled downloaders only
-  app.get("/api/downloaders/enabled", async (req, res) => {
+  app.get("/api/downloaders/enabled", async (_req, res) => {
     try {
       const downloaders = await storage.getEnabledDownloaders();
       res.json(downloaders.map(maskDownloader));
@@ -2748,7 +2748,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get free space for all enabled downloaders
-  app.get("/api/downloaders/storage", async (req, res) => {
+  app.get("/api/downloaders/storage", async (_req, res) => {
     try {
       // ⚡ Bolt: Check cache first
       if (storageCache.data && Date.now() < storageCache.expiry) {
@@ -3314,7 +3314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get aggregated downloads from all enabled downloaders
-  app.get("/api/downloads", async (req, res) => {
+  app.get("/api/downloads", async (_req, res) => {
     try {
       const enabledDownloaders = await storage.getEnabledDownloaders();
       const [trackedKeys, gameStatuses] = await Promise.all([
@@ -4103,7 +4103,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // IGDB Configuration endpoint
-  app.get("/api/settings/igdb", sensitiveEndpointLimiter, async (req, res) => {
+  app.get("/api/settings/igdb", sensitiveEndpointLimiter, async (_req, res) => {
     try {
       const dbClientId = await storage.getSystemConfig("igdb.clientId");
       const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
@@ -4163,7 +4163,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/settings/discord", sensitiveEndpointLimiter, async (req, res) => {
+  app.get("/api/settings/discord", sensitiveEndpointLimiter, async (_req, res) => {
     try {
       const webhookUrl = await storage.getSystemConfig("discord.webhookUrl");
       const isConfigured = !!(webhookUrl && webhookUrl.length > 0);
@@ -4616,7 +4616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // RSS Feeds Routes
-  app.get("/api/rss/feeds", async (req, res) => {
+  app.get("/api/rss/feeds", async (_req, res) => {
     try {
       const feeds = await storage.getAllRssFeeds();
       res.json(feeds);
@@ -4703,7 +4703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/rss/refresh", async (req, res) => {
+  app.post("/api/rss/refresh", async (_req, res) => {
     try {
       await rssService.refreshFeeds();
       res.json({ success: true });

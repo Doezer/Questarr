@@ -511,16 +511,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     indexerPriorityMap,
   ]);
 
-  // Sorted items for display (by date)
-  const _sortedItems = useMemo(() => {
-    if (!searchResults?.items) return [];
-    return [...searchResults.items].sort((a, b) => {
-      const dateA = new Date(a.pubDate).getTime();
-      const dateB = new Date(b.pubDate).getTime();
-      return dateB - dateA;
-    });
-  }, [searchResults?.items]);
-
   const downloadMutation = useMutation({
     mutationFn: async (downloads: DownloadItem[]) => {
       const results = [];
@@ -679,22 +669,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
-
-  // Unused currently, can this be removed?
-  const _handleDirectDownload = (download: DownloadItem) => {
-    if (categorizedDownloads.update.length > 0) {
-      const downloadCategory = groupDownloadsByCategory([download]);
-      if (downloadCategory.main.length > 0) {
-        setSelectedMainDownload(download);
-        setIsDirectDownloadMode(true);
-        setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
-        setShowBundleDialog(true);
-        return;
-      }
-    }
-    downloadFile(download);
-    toast({ title: "Download started", description: "File download initiated" });
   };
 
   const handleBundleDirectDownload = async (includeUpdates: boolean) => {

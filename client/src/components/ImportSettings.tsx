@@ -17,10 +17,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, FolderOpen, ArrowRight, Folder, Link, Copy, MoveRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { ImportConfig } from "@shared/schema";
+import type { ImportConfig, UserSettings } from "@shared/schema";
+import { selectedPlatformNames as resolveSelectedPlatformNames } from "@shared/platforms";
 import { PathMappingSettings } from "./PathMappingSettings";
 import { FileBrowser } from "./FileBrowser";
-import { PlatformPicker } from "./PlatformPicker";
 import { RootFolderDiscovery } from "./RootFolderDiscovery";
 
 type HardlinkPairCheck = {
@@ -53,7 +53,20 @@ export default function ImportSettings() {
   const { data: hardlinkCapability } = useQuery<HardlinkCapabilityResponse>({
     queryKey: ["/api/imports/hardlink/check"],
   });
-
+  // Read-only mirror of the Platforms tab, which owns this setting.
+  const { data: userSettings } = useQuery<UserSettings>({
+    queryKey: ["/api/settings"],
+  });
+  const { data: igdbPlatforms = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["/api/igdb/platforms"],
+  });
+  const selectedPlatformNames = resolveSelectedPlatformNames(
+    igdbPlatforms,
+    userSettings?.importPlatformIds
+  );
+  const selectedPlatformLabels = igdbPlatforms
+    .filter((platform) => selectedPlatformNames.has(platform.name))
+    .map((platform) => platform.name);
   // Local State
   const [localConfig, setLocalConfig] = useState<ImportConfig | null>(null);
   const [libraryBrowserOpen, setLibraryBrowserOpen] = useState(false);
@@ -65,7 +78,11 @@ export default function ImportSettings() {
   // Mutations
   const updateConfigMutation = useMutation({
     mutationFn: async (data: ImportConfig) => {
-      await apiRequest("PATCH", "/api/imports/config", data);
+      // `importPlatformIds` is owned by the Platforms tab. Sending it from here
+      // would let a stale copy revert a change saved on that tab, so omit it and
+      // let the route keep the stored value.
+      const { importPlatformIds: _unused, ...rest } = data;
+      await apiRequest("PATCH", "/api/imports/config", rest);
     },
     onSuccess: () => {
       toast({ title: "Settings Saved", description: "Import configuration updated." });
@@ -286,15 +303,16 @@ export default function ImportSettings() {
                       Platform Filter
                     </p>
                     <div className="mb-6">
-                      <p className="text-xs text-muted-foreground mb-2">
-                        Restrict imports to selected platforms. Empty = all platforms eligible.
+                      <p className="text-xs text-muted-foreground">
+                        Imports are restricted to the platforms chosen in the{" "}
+                        <span className="font-medium text-foreground">Platforms</span> settings tab.
+                        Leave that list empty to make all platforms eligible.
                       </p>
-                      <PlatformPicker
-                        selectedIds={localConfig.importPlatformIds}
-                        onSelectedIdsChange={(next) =>
-                          setLocalConfig({ ...localConfig, importPlatformIds: next })
-                        }
-                      />
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {selectedPlatformLabels.length === 0
+                          ? "All platforms are currently eligible."
+                          : `Eligible: ${selectedPlatformLabels.join(", ")}`}
+                      </p>
                     </div>
 
                     <Separator className="mb-6" />
@@ -466,7 +484,7 @@ export default function ImportSettings() {
                     },
                     {
                       name: "Platform Filter",
-                      desc: "Limits imports to only the selected platforms. If no platforms are checked, all platforms are eligible.",
+                      desc: "Limits imports to the platforms chosen in the Platforms settings tab. If no platforms are checked, all platforms are eligible.",
                     },
                     {
                       name: "Rename Pattern",

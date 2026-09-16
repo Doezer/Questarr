@@ -123,20 +123,28 @@ async function renderLibrary(settings: Record<string, unknown>) {
 }
 
 describe("Library platform filter visibility", () => {
-  it("hides platforms selected in the hidden-platform setting", async () => {
-    await renderLibrary({ hiddenPlatforms: ["Nintendo Switch"] });
-
-    // Switch is hidden; the other platforms from the same library still show.
-    expect(await screen.findByText("PC (Microsoft Windows)")).toBeInTheDocument();
-    expect(screen.getByText("PlayStation 5")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText("Nintendo Switch")).not.toBeInTheDocument());
-  });
-
-  it("lists every library platform when nothing is hidden", async () => {
-    await renderLibrary({ hiddenPlatforms: [] });
+  it("hides platforms the Platforms setting leaves unchecked", async () => {
+    // Only Switch and PC are selected, so PS5 disappears from the dropdown
+    // while the library itself keeps every game.
+    await renderLibrary({ importPlatformIds: [130, 6] });
 
     expect(await screen.findByText("Nintendo Switch")).toBeInTheDocument();
     expect(screen.getByText("PC (Microsoft Windows)")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("PlayStation 5")).not.toBeInTheDocument());
+  });
+
+  it("lists every library platform when nothing is selected", async () => {
+    await renderLibrary({ importPlatformIds: [] });
+
+    expect(await screen.findByText("Nintendo Switch")).toBeInTheDocument();
+    expect(screen.getByText("PC (Microsoft Windows)")).toBeInTheDocument();
+    expect(screen.getByText("PlayStation 5")).toBeInTheDocument();
+  });
+
+  it("renders without crashing when the selection is a malformed non-array", async () => {
+    await renderLibrary({ importPlatformIds: 42 });
+
+    expect(await screen.findByText("Nintendo Switch")).toBeInTheDocument();
     expect(screen.getByText("PlayStation 5")).toBeInTheDocument();
   });
 });

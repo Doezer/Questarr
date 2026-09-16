@@ -1,1 +1,0 @@
-ALTER TABLE `user_settings` ADD `hidden_platforms` text DEFAULT '[]';

@@ -15,18 +15,16 @@ describe("updateUserSettingsSchema array fields", () => {
     ["mixed array", ["ok", 5]],
   ];
 
-  it.each(nonArrays)("rejects a %s for hiddenPlatforms", (_label, value) => {
-    const result = updateUserSettingsSchema.safeParse({ hiddenPlatforms: value });
+  it.each(nonArrays)("rejects a %s for importPlatformIds", (_label, value) => {
+    const result = updateUserSettingsSchema.safeParse({ importPlatformIds: value });
     expect(result.success).toBe(false);
     expect(result.error?.flatten().fieldErrors).toMatchObject({
-      hiddenPlatforms: ["hiddenPlatforms must be an array of strings"],
+      importPlatformIds: ["importPlatformIds must be an array of numbers"],
     });
   });
 
-  it("accepts an array of platform names", () => {
-    const result = updateUserSettingsSchema.safeParse({
-      hiddenPlatforms: ["Nintendo Switch", "PC (Microsoft Windows)"],
-    });
+  it("accepts an array of platform ids", () => {
+    const result = updateUserSettingsSchema.safeParse({ importPlatformIds: [130, 6] });
     expect(result.success).toBe(true);
   });
 

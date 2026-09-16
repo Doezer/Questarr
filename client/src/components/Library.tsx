@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { type Game, type UserSettings } from "@shared/schema";
+import { isPlatformNameSelected, selectedPlatformNames } from "@shared/platforms";
 import { type GameStatus } from "./StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
@@ -121,6 +122,9 @@ export default function Library() {
   const { data: userSettings } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
   });
+  const { data: igdbPlatforms = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["/api/igdb/platforms"],
+  });
 
   // ⚡ Bolt: Consolidate multiple array traversals into a single pass to
   // optimize render performance and reduce unnecessary allocations.
@@ -148,13 +152,13 @@ export default function Library() {
   }, [games]);
 
   const visiblePlatforms = useMemo(() => {
-    // `hiddenPlatforms` is a JSON column and may arrive as a non-array from a
-    // legacy or malformed row; spreading it would throw and crash the render.
-    const hidden = new Set<string>(
-      Array.isArray(userSettings?.hiddenPlatforms) ? userSettings.hiddenPlatforms : []
+    // The platform setting stores IGDB ids, while `games.platforms` holds IGDB
+    // names, so translate once via the platform list both surfaces share.
+    const allowed = selectedPlatformNames(igdbPlatforms, userSettings?.importPlatformIds);
+    return uniquePlatforms.filter((platform) =>
+      isPlatformNameSelected(platform, allowed, userSettings?.importPlatformIds)
     );
-    return uniquePlatforms.filter((platform) => !hidden.has(platform));
-  }, [uniquePlatforms, userSettings?.hiddenPlatforms]);
+  }, [uniquePlatforms, igdbPlatforms, userSettings?.importPlatformIds]);
 
   const filteredGames = useMemo(() => {
     const filtered = games.filter((game) => {

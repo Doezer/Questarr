@@ -3,7 +3,8 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Settings2, AlertCircle } from "lucide-react";
 import GameCarouselSection from "@/components/GameCarouselSection";
-import { type Game, type Config } from "@shared/schema";
+import { type Game, type Config, type UserSettings } from "@shared/schema";
+import { visibleIgdbPlatforms } from "@shared/platforms";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
@@ -99,6 +100,10 @@ export default function DiscoverPage() {
 
   const { data: config } = useQuery<Config>({
     queryKey: ["/api/config"],
+  });
+
+  const { data: userSettings } = useQuery<UserSettings>({
+    queryKey: ["/api/settings"],
   });
 
   // Fetch local games to filter hidden ones
@@ -497,7 +502,13 @@ export default function DiscoverPage() {
   }
 
   const displayGenres: Genre[] = genres.length > 0 ? genres : DEFAULT_GENRES;
-  const displayPlatforms: Platform[] = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
+  // The Platforms setting narrows the browse dropdown, the same list that
+  // governs the Library and download-dialog selectors. Computed inline (not
+  // memoized) because it sits after the IGDB-not-configured early return.
+  const allPlatforms: Platform[] = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
+  const visiblePlatforms = visibleIgdbPlatforms(allPlatforms, userSettings?.importPlatformIds);
+  const displayPlatforms: Platform[] =
+    visiblePlatforms.length > 0 ? visiblePlatforms : allPlatforms;
 
   return (
     <div className="h-full w-full overflow-x-hidden overflow-y-auto" data-testid="discover-page">

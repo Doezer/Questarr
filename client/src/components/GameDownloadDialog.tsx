@@ -86,6 +86,7 @@ import {
   matchesPlatformFilter,
   normalizeTitle,
 } from "@shared/title-utils";
+import { canonicalPlatformsForIgdbIds, matchesSelectedIgdbPlatform } from "@shared/platforms";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
 
 interface DownloadItem {
@@ -430,10 +431,14 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     if (metas.some((meta) => !meta.platform)) {
       platforms.add("PC");
     }
+    // The Platforms setting narrows this dropdown the same way it narrows the
+    // Library and Discover selectors.
+    const allowed = new Set<string>(canonicalPlatformsForIgdbIds(userSettings?.importPlatformIds));
     return Array.from(platforms)
+      .filter((p) => allowed.size === 0 || allowed.has(p))
       .sort((a, b) => a.localeCompare(b))
       .map((p) => ({ label: p, value: p }));
-  }, [itemsMetadata]);
+  }, [itemsMetadata, userSettings?.importPlatformIds]);
 
   const itemPubDateTimestamps = useMemo(() => {
     if (!searchResults?.items) return new Map<string, number>();
@@ -463,8 +468,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
         .filter((t) => selectedGroups.length === 0 || (t.group && selectedGroups.includes(t.group)))
         .filter((t) => {
-          if (selectedPlatforms.length === 0) return true;
           const platform = itemsMetadata.get(t.title)?.platform;
+          // Platforms setting first: releases outside the user's platforms are
+          // never offered, regardless of the in-dialog selection below.
+          if (!matchesSelectedIgdbPlatform(platform, userSettings?.importPlatformIds)) return false;
+          if (selectedPlatforms.length === 0) return true;
           return selectedPlatforms.some((sp) => matchesPlatformFilter(platform, sp));
         })
         .sort((a, b) => {
@@ -509,6 +517,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     selectedPlatforms,
     itemPubDateTimestamps,
     indexerPriorityMap,
+    userSettings?.importPlatformIds,
   ]);
 
   // Sorted items for display (by date)

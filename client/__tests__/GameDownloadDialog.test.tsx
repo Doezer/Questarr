@@ -685,6 +685,41 @@ describe("GameDownloadDialog", () => {
   });
   const platformSearchResults = makeSearchResult([pcItem, macItem]);
 
+  it("hides releases outside the platforms chosen in the Platforms setting", async () => {
+    // Only Mac is selected, so the PC release must not be offered at all.
+    globalThis.fetch = createFetchMock({
+      search: platformSearchResults,
+      settings: { importPlatformIds: [14] },
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game Mac Edition-CODEX").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+    expect(screen.queryByText("Test Game PC v1.0-SKIDROW")).not.toBeInTheDocument();
+  });
+
+  it("shows every release when no platforms are selected", async () => {
+    globalThis.fetch = createFetchMock({
+      search: platformSearchResults,
+      settings: { importPlatformIds: [] },
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game PC v1.0-SKIDROW").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("Test Game Mac Edition-CODEX").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+  });
+
   it("shows platform filter section when results contain platform metadata", async () => {
     globalThis.fetch = createFetchMock({ search: platformSearchResults });
 

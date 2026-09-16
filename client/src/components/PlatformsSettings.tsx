@@ -2,21 +2,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { EyeOff, Loader2 } from "lucide-react";
+import { Gamepad2, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { UserSettings } from "@shared/schema";
-import { PlatformPicker, type IgdbPlatform } from "./PlatformPicker";
+import type { IgdbPlatform } from "@shared/platforms";
+import { PlatformPicker } from "./PlatformPicker";
 
 /**
- * Settings section for hiding platforms from the Library platform filter.
+ * Settings → Platforms.
  *
- * Reuses the same IGDB platform picker as Settings → Import → Platform Filter.
- * Stored as platform *names* (matching how `games.platforms` is persisted) so
- * the Library can filter without a second IGDB lookup; the picker works in IDs,
- * so names are translated on load and save.
+ * One selection governs every platform selector in the app: the Library
+ * platform filter, the download-search platform filter, the Discover and
+ * Add Game dropdowns, and the import engine's eligibility check.
+ *
+ * Checked platforms are the ones you use — everything unchecked is hidden.
+ * Leaving the list empty means "no restriction" and shows every platform.
  */
-export default function HiddenPlatformsSettings() {
+export default function PlatformsSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -40,63 +43,60 @@ export default function HiddenPlatformsSettings() {
   // from an undefined settings object would latch an empty selection.
   useEffect(() => {
     if (loadedRef.current || !settings || igdbPlatforms.length === 0) return;
-    const hidden = new Set(settings.hiddenPlatforms ?? []);
-    setSelectedIds(igdbPlatforms.filter((p) => hidden.has(p.name)).map((p) => p.id));
+    const saved = settings.importPlatformIds;
+    setSelectedIds(Array.isArray(saved) ? saved.filter((id) => typeof id === "number") : []);
     loadedRef.current = true;
   }, [settings, igdbPlatforms]);
 
   const updateSettingsMutation = useMutation({
-    mutationFn: async (hiddenPlatforms: string[]) => {
-      await apiRequest("PATCH", "/api/settings", { hiddenPlatforms });
+    mutationFn: async (importPlatformIds: number[]) => {
+      await apiRequest("PATCH", "/api/settings", { importPlatformIds });
     },
     onSuccess: () => {
-      toast({ title: "Settings Saved", description: "Hidden platforms updated." });
+      toast({ title: "Settings Saved", description: "Platform preferences updated." });
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
     },
     onError: () => {
       toast({
         title: "Save Failed",
-        description: "Could not update hidden platforms.",
+        description: "Could not update platform preferences.",
         variant: "destructive",
       });
     },
   });
 
   const handleSave = () => {
-    // Without the stored settings we cannot tell which names IGDB no longer
+    // Without the stored settings we cannot tell which saved ids IGDB no longer
     // reports, so saving would silently drop them.
     if (!settings) return;
-    const knownNames = new Set(igdbPlatforms.map((p) => p.name));
-    const selectedNames = igdbPlatforms
-      .filter((p) => selectedIds.includes(p.id))
-      .map((p) => p.name);
-    // Keep any stored name IGDB no longer reports, so an upstream rename can't
-    // silently un-hide a platform.
-    const preserved = (settings.hiddenPlatforms ?? []).filter((n) => !knownNames.has(n));
-    updateSettingsMutation.mutate([...preserved, ...selectedNames].sort());
+    const knownIds = new Set(igdbPlatforms.map((p) => p.id));
+    const selectedKnown = selectedIds.filter((id) => knownIds.has(id));
+    // Keep any stored id IGDB no longer reports, so an upstream removal can't
+    // silently widen the selection.
+    const stored = Array.isArray(settings.importPlatformIds) ? settings.importPlatformIds : [];
+    const preserved = stored.filter((id) => !knownIds.has(id));
+    updateSettingsMutation.mutate(
+      [...new Set([...preserved, ...selectedKnown])].sort((a, b) => a - b)
+    );
   };
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center space-x-3">
-          <EyeOff className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">Hidden Platforms</CardTitle>
+          <Gamepad2 className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-lg">Platforms</CardTitle>
         </div>
         <CardDescription>
-          Hide platforms from the Library platform filter. Hidden platforms stay in your library —
-          this only declutters the dropdown.
+          Choose the platforms you use. Only these appear in platform filters across the app, and
+          only these are eligible for import. Leave everything unchecked to show all platforms.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-xs text-muted-foreground">
-          Uses the same platform list as Settings → Import → Platform Filter. Empty = show every
-          platform.
-        </p>
         <PlatformPicker
           selectedIds={selectedIds}
           onSelectedIdsChange={setSelectedIds}
-          idPrefix="hidden-platform"
+          idPrefix="platform-preference"
         />
         <div className="flex justify-end">
           <Button onClick={handleSave} disabled={!settings || updateSettingsMutation.isPending}>

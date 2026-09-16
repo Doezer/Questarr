@@ -30,7 +30,8 @@ import {
 } from "@/components/ui/select";
 import { Search, Plus, Star, AlertCircle, Calendar, Check, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { type Game, type InsertGame, type Config } from "@shared/schema";
+import { type Game, type InsertGame, type Config, type UserSettings } from "@shared/schema";
+import { visibleIgdbPlatforms } from "@shared/platforms";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { Link } from "wouter";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
@@ -77,6 +78,16 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     enabled: open && !!config?.igdb?.configured,
     staleTime: 24 * 60 * 60 * 1000,
   });
+
+  const { data: userSettings } = useQuery<UserSettings>({
+    queryKey: ["/api/settings"],
+    enabled: open,
+  });
+  // The Platforms setting governs every platform selector, this one included.
+  const displayPlatforms = useMemo(
+    () => visibleIgdbPlatforms(platforms, userSettings?.importPlatformIds),
+    [platforms, userSettings?.importPlatformIds]
+  );
 
   // Debounce search query
   useEffect(() => {
@@ -181,7 +192,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All platforms</SelectItem>
-            {platforms.map((platform) => (
+            {displayPlatforms.map((platform) => (
               <SelectItem key={platform.id} value={String(platform.id)}>
                 {platform.name}
               </SelectItem>

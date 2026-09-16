@@ -3,26 +3,28 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { type IgdbPlatform } from "@shared/platforms";
 
-type IgdbPlatform = { id: number; name: string };
 type AppConfig = { igdb?: { configured?: boolean } };
 
+export interface PlatformPickerProps {
+  selectedIds: number[];
+  onSelectedIdsChange: (next: number[]) => void;
+  idPrefix?: string;
+  className?: string;
+}
+
 /**
- * Shared IGDB platform multi-select used by the import platform filter and the
- * library "hidden platforms" setting. Owns the platform-list query, search
- * box, and loading/error/empty states; the caller owns persistence.
+ * Shared IGDB platform multi-select used by the Platforms setting and the
+ * import tab's read-only summary. Owns the platform-list query, search box,
+ * and loading/error/empty states; the caller owns persistence.
  */
 export function PlatformPicker({
   selectedIds,
   onSelectedIdsChange,
   idPrefix = "primary-platform",
   className,
-}: {
-  selectedIds: number[];
-  onSelectedIdsChange: (next: number[]) => void;
-  idPrefix?: string;
-  className?: string;
-}) {
+}: PlatformPickerProps) {
   const {
     data: igdbPlatformsData,
     isLoading: platformsLoading,
@@ -54,7 +56,11 @@ export function PlatformPicker({
 
   return (
     <div className={`space-y-2 ${className ?? ""}`}>
+      <label htmlFor={`${idPrefix}-search`} className="sr-only">
+        Search platforms
+      </label>
       <Input
+        id={`${idPrefix}-search`}
         placeholder="Search platforms..."
         value={platformSearch}
         onChange={(e) => setPlatformSearch(e.target.value)}
@@ -98,5 +104,3 @@ export function PlatformPicker({
     </div>
   );
 }
-
-export type { IgdbPlatform };

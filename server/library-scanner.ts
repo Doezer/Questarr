@@ -341,7 +341,16 @@ export async function matchUnmatchedFolder(
   const igdb = candidates.find((c) => c.id === igdbId);
   if (!igdb) throw new Error("Selected IGDB game not found in top candidates");
 
+  // getGameByIgdbId looks up across all users' libraries, not just the
+  // caller's — a game with this igdbId may belong to someone else. Only
+  // reuse (and mutate) a row the calling user actually owns; otherwise
+  // this lets one user flip another user's game to "owned" and attach
+  // their own scanned files to it. Mirrors the same guard already used
+  // for igdbId reuse in routes.ts (download-attach and import flows).
   let game = await storage.getGameByIgdbId(igdbId);
+  if (game && game.userId !== userId) {
+    game = undefined;
+  }
   if (!game) {
     game = await storage.addGame(igdbToInsertGame(igdb, userId));
     await storage.updateGame(game.id, { libraryPath: absolutePath });
@@ -413,7 +422,12 @@ async function recordMatchedCandidate(
   userId: string,
   files: Array<{ absolutePath: string; size: number }>
 ): Promise<void> {
+  // See the matching guard in matchUnmatchedFolder: getGameByIgdbId is not
+  // user-scoped, so only reuse a row the scanning user actually owns.
   let game = await storage.getGameByIgdbId(best.id);
+  if (game && game.userId !== userId) {
+    game = undefined;
+  }
   if (!game) {
     game = await storage.addGame(igdbToInsertGame(best, userId));
     await storage.updateGame(game.id, { libraryPath: cand.absolutePath });

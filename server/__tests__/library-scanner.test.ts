@@ -177,7 +177,12 @@ describe("scanRootFolderById full scan", () => {
     );
     vi.mocked(storage.getGameByIgdbId).mockImplementation(async (igdbId: number) => {
       if (igdbId === 2) {
-        return { id: "existing-game", status: "wanted", igdbId: 2 } as unknown as Game;
+        return {
+          id: "existing-game",
+          status: "wanted",
+          igdbId: 2,
+          userId: "user-1",
+        } as unknown as Game;
       }
       return undefined;
     });
@@ -337,6 +342,7 @@ describe("existing game libraryPath handling", () => {
       id: "managed-game",
       status: "owned",
       igdbId: 7,
+      userId: "user-1",
       libraryPath: "/data/library/Portal 2",
     } as unknown as Game);
 
@@ -354,5 +360,103 @@ describe("existing game libraryPath handling", () => {
     // update call should fire, let alone overwrite the managed path.
     expect(storage.updateGameStatus).not.toHaveBeenCalled();
     expect(storage.updateGame).not.toHaveBeenCalled();
+  });
+});
+
+// getGameByIgdbId looks up across every user's library, not just the caller's.
+// Without an ownership check, a user could pick any igdbId already owned by
+// someone else and have the scanner flip that game's status, overwrite its
+// libraryPath, and attach the caller's own scanned files to it.
+describe("cross-user game ownership protection", () => {
+  it("matchUnmatchedFolder creates a new game instead of mutating another user's game with the same igdbId", async () => {
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-idor-match-"));
+    await fs.promises.writeFile(path.join(tmpDir, "Someone Elses Game.iso"), "x");
+    const rootFolder: RootFolder = { ...mockRootFolder, id: "rf-idor", path: tmpDir };
+
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getRootFolder).mockResolvedValue(rootFolder);
+    vi.mocked(storage.getGameFiles).mockResolvedValue([]);
+    vi.mocked(storage.addGameFile).mockResolvedValue(undefined as never);
+    vi.mocked(storage.updateGame).mockResolvedValue(undefined as never);
+    vi.mocked(storage.updateGameStatus).mockResolvedValue(undefined as never);
+    vi.mocked(storage.touchRootFolderScanned).mockResolvedValue(undefined);
+    vi.mocked(storage.addGame).mockImplementation(
+      async (g) => ({ id: `game-${g.igdbId}`, ...g }) as unknown as Game
+    );
+    // This igdbId already belongs to a DIFFERENT user's game.
+    vi.mocked(storage.getGameByIgdbId).mockResolvedValue({
+      id: "victim-game",
+      status: "wanted",
+      igdbId: 55,
+      userId: "victim-user",
+      libraryPath: null,
+    } as unknown as Game);
+
+    const { igdbClient } = await import("../igdb.js");
+    // No strong match during the scan, so the folder lands in the unmatched queue.
+    vi.mocked(igdbClient.searchGames).mockResolvedValueOnce([]);
+    await scanRootFolderById("rf-idor", "attacker-user");
+
+    // The attacker then resolves it directly against the victim's igdbId.
+    vi.mocked(igdbClient.searchGames).mockResolvedValueOnce([
+      { id: 55, name: "Someone Elses Game" },
+    ] as never);
+    vi.mocked(storage.updateGameStatus).mockClear();
+    vi.mocked(storage.updateGame).mockClear();
+
+    const result = await matchUnmatchedFolder(
+      "rf-idor",
+      "Someone Elses Game.iso",
+      55,
+      "attacker-user"
+    );
+
+    // Must NOT mutate the victim's game...
+    expect(storage.updateGameStatus).not.toHaveBeenCalledWith("victim-game", expect.anything());
+    expect(storage.updateGame).not.toHaveBeenCalledWith("victim-game", expect.anything());
+    // ...instead a new game is created and owned by the calling user.
+    expect(storage.addGame).toHaveBeenCalledWith(
+      expect.objectContaining({ igdbId: 55, userId: "attacker-user" })
+    );
+    expect(result.gameId).toBe("game-55");
+  });
+
+  it("auto-match during a scan creates a new game instead of mutating another user's game", async () => {
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-idor-auto-"));
+    await fs.promises.mkdir(path.join(tmpDir, "Shared Title"));
+    await fs.promises.writeFile(path.join(tmpDir, "Shared Title", "setup.exe"), "x");
+    const rootFolder: RootFolder = { ...mockRootFolder, id: "rf-idor-auto", path: tmpDir };
+
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getRootFolder).mockResolvedValue(rootFolder);
+    vi.mocked(storage.getGameFiles).mockResolvedValue([]);
+    vi.mocked(storage.addGameFile).mockResolvedValue(undefined as never);
+    vi.mocked(storage.updateGame).mockResolvedValue(undefined as never);
+    vi.mocked(storage.updateGameStatus).mockResolvedValue(undefined as never);
+    vi.mocked(storage.touchRootFolderScanned).mockResolvedValue(undefined);
+    vi.mocked(storage.addGame).mockImplementation(
+      async (g) => ({ id: `game-${g.igdbId}`, ...g }) as unknown as Game
+    );
+    vi.mocked(storage.getGameByIgdbId).mockResolvedValue({
+      id: "victim-game-2",
+      status: "wanted",
+      igdbId: 77,
+      userId: "victim-user",
+      libraryPath: null,
+    } as unknown as Game);
+
+    const { igdbClient } = await import("../igdb.js");
+    // Strong exact-title match, so this auto-matches rather than queueing.
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 77, name: "Shared Title" },
+    ] as never);
+
+    await scanRootFolderById("rf-idor-auto", "attacker-user");
+
+    expect(storage.updateGameStatus).not.toHaveBeenCalledWith("victim-game-2", expect.anything());
+    expect(storage.updateGame).not.toHaveBeenCalledWith("victim-game-2", expect.anything());
+    expect(storage.addGame).toHaveBeenCalledWith(
+      expect.objectContaining({ igdbId: 77, userId: "attacker-user" })
+    );
   });
 });

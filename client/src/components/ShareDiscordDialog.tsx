@@ -26,7 +26,10 @@ interface ShareDiscordDialogProps {
 
 const STAT_OPTIONS = [
   { id: "overview" as const, label: "Overview (Total Games, Rating, Completion)" },
-  { id: "status" as const, label: "Status Breakdown (Wanted, Owned, Completed, Downloading)" },
+  {
+    id: "status" as const,
+    label: "Status Breakdown (Wanted, Owned, Playing, Completed, Downloading)",
+  },
   { id: "quickinfo" as const, label: "Quick Info (Top Genre, Platform, Publisher)" },
 ];
 

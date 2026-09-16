@@ -122,7 +122,7 @@ export default function StatsPage() {
         <StatsCard
           title="Completion Rate"
           value={`${stats.completionRate}%`}
-          subtitle="of owned games"
+          subtitle="of acquired games"
           icon={CheckCircle2}
         />
         <StatsCard

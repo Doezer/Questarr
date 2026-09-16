@@ -964,13 +964,18 @@ export async function checkDownloadStatus() {
             continue;
           }
 
-          // Threshold reached — proceed with assumption of completion.
+          // Threshold reached. A download disappearing from the downloader (queue and
+          // history) is far more consistent with a failure that a cleanup script or the
+          // user removed (e.g. SABnzbd repair failure, torrent client "remove on error")
+          // than with a genuinely completed download vanishing — completed jobs normally
+          // stay in history/queue until explicitly cleared. Treat it as failed rather than
+          // assuming success, so the game isn't silently marked "owned" with nothing
+          // actually downloaded.
           downloadMissCount.delete(download.id);
 
           // Fetch game info for better logging and notification
           const game = await storage.getGame(download.gameId);
           const gameTitle = game ? game.title : download.downloadTitle;
-          const missedImportConfig = await storage.getImportConfig(game?.userId ?? undefined);
 
           igdbLogger.warn(
             {
@@ -980,64 +985,48 @@ export async function checkDownloadStatus() {
               gameTitle,
               downloadHash: download.downloadHash,
             },
-            "Download not found in downloader - assuming completion. " +
-              "This could indicate the download was manually removed."
+            "Download not found in downloader - marking as failed. " +
+              "This could indicate the download failed and was removed by the downloader " +
+              "or a cleanup script, or was manually removed."
           );
 
           const missedSettings = await storage.getUserSettings(game?.userId ?? "");
           const missedPrefs = resolvePrefs(missedSettings);
+          const missedErrorMessage =
+            "Download disappeared from the downloader before completing. It may have " +
+            'failed and been automatically removed; the game was reset to "wanted" so ' +
+            "it can be re-searched. If it actually finished, you may need to import it manually.";
 
-          if (missedImportConfig.enablePostProcessing) {
-            // We no longer have a download-client reference to resolve the source
-            // path from, so the import pipeline can't run automatically. Flag it
-            // for manual review instead of silently marking the game "owned" with
-            // nothing actually imported into the library.
-            await storage.updateGameDownloadStatus(download.id, "manual_review_required", null);
-            notifyUser("downloadUpdate", download.gameId);
+          await storage.updateGameDownloadStatus(download.id, "failed", missedErrorMessage);
+          notifyUser("downloadUpdate", download.gameId);
 
-            igdbLogger.warn(
-              { gameId: download.gameId, downloadId: download.id, gameTitle },
-              "Download not found in downloader — post-processing is enabled but the source " +
-                "path can no longer be resolved. Flagged for manual import review."
-            );
-
-            if (missedPrefs.downloadCompleted.inApp) {
-              const notification = await storage.addNotification({
-                type: "warning",
-                title: "Import Requires Manual Review",
-                message: `"${gameTitle}" finished downloading but disappeared from the download client before it could be imported. Please review it manually under Downloads.`,
-                link: "/",
-                userId: game?.userId ?? undefined,
-              });
-              notifyUser("notification", notification);
-              if (missedPrefs.downloadCompleted.apprise) appriseClient.send(notification);
-            }
-          } else {
-            // Mark download as completed (assumption)
-            await storage.updateGameDownloadStatus(download.id, "completed", null);
-
-            // Update game status to owned (assumption)
-            await storage.updateGameStatus(download.gameId, { status: "owned" });
-            notifyUser("downloadUpdate", download.gameId);
-
-            // Send notification to user about this automatic status change
-            if (missedPrefs.downloadCompleted.inApp) {
-              const notification = await storage.addNotification({
-                type: "info",
-                title: "Download Status Changed",
-                message: `Download for "${gameTitle}" was not found in the downloader and has been marked as completed. If this was removed due to an error, you may need to re-download it.`,
-                link: "/",
-                userId: game?.userId ?? undefined,
-              });
-              notifyUser("notification", notification);
-              if (missedPrefs.downloadCompleted.apprise) appriseClient.send(notification);
-            }
-
-            igdbLogger.info(
-              { gameId: download.gameId, gameTitle },
-              "Automatically updated game status to 'owned' after download not found in downloader"
-            );
+          // If a sibling download for the same game is still actively downloading, leave
+          // the game status as-is to avoid a false regression.
+          const siblings = await storage.getDownloadsByGameId(download.gameId);
+          const hasActiveDownload = siblings.some(
+            (s) => s.id !== download.id && s.status === "downloading"
+          );
+          if (!hasActiveDownload && game && game.status !== "wanted") {
+            await storage.updateGameStatus(download.gameId, { status: "wanted" });
           }
+
+          if (missedPrefs.downloadFailed.inApp) {
+            const notification = await storage.addNotification({
+              type: "error",
+              title: "Download Failed",
+              message: `Download for "${gameTitle}" disappeared from the download client before completing and has been marked as failed. If it actually finished, you may need to import it manually.`,
+              link: `modal:game:${download.gameId}`,
+              userId: game?.userId ?? undefined,
+            });
+            notifyUser("notification", notification);
+            if (missedPrefs.downloadFailed.apprise) appriseClient.send(notification);
+          }
+
+          igdbLogger.info(
+            { gameId: download.gameId, gameTitle },
+            "Marked download as failed and reset game status to 'wanted' after it " +
+              "disappeared from the downloader"
+          );
         }
       }
     } catch (error) {

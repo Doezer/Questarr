@@ -27,6 +27,7 @@ const mockGetGame = vi.fn();
 const mockAddNotification = vi.fn();
 const mockGetUserSettings = vi.fn();
 const mockGetImportConfig = vi.fn();
+const mockGetDownloadsByGameId = vi.fn();
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -38,6 +39,7 @@ vi.mock("../storage.js", () => ({
     addNotification: mockAddNotification,
     getUserSettings: mockGetUserSettings,
     getImportConfig: mockGetImportConfig,
+    getDownloadsByGameId: mockGetDownloadsByGameId,
   },
 }));
 
@@ -138,6 +140,7 @@ describe("Cron - checkDownloadStatus", () => {
     mockUpdateGameStatus.mockResolvedValue(undefined);
     mockGetDownloadDetails.mockResolvedValue(null);
     mockProcessImport.mockResolvedValue(undefined);
+    mockGetDownloadsByGameId.mockResolvedValue([baseDownload]);
   });
 
   it("should find a download via the bulk map when it is in the queue", async () => {
@@ -206,7 +209,7 @@ describe("Cron - checkDownloadStatus", () => {
     });
   });
 
-  it("should mark as completed via error path when both bulk and individual checks return null", async () => {
+  it("should mark as failed and reset the game to wanted when both bulk and individual checks return null", async () => {
     mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
     mockGetDownloader.mockResolvedValue(baseDownloader);
 
@@ -214,22 +217,32 @@ describe("Cron - checkDownloadStatus", () => {
     mockGetAllDownloads.mockResolvedValue([]);
     mockGetDownloadStatus.mockResolvedValue(null);
 
-    // DOWNLOAD_MISS_THRESHOLD = 3: must miss 3 consecutive times before completing
+    // DOWNLOAD_MISS_THRESHOLD = 3: must miss 3 consecutive times before acting
     await checkDownloadStatus();
     await checkDownloadStatus();
     await checkDownloadStatus();
 
     expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
-    // Falls through to the "missing" path after threshold is reached
-    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed", null);
-    expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
+    // Falls through to the "missing" path after threshold is reached — never assume success.
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      baseDownload.id,
+      "failed",
+      expect.any(String)
+    );
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalledWith(baseDownload.id, "completed");
+    expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "wanted" });
+    expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
     expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", baseDownload.gameId);
   });
 
-  it("should flag a missing download for manual review instead of skipping import when post-processing is enabled", async () => {
+  it("should not reset the game to wanted when a sibling download is still actively downloading", async () => {
     mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
     mockGetDownloader.mockResolvedValue(baseDownloader);
     mockGetImportConfig.mockResolvedValue({ enablePostProcessing: true });
+    mockGetDownloadsByGameId.mockResolvedValue([
+      baseDownload,
+      { ...baseDownload, id: "dlrecord-2", status: "downloading" },
+    ]);
 
     // Both bulk and individual checks return nothing
     mockGetAllDownloads.mockResolvedValue([]);
@@ -243,8 +256,8 @@ describe("Cron - checkDownloadStatus", () => {
     // Never silently marked completed/owned — files were never actually imported.
     expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
       baseDownload.id,
-      "manual_review_required",
-      null
+      "failed",
+      expect.any(String)
     );
     expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalledWith(
       baseDownload.id,
@@ -252,6 +265,9 @@ describe("Cron - checkDownloadStatus", () => {
       null
     );
     expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
+    expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, {
+      status: "wanted",
+    });
     expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", baseDownload.gameId);
   });
 

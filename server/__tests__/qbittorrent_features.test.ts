@@ -80,6 +80,16 @@ describe("QBittorrentClient - Advanced Features", () => {
     return record[name] ?? record[name.toLowerCase()] ?? null;
   };
 
+  // Shared fixture for the getFreeSpace tests below, which otherwise all
+  // create an identical downloader.
+  const freeSpaceTestDownloader = createTestDownloader({
+    port: 8080,
+    urlPath: "",
+    downloadPath: "/downloads",
+    category: null,
+    label: null,
+  });
+
   it("should handle adding download from http URL (non-magnet) and resolve hash", async () => {
     vi.useFakeTimers();
     const testDownloader = createTestDownloader();
@@ -262,13 +272,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should return free space using app/free_space when supported", async () => {
-    const testDownloader = createTestDownloader({
-      port: 8080,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-    });
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,
@@ -302,13 +306,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should fall back when app/free_space returns null free_space_on_disk", async () => {
-    const testDownloader = createTestDownloader({
-      port: 8080,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-    });
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,
@@ -349,13 +347,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should fall back when preferences fails but sync/maindata succeeds", async () => {
-    const testDownloader = createTestDownloader({
-      port: 8080,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-    });
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,
@@ -394,13 +386,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should fall back to transfer/info when app/free_space and sync/maindata fail", async () => {
-    const testDownloader = createTestDownloader({
-      port: 8080,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-    });
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,
@@ -452,13 +438,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should return 0 when all free space endpoints fail", async () => {
-    const testDownloader = createTestDownloader({
-      port: 8080,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-    });
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,
@@ -498,13 +478,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should fall back when sync/maindata is ok but free space is missing/invalid", async () => {
-    const testDownloader = createTestDownloader({
-      port: 8080,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-    });
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,

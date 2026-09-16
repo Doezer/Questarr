@@ -94,6 +94,11 @@ vi.mock("../ssrf.js", () => ({
 import { safeFetch } from "../ssrf.js";
 const fetchMock = safeFetch as unknown as ReturnType<typeof vi.fn>;
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  fetchMock.mockReset();
+});
+
 import { SABnzbdClient } from "../downloaders/sabnzbd.js";
 import { TransmissionClient } from "../downloaders/transmission.js";
 import { NZBGetClient } from "../downloaders/nzbget.js";
@@ -162,11 +167,6 @@ const denyCases: DenyCase[] = [
 describe.each(denyCases)(
   "$client HTTP credential policy (deny)",
   ({ downloader, expectedMessageFragment, makeClient }) => {
-    beforeEach(() => {
-      vi.clearAllMocks();
-      fetchMock.mockReset();
-    });
-
     it("throws when HTTP and allowInsecureLan=false and credentials set", async () => {
       const client = makeClient(makeDownloader(downloader));
       const result = await client.testConnection();
@@ -182,41 +182,25 @@ describe.each(denyCases)(
 // param, an Authorization header, or (Synology) simply reaching the network.
 
 describe("SABnzbd HTTP credential policy (allow)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fetchMock.mockReset();
-  });
+  const versionResponse = {
+    ok: true,
+    headers: { get: () => null },
+    text: async () => JSON.stringify({ version: "4.0.0" }),
+    json: async () => ({ version: "4.0.0" }),
+  };
 
-  it("sends apikey when HTTP and allowInsecureLan=true", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      headers: { get: () => null },
-      text: async () => JSON.stringify({ version: "4.0.0" }),
-      json: async () => ({ version: "4.0.0" }),
-    });
-    const client = new SABnzbdClient(
-      makeDownloader({ type: "sabnzbd", username: "mykey", allowInsecureLan: true })
-    );
-    await client.testConnection();
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("apikey=mykey");
-  });
-
-  it("sends apikey when HTTPS (useSsl=true)", async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      headers: { get: () => null },
-      text: async () => JSON.stringify({ version: "4.0.0" }),
-      json: async () => ({ version: "4.0.0" }),
-    });
-    const client = new SABnzbdClient(
-      makeDownloader({
-        type: "sabnzbd",
-        username: "mykey",
-        useSsl: true,
-        url: "https://localhost:9090",
-      })
-    );
+  it.each([
+    [
+      "HTTP and allowInsecureLan=true",
+      { type: "sabnzbd", username: "mykey", allowInsecureLan: true },
+    ],
+    [
+      "HTTPS (useSsl=true)",
+      { type: "sabnzbd", username: "mykey", useSsl: true, url: "https://localhost:9090" },
+    ],
+  ] as const)("sends apikey when %s", async (_label, overrides) => {
+    fetchMock.mockResolvedValueOnce(versionResponse);
+    const client = new SABnzbdClient(makeDownloader(overrides));
     await client.testConnection();
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toContain("apikey=mykey");
@@ -224,11 +208,6 @@ describe("SABnzbd HTTP credential policy (allow)", () => {
 });
 
 describe("Transmission HTTP credential policy (allow)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fetchMock.mockReset();
-  });
-
   it("does not throw when HTTP and allowInsecureLan=true", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -246,11 +225,6 @@ describe("Transmission HTTP credential policy (allow)", () => {
 });
 
 describe("NZBGet HTTP credential policy (allow)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fetchMock.mockReset();
-  });
-
   it("sends Authorization header when HTTP and allowInsecureLan=true", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -265,11 +239,6 @@ describe("NZBGet HTTP credential policy (allow)", () => {
 });
 
 describe("Deluge HTTP credential policy (allow)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fetchMock.mockReset();
-  });
-
   it("does not throw when no password configured", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -285,11 +254,6 @@ describe("Deluge HTTP credential policy (allow)", () => {
 });
 
 describe("rTorrent HTTP credential policy (allow)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fetchMock.mockReset();
-  });
-
   const rtorrentVersionResponse = {
     ok: true,
     headers: { get: () => "text/xml" },
@@ -297,19 +261,12 @@ describe("rTorrent HTTP credential policy (allow)", () => {
       '<?xml version="1.0"?><methodResponse><params><param><value><string>0.9.8</string></value></param></params></methodResponse>',
   };
 
-  it("sends Basic Authentication when HTTP and allowInsecureLan=true", async () => {
+  it.each([
+    ["HTTP and allowInsecureLan=true", { type: "rtorrent", allowInsecureLan: true }],
+    ["HTTPS (useSsl=true)", { type: "rtorrent", useSsl: true, url: "https://localhost:9091" }],
+  ] as const)("sends Basic Authentication when %s", async (_label, overrides) => {
     fetchMock.mockResolvedValueOnce(rtorrentVersionResponse);
-    const client = new RTorrentClient(makeDownloader({ type: "rtorrent", allowInsecureLan: true }));
-    await client.testConnection();
-    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect((options.headers as Record<string, string>)["Authorization"]).toMatch(/^Basic /);
-  });
-
-  it("sends Basic Authentication when HTTPS (useSsl=true)", async () => {
-    fetchMock.mockResolvedValueOnce(rtorrentVersionResponse);
-    const client = new RTorrentClient(
-      makeDownloader({ type: "rtorrent", useSsl: true, url: "https://localhost:9091" })
-    );
+    const client = new RTorrentClient(makeDownloader(overrides));
     await client.testConnection();
     const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect((options.headers as Record<string, string>)["Authorization"]).toMatch(/^Basic /);
@@ -317,11 +274,6 @@ describe("rTorrent HTTP credential policy (allow)", () => {
 });
 
 describe("Synology HTTP credential policy (allow)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fetchMock.mockReset();
-  });
-
   it("proceeds past the transport guard when HTTP and allowInsecureLan=true", async () => {
     // No credentials-policy error this time -- the request now reaches the network
     // and fails for an unrelated (mocked) reason instead.

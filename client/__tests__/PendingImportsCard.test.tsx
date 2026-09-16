@@ -173,4 +173,39 @@ describe("PendingImportsCard", () => {
       expect.objectContaining({ downloadId: "dl-3", open: true, passwordRequired: true })
     );
   });
+
+  it("collapses a multi-item queue by default and reveals items via the toggle", async () => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (getRequestUrl(url).includes("/api/imports/pending")) {
+        return createJsonResponse([
+          {
+            id: "dl-4",
+            gameTitle: "First Game",
+            downloadTitle: "First.Game.Release-GROUP",
+            status: "manual_review_required",
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: "dl-5",
+            gameTitle: "Second Game",
+            downloadTitle: "Second.Game.Release-GROUP",
+            status: "manual_review_required",
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
+      return createJsonResponse({});
+    });
+
+    renderCard();
+
+    expect(await screen.findByText("2 Pending Manual Imports")).toBeInTheDocument();
+    expect(screen.queryByText("First Game")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show pending imports" }));
+
+    expect(await screen.findByText("First Game")).toBeInTheDocument();
+    expect(screen.getByText("Second Game")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide pending imports" })).toBeInTheDocument();
+  });
 });

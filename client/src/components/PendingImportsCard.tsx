@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import ImportReviewModal from "./ImportReviewModal";
 import LinkGameModal from "./LinkGameModal";
 import { apiRequest } from "@/lib/queryClient";
@@ -37,7 +37,7 @@ export default function PendingImportsCard() {
   const multiple = pendingImports.length > 1;
 
   useEffect(() => {
-    if (!multiple) setCollapsed(false);
+    setCollapsed(multiple);
   }, [multiple]);
 
   const skipMutation = useMutation({
@@ -58,10 +58,7 @@ export default function PendingImportsCard() {
   return (
     <>
       <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900">
-        <CardHeader
-          className={multiple ? "pb-3 cursor-pointer select-none" : "pb-3"}
-          onClick={multiple ? () => setCollapsed((c) => !c) : undefined}
-        >
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500">
               <AlertCircle className="h-5 w-5 shrink-0" />

@@ -574,8 +574,14 @@ importRouter.post("/:id/confirm", async (req, res) => {
       transferMode: z.enum(IMPORT_TRANSFER_MODES).optional(),
       unpack: z.boolean().optional(),
       // Only meaningful when unpack is true and the archive is encrypted. Never persisted —
-      // consumed once by confirmImport() to try extraction, then dropped.
-      password: z.string().max(1024).optional(),
+      // consumed once by confirmImport() to try extraction, then dropped. A NUL byte would
+      // reach execFile's args array unchanged and throw ERR_INVALID_ARG_VALUE deep inside
+      // ArchiveService rather than failing here with a clean validation error.
+      password: z
+        .string()
+        .max(1024)
+        .refine((value) => !value.includes("\0"), "Password must not contain null characters")
+        .optional(),
     });
 
     const body = schema.parse(req.body);

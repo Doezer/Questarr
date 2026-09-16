@@ -502,6 +502,21 @@ describe("importRouter additional coverage", () => {
     });
   });
 
+  it("POST /:id/confirm returns 400 for a password containing a null byte", async () => {
+    mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/data" }));
+
+    const app = createApp();
+    const response = await request(app).post("/api/imports/dl-1/confirm").send({
+      strategy: "pc",
+      proposedPath: "/data/PC/Game",
+      unpack: true,
+      password: "hunter 2",
+    });
+
+    expect(response.status).toBe(400);
+    expect(mockImportManager.confirmImport).not.toHaveBeenCalled();
+  });
+
   // --- GET /api/imports/hardlink/check ---
 
   it("GET /hardlink/check returns 200 with sameDevice:true when paths are on the same device", async () => {

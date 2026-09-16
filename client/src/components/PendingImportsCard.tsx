@@ -17,6 +17,7 @@ interface PendingImport {
   status: string;
   createdAt: string;
   errorMessage?: string | null;
+  passwordRequired?: boolean;
 }
 
 export default function PendingImportsCard() {
@@ -88,7 +89,9 @@ export default function PendingImportsCard() {
                     >
                       {item.status === GAME_LINK_REQUIRED_STATUS
                         ? item.errorMessage
-                        : `Import failed: ${item.errorMessage}`}
+                        : item.passwordRequired
+                          ? `Password required: ${item.errorMessage}`
+                          : `Import failed: ${item.errorMessage}`}
                     </p>
                   )}
                 </div>
@@ -102,7 +105,11 @@ export default function PendingImportsCard() {
                     Skip
                   </Button>
                   <Button size="sm" onClick={() => setSelectedImport(item)}>
-                    {item.status === GAME_LINK_REQUIRED_STATUS ? "Link Game" : "Review"}
+                    {(() => {
+                      if (item.status === GAME_LINK_REQUIRED_STATUS) return "Link Game";
+                      if (item.passwordRequired) return "Enter Password";
+                      return "Review";
+                    })()}
                   </Button>
                 </div>
               </div>
@@ -125,6 +132,7 @@ export default function PendingImportsCard() {
           onOpenChange={(open) => !open && setSelectedImport(null)}
           downloadId={selectedImport.id}
           downloadTitle={selectedImport.downloadTitle}
+          passwordRequired={!!selectedImport.passwordRequired}
         />
       )}
     </>

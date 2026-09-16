@@ -401,6 +401,122 @@ describe("importRouter additional coverage", () => {
     expect(response.body).toEqual([]);
   });
 
+  // --- GET /api/imports/pending — password-protected archive marker ---
+
+  it("GET /pending flags passwordRequired and strips the internal marker from the message", async () => {
+    mockStorage.getPendingImportReviews.mockResolvedValue([
+      {
+        id: "d-pw",
+        gameId: "g1",
+        downloadTitle: "Encrypted.rar",
+        status: "manual_review_required",
+        downloaderId: "down-1",
+        addedAt: "2026-01-01",
+        errorMessage:
+          "ARCHIVE_PASSWORD_REQUIRED:This archive is password-protected — a password is required to extract it.",
+      },
+    ]);
+    mockStorage.getGame.mockResolvedValueOnce({ title: "Encrypted Game" });
+
+    const app = createApp();
+    const response = await request(app).get("/api/imports/pending");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([
+      expect.objectContaining({
+        id: "d-pw",
+        passwordRequired: true,
+        errorMessage: "This archive is password-protected — a password is required to extract it.",
+      }),
+    ]);
+  });
+
+  it("GET /pending does not flag passwordRequired for an unrelated failure message", async () => {
+    mockStorage.getPendingImportReviews.mockResolvedValue([
+      {
+        id: "d-other",
+        gameId: "g1",
+        downloadTitle: "Broken.zip",
+        status: "manual_review_required",
+        downloaderId: "down-1",
+        addedAt: "2026-01-01",
+        errorMessage: "archive is corrupt or incomplete",
+      },
+    ]);
+    mockStorage.getGame.mockResolvedValueOnce({ title: "Broken Game" });
+
+    const app = createApp();
+    const response = await request(app).get("/api/imports/pending");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([
+      expect.objectContaining({
+        id: "d-other",
+        passwordRequired: false,
+        errorMessage: "archive is corrupt or incomplete",
+      }),
+    ]);
+  });
+
+  // --- POST /:id/confirm — password field ---
+
+  it("POST /:id/confirm forwards the password to confirmImport when unpack is requested", async () => {
+    mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/data" }));
+    mockImportManager.confirmImport.mockResolvedValue(undefined);
+
+    const app = createApp();
+    const response = await request(app).post("/api/imports/dl-1/confirm").send({
+      strategy: "pc",
+      proposedPath: "/data/PC/Game",
+      unpack: true,
+      password: "hunter2",
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockImportManager.confirmImport).toHaveBeenCalledWith(
+      "dl-1",
+      expect.objectContaining({ unpack: true, password: "hunter2" }),
+      "user-1"
+    );
+  });
+
+  it("POST /:id/confirm returns 400 with passwordRequired when confirmImport rejects with a password error", async () => {
+    const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
+    mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/data" }));
+    mockImportManager.confirmImport.mockRejectedValue(
+      new ArchivePasswordRequiredError("The provided password was rejected — it may be incorrect.")
+    );
+
+    const app = createApp();
+    const response = await request(app).post("/api/imports/dl-1/confirm").send({
+      strategy: "pc",
+      proposedPath: "/data/PC/Game",
+      unpack: true,
+      password: "wrongpass",
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: "The provided password was rejected — it may be incorrect.",
+      passwordRequired: true,
+    });
+  });
+
+  it("POST /:id/confirm returns 400 for a password containing a null byte", async () => {
+    mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/data" }));
+
+    const app = createApp();
+    const response = await request(app).post("/api/imports/dl-1/confirm").send({
+      strategy: "pc",
+      proposedPath: "/data/PC/Game",
+      unpack: true,
+      password: "hunter 2",
+    });
+
+    expect(response.status).toBe(400);
+    expect(mockImportManager.confirmImport).not.toHaveBeenCalled();
+  });
+
   // --- GET /api/imports/hardlink/check ---
 
   it("GET /hardlink/check returns 200 with sameDevice:true when paths are on the same device", async () => {

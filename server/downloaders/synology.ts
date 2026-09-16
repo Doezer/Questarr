@@ -12,6 +12,7 @@ import {
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 
 interface SynologyApiDescriptor {
@@ -1165,5 +1166,9 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Failed to get Synology free space");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 }

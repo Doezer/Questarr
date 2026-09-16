@@ -31,6 +31,10 @@ interface ImportReviewModalProps {
   onOpenChange: (open: boolean) => void;
   downloadId: string;
   downloadTitle: string;
+  /** True when this download's last extraction attempt failed because the archive is
+   * password-protected — shows a required password field and pre-enables Unpack Archive
+   * instead of the normal path-review form. */
+  passwordRequired?: boolean;
 }
 
 export default function ImportReviewModal({
@@ -38,6 +42,7 @@ export default function ImportReviewModal({
   onOpenChange,
   downloadId,
   downloadTitle,
+  passwordRequired = false,
 }: Readonly<ImportReviewModalProps>) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -54,6 +59,7 @@ export default function ImportReviewModal({
     "move"
   );
   const [unpackArchive, setUnpackArchive] = useState(false);
+  const [password, setPassword] = useState("");
   const [isSourceBrowserOpen, setIsSourceBrowserOpen] = useState(false);
   const [isDestBrowserOpen, setIsDestBrowserOpen] = useState(false);
 
@@ -84,9 +90,12 @@ export default function ImportReviewModal({
       setSourcePath("");
       setDestinationPath(importConfig?.libraryRoot ?? "");
       setTransferMode(importConfig?.transferMode ?? "move");
-      setUnpackArchive(false);
+      // A password-required retry always needs to re-run extraction, so pre-enable Unpack
+      // Archive rather than making the user notice and flip it on themselves.
+      setUnpackArchive(passwordRequired);
+      setPassword("");
     }
-  }, [open, downloadId, importConfig?.libraryRoot, importConfig?.transferMode]);
+  }, [open, downloadId, importConfig?.libraryRoot, importConfig?.transferMode, passwordRequired]);
 
   // Pre-fill paths from plan once when it loads
   useEffect(() => {
@@ -119,6 +128,7 @@ export default function ImportReviewModal({
         ...(sourcePath ? { originalPath: sourcePath } : {}),
         transferMode,
         unpack: unpackArchive,
+        ...(unpackArchive && password ? { password } : {}),
       });
     },
     onSuccess: () => {
@@ -131,8 +141,12 @@ export default function ImportReviewModal({
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       onOpenChange(false);
     },
-    onError: (error: Error) => {
-      toast({ title: "Import Failed", description: error.message, variant: "destructive" });
+    onError: (error: Error & { data?: { passwordRequired?: boolean } }) => {
+      toast({
+        title: error.data?.passwordRequired ? "Incorrect Password" : "Import Failed",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -141,6 +155,14 @@ export default function ImportReviewModal({
       toast({
         title: "Validation Error",
         description: "Destination path is required.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (passwordRequired && !password) {
+      toast({
+        title: "Validation Error",
+        description: "This archive is password-protected — enter a password to extract it.",
         variant: "destructive",
       });
       return;
@@ -162,9 +184,18 @@ export default function ImportReviewModal({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Review Import</DialogTitle>
+            <DialogTitle>{passwordRequired ? "Password Required" : "Review Import"}</DialogTitle>
             <DialogDescription>
-              Manually configure the import for <strong>{downloadTitle}</strong>.
+              {passwordRequired ? (
+                <>
+                  <strong>{downloadTitle}</strong> is a password-protected archive. Enter the
+                  password to extract and import it.
+                </>
+              ) : (
+                <>
+                  Manually configure the import for <strong>{downloadTitle}</strong>.
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -276,8 +307,28 @@ export default function ImportReviewModal({
                   Extract .zip, .rar, .7z before placing files.
                 </p>
               </div>
-              <Switch checked={unpackArchive} onCheckedChange={setUnpackArchive} />
+              <Switch
+                checked={unpackArchive}
+                onCheckedChange={setUnpackArchive}
+                disabled={passwordRequired}
+              />
             </div>
+
+            {unpackArchive && (
+              <div className="space-y-2">
+                <Label htmlFor="import-review-password">
+                  Archive Password{passwordRequired ? "" : " (optional)"}
+                </Label>
+                <Input
+                  id="import-review-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  autoComplete="off"
+                />
+              </div>
+            )}
           </div>
 
           <DialogFooter>

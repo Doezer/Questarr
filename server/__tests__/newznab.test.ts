@@ -256,6 +256,7 @@ describe("NewznabClient", () => {
       expect(isSafeUrl).toHaveBeenNthCalledWith(2, "http://example.com/api?apikey=secret&t=caps");
       expect(safeFetch).toHaveBeenCalledWith("http://example.com/api?apikey=secret&t=caps", {
         signal: expect.any(AbortSignal),
+        requireHttps: false,
       });
 
       expect(routesLogger.info).toHaveBeenCalledWith(
@@ -286,6 +287,7 @@ describe("NewznabClient", () => {
       expect(isSafeUrl).toHaveBeenNthCalledWith(2, "http://example.com/api?apikey=secret&t=caps");
       expect(safeFetch).toHaveBeenCalledWith("http://example.com/api?apikey=secret&t=caps", {
         signal: expect.any(AbortSignal),
+        requireHttps: false,
       });
     });
   });

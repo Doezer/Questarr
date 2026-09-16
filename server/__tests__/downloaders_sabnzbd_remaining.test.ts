@@ -221,7 +221,7 @@ describe("sabnzbd remaining regression coverage", () => {
     await expect(client.testConnection()).resolves.toEqual({
       success: false,
       message:
-        "Failed to connect to SABnzbd at http://sab.local/api?apikey=%5Bredacted%5D&mode=version&output=json: HTTP 500: Broken - No error details",
+        "Failed to connect to SABnzbd at http://sab.local: HTTP 500: Broken - No error details",
     });
 
     safeFetchMock.mockResolvedValueOnce({
@@ -357,7 +357,7 @@ describe("sabnzbd remaining regression coverage", () => {
     expect(fetchWithFallbackSpy).not.toHaveBeenCalled();
   });
 
-  it("requires HTTPS on every hop (rejecting an insecure redirect) only when a password is sent", async () => {
+  it("requires HTTPS on every hop (rejecting an insecure redirect) whenever a credential travels with the request", async () => {
     safeFetchMock.mockImplementation(async (_url: string, options: RequestInit = {}) => {
       if (options.method !== "POST") {
         return {
@@ -382,12 +382,26 @@ describe("sabnzbd remaining regression coverage", () => {
     ) as [string, RequestInit & { requireHttps?: boolean }];
     expect(postOptionsWithPassword.requireHttps).toBe(true);
 
+    // No password this time, but the downloader is still configured for TLS, so the
+    // request URL still carries the API key -- a downgrade redirect must still be
+    // rejected to keep that credential from leaking too.
     safeFetchMock.mockClear();
     await client.addDownload({ url: "http://indexer.local/plain.nzb", title: "Plain NZB" });
-    const [, postOptionsWithoutPassword] = safeFetchMock.mock.calls.find(
+    const [, postOptionsWithApiKeyOnly] = safeFetchMock.mock.calls.find(
       ([, options]) => (options as RequestInit)?.method === "POST"
     ) as [string, RequestInit & { requireHttps?: boolean }];
-    expect(postOptionsWithoutPassword.requireHttps).toBe(false);
+    expect(postOptionsWithApiKeyOnly.requireHttps).toBe(true);
+
+    // Neither a password nor an API key travels with this request (no username
+    // configured, and the connection isn't TLS), so there's nothing to protect
+    // from a downgrade redirect.
+    safeFetchMock.mockClear();
+    const plainClient = new SABnzbdClient(createDownloader({ useSsl: false, username: null }));
+    await plainClient.addDownload({ url: "http://indexer.local/plain.nzb", title: "Plain NZB" });
+    const [, postOptionsWithoutCredentials] = safeFetchMock.mock.calls.find(
+      ([, options]) => (options as RequestInit)?.method === "POST"
+    ) as [string, RequestInit & { requireHttps?: boolean }];
+    expect(postOptionsWithoutCredentials.requireHttps).toBe(false);
   });
 
   it("does not downgrade to the insecure self-signed-cert fallback when a password is sent", async () => {

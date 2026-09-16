@@ -11,7 +11,7 @@ import crypto from "crypto";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient, XMLValue } from "./types.js";
 import {
-  downloaderAllowsCredentials,
+  assertCredentialsAllowed,
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
@@ -716,12 +716,7 @@ export class RTorrentClient implements DownloaderClient {
     };
 
     if (this.downloader.username && this.downloader.password) {
-      if (!downloaderAllowsCredentials(this.downloader)) {
-        throw new Error(
-          "rTorrent: refusing to send credentials over unencrypted HTTP. " +
-            "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."
-        );
-      }
+      assertCredentialsAllowed(this.downloader, "rTorrent");
       const auth = Buffer.from(
         `${this.downloader.username}:${this.downloader.password}`,
         "utf-8"

@@ -331,7 +331,8 @@ export class TorznabClient {
   private async fetchServerInfo(indexer: Indexer): Promise<TorznabServerInfo> {
     const url = this.buildApiUrl(indexer.url);
     url.searchParams.set("t", "caps");
-    if (indexerAllowsApiKey(indexer)) {
+    const sendsApiKey = indexerAllowsApiKey(indexer);
+    if (sendsApiKey) {
       url.searchParams.set("apikey", indexer.apiKey);
     }
 
@@ -342,6 +343,7 @@ export class TorznabClient {
     const response = await safeFetch(url.toString(), {
       headers: { "User-Agent": "Questarr/1.0" },
       signal: AbortSignal.timeout(30000),
+      requireHttps: sendsApiKey && url.protocol === "https:",
     });
 
     if (!response.ok) {

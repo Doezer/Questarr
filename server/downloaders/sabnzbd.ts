@@ -5,7 +5,7 @@ import https from "https";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
-  downloaderAllowsCredentials,
+  assertCredentialsAllowed,
   fixNzbUrlEncoding,
   logDownloaderDebugResponse,
   stripTrailingPathSeparators,
@@ -136,12 +136,7 @@ export class SABnzbdClient implements DownloaderClient {
 
     const url = new URL(`${baseUrl}${apiPath}`);
     if (this.downloader.username) {
-      if (!downloaderAllowsCredentials(this.downloader)) {
-        throw new Error(
-          "SABnzbd: refusing to send API key over unencrypted HTTP. " +
-            "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."
-        );
-      }
+      assertCredentialsAllowed(this.downloader, "SABnzbd", "API key");
       url.searchParams.set("apikey", this.downloader.username);
     }
     url.searchParams.set("mode", mode);
@@ -170,14 +165,16 @@ export class SABnzbdClient implements DownloaderClient {
     allowInsecureFallback = true
   ): Promise<Response> {
     try {
-      // allowInsecureFallback is false exactly when this request carries the archive
-      // password (see addDownload) -- in that case also refuse to follow a redirect to
-      // a non-HTTPS hop, since a compromised or MITM'd SABnzbd could otherwise bounce the
-      // credential-bearing request to a plaintext endpoint mid-flight.
+      // Refuse to follow a redirect to a non-HTTPS hop whenever this request carries
+      // a credential: either the archive password (allowInsecureFallback is false
+      // exactly then, see addDownload) or the API key that getApiUrl() embeds in
+      // every routine request once the connection is configured for TLS. Without
+      // this, a compromised or MITM'd SABnzbd could bounce a credential-bearing
+      // HTTPS request to a plaintext endpoint mid-flight.
       return await safeFetch(url, {
         ...options,
         allowPrivate: true,
-        requireHttps: !allowInsecureFallback,
+        requireHttps: !allowInsecureFallback || this.downloader.useSsl === true,
       });
     } catch (error) {
       const isSslError =

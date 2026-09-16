@@ -410,13 +410,15 @@ class NewznabClient {
       }
 
       const url = this.buildApiUrl(indexer.url);
-      if (indexerAllowsApiKey(indexer)) {
+      const sendsApiKey = indexerAllowsApiKey(indexer);
+      if (sendsApiKey) {
         url.searchParams.set("apikey", indexer.apiKey);
       }
       url.searchParams.set("t", "caps");
 
       const response = await safeFetch(url.toString(), {
         signal: AbortSignal.timeout(10000),
+        requireHttps: sendsApiKey && url.protocol === "https:",
       });
 
       if (!response.ok) {
@@ -498,7 +500,8 @@ class NewznabClient {
     }
 
     const url = this.buildApiUrl(indexer.url);
-    if (indexerAllowsApiKey(indexer)) {
+    const sendsApiKey = indexerAllowsApiKey(indexer);
+    if (sendsApiKey) {
       url.searchParams.set("apikey", indexer.apiKey);
     }
     url.searchParams.set("t", "caps");
@@ -509,6 +512,7 @@ class NewznabClient {
 
     const response = await safeFetch(url.toString(), {
       signal: AbortSignal.timeout(10000),
+      requireHttps: sendsApiKey && url.protocol === "https:",
     });
 
     if (!response.ok) {

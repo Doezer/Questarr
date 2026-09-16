@@ -17,6 +17,27 @@ export function downloaderAllowsCredentials(
   return downloader.useSsl === true || downloader.allowInsecureLan === true;
 }
 
+/**
+ * Throws when the downloader's transport policy forbids sending credentials --
+ * every client's guard before it puts a password, API key, or Basic Auth header
+ * on the wire needs the exact same check and refusal message, so it lives here
+ * once instead of being hand-copied (and drifting) across each client.
+ *
+ * @param clientName - Downloader display name, e.g. "qBittorrent", used in the error.
+ * @param credentialKind - What's being withheld, e.g. "password" or "API key".
+ */
+export function assertCredentialsAllowed(
+  downloader: Pick<Downloader, "useSsl" | "allowInsecureLan">,
+  clientName: string,
+  credentialKind = "credentials"
+): void {
+  if (downloaderAllowsCredentials(downloader)) return;
+  throw new Error(
+    `${clientName}: refusing to send ${credentialKind} over unencrypted HTTP. ` +
+      "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."
+  );
+}
+
 // Prowlarr (and some Newznab/Torznab indexers) wrap external download URLs in a proxy
 // URL whose `link` query parameter is a standard base64 value that can contain `+`.
 // ASP.NET Core (Prowlarr's backend) decodes `+` as space in query strings, corrupting

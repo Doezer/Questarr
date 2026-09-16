@@ -23,6 +23,10 @@ export default defineConfig({
         lines: 82,
       },
     },
+    reporters: ["blob"],
+    outputFile: {
+      blob: ".vitest-reports/blob.json",
+    },
     exclude: [
       "**/node_modules/**",
       "**/dist/**",

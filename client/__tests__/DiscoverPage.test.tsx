@@ -1,11 +1,11 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DiscoverPage from "../src/pages/discover";
-import { createTestQueryClient } from "./test-utils";
+import { createTestQueryClient, getRequestUrl } from "./test-utils";
 import { apiRequest } from "@/lib/queryClient";
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -31,7 +31,6 @@ vi.mock("@/components/DiscoverSettingsModal", () => ({
 vi.mock("@/components/GameCarouselSection", () => ({
   default: ({ title }: { title: string }) => <div data-testid="carousel-section">{title}</div>,
 }));
-
 vi.mock("@/components/RssFeedList", () => ({
   default: () => <div data-testid="rss-feed-list" />,
 }));
@@ -121,6 +120,57 @@ describe("DiscoverPage", () => {
 
     // Give some time for queries to settle to hit coverage on our new hook
     await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  it("snaps the platform select to a listed platform when the setting excludes PC", async () => {
+    const platforms = [
+      { id: 130, name: "Nintendo Switch" },
+      { id: 167, name: "PlayStation 5" },
+    ];
+    // `/api/config`, `/api/settings` and `/api/games` use the query client's
+    // default fetch-based queryFn, while `/api/igdb/platforms` calls apiRequest.
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      const u = getRequestUrl(url);
+      if (u.includes("/api/settings")) {
+        // Only Switch is selected, so the default "PC" is not on offer.
+        return { ok: true, json: async () => ({ importPlatformIds: [130] }) } as Response;
+      }
+      if (u.includes("/api/games")) {
+        return { ok: true, json: async () => [] } as Response;
+      }
+      return { ok: true, json: async () => ({ igdb: { configured: true } }) } as Response;
+    }) as typeof fetch;
+    vi.mocked(apiRequest).mockImplementation((_method: string, url: string) => {
+      if (url.includes("/api/igdb/platforms")) {
+        return Promise.resolve({ json: async () => platforms }) as any;
+      }
+      return Promise.resolve({ json: async () => [] }) as any;
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <DiscoverPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Discover");
+
+    // The dropdown offers only the selected platform. Asserting on the carousel
+    // title (not just the <select>) is what catches the selection staying on
+    // "PC": a DOM only coerces the displayed value, but the carousel is driven
+    // by React state and keeps browsing the excluded platform.
+    expect(await screen.findByRole("option", { name: "Nintendo Switch" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "PC" })).not.toBeInTheDocument();
+    // Several carousels render; assert the By Platform one, which is driven by
+    // React state and is what keeps browsing the excluded platform.
+    await waitFor(() =>
+      expect(screen.getAllByTestId("carousel-section").map((el) => el.textContent)).toContain(
+        "Nintendo Switch Games"
+      )
+    );
+    expect(screen.getAllByTestId("carousel-section").map((el) => el.textContent)).not.toContain(
+      "PC Games"
+    );
   });
 
   it("renders when fetching fails", async () => {

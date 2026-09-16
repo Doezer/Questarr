@@ -85,6 +85,7 @@ import {
   parseJsonStringArray,
   matchesPlatformFilter,
   normalizeTitle,
+  type CanonicalPlatform,
 } from "@shared/title-utils";
 import { canonicalPlatformsForIgdbIds, matchesSelectedIgdbPlatform } from "@shared/platforms";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
@@ -307,7 +308,16 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       }
     }
     if (userSettings?.preferredPlatform && !platformPreselectedRef.current) {
-      setSelectedPlatforms([userSettings.preferredPlatform]);
+      // The preferred platform must also be allowed by the Platforms setting;
+      // otherwise preselecting it would hide every release and show a warning
+      // that blames the wrong filter.
+      const allowed = canonicalPlatformsForIgdbIds(userSettings?.importPlatformIds);
+      const preferredAllowed =
+        allowed.length === 0 ||
+        allowed.includes(userSettings.preferredPlatform as CanonicalPlatform);
+      if (preferredAllowed) {
+        setSelectedPlatforms([userSettings.preferredPlatform]);
+      }
       platformPreselectedRef.current = true;
     }
   }, [
@@ -315,6 +325,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     userSettings?.filterByPreferredGroups,
     userSettings?.preferredReleaseGroups,
     userSettings?.preferredPlatform,
+    userSettings?.importPlatformIds,
   ]);
 
   // Initialize search query only when the dialog opens or game changes — not on settings refetch.
@@ -975,6 +986,17 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                   .filter(
                     (t) =>
                       selectedGroups.length === 0 || (t.group && selectedGroups.includes(t.group))
+                  )
+                  // Apply the Platforms setting here too, so this baseline reflects
+                  // only the in-dialog platform selection. Otherwise a release
+                  // hidden by the Platforms setting would make the warning below
+                  // claim the preferred-platform filter is at fault, and clearing
+                  // that filter would still show nothing.
+                  .filter((t) =>
+                    matchesSelectedIgdbPlatform(
+                      itemsMetadata.get(t.title)?.platform,
+                      userSettings?.importPlatformIds
+                    )
                   ).length
               );
             },

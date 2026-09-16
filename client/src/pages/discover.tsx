@@ -236,6 +236,28 @@ export default function DiscoverPage() {
 
   // Track game mutation (for Discovery games)
 
+  // The Platforms setting narrows this dropdown the same way it governs the
+  // Library and download-dialog selectors. Kept above the IGDB-not-configured
+  // early return so hook order stays stable.
+  const allPlatforms = useMemo<Platform[]>(
+    () => (platforms.length > 0 ? platforms : DEFAULT_PLATFORMS),
+    [platforms]
+  );
+  const displayPlatforms = useMemo<Platform[]>(() => {
+    const visible = visibleIgdbPlatforms(allPlatforms, userSettings?.importPlatformIds);
+    return visible.length > 0 ? visible : allPlatforms;
+  }, [allPlatforms, userSettings?.importPlatformIds]);
+
+  // `selectedPlatform` defaults to "PC", which the Platforms setting may not
+  // include. Snap it to a listed platform so the dropdown and the carousel
+  // below it never disagree about which platform is being browsed.
+  useEffect(() => {
+    if (config && !config.igdb.configured) return;
+    if (displayPlatforms.length === 0) return;
+    if (displayPlatforms.some((p) => p.name === selectedPlatform)) return;
+    setSelectedPlatform(displayPlatforms[0].name);
+  }, [config, displayPlatforms, selectedPlatform]);
+
   const trackGameMutation = useMutation({
     mutationFn: async (game: Game) => {
       const gameData = mapGameToInsertGame(game);
@@ -468,8 +490,9 @@ export default function DiscoverPage() {
   }, [debouncedGenre, genres, filterGames]);
 
   const fetchGamesByPlatform = useCallback(async (): Promise<Game[]> => {
-    // Validate selectedPlatform against known platforms before making API call
-    const validPlatforms: Platform[] = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
+    // Validate selectedPlatform against the platforms the Platforms setting
+    // leaves visible, so a stale selection cannot fetch an excluded platform.
+    const validPlatforms: Platform[] = displayPlatforms;
     const isValidPlatform = validPlatforms.some((p: Platform) => p.name === debouncedPlatform);
     if (!isValidPlatform) {
       // This case should ideally not be hit if UI is synced with state
@@ -482,7 +505,7 @@ export default function DiscoverPage() {
     );
     const games = await response.json();
     return filterGames(games);
-  }, [debouncedPlatform, platforms, filterGames]);
+  }, [debouncedPlatform, displayPlatforms, filterGames]);
 
   if (config && !config.igdb.configured) {
     return (
@@ -502,13 +525,6 @@ export default function DiscoverPage() {
   }
 
   const displayGenres: Genre[] = genres.length > 0 ? genres : DEFAULT_GENRES;
-  // The Platforms setting narrows the browse dropdown, the same list that
-  // governs the Library and download-dialog selectors. Computed inline (not
-  // memoized) because it sits after the IGDB-not-configured early return.
-  const allPlatforms: Platform[] = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
-  const visiblePlatforms = visibleIgdbPlatforms(allPlatforms, userSettings?.importPlatformIds);
-  const displayPlatforms: Platform[] =
-    visiblePlatforms.length > 0 ? visiblePlatforms : allPlatforms;
 
   return (
     <div className="h-full w-full overflow-x-hidden overflow-y-auto" data-testid="discover-page">

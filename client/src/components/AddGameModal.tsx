@@ -89,6 +89,15 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     [platforms, userSettings?.importPlatformIds]
   );
 
+  // A previously chosen platform can be excluded by the Platforms setting after
+  // this modal was last opened. Reset to "all" so the search does not keep
+  // querying a platform the dropdown no longer offers.
+  useEffect(() => {
+    if (selectedPlatform === "all") return;
+    if (displayPlatforms.some((platform) => String(platform.id) === selectedPlatform)) return;
+    setSelectedPlatform("all");
+  }, [displayPlatforms, selectedPlatform]);
+
   // Debounce search query
   useEffect(() => {
     const timer = setTimeout(() => {

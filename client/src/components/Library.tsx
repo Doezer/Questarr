@@ -155,10 +155,23 @@ export default function Library() {
     // The platform setting stores IGDB ids, while `games.platforms` holds IGDB
     // names, so translate once via the platform list both surfaces share.
     const allowed = selectedPlatformNames(igdbPlatforms, userSettings?.importPlatformIds);
-    return uniquePlatforms.filter((platform) =>
+    const filtered = uniquePlatforms.filter((platform) =>
       isPlatformNameSelected(platform, allowed, userSettings?.importPlatformIds)
     );
+    // If the platform list has not loaded (or failed), `allowed` is empty and
+    // every platform would be hidden, blanking the dropdown. Fall back to the
+    // unfiltered list, matching the Discover dropdown.
+    return filtered.length > 0 ? filtered : uniquePlatforms;
   }, [uniquePlatforms, igdbPlatforms, userSettings?.importPlatformIds]);
+
+  // The Platforms setting can drop the platform currently being filtered on.
+  // Reset to "all" so a stale value cannot filter the grid invisibly (it would
+  // leave an active-filter pill with no matching dropdown option).
+  useEffect(() => {
+    if (platformFilter === "all") return;
+    if (visiblePlatforms.includes(platformFilter)) return;
+    setPlatformFilter("all");
+  }, [visiblePlatforms, platformFilter]);
 
   const filteredGames = useMemo(() => {
     const filtered = games.filter((game) => {

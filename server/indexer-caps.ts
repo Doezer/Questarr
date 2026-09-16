@@ -47,7 +47,7 @@ export function indexerAllowsApiKey(indexer: Pick<Indexer, "url" | "allowInsecur
   try {
     const { protocol } = new URL(indexer.url);
     if (protocol === "https:") return true;
-    return indexer.allowInsecureLan === true;
+    return protocol === "http:" && indexer.allowInsecureLan === true;
   } catch {
     // Malformed URL — don't send the key
     return false;

@@ -1,0 +1,63 @@
+# Questarr with a Postgres backend.
+#
+# The default docker-compose.yml uses SQLite and needs no database service --
+# prefer it unless you specifically want Postgres. Postgres is for NEW
+# installations; there is no automatic import of an existing SQLite library.
+# See docs/DATABASE.md.
+#
+#   POSTGRES_PASSWORD=<something> docker compose -f docker-compose.postgres.yml up -d
+
+services:
+  app:
+    image: ghcr.io/doezer/questarr:latest
+    ports:
+      - "${HOST_SIDE_PORT:-5000}:${CONTAINER_INTERNAL_SIDE_PORT:-5000}"
+      - "${SSL_PORT:-9898}:${SSL_PORT:-9898}"
+    environment:
+      - PORT=${CONTAINER_INTERNAL_SIDE_PORT:-5000}
+      - DB_DIALECT=postgres
+      - DATABASE_URL=postgres://questarr:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/questarr
+      # - DATABASE_POOL_MAX=10
+      # - QUESTARR_BASE_PATH=/Questarr  # Serve from a subdirectory behind a reverse proxy, see docs/REVERSE_PROXY.md
+    volumes:
+      # No ./data mount is needed for the database here -- Postgres owns it.
+      # Mount your root media/downloads folder here to allow atomic moves.
+      # Example (uncomment and adjust):
+      # - /mnt/user/data:/data
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:' + (process.env.PORT || 5000) + '/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_USER=questarr
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      - POSTGRES_DB=questarr
+    volumes:
+      - questarr-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      # The app waits on this, so it must pass before the first migration runs.
+      test: ["CMD-SHELL", "pg_isready -U questarr -d questarr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  questarr-pgdata:

@@ -115,6 +115,18 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 3. **Access the application:**
    Open your browser to `http://localhost:5000`
 
+4. **Optional — use Postgres instead of SQLite:**
+
+   Questarr uses SQLite by default and needs no database configuration. If you
+   would rather run it against Postgres, use the bundled compose file:
+
+   ```bash
+   POSTGRES_PASSWORD=choose-something docker compose -f docker-compose.postgres.yml up -d
+   ```
+
+   Postgres is for new installations — an existing SQLite library is not
+   imported automatically. See [docs/DATABASE.md](docs/DATABASE.md).
+
 ### Proxmox VE (LXC)
 
 <details>

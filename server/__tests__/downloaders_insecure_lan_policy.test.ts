@@ -262,3 +262,83 @@ describe("Deluge HTTP credential policy", () => {
     await expect(client.testConnection()).resolves.not.toThrow();
   });
 });
+
+// rTorrent
+import { RTorrentClient } from "../downloaders/rtorrent.js";
+
+describe("rTorrent HTTP credential policy", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock.mockReset();
+  });
+
+  it("throws when HTTP and allowInsecureLan=false and credentials set", async () => {
+    const client = new RTorrentClient(makeDownloader({ type: "rtorrent" }));
+    const result = await client.testConnection();
+    expect(result.success).toBe(false);
+    expect(result.message).toContain(
+      "rTorrent: refusing to send credentials over unencrypted HTTP"
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends Basic Authentication when HTTP and allowInsecureLan=true", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => "text/xml" },
+      text: async () =>
+        '<?xml version="1.0"?><methodResponse><params><param><value><string>0.9.8</string></value></param></params></methodResponse>',
+    });
+    const client = new RTorrentClient(makeDownloader({ type: "rtorrent", allowInsecureLan: true }));
+    await client.testConnection();
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((options.headers as Record<string, string>)["Authorization"]).toMatch(/^Basic /);
+  });
+
+  it("sends Basic Authentication when HTTPS (useSsl=true)", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => "text/xml" },
+      text: async () =>
+        '<?xml version="1.0"?><methodResponse><params><param><value><string>0.9.8</string></value></param></params></methodResponse>',
+    });
+    const client = new RTorrentClient(
+      makeDownloader({ type: "rtorrent", useSsl: true, url: "https://localhost:9091" })
+    );
+    await client.testConnection();
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((options.headers as Record<string, string>)["Authorization"]).toMatch(/^Basic /);
+  });
+});
+
+// Synology
+import { SynologyDownloadStationClient } from "../downloaders/synology.js";
+
+describe("Synology HTTP credential policy", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock.mockReset();
+  });
+
+  it("throws when HTTP and allowInsecureLan=false and credentials set", async () => {
+    const client = new SynologyDownloadStationClient(makeDownloader({ type: "synology" }));
+    const result = await client.testConnection();
+    expect(result.success).toBe(false);
+    expect(result.message).toContain(
+      "Synology: refusing to send credentials over unencrypted HTTP"
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("proceeds past the transport guard when HTTP and allowInsecureLan=true", async () => {
+    // No credentials-policy error this time -- the request now reaches the network
+    // and fails for an unrelated (mocked) reason instead.
+    fetchMock.mockRejectedValue(new Error("network unreachable"));
+    const client = new SynologyDownloadStationClient(
+      makeDownloader({ type: "synology", allowInsecureLan: true })
+    );
+    const result = await client.testConnection();
+    expect(result.message).not.toContain("refusing to send credentials");
+    expect(fetchMock).toHaveBeenCalled();
+  });
+});

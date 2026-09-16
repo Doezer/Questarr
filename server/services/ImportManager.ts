@@ -289,20 +289,20 @@ export class ImportManager {
     );
     await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
     if (meta.gameTitle && meta.userId) {
-      await this.storage
-        .addNotification({
+      try {
+        await this.storage.addNotification({
           userId: meta.userId,
           type: "warning",
           title: "Import needs attention",
           message: `"${meta.gameTitle}" finished downloading but its local path could not be accessed. Check Settings → Path Mappings or trigger the import manually.`,
           link: "/library",
-        })
-        .catch((err) =>
-          logger.error(
-            { err, downloadId },
-            "[ImportManager] Failed to create path-inaccessible notification"
-          )
+        });
+      } catch (err) {
+        logger.error(
+          { err, downloadId },
+          "[ImportManager] Failed to create path-inaccessible notification"
         );
+      }
     }
     return false;
   }

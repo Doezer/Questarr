@@ -62,6 +62,32 @@ vi.mock("../src/components/FileBrowser", () => ({
   },
 }));
 
+// Shared by the password-submission tests below to avoid repeating the same
+// render props / field-filling sequence in each one (SonarCloud flagged the
+// un-factored version as duplicated new code).
+function renderModal(props: Partial<React.ComponentProps<typeof ImportReviewModal>> = {}) {
+  return render(
+    <ImportReviewModal
+      open
+      onOpenChange={vi.fn()}
+      downloadId="download-1"
+      downloadTitle="Encrypted.rar"
+      {...props}
+    />
+  );
+}
+
+function fillAndSubmitPassword(password: string): void {
+  // Destination defaults to the bare library root, which the component's own
+  // guard rejects ("must be a subfolder") — point it at a subfolder instead so
+  // that guard doesn't short-circuit before the password path is exercised.
+  fireEvent.change(screen.getByLabelText("Destination Path"), {
+    target: { value: "/games/library/PC/Encrypted" },
+  });
+  fireEvent.change(screen.getByLabelText("Archive Password"), { target: { value: password } });
+  fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+}
+
 describe("ImportReviewModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -92,15 +118,7 @@ describe("ImportReviewModal", () => {
 
   describe("password-protected archives", () => {
     it("shows the password prompt, pre-enables Unpack Archive, and requires a password to confirm", () => {
-      render(
-        <ImportReviewModal
-          open
-          onOpenChange={vi.fn()}
-          downloadId="download-1"
-          downloadTitle="Encrypted.rar"
-          passwordRequired
-        />
-      );
+      renderModal({ passwordRequired: true });
 
       expect(screen.getByText("Password Required")).toBeInTheDocument();
       const passwordField = screen.getByLabelText("Archive Password");
@@ -123,40 +141,15 @@ describe("ImportReviewModal", () => {
     });
 
     it("does not show a password field or title when the archive isn't password-protected", () => {
-      render(
-        <ImportReviewModal
-          open
-          onOpenChange={vi.fn()}
-          downloadId="download-1"
-          downloadTitle="Test Download"
-        />
-      );
+      renderModal({ downloadTitle: "Test Download" });
 
       expect(screen.queryByText("Password Required")).not.toBeInTheDocument();
       expect(screen.queryByLabelText(/Archive Password/)).not.toBeInTheDocument();
     });
 
     it("submits the entered password and unpack:true when confirming", async () => {
-      render(
-        <ImportReviewModal
-          open
-          onOpenChange={vi.fn()}
-          downloadId="download-1"
-          downloadTitle="Encrypted.rar"
-          passwordRequired
-        />
-      );
-
-      // Destination defaults to the bare library root, which the component's own
-      // guard rejects ("must be a subfolder") — point it at a subfolder instead so
-      // that guard doesn't short-circuit before the password path is exercised.
-      fireEvent.change(screen.getByLabelText("Destination Path"), {
-        target: { value: "/games/library/PC/Encrypted" },
-      });
-      fireEvent.change(screen.getByLabelText("Archive Password"), {
-        target: { value: "hunter2" },
-      });
-      fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+      renderModal({ passwordRequired: true });
+      fillAndSubmitPassword("hunter2");
 
       await waitFor(() =>
         expect(mockApiRequest).toHaveBeenCalledWith(
@@ -179,23 +172,8 @@ describe("ImportReviewModal", () => {
         })
       );
 
-      render(
-        <ImportReviewModal
-          open
-          onOpenChange={vi.fn()}
-          downloadId="download-1"
-          downloadTitle="Encrypted.rar"
-          passwordRequired
-        />
-      );
-
-      fireEvent.change(screen.getByLabelText("Destination Path"), {
-        target: { value: "/games/library/PC/Encrypted" },
-      });
-      fireEvent.change(screen.getByLabelText("Archive Password"), {
-        target: { value: "wrongpass" },
-      });
-      fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+      renderModal({ passwordRequired: true });
+      fillAndSubmitPassword("wrongpass");
 
       await waitFor(() =>
         expect(mockToast).toHaveBeenCalledWith(

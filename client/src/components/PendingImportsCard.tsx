@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -36,7 +36,7 @@ export default function PendingImportsCard() {
   const [collapsed, setCollapsed] = useState(false);
   const multiple = pendingImports.length > 1;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setCollapsed(multiple);
   }, [multiple]);
 

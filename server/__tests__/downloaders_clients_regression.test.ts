@@ -953,6 +953,73 @@ describe("downloader client regression coverage", () => {
           },
         }),
       } as Response)
+      // The SABnzbd history lookup for a job it can't find also retries with
+      // archive=1 (jobs age out of active history into SABnzbd's archive), so
+      // the "sab-2" lookup above now consumes three more filler fetches than
+      // it used to.
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          queue: {
+            slots: [
+              {
+                nzo_id: "sab-1",
+                filename: "Packed Game",
+                status: "Unpacking",
+                percentage: "100",
+                mb: "10",
+                mbleft: "0",
+                timeleft: "unknown",
+                cat: "games",
+                avg_age: "1",
+              },
+            ],
+            speed: "0",
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          queue: {
+            slots: [
+              {
+                nzo_id: "sab-1",
+                filename: "Packed Game",
+                status: "Unpacking",
+                percentage: "100",
+                mb: "10",
+                mbleft: "0",
+                timeleft: "unknown",
+                cat: "games",
+                avg_age: "1",
+              },
+            ],
+            speed: "0",
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          queue: {
+            slots: [
+              {
+                nzo_id: "sab-1",
+                filename: "Packed Game",
+                status: "Unpacking",
+                percentage: "100",
+                mb: "10",
+                mbleft: "0",
+                timeleft: "unknown",
+                cat: "games",
+                avg_age: "1",
+              },
+            ],
+            speed: "0",
+          },
+        }),
+      } as Response)
       .mockResolvedValueOnce({ ok: true, json: async () => ({ status: false }) } as Response)
       .mockRejectedValueOnce(new Error("resume boom"))
       .mockResolvedValueOnce({ ok: true, json: async () => ({ status: false }) } as Response)

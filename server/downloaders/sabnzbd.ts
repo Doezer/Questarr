@@ -500,100 +500,101 @@ export class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  private async getFromHistory(id: string): Promise<DownloadStatus | null> {
-    // Try with nzo_ids filter first (optimization). Some SABnzbd versions ignore
-    // this parameter and return all history, or return empty slots — in that case
-    // fall back to fetching the full history and searching locally.
-    for (const useFilter of [true, false]) {
-      try {
-        const params: Record<string, string> = useFilter ? { nzo_ids: id } : {};
-        const url = this.getApiUrl("history", params);
-        downloadersLogger.debug({ id, useFilter }, "SABnzbd: fetching history");
-        const response = await this.fetchWithFallback(url);
-        const data = await response.json();
-        const history: SABnzbdHistory = data.history;
+  // SABnzbd moves finished jobs out of its "active" history into a separate
+  // "archive" bucket once the configured history retention (job count/age) is
+  // exceeded -- see auto_history_purge() in SABnzbd's database layer. The
+  // `mode=history` API only ever searches one bucket per request (`archive IS
+  // NULL` vs `archive = 1`, selected by the `archive` param), so a job that has
+  // aged into the archive is completely invisible to a request that omits
+  // `archive=1` -- nzo_ids filtering does NOT search across both. Since we don't
+  // know ahead of time which bucket a given id is in, both are checked here, and
+  // each is also retried with a full unfiltered scan for older SABnzbd versions
+  // that ignore the nzo_ids filter.
+  private async fetchHistorySlot(id: string): Promise<SABnzbdHistory["slots"][number] | null> {
+    for (const archive of [false, true]) {
+      for (const useFilter of [true, false]) {
+        try {
+          const params: Record<string, string> = {
+            ...(useFilter ? { nzo_ids: id } : {}),
+            ...(archive ? { archive: "1" } : {}),
+          };
+          const url = this.getApiUrl("history", params);
+          downloadersLogger.debug({ id, useFilter, archive }, "SABnzbd: fetching history");
+          const response = await this.fetchWithFallback(url);
+          const data = await response.json();
+          const history: SABnzbdHistory = data.history;
 
-        if (!history?.slots) {
-          downloadersLogger.debug({ id, useFilter }, "SABnzbd: history response missing slots");
-          return null;
-        }
+          if (!history?.slots) {
+            downloadersLogger.debug(
+              { id, useFilter, archive },
+              "SABnzbd: history response missing slots"
+            );
+            if (useFilter) continue;
+            break;
+          }
 
-        const item = history.slots.find((slot) => slot.nzo_id === id);
-        downloadersLogger.debug(
-          { id, useFilter, slotCount: history.slots.length, found: !!item },
-          "SABnzbd: history result"
-        );
+          const item = history.slots.find((slot) => slot.nzo_id === id);
+          downloadersLogger.debug(
+            { id, useFilter, archive, slotCount: history.slots.length, found: !!item },
+            "SABnzbd: history result"
+          );
 
-        if (!item) {
+          if (item) return item;
           // If we used the nzo_ids filter and got no results, the filter may not be
-          // supported — retry with a full history scan.
+          // supported — retry with a full scan of this same archive bucket.
           if (useFilter) continue;
-          return null;
+          break;
+        } catch (error) {
+          downloadersLogger.error(
+            { error, id, useFilter, archive },
+            "Failed to get SABnzbd history"
+          );
+          if (useFilter) continue;
+          break;
         }
-
-        let status: DownloadStatus["status"];
-        let repairStatus: DownloadStatus["repairStatus"];
-        let unpackStatus: DownloadStatus["unpackStatus"];
-
-        if (item.status === "Completed") {
-          status = "completed";
-          repairStatus = "good";
-          unpackStatus = "completed";
-        } else if (item.status === "Failed") {
-          status = "error";
-          repairStatus = "failed";
-        } else {
-          status = "paused";
-        }
-
-        return {
-          id: item.nzo_id,
-          name: item.name,
-          downloadType: "usenet",
-          status,
-          progress: status === "completed" ? 100 : 0,
-          size: item.bytes,
-          downloaded: item.bytes,
-          category: item.category,
-          error: status === "error" ? item.fail_message : undefined,
-          repairStatus,
-          unpackStatus,
-        };
-      } catch (error) {
-        downloadersLogger.error(
-          { error, id, useFilter: useFilter },
-          "Failed to get SABnzbd history"
-        );
-        // If the filtered request failed, retry with a full history scan
-        if (useFilter) continue;
-        return null;
       }
     }
-    /* v8 ignore next -- loop always returns or continues before reaching this fallback */
     return null;
   }
 
-  private async getHistoryDownloadDir(id: string): Promise<string | undefined> {
-    for (const useFilter of [true, false]) {
-      try {
-        const params: Record<string, string> = useFilter ? { nzo_ids: id } : {};
-        const url = this.getApiUrl("history", params);
-        const response = await this.fetchWithFallback(url);
-        const data = await response.json();
-        const history: SABnzbdHistory = data.history;
-        if (!history?.slots) return undefined;
-        const item = history.slots.find((slot) => slot.nzo_id === id);
-        if (!item) {
-          if (useFilter) continue;
-          return undefined;
-        }
-        return this.resolveHistoryDownloadDir(item);
-      } catch {
-        if (useFilter) continue;
-        return undefined;
-      }
+  private async getFromHistory(id: string): Promise<DownloadStatus | null> {
+    const item = await this.fetchHistorySlot(id);
+    if (!item) return null;
+
+    let status: DownloadStatus["status"];
+    let repairStatus: DownloadStatus["repairStatus"];
+    let unpackStatus: DownloadStatus["unpackStatus"];
+
+    if (item.status === "Completed") {
+      status = "completed";
+      repairStatus = "good";
+      unpackStatus = "completed";
+    } else if (item.status === "Failed") {
+      status = "error";
+      repairStatus = "failed";
+    } else {
+      status = "paused";
     }
-    return undefined;
+
+    return {
+      id: item.nzo_id,
+      name: item.name,
+      downloadType: "usenet",
+      status,
+      progress: status === "completed" ? 100 : 0,
+      size: item.bytes,
+      downloaded: item.bytes,
+      category: item.category,
+      error: status === "error" ? item.fail_message : undefined,
+      repairStatus,
+      unpackStatus,
+    };
+  }
+
+  private async getHistoryDownloadDir(id: string): Promise<string | undefined> {
+    const item = await this.fetchHistorySlot(id);
+    if (!item) return undefined;
+    return this.resolveHistoryDownloadDir(item);
   }
 
   private resolveHistoryDownloadDir(item: SABnzbdHistory["slots"][number]): string | undefined {

@@ -581,10 +581,16 @@ describe("sabnzbd remaining regression coverage", () => {
           },
         ])
       )
+      // Fully exhausted: archive=false/true × useFilter=true/false, all empty.
       .mockResolvedValueOnce(historyResponse([]))
       .mockResolvedValueOnce(historyResponse([]))
       .mockResolvedValueOnce(historyResponse([]))
-      .mockRejectedValueOnce(new Error("history broke"));
+      .mockResolvedValueOnce(historyResponse([]))
+      // A request failure on one combo doesn't abort the remaining ones.
+      .mockRejectedValueOnce(new Error("history broke"))
+      .mockResolvedValueOnce(historyResponse([]))
+      .mockResolvedValueOnce(historyResponse([]))
+      .mockResolvedValueOnce(historyResponse([]));
 
     await expect(privateClient.getFromHistory("completed")).resolves.toMatchObject({
       status: "completed",
@@ -615,6 +621,49 @@ describe("sabnzbd remaining regression coverage", () => {
 
     fetchWithFallbackSpy.mockRejectedValueOnce(new Error("space boom"));
     await expect(client.getFreeSpace()).resolves.toBe(0);
+  });
+
+  it("finds a job that has aged out of active history by retrying with archive=1", async () => {
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+      getFromHistory(id: string): Promise<unknown>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    // SABnzbd auto-archives jobs past its history retention limit; the archived
+    // bucket is only searched when `archive=1` is explicitly requested, so the
+    // first two (non-archived) attempts come back empty before the archived
+    // bucket turns up the job.
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(historyResponse([])) // archive=false, nzo_ids filter
+      .mockResolvedValueOnce(historyResponse([])) // archive=false, full scan
+      .mockResolvedValueOnce(
+        historyResponse([
+          {
+            nzo_id: "archived-job",
+            name: "Archived NZB",
+            status: "Failed",
+            fail_message: "not enough repair blocks",
+            path: "/downloads/archived-job",
+            size: "1 GB",
+            bytes: 1024,
+            category: "games",
+          },
+        ])
+      ); // archive=true, nzo_ids filter — found here
+
+    await expect(privateClient.getFromHistory("archived-job")).resolves.toMatchObject({
+      status: "error",
+      repairStatus: "failed",
+      error: "not enough repair blocks",
+    });
+
+    const requestedUrls = fetchWithFallbackSpy.mock.calls.map(([url]) => new URL(url as string));
+    expect(requestedUrls[0].searchParams.get("archive")).toBeNull();
+    expect(requestedUrls[1].searchParams.get("archive")).toBeNull();
+    expect(requestedUrls[2].searchParams.get("archive")).toBe("1");
+    expect(requestedUrls[2].searchParams.get("nzo_ids")).toBe("archived-job");
   });
 
   it("derives downloadDir from storage for both folder and single-file history entries", async () => {

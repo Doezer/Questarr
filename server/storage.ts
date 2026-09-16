@@ -66,6 +66,7 @@ import {
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
+import { normalizeDownloadHash } from "./download-hash.js";
 import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import {
@@ -151,6 +152,15 @@ type ImportTaskUpdate = Pick<
   | "errorMessage"
 >;
 
+/**
+ * Result of resolving a temporary questarr-add-* correlation tag to a real hash.
+ * - "updated": the tag row now carries the real hash.
+ * - "merged": the tag row was deleted because a real-hash row already tracked
+ *   the same torrent; callers must stop processing the deleted record.
+ * - "noop": nothing changed (record missing or already has a real hash).
+ */
+export type UpdateGameDownloadHashOutcome = "updated" | "merged" | "noop";
+
 export interface IStorage {
   // System Config methods
   getSystemConfig(key: string): Promise<string | undefined>;
@@ -223,6 +233,13 @@ export interface IStorage {
     gameId: string
   ): Promise<(GameDownload & { downloaderName: string | null })[]>;
   updateGameDownloadStatus(id: string, status: string, errorMessage?: string | null): Promise<void>;
+  // Resolves a temporary correlation-tag hash (from an async qBittorrent add)
+  // to the real torrent hash once it becomes known. No-op if the record already
+  // has a real hash or doesn't exist. If another row already tracks the same
+  // (downloaderId, downloadHash) — e.g. claimed before cron resolved the tag —
+  // the stale tag row is deleted and "merged" is returned, so callers can stop
+  // processing the now-deleted record instead of acting on a stale id.
+  updateGameDownloadHash(id: string, downloadHash: string): Promise<UpdateGameDownloadHashOutcome>;
   // Attaches a "game_link_required" download to the given game and drops it back into
   // the normal "manual_review_required" path-review flow.
   relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined>;
@@ -957,11 +974,42 @@ export class MemStorage implements IStorage {
     }
   }
 
+  async updateGameDownloadHash(
+    id: string,
+    downloadHash: string
+  ): Promise<UpdateGameDownloadHashOutcome> {
+    const gd = this.gameDownloads.get(id);
+    if (!gd || !gd.downloadHash.startsWith("questarr-add-")) {
+      return "noop";
+    }
+    const normalizedHash = normalizeDownloadHash(downloadHash);
+    // Claim race: the torrent may already be tracked under its real hash
+    // (e.g. claimed via /api/downloads/claim before cron resolved the tag).
+    // The unique index on (downloaderId, downloadHash) forbids converging both
+    // rows, so drop the stale tag row and keep the real-hash row. The lookup is
+    // case-insensitive because rows written before normalization can hold the
+    // uppercase form of the same hex hash; comparing raw text would miss them
+    // and leave the torrent tracked twice.
+    for (const [otherId, other] of this.gameDownloads) {
+      if (
+        otherId !== id &&
+        other.downloaderId === gd.downloaderId &&
+        other.downloadHash.toLowerCase() === normalizedHash.toLowerCase()
+      ) {
+        this.gameDownloads.delete(id);
+        return "merged";
+      }
+    }
+    this.gameDownloads.set(id, { ...gd, downloadHash: normalizedHash });
+    return "updated";
+  }
+
   async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload> {
     const id = randomUUID();
     const gameDownload: GameDownload = {
       ...insertGameDownload,
       id,
+      downloadHash: normalizeDownloadHash(insertGameDownload.downloadHash),
       status: insertGameDownload.status || "downloading",
       downloadType: insertGameDownload.downloadType || "torrent",
       errorMessage: insertGameDownload.errorMessage ?? null,
@@ -2323,6 +2371,7 @@ export class DatabaseStorage implements IStorage {
           inArray(gameDownloads.status, [
             "completed",
             "error",
+            "failed",
             "imported",
             "manual_review_required",
             GAME_LINK_REQUIRED_STATUS,
@@ -2426,11 +2475,84 @@ export class DatabaseStorage implements IStorage {
     await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
   }
 
+  async updateGameDownloadHash(
+    id: string,
+    downloadHash: string
+  ): Promise<UpdateGameDownloadHashOutcome> {
+    const [current] = await db
+      .select({
+        downloaderId: gameDownloads.downloaderId,
+        downloadHash: gameDownloads.downloadHash,
+      })
+      .from(gameDownloads)
+      .where(eq(gameDownloads.id, id));
+    if (!current || !current.downloadHash.startsWith("questarr-add-")) {
+      return "noop";
+    }
+    const normalizedHash = normalizeDownloadHash(downloadHash);
+    // Claim race: the torrent may already be tracked under its real hash
+    // (e.g. claimed via /api/downloads/claim before cron resolved the tag).
+    // The unique index on (downloaderId, downloadHash) forbids converging both
+    // rows, so drop the stale tag row and keep the real-hash row. The lookup is
+    // case-insensitive because rows written before normalization can hold the
+    // uppercase form of the same hex hash; comparing raw text would miss them
+    // and leave the torrent tracked twice.
+    const existing = await db
+      .select({ id: gameDownloads.id })
+      .from(gameDownloads)
+      .where(
+        and(
+          eq(gameDownloads.downloaderId, current.downloaderId),
+          eq(sql`lower(${gameDownloads.downloadHash})`, normalizedHash.toLowerCase())
+        )
+      );
+    if (existing.some((row) => row.id !== id)) {
+      await db.delete(gameDownloads).where(eq(gameDownloads.id, id));
+      return "merged";
+    }
+    try {
+      await db
+        .update(gameDownloads)
+        .set({ downloadHash: normalizedHash })
+        .where(and(eq(gameDownloads.id, id), like(gameDownloads.downloadHash, "questarr-add-%")));
+      return "updated";
+    } catch (error) {
+      // TOCTOU: /api/downloads/claim may have inserted the real-hash row
+      // between our check and update, violating the unique index on
+      // (downloaderId, downloadHash). Re-check; if the conflict is the
+      // expected claim race, drop the stale tag row instead of propagating.
+      const isUniqueConflict =
+        error instanceof Error &&
+        (/UNIQUE constraint failed/i.test(error.message) ||
+          (error as NodeJS.ErrnoException).code === "SQLITE_CONSTRAINT_UNIQUE" ||
+          (error as NodeJS.ErrnoException).code === "SQLITE_CONSTRAINT");
+      if (!isUniqueConflict) throw error;
+      const retry = await db
+        .select({ id: gameDownloads.id })
+        .from(gameDownloads)
+        .where(
+          and(
+            eq(gameDownloads.downloaderId, current.downloaderId),
+            eq(sql`lower(${gameDownloads.downloadHash})`, normalizedHash.toLowerCase())
+          )
+        );
+      if (retry.some((row) => row.id !== id)) {
+        await db.delete(gameDownloads).where(eq(gameDownloads.id, id));
+        return "merged";
+      }
+      throw error;
+    }
+  }
+
   async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload | undefined> {
     const id = randomUUID();
     const [gameDownload] = await db
       .insert(gameDownloads)
-      .values({ ...insertGameDownload, id })
+      .values({
+        ...insertGameDownload,
+        id,
+        downloadHash: normalizeDownloadHash(insertGameDownload.downloadHash),
+      })
       .onConflictDoNothing()
       .returning();
     return gameDownload;

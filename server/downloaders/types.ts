@@ -22,6 +22,11 @@ export interface DownloaderActionResult {
 
 export interface DownloadResult extends DownloaderActionResult {
   id?: string;
+  // Correlation tag for async qBittorrent adds where the hash isn't
+  // immediately known. The route uses this as a temporary downloadHash
+  // so the game_downloads tracking record is created upfront; the cron
+  // later resolves the real hash.
+  correlationTag?: string;
 }
 
 export interface DownloaderClient {
@@ -35,4 +40,7 @@ export interface DownloaderClient {
   resumeDownload(id: string): Promise<DownloaderActionResult>;
   removeDownload(id: string, deleteFiles?: boolean): Promise<DownloaderActionResult>;
   getFreeSpace(): Promise<number>;
+  // Resolve a correlation tag to a real torrent hash (qBittorrent async adds).
+  // Returns null for downloaders that don't use this mechanism.
+  findTorrentByTag(tag: string): Promise<string | null>;
 }

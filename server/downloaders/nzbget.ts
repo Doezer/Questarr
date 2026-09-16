@@ -4,7 +4,7 @@ import { downloadersLogger } from "../logger.js";
 import { XMLParser } from "fast-xml-parser";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fixNzbUrlEncoding, logDownloaderDebugResponse } from "./utils.js";
+import { fixNzbUrlEncoding, logDownloaderDebugResponse, findTorrentByTagNull } from "./utils.js";
 
 interface NZBGetListResult {
   NZBID: number;
@@ -586,5 +586,9 @@ export class NZBGetClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Failed to get NZBGet free space");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 }

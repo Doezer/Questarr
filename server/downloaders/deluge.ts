@@ -12,6 +12,7 @@ import {
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 import { z } from "zod";
 
@@ -678,6 +679,10 @@ export class DelugeClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Error getting free space from Deluge");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 
   /** Maps a Deluge torrent payload to Questarr's normalized download status. */

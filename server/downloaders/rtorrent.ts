@@ -642,8 +642,8 @@ export class RTorrentClient implements DownloaderClient {
    * Sends an XML-RPC request with configured authentication, retrying with Digest
    * authentication when required.
    *
-   * @throws When configured credentials are not permitted by the transport policy or
-   * the request or authentication fails.
+   * @throws If the transport policy forbids the configured credentials, the initial
+   * RPC call fails, or the Digest authentication retry fails.
    */
   private async makeXMLRPCRequest(method: string, params: unknown[]): Promise<XMLValue> {
     // Build the complete URL with protocol, host, port, and path

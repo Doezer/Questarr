@@ -675,8 +675,8 @@ export class TransmissionClient implements DownloaderClient {
   /**
    * Sends a Transmission RPC request and retries once with a server-provided session ID.
    *
-   * @throws When configured credentials are not permitted by the transport policy or
-   * the RPC request fails.
+   * @throws If the transport policy forbids the configured credentials, or the
+   * underlying RPC call fails.
    */
   // Transmission API response structure
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -169,8 +169,8 @@ export class NZBGetClient implements DownloaderClient {
    *
    * @param requireHttps - Whether redirects must remain on HTTPS, used for requests
    * whose payload contains an archive password.
-   * @throws When configured credentials are not permitted by the transport policy,
-   * the request fails, or NZBGet returns an XML-RPC fault.
+   * @throws If the transport policy forbids the configured credentials, the HTTP
+   * call fails, or NZBGet's response is itself an XML-RPC fault.
    */
   private async makeXMLRPCRequest(
     method: string,

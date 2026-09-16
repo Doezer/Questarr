@@ -299,7 +299,7 @@ export default function PlayPage() {
               Terminal hacked
             </h1>
             <p className="text-sm text-white/70">
-              Ghost Mode is now unlocked &mdash; find it under Settings &rarr; General.
+              Ghost Mode is now unlocked &mdash; find it under Settings &rarr; Appearance.
             </p>
             <div className="flex justify-center gap-2 pt-2">
               <Button onClick={handlePlayAgain}>Play again (new layout)</Button>

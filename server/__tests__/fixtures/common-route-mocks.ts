@@ -162,13 +162,13 @@ export async function createAuthMock() {
   const actual = await vi.importActual<typeof import("../../auth.js")>("../../auth.js");
   return {
     ...actual,
-    authenticateToken: (req: Request, res: Response, next: NextFunction) => {
+    authenticateToken: (req: Request, _res: Response, next: NextFunction) => {
       (req as Request).user = { id: "user-1", username: "testuser" } as unknown as User;
       next();
     },
     // Mirrors authenticateToken so route suites using this mock can exercise
     // the /api/integration surface without minting a real API key.
-    authenticateApiKeyOrToken: (req: Request, res: Response, next: NextFunction) => {
+    authenticateApiKeyOrToken: (req: Request, _res: Response, next: NextFunction) => {
       (req as Request).user = { id: "user-1", username: "testuser" } as unknown as User;
       next();
     },

@@ -196,7 +196,7 @@ async function checkHardlinkPair(
 // --- Mappings Management ---
 
 // Platform Mappings
-importRouter.get("/mappings/platforms", async (req, res) => {
+importRouter.get("/mappings/platforms", async (_req, res) => {
   try {
     const mappings = await storage.getPlatformMappings();
     res.json(mappings);
@@ -240,7 +240,7 @@ importRouter.delete("/mappings/platforms/:id", async (req, res) => {
   }
 });
 
-importRouter.post("/mappings/platforms/init", async (req, res) => {
+importRouter.post("/mappings/platforms/init", async (_req, res) => {
   try {
     await platformMappingService.initializeDefaults();
     const mappings = await storage.getPlatformMappings();
@@ -252,7 +252,7 @@ importRouter.post("/mappings/platforms/init", async (req, res) => {
 });
 
 // Path Mappings
-importRouter.get("/mappings/paths", async (req, res) => {
+importRouter.get("/mappings/paths", async (_req, res) => {
   try {
     const mappings = await storage.getPathMappings();
     res.json(mappings);
@@ -302,7 +302,7 @@ importRouter.delete("/mappings/paths/:id", async (req, res) => {
 
 // --- Configuration Management ---
 
-importRouter.get("/config", async (req, res) => {
+importRouter.get("/config", async (_req, res) => {
   try {
     const userId = res.locals.userId as string;
     const config = await storage.getImportConfig(userId);
@@ -348,7 +348,7 @@ importRouter.patch("/config", async (req, res) => {
   }
 });
 
-importRouter.get("/hardlink/check", async (req, res) => {
+importRouter.get("/hardlink/check", async (_req, res) => {
   try {
     const userId = res.locals.userId as string;
 
@@ -419,7 +419,7 @@ importRouter.get("/hardlink/check", async (req, res) => {
 });
 
 // --- Operations ---
-importRouter.get("/pending", async (req, res) => {
+importRouter.get("/pending", async (_req, res) => {
   try {
     const userId = res.locals.userId as string;
     const [pathReviews, gameLinkReviews] = await Promise.all([

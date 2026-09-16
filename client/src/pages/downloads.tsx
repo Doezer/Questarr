@@ -159,16 +159,33 @@ export default function Downloads() {
 
   // Filter downloads based on selected status and type
   const filteredDownloads = useMemo(() => {
-    let filtered = filterDownloadsByStatus(downloads, statusFilter);
-    if (typeFilter !== "all") {
-      filtered = filtered.filter((d) => (d.downloadType || "torrent") === typeFilter);
+    // ⚡ Bolt: Consolidated multiple array traversals into a single pass to optimize render performance
+    const filtered: typeof downloads = [];
+    const lowerQuery = searchQuery?.toLowerCase() || "";
+
+    const statusFiltered = filterDownloadsByStatus(downloads, statusFilter);
+
+    for (let i = 0; i < statusFiltered.length; i++) {
+      const d = statusFiltered[i];
+
+      // Type filter
+      if (typeFilter !== "all" && (d.downloadType || "torrent") !== typeFilter) {
+        continue;
+      }
+
+      // Questarr filter
+      if (questarrFilter === "questarr" && !d.trackedByQuestarr) {
+        continue;
+      }
+
+      // Search filter
+      if (lowerQuery && !d.name.toLowerCase().includes(lowerQuery)) {
+        continue;
+      }
+
+      filtered.push(d);
     }
-    if (questarrFilter === "questarr") {
-      filtered = filtered.filter((d) => d.trackedByQuestarr);
-    }
-    if (searchQuery) {
-      filtered = filtered.filter((d) => d.name.toLowerCase().includes(searchQuery.toLowerCase()));
-    }
+
     return filtered;
   }, [downloads, statusFilter, typeFilter, questarrFilter, searchQuery]);
 

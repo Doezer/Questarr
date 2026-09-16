@@ -9,10 +9,10 @@ usage (see [MIGRATION.md](./MIGRATION.md)). Postgres is worth choosing if you
 already run one and would rather back up a single database server, or if you want
 your library in something you can query directly with `psql`.
 
-> **Postgres is for new installations.** There is no automatic import of an
-> existing SQLite library. If you already run Questarr on SQLite and switch the
-> backend, Questarr will start against an empty Postgres database and your
-> library will still be sitting in the SQLite file, untouched.
+> **Switching the backend does not move your data.** If you already run Questarr
+> on SQLite and set `DB_DIALECT=postgres`, Questarr starts against an empty
+> Postgres database and your library stays in the SQLite file, untouched. To
+> bring it across, run the migration below.
 
 ## Choosing a backend
 
@@ -53,6 +53,36 @@ npm start
 
 Questarr applies migrations at startup, so `db:migrate` is only needed if you want
 to run them ahead of time.
+
+## Migrating an existing SQLite library to Postgres
+
+Stop Questarr first — the script reads the SQLite file directly and expects it
+not to be changing underneath it.
+
+```bash
+# 1. Create and migrate the target database
+createdb questarr
+DB_DIALECT=postgres DATABASE_URL=postgres://questarr:password@localhost:5432/questarr \
+  npm run db:migrate
+
+# 2. Copy the data across
+SQLITE_DB_PATH=./data/sqlite.db \
+DATABASE_URL=postgres://questarr:password@localhost:5432/questarr \
+  npx tsx scripts/sqlite-to-pg.ts
+
+# 3. Start Questarr on Postgres
+DB_DIALECT=postgres DATABASE_URL=... npm start
+```
+
+The script copies every table in foreign-key-safe order, then reconciles by
+counting rows in Postgres and **exits non-zero if any table does not match**, so
+a partial copy cannot be mistaken for a successful one. It refuses to run against
+a database that already holds rows unless you pass `--force`; `--batch-size=N`
+tunes the insert batching (default 500).
+
+Your SQLite file is opened read-only and is never modified, so it remains a
+working fallback: if anything looks wrong, unset `DB_DIALECT` and you are back
+where you started.
 
 ## How the two backends stay in step
 

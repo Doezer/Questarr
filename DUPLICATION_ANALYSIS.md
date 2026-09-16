@@ -1,7 +1,7 @@
 # Issue Duplication Analysis: #1034 vs #1015
 
 ## Overview
-Both issues address the **same underlying problem**: qBittorrent v5+ returns async responses (`pending_count: 1`, empty `added_torrent_ids`) that leave downloads untracked in Questarr.
+Both issues appear to address the **same underlying problem**: qBittorrent v5+ returns async responses (`pending_count: 1`, empty `added_torrent_ids`) that leave downloads untracked in Questarr. However, the relationship between #995 and #885 should be verified to confirm they are indeed the same root cause.
 
 | Aspect | #1015 | #1034 |
 |--------|-------|-------|

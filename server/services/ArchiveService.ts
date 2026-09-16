@@ -30,6 +30,27 @@ function delay(ms: number): Promise<void> {
 // re-running a check that will deterministically fail the same way every time.
 class NonRetryableArchiveError extends Error {}
 
+// A password-protected archive fails the exact same way every attempt — retrying it burns
+// the same ~11s of delay as a genuinely corrupt archive for no benefit, and the generic
+// "corrupt or incomplete, re-download" message this file's testArchive() throws afterward
+// is actively wrong for this case (the archive is fine, it's just encrypted). Callers
+// (ImportManager) catch this specifically to route the download to manual review with a
+// password prompt instead of the generic failure message.
+export class ArchivePasswordRequiredError extends Error {}
+
+// Both unrar and 7-Zip mention "password" in every message they produce for an encrypted
+// archive they can't read (unrar: e.g. a prompt-refusal or "wrong password" notice; 7-Zip:
+// "Wrong password?"). Matching on the bare word "password" would also fire on a genuinely
+// corrupt archive whose path/filename happens to contain it (e.g. "MyPasswordVault.rar"),
+// since runTool's error text can include the file path — so this requires one of the actual
+// diagnostic phrases both tools use for an encryption failure, not just the word appearing
+// anywhere in the message.
+function isPasswordProtectedError(message: string): boolean {
+  return /wrong password|password protected|password is incorrect|password required|enter password/i.test(
+    message
+  );
+}
+
 // Resolves a CLI tool to a fixed, unwriteable absolute path — rather than letting execFile
 // search $PATH for a bare command name — to avoid executing an attacker-controlled binary
 // that could be placed earlier on the PATH. Mirrors server/apprise.ts's resolveAppriseBinary.
@@ -132,29 +153,52 @@ function runUnrar(args: string[]): Promise<ExecFileResult> {
 }
 
 export class ArchiveService {
-  private async testArchive(filePath: string, tool: ArchiveTool): Promise<void> {
-    logger.debug({ filePath, tool }, "Testing archive before extraction");
+  // -y: assume yes on any prompt; -p<password> supplies a password when one is given,
+  // otherwise -p- refuses to prompt for one (fail instead of hanging on an encrypted
+  // archive); --: end of switches, so a filename starting with "-" can't be parsed as a flag.
+  private async runSingleTest(
+    filePath: string,
+    tool: ArchiveTool,
+    password?: string
+  ): Promise<void> {
+    if (tool === "unrar") {
+      await runUnrar(["t", "-y", password ? `-p${password}` : "-p-", "--", filePath]);
+    } else {
+      await runSevenZip(["t", "-y", ...(password ? [`-p${password}`] : []), "--", filePath]);
+    }
+  }
+
+  // Some failures short-circuit the retry loop entirely because retrying can never change the
+  // outcome: a missing binary won't appear, and a password-protected archive fails identically
+  // every time. Both re-throw as a more specific error type for the caller; anything else
+  // returns normally so testArchive's loop can retry it as a possible transient read.
+  private classifyNonRetryableFailure(err: unknown, password?: string): void {
+    if (err instanceof NonRetryableArchiveError) {
+      throw err;
+    }
+    if (err instanceof Error && isPasswordProtectedError(err.message)) {
+      throw new ArchivePasswordRequiredError(
+        password
+          ? "The provided password was rejected — it may be incorrect."
+          : "This archive is password-protected — a password is required to extract it."
+      );
+    }
+  }
+
+  private async testArchive(filePath: string, tool: ArchiveTool, password?: string): Promise<void> {
+    logger.debug({ filePath, tool, hasPassword: !!password }, "Testing archive before extraction");
 
     let lastErr: unknown;
     for (let attempt = 1; attempt <= ARCHIVE_TEST_MAX_ATTEMPTS; attempt++) {
       try {
-        if (tool === "unrar") {
-          // -y: assume yes on any prompt; -p-: refuse to prompt for a password (fail
-          // instead of hanging on an encrypted archive); --: end of switches, so a
-          // filename starting with "-" can't be parsed as a flag.
-          await runUnrar(["t", "-y", "-p-", "--", filePath]);
-        } else {
-          await runSevenZip(["t", "-y", "--", filePath]);
-        }
+        await this.runSingleTest(filePath, tool, password);
         if (attempt > 1) {
           logger.info({ filePath, tool, attempt }, "Archive test succeeded after retry");
         }
         return;
       } catch (err) {
+        this.classifyNonRetryableFailure(err, password);
         lastErr = err;
-        if (err instanceof NonRetryableArchiveError) {
-          throw err;
-        }
         if (attempt < ARCHIVE_TEST_MAX_ATTEMPTS) {
           logger.warn(
             { err, filePath, tool, attempt },
@@ -196,19 +240,44 @@ export class ArchiveService {
     return results;
   }
 
-  private async extractWithUnrar(filePath: string, outputDir: string): Promise<string[]> {
+  private async extractWithUnrar(
+    filePath: string,
+    outputDir: string,
+    password?: string
+  ): Promise<string[]> {
     // Trailing separator tells unrar the operand is a destination directory. -idq suppresses
     // the per-file "Extracting..." progress output — without it, a large multi-file archive
     // can exceed execFile's maxBuffer and fail with ERR_CHILD_PROCESS_STDIO_MAXBUFFER after
     // extraction has already started.
-    await runUnrar(["x", "-idq", "-y", "-p-", "--", filePath, outputDir + path.sep]);
+    await runUnrar([
+      "x",
+      "-idq",
+      "-y",
+      password ? `-p${password}` : "-p-",
+      "--",
+      filePath,
+      outputDir + path.sep,
+    ]);
     return this.listExtractedFiles(outputDir);
   }
 
-  private async extractWith7zip(filePath: string, outputDir: string): Promise<string[]> {
+  private async extractWith7zip(
+    filePath: string,
+    outputDir: string,
+    password?: string
+  ): Promise<string[]> {
     // -bso0/-bsp0 silence 7-Zip's normal output and progress streams for the same
     // maxBuffer-overflow reason as unrar's -idq above.
-    await runSevenZip(["x", "-bso0", "-bsp0", "-y", `-o${outputDir}`, "--", filePath]);
+    await runSevenZip([
+      "x",
+      "-bso0",
+      "-bsp0",
+      "-y",
+      ...(password ? [`-p${password}`] : []),
+      `-o${outputDir}`,
+      "--",
+      filePath,
+    ]);
     return this.listExtractedFiles(outputDir);
   }
 
@@ -216,15 +285,18 @@ export class ArchiveService {
    * Extracts an archive to a specified output directory.
    * @param filePath Full path to the archive file.
    * @param outputDir Directory where contents should be extracted.
+   * @param password Password to supply for an encrypted archive. Omit for an unencrypted
+   *   one; if the archive turns out to require one, `extract` rejects with
+   *   {@link ArchivePasswordRequiredError} rather than the generic corruption message.
    * @returns Paths of files reported as extracted.
    */
-  async extract(filePath: string, outputDir: string): Promise<string[]> {
+  async extract(filePath: string, outputDir: string, password?: string): Promise<string[]> {
     const tool = resolveTool(filePath);
-    logger.debug({ filePath, outputDir, tool }, "Extracting archive");
+    logger.debug({ filePath, outputDir, tool, hasPassword: !!password }, "Extracting archive");
 
     // Validate before touching the filesystem, so a failing/unsupported archive never
     // leaves behind an empty output directory.
-    await this.testArchive(filePath, tool);
+    await this.testArchive(filePath, tool, password);
 
     // Always start from an empty directory: a prior extraction attempt that was killed
     // before its own cleanup ran (e.g. a container restart) can leave stale files behind at
@@ -236,8 +308,8 @@ export class ArchiveService {
     try {
       extractedFiles =
         tool === "unrar"
-          ? await this.extractWithUnrar(filePath, outputDir)
-          : await this.extractWith7zip(filePath, outputDir);
+          ? await this.extractWithUnrar(filePath, outputDir, password)
+          : await this.extractWith7zip(filePath, outputDir, password);
     } catch (err) {
       logger.error({ err, filePath, tool }, "Extraction failed");
       throw err;

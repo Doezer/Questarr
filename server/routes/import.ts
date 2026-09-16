@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { storage } from "../storage.js";
 import { importManager, platformMappingService } from "../services/index.js";
+import { ARCHIVE_PASSWORD_REQUIRED_PREFIX } from "../services/ImportManager.js";
+import { ArchivePasswordRequiredError } from "../services/ArchiveService.js";
 import { routesLogger as logger } from "../logger.js";
 
 import z from "zod";
@@ -431,6 +433,7 @@ importRouter.get("/pending", async (req, res) => {
     const pathResults = await Promise.all(
       pathReviews.map(async (d) => {
         const game = await storage.getGame(d.gameId);
+        const passwordRequired = !!d.errorMessage?.startsWith(ARCHIVE_PASSWORD_REQUIRED_PREFIX);
         return {
           id: d.id,
           gameTitle: game?.title || d.downloadTitle,
@@ -438,7 +441,10 @@ importRouter.get("/pending", async (req, res) => {
           status: d.status,
           downloaderId: d.downloaderId,
           createdAt: d.addedAt,
-          errorMessage: d.errorMessage,
+          errorMessage: passwordRequired
+            ? d.errorMessage?.slice(ARCHIVE_PASSWORD_REQUIRED_PREFIX.length)
+            : d.errorMessage,
+          passwordRequired,
         };
       })
     );
@@ -567,6 +573,15 @@ importRouter.post("/:id/confirm", async (req, res) => {
       originalPath: z.string().optional(),
       transferMode: z.enum(IMPORT_TRANSFER_MODES).optional(),
       unpack: z.boolean().optional(),
+      // Only meaningful when unpack is true and the archive is encrypted. Never persisted —
+      // consumed once by confirmImport() to try extraction, then dropped. A NUL byte would
+      // reach execFile's args array unchanged and throw ERR_INVALID_ARG_VALUE deep inside
+      // ArchiveService rather than failing here with a clean validation error.
+      password: z
+        .string()
+        .max(1024)
+        .refine((value) => !value.includes("\0"), "Password must not contain null characters")
+        .optional(),
     });
 
     const body = schema.parse(req.body);
@@ -584,6 +599,7 @@ importRouter.post("/:id/confirm", async (req, res) => {
         reviewReason: "Manual Confirmation",
         transferMode: body.transferMode,
         unpack: body.unpack,
+        password: body.password,
       },
       userId
     );
@@ -592,6 +608,9 @@ importRouter.post("/:id/confirm", async (req, res) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.issues });
+    }
+    if (error instanceof ArchivePasswordRequiredError) {
+      return res.status(400).json({ error: error.message, passwordRequired: true });
     }
     if (error instanceof Error) {
       if (

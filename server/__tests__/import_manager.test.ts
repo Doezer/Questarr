@@ -24,7 +24,7 @@ vi.mock("../downloaders.js", () => ({
 }));
 
 import { ImportManager } from "../services/ImportManager.js";
-import { makeImportConfig } from "./helpers/import-test-helpers.js";
+import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
 describe("ImportManager", () => {
   const storage = {
@@ -347,7 +347,8 @@ describe("ImportManager", () => {
 
     expect(archiveService.extract).toHaveBeenCalledWith(
       "/data/downloads/file.zip",
-      "/data/downloads/file.zip_extracted"
+      "/data/downloads/file.zip_extracted",
+      undefined
     );
   });
 
@@ -483,7 +484,8 @@ describe("ImportManager", () => {
 
     expect(archiveService.extract).toHaveBeenCalledWith(
       "/data/downloads/file.zip",
-      "/data/downloads/file.zip_extracted"
+      "/data/downloads/file.zip_extracted",
+      undefined
     );
     expect(storage.updateGameDownloadStatus).toHaveBeenCalled();
   });
@@ -691,7 +693,8 @@ describe("ImportManager", () => {
 
     expect(archiveService.extract).toHaveBeenCalledWith(
       "/downloads/game.zip",
-      "/downloads/game.zip_extracted"
+      "/downloads/game.zip_extracted",
+      undefined
     );
 
     execSpy.mockRestore();
@@ -785,6 +788,128 @@ describe("ImportManager", () => {
       "archive is corrupt"
     );
     expect(storage.updateGameDownloadStatus).not.toHaveBeenCalledWith("dl-1", "error");
+  });
+
+  // ─── Password-protected archive handling ─────────────────────────────────────
+
+  // Shared by the password tests below to keep each test's own body focused on
+  // what it's actually asserting (SonarCloud flagged the un-factored version as
+  // duplicated new code — see c9aabda for the same fix applied to an earlier
+  // near-identical test group in this file).
+  function mockRarDownload(
+    options: {
+      downloadTitle?: string;
+      gameTitle?: string;
+      libraryRoot?: string;
+      translatedPath?: string;
+    } = {}
+  ): void {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: options.downloadTitle ?? "",
+    });
+    storage.getGame.mockResolvedValue(
+      makeGame({ title: options.gameTitle ?? "Archive Game", platforms: [6] })
+    );
+    storage.getImportConfig.mockResolvedValue(
+      options.libraryRoot
+        ? makeImportConfig({ libraryRoot: options.libraryRoot })
+        : { ...baseConfig, autoUnpack: true }
+    );
+    archiveService.isArchive.mockReturnValue(true);
+    if (options.translatedPath) {
+      pathService.translatePath.mockResolvedValue(options.translatedPath);
+    }
+  }
+
+  function createManager(): ImportManager {
+    return new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+  }
+
+  it("processImport: ArchivePasswordRequiredError → manual review with the marker-prefixed message", async () => {
+    const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
+    mockRarDownload({ downloadTitle: "Game.rar", translatedPath: "/data/downloads/file.rar" });
+    archiveService.extract.mockRejectedValue(
+      new ArchivePasswordRequiredError(
+        "This archive is password-protected — a password is required to extract it."
+      )
+    );
+
+    await createManager().processImport("dl-1", "/remote/path");
+
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+      "dl-1",
+      "manual_review_required",
+      "ARCHIVE_PASSWORD_REQUIRED:This archive is password-protected — a password is required to extract it."
+    );
+    expect(storage.updateGameDownloadStatus).not.toHaveBeenCalledWith("dl-1", "error");
+  });
+
+  it("processImport: passes the given password through to archiveService.extract", async () => {
+    mockRarDownload({ downloadTitle: "Game.rar", translatedPath: "/data/downloads/file.rar" });
+    archiveService.extract.mockResolvedValue(["/data/downloads/file_extracted/game.rom"]);
+
+    await createManager().processImport("dl-1", "/remote/path", "hunter2");
+
+    expect(archiveService.extract).toHaveBeenCalledWith(
+      "/data/downloads/file.rar",
+      "/data/downloads/file.rar_extracted",
+      "hunter2"
+    );
+  });
+
+  it("confirmImport: passes overridePlan.password through to archiveService.extract when unpack=true", async () => {
+    mockRarDownload({ gameTitle: "My Game", libraryRoot: "/safe/root" });
+    archiveService.extract.mockResolvedValue(["/downloads/game.rom"]);
+
+    await createManager().confirmImport("dl-1", {
+      strategy: "pc",
+      originalPath: "/downloads/game.rar",
+      proposedPath: "/safe/root/PC/My Game",
+      needsReview: false,
+      transferMode: "move",
+      unpack: true,
+      password: "hunter2",
+    });
+
+    expect(archiveService.extract).toHaveBeenCalledWith(
+      "/downloads/game.rar",
+      "/downloads/game.rar_extracted",
+      "hunter2"
+    );
+  });
+
+  it("confirmImport: wrong retry password still surfaces as manual_review_required with the marker prefix", async () => {
+    const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
+    mockRarDownload({ gameTitle: "My Game", libraryRoot: "/safe/root" });
+    archiveService.extract.mockRejectedValue(
+      new ArchivePasswordRequiredError("The provided password was rejected — it may be incorrect.")
+    );
+
+    await expect(
+      createManager().confirmImport("dl-1", {
+        strategy: "pc",
+        originalPath: "/downloads/game.rar",
+        proposedPath: "/safe/root/PC/My Game",
+        needsReview: false,
+        transferMode: "move",
+        unpack: true,
+        password: "wrongpass",
+      })
+    ).rejects.toThrow(ArchivePasswordRequiredError);
+
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+      "dl-1",
+      "manual_review_required",
+      "ARCHIVE_PASSWORD_REQUIRED:The provided password was rejected — it may be incorrect."
+    );
   });
 
   // ─── extractRemoteHost edge cases (via resolveLocalPath → processImport) ────

@@ -373,4 +373,86 @@ describe("ArchiveService", () => {
       );
     });
   });
+
+  describe("Password-protected archives", () => {
+    it.each([
+      ["unrar", "/downloads/game.rar", "/tmp/rar-out", "Cannot open <game.rar>\nwrong password"],
+      ["7-Zip", "/downloads/game.zip", "/tmp/out", "Wrong password?"],
+    ])(
+      "rejects with ArchivePasswordRequiredError, without retrying, when %s reports a password issue",
+      async (_tool, filePath, outDir, stderr) => {
+        const service = await freshArchiveService();
+        const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
+        mockExecAlways(new Error("exit code 2"), "", stderr);
+
+        await expect(
+          service.extract(filePath, outDir) // NOSONAR - mocked fs
+        ).rejects.toThrow(ArchivePasswordRequiredError);
+
+        // No retries — a password failure is deterministic, so only the first test attempt runs.
+        expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
+        expect(emptyDirMock).not.toHaveBeenCalled();
+      }
+    );
+
+    it("does not misclassify a corrupt archive as password-protected just because its path contains the word 'password'", async () => {
+      const service = await freshArchiveService();
+      const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
+      mockExecAlways(
+        new Error("exit code 2"),
+        "",
+        "Cannot open the file MyPasswordVault.rar as archive: CRC failed"
+      );
+
+      vi.useFakeTimers();
+      const resultPromise = service.extract("/downloads/MyPasswordVault.rar", "/tmp/out"); // NOSONAR - mocked fs
+      const assertion = expect(resultPromise).rejects.not.toThrow(ArchivePasswordRequiredError);
+      await vi.runAllTimersAsync();
+      await assertion;
+      vi.useRealTimers();
+
+      // Falls through to the normal retry loop (3 attempts) and the generic
+      // corruption message, exactly like any other non-password failure.
+      expect(vi.mocked(execFile).mock.calls).toHaveLength(3);
+    });
+
+    it.each([
+      [
+        "unrar",
+        "/downloads/game.rar",
+        "/tmp/rar-out",
+        ["t", "-y", "-phunter2", "--", "/downloads/game.rar"],
+        ["x", "-idq", "-y", "-phunter2", "--", "/downloads/game.rar", "/tmp/rar-out" + path.sep],
+      ],
+      [
+        "7-Zip",
+        "/downloads/game.zip",
+        "/tmp/out",
+        ["t", "-y", "-phunter2", "--", "/downloads/game.zip"],
+        ["x", "-bso0", "-bsp0", "-y", "-phunter2", "-o/tmp/out", "--", "/downloads/game.zip"],
+      ],
+    ])(
+      "passes a given password to %s via -p<password> on both test and extract",
+      async (_tool, filePath, outDir, expectedTestArgs, expectedExtractArgs) => {
+        const service = await freshArchiveService();
+        mockExecAlways(null, "", "");
+        readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
+
+        await service.extract(filePath, outDir, "hunter2"); // NOSONAR - mocked fs
+
+        const calls = vi.mocked(execFile).mock.calls;
+        expect(calls[0][1]).toEqual(expectedTestArgs);
+        expect(calls[1][1]).toEqual(expectedExtractArgs);
+      }
+    );
+
+    it("reports a rejected-password message distinct from the initial 'required' message on a wrong retry password", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(new Error("exit code 3"), "", "wrong password for the archive");
+
+      await expect(
+        service.extract("/downloads/game.rar", "/tmp/rar-out", "wrongpass") // NOSONAR - mocked fs
+      ).rejects.toThrow(/incorrect/i);
+    });
+  });
 });

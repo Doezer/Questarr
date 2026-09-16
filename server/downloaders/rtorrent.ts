@@ -12,6 +12,7 @@ import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient, XMLValue } from "./types.js";
 import {
   assertCredentialsAllowed,
+  buildBasicAuthHeader,
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
@@ -717,11 +718,10 @@ export class RTorrentClient implements DownloaderClient {
 
     if (this.downloader.username && this.downloader.password) {
       assertCredentialsAllowed(this.downloader, "rTorrent");
-      const auth = Buffer.from(
-        `${this.downloader.username}:${this.downloader.password}`,
-        "utf-8"
-      ).toString("base64");
-      headers["Authorization"] = `Basic ${auth}`;
+      headers["Authorization"] = buildBasicAuthHeader(
+        this.downloader.username,
+        this.downloader.password
+      );
     }
 
     const response = await safeFetch(url, {

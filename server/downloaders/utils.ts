@@ -38,6 +38,11 @@ export function assertCredentialsAllowed(
   );
 }
 
+/** Builds an HTTP Basic `Authorization` header value from a username and password. */
+export function buildBasicAuthHeader(username: string, password: string): string {
+  return `Basic ${Buffer.from(`${username}:${password}`, "utf-8").toString("base64")}`;
+}
+
 // Prowlarr (and some Newznab/Torznab indexers) wrap external download URLs in a proxy
 // URL whose `link` query parameter is a standard base64 value that can contain `+`.
 // ASP.NET Core (Prowlarr's backend) decodes `+` as space in query strings, corrupting

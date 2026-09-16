@@ -6,6 +6,7 @@ import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
   assertCredentialsAllowed,
+  buildBasicAuthHeader,
   fixNzbUrlEncoding,
   logDownloaderDebugResponse,
 } from "./utils.js";
@@ -200,11 +201,10 @@ export class NZBGetClient implements DownloaderClient {
 
     if (this.downloader.username && this.downloader.password) {
       assertCredentialsAllowed(this.downloader, "NZBGet");
-      const auth = Buffer.from(
-        `${this.downloader.username}:${this.downloader.password}`,
-        "utf-8"
-      ).toString("base64");
-      headers["Authorization"] = `Basic ${auth}`;
+      headers["Authorization"] = buildBasicAuthHeader(
+        this.downloader.username,
+        this.downloader.password
+      );
     }
 
     // PPParameters (the trailing "append" param) can carry secrets we hand NZBGet's

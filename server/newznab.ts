@@ -1,6 +1,10 @@
 import { XMLParser } from "fast-xml-parser";
 import { type Indexer } from "@shared/schema";
-import { DEFAULT_GAME_CATEGORIES, discoverCapsCategories } from "./indexer-caps.js";
+import {
+  DEFAULT_GAME_CATEGORIES,
+  discoverCapsCategories,
+  indexerAllowsApiKey,
+} from "./indexer-caps.js";
 import { routesLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 
@@ -99,7 +103,10 @@ class NewznabClient {
   }
 
   /**
-   * Search a single Newznab indexer
+   * Searches one Newznab indexer and normalizes its RSS items.
+   * The API key is omitted when the indexer's transport policy forbids sending it.
+   *
+   * @throws When URL validation, the request, or response parsing fails.
    */
   async search(indexer: Indexer, params: NewznabSearchParams): Promise<NewznabResult[]> {
     try {
@@ -111,7 +118,9 @@ class NewznabClient {
       const url = this.buildApiUrl(indexer.url);
 
       // Build Newznab search parameters
-      url.searchParams.set("apikey", indexer.apiKey);
+      if (indexerAllowsApiKey(indexer)) {
+        url.searchParams.set("apikey", indexer.apiKey);
+      }
       url.searchParams.set("t", "search"); // Newznab search function
       url.searchParams.set("q", params.query);
 
@@ -161,11 +170,15 @@ class NewznabClient {
         "searching newznab indexer"
       );
 
+      const sendsApiKey = indexerAllowsApiKey(indexer);
+      const requireHttps = sendsApiKey && url.protocol === "https:";
+
       const response = await safeFetch(url.toString(), {
         headers: {
           "User-Agent": "Questarr/1.0",
         },
         signal: AbortSignal.timeout(30000), // 30 second timeout
+        requireHttps,
       });
 
       if (!response.ok) {
@@ -387,7 +400,8 @@ class NewznabClient {
   }
 
   /**
-   * Test connection to a Newznab indexer
+   * Tests a Newznab caps endpoint without sending an API key over a disallowed transport.
+   * Failures are returned in the result rather than thrown.
    */
   async testConnection(indexer: Indexer): Promise<{ success: boolean; message: string }> {
     try {
@@ -396,11 +410,15 @@ class NewznabClient {
       }
 
       const url = this.buildApiUrl(indexer.url);
-      url.searchParams.set("apikey", indexer.apiKey);
+      const sendsApiKey = indexerAllowsApiKey(indexer);
+      if (sendsApiKey) {
+        url.searchParams.set("apikey", indexer.apiKey);
+      }
       url.searchParams.set("t", "caps");
 
       const response = await safeFetch(url.toString(), {
         signal: AbortSignal.timeout(10000),
+        requireHttps: sendsApiKey && url.protocol === "https:",
       });
 
       if (!response.ok) {
@@ -470,13 +488,22 @@ class NewznabClient {
     }
   }
 
+  /**
+   * Reads server identity fields from a Newznab caps response, omitting the API key
+   * when the indexer's transport policy forbids sending it.
+   *
+   * @throws When URL validation or the caps request fails.
+   */
   private async fetchServerInfo(indexer: Indexer): Promise<NewznabServerInfo> {
     if (!(await isSafeUrl(indexer.url))) {
       throw new Error(`Unsafe URL detected: ${indexer.url}`);
     }
 
     const url = this.buildApiUrl(indexer.url);
-    url.searchParams.set("apikey", indexer.apiKey);
+    const sendsApiKey = indexerAllowsApiKey(indexer);
+    if (sendsApiKey) {
+      url.searchParams.set("apikey", indexer.apiKey);
+    }
     url.searchParams.set("t", "caps");
 
     if (!(await isSafeUrl(url.toString()))) {
@@ -485,6 +512,7 @@ class NewznabClient {
 
     const response = await safeFetch(url.toString(), {
       signal: AbortSignal.timeout(10000),
+      requireHttps: sendsApiKey && url.protocol === "https:",
     });
 
     if (!response.ok) {

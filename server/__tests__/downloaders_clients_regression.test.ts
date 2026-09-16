@@ -55,6 +55,8 @@ const createDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
     removeCompleted: false,
     postImportCategory: null,
     settings: null,
+    allowSelfSignedCertificate: false,
+    allowInsecureLan: true,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -1768,7 +1770,7 @@ describe("downloader client regression coverage", () => {
     await expect(client.testConnection()).resolves.toEqual({
       success: false,
       message:
-        "Failed to connect to SABnzbd at http://localhost:8080/api?apikey=%5Bredacted%5D&mode=version&output=json: HTTP 500: Boom - server error",
+        "Failed to connect to SABnzbd at http://localhost:8080: HTTP 500: Boom - server error",
     });
 
     fetchWithFallbackSpy.mockRejectedValueOnce(new Error("connect boom"));

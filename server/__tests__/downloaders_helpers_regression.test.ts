@@ -52,6 +52,7 @@ const createDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
     postImportCategory: null,
     settings: null,
     allowSelfSignedCertificate: false,
+    allowInsecureLan: true,
     createdAt: now,
     updatedAt: now,
     ...overrides,

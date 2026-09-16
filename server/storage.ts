@@ -737,6 +737,7 @@ export class MemStorage implements IStorage {
       categories: insertIndexer.categories ?? [],
       rssEnabled: insertIndexer.rssEnabled ?? true,
       autoSearchEnabled: insertIndexer.autoSearchEnabled ?? true,
+      allowInsecureLan: insertIndexer.allowInsecureLan ?? false,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -812,6 +813,7 @@ export class MemStorage implements IStorage {
             categories: idx.categories ?? [],
             rssEnabled: idx.rssEnabled ?? true,
             autoSearchEnabled: idx.autoSearchEnabled ?? true,
+            allowInsecureLan: idx.allowInsecureLan ?? false,
             createdAt: new Date(),
             updatedAt: new Date(),
           };
@@ -866,6 +868,7 @@ export class MemStorage implements IStorage {
       postImportCategory: insertDownloader.postImportCategory ?? null,
       settings: insertDownloader.settings ?? null,
       allowSelfSignedCertificate: insertDownloader.allowSelfSignedCertificate ?? false,
+      allowInsecureLan: insertDownloader.allowInsecureLan ?? false,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

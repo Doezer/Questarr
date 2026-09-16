@@ -11,6 +11,8 @@ import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
   fetchWithMagnetDetection,
+  assertCredentialsAllowed,
+  buildBasicAuthHeader,
   logDownloaderDebugResponse,
   findTorrentByTagNull,
 } from "./utils.js";
@@ -676,6 +678,12 @@ export class TransmissionClient implements DownloaderClient {
     return { seeders, leechers };
   }
 
+  /**
+   * Sends a Transmission RPC request and retries once with a server-provided session ID.
+   *
+   * @throws If the transport policy forbids the configured credentials, or the
+   * underlying RPC call fails.
+   */
   // Transmission API response structure
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async makeRequest(method: string, arguments_: any): Promise<any> {
@@ -701,11 +709,11 @@ export class TransmissionClient implements DownloaderClient {
     }
 
     if (this.downloader.username && this.downloader.password) {
-      const auth = Buffer.from(
-        `${this.downloader.username}:${this.downloader.password}`,
-        "utf-8"
-      ).toString("base64");
-      headers["Authorization"] = `Basic ${auth}`;
+      assertCredentialsAllowed(this.downloader, "Transmission");
+      headers["Authorization"] = buildBasicAuthHeader(
+        this.downloader.username,
+        this.downloader.password
+      );
     }
 
     const response = await safeFetch(url, {

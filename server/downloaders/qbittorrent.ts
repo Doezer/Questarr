@@ -11,6 +11,7 @@ import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloadResult, DownloaderClient } from "./types.js";
 import {
+  assertCredentialsAllowed,
   fetchWithMagnetDetection,
   extractHashFromUrl,
   fixNzbUrlEncoding,
@@ -1314,6 +1315,13 @@ export class QBittorrentClient implements DownloaderClient {
     return (await response.text()).trim();
   }
 
+  /**
+   * Authenticates with qBittorrent and stores its session cookie when one is returned.
+   *
+   * @param force - Whether to authenticate again when a session cookie already exists.
+   * @throws If the transport policy forbids the configured credentials, or the login
+   * request itself fails.
+   */
   private async authenticate(force = false): Promise<void> {
     if (this.cookie && !force) {
       return; // Already authenticated
@@ -1324,6 +1332,8 @@ export class QBittorrentClient implements DownloaderClient {
       this.cookie = null;
       return;
     }
+
+    assertCredentialsAllowed(this.downloader, "qBittorrent");
 
     const url = this.getBaseUrl() + "/api/v2/auth/login";
 

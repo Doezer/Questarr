@@ -5,6 +5,7 @@ import https from "https";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
+  assertCredentialsAllowed,
   fixNzbUrlEncoding,
   logDownloaderDebugResponse,
   stripTrailingPathSeparators,
@@ -118,6 +119,11 @@ export class SABnzbdClient implements DownloaderClient {
     }
   }
 
+  /**
+   * Builds a SABnzbd API URL, including the configured API key when permitted.
+   *
+   * @throws When an API key is configured but the transport policy forbids sending it.
+   */
   private getApiUrl(mode: string, params: Record<string, string> = {}): string {
     const baseUrl = this.getBaseUrl();
 
@@ -130,7 +136,10 @@ export class SABnzbdClient implements DownloaderClient {
     }
 
     const url = new URL(`${baseUrl}${apiPath}`);
-    url.searchParams.set("apikey", this.downloader.username || "");
+    if (this.downloader.username) {
+      assertCredentialsAllowed(this.downloader, "SABnzbd", "API key");
+      url.searchParams.set("apikey", this.downloader.username);
+    }
     url.searchParams.set("mode", mode);
     url.searchParams.set("output", "json");
 
@@ -157,14 +166,16 @@ export class SABnzbdClient implements DownloaderClient {
     allowInsecureFallback = true
   ): Promise<Response> {
     try {
-      // allowInsecureFallback is false exactly when this request carries the archive
-      // password (see addDownload) -- in that case also refuse to follow a redirect to
-      // a non-HTTPS hop, since a compromised or MITM'd SABnzbd could otherwise bounce the
-      // credential-bearing request to a plaintext endpoint mid-flight.
+      // Refuse to follow a redirect to a non-HTTPS hop whenever this request carries
+      // a credential: either the archive password (allowInsecureFallback is false
+      // exactly then, see addDownload) or the API key that getApiUrl() embeds in
+      // every routine request once the connection is configured for TLS. Without
+      // this, a compromised or MITM'd SABnzbd could bounce a credential-bearing
+      // HTTPS request to a plaintext endpoint mid-flight.
       return await safeFetch(url, {
         ...options,
         allowPrivate: true,
-        requireHttps: !allowInsecureFallback,
+        requireHttps: !allowInsecureFallback || this.downloader.useSsl === true,
       });
     } catch (error) {
       const isSslError =
@@ -269,11 +280,11 @@ export class SABnzbdClient implements DownloaderClient {
       return { success: false, message: "Invalid SABnzbd response - missing version field" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      const redactedUrl = redactApiKey(this.getApiUrl("version"));
-      downloadersLogger.error({ error, url: redactedUrl }, "SABnzbd connection test failed");
+      const baseUrl = this.getBaseUrl();
+      downloadersLogger.error({ error, url: baseUrl }, "SABnzbd connection test failed");
       return {
         success: false,
-        message: `Failed to connect to SABnzbd at ${redactedUrl}: ${errorMessage}`,
+        message: `Failed to connect to SABnzbd at ${baseUrl}: ${errorMessage}`,
       };
     }
   }

@@ -11,6 +11,8 @@ import crypto from "crypto";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient, XMLValue } from "./types.js";
 import {
+  assertCredentialsAllowed,
+  buildBasicAuthHeader,
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
@@ -642,7 +644,13 @@ export class RTorrentClient implements DownloaderClient {
     return auth;
   }
 
-  /** Sends an XML-RPC request, retrying with digest authentication when required. */
+  /**
+   * Sends an XML-RPC request with configured authentication, retrying with Digest
+   * authentication when required.
+   *
+   * @throws If the transport policy forbids the configured credentials, the initial
+   * RPC call fails, or the Digest authentication retry fails.
+   */
   private async makeXMLRPCRequest(method: string, params: unknown[]): Promise<XMLValue> {
     // Build the complete URL with protocol, host, port, and path
     let baseUrl = this.downloader.url;
@@ -714,11 +722,11 @@ export class RTorrentClient implements DownloaderClient {
     };
 
     if (this.downloader.username && this.downloader.password) {
-      const auth = Buffer.from(
-        `${this.downloader.username}:${this.downloader.password}`,
-        "utf-8"
-      ).toString("base64");
-      headers["Authorization"] = `Basic ${auth}`;
+      assertCredentialsAllowed(this.downloader, "rTorrent");
+      headers["Authorization"] = buildBasicAuthHeader(
+        this.downloader.username,
+        this.downloader.password
+      );
     }
 
     const response = await safeFetch(url, {

@@ -1,6 +1,6 @@
 import React from "react";
 import { Badge } from "@/components/ui/badge";
-import { Star, HardDrive, CheckCircle2, Loader2, Archive } from "lucide-react";
+import { Star, HardDrive, CheckCircle2, Loader2, Archive, Gamepad2 } from "lucide-react";
 
 interface StatusBadgeProps {
   status: string;
@@ -29,6 +29,13 @@ const statusConfig: Record<string, StatusEntry> = {
     className: "",
     Icon: HardDrive,
     iconColorClass: "text-emerald-400",
+  },
+  playing: {
+    label: "Playing",
+    variant: "secondary",
+    className: "bg-cyan-600 hover:bg-cyan-700 text-white",
+    Icon: Gamepad2,
+    iconColorClass: "text-cyan-400",
   },
   shelved: {
     label: "Shelved",

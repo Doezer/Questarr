@@ -35,6 +35,7 @@ type StatId = "overview" | "status" | "quickinfo";
 const STATUS_COLORS: Record<string, string> = {
   Wanted: "#ef4444",
   Owned: "#3b82f6",
+  Playing: "#06b6d4",
   Completed: "#10b981",
   Downloading: "#8b5cf6",
 };
@@ -217,7 +218,9 @@ export default function ShareDiscordDialog({
                 >
                   Status Breakdown
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+                <div
+                  style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 8 }}
+                >
                   {[
                     {
                       label: "Wanted",
@@ -228,6 +231,11 @@ export default function ShareDiscordDialog({
                       label: "Owned",
                       value: stats.statusBreakdown.owned,
                       color: STATUS_COLORS.Owned,
+                    },
+                    {
+                      label: "Playing",
+                      value: stats.statusBreakdown.playing,
+                      color: STATUS_COLORS.Playing,
                     },
                     {
                       label: "Completed",

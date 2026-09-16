@@ -13,6 +13,7 @@ export interface LibraryStats {
   statusBreakdown: {
     wanted: number;
     owned: number;
+    playing: number;
     shelved: number;
     completed: number;
     downloading: number;
@@ -37,6 +38,7 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
       statusBreakdown: {
         wanted: 0,
         owned: 0,
+        playing: 0,
         shelved: 0,
         completed: 0,
         downloading: 0,
@@ -64,6 +66,7 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
   const statusBreakdown = {
     wanted: 0,
     owned: 0,
+    playing: 0,
     shelved: 0,
     completed: 0,
     downloading: 0,
@@ -127,6 +130,7 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
 
     if (g.status === "wanted") statusBreakdown.wanted++;
     else if (g.status === "owned") statusBreakdown.owned++;
+    else if (g.status === "playing") statusBreakdown.playing++;
     else if (g.status === "shelved") statusBreakdown.shelved++;
     else if (g.status === "completed") statusBreakdown.completed++;
     else if (g.status === "downloading") statusBreakdown.downloading++;
@@ -149,8 +153,12 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
   const avgReleaseYear = yearCount > 0 ? Math.round(yearSum / yearCount) : "N/A";
   const metadataHealth = Math.round((completeGamesCount / totalGames) * 100);
 
-  // Completion Rate: % of acquired games (owned + shelved + completed) that are completed
-  const acquiredCount = statusBreakdown.owned + statusBreakdown.shelved + statusBreakdown.completed;
+  // Completion Rate: % of acquired games (owned + playing + shelved + completed) that are completed
+  const acquiredCount =
+    statusBreakdown.owned +
+    statusBreakdown.playing +
+    statusBreakdown.shelved +
+    statusBreakdown.completed;
   const completionRate =
     acquiredCount > 0 ? Math.round((statusBreakdown.completed / acquiredCount) * 100) : 0;
 

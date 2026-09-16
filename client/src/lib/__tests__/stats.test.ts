@@ -58,26 +58,32 @@ describe("calculateLibraryStats", () => {
       summary: "Summary 4",
       coverUrl: "url4",
     },
+    {
+      id: "5",
+      title: "Game 5",
+      status: "playing",
+    },
   ];
 
   it("calculates stats correctly for a mixed library", () => {
     const stats = calculateLibraryStats(mockGames);
 
-    expect(stats.totalGames).toBe(4);
-    expect(stats.avgRating).toBe("85.0"); // (80 + 90) / 2 — Games 3 & 4 have no rating
+    expect(stats.totalGames).toBe(5);
+    expect(stats.avgRating).toBe("85.0"); // (80 + 90) / 2 — Games 3, 4 & 5 have no rating
     expect(stats.avgUserRating).toBe("7.8"); // (8 + 7.5) / 2
     expect(stats.topGenre?.name).toBe("RPG"); // RPG appears 3×, Action 2×
     expect(stats.topPlatform?.name).toBe("PC"); // PC appears 3×
     expect(stats.topPublisher?.name).toBe("Pub 1");
     expect(stats.uniqueDevelopers).toBe(2);
     expect(stats.avgReleaseYear).toBe(2022); // (2020+2021+2022+2023) / 4 = 2021.5 → 2022
-    expect(stats.metadataHealth).toBe(50); // 2 complete out of 4 (Games 3 & 4 have no rating)
+    expect(stats.metadataHealth).toBe(40); // 2 complete out of 5 (Games 3, 4 & 5 have no rating)
     expect(stats.statusBreakdown.wanted).toBe(1);
     expect(stats.statusBreakdown.owned).toBe(1);
+    expect(stats.statusBreakdown.playing).toBe(1);
     expect(stats.statusBreakdown.shelved).toBe(1);
     expect(stats.statusBreakdown.completed).toBe(1);
-    // 1 completed / (1 owned + 1 shelved + 1 completed) ≈ 33%
-    expect(stats.completionRate).toBe(33);
+    // 1 completed / (1 owned + 1 playing + 1 shelved + 1 completed) = 25%
+    expect(stats.completionRate).toBe(25);
   });
 
   it("statusBreakdown includes shelved: 0 when no shelved games", () => {

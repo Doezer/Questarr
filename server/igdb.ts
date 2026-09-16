@@ -3,7 +3,7 @@ import { config } from "./config.js";
 import { igdbLogger } from "./logger.js";
 import { storage } from "./storage.js";
 import { db } from "./db.js";
-import { userSettings } from "../shared/schema.js";
+import { userSettings } from "./db/tables.js";
 import { logger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
 import type { DownloadCategory } from "@shared/download-categorizer";

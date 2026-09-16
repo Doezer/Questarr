@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "./db.js";
-import { systemConfig } from "../shared/schema.js";
+import { systemConfig } from "./db/tables.js";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
 

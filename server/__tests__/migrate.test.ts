@@ -12,6 +12,7 @@ sqlite.pragma("foreign_keys = OFF");
 const db = drizzle(sqlite, { schema });
 
 vi.mock("../db.js", () => ({
+  dialect: "sqlite",
   db,
   pool: sqlite,
   // Mirrors the real pingDatabase(): a genuine round-trip to the DB under test.

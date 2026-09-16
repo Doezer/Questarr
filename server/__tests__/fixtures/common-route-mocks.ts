@@ -198,6 +198,8 @@ export function createDbMock() {
 export function createDbModuleMock() {
   const db = createDbMock();
   return {
+    // These suites exercise the SQLite path; server/db/tables.ts reads this.
+    dialect: "sqlite" as const,
     db,
     pool: {},
     pingDatabase: async () => {

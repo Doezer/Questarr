@@ -5,6 +5,7 @@ import { DatabaseStorage } from "../storage";
 
 // Mock db.ts
 vi.mock("../db", () => ({
+  dialect: "sqlite",
   db: {
     transaction: vi.fn((callback) =>
       callback({

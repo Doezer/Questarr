@@ -88,6 +88,7 @@ vi.mock("../logger.js", () => ({
 }));
 
 vi.mock("../db.js", () => ({
+  dialect: "sqlite",
   db: { select: vi.fn(), from: vi.fn(), where: vi.fn(), get: vi.fn() },
 }));
 vi.mock("../rss.js", () => ({

@@ -32,7 +32,7 @@ importRouter.use((req, res, next) => {
   }
 
   res.locals.userId = req.user.id;
-  next();
+  return next();
 });
 
 const importConfigPatchSchema = z
@@ -210,10 +210,10 @@ importRouter.post("/mappings/platforms", async (req, res) => {
   try {
     const mapping = insertPlatformMappingSchema.parse(req.body);
     const created = await storage.addPlatformMapping(mapping);
-    res.json(created);
+    return res.json(created);
   } catch (error) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
-    res.status(500).json({ error: "Failed to create platform mapping" });
+    return res.status(500).json({ error: "Failed to create platform mapping" });
   }
 });
 
@@ -221,11 +221,14 @@ importRouter.patch("/mappings/platforms/:id", async (req, res) => {
   try {
     const updates = platformMappingPatchSchema.parse(req.body);
     const updated = await platformMappingService.updateMapping(req.params.id, updates);
-    if (updated) res.json(updated);
-    else res.status(404).json({ error: "Mapping not found" });
+    if (updated) {
+      return res.json(updated);
+    } else {
+      return res.status(404).json({ error: "Mapping not found" });
+    }
   } catch (error) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
-    res.status(500).json({ error: "Failed to update platform mapping" });
+    return res.status(500).json({ error: "Failed to update platform mapping" });
   }
 });
 
@@ -266,10 +269,10 @@ importRouter.post("/mappings/paths", async (req, res) => {
   try {
     const mapping = insertPathMappingSchema.parse(req.body);
     const created = await storage.addPathMapping(mapping);
-    res.json(created);
+    return res.json(created);
   } catch (error) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
-    res.status(500).json({ error: "Failed to create path mapping" });
+    return res.status(500).json({ error: "Failed to create path mapping" });
   }
 });
 
@@ -278,14 +281,14 @@ importRouter.patch("/mappings/paths/:id", async (req, res) => {
     const updates = updatePathMappingSchema.parse(req.body);
     const updated = await storage.updatePathMapping(req.params.id, updates);
     if (updated) {
-      res.json(updated);
+      return res.json(updated);
     } else {
-      res.status(404).json({ error: "Mapping not found" });
+      return res.status(404).json({ error: "Mapping not found" });
     }
   } catch (error) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
     logger.error({ error }, "Error updating path mapping");
-    res.status(500).json({ error: "Failed to update path mapping" });
+    return res.status(500).json({ error: "Failed to update path mapping" });
   }
 });
 
@@ -341,10 +344,10 @@ importRouter.patch("/config", async (req, res) => {
     } else {
       await storage.createUserSettings({ userId, ...settingsPatch });
     }
-    res.json(newConfig);
+    return res.json(newConfig);
   } catch (error) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
-    res.status(500).json({ error: "Failed to update import config" });
+    return res.status(500).json({ error: "Failed to update import config" });
   }
 });
 
@@ -406,7 +409,7 @@ importRouter.get("/hardlink/check", async (_req, res) => {
       };
     };
 
-    res.json({
+    return res.json({
       generic: {
         targetRoot: config.libraryRoot,
         ...summarize(genericChecks),
@@ -414,7 +417,7 @@ importRouter.get("/hardlink/check", async (_req, res) => {
     });
   } catch (error) {
     logger.error({ error }, "Error checking hardlink capability");
-    res.status(500).json({ error: "Failed to check hardlink capability" });
+    return res.status(500).json({ error: "Failed to check hardlink capability" });
   }
 });
 
@@ -501,7 +504,7 @@ importRouter.delete("/:id", async (req, res) => {
     return res.json({ success: true });
   } catch (error) {
     logger.error({ error }, "Error skipping import");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -536,13 +539,13 @@ importRouter.post("/:id/link", async (req, res) => {
         .status(409)
         .json({ error: "This download was already linked to a game by another request" });
     }
-    res.json({ success: true, download: updated });
+    return res.json({ success: true, download: updated });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: zodErrorMessage(error) });
     }
     logger.error({ error }, "Error linking download to game");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -553,12 +556,12 @@ importRouter.get("/:id/plan", async (req, res) => {
     const overrideSource =
       typeof req.query.sourcePath === "string" ? req.query.sourcePath : undefined;
     const plan = await importManager.planConfirmImport(id, overrideSource, userId);
-    res.json(plan);
+    return res.json(plan);
   } catch (error) {
     if (error instanceof Error && error.message.includes("not found"))
       return res.status(404).json({ error: error.message });
     logger.error({ error }, "Error planning import");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -604,7 +607,7 @@ importRouter.post("/:id/confirm", async (req, res) => {
       userId
     );
 
-    res.json({ success: true });
+    return res.json({ success: true });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.issues });
@@ -625,6 +628,6 @@ importRouter.post("/:id/confirm", async (req, res) => {
       }
     }
     logger.error({ error }, "Error confirming import");
-    res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 });

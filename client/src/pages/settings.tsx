@@ -55,8 +55,9 @@ import {
   THEME_CONFIGS,
   THEME_KEY,
   type Theme,
-  getCurrentTheme,
+  migrateLegacyTheme,
   applyThemeClass,
+  setTheme,
 } from "@/lib/theme-mode";
 import PasswordSettings from "@/components/PasswordSettings";
 import {
@@ -106,13 +107,18 @@ export default function SettingsPage() {
   const [ghostUnlocked] = useLocalStorageState(GHOST_UNLOCK_KEY, false);
   const [selectedTheme, setSelectedTheme] = useLocalStorageState<Theme>(
     THEME_KEY,
-    getCurrentTheme(ghostUnlocked)
+    migrateLegacyTheme(ghostUnlocked)
   );
 
   // Apply theme class on mount and when theme changes
   useEffect(() => {
     applyThemeClass(selectedTheme);
   }, [selectedTheme]);
+
+  const handleThemeChange = (theme: Theme) => {
+    setTheme(theme, ghostUnlocked);
+    setSelectedTheme(theme);
+  };
 
   const {
     data: config,
@@ -1059,7 +1065,7 @@ export default function SettingsPage() {
                     </Label>
                     <Select
                       value={selectedTheme}
-                      onValueChange={(value) => setSelectedTheme(value as Theme)}
+                      onValueChange={(value) => handleThemeChange(value as Theme)}
                     >
                       <SelectTrigger id="theme-select" className="w-full sm:w-64">
                         <SelectValue placeholder="Select a theme" />

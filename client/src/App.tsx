@@ -15,7 +15,7 @@ import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
 import { routerBase } from "@/lib/app-path";
 import { routePaths } from "@/lib/routes";
-import { applyThemeClass, getCurrentTheme } from "@/lib/theme-mode";
+import { applyThemeClass, migrateLegacyTheme } from "@/lib/theme-mode";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
 // ⚡ Bolt: Code splitting with React.lazy
@@ -156,7 +156,7 @@ function AppShell() {
   // is applied before paint, avoiding a flash of the default theme.
   useLayoutEffect(() => {
     const ghostUnlocked = localStorage.getItem(GHOST_UNLOCK_KEY) === "true";
-    const theme = getCurrentTheme(ghostUnlocked);
+    const theme = migrateLegacyTheme(ghostUnlocked);
     applyThemeClass(theme);
   }, []);
 

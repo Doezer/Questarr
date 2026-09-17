@@ -65,6 +65,20 @@ export function getCurrentTheme(ghostUnlocked: boolean): Theme {
 }
 
 /**
+ * Resolve the current theme (via `getCurrentTheme`) and persist it under the new
+ * `THEME_KEY`, removing the legacy keys it may have been migrated from. Call this
+ * once on startup and once when the Settings page mounts, so legacy keys are
+ * cleaned up even for users who never open the theme dropdown.
+ */
+export function migrateLegacyTheme(ghostUnlocked: boolean): Theme {
+  const theme = getCurrentTheme(ghostUnlocked);
+  localStorage.setItem(THEME_KEY, theme);
+  localStorage.removeItem(GHOST_THEME_KEY);
+  localStorage.removeItem(WIN2K_THEME_KEY);
+  return theme;
+}
+
+/**
  * Apply the given theme's class to the document root, removing any other theme
  * classes first. The "default" theme has an empty className, so it is skipped
  * to avoid `DOMTokenList.remove("")` / `.add("")` throwing a SyntaxError.

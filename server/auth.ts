@@ -151,6 +151,7 @@ export async function authenticateToken(req: Request, res: Response, next: NextF
     req.user = user;
     req.authSource = requestToken.source;
     next();
+    return;
   } catch {
     return res.status(403).json({ error: "Invalid or expired token" });
   }
@@ -242,8 +243,9 @@ export async function authenticateApiKeyOrToken(req: Request, res: Response, nex
     });
 
     next();
+    return;
   } catch (error) {
     logger.error({ error }, "API key authentication failed");
-    res.status(500).json({ error: "Authentication failed" });
+    return res.status(500).json({ error: "Authentication failed" });
   }
 }

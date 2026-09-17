@@ -76,6 +76,7 @@ export const validateRequest = (req: Request, res: Response, next: NextFunction)
     });
   }
   next();
+  return;
 };
 
 // Sanitization rules for game search queries

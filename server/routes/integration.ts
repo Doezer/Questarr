@@ -38,6 +38,8 @@ integrationRouter.use((req, res, next) => {
   // so it must never be cached by a shared proxy or the client's HTTP cache.
   res.set("Cache-Control", "no-store");
   next();
+
+  return;
 });
 
 /** The library shape handed to external clients — a stable subset of Game. */
@@ -103,9 +105,13 @@ integrationRouter.get("/library", async (req: Request, res: Response) => {
     const filterFlags = await getContentFilterFlags(req.user!.id);
     const visibleGames = excludeFilteredContent(games, filterFlags);
     res.json({ games: visibleGames.map(toIntegrationGame), count: visibleGames.length });
+
+    return;
   } catch (error) {
     logger.error({ error }, "Integration library fetch failed");
     res.status(500).json({ error: "Failed to fetch library" });
+
+    return;
   }
 });
 
@@ -198,9 +204,13 @@ integrationRouter.post("/library/sync", async (req: Request, res: Response) => {
       unmatched,
       promotedToOwned: promoted.length,
     });
+
+    return;
   } catch (error) {
     logger.error({ error }, "Integration library sync failed");
     res.status(500).json({ error: "Library sync failed" });
+
+    return;
   }
 });
 
@@ -251,11 +261,15 @@ integrationRouter.post("/games/request", async (req: Request, res: Response) => 
         );
         return res.status(201).json({ game: toIntegrationGame(result.game) });
     }
+
+    return;
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.issues });
     }
     logger.error({ error }, "Integration game request failed");
     res.status(500).json({ error: "Failed to request game" });
+
+    return;
   }
 });

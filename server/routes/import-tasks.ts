@@ -20,4 +20,6 @@ importTasksRouter.get("/:id", async (req, res) => {
   }
   const items = await storage.getImportTaskItems(task.id);
   res.json({ ...task, items });
+
+  return;
 });

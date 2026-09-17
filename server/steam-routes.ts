@@ -27,9 +27,13 @@ router.patch("/api/user/steam-id", authenticateToken, async (req, res) => {
     await storage.updateUserSteamId(user.id, steamId);
 
     res.json({ success: true, steamId });
+
+    return;
   } catch (error) {
     routesLogger.error({ error }, "Error setting Steam ID");
     res.status(500).json({ error: "Failed to set Steam ID" });
+
+    return;
   }
 });
 
@@ -49,9 +53,13 @@ router.post("/api/steam/wishlist/sync", authenticateToken, async (req, res) => {
     }
 
     res.json(result);
+
+    return;
   } catch (error) {
     routesLogger.error({ error }, "Sync error");
     res.status(500).json({ error: "Sync failed" });
+
+    return;
   }
 });
 

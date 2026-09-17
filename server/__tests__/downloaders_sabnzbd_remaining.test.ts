@@ -666,6 +666,49 @@ describe("sabnzbd remaining regression coverage", () => {
     expect(requestedUrls[2].searchParams.get("nzo_ids")).toBe("archived-job");
   });
 
+  it("finds a non-archived job the nzo_ids filter misses by falling back to a large unfiltered page", async () => {
+    // Real-world case: SABnzbd's `nzo_ids` filter can come back empty for a job
+    // that's genuinely present (non-archived) in history, and an unfiltered
+    // request without an explicit `limit` is silently capped at the user's
+    // configured history_limit -- so a job older than that cap is missed too.
+    // The fallback must ask for a large page explicitly.
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+      getFromHistory(id: string): Promise<unknown>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(historyResponse([])) // archive=false, nzo_ids filter -- misses despite the job existing
+      .mockResolvedValueOnce(
+        historyResponse([
+          {
+            nzo_id: "SABnzbd_nzo_drs3t8_e",
+            name: "Kingdoms.of.Amalur.Reckoning.Legend.of.Dead.Kel.DLC-SKIDROW",
+            status: "Failed",
+            fail_message: "Repair failed, not enough repair blocks (15 short)",
+            path: "/downloads/incomplete/Kingdoms.of.Amalur.Reckoning.Legend.of.Dead.Kel.DLC-SKIDROW",
+            size: "972.9 MB",
+            bytes: 1020178128,
+            category: "games",
+          },
+        ])
+      ); // archive=false, full scan with explicit limit -- found here
+
+    await expect(privateClient.getFromHistory("SABnzbd_nzo_drs3t8_e")).resolves.toMatchObject({
+      status: "error",
+      repairStatus: "failed",
+      error: "Repair failed, not enough repair blocks (15 short)",
+    });
+
+    const requestedUrls = fetchWithFallbackSpy.mock.calls.map(([url]) => new URL(url as string));
+    expect(requestedUrls[0].searchParams.get("nzo_ids")).toBe("SABnzbd_nzo_drs3t8_e");
+    expect(requestedUrls[0].searchParams.get("limit")).toBeNull();
+    expect(requestedUrls[1].searchParams.get("nzo_ids")).toBeNull();
+    expect(requestedUrls[1].searchParams.get("limit")).toBe("1000");
+  });
+
   it("derives downloadDir from storage for both folder and single-file history entries", async () => {
     const client = new SABnzbdClient(createDownloader());
     const privateClient = client as unknown as {

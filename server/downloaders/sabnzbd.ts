@@ -500,6 +500,14 @@ export class SABnzbdClient implements DownloaderClient {
     }
   }
 
+  // A large-but-bounded page size for the unfiltered history fallback below.
+  // SABnzbd's `mode=history` API silently caps an unfiltered request at the
+  // user's configured "history_limit" (commonly as low as 10-60) whenever
+  // `limit` is omitted or falsy -- it does NOT mean "unlimited". A job that's
+  // older than that cap is invisible to the fallback scan unless we ask for a
+  // page large enough to contain it.
+  private static readonly HISTORY_FALLBACK_LIMIT = "1000";
+
   // SABnzbd moves finished jobs out of its "active" history into a separate
   // "archive" bucket once the configured history retention (job count/age) is
   // exceeded -- see auto_history_purge() in SABnzbd's database layer. The
@@ -508,14 +516,16 @@ export class SABnzbdClient implements DownloaderClient {
   // aged into the archive is completely invisible to a request that omits
   // `archive=1` -- nzo_ids filtering does NOT search across both. Since we don't
   // know ahead of time which bucket a given id is in, both are checked here, and
-  // each is also retried with a full unfiltered scan for older SABnzbd versions
-  // that ignore the nzo_ids filter.
+  // each is also retried with a full unfiltered scan (in case `nzo_ids`
+  // filtering isn't supported, or simply doesn't match on this SABnzbd
+  // instance) using a large explicit `limit` so the job isn't missed just for
+  // being older than the default page.
   private async fetchHistorySlot(id: string): Promise<SABnzbdHistory["slots"][number] | null> {
     for (const archive of [false, true]) {
       for (const useFilter of [true, false]) {
         try {
           const params: Record<string, string> = {
-            ...(useFilter ? { nzo_ids: id } : {}),
+            ...(useFilter ? { nzo_ids: id } : { limit: SABnzbdClient.HISTORY_FALLBACK_LIMIT }),
             ...(archive ? { archive: "1" } : {}),
           };
           const url = this.getApiUrl("history", params);

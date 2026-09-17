@@ -90,6 +90,12 @@ export function createStorageMock() {
     addGameDownload: vi.fn(),
     getDownloadsByGameId: vi.fn().mockResolvedValue([]),
     getDownloadSummaryByGame: vi.fn().mockResolvedValue({}),
+    getDashboardStatus: vi.fn().mockResolvedValue({
+      totalGames: 0,
+      pendingWishlist: 0,
+      activeDownloads: 0,
+      recentImports: { count: 0, items: [] },
+    }),
     getTrackedDownloadKeys: vi.fn().mockResolvedValue(new Set()),
     getTrackedDownloadGameStatuses: vi.fn().mockResolvedValue(new Map()),
     getGameByIgdbId: vi.fn(),
@@ -110,6 +116,28 @@ export function createStorageMock() {
     removeReleaseBlacklist: vi.fn(),
     getReleaseBlacklistSet: vi.fn().mockResolvedValue(new Set()),
     getImportConfig: vi.fn(),
+    getAllRootFolders: vi.fn().mockResolvedValue([]),
+    getEnabledRootFolders: vi.fn().mockResolvedValue([]),
+    getRootFolder: vi.fn(),
+    getRootFolderByPath: vi.fn(),
+    addRootFolder: vi.fn(),
+    updateRootFolder: vi.fn(),
+    updateRootFolderHealth: vi.fn(),
+    touchRootFolderScanned: vi.fn(),
+    removeRootFolder: vi.fn(),
+    getGameDownload: vi.fn(),
+    getGameFiles: vi.fn().mockResolvedValue([]),
+    getGameFile: vi.fn(),
+    getGameFilesByDownload: vi.fn().mockResolvedValue([]),
+    addGameFile: vi.fn(),
+    addGameFilesBatch: vi.fn(),
+    removeGameFile: vi.fn(),
+    removeGameFilesByGameId: vi.fn(),
+    getApiKeys: vi.fn().mockResolvedValue([]),
+    addApiKey: vi.fn(),
+    getApiKeyByHash: vi.fn().mockResolvedValue(undefined),
+    touchApiKey: vi.fn().mockResolvedValue(undefined),
+    removeApiKey: vi.fn().mockResolvedValue(false),
   };
 }
 
@@ -135,7 +163,13 @@ export async function createAuthMock() {
   const actual = await vi.importActual<typeof import("../../auth.js")>("../../auth.js");
   return {
     ...actual,
-    authenticateToken: (req: Request, res: Response, next: NextFunction) => {
+    authenticateToken: (req: Request, _res: Response, next: NextFunction) => {
+      (req as Request).user = { id: "user-1", username: "testuser" } as unknown as User;
+      next();
+    },
+    // Mirrors authenticateToken so route suites using this mock can exercise
+    // the /api/integration surface without minting a real API key.
+    authenticateApiKeyOrToken: (req: Request, _res: Response, next: NextFunction) => {
       (req as Request).user = { id: "user-1", username: "testuser" } as unknown as User;
       next();
     },
@@ -165,6 +199,7 @@ export function createLoggerMocks() {
     },
     logger: {
       info: vi.fn(),
+      warn: vi.fn(),
       error: vi.fn(),
       child: vi.fn().mockReturnThis(),
     },

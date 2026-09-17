@@ -3,7 +3,7 @@
     "PreToolUse": [
       {
         "type": "command",
-        "command": "rtk hook copilot",
+        "command": "command -v rtk >/dev/null 2>&1 && rtk hook copilot || true",
         "cwd": ".",
         "timeout": 5
       }

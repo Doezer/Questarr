@@ -48,3 +48,4 @@ notes/
 todo.md
 .tokensave/
 .claude/.headroom_wrap_marker.json
+.claude/worktrees/

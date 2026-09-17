@@ -25,10 +25,9 @@ describe("useDownloadSummary", () => {
     vi.clearAllMocks();
   });
 
-  it("returns empty object by default before data loads", () => {
-    vi.mock("@/lib/queryClient", () => ({
-      getQueryFn: vi.fn(() => async () => undefined),
-    }));
+  it("returns empty object by default before data loads", async () => {
+    const { getQueryFn } = await import("@/lib/queryClient");
+    vi.mocked(getQueryFn).mockReturnValue(async () => undefined);
 
     const wrapper = createWrapper();
     const { result } = renderHook(() => useDownloadSummary(), { wrapper });

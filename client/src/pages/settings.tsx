@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Server,
@@ -17,12 +18,12 @@ import {
   ShieldAlert,
   Upload,
   Gamepad2,
-  Webhook,
   Ban,
   Trash2,
   Bell,
   Ghost,
   Monitor,
+  Radio,
 } from "lucide-react";
 import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,23 +46,26 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { ApiKeysCard } from "@/components/ApiKeysCard";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { GHOST_THEME_KEY, GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 import { WIN2K_THEME_KEY } from "@/lib/win2k-mode";
 import PasswordSettings from "@/components/PasswordSettings";
-import type {
-  Config,
-  UserSettings,
-  DownloadRules,
-  ReleaseBlacklist,
-  NotificationPreferences,
-  NotificationEvent,
+import {
+  downloadRulesSchema,
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  downloaderDebugLoggingResponseSchema,
+  type Config,
+  type UserSettings,
+  type DownloadRules,
+  type ReleaseBlacklist,
+  type NotificationPreferences,
+  type NotificationEvent,
+  type DownloaderDebugLoggingResponse,
 } from "@shared/schema";
-import { downloadRulesSchema, DEFAULT_NOTIFICATION_PREFERENCES } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
-import { useState, useEffect, useRef, useMemo } from "react";
 import ImportSettings from "@/components/ImportSettings";
 
 interface CertInfo {
@@ -83,8 +87,12 @@ const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: s
   { key: "gameUpdates", label: "Game Updates Available", group: "downloads" },
   { key: "xrelRelease", label: "Scene/P2P Release (xREL)", group: "integrations" },
   { key: "steamSync", label: "Steam Wishlist Synced", group: "integrations" },
+  { key: "errorDetected", label: "Error Detected", group: "system" },
 ];
 
+/**
+ * Configures application preferences, integrations, notifications, account security, and system maintenance settings.
+ */
 export default function SettingsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -153,12 +161,67 @@ export default function SettingsPage() {
     if (!blacklistEntries) return {};
     return blacklistEntries.reduce<Record<string, (ReleaseBlacklist & { gameTitle: string })[]>>(
       (acc, entry) => {
-        (acc[entry.gameTitle] ??= []).push(entry);
+        (acc[entry.gameId] ??= []).push(entry);
         return acc;
       },
       {}
     );
   }, [blacklistEntries]);
+
+  // Mobile tab scroller: tracks whether the tab strip has more content to
+  // reveal on either side, so we can show a fade hint (tabs overflow on
+  // narrow phones and there's no visible scrollbar to signal that).
+  const tabsScrollRef = useRef<HTMLDivElement | null>(null);
+  const tabsResizeObserverRef = useRef<ResizeObserver | null>(null);
+  const [tabsCanScrollLeft, setTabsCanScrollLeft] = useState(false);
+  const [tabsCanScrollRight, setTabsCanScrollRight] = useState(false);
+
+  const updateTabsScrollFade = useCallback(() => {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+    setTabsCanScrollLeft(el.scrollLeft > 1);
+    setTabsCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+
+  // A callback ref (rather than measuring in an effect keyed on a stable
+  // callback) so the tab strip is measured whenever it actually mounts —
+  // including after the page's loading branch gives way to the real
+  // content, which a mount-only effect would otherwise miss entirely.
+  const setTabsScrollNode = useCallback(
+    (el: HTMLDivElement | null) => {
+      tabsScrollRef.current = el;
+      updateTabsScrollFade();
+    },
+    [updateTabsScrollFade]
+  );
+
+  // The scroll container itself is pinned to w-full, so a ResizeObserver on
+  // it won't fire when only its (overflowing) content grows — e.g. this app
+  // ships variable web fonts, and the fallback-font layout can be narrower
+  // than the loaded-font layout, widening tab labels after the swap without
+  // changing the container's own box. Observe the intrinsic-width inner
+  // wrapper instead, whose box does reflect that.
+  const setTabsInnerNode = useCallback(
+    (el: HTMLDivElement | null) => {
+      tabsResizeObserverRef.current?.disconnect();
+      tabsResizeObserverRef.current = null;
+      if (el && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(updateTabsScrollFade);
+        observer.observe(el);
+        tabsResizeObserverRef.current = observer;
+      }
+      updateTabsScrollFade();
+    },
+    [updateTabsScrollFade]
+  );
+
+  useEffect(() => {
+    window.addEventListener("resize", updateTabsScrollFade);
+    return () => {
+      window.removeEventListener("resize", updateTabsScrollFade);
+      tabsResizeObserverRef.current?.disconnect();
+    };
+  }, [updateTabsScrollFade]);
 
   // Local state for form
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
@@ -193,9 +256,8 @@ export default function SettingsPage() {
   const [xrelP2pReleases, setXrelP2pReleases] = useState(false);
   const [hideAdultContent, setHideAdultContent] = useState(true);
   const [hideAgeRestrictedContent, setHideAgeRestrictedContent] = useState(true);
+  const [telemetryEnabled, setTelemetryEnabled] = useState(false);
   const [xrelApiBase, setXrelApiBase] = useState("");
-  const [discordWebhookUrl, setDiscordWebhookUrl] = useState("");
-  const [showDiscordWebhook, setShowDiscordWebhook] = useState(false);
   const [nexusApiKey, setNexusApiKey] = useState("");
   const [showNexusApiKey, setShowNexusApiKey] = useState(false);
 
@@ -208,7 +270,10 @@ export default function SettingsPage() {
       setAutoSearchUnreleased(userSettings.autoSearchUnreleased ?? false);
       setAutoDownloadEnabled(userSettings.autoDownloadEnabled);
       setSearchIntervalHours(userSettings.searchIntervalHours);
-      setIgdbRateLimitPerSecond(userSettings.igdbRateLimitPerSecond);
+      const rateLimit = userSettings.igdbRateLimitPerSecond;
+      setIgdbRateLimitPerSecond(
+        Number.isInteger(rateLimit) ? Math.min(4, Math.max(1, rateLimit)) : 3
+      );
       if (userSettings.notificationPreferences) {
         try {
           setNotifPrefs({
@@ -246,6 +311,7 @@ export default function SettingsPage() {
       setSteamSyncIntervalHours(userSettings.steamSyncIntervalHours ?? 24);
       setHideAdultContent(userSettings.hideAdultContent ?? true);
       setHideAgeRestrictedContent(userSettings.hideAgeRestrictedContent ?? true);
+      setTelemetryEnabled(userSettings.telemetryEnabled ?? false);
       settingsLoadedRef.current = true;
     }
     if (config?.xrel?.apiBase !== undefined) {
@@ -278,17 +344,38 @@ export default function SettingsPage() {
     },
   });
 
-  const { data: discordSettings } = useQuery<{ configured: boolean; webhookUrl?: string }>({
-    queryKey: ["/api/settings/discord"],
-    queryFn: () => apiRequest("GET", "/api/settings/discord").then((r) => r.json()),
+  const {
+    data: downloaderDebugLogging,
+    isLoading: isDownloaderDebugLoggingLoading,
+    isError: isDownloaderDebugLoggingError,
+  } = useQuery<DownloaderDebugLoggingResponse>({
+    queryKey: ["/api/downloaders/debug-logging"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/downloaders/debug-logging");
+      return downloaderDebugLoggingResponseSchema.parse(await res.json());
+    },
   });
 
-  // Populate Discord webhook input with the stored URL when it loads
-  useEffect(() => {
-    if (discordSettings?.webhookUrl) {
-      setDiscordWebhookUrl(discordSettings.webhookUrl);
-    }
-  }, [discordSettings?.webhookUrl]);
+  const updateDownloaderDebugLoggingMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("PUT", "/api/downloaders/debug-logging", { enabled });
+      return downloaderDebugLoggingResponseSchema.parse(await res.json());
+    },
+    onSuccess: (data: DownloaderDebugLoggingResponse) => {
+      queryClient.setQueryData(["/api/downloaders/debug-logging"], data);
+      toast({
+        title: data.enabled
+          ? "Downloader debug logging enabled"
+          : "Downloader debug logging disabled",
+        description: data.enabled
+          ? "Full downloader responses will now be written to the log at debug level."
+          : undefined,
+      });
+    },
+    onError: () => {
+      toast({ title: "Failed to update downloader debug logging", variant: "destructive" });
+    },
+  });
 
   const { data: appriseSettings } = useQuery<{
     configured: boolean;
@@ -377,20 +464,6 @@ export default function SettingsPage() {
     }, 500);
   };
 
-  const updateDiscordMutation = useMutation({
-    mutationFn: async (webhookUrl: string) => {
-      const res = await apiRequest("POST", "/api/settings/discord", { webhookUrl });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/settings/discord"] });
-      toast({ title: "Discord webhook saved" });
-    },
-    onError: () => {
-      toast({ title: "Failed to save Discord webhook", variant: "destructive" });
-    },
-  });
-
   const updateNexusMutation = useMutation({
     mutationFn: async (apiKey: string) => {
       const res = await apiRequest("POST", "/api/settings/nexusmods", { apiKey });
@@ -443,9 +516,6 @@ export default function SettingsPage() {
       const res = await apiFetch("/api/settings/ssl/upload", {
         method: "POST",
         body: formData,
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
       });
 
       if (!res.ok) {
@@ -716,12 +786,21 @@ export default function SettingsPage() {
     });
   };
 
+  const handleSaveTelemetry = () => {
+    updateSettingsMutation.mutate({
+      updates: { telemetryEnabled },
+      successMessage: telemetryEnabled
+        ? "Telemetry enabled. Detected errors will be reported automatically."
+        : "Telemetry disabled.",
+    });
+  };
+
   const handleSaveAdvanced = () => {
     updateAdvancedSettingsMutation.mutate({
       updates: {
         igdbRateLimitPerSecond,
       },
-      successMessage: "Advanced settings have been saved.",
+      successMessage: "IGDB rate limit has been saved.",
     });
   };
 
@@ -831,6 +910,76 @@ export default function SettingsPage() {
     );
   }
 
+  // Content Filtering governs both display (what shows in the library/UI) and
+  // discovery (what search/discover surface), so the same card is rendered in
+  // both the Appearance and Discovery & Downloads tabs.
+  const contentFilteringCard = (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center space-x-3">
+          <EyeOff className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-lg">Content Filtering</CardTitle>
+        </div>
+        <CardDescription>
+          Control which games appear in your library and discovery results
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="hide-adult-content" className="text-sm font-medium">
+              Hide erotic content
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Hide games flagged with an explicit/erotic theme from your library, search, and
+              discovery pages
+            </p>
+          </div>
+          <Switch
+            id="hide-adult-content"
+            checked={hideAdultContent}
+            onCheckedChange={setHideAdultContent}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="hide-age-restricted-content" className="text-sm font-medium">
+              Hide age-restricted content
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Hide games rated ESRB Adults Only (AO) or PEGI 18 from your library, search, and
+              discovery pages
+            </p>
+          </div>
+          <Switch
+            id="hide-age-restricted-content"
+            checked={hideAgeRestrictedContent}
+            onCheckedChange={setHideAgeRestrictedContent}
+          />
+        </div>
+        <div className="flex justify-end pt-4 border-t">
+          <Button
+            onClick={handleSaveContentFilter}
+            disabled={updateSettingsMutation.isPending}
+            className="gap-2"
+          >
+            {updateSettingsMutation.isPending ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <EyeOff className="h-4 w-4" />
+                Save Content Filtering
+              </>
+            )}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div className="h-full overflow-auto p-4 pb-20 sm:p-6 md:pb-6">
       <div className="mb-6">
@@ -854,20 +1003,40 @@ export default function SettingsPage() {
           </Alert>
         )}
 
-        <Tabs defaultValue="general" className="w-full">
-          <TabsList className="mb-4 sm:mb-8 flex w-full flex-nowrap overflow-x-auto [&>*]:shrink-0">
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="rules">Rules</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="services">Services</TabsTrigger>
-            <TabsTrigger value="import">Import</TabsTrigger>
-            <TabsTrigger value="account">Account</TabsTrigger>
-            <TabsTrigger value="security">Security</TabsTrigger>
-            <TabsTrigger value="system">System</TabsTrigger>
-            <TabsTrigger value="blacklist">Blacklist</TabsTrigger>
-          </TabsList>
+        <Tabs defaultValue="appearance" className="w-full">
+          <div className="relative mb-4 sm:mb-8">
+            <TabsList
+              ref={setTabsScrollNode}
+              onScroll={updateTabsScrollFade}
+              className="mb-0 flex w-full flex-nowrap justify-start overflow-x-auto motion-safe:scroll-smooth motion-reduce:scroll-auto"
+            >
+              <div ref={setTabsInnerNode} className="flex w-max flex-nowrap [&>*]:shrink-0">
+                <TabsTrigger value="appearance">Appearance</TabsTrigger>
+                <TabsTrigger value="discovery">Discovery & Downloads</TabsTrigger>
+                <TabsTrigger value="notifications">Notifications</TabsTrigger>
+                <TabsTrigger value="integrations">Integrations</TabsTrigger>
+                <TabsTrigger value="import">Import</TabsTrigger>
+                <TabsTrigger value="account-security">Account & Security</TabsTrigger>
+                <TabsTrigger value="system">System</TabsTrigger>
+              </div>
+            </TabsList>
+            {/* Edge fades hint that the tab strip scrolls further, since it has
+                no visible scrollbar on touch devices. */}
+            {tabsCanScrollLeft && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-0 w-6 rounded-l-md bg-gradient-to-r from-muted to-transparent"
+              />
+            )}
+            {tabsCanScrollRight && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-0 w-6 rounded-r-md bg-gradient-to-l from-muted to-transparent"
+              />
+            )}
+          </div>
 
-          <TabsContent value="general" className="space-y-6">
+          <TabsContent value="appearance" className="space-y-6">
             {ghostUnlocked && (
               <Card>
                 <CardHeader>
@@ -929,6 +1098,10 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
+            {contentFilteringCard}
+          </TabsContent>
+
+          <TabsContent value="discovery" className="space-y-6">
             {/* Auto-Search Settings */}
             <Card>
               <CardHeader>
@@ -1068,74 +1241,6 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            {/* Content Filtering */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <EyeOff className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Content Filtering</CardTitle>
-                </div>
-                <CardDescription>
-                  Control which games appear in your library and discovery results
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="hide-adult-content" className="text-sm font-medium">
-                      Hide erotic content
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Hide games flagged with an explicit/erotic theme from your library, search,
-                      and discovery pages
-                    </p>
-                  </div>
-                  <Switch
-                    id="hide-adult-content"
-                    checked={hideAdultContent}
-                    onCheckedChange={setHideAdultContent}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="hide-age-restricted-content" className="text-sm font-medium">
-                      Hide age-restricted content
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Hide games rated ESRB Adults Only (AO) or PEGI 18 from your library, search,
-                      and discovery pages
-                    </p>
-                  </div>
-                  <Switch
-                    id="hide-age-restricted-content"
-                    checked={hideAgeRestrictedContent}
-                    onCheckedChange={setHideAgeRestrictedContent}
-                  />
-                </div>
-                <div className="flex justify-end pt-4 border-t">
-                  <Button
-                    onClick={handleSaveContentFilter}
-                    disabled={updateSettingsMutation.isPending}
-                    className="gap-2"
-                  >
-                    {updateSettingsMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <EyeOff className="h-4 w-4" />
-                        Save Content Filtering
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="rules" className="space-y-6">
             <AutoDownloadRulesSettings
               rules={downloadRules}
               onChange={setDownloadRules}
@@ -1147,6 +1252,72 @@ export default function SettingsPage() {
               onGroupsChange={setPreferredReleaseGroups}
               onFilterChange={setFilterByPreferredGroups}
             />
+
+            {/* Blacklisted Releases */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Ban className="h-5 w-5" />
+                  Blacklisted Releases
+                </CardTitle>
+                <CardDescription>
+                  Releases hidden from search results. They will not appear in game download
+                  searches or be auto-downloaded.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {blacklistLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading...</div>
+                ) : !blacklistEntries || blacklistEntries.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No blacklisted releases.</div>
+                ) : (
+                  <div className="space-y-4">
+                    {Object.entries(blacklistByGame).map(([gameId, entries]) => (
+                      <div key={gameId}>
+                        <h4 className="text-sm font-semibold mb-2">
+                          {entries[0]?.gameTitle ?? "Unknown game"}
+                        </h4>
+                        <div className="space-y-2">
+                          {entries.map((entry) => (
+                            <div
+                              key={entry.id}
+                              className="flex items-center justify-between rounded-md border p-3"
+                            >
+                              <div className="space-y-1">
+                                <p className="text-sm font-medium leading-none">
+                                  {entry.releaseTitle}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {entry.indexerName ? `${entry.indexerName} · ` : ""}
+                                  {entry.createdAt
+                                    ? new Date(entry.createdAt).toISOString().split("T")[0]
+                                    : ""}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Remove ${entry.releaseTitle} from blacklist`}
+                                onClick={() =>
+                                  removeBlacklistMutation.mutate({
+                                    gameId: entry.gameId,
+                                    id: entry.id,
+                                  })
+                                }
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {contentFilteringCard}
           </TabsContent>
 
           <TabsContent value="notifications" className="space-y-6">
@@ -1356,7 +1527,10 @@ export default function SettingsPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="services" className="space-y-6">
+          <TabsContent value="integrations" className="space-y-6">
+            {/* API keys for external clients (Playnite extension, scripts) */}
+            <ApiKeysCard />
+
             {/* Steam Integration Card */}
             <Card id="steam-config">
               <CardHeader>
@@ -1692,6 +1866,60 @@ export default function SettingsPage() {
                     )}
                   </Button>
                 </div>
+
+                {/* Rate limit (formerly a standalone "Advanced" card) */}
+                <div className="space-y-3 pt-4 border-t">
+                  <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
+                    IGDB API Rate Limit (requests/second)
+                  </Label>
+                  <Input
+                    id="igdb-rate-limit"
+                    type="number"
+                    min="1"
+                    max="4"
+                    value={igdbRateLimitPerSecond}
+                    onChange={(e) => {
+                      const parsed = parseInt(e.target.value);
+                      setIgdbRateLimitPerSecond(
+                        isNaN(parsed) ? 3 : Math.min(4, Math.max(1, parsed))
+                      );
+                    }}
+                    className="w-32"
+                  />
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p>
+                      <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
+                      conservative.
+                    </p>
+                    <p>
+                      Only increase if you experience slow loading times and are confident your
+                      usage won&apos;t exceed the limit.
+                    </p>
+                    <p className="text-amber-500">
+                      ⚠️ Setting too high may result in API blacklisting.
+                    </p>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={handleSaveAdvanced}
+                      disabled={updateAdvancedSettingsMutation.isPending}
+                      variant="outline"
+                      className="gap-2"
+                    >
+                      {updateAdvancedSettingsMutation.isPending ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Gauge className="h-4 w-4" />
+                          Save Rate Limit
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -1782,142 +2010,6 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
-
-            {/* Advanced Settings */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <Gauge className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Advanced</CardTitle>
-                </div>
-                <CardDescription>
-                  Advanced performance and API settings. Change these only if needed.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-4">
-                  <div className="space-y-3">
-                    <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
-                      IGDB API Rate Limit (requests/second)
-                    </Label>
-                    <Input
-                      id="igdb-rate-limit"
-                      type="number"
-                      min="1"
-                      max="4"
-                      value={igdbRateLimitPerSecond}
-                      onChange={(e) => setIgdbRateLimitPerSecond(parseInt(e.target.value) || 3)}
-                      className="w-32"
-                    />
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      <p>
-                        <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
-                        conservative.
-                      </p>
-                      <p>
-                        Only increase if you experience slow loading times and are confident your
-                        usage won't exceed the limit.
-                      </p>
-                      <p className="text-amber-500">
-                        ⚠️ Setting too high may result in API blacklisting.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-4 border-t">
-                  <Button
-                    onClick={handleSaveAdvanced}
-                    disabled={updateAdvancedSettingsMutation.isPending}
-                    className="gap-2"
-                  >
-                    {updateAdvancedSettingsMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="h-4 w-4" />
-                        Save Advanced Settings
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-            {/* Discord Webhook Card */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Webhook className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-lg">Discord Webhook</CardTitle>
-                  </div>
-                  {discordSettings?.configured ? (
-                    <Badge
-                      variant="default"
-                      className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                    >
-                      Configured
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">Not configured</Badge>
-                  )}
-                </div>
-                <CardDescription>
-                  Set a Discord webhook URL to share library stats directly to a Discord channel.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="discord-webhook">Webhook URL</Label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <div className="relative flex-1">
-                      <Input
-                        id="discord-webhook"
-                        type={showDiscordWebhook ? "text" : "password"}
-                        placeholder={
-                          discordSettings?.configured
-                            ? "Enter new URL to replace existing webhook"
-                            : "https://discord.com/api/webhooks/..."
-                        }
-                        value={discordWebhookUrl}
-                        onChange={(e) => setDiscordWebhookUrl(e.target.value)}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label={showDiscordWebhook ? "Hide webhook URL" : "Show webhook URL"}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                        onClick={() => setShowDiscordWebhook((v) => !v)}
-                      >
-                        {showDiscordWebhook ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                    <Button
-                      onClick={() => updateDiscordMutation.mutate(discordWebhookUrl)}
-                      disabled={updateDiscordMutation.isPending || !discordWebhookUrl.trim()}
-                      className="shrink-0 w-full sm:w-auto"
-                    >
-                      {updateDiscordMutation.isPending ? "Saving..." : "Save"}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Create a webhook in your Discord server under Channel Settings → Integrations.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="account" className="space-y-6">
-            <PasswordSettings />
           </TabsContent>
 
           <TabsContent value="import" className="space-y-6">
@@ -2045,9 +2137,115 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Telemetry */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Radio className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Telemetry</CardTitle>
+                </div>
+                <CardDescription>
+                  Help improve Questarr by automatically sharing diagnostic data when something goes
+                  wrong
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5 pr-4">
+                    <Label htmlFor="telemetry-enabled" className="text-sm font-medium">
+                      Automatically send error reports
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Off by default. When Questarr detects an unexpected server error, it will
+                      normally ask you first (see the &quot;Error Detected&quot; notification
+                      below). Turn this on to skip that prompt and send a scrubbed diagnostic report
+                      automatically instead — no personal data, IP addresses, or file paths are
+                      included. Reports help the maintainer catch bugs users don't otherwise report.
+                      You can still send a one-off report manually from the Logs page at any time,
+                      whatever this setting is.
+                    </p>
+                  </div>
+                  <Switch
+                    id="telemetry-enabled"
+                    checked={telemetryEnabled}
+                    onCheckedChange={setTelemetryEnabled}
+                  />
+                </div>
+                <div className="flex justify-end pt-4 border-t">
+                  <Button
+                    onClick={handleSaveTelemetry}
+                    disabled={updateSettingsMutation.isPending}
+                    className="gap-2"
+                  >
+                    {updateSettingsMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Radio className="h-4 w-4" />
+                        Save Telemetry
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Downloader Debug Logging */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Server className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Downloader Debug Logging</CardTitle>
+                </div>
+                <CardDescription>
+                  Log downloader response status, headers, and body (up to 10KB) from download
+                  clients (qBittorrent, Transmission, rTorrent, Deluge, Synology Download Station,
+                  sabnzbd, nzbget) at debug level. Response headers and bodies can contain sensitive
+                  data - enable this only while debugging and review logs carefully. Useful when
+                  diagnosing why a download isn&apos;t being added or tracked correctly - leave this
+                  off otherwise, as it can be noisy.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="downloader-debug-logging" className="text-sm font-medium">
+                      Log full downloader responses
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Applies immediately and affects all configured downloaders. View the results
+                      on the Logs page.
+                    </p>
+                    {isDownloaderDebugLoggingError && (
+                      <p className="text-xs text-destructive">
+                        Failed to load the current setting. Refresh the page to try again.
+                      </p>
+                    )}
+                  </div>
+                  <Switch
+                    id="downloader-debug-logging"
+                    checked={downloaderDebugLogging?.enabled ?? false}
+                    disabled={
+                      isDownloaderDebugLoggingLoading ||
+                      isDownloaderDebugLoggingError ||
+                      updateDownloaderDebugLoggingMutation.isPending
+                    }
+                    onCheckedChange={(checked) =>
+                      updateDownloaderDebugLoggingMutation.mutate(checked)
+                    }
+                  />
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
-          <TabsContent value="security" className="space-y-6">
+          <TabsContent value="account-security" className="space-y-6">
+            <PasswordSettings />
+
             <Card>
               <CardHeader>
                 <div className="flex items-center space-x-3">
@@ -2330,68 +2528,6 @@ export default function SettingsPage() {
                       </Button>
                     </div>
                   </>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="blacklist" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Ban className="h-5 w-5" />
-                  Blacklisted Releases
-                </CardTitle>
-                <CardDescription>
-                  Releases hidden from search results. They will not appear in game download
-                  searches or be auto-downloaded.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {blacklistLoading ? (
-                  <div className="text-sm text-muted-foreground">Loading...</div>
-                ) : !blacklistEntries || blacklistEntries.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">No blacklisted releases.</div>
-                ) : (
-                  <div className="space-y-4">
-                    {Object.entries(blacklistByGame).map(([gameTitle, entries]) => (
-                      <div key={gameTitle}>
-                        <h4 className="text-sm font-semibold mb-2">{gameTitle}</h4>
-                        <div className="space-y-2">
-                          {entries.map((entry) => (
-                            <div
-                              key={entry.id}
-                              className="flex items-center justify-between rounded-md border p-3"
-                            >
-                              <div className="space-y-1">
-                                <p className="text-sm font-medium leading-none">
-                                  {entry.releaseTitle}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {entry.indexerName ? `${entry.indexerName} · ` : ""}
-                                  {entry.createdAt
-                                    ? new Date(entry.createdAt).toISOString().split("T")[0]
-                                    : ""}
-                                </p>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() =>
-                                  removeBlacklistMutation.mutate({
-                                    gameId: entry.gameId,
-                                    id: entry.id,
-                                  })
-                                }
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 )}
               </CardContent>
             </Card>

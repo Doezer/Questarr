@@ -55,6 +55,53 @@ describe("Logger Module", () => {
     expect(loggerModule.logger.level).toBe("debug");
   });
 
+  it("should default to info level in production when LOG_LEVEL is not set", async () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.LOG_LEVEL;
+
+    const loggerModule = await import("../logger.js");
+
+    expect(loggerModule.logger.level).toBe("info");
+  });
+
+  it("should still let LOG_LEVEL override the production default", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.LOG_LEVEL = "warn";
+
+    const loggerModule = await import("../logger.js");
+
+    expect(loggerModule.logger.level).toBe("warn");
+  });
+
+  it("redacts secret-shaped fields from structured log objects before they hit the sink", async () => {
+    const loggerModule = await import("../logger.js");
+    const { logEmitter } = await import("../log-events.js");
+
+    const line: string = await new Promise((resolve) => {
+      logEmitter.once("line", (l: string) => resolve(l));
+      loggerModule.logger.info(
+        {
+          apiKey: "super-secret-value",
+          token: "abc123",
+          nested: { password: "hunter2" },
+          safe: "keep-me",
+        },
+        "redaction marker message"
+      );
+    });
+
+    expect(line).not.toContain("super-secret-value");
+    expect(line).not.toContain("hunter2");
+
+    const parsed = JSON.parse(line);
+    expect(parsed).toMatchObject({
+      apiKey: "[redacted]",
+      token: "[redacted]",
+      nested: { password: "[redacted]" },
+      safe: "keep-me",
+    });
+  });
+
   it("configures the pino-pretty stdout target outside of production", async () => {
     process.env.NODE_ENV = "development";
 

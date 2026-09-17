@@ -54,8 +54,17 @@ describe("send-logs utilities", () => {
       String.raw`win=C:\Users\alice\Questarr\logs\app.log`,
     ].join(" ");
 
+    // The `token=` prefix is itself secret-shaped, so it's caught (and
+    // labeled) by the API-key/token redaction pass rather than the
+    // JWT-specific one -- either way the token value never survives.
     expect(scrubPii(input)).toBe(
-      "email=[email] ipv4=[ip] ipv6=[ip] uuid=[uuid] token=[jwt] unix=/home/[user]/questarr/logs/app.log win=C:\\Users\\[user]\\Questarr\\logs\\app.log"
+      "email=[email] ipv4=[ip] ipv6=[ip] uuid=[uuid] token=[redacted] unix=/home/[user]/questarr/logs/app.log win=C:\\Users\\[user]\\Questarr\\logs\\app.log"
+    );
+  });
+
+  it("redacts a bare JWT with no key= prefix using the JWT-specific label", () => {
+    expect(scrubPii("Authorization: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature")).toBe(
+      "Authorization: [jwt]"
     );
   });
 
@@ -180,12 +189,14 @@ describe("send-logs utilities", () => {
   });
 
   it("builds a prefilled GitHub issue URL", () => {
-    const issueUrl = buildGitHubIssueUrl("ABCD", "1.4.0");
+    const issueUrl = buildGitHubIssueUrl("ABCD", "1.4.0", 123);
 
     expect(issueUrl).toContain("https://github.com/Doezer/Questarr/issues/new?");
     expect(decodeURIComponent(issueUrl)).toContain("[Support] Issue with Questarr v1.4.0");
     expect(decodeURIComponent(issueUrl)).toContain("**App version:** 1.4.0");
-    expect(decodeURIComponent(issueUrl)).toContain("**Support log #:** `ABCD`");
+    expect(decodeURIComponent(issueUrl)).toContain(
+      "**Support log #:** `ABCD` (Doezer/Questarr-logs#123)"
+    );
   });
 
   it("detects the current platform from the browser user agent", () => {

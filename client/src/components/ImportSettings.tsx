@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { ImportConfig } from "@shared/schema";
 import { PathMappingSettings } from "./PathMappingSettings";
 import { FileBrowser } from "./FileBrowser";
+import { RootFolderDiscovery } from "./RootFolderDiscovery";
 
 type IgdbPlatform = { id: number; name: string };
 type AppConfig = { igdb?: { configured?: boolean } };
@@ -129,6 +130,7 @@ export default function ImportSettings() {
         <TabsList>
           <TabsTrigger value="config">General Config</TabsTrigger>
           <TabsTrigger value="paths">Path Mappings</TabsTrigger>
+          <TabsTrigger value="discover">Discover</TabsTrigger>
           <TabsTrigger value="help">Help</TabsTrigger>
         </TabsList>
 
@@ -291,6 +293,24 @@ export default function ImportSettings() {
                           }
                         />
                       </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="sort-extras">Sort add-on files into subfolders</Label>
+                          <p className="text-xs text-muted-foreground">
+                            For directory imports, place detected DLC, updates, and extras in{" "}
+                            <code>dlc/</code>, <code>update/</code>, and <code>extra/</code>{" "}
+                            subfolders inside the game folder. Single-file imports keep their
+                            existing layout.
+                          </p>
+                        </div>
+                        <Switch
+                          id="sort-extras"
+                          checked={localConfig.sortExtras}
+                          onCheckedChange={(checked) =>
+                            setLocalConfig({ ...localConfig, sortExtras: checked })
+                          }
+                        />
+                      </div>
                     </div>
 
                     <Separator className="mb-6" />
@@ -406,6 +426,10 @@ export default function ImportSettings() {
 
         <TabsContent value="paths" className="space-y-4">
           <PathMappingSettings />
+        </TabsContent>
+
+        <TabsContent value="discover" className="space-y-4">
+          <RootFolderDiscovery />
         </TabsContent>
 
         <TabsContent value="help" className="space-y-4">

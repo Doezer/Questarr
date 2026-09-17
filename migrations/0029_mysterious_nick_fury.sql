@@ -1,0 +1,1 @@
+ALTER TABLE `downloaders` ADD `allow_self_signed_certificate` integer DEFAULT false NOT NULL;

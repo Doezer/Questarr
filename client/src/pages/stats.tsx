@@ -24,6 +24,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recha
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import ShareDiscordDialog from "@/components/ShareDiscordDialog";
+import DiscordWebhookSettings from "@/components/DiscordWebhookSettings";
 
 export default function StatsPage() {
   const [shareOpen, setShareOpen] = useState(false);
@@ -80,10 +81,13 @@ export default function StatsPage() {
             Detailed insights into your collection of {stats.totalGames} games.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
-          <Share2 className="w-4 h-4 mr-2" />
-          {discordConfig?.configured ? "Share to Discord" : "Share"}
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+            <Share2 className="w-4 h-4 mr-2" />
+            {discordConfig?.configured ? "Share to Discord" : "Share"}
+          </Button>
+          <DiscordWebhookSettings />
+        </div>
       </div>
 
       <ShareDiscordDialog

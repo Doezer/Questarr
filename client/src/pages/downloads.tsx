@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiFetch } from "@/lib/queryClient";
 import {
   formatBytes,
   formatSpeed,
@@ -229,17 +229,9 @@ export default function Downloads() {
       downloaderId: string;
       downloadId: string;
     }) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/downloaders/${downloaderId}/downloads/${downloadId}/pause`,
-        {
-          method: "POST",
-          headers,
-        }
+        { method: "POST" }
       );
       if (!response.ok) throw new Error("Failed to pause download");
       return response.json();
@@ -265,17 +257,9 @@ export default function Downloads() {
       downloaderId: string;
       downloadId: string;
     }) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/downloaders/${downloaderId}/downloads/${downloadId}/resume`,
-        {
-          method: "POST",
-          headers,
-        }
+        { method: "POST" }
       );
       if (!response.ok) throw new Error("Failed to resume download");
       return response.json();
@@ -303,17 +287,9 @@ export default function Downloads() {
       downloadId: string;
       deleteFiles: boolean;
     }) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/downloaders/${downloaderId}/downloads/${downloadId}?deleteFiles=${deleteFiles}`,
-        {
-          method: "DELETE",
-          headers,
-        }
+        { method: "DELETE" }
       );
       if (!response.ok) throw new Error("Failed to remove download");
       return response.json();

@@ -1,9 +1,47 @@
 import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
-import type { DownloadFile } from "@shared/schema.js";
+import { isDownloaderDebugLoggingEnabled } from "./debug-logging.js";
+import type { Downloader, DownloadFile } from "@shared/schema.js";
 
 export const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+
+/**
+ * Returns whether the downloader's configured transport policy permits credentials.
+ * SSL connections are permitted by default; plaintext connections require the
+ * explicit insecure-LAN opt-in.
+ */
+export function downloaderAllowsCredentials(
+  downloader: Pick<Downloader, "useSsl" | "allowInsecureLan">
+): boolean {
+  return downloader.useSsl === true || downloader.allowInsecureLan === true;
+}
+
+/**
+ * Throws when the downloader's transport policy forbids sending credentials --
+ * every client's guard before it puts a password, API key, or Basic Auth header
+ * on the wire needs the exact same check and refusal message, so it lives here
+ * once instead of being hand-copied (and drifting) across each client.
+ *
+ * @param clientName - Downloader display name, e.g. "qBittorrent", used in the error.
+ * @param credentialKind - What's being withheld, e.g. "password" or "API key".
+ */
+export function assertCredentialsAllowed(
+  downloader: Pick<Downloader, "useSsl" | "allowInsecureLan">,
+  clientName: string,
+  credentialKind = "credentials"
+): void {
+  if (downloaderAllowsCredentials(downloader)) return;
+  throw new Error(
+    `${clientName}: refusing to send ${credentialKind} over unencrypted HTTP. ` +
+      "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."
+  );
+}
+
+/** Builds an HTTP Basic `Authorization` header value from a username and password. */
+export function buildBasicAuthHeader(username: string, password: string): string {
+  return `Basic ${Buffer.from(`${username}:${password}`, "utf-8").toString("base64")}`;
+}
 
 // Prowlarr (and some Newznab/Torznab indexers) wrap external download URLs in a proxy
 // URL whose `link` query parameter is a standard base64 value that can contain `+`.
@@ -151,4 +189,207 @@ export function resolveDownloadRelativePath(details: {
     return details.files[0].name;
   }
   return details.name;
+}
+
+// Query params that commonly carry a secret (API keys, session tokens, passwords),
+// masked before a URL is written to the debug log.
+const SENSITIVE_URL_PARAMS = new Set([
+  "apikey",
+  "api_key",
+  "token",
+  "password",
+  "passwd",
+  "pass",
+  "auth",
+  "secret",
+  "sid",
+  "_sid",
+]);
+
+/** Masks known secret-bearing query parameters in a URL before logging it. */
+export function redactSensitiveUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    for (const key of url.searchParams.keys()) {
+      if (SENSITIVE_URL_PARAMS.has(key.toLowerCase())) {
+        url.searchParams.set(key, "***");
+      }
+    }
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+// Cap how much of a response body gets read (in bytes) for the debug log so a
+// large download-client response (or an unexpectedly binary one) can't blow
+// up the log file or memory - the cloned stream is read only up to this limit
+// and then cancelled, so the rest of the body is never buffered.
+const MAX_DEBUG_BODY_LENGTH = 10_000;
+
+// Response headers that can carry a reusable credential (e.g. a session
+// cookie or token), redacted before a response is written to the debug log.
+// Transmission returns its session ID in this header (see transmission.ts),
+// which callers then replay on every later request.
+const SENSITIVE_RESPONSE_HEADERS = new Set([
+  "set-cookie",
+  "set-cookie2",
+  "authorization",
+  "x-transmission-session-id",
+]);
+
+/** Masks known credential-bearing response headers before logging them. */
+function redactSensitiveHeaders(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of headers.entries()) {
+    result[key] = SENSITIVE_RESPONSE_HEADERS.has(key.toLowerCase()) ? "***" : value;
+  }
+  return result;
+}
+
+// JSON field names that commonly carry a reusable credential in a downloader's
+// response body (e.g. Synology's login response includes a `sid` that's
+// persisted and replayed as `_sid` on later requests - see synology.ts).
+// Matched against `"name": "value"` pairs in the raw response text rather
+// than via a full JSON.parse, so redaction still applies to a body that was
+// truncated mid-object.
+const SENSITIVE_BODY_FIELD_PATTERN =
+  /("(?:sid|_sid|token|api_?key|password|passwd|secret|auth)"\s*:\s*)"(?:[^"\\]|\\.)*"/gi;
+
+/** Masks known credential-bearing JSON fields in a response body before logging it. */
+function redactSensitiveBody(bodyText: string): string {
+  return bodyText.replace(SENSITIVE_BODY_FIELD_PATTERN, '$1"***"');
+}
+
+/**
+ * Reads a cloned response body, keeping only the first `MAX_DEBUG_BODY_LENGTH`
+ * bytes in memory. Stops pulling from the stream as soon as the cap is hit -
+ * rather than draining it to completion - so a response that never ends (or
+ * is just very large) can't block the request or grow memory unbounded.
+ * `cancel()` is fired without awaiting it: cancelling one branch of a
+ * `response.clone()`'d stream can hang indefinitely on some fetch
+ * implementations if you wait on it, but an unawaited cancel is safe and
+ * still lets the original branch keep flowing to the caller.
+ */
+async function readTruncatedBody(
+  response: Response
+): Promise<{ text: string; truncated: boolean }> {
+  const body = response.body;
+  if (!body) {
+    return { text: await response.text(), truncated: false };
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytesRead = 0;
+  let truncated = false;
+
+  try {
+    while (bytesRead < MAX_DEBUG_BODY_LENGTH) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const remaining = MAX_DEBUG_BODY_LENGTH - bytesRead;
+      if (value.byteLength > remaining) {
+        text += decoder.decode(value.slice(0, remaining), { stream: true });
+        bytesRead += remaining;
+        truncated = true;
+      } else {
+        text += decoder.decode(value, { stream: true });
+        bytesRead += value.byteLength;
+      }
+    }
+
+    if (bytesRead >= MAX_DEBUG_BODY_LENGTH) {
+      // The stream may still have more data we're choosing not to read -
+      // don't wait on cancellation, just stop pulling.
+      truncated = true;
+      void reader.cancel().catch(() => {});
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  text += decoder.decode();
+  return { text, truncated };
+}
+
+/**
+ * Logs the response of a downloader API call at `debug` level, gated behind
+ * the "downloaders.debugLogging" setting. No-op (and no extra work, including
+ * cloning the response) when the setting is off.
+ *
+ * Clones the response before reading it, so callers can still consume the
+ * original response body (`.text()`/`.json()`) as usual afterwards. The body
+ * is read up to a fixed byte cap and the rest of the stream is cancelled
+ * rather than buffered, so a large or unbounded response can't blow up
+ * memory or the log file.
+ */
+export async function logDownloaderDebugResponse(
+  client: string,
+  method: string,
+  url: string,
+  response: Response
+): Promise<void> {
+  if (!isDownloaderDebugLoggingEnabled()) return;
+
+  try {
+    const { text: bodyText, truncated } = await readTruncatedBody(response.clone());
+    downloadersLogger.debug(
+      {
+        client,
+        method,
+        url: redactSensitiveUrl(url),
+        responseStatus: response.status,
+        responseHeaders: redactSensitiveHeaders(response.headers),
+        responseBody: truncated
+          ? `${redactSensitiveBody(bodyText)}... [truncated]`
+          : redactSensitiveBody(bodyText),
+      },
+      "Downloader debug: full response"
+    );
+  } catch (error) {
+    downloadersLogger.warn(
+      { error, client, url: redactSensitiveUrl(url) },
+      "Failed to log downloader debug response"
+    );
+  }
+}
+
+/**
+ * Joins a download's directory with its resolved relative path, without
+ * duplicating a segment that's already present.
+ *
+ * Usenet clients (NZBGet, SABnzbd) don't expose per-file details, so
+ * resolveDownloadRelativePath() always falls back to the release name — but
+ * for those clients `downloadDir` already IS the final content directory
+ * (its own name is the release name), unlike torrent clients where it's a
+ * genuine parent. Naively appending the relative path in that case produces
+ * a nonexistent nested path like ".../Release Name/Release Name".
+ */
+// Trims trailing path separators with a plain character scan instead of a
+// `[\\/]+$`-style regex, which SonarCloud flags as having super-linear
+// worst-case backtracking on inputs that don't end in a separator.
+export function stripTrailingPathSeparators(value: string): string {
+  let end = value.length;
+  while (end > 0 && (value[end - 1] === "\\" || value[end - 1] === "/")) {
+    end--;
+  }
+  return value.slice(0, end);
+}
+
+export function buildRemoteImportPath(downloadDir: string, relativePath: string): string {
+  const normalizedDir = stripTrailingPathSeparators(downloadDir);
+  const normalizedRelative = relativePath.replace(/^[\\/]+/, "");
+  const lastSegment = normalizedDir.split(/[\\/]/).pop()?.toLowerCase();
+  if (lastSegment && lastSegment === normalizedRelative.toLowerCase()) {
+    return normalizedDir;
+  }
+  return `${normalizedDir}/${normalizedRelative}`;
+}
+
+// Shared no-op for downloaders that don't support tag-based torrent lookup.
+export async function findTorrentByTagNull(_tag: string): Promise<string | null> {
+  return null;
 }

@@ -9,7 +9,13 @@ import { downloadersLogger } from "../logger.js";
 import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fetchWithMagnetDetection } from "./utils.js";
+import {
+  fetchWithMagnetDetection,
+  assertCredentialsAllowed,
+  buildBasicAuthHeader,
+  logDownloaderDebugResponse,
+  findTorrentByTagNull,
+} from "./utils.js";
 
 interface TransmissionTorrent {
   id: number;
@@ -481,9 +487,14 @@ export class TransmissionClient implements DownloaderClient {
     }
   }
 
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
+  }
+
+  /** Maps a Transmission torrent payload to Questarr's normalized download status. */
   private mapTransmissionStatus(torrent: TransmissionTorrent): DownloadStatus {
     // Transmission status codes: 0=stopped, 1=check pending, 2=checking, 3=download pending, 4=downloading, 5=seed pending, 6=seeding
-    let status: DownloadStatus["status"] = "paused";
+    let status: DownloadStatus["status"];
     const progress = Math.round(torrent.percentDone * 100);
 
     switch (torrent.status) {
@@ -667,6 +678,12 @@ export class TransmissionClient implements DownloaderClient {
     return { seeders, leechers };
   }
 
+  /**
+   * Sends a Transmission RPC request and retries once with a server-provided session ID.
+   *
+   * @throws If the transport policy forbids the configured credentials, or the
+   * underlying RPC call fails.
+   */
   // Transmission API response structure
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async makeRequest(method: string, arguments_: any): Promise<any> {
@@ -692,11 +709,11 @@ export class TransmissionClient implements DownloaderClient {
     }
 
     if (this.downloader.username && this.downloader.password) {
-      const auth = Buffer.from(
-        `${this.downloader.username}:${this.downloader.password}`,
-        "utf-8"
-      ).toString("base64");
-      headers["Authorization"] = `Basic ${auth}`;
+      assertCredentialsAllowed(this.downloader, "Transmission");
+      headers["Authorization"] = buildBasicAuthHeader(
+        this.downloader.username,
+        this.downloader.password
+      );
     }
 
     const response = await safeFetch(url, {
@@ -705,6 +722,7 @@ export class TransmissionClient implements DownloaderClient {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30000),
     });
+    await logDownloaderDebugResponse("Transmission", method, url, response);
 
     // Handle session ID requirement for Transmission
     if (response.status === 409) {
@@ -722,6 +740,7 @@ export class TransmissionClient implements DownloaderClient {
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(30000),
         });
+        await logDownloaderDebugResponse("Transmission", method, url, retryResponse);
 
         if (!retryResponse.ok) {
           const errorText = await retryResponse.text().catch(() => "No error details available");

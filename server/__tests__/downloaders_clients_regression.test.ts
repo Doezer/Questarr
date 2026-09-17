@@ -55,6 +55,8 @@ const createDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
     removeCompleted: false,
     postImportCategory: null,
     settings: null,
+    allowSelfSignedCertificate: false,
+    allowInsecureLan: true,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -1150,6 +1152,23 @@ describe("downloader client regression coverage", () => {
           DestDir: "/downloads",
         },
       ])
+      // getDownloadDetails("12")'s follow-up getHistoryDestDir call, since the
+      // download above resolved to "completed".
+      .mockResolvedValueOnce([
+        {
+          NZBID: 12,
+          Name: "Finished Game",
+          Status: "SUCCESS/ALL",
+          FileSizeMB: 30,
+          Category: "games",
+          DownloadTimeSec: 60,
+          ParStatus: "NONE",
+          UnpackStatus: "SUCCESS",
+          FailedArticles: 0,
+          DeleteStatus: "NONE",
+          DestDir: "/downloads",
+        },
+      ])
       .mockResolvedValueOnce([
         {
           NZBID: 10,
@@ -1197,6 +1216,7 @@ describe("downloader client regression coverage", () => {
     });
     await expect(client.getDownloadDetails("12")).resolves.toMatchObject({
       status: "completed",
+      downloadDir: "/downloads",
       files: [],
       filesSupport: "unsupported",
       trackers: [],
@@ -1750,7 +1770,7 @@ describe("downloader client regression coverage", () => {
     await expect(client.testConnection()).resolves.toEqual({
       success: false,
       message:
-        "Failed to connect to SABnzbd at http://localhost:8080/api?apikey=api-key&mode=version&output=json: HTTP 500: Boom - server error",
+        "Failed to connect to SABnzbd at http://localhost:8080: HTTP 500: Boom - server error",
     });
 
     fetchWithFallbackSpy.mockRejectedValueOnce(new Error("connect boom"));

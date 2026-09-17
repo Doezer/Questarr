@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mocks ---
@@ -376,5 +377,53 @@ describe("Cron - checkDownloadStatus", () => {
     expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
     expect(mockGetDownloadDetails).not.toHaveBeenCalled();
     expect(mockProcessImport).not.toHaveBeenCalled();
+  });
+
+  // Reproduction test for the large-archive "extraction restarts" bug:
+  // when processImport() starts extracting a large .rar it sets the DB row to
+  // "unpacking" (ImportManager.ts). checkDownloadStatus() runs every 60s and
+  // picks the row back up ("unpacking" is not a terminal status), sees the
+  // remote download as completed, and calls processImport() AGAIN — starting a
+  // second extraction into the same _extracted directory and clobbering the
+  // first. That is the "file grows, then starts small again" symptom at ~60s.
+  it("should not re-trigger processImport for a download already unpacking", async () => {
+    const unpackingDownload = {
+      ...baseDownload,
+      status: "unpacking" as const,
+    };
+    mockGetDownloadingGameDownloads.mockResolvedValue([unpackingDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetImportConfig.mockResolvedValue({ enablePostProcessing: true });
+
+    // Remote client still reports the download as completed/available while
+    // the extraction (which can take minutes for large archives) is running.
+    mockGetAllDownloads.mockResolvedValue([
+      {
+        id: "SABnzbd_nzo_abc123",
+        name: "Test Game",
+        status: "completed",
+        progress: 100,
+        downloadType: "usenet",
+      },
+    ]);
+    mockGetDownloadDetails.mockResolvedValue({
+      id: "SABnzbd_nzo_abc123",
+      name: "Test Game",
+      status: "completed",
+      progress: 100,
+      downloadType: "usenet",
+      downloadDir: "/downloads/complete/Test Game",
+      files: [],
+      trackers: [],
+    });
+
+    await checkDownloadStatus();
+
+    // A row mid-import must be left alone — processImport for it is already
+    // running from the previous cron tick. Re-invoking it would extract into
+    // the same directory a second time and clobber the in-flight extraction.
+    expect(mockProcessImport).not.toHaveBeenCalled();
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
+    expect(mockUpdateGameStatus).not.toHaveBeenCalled();
   });
 });

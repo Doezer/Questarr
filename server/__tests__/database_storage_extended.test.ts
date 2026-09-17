@@ -1,6 +1,13 @@
+// @vitest-environment node
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { users, type InsertGame } from "../../shared/schema";
+import {
+  users,
+  gameDownloads,
+  type InsertGame,
+  type InsertDownloader,
+  type InsertGameDownload,
+} from "../../shared/schema";
 import { randomUUID } from "crypto";
 import type { DatabaseStorage } from "../storage";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -250,6 +257,442 @@ describe("DatabaseStorage Extended Coverage", () => {
       const grouped = await storage.getWantedGamesGroupedByUser();
       expect(grouped.get(userA)?.map((g) => g.title)).toEqual(["Wanted A"]);
       expect(grouped.get(userB)?.map((g) => g.title)).toEqual(["Wanted B"]);
+    });
+  });
+
+  describe("GameDownload: unlinked reviews and relinking", () => {
+    async function setup() {
+      const userId = await createUser();
+      const game = await storage.addGame({
+        title: "Original Game",
+        igdbId: 6000,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      const downloader = await storage.addDownloader({
+        name: "qBit",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        apiKey: "",
+        enabled: true,
+        priority: 1,
+      } as InsertDownloader);
+      return { userId, game, downloader };
+    }
+
+    it("getUnlinkedImportReviews returns only game_link_required downloads", async () => {
+      const { game, downloader } = await setup();
+
+      const unlinked = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-unlinked",
+        downloadTitle: "Orphaned-GROUP",
+        status: "game_link_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+      await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-reviewing",
+        downloadTitle: "Reviewing-GROUP",
+        status: "manual_review_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const results = await storage.getUnlinkedImportReviews();
+      expect(results.map((d) => d.id)).toEqual([unlinked?.id]);
+    });
+
+    it("relinkGameDownload reattaches the game and returns to manual_review_required", async () => {
+      const { userId, game, downloader } = await setup();
+      const correctGame = await storage.addGame({
+        title: "Correct Game",
+        igdbId: 6001,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-relink",
+        downloadTitle: "NeedsLink-GROUP",
+        status: "game_link_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const updated = await storage.relinkGameDownload(download!.id, correctGame.id);
+      expect(updated?.gameId).toBe(correctGame.id);
+      expect(updated?.status).toBe("manual_review_required");
+      expect(await storage.getUnlinkedImportReviews()).toHaveLength(0);
+    });
+
+    it("relinkGameDownload is a no-op once already relinked (race-safe)", async () => {
+      const { userId, game, downloader } = await setup();
+      const firstGame = await storage.addGame({
+        title: "First Winner",
+        igdbId: 6002,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      const secondGame = await storage.addGame({
+        title: "Second Attempt",
+        igdbId: 6003,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-race",
+        downloadTitle: "Race-GROUP",
+        status: "game_link_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      await storage.relinkGameDownload(download!.id, firstGame.id);
+      const second = await storage.relinkGameDownload(download!.id, secondGame.id);
+
+      expect(second).toBeUndefined();
+      const current = await storage.getGameDownload(download!.id);
+      expect(current?.gameId).toBe(firstGame.id);
+    });
+
+    it("completeUnlinkedGameDownload dismisses a game_link_required download as completed", async () => {
+      const { game, downloader } = await setup();
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-skip",
+        downloadTitle: "Skip-GROUP",
+        status: "game_link_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const updated = await storage.completeUnlinkedGameDownload(download!.id);
+      expect(updated?.status).toBe("completed");
+      expect(updated?.completedAt).not.toBeNull();
+      expect(await storage.getUnlinkedImportReviews()).toHaveLength(0);
+    });
+
+    it("completeUnlinkedGameDownload is a no-op once already relinked (race-safe)", async () => {
+      const { userId, game, downloader } = await setup();
+      const correctGame = await storage.addGame({
+        title: "Relinked First",
+        igdbId: 6004,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-skip-race",
+        downloadTitle: "SkipRace-GROUP",
+        status: "game_link_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // Simulates a concurrent POST /:id/link winning the race first.
+      await storage.relinkGameDownload(download!.id, correctGame.id);
+
+      const result = await storage.completeUnlinkedGameDownload(download!.id);
+      expect(result).toBeUndefined();
+
+      // The relink must survive untouched — not clobbered back to "completed".
+      const current = await storage.getGameDownload(download!.id);
+      expect(current?.status).toBe("manual_review_required");
+      expect(current?.gameId).toBe(correctGame.id);
+    });
+  });
+
+  describe("GameDownload: updateGameDownloadHash (async qBittorrent resolution)", () => {
+    async function setup() {
+      const userId = await createUser();
+      const game = await storage.addGame({
+        title: "Async Game",
+        igdbId: 7000,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      const downloader = await storage.addDownloader({
+        name: "qBit",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        apiKey: "",
+        enabled: true,
+        priority: 1,
+      } as InsertDownloader);
+      return { userId, game, downloader };
+    }
+
+    async function addRow(opts: {
+      gameId: string;
+      downloaderId: string;
+      hash: string;
+      title?: string;
+      downloadType?: "torrent" | "usenet";
+    }) {
+      return await storage.addGameDownload({
+        gameId: opts.gameId,
+        downloaderId: opts.downloaderId,
+        downloadHash: opts.hash,
+        downloadTitle: opts.title ?? "Async Game",
+        status: "downloading",
+        downloadType: opts.downloadType ?? "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+    }
+
+    // Asserts the tag row folds into the surviving real-hash row and returns
+    // that row, so each merge test only has to assert its own identity.
+    async function expectMergedTagRow(tagId: string, resolvedHash: string, gameId: string) {
+      await expect(storage.updateGameDownloadHash(tagId, resolvedHash)).resolves.toBe("merged");
+      expect(await storage.getGameDownload(tagId)).toBeUndefined();
+      const rows = await storage.getDownloadsByGameId(gameId);
+      expect(rows).toHaveLength(1);
+      return rows[0];
+    }
+
+    it("updates the hash when the record has a correlation tag (questarr-add-*)", async () => {
+      const { game, downloader } = await setup();
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "questarr-add-abc123",
+        downloadTitle: "Async Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // Resolve the tag to the real hash.
+      await expect(storage.updateGameDownloadHash(download!.id, "realhash456")).resolves.toBe(
+        "updated"
+      );
+
+      const updated = await storage.getGameDownload(download!.id);
+      expect(updated?.downloadHash).toBe("realhash456");
+    });
+
+    it("does NOT update the hash when the record already has a real hash", async () => {
+      const { game, downloader } = await setup();
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "already_real_hash",
+        downloadTitle: "Sync Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // Attempt to update — should be a no-op because hash doesn't start with questarr-add-.
+      await expect(storage.updateGameDownloadHash(download!.id, "should_not_apply")).resolves.toBe(
+        "noop"
+      );
+
+      const current = await storage.getGameDownload(download!.id);
+      expect(current?.downloadHash).toBe("already_real_hash");
+    });
+
+    it("is a no-op when the download record does not exist", async () => {
+      // Should not throw.
+      await expect(storage.updateGameDownloadHash("nonexistent-id", "anyhash")).resolves.toBe(
+        "noop"
+      );
+    });
+
+    it("merges the stale tag row when the real-hash row already exists (claim race)", async () => {
+      const { game, downloader } = await setup();
+
+      // POST /api/downloads created this row with the correlation tag.
+      const tagDownload = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "questarr-add-collide-xyz",
+        downloadTitle: "Async Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // The torrent appeared under its real hash before cron resolved the tag,
+      // and /api/downloads/claim tracked it — same (downloaderId, hash) pair
+      // the tag row is about to resolve to. The unique index on
+      // (downloaderId, downloadHash) forbids both rows converging.
+      const realDownload = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "realhash-collide-xyz",
+        downloadTitle: "Async Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // Must not throw a UNIQUE-constraint violation, and must report the
+      // merge so cron stops processing the deleted row.
+      await expect(
+        storage.updateGameDownloadHash(tagDownload!.id, "realhash-collide-xyz")
+      ).resolves.toBe("merged");
+
+      // Stale tag row is gone; the real-hash row survives exactly once.
+      expect(await storage.getGameDownload(tagDownload!.id)).toBeUndefined();
+      const surviving = await storage.getGameDownload(realDownload!.id);
+      expect(surviving?.downloadHash).toBe("realhash-collide-xyz");
+      const keys = await storage.getTrackedDownloadKeys();
+      expect(keys.has(`${downloader.id}:realhash-collide-xyz`)).toBe(true);
+      expect(keys.has(`${downloader.id}:questarr-add-collide-xyz`)).toBe(false);
+    });
+
+    it("merges the tag row into a real-hash row stored with different casing", async () => {
+      const { game, downloader } = await setup();
+
+      // /api/downloads stored this torrent under the uppercase form of its
+      // hex infohash, while cron resolves the tag to the lowercase form.
+      const realDownload = await addRow({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        hash: "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+        title: "Casing Game",
+      });
+      const tagDownload = await addRow({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        hash: "questarr-add-casing",
+        title: "Casing Game",
+      });
+
+      const surviving = await expectMergedTagRow(
+        tagDownload!.id,
+        "abcdef0123456789abcdef0123456789abcdef01",
+        game.id
+      );
+      expect(surviving.downloadHash).toBe("abcdef0123456789abcdef0123456789abcdef01");
+      expect(realDownload).toBeDefined();
+    });
+
+    // Same insert path, two hash shapes: a hex torrent hash is canonicalized,
+    // a SABnzbd nzo_id is an opaque case-sensitive string that must survive
+    // verbatim or getDownloadStatus's exact match breaks.
+    it.each([
+      [
+        "torrent",
+        "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+        "abcdef0123456789abcdef0123456789abcdef01",
+      ],
+      ["usenet", "SABnzbd_NZO_AbC123", "SABnzbd_NZO_AbC123"],
+    ] as const)("stores a %s hash as %s on insert", async (downloadType, hash, expected) => {
+      const { game, downloader } = await setup();
+
+      const download = await addRow({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        hash,
+        title: "Insert Game",
+        downloadType,
+      });
+
+      expect(download?.downloadHash).toBe(expected);
+    });
+
+    it("merges into a real-hash row that predates normalization (legacy uppercase)", async () => {
+      const { game, downloader } = await setup();
+
+      // Rows written before the normalization fix can hold the uppercase form
+      // of the hex infohash. addGameDownload now normalizes, so the legacy row
+      // is inserted directly to reproduce the pre-fix stored state.
+      const legacyRealId = randomUUID();
+      await db.insert(gameDownloads).values({
+        id: legacyRealId,
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "FEDCBA9876543210FEDCBA9876543210FEDCBA98",
+        downloadTitle: "Legacy Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+        addedAt: new Date(),
+        completedAt: null,
+      });
+
+      const tagDownload = await addRow({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        hash: "questarr-add-legacy",
+        title: "Legacy Game",
+      });
+
+      const surviving = await expectMergedTagRow(
+        tagDownload!.id,
+        "fedcba9876543210fedcba9876543210fedcba98",
+        game.id
+      );
+      expect(surviving.id).toBe(legacyRealId);
+    });
+  });
+
+  describe("GameDownload: getDownloadingGameDownloads", () => {
+    it("excludes terminal failed rows so cron does not re-poll them", async () => {
+      const userId = await createUser();
+      const game = await storage.addGame({
+        title: "Terminal Game",
+        igdbId: 8000,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      const downloader = await storage.addDownloader({
+        name: "qBit",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        apiKey: "",
+        enabled: true,
+        priority: 1,
+      } as InsertDownloader);
+
+      const active = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-active",
+        downloadTitle: "Active-GROUP",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+      // An async tag row whose retries were exhausted. Terminal, so the query
+      // must drop it rather than surfacing it to cron again every cycle.
+      const failed = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "questarr-add-exhausted",
+        downloadTitle: "Exhausted-GROUP",
+        status: "failed",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const ids = (await storage.getDownloadingGameDownloads()).map((d) => d.id);
+      expect(ids).toContain(active!.id);
+      expect(ids).not.toContain(failed!.id);
     });
   });
 

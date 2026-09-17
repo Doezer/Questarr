@@ -5,7 +5,7 @@
  * based on common naming patterns in titles.
  */
 
-export type DownloadCategory = "main" | "update" | "dlc" | "extra";
+export type DownloadCategory = "main" | "update" | "dlc" | "extra" | "packs";
 
 export interface CategorizedDownload {
   category: DownloadCategory;
@@ -15,11 +15,12 @@ export interface CategorizedDownload {
 // Patterns for different download types
 const UPDATE_PATTERNS = [/\bupdate\b/i, /\bpatch\b/i, /\bhotfix\b/i, /\bcrackfix\b/i, /\bfix\b/i];
 
+const PACKS_PATTERNS = [/\bpack\b/i, /\badd-?on\b/i];
+
 const DLC_PATTERNS = [
   /\bDLC\b/i,
   /\bdownloadable content\b/i,
   /\bexpansion\b/i,
-  /\badd-?on\b/i,
   /\bseason pass\b/i,
   /\bdeluxe\b/i,
   /\bgoty\b/i, // Game of the Year editions often include DLC
@@ -58,6 +59,13 @@ export function categorizeDownload(title: string): CategorizedDownload {
     }
   }
 
+  // Specific DLC/expansion keywords take priority over the more general pack/add-on terms.
+  for (const pattern of PACKS_PATTERNS) {
+    if (pattern.test(title)) {
+      return { category: "packs", confidence: 0.85 };
+    }
+  }
+
   // Check for updates
   for (const pattern of UPDATE_PATTERNS) {
     if (pattern.test(title)) {
@@ -84,6 +92,7 @@ export function groupDownloadsByCategory<T extends { title: string }>(
     update: [],
     dlc: [],
     extra: [],
+    packs: [],
   };
 
   downloads.forEach((download) => {
@@ -107,5 +116,7 @@ export function getCategoryLabel(category: DownloadCategory): string {
       return "DLC & Expansions";
     case "extra":
       return "Extras";
+    case "packs":
+      return "Packs/Addons";
   }
 }

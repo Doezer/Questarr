@@ -1,9 +1,16 @@
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
+import { resolveArchivePassword } from "../../shared/archive-password.js";
 import { downloadersLogger } from "../logger.js";
 import { XMLParser } from "fast-xml-parser";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fixNzbUrlEncoding } from "./utils.js";
+import {
+  assertCredentialsAllowed,
+  buildBasicAuthHeader,
+  fixNzbUrlEncoding,
+  logDownloaderDebugResponse,
+  findTorrentByTagNull,
+} from "./utils.js";
 
 interface NZBGetListResult {
   NZBID: number;
@@ -159,7 +166,19 @@ export class NZBGetClient implements DownloaderClient {
     return String(Object.values(rec)[0]);
   }
 
-  private async makeXMLRPCRequest(method: string, params: unknown[] = []): Promise<unknown> {
+  /**
+   * Sends an NZBGet XML-RPC request, adding Basic authentication when configured.
+   *
+   * @param requireHttps - Whether redirects must remain on HTTPS, used for requests
+   * whose payload contains an archive password.
+   * @throws If the transport policy forbids the configured credentials, the HTTP
+   * call fails, or NZBGet's response is itself an XML-RPC fault.
+   */
+  private async makeXMLRPCRequest(
+    method: string,
+    params: unknown[] = [],
+    requireHttps = false
+  ): Promise<unknown> {
     const baseUrl = this.getBaseUrl();
     const path = this.downloader.urlPath || "xmlrpc";
     const url = `${baseUrl}/${path.replace(/^\//, "")}`;
@@ -182,26 +201,48 @@ export class NZBGetClient implements DownloaderClient {
     };
 
     if (this.downloader.username && this.downloader.password) {
-      const auth = Buffer.from(
-        `${this.downloader.username}:${this.downloader.password}`,
-        "utf-8"
-      ).toString("base64");
-      headers["Authorization"] = `Basic ${auth}`;
+      assertCredentialsAllowed(this.downloader, "NZBGet");
+      headers["Authorization"] = buildBasicAuthHeader(
+        this.downloader.username,
+        this.downloader.password
+      );
     }
+
+    // PPParameters (the trailing "append" param) can carry secrets we hand NZBGet's
+    // post-processors -- e.g. "*Unpack:Password" for the archive password -- so redact
+    // every entry's value rather than logging it in the clear alongside the NZB content.
+    const redactPPParameters = (values: unknown[]): unknown[] => {
+      const lastIndex = values.length - 1;
+      const ppParameters = values[lastIndex];
+      if (!Array.isArray(ppParameters)) return values;
+      const redacted = ppParameters.map((param) =>
+        param && typeof param === "object" && "Name" in param
+          ? { ...param, Value: "<redacted>" }
+          : param
+      );
+      return [...values.slice(0, lastIndex), redacted];
+    };
 
     const logParams =
       method === "append" && params.length > 1
-        ? [params[0], "<base64_content_truncated>", ...params.slice(2)]
+        ? redactPPParameters([params[0], "<base64_content_truncated>", ...params.slice(2)])
         : params;
 
     downloadersLogger.debug({ url, method, params: logParams }, "Making NZBGet XML-RPC request");
 
+    // requireHttps is set by addDownload exactly when this request carries the archive
+    // password -- refuse to follow a redirect to a non-HTTPS hop, since a compromised or
+    // MITM'd NZBGet could otherwise bounce the credential-bearing request body to a
+    // plaintext endpoint mid-flight (a 307/308 redirect preserves the POST body as-is).
     const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: xmlBody,
       signal: AbortSignal.timeout(30000),
+      requireHttps,
     });
+
+    await logDownloaderDebugResponse("NZBGet", method, url, response);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "No error details");
@@ -290,18 +331,36 @@ export class NZBGetClient implements DownloaderClient {
 
       const category = request.category || this.downloader.category || "";
 
-      const nzbId = (await this.makeXMLRPCRequest("append", [
-        request.title || "download.nzb",
-        base64Content,
-        category,
-        request.priority || 0,
-        false, // AddToTop
-        false, // AddPaused
-        "", // DupeKey
-        0, // DupeScore
-        "SCORE", // DupeMode
-        [], // PPParameters
-      ])) as number;
+      // Many usenet releases (e.g. G4U) ship as password-protected archives. NZBGet's
+      // built-in Unpack post-processor reads a per-NZB override via the well-known
+      // "*Unpack:Password" PPParameter — configured per-downloader since it's usually
+      // a fixed indexer/group convention.
+      const { password, error: passwordError } = resolveArchivePassword(
+        request.password,
+        this.downloader.settings,
+        this.getBaseUrl(),
+        "NZBGet"
+      );
+      if (passwordError) {
+        return { success: false, message: passwordError };
+      }
+
+      const nzbId = (await this.makeXMLRPCRequest(
+        "append",
+        [
+          request.title || "download.nzb",
+          base64Content,
+          category,
+          request.priority || 0,
+          false, // AddToTop
+          false, // AddPaused
+          "", // DupeKey
+          0, // DupeScore
+          "SCORE", // DupeMode
+          password ? [{ Name: "*Unpack:Password", Value: password }] : [], // PPParameters
+        ],
+        !!password
+      )) as number;
 
       if (nzbId > 0) {
         return {
@@ -440,13 +499,34 @@ export class NZBGetClient implements DownloaderClient {
     }
   }
 
+  // `getDownloadStatus`/`getFromHistory` return a `DownloadStatus`, which has
+  // no `downloadDir` field (only `DownloadDetails` does), so the history
+  // item's `DestDir` never made it out of those methods even though NZBGet's
+  // API provides it. Without it, ImportManager can never be handed a path to
+  // import from, and every completed NZBGet download was stuck logging
+  // "no remote path was available for import" and requiring manual review.
+  private async getHistoryDestDir(id: string): Promise<string | undefined> {
+    try {
+      const history = (await this.makeXMLRPCRequest("history")) as NZBGetHistoryResult[];
+      const item = history.find((h) => h.NZBID.toString() === id);
+      return item?.DestDir || undefined;
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get NZBGet history destination directory");
+      return undefined;
+    }
+  }
+
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
     const status = await this.getDownloadStatus(id);
     if (!status) return null;
 
+    const downloadDir =
+      status.status === "completed" ? await this.getHistoryDestDir(id) : undefined;
+
     // NZBGet doesn't provide detailed file information easily
     return {
       ...status,
+      downloadDir,
       files: [],
       filesSupport: "unsupported",
       filesSupportReason: "NZBGet API does not expose per-file details for grouped downloads.",
@@ -520,5 +600,9 @@ export class NZBGetClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Failed to get NZBGet free space");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 }

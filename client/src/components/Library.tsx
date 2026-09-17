@@ -43,6 +43,7 @@ import { setAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game
 import { useDownloadSummary } from "@/hooks/use-download-summary";
 import GameFilterPills from "./GameFilterPills";
 import PendingImportsCard from "./PendingImportsCard";
+import { LIBRARY_SORT_OPTIONS, sortLibraryGames, type LibrarySortOption } from "@/lib/game-sort";
 
 export default function Library() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -55,6 +56,10 @@ export default function Library() {
   const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
   const [minRating, setMinRating] = useState<number | null>(null);
   const [showUnratedOnly, setShowUnratedOnly] = useState(false);
+  const [sortBy, setSortBy] = useLocalStorageState<LibrarySortOption>(
+    "librarySortBy",
+    "added-desc"
+  );
 
   const clearAllFilters = useCallback(() => {
     setStatusFilter("all");
@@ -110,22 +115,33 @@ export default function Library() {
     errorMessage: "Failed to update game visibility",
   });
 
-  const uniqueGenres = useMemo(
-    () =>
-      Array.from(new Set(games.flatMap((g) => g.genres ?? []))).sort((a, b) => a.localeCompare(b)),
-    [games]
-  );
+  // ⚡ Bolt: Consolidate multiple array traversals into a single pass to
+  // optimize render performance and reduce unnecessary allocations.
+  const { uniqueGenres, uniquePlatforms } = useMemo(() => {
+    const genreSet = new Set<string>();
+    const platformSet = new Set<string>();
 
-  const uniquePlatforms = useMemo(
-    () =>
-      Array.from(new Set(games.flatMap((g) => g.platforms ?? []))).sort((a, b) =>
-        a.localeCompare(b)
-      ),
-    [games]
-  );
+    for (const g of games) {
+      if (g.genres) {
+        for (const genre of g.genres) {
+          genreSet.add(genre);
+        }
+      }
+      if (g.platforms) {
+        for (const platform of g.platforms) {
+          platformSet.add(platform);
+        }
+      }
+    }
+
+    return {
+      uniqueGenres: Array.from(genreSet).sort((a, b) => a.localeCompare(b)),
+      uniquePlatforms: Array.from(platformSet).sort((a, b) => a.localeCompare(b)),
+    };
+  }, [games]);
 
   const filteredGames = useMemo(() => {
-    return games.filter((game) => {
+    const filtered = games.filter((game) => {
       if (statusFilter !== "all" && game.status !== statusFilter) return false;
       if (genreFilter !== "all" && !game.genres?.includes(genreFilter)) return false;
       if (platformFilter !== "all" && !game.platforms?.includes(platformFilter)) return false;
@@ -136,6 +152,7 @@ export default function Library() {
         return false;
       return true;
     });
+    return sortLibraryGames(filtered, sortBy);
   }, [
     games,
     statusFilter,
@@ -146,6 +163,7 @@ export default function Library() {
     downloadSummaries,
     minRating,
     showUnratedOnly,
+    sortBy,
   ]);
 
   const activeFilters = useMemo(() => {
@@ -216,6 +234,11 @@ export default function Library() {
       hiddenMutation.mutate({ gameId, hidden });
     },
     [hiddenMutation]
+  );
+
+  const handleSortChange = useCallback(
+    (value: string) => setSortBy(value as LibrarySortOption),
+    [setSortBy]
   );
 
   return (
@@ -296,6 +319,10 @@ export default function Library() {
               />
             </div>
           }
+          sortValue={sortBy}
+          onSortChange={handleSortChange}
+          sortOptions={LIBRARY_SORT_OPTIONS}
+          sortAriaLabel="Sort library games"
           viewControls={{
             viewMode,
             onViewModeChange: setViewMode,

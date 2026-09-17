@@ -61,8 +61,10 @@ import {
   Info,
   Image,
   Link,
+  File,
   ChevronLeft,
   ChevronRight,
+  Pencil,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -78,7 +80,7 @@ import { getSocket } from "@/lib/socket";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { type Game, type GameDownload } from "@shared/schema";
+import { type Game, type GameDownload, type ScannedGameFile } from "@shared/schema";
 import { resolveTargetPlatform } from "@shared/title-utils";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
@@ -361,9 +363,39 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [notesValue, setNotesValue] = useState<string>("");
   const [targetPlatformValue, setTargetPlatformValue] = useState("");
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  // Tracks the live notesValue so the async save's onSuccess (below) can tell
+  // whether the user kept typing after blur, instead of seeing the stale
+  // value it closed over.
+  const notesValueRef = useRef(notesValue);
+  useEffect(() => {
+    notesValueRef.current = notesValue;
+  }, [notesValue]);
+  // Tracks the live isEditingNotes so the server-sync effect (below) can
+  // check it without depending on it — depending on it directly would rerun
+  // the sync (using the still-stale pre-refetch game.notes) the instant a
+  // save flips isEditingNotes back to false, flashing the old value.
+  const isEditingNotesRef = useRef(isEditingNotes);
+  useEffect(() => {
+    isEditingNotesRef.current = isEditingNotes;
+  }, [isEditingNotes]);
+  // Serializes mobile note saves: only one PATCH is ever in flight. A save
+  // requested while one is pending is queued (overwriting any earlier queued
+  // value — only the latest draft matters) and fired once the in-flight one
+  // settles, so two overlapping requests can never complete out of order and
+  // let an older draft silently overwrite a newer one on the server. Each
+  // queued save also remembers which game it targets, so it's dropped
+  // instead of misfiring if the modal has since switched to another game.
+  const notesSaveInFlightRef = useRef(false);
+  const queuedNotesSaveRef = useRef<{ value: string | null; gameId: string } | null>(null);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removeFromClient, setRemoveFromClient] = useState(true);
   const [deleteFiles, setDeleteFiles] = useState(true);
+  const [activeTab, setActiveTab] = useState("overview");
+
+  useEffect(() => {
+    setActiveTab("overview");
+  }, [game?.id]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -373,14 +405,37 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       setIsSummaryExpanded(false);
       setSelectedScreenshotIndex(null);
       setDownloadOpen(false);
+      setIsEditingNotes(false);
+      queuedNotesSaveRef.current = null;
     }
   }, [open]);
 
+  // Full reset when switching to a different game — unconditional, since a
+  // new game.id means any in-progress notes draft belongs to a game we're
+  // no longer looking at.
   useEffect(() => {
     setIsSummaryExpanded(false);
     setNotesValue(game?.notes ?? "");
     setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "");
-  }, [game?.id, game?.notes, game?.targetPlatformId]);
+    setIsEditingNotes(false);
+    queuedNotesSaveRef.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.id]);
+
+  // Keep notesValue in sync with the server for the *same* game — e.g. after
+  // the notes mutation's own invalidateQueries refetch lands. Skipped while
+  // actively editing on mobile so a background refetch can't stomp a draft
+  // the user hasn't blurred away from yet.
+  useEffect(() => {
+    if (isMobile && isEditingNotesRef.current) return;
+    setNotesValue(game?.notes ?? "");
+  }, [game?.notes, isMobile]);
+
+  // Keep targetPlatformValue in sync with the server value for the same game
+  // (e.g. after the target-platform mutation's invalidateQueries refetch lands).
+  useEffect(() => {
+    setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "");
+  }, [game?.targetPlatformId]);
 
   useEffect(() => {
     setSelectedScreenshotIndex(null);
@@ -614,8 +669,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   });
 
   const notesMutation = useMutation({
-    mutationFn: async (notes: string | null) => {
-      await apiRequest("PATCH", `/api/games/${game?.id}/notes`, { notes });
+    mutationFn: async ({ gameId, notes }: { gameId: string; notes: string | null }) => {
+      await apiRequest("PATCH", `/api/games/${gameId}/notes`, { notes });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
@@ -624,6 +679,38 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       toast({ description: "Failed to save notes", variant: "destructive" });
     },
   });
+
+  // Fires a notes save for `gameId` (the current game by default), or queues
+  // it if one is already in flight (see the refs above) — never lets two
+  // PATCH requests race each other. The target game travels with the save
+  // itself, so a queued draft is dropped instead of misfiring against the
+  // wrong game if the modal switches games while a save is pending.
+  const saveNotes = (trimmed: string | null, gameId: string | undefined = game?.id) => {
+    if (!gameId) return;
+    if (notesSaveInFlightRef.current) {
+      queuedNotesSaveRef.current = { value: trimmed, gameId };
+      return;
+    }
+    notesSaveInFlightRef.current = true;
+    notesMutation.mutate(
+      { gameId, notes: trimmed },
+      {
+        onSuccess: () => {
+          if (isMobile && game?.id === gameId && notesValueRef.current.trim() === (trimmed ?? "")) {
+            setIsEditingNotes(false);
+          }
+        },
+        onSettled: () => {
+          notesSaveInFlightRef.current = false;
+          const queued = queuedNotesSaveRef.current;
+          queuedNotesSaveRef.current = null;
+          if (queued && queued.gameId === game?.id) {
+            saveNotes(queued.value, queued.gameId);
+          }
+        },
+      }
+    );
+  };
 
   const hiddenMutation = useHiddenMutation({
     hiddenSuccessMessage: "Game hidden from library",
@@ -657,6 +744,39 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     staleTime: 24 * 60 * 60 * 1000,
   });
 
+  const {
+    data: gameFiles = [],
+    isLoading: filesLoading,
+    isError: filesError,
+  } = useQuery<ScannedGameFile[]>({
+    queryKey: [`/api/games/${game?.id}/files`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/games/${game!.id}/files`);
+      const data = await res.json();
+      return data.files;
+    },
+    // The endpoint recursively scans the game's library folder, so only fetch it once the
+    // Files tab is actually opened rather than on every modal open.
+    enabled: open && activeTab === "files" && !!game?.id && !isDiscoveryId(game.id),
+  });
+
+  const groupedGameFiles = useMemo(() => {
+    const groups = new Map<string, typeof gameFiles>();
+    for (const file of gameFiles) {
+      const group = groups.get(file.category) ?? [];
+      group.push(file);
+      groups.set(file.category, group);
+    }
+    return groups;
+  }, [gameFiles]);
+
+  const categoryOrder = useMemo(() => {
+    const known = ["main", "dlc", "update", "extra", "packs"];
+    return [
+      ...known,
+      ...Array.from(groupedGameFiles.keys()).filter((category) => !known.includes(category)),
+    ];
+  }, [groupedGameFiles]);
   if (!game) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -783,21 +903,53 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
         {/* Personal notes */}
         <div className="mt-3">
-          <Textarea
-            value={notesValue}
-            onChange={(e) => setNotesValue(e.target.value)}
-            onBlur={() => {
-              const trimmed = notesValue.trim() || null;
-              if (trimmed !== (game.notes ?? null)) {
-                notesMutation.mutate(trimmed);
-              }
-            }}
-            placeholder="Personal notes..."
-            className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
-            maxLength={10000}
-            aria-label="Personal notes for this game"
-            disabled={notesMutation.isPending}
-          />
+          {isMobile && !isEditingNotes ? (
+            // Mobile: notes start collapsed to a read-only preview so opening the sheet
+            // never lands focus on a text field and pops the on-screen keyboard.
+            // Tapping "Edit" is an explicit user gesture, so autofocus there is expected.
+            <div className="flex items-start justify-between gap-2">
+              <p className="flex-1 min-w-0 line-clamp-2 text-sm text-muted-foreground">
+                {notesValue.trim() || "No personal notes yet"}
+              </p>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 flex-shrink-0"
+                aria-label="Edit personal notes"
+                onClick={() => setIsEditingNotes(true)}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <Textarea
+              autoFocus={isMobile}
+              value={notesValue}
+              onChange={(e) => setNotesValue(e.target.value)}
+              onBlur={() => {
+                const trimmed = notesValue.trim() || null;
+                if (trimmed !== (game.notes ?? null)) {
+                  // saveNotes serializes this behind any already-in-flight
+                  // save, and its own onSuccess (above) only collapses the
+                  // mobile editor once the latest saved value matches what's
+                  // currently typed — a failed or superseded save leaves it
+                  // open instead of losing or misrepresenting the draft.
+                  saveNotes(trimmed);
+                } else if (isMobile) {
+                  setIsEditingNotes(false);
+                }
+              }}
+              placeholder="Personal notes..."
+              className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
+              maxLength={10000}
+              aria-label="Personal notes for this game"
+              // On mobile, keep the field editable through the save so the
+              // stale-save guard above is actually reachable — a disabled
+              // field would block the very typing it's meant to protect.
+              // Desktop keeps the pre-existing disable-while-saving behavior.
+              disabled={!isMobile && notesMutation.isPending}
+            />
+          )}
           {notesMutation.isPending && (
             <p className="text-xs text-muted-foreground mt-1">Saving...</p>
           )}
@@ -863,7 +1015,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       </DialogHeader>
 
       {/* ── Tabs ── */}
-      <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0 mt-4">
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="flex-1 flex flex-col min-h-0 mt-4"
+      >
         <TabsList className="flex-shrink-0 w-full justify-start overflow-x-auto">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -902,6 +1058,17 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             </TooltipTrigger>
             <TooltipContent className="sm:hidden">Media</TooltipContent>
           </Tooltip>
+          {!isDiscoveryId(game.id) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger value="files" aria-label="Files on disk" className="gap-1.5">
+                  <File className="h-3.5 w-3.5 sm:hidden" />
+                  <span className="hidden sm:inline">Files</span>
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent className="sm:hidden">Files</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <TabsTrigger value="links" aria-label="Links & Ratings" className="gap-1.5">
@@ -1198,6 +1365,82 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   <Monitor className="w-8 h-8 opacity-40" />
                   <p className="text-sm">No screenshots available.</p>
                 </div>
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
+        {/* ── Files tab ── */}
+        <TabsContent
+          value="files"
+          forceMount
+          className="flex-1 min-h-0 data-[state=inactive]:hidden"
+        >
+          <ScrollArea className="h-full">
+            <div className="pr-4 pb-2">
+              {filesLoading ? (
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                  Loading files…
+                </div>
+              ) : filesError ? (
+                <div className="flex items-center justify-center py-8 text-sm text-destructive">
+                  Failed to load files.
+                </div>
+              ) : gameFiles.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                  <HardDrive className="w-8 h-8 opacity-40" />
+                  <p className="text-sm">No files found on disk.</p>
+                </div>
+              ) : (
+                (() => {
+                  const groups = groupedGameFiles;
+                  const hasMultipleGroups = groups.size > 1;
+                  const categoryLabels: Record<string, string> = {
+                    main: "Main Game",
+                    dlc: "DLC & Expansions",
+                    update: "Updates & Patches",
+                    extra: "Extras",
+                    packs: "Packs/Addons",
+                  };
+
+                  if (!hasMultipleGroups) {
+                    return (
+                      <div className="space-y-2">
+                        {gameFiles.map((f) => (
+                          <div key={f.path} className="flex items-center gap-2 text-sm py-2">
+                            <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                            <span className="truncate">{f.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-4">
+                      {categoryOrder.map((cat) => {
+                        const catFiles = groups.get(cat);
+                        if (!catFiles || catFiles.length === 0) return null;
+                        return (
+                          <div key={cat}>
+                            <h4 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+                              {categoryLabels[cat] || cat}
+                            </h4>
+                            <div className="space-y-2">
+                              {catFiles.map((f) => (
+                                <div key={f.path} className="flex items-center gap-2 text-sm py-2">
+                                  <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                                  <span className="truncate">{f.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
               )}
             </div>
           </ScrollArea>

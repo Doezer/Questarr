@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { eq } from "drizzle-orm";
-import { users, downloaders, indexers, type InsertGame } from "../../shared/schema";
+import { users, downloaders, indexers, gameDownloads, type InsertGame } from "../../shared/schema";
 import { randomUUID } from "crypto";
 import type { DatabaseStorage } from "../storage";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -169,6 +169,154 @@ describe("DatabaseStorage Integration", () => {
     expect(summary[gameB.id].downloadTypes).toContain("torrent");
   });
 
+  it("getDashboardStatus should aggregate library, wishlist, downloads and imports in the database layer", async () => {
+    const userId = randomUUID();
+    await db.insert(users).values({ id: userId, username: "dash_test_user", passwordHash: "hash" });
+
+    const wantedGame = await storage.addGame({
+      title: "Wanted Game",
+      status: "wanted",
+      userId,
+      hidden: false,
+    });
+    const ownedGame = await storage.addGame({
+      title: "Owned Game",
+      status: "owned",
+      userId,
+      hidden: false,
+    });
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Test Client", type: "torrent", url: "http://localhost" });
+
+    await storage.addGameDownload({
+      gameId: ownedGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Owned.Game-GROUP",
+      status: "downloading",
+    });
+    const completedDownload = await storage.addGameDownload({
+      gameId: ownedGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Owned.Game.Update-GROUP",
+      status: "downloading",
+    });
+    await storage.updateGameDownloadStatus(completedDownload!.id, "completed");
+
+    const status = await storage.getDashboardStatus(userId);
+
+    expect(status.totalGames).toBe(2);
+    expect(status.pendingWishlist).toBe(1);
+    expect(status.activeDownloads).toBe(1);
+    expect(status.recentImports.count).toBe(1);
+    expect(status.recentImports.items).toHaveLength(1);
+    expect(status.recentImports.items[0]).toMatchObject({
+      gameId: ownedGame.id,
+      title: "Owned Game",
+    });
+    expect(wantedGame.status).toBe("wanted");
+  });
+
+  it("getDashboardStatus should exclude hidden games from every metric", async () => {
+    const userId = randomUUID();
+    await db
+      .insert(users)
+      .values({ id: userId, username: "dash_hidden_user", passwordHash: "hash" });
+
+    const visibleGame = await storage.addGame({
+      title: "Visible Game",
+      status: "wanted",
+      userId,
+      hidden: false,
+    });
+    const hiddenGame = await storage.addGame({
+      title: "Hidden Game",
+      status: "wanted",
+      userId,
+      hidden: true,
+    });
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Test Client", type: "torrent", url: "http://localhost" });
+
+    const hiddenCompletedDownload = await storage.addGameDownload({
+      gameId: hiddenGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Hidden.Game-GROUP",
+      status: "downloading",
+    });
+    await storage.updateGameDownloadStatus(hiddenCompletedDownload!.id, "completed");
+    await storage.addGameDownload({
+      gameId: hiddenGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Hidden.Game.Update-GROUP",
+      status: "downloading",
+    });
+
+    const status = await storage.getDashboardStatus(userId);
+
+    // Only the visible game counts; the hidden game and its downloads are excluded entirely.
+    expect(status.totalGames).toBe(1);
+    expect(status.pendingWishlist).toBe(1);
+    expect(status.activeDownloads).toBe(0);
+    expect(status.recentImports.count).toBe(0);
+    expect(status.recentImports.items).toHaveLength(0);
+    expect(visibleGame.hidden).toBe(false);
+  });
+
+  it("getDashboardStatus should exclude completed downloads older than seven days from count and items", async () => {
+    const userId = randomUUID();
+    await db
+      .insert(users)
+      .values({ id: userId, username: "dash_old_import_user", passwordHash: "hash" });
+
+    const game = await storage.addGame({
+      title: "Old Import Game",
+      status: "owned",
+      userId,
+      hidden: false,
+    });
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Test Client", type: "torrent", url: "http://localhost" });
+
+    const oldDownload = await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Old.Import-GROUP",
+      status: "downloading",
+    });
+    await storage.updateGameDownloadStatus(oldDownload!.id, "completed");
+
+    // Backdate completedAt to 8 days ago, outside the 7-day recent-imports window.
+    const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    await db
+      .update(gameDownloads)
+      .set({ completedAt: eightDaysAgo })
+      .where(eq(gameDownloads.id, oldDownload!.id));
+
+    const status = await storage.getDashboardStatus(userId);
+
+    expect(status.recentImports.count).toBe(0);
+    expect(status.recentImports.items).toHaveLength(0);
+  });
+
   it("getTrackedDownloadKeys returns downloaderId:downloadHash keys for all game downloads", async () => {
     const userId = randomUUID();
     await db.insert(users).values({ id: userId, username: "user_" + userId, passwordHash: "hash" });
@@ -197,6 +345,59 @@ describe("DatabaseStorage Integration", () => {
     const keys = await storage.getTrackedDownloadKeys();
     expect(keys.has(`${downloaderId}:hash-x`)).toBe(true);
     expect(keys.size).toBe(1);
+  });
+
+  describe("root folder CRUD", () => {
+    it("creates, lists, updates, health-checks, touches, and removes a root folder", async () => {
+      const folder = await storage.addRootFolder({ path: "/mnt/old-library", name: "Old NAS" });
+      expect(folder.enabled).toBe(true);
+      expect(folder.allowDelete).toBe(false);
+      expect(folder.accessible).toBeNull();
+
+      expect(await storage.getRootFolder(folder.id)).toMatchObject({ path: "/mnt/old-library" });
+      expect(await storage.getRootFolderByPath("/mnt/old-library")).toMatchObject({
+        id: folder.id,
+      });
+
+      const disabled = await storage.addRootFolder({ path: "/mnt/other", enabled: false });
+      expect(await storage.getAllRootFolders()).toHaveLength(2);
+      const enabledOnly = await storage.getEnabledRootFolders();
+      expect(enabledOnly.map((f) => f.id)).toEqual([folder.id]);
+      expect(enabledOnly.some((f) => f.id === disabled.id)).toBe(false);
+
+      const updated = await storage.updateRootFolder(folder.id, {
+        name: "Renamed",
+        allowDelete: true,
+      });
+      expect(updated?.name).toBe("Renamed");
+      expect(updated?.allowDelete).toBe(true);
+
+      const withHealth = await storage.updateRootFolderHealth(folder.id, {
+        accessible: true,
+        diskFreeBytes: 1000,
+        diskTotalBytes: 2000,
+      });
+      expect(withHealth?.accessible).toBe(true);
+      expect(withHealth?.diskFreeBytes).toBe(1000);
+
+      expect((await storage.getRootFolder(folder.id))?.lastScannedAt).toBeNull();
+      await storage.touchRootFolderScanned(folder.id);
+      expect((await storage.getRootFolder(folder.id))?.lastScannedAt).toBeInstanceOf(Date);
+
+      expect(await storage.removeRootFolder(folder.id)).toBe(true);
+      expect(await storage.getRootFolder(folder.id)).toBeUndefined();
+      expect(await storage.removeRootFolder(folder.id)).toBe(false);
+    });
+
+    it("returns the unchanged row for an empty update instead of throwing", async () => {
+      // Drizzle's update().set({}) throws "No values to set" — updateRootFolder
+      // must short-circuit before that for a PATCH with no recognized fields.
+      const folder = await storage.addRootFolder({ path: "/mnt/empty-update", name: "Original" });
+
+      const result = await storage.updateRootFolder(folder.id, {});
+
+      expect(result).toMatchObject({ id: folder.id, name: "Original" });
+    });
   });
 
   describe("credential encryption at rest", () => {
@@ -348,6 +549,76 @@ describe("DatabaseStorage Integration", () => {
       const [rawRow] = await db.select().from(downloaders).where(eq(downloaders.id, added.id));
       expect(rawRow.username).toMatch(/^enc:v1:/);
       expect(rawRow.password).toMatch(/^enc:v1:/);
+    });
+  });
+
+  describe("Integration API keys", () => {
+    it("enforces the per-user cap and never persists the raw key or hash to the caller", async () => {
+      const userId = randomUUID();
+      await db
+        .insert(users)
+        .values({ id: userId, username: "apikey_test_user", passwordHash: "hash" });
+
+      const created = await storage.addApiKey(
+        { userId, name: "First key", keyHash: "hash-1", prefix: "qsr_aaaaaaaa" },
+        1
+      );
+      expect(created).toMatchObject({ userId, name: "First key", prefix: "qsr_aaaaaaaa" });
+      expect(created).not.toHaveProperty("keyHash");
+
+      // A second key for the same user, with the cap already at 1, must be
+      // rejected -- this is the real, transactional DatabaseStorage path
+      // (not MemStorage), so it also proves the count-then-insert is atomic
+      // within one SQLite transaction rather than two separate round trips.
+      await expect(
+        storage.addApiKey(
+          { userId, name: "Second key", keyHash: "hash-2", prefix: "qsr_bbbbbbbb" },
+          1
+        )
+      ).rejects.toThrow("API key limit reached");
+
+      // The rejected attempt must not have partially inserted a row.
+      const keys = await storage.getApiKeys(userId);
+      expect(keys).toHaveLength(1);
+      expect(keys[0].name).toBe("First key");
+    });
+
+    it("looks a key up by hash and records its last-used time", async () => {
+      const userId = randomUUID();
+      await db
+        .insert(users)
+        .values({ id: userId, username: "apikey_test_user_2", passwordHash: "hash" });
+
+      const created = await storage.addApiKey(
+        { userId, name: "Playnite", keyHash: "a-unique-hash", prefix: "qsr_cccccccc" },
+        25
+      );
+
+      const found = await storage.getApiKeyByHash("a-unique-hash");
+      expect(found?.id).toBe(created.id);
+      expect(found?.lastUsedAt).toBeNull();
+
+      await storage.touchApiKey(created.id);
+      const touched = await storage.getApiKeyByHash("a-unique-hash");
+      expect(touched?.lastUsedAt).toBeInstanceOf(Date);
+    });
+
+    it("only removes a key that belongs to the requesting user", async () => {
+      const ownerId = randomUUID();
+      const otherId = randomUUID();
+      await db.insert(users).values([
+        { id: ownerId, username: "apikey_owner", passwordHash: "hash" },
+        { id: otherId, username: "apikey_other", passwordHash: "hash" },
+      ]);
+
+      const created = await storage.addApiKey(
+        { userId: ownerId, name: "Owned key", keyHash: "owned-hash", prefix: "qsr_dddddddd" },
+        25
+      );
+
+      expect(await storage.removeApiKey(created.id, otherId)).toBe(false);
+      expect(await storage.removeApiKey(created.id, ownerId)).toBe(true);
+      expect(await storage.getApiKeys(ownerId)).toHaveLength(0);
     });
   });
 });

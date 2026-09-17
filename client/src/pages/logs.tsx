@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { copyToClipboard } from "@/lib/utils";
 
 interface LogField {
   key: string;
@@ -56,7 +57,7 @@ const LEVEL_MAP: Record<number, { label: string; className: string }> = {
   60: { label: "FATAL", className: "bg-red-900 text-red-100" },
 };
 
-const MAX_LINES = 2000;
+const MAX_LINES = 5000;
 const ROW_HEIGHT = 32;
 const OVERSCAN_ROWS = 10;
 const DEFAULT_VIEWPORT_HEIGHT = 400;
@@ -488,7 +489,7 @@ export default function LogsPage() {
   const { data: initialData, isLoading } = useQuery<{ lines: string[] }>({
     queryKey: ["/api/logs"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/logs?limit=200");
+      const res = await apiRequest("GET", "/api/logs?limit=1000");
       return res.json();
     },
     staleTime: Infinity,
@@ -593,21 +594,20 @@ export default function LogsPage() {
 
   const copyText = useCallback(
     (text: string, description: string) => {
-      navigator.clipboard
-        .writeText(text)
-        .then(() => {
+      copyToClipboard(text).then((succeeded) => {
+        if (succeeded) {
           toast({
             title: "Copied",
             description,
           });
-        })
-        .catch(() => {
+        } else {
           toast({
             title: "Copy failed",
             description: "Clipboard access denied",
             variant: "destructive",
           });
-        });
+        }
+      });
     },
     [toast]
   );

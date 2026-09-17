@@ -63,7 +63,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available.                                                                      |
 | **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                              |
 | **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](.github/SECURITY.md) for the full process. |
-| **Integrations**            | Deployable on UNRAID and as a Home Assistant add-on. 🚧                                                                                                                       |
+| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, and a Helm chart for Kubernetes. 🚧                                                    |
 | **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                             |
 
 ### Supported Indexers/Downloaders
@@ -80,6 +80,8 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 ## Installation
 
 Docker is the easiest way to deploy Questarr with all dependencies included. Questarr uses a SQLite database which is self-contained in the application container.
+
+**Supported architectures:** released Docker images are published for `linux/amd64` and `linux/arm64`, so Questarr runs on a Raspberry Pi 4/5 with a 64-bit OS, other 64-bit ARM SBCs, and ARM-based NAS boxes as well as on x86 hardware. Docker selects the right architecture automatically — the commands below are identical on every platform. (32-bit ARM, e.g. `armv7`/a 32-bit OS on Raspberry Pi 3 and earlier, is not supported. The [Home Assistant add-on](#home-assistant-add-on) is `amd64`-only.)
 
 ### Option 1: One-liner (Simplest but minimal)
 
@@ -113,6 +115,29 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 3. **Access the application:**
    Open your browser to `http://localhost:5000`
 
+### Proxmox VE (LXC)
+
+<details>
+<summary><b>Deploy as a Proxmox LXC container — no Docker</b></summary>
+
+Run this **on your Proxmox VE host**, as `root`, to create an LXC container with Questarr installed
+and running as a `systemd` service:
+
+```bash
+bash -c "$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-lxc.sh)"
+```
+
+The script picks the next free container ID, downloads a Debian template if needed, creates an
+unprivileged container, builds Questarr from source, and prints the URL to open. Every prompt has a
+default, so you can accept them all and be done in a few minutes.
+
+Update later with `pct exec <ctid> -- update`.
+
+See [docs/PROXMOX.md](docs/PROXMOX.md) for non-interactive installs, sizing guidance, configuration,
+and troubleshooting.
+
+</details>
+
 ### UNRAID
 
 <details>
@@ -132,6 +157,75 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
 
 </details>
 
+### CasaOS
+
+<details>
+<summary><b>Install via Custom Install (AppFile)</b></summary>
+
+1. Open the **App Store** and click **Custom Install**.
+2. Click the **import** icon (top right) and paste this URL:
+   `https://raw.githubusercontent.com/Doezer/Questarr/main/casaos/docker-compose.yml`
+3. Review the mounts — by default `/DATA/AppData/questarr` holds Questarr's data and
+   `/DATA/Downloads` is mounted at `/data` so Questarr can import finished downloads. If you keep
+   that second mount, add a matching entry under **Settings → Path Mappings**.
+4. Click **Install**, then open Questarr from the CasaOS dashboard (port `5000`).
+
+</details>
+
+### Umbrel
+
+<details>
+<summary><b>Install via Community App Store</b></summary>
+
+1. In umbrelOS, open the **App Store**.
+2. Click the **⋮** menu (top right) → **Community App Stores**.
+3. Add this repository URL: `https://github.com/Doezer/Questarr`
+4. Open the **Doezer** store and install **Questarr** (app ID `doezer-questarr`), then open it from
+   your dashboard (`http://umbrel.local:5000`).
+
+</details>
+
+### Cosmos Cloud
+
+<details>
+<summary><b>Install as a ServApp</b></summary>
+
+1. Open **Market Place → Custom Install** (or **Servapps → Add**).
+2. Paste this URL:
+   `https://raw.githubusercontent.com/Doezer/Questarr/main/cosmos/questarr.cosmos-compose.json`
+3. Fill in the install form: **Data folder**, optional **Library folder** (the root your download
+   client writes into, mounted at `/data`), and `PUID`/`PGID`.
+4. Install. Cosmos creates the route `questarr.<your-server-hostname>` and handles HTTPS for you.
+
+</details>
+
+### Kubernetes (Helm)
+
+<details>
+<summary><b>Install with the bundled Helm chart</b></summary>
+
+A Helm chart lives in [`charts/questarr`](charts/questarr). It is not published to a Helm
+repository yet, so install it from a clone:
+
+```bash
+git clone https://github.com/Doezer/Questarr.git
+cd Questarr
+helm install questarr charts/questarr --namespace questarr --create-namespace
+```
+
+Then port-forward (or enable the Ingress) and open the UI:
+
+```bash
+kubectl port-forward -n questarr svc/questarr 5000:5000
+```
+
+Questarr keeps its state in a single SQLite database on a ReadWriteOnce volume, so the
+chart never runs more than one replica. See [`charts/questarr/README.md`](charts/questarr/README.md)
+for the full option reference — persistence, media mounts, secrets, Ingress and
+subdirectory deployments.
+
+</details>
+
 ### Home Assistant Add-on
 
 <details>
@@ -146,6 +240,9 @@ You can install Questarr as a Home Assistant add-on from this repository:
 5. Open `http://<home-assistant-host>:5000` to access the UI.
 
 </details>
+
+All platform definitions live in the repository and share the same mounts and ports — see
+[docs/HOME_SERVER_APPS.md](docs/HOME_SERVER_APPS.md) for details.
 
 ## Screenshots
 
@@ -353,7 +450,7 @@ Based on the [Product Requirements Document](docs/PRD.md), here's what's planned
 - **P1 — Smart Game Backlog**: Track the version of each downloaded game and notify (or auto-download) when a newer release shows up on indexers.
 - **P2 — Direct Download Support**: Add debrid services (Real-Debrid and similar) as a downloader option, no seeding required.
 - **P3 — External Library Sync**: Import owned games from Steam/GOG libraries and local filesystem scans, not just wishlists.
-- **P4 — Integrations with External Tools**: Playnite, RomM, Gameyfin, and a generic webhook for anything not explicitly supported.
+- **P4 — Integrations with External Tools**: ✅ Playnite extension shipped (library sync, request-to-download); RomM, Gameyfin, and a generic webhook for anything not explicitly supported are still planned.
 - **P5 — Indexer Page Links**: A "View on indexer" link on search results and downloads.
 - **P6 — PostgreSQL Support**: Re-introduce PostgreSQL as an optional backend, with SQLite remaining the zero-config default.
 

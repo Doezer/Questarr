@@ -1,9 +1,11 @@
 import { storage } from "./storage.js";
+import { normalizeDownloadHash } from "./download-hash.js";
 import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
+import { resolvePrefs } from "./notification-prefs.js";
 import { DownloaderManager } from "./downloaders.js";
-import { resolveDownloadRelativePath } from "./downloaders/utils.js";
+import { resolveDownloadRelativePath, buildRemoteImportPath } from "./downloaders/utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { searchAllIndexers, filterBlacklistedReleases, type SearchItem } from "./search.js";
@@ -38,6 +40,12 @@ const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 // downloads as owned during the brief SABnzbd queue→history transition window.
 const downloadMissCount = new Map<string, number>();
 const DOWNLOAD_MISS_THRESHOLD = 3;
+
+// Track consecutive unresolved tag-resolution attempts per download
+// so an async qBittorrent add that never resolves doesn't stay
+// "downloading" forever.
+const downloadTagMissCount = new Map<string, number>();
+const ASYNC_TAG_RESOLVE_THRESHOLD = 3;
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interval gates actual sync)
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
@@ -49,48 +57,24 @@ const GAME_UPDATE_TITLE_TO_EVENT: Record<string, NotificationEvent> = {
   "Game Delayed": "gameDelayed",
 };
 
-function resolvePrefs(
-  settings: { notificationPreferences?: string | null } | null | undefined
-): NotificationPreferences {
-  if (!settings?.notificationPreferences) return DEFAULT_NOTIFICATION_PREFERENCES;
-  try {
-    return { ...DEFAULT_NOTIFICATION_PREFERENCES, ...JSON.parse(settings.notificationPreferences) };
-  } catch {
-    igdbLogger.warn(
-      { value: settings.notificationPreferences },
-      "Failed to parse notification preferences, using defaults"
-    );
-    return DEFAULT_NOTIFICATION_PREFERENCES;
-  }
-}
+type DownloadSortBy = "seeders" | "date" | "size" | "priority";
 
-function buildRemoteImportPath(downloadDir: string, name: string): string {
-  const normalizedDir = downloadDir.replace(/[\\/]+$/, "");
-  const normalizedName = name.replace(/^[\\/]+/, "");
-  const lastSegment = normalizedDir.split(/[\\/]/).pop()?.toLowerCase();
-  if (lastSegment && lastSegment === normalizedName.toLowerCase()) {
-    return normalizedDir;
-  }
-  return `${normalizedDir}/${normalizedName}`;
-}
-
-type DownloadSortBy = "seeders" | "date" | "size";
-
-interface AutoSearchRules {
+export interface AutoSearchRules {
   minSeeders: number;
   sortBy: DownloadSortBy;
   visibleCategoriesSet: Set<string>;
 }
 
-interface AutoSearchCategorizedItems {
+export interface AutoSearchCategorizedItems {
   mainItems: SearchItem[];
   updateItems: SearchItem[];
+  packsItems: SearchItem[];
 }
 
 function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   let minSeeders = 0;
   let sortBy: DownloadSortBy = "seeders";
-  let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
+  let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra", "packs"]);
 
   if (downloadRules) {
     const parsed = JSON.parse(downloadRules);
@@ -103,9 +87,11 @@ function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   return { minSeeders, sortBy, visibleCategoriesSet };
 }
 
-function categorizeSearchItems(
+// Exported for unit testing of the sort/filter/category logic in isolation.
+export function categorizeSearchItems(
   items: SearchItem[],
-  rules: AutoSearchRules
+  rules: AutoSearchRules,
+  indexerPriorityMap?: Map<string, number>
 ): AutoSearchCategorizedItems {
   const sortedItems = items
     .filter((item) => {
@@ -118,6 +104,12 @@ function categorizeSearchItems(
       }
       if (rules.sortBy === "date") {
         return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
+      }
+      if (rules.sortBy === "priority") {
+        // Lower priority number = higher-priority indexer, so it sorts first.
+        const aPriority = indexerPriorityMap?.get(a.indexerId) ?? Infinity;
+        const bPriority = indexerPriorityMap?.get(b.indexerId) ?? Infinity;
+        return aPriority - bPriority;
       }
       return (b.size ?? 0) - (a.size ?? 0);
     });
@@ -134,11 +126,13 @@ function categorizeSearchItems(
         acc.mainItems.push(item);
       } else if (category === "update") {
         acc.updateItems.push(item);
+      } else if (category === "packs") {
+        acc.packsItems.push(item);
       }
 
       return acc;
     },
-    { mainItems: [], updateItems: [] }
+    { mainItems: [], updateItems: [], packsItems: [] }
   );
 }
 
@@ -203,7 +197,8 @@ function applyPreferredPlatformFilter(
 
 async function searchAndCategorizeItemsForGame(
   game: Pick<Game, "id" | "title">,
-  downloadRules: string | null
+  downloadRules: string | null,
+  indexerPriorityMap?: Map<string, number>
 ): Promise<AutoSearchCategorizedItems | null> {
   const { items, errors } = await searchAllIndexers({
     query: game.title,
@@ -267,7 +262,7 @@ async function searchAndCategorizeItemsForGame(
     rules = getAutoSearchRules(null);
   }
 
-  return categorizeSearchItems(nonBlacklisted, rules);
+  return categorizeSearchItems(nonBlacklisted, rules, indexerPriorityMap);
 }
 
 export function startCronJobs() {
@@ -353,6 +348,7 @@ async function logClientVersions(): Promise<void> {
   ]);
 }
 
+/** Refreshes tracked game metadata and queues notifications for release changes. */
 export async function checkGameUpdates() {
   igdbLogger.info("Checking for game updates...");
 
@@ -444,7 +440,7 @@ export async function checkGameUpdates() {
     const diffTime = currentReleaseDate.getTime() - storedOriginalDate.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    let newReleaseStatus: "released" | "upcoming" | "delayed" | "tbd" = "upcoming";
+    let newReleaseStatus: "released" | "upcoming" | "delayed" | "tbd";
     const now = new Date();
 
     if (currentReleaseDate <= now) {
@@ -550,6 +546,11 @@ export async function checkDownloadStatus() {
       downloadMissCount.delete(key);
     }
   });
+  downloadTagMissCount.forEach((_, key) => {
+    if (!activeDownloadIds.has(key)) {
+      downloadTagMissCount.delete(key);
+    }
+  });
 
   // Group by downloader
   const downloadsByDownloader = new Map<string, typeof downloadingDownloads>();
@@ -578,6 +579,121 @@ export async function checkDownloadStatus() {
       );
 
       for (const download of downloads) {
+        // Defensive: getDownloadingGameDownloads excludes terminal failed rows,
+        // but a status written after that query ran could still surface one here.
+        // Skip it rather than restarting a new miss cycle. The guard also covers
+        // MemStorage, whose filter is narrower (status === "downloading").
+        if (download.status === "failed" && download.downloadHash.startsWith("questarr-add-")) {
+          continue;
+        }
+        // For async qBittorrent adds, the tracking record may have been created
+        // with the correlation tag as a temporary downloadHash (the real hash
+        // wasn't known upfront). Resolve it now so we can match the torrent.
+        if (download.downloadHash.startsWith("questarr-add-")) {
+          const originalTag = download.downloadHash;
+          let resolvedHash: string | null;
+          try {
+            resolvedHash = await DownloaderManager.findDownloadByTag(downloader, originalTag);
+          } catch (error) {
+            // Auth/transport/API failure — the torrent's visibility is unknown.
+            // Skip this cycle without incrementing the miss counter, otherwise
+            // a client outage would falsely mark the download failed.
+            igdbLogger.warn(
+              { error, downloadId: download.id, tag: originalTag },
+              "Correlation tag lookup failed — skipping this cycle"
+            );
+            continue;
+          }
+          if (resolvedHash) {
+            const outcome = await storage.updateGameDownloadHash(download.id, resolvedHash);
+            // The tag is done with this row either way, so drop any accumulated
+            // misses now instead of leaving the entry resident until the row hits
+            // a terminal state.
+            downloadTagMissCount.delete(download.id);
+            if (outcome === "merged") {
+              // The tag row was dropped because a real-hash row already tracks
+              // this torrent (claim race). The stale object is gone, so stop
+              // here rather than updating ownership or importing a dead id.
+              igdbLogger.info(
+                { downloadId: download.id, tag: originalTag, resolvedHash },
+                "Correlation tag row merged into existing real-hash row — skipping"
+              );
+              continue;
+            }
+            // Normalize to match what storage just persisted, so the in-memory
+            // row doesn't diverge from the DB for the rest of this tick.
+            download.downloadHash = normalizeDownloadHash(resolvedHash);
+            igdbLogger.info(
+              { downloadId: download.id, tag: originalTag, resolvedHash },
+              "Resolved async qBittorrent hash for tracked download"
+            );
+          } else {
+            // Torrent hasn't appeared yet. Bound the retry so an add
+            // that the client silently dropped can't stay "downloading"
+            // forever.
+            const tagMisses = (downloadTagMissCount.get(download.id) ?? 0) + 1;
+            downloadTagMissCount.set(download.id, tagMisses);
+            if (tagMisses >= ASYNC_TAG_RESOLVE_THRESHOLD) {
+              downloadTagMissCount.delete(download.id);
+              await storage.updateGameDownloadStatus(
+                download.id,
+                "failed",
+                "The download client never registered this download."
+              );
+              notifyUser("downloadUpdate", download.gameId);
+              // Mirror the normal error path: reset the game to "wanted"
+              // only when no sibling download for the same game is still
+              // actively downloading.
+              const siblings = await storage.getDownloadsByGameId(download.gameId);
+              const activeStatuses = new Set([
+                "downloading",
+                "paused",
+                "unpacking",
+                "completed_pending_import",
+              ]);
+              const hasActiveSibling = siblings.some(
+                (s) => s.id !== download.id && activeStatuses.has(s.status)
+              );
+              if (!hasActiveSibling) {
+                const failedGame = await storage.getGame(download.gameId);
+                if (failedGame && failedGame.status !== "wanted") {
+                  await storage.updateGameStatus(download.gameId, { status: "wanted" });
+                  igdbLogger.debug(
+                    { gameId: download.gameId, oldStatus: failedGame.status, newStatus: "wanted" },
+                    "Reset game status after async tag resolution failure"
+                  );
+                }
+              }
+              igdbLogger.warn(
+                {
+                  downloadId: download.id,
+                  tag: originalTag,
+                  threshold: ASYNC_TAG_RESOLVE_THRESHOLD,
+                },
+                "Async qBittorrent tag resolution exceeded threshold — marking as failed"
+              );
+              continue;
+            }
+            igdbLogger.debug(
+              { downloadId: download.id, tag: originalTag, tagMisses },
+              "Async qBittorrent download not yet visible — skipping"
+            );
+            continue;
+          }
+        }
+
+        // Skip rows whose import is already in flight — the earlier tick's
+        // processImport() is still extracting (large archives take minutes).
+        // Re-invoking here would start a second extraction into the same
+        // directory and clobber the in-flight one.
+        if (download.status === "unpacking" || download.status === "completed_pending_import") {
+          igdbLogger.debug(
+            { downloadId: download.id, status: download.status },
+            "Skipping download — import already in progress"
+          );
+          continue;
+        }
+
         // Match by hash/ID (handle case sensitivity just in case)
         let remoteDownload = activeDownloadMap.get(download.downloadHash.toLowerCase());
 
@@ -662,6 +778,21 @@ export async function checkDownloadStatus() {
                   { downloadId: download.id, downloadHash: download.downloadHash, downloaderId },
                   "Download completed but no remote path was available for import"
                 );
+                try {
+                  const notification = await storage.addNotification({
+                    type: "warning",
+                    title: "Import needs attention",
+                    message: `"${gameTitle}" finished downloading but the file path could not be resolved from the download client. Check Settings → Path Mappings or trigger the import manually.`,
+                    link: "/downloads",
+                    userId: game?.userId ?? undefined,
+                  });
+                  notifyUser("notification", notification);
+                } catch (notifErr) {
+                  igdbLogger.error(
+                    { notifErr, downloadId: download.id },
+                    "Failed to create path-unavailable notification"
+                  );
+                }
               }
             } else {
               // Update DB - mark as completed
@@ -988,7 +1119,8 @@ export async function checkAutoSearch() {
 
             const searchResult = await searchAndCategorizeItemsForGame(
               game,
-              settings.downloadRules
+              settings.downloadRules,
+              indexerPriorityMap
             );
             if (!searchResult) {
               // No results at all (zero results or all blacklisted) — clear the badge
@@ -1117,14 +1249,16 @@ export async function checkAutoSearch() {
 
             const searchResult = await searchAndCategorizeItemsForGame(
               game,
-              settings.downloadRules
+              settings.downloadRules,
+              indexerPriorityMap
             );
             if (!searchResult) {
               await storage.updateGameSearchResultsAvailable(game.id, false);
               continue;
             }
 
-            const wasUpdateAvailable = game.searchResultsAvailable;
+            const wasUpdateAvailable = game.updateSearchResultsAvailable;
+            const wasPacksAvailable = game.packsSearchResultsAvailable;
 
             const effectivePlatform = resolveGamePlatformPreference(game, preferredPlatform);
             const platformFilteredUpdate = applyPreferredPlatformFilter(
@@ -1138,7 +1272,22 @@ export async function checkAutoSearch() {
             );
             const updateItems = deduplicateByTitle(groupFilteredUpdate, indexerPriorityMap);
 
-            await storage.updateGameSearchResultsAvailable(game.id, updateItems.length > 0);
+            // Packs/add-ons are content for owned games, surfaced like updates.
+            const platformFilteredPacks = applyPreferredPlatformFilter(
+              searchResult.packsItems,
+              preferredPlatform
+            );
+            const groupFilteredPacks = applyPreferredGroupsFilter(
+              platformFilteredPacks,
+              preferredGroups,
+              settings.filterByPreferredGroups ?? false
+            );
+            const packsItems = deduplicateByTitle(groupFilteredPacks, indexerPriorityMap);
+
+            await storage.updateGameSearchResultsByCategory(game.id, {
+              updates: updateItems.length > 0,
+              packs: packsItems.length > 0,
+            });
 
             if (updateItems.length > 0 && !wasUpdateAvailable && prefs.gameUpdates.inApp) {
               const notification = await storage.addNotification({
@@ -1146,6 +1295,18 @@ export async function checkAutoSearch() {
                 type: "info",
                 title: "Game Updates Available",
                 message: `${updateItems.length} update(s) found for ${game.title}`,
+                link: `modal:game:${game.id}`,
+              });
+              notifyUser("notification", notification);
+              if (prefs.gameUpdates.apprise) appriseClient.send(notification);
+            }
+
+            if (packsItems.length > 0 && !wasPacksAvailable && prefs.gameUpdates.inApp) {
+              const notification = await storage.addNotification({
+                userId,
+                type: "info",
+                title: "Game Packs Available",
+                message: `${packsItems.length} pack/add-on result(s) found for ${game.title}`,
                 link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification);
@@ -1410,6 +1571,7 @@ async function addNewSteamWishlistGames(
       screenshots: formatted.screenshots as string[],
       source: "steam",
       hidden: false,
+      releaseStatus: formatted.isReleased ? "released" : undefined,
     });
     addedGames.push({
       title: formatted.title as string,

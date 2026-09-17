@@ -12,6 +12,13 @@ import semver from "semver";
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 const overrides = pkg.overrides || {};
 
+// Overrides that are necessary for feature support (not just bug patches) and
+// may look "removable" because they affect peer dependencies or optional ranges.
+// Once the upstream package officially supports the feature, these can be removed.
+const necessaryFeatureOverrides = new Set([
+  "eslint-plugin-react -> eslint", // ESLint v10 support (eslint-plugin-react@7 doesn't officially support it yet)
+]);
+
 function readManifest(dirPath) {
   const manifestPath = path.join(dirPath, "package.json");
   if (!existsSync(manifestPath)) return null;
@@ -86,6 +93,13 @@ let anyRemovable = false;
 for (const { pkgName, safeRange, parent } of entries) {
   const label = parent ? `${parent} -> ${pkgName}` : pkgName;
   const safeMin = semver.minVersion(safeRange);
+
+  // Skip removability check for necessary feature overrides
+  if (necessaryFeatureOverrides.has(label)) {
+    console.log(`[necessary] ${label} (forced ${safeRange}): feature override documented in docs/DEPENDENCIES.md`);
+    continue;
+  }
+
   const consumers = parent ? findScopedConsumer(parent, pkgName) : findGlobalConsumers(pkgName);
 
   if (consumers.length === 0) {

@@ -72,6 +72,10 @@ export const userSettings = sqliteTable("user_settings", {
   autoDeleteAfterImport: integer("auto_delete_after_import", { mode: "boolean" })
     .notNull()
     .default(false),
+  sortExtras: integer("sort_extras", { mode: "boolean" }).notNull().default(false),
+  // Telemetry: opt-in, off by default. When enabled, automatically-detected server
+  // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
+  telemetryEnabled: integer("telemetry_enabled", { mode: "boolean" }).notNull().default(false),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -116,7 +120,16 @@ export interface ImportConfig {
   minFileSize: number;
   libraryRoot: string;
   autoDeleteAfterImport: boolean;
+  sortExtras: boolean;
 }
+
+// gameDownloads.status value for a download whose linked game record can't be
+// found. Kept as a shared constant (rather than the literal repeated across
+// server and client) since it's the join key between ImportManager, the
+// storage layer's getUnlinkedImportReviews/relinkGameDownload, the /link
+// route, and the pending-imports UI that decides whether to open
+// LinkGameModal or the regular ImportReviewModal.
+export const GAME_LINK_REQUIRED_STATUS = "game_link_required";
 
 export const IMPORT_TRANSFER_MODES = ["move", "copy", "hardlink", "symlink"] as const;
 
@@ -135,6 +148,7 @@ export const importConfigSchema = z.object({
   minFileSize: z.number().int().min(0),
   libraryRoot: z.string().min(1),
   autoDeleteAfterImport: z.boolean(),
+  sortExtras: z.boolean(),
 });
 
 export const systemConfig = sqliteTable("system_config", {
@@ -181,6 +195,13 @@ export const games = sqliteTable("games", {
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
+  searchResultsAvailableAt: integer("search_results_available_at", { mode: "timestamp_ms" }),
+  updateSearchResultsAvailable: integer("update_search_results_available", { mode: "boolean" })
+    .default(false)
+    .notNull(),
+  packsSearchResultsAvailable: integer("packs_search_results_available", { mode: "boolean" })
+    .default(false)
+    .notNull(),
   addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -198,6 +219,12 @@ export const indexers = sqliteTable("indexers", {
   categories: text("categories", { mode: "json" }).$type<string[]>().default([]),
   rssEnabled: integer("rss_enabled", { mode: "boolean" }).notNull().default(true),
   autoSearchEnabled: integer("auto_search_enabled", { mode: "boolean" }).notNull().default(true),
+  // Opt-in per-indexer bypass allowing API keys to be sent over plain HTTP.
+  // Off by default: API keys must not travel in clear text unless the user
+  // explicitly acknowledges the risk (e.g. an indexer on a trusted LAN that
+  // does not support TLS). When this flag is false and the indexer URL uses
+  // HTTP, API keys are omitted from every outbound request.
+  allowInsecureLan: integer("allow_insecure_lan", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -214,6 +241,19 @@ export const downloaders = sqliteTable("downloaders", {
   port: integer("port"),
   useSsl: integer("use_ssl", { mode: "boolean" }).default(false),
   urlPath: text("url_path"),
+  // Opt-in per-downloader bypass for TLS certificate validation. Left off by
+  // default: a hung/failed TLS handshake should surface as an error, not
+  // silently fall back to an insecure connection unless the user explicitly
+  // trusts this downloader's self-signed certificate.
+  allowSelfSignedCertificate: integer("allow_self_signed_certificate", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  // Opt-in per-downloader bypass allowing credentials to be sent over plain
+  // HTTP. Off by default: passwords and API keys must not travel in clear text
+  // unless the user explicitly acknowledges the risk (e.g. a download client on
+  // a trusted LAN that does not support TLS). Requires `useSsl` to be false
+  // (otherwise the connection is already encrypted and this flag is irrelevant).
+  allowInsecureLan: integer("allow_insecure_lan", { mode: "boolean" }).notNull().default(false),
   username: text("username"),
   password: text("password"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
@@ -463,7 +503,7 @@ export const claimDownloadRequestSchema = z.object({
   downloadHash: z.string().min(1),
   downloadTitle: z.string().min(1),
   currentStatus: z.string().min(1),
-  category: z.enum(["main", "update", "dlc", "extra"]),
+  category: z.enum(["main", "update", "dlc", "extra", "packs"]),
   gameId: z.string().optional(),
   newGame: z
     .object({
@@ -492,10 +532,10 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
 // Download rules schema for auto-download filtering
 export const downloadRulesSchema = z.object({
   minSeeders: z.number().int().min(0).default(0),
-  sortBy: z.enum(["seeders", "date", "size"]).default("seeders"),
+  sortBy: z.enum(["seeders", "date", "size", "priority"]).default("seeders"),
   visibleCategories: z
-    .array(z.enum(["main", "update", "dlc", "extra"]))
-    .default(["main", "update", "dlc", "extra"]),
+    .array(z.enum(["main", "update", "dlc", "extra", "packs"]))
+    .default(["main", "update", "dlc", "extra", "packs"]),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;
@@ -544,6 +584,9 @@ export const updateUserSettingsSchema = createInsertSchema(userSettings)
     updatedAt: true,
   })
   .partial()
+  .extend({
+    igdbRateLimitPerSecond: z.number().int().min(1).max(4).optional(),
+  })
   .superRefine(validateUserSettingsEnums);
 
 // Shared password policy: minimum length plus a mix of letters and digits,
@@ -613,7 +656,8 @@ export type NotificationEvent =
   | "multipleResults"
   | "gameUpdates"
   | "xrelRelease"
-  | "steamSync";
+  | "steamSync"
+  | "errorDetected";
 
 export type NotificationPreferences = Record<
   NotificationEvent,
@@ -631,6 +675,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   gameUpdates: { inApp: true, apprise: true },
   xrelRelease: { inApp: true, apprise: true },
   steamSync: { inApp: true, apprise: false },
+  errorDetected: { inApp: true, apprise: false },
 };
 
 export interface DownloadSummary {
@@ -638,6 +683,21 @@ export interface DownloadSummary {
   count: number;
   downloadTypes: ("torrent" | "usenet")[];
   hasUpdateDownload: boolean;
+}
+
+// Lightweight stats surfaced via /api/status for external dashboards (Homepage, Homarr, etc.)
+export interface DashboardStatus {
+  totalGames: number;
+  pendingWishlist: number;
+  activeDownloads: number;
+  recentImports: {
+    count: number;
+    items: Array<{
+      gameId: string;
+      title: string;
+      completedAt: string | null;
+    }>;
+  };
 }
 
 // Application configuration type
@@ -878,3 +938,169 @@ export type InsertImportTask = (typeof insertImportTaskSchema)["_output"];
 
 export type ImportTaskItem = typeof importTaskItems.$inferSelect;
 export type InsertImportTaskItem = (typeof insertImportTaskItemSchema)["_output"];
+
+export const gameFileCategorySchema = z.enum(["main", "dlc", "update", "extra"]);
+export type GameFileCategory = z.infer<typeof gameFileCategorySchema>;
+
+export const gameFiles = sqliteTable(
+  "game_files",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    downloadId: text("download_id").references(() => gameDownloads.id, { onDelete: "set null" }),
+    originalName: text("original_name").notNull(),
+    storedName: text("stored_name").notNull(),
+    category: text("category").notNull().$type<GameFileCategory>(),
+    filePath: text("file_path").notNull(),
+    fileSize: integer("file_size"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [
+    index("game_files_game_id_idx").on(t.gameId),
+    index("game_files_download_id_idx").on(t.downloadId),
+  ]
+);
+
+export const insertGameFileSchema = createInsertSchema(gameFiles, {
+  category: gameFileCategorySchema,
+}).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type GameFile = typeof gameFiles.$inferSelect;
+export type InsertGameFile = (typeof insertGameFileSchema)["_output"];
+
+// Additional folders scanned for games already present on disk outside the
+// configured library root (e.g. an older library, a secondary drive). Purely
+// a discovery source — importing still goes through the normal library root.
+export const rootFolders = sqliteTable("root_folders", {
+  id: text("id").primaryKey(),
+  path: text("path").notNull().unique(),
+  name: text("name"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  // Opt-in, off by default: whether Questarr's normal "delete game + files"
+  // flow is allowed to remove files under this folder. Discovery on its own
+  // never touches disk; this only affects the explicit delete flow, and only
+  // for games whose libraryPath resolves inside this specific folder.
+  allowDelete: integer("allow_delete", { mode: "boolean" }).notNull().default(false),
+  accessible: integer("accessible", { mode: "boolean" }),
+  diskFreeBytes: integer("disk_free_bytes"),
+  diskTotalBytes: integer("disk_total_bytes"),
+  lastScannedAt: integer("last_scanned_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+});
+
+export const insertRootFolderSchema = createInsertSchema(rootFolders, {
+  path: (schema) => schema.trim().min(1, "Path is required"),
+  name: (schema) => schema.trim().max(200).optional(),
+}).omit({
+  id: true,
+  accessible: true,
+  diskFreeBytes: true,
+  diskTotalBytes: true,
+  lastScannedAt: true,
+  createdAt: true,
+});
+
+export const updateRootFolderSchema = z.object({
+  path: z.string().trim().min(1).optional(),
+  name: z.string().trim().max(200).nullable().optional(),
+  enabled: z.boolean().optional(),
+  allowDelete: z.boolean().optional(),
+});
+
+export type RootFolder = typeof rootFolders.$inferSelect;
+export type InsertRootFolder = (typeof insertRootFolderSchema)["_output"];
+export type UpdateRootFolder = z.infer<typeof updateRootFolderSchema>;
+
+// A file discovered by scanning a game's library folder on disk, as returned by
+// GET /api/games/:gameId/files. Distinct from GameFile (a persisted game_files row):
+// this reflects the live filesystem scan, not an imported/tracked file. The scan only
+// walks into subdirectories to find files within them — it never lists a directory
+// itself as an entry.
+export interface ScannedGameFile {
+  name: string;
+  path: string;
+  category: GameFileCategory;
+  size: number;
+}
+
+// Response contract for GET/PUT /api/downloaders/debug-logging, shared so the
+// client can validate the payload at runtime instead of trusting a local
+// TypeScript annotation.
+export const downloaderDebugLoggingResponseSchema = z.object({
+  enabled: z.boolean(),
+});
+export type DownloaderDebugLoggingResponse = z.infer<typeof downloaderDebugLoggingResponseSchema>;
+
+// ── Integration API keys ─────────────────────────────────────────────────────
+// Long-lived credentials for machine clients that cannot run the interactive
+// login flow (the Playnite extension, scripts, other self-hosted tools). Only a
+// SHA-256 hash of the key is stored, so a database leak never yields a usable
+// credential; the raw key is shown to the user once, at creation.
+export const apiKeys = sqliteTable(
+  "api_keys",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    keyHash: text("key_hash").notNull(),
+    // Leading characters of the raw key, kept so the UI can tell two keys apart
+    // without being able to reconstruct either of them.
+    prefix: text("prefix").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    uniqueIndex("api_keys_key_hash_idx").on(t.keyHash),
+    index("api_keys_user_id_idx").on(t.userId),
+  ]
+);
+
+export const insertApiKeySchema = createInsertSchema(apiKeys, {
+  name: (schema) => schema.trim().min(1, "Name is required").max(100, "Name is too long"),
+}).omit({
+  id: true,
+  createdAt: true,
+  lastUsedAt: true,
+});
+
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type InsertApiKey = (typeof insertApiKeySchema)["_output"];
+
+// An API key as returned to the client: never includes the hash.
+export type ApiKeyPublic = Omit<ApiKey, "keyHash">;
+
+// Response contracts for the /api/api-keys endpoints, shared so the client
+// can validate the payload at runtime instead of trusting a local TypeScript
+// annotation. Timestamps come back as JSON (ISO strings or null), not the
+// `Date` that ApiKey/ApiKeyPublic type as server-side.
+export const apiKeyPublicResponseSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  name: z.string(),
+  prefix: z.string(),
+  createdAt: z.string().nullable(),
+  lastUsedAt: z.string().nullable(),
+});
+export type ApiKeyPublicResponse = z.infer<typeof apiKeyPublicResponseSchema>;
+
+export const apiKeyListResponseSchema = z.array(apiKeyPublicResponseSchema);
+
+// POST /api/api-keys additionally returns the raw key — shown to the user
+// exactly once, since the server only ever persists its hash.
+export const apiKeyCreatedResponseSchema = apiKeyPublicResponseSchema.extend({
+  key: z.string(),
+});
+export type ApiKeyCreatedResponse = z.infer<typeof apiKeyCreatedResponseSchema>;

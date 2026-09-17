@@ -3,6 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Downloader } from "../../shared/schema.js";
 import { NZBGetClient } from "../downloaders/nzbget.js";
 
+// Exposes NZBGetClient's private makeXMLRPCRequest with its real signature for
+// spying, rather than casting through the untyped `typeof Function` at each call site.
+interface NZBGetClientInternals {
+  makeXMLRPCRequest: (
+    method: string,
+    params?: unknown[],
+    requireHttps?: boolean
+  ) => Promise<unknown>;
+}
+
 vi.mock("../logger.js", () => ({
   downloadersLogger: {
     debug: vi.fn(),
@@ -40,6 +50,8 @@ const createDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
     removeCompleted: false,
     postImportCategory: null,
     settings: null,
+    allowSelfSignedCertificate: false,
+    allowInsecureLan: true,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -270,15 +282,230 @@ describe("NZBGet remaining coverage", () => {
   it("covers detail and queue error fallbacks", async () => {
     const client = new NZBGetClient(createDownloader());
     const statusSpy = vi.spyOn(client, "getDownloadStatus");
-    const rpcSpy = vi.spyOn(
-      client as unknown as { makeXMLRPCRequest: typeof Function },
-      "makeXMLRPCRequest"
-    );
+    const rpcSpy = vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
 
     statusSpy.mockResolvedValueOnce(null);
     await expect(client.getDownloadDetails("missing")).resolves.toBeNull();
 
     rpcSpy.mockRejectedValueOnce(new Error("queue failed"));
     await expect(client.getAllDownloads()).resolves.toEqual([]);
+  });
+
+  it("getDownloadDetails populates downloadDir from history's DestDir for completed downloads", async () => {
+    const client = new NZBGetClient(createDownloader());
+    const rpcSpy = vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
+
+    // getDownloadStatus: not in the live queue, falls back to history.
+    rpcSpy.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        NZBID: 9,
+        Name: "Finished Game",
+        Status: "SUCCESS/ALL",
+        FileSizeMB: 20,
+        Category: "games",
+        DownloadTimeSec: 90,
+        ParStatus: "NONE",
+        UnpackStatus: "NONE",
+        FailedArticles: 0,
+        DeleteStatus: "NONE",
+        DestDir: "/downloads/nzbget/Questarr/Finished Game",
+      },
+    ]);
+    // The subsequent getHistoryDestDir call for the same completed download.
+    rpcSpy.mockResolvedValueOnce([
+      {
+        NZBID: 9,
+        Name: "Finished Game",
+        Status: "SUCCESS/ALL",
+        FileSizeMB: 20,
+        Category: "games",
+        DownloadTimeSec: 90,
+        ParStatus: "NONE",
+        UnpackStatus: "NONE",
+        FailedArticles: 0,
+        DeleteStatus: "NONE",
+        DestDir: "/downloads/nzbget/Questarr/Finished Game",
+      },
+    ]);
+
+    await expect(client.getDownloadDetails("9")).resolves.toMatchObject({
+      status: "completed",
+      downloadDir: "/downloads/nzbget/Questarr/Finished Game",
+    });
+  });
+
+  it("getDownloadDetails leaves downloadDir unset for downloads still in progress", async () => {
+    const client = new NZBGetClient(createDownloader());
+    const rpcSpy = vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
+
+    rpcSpy.mockResolvedValueOnce([
+      {
+        NZBID: 10,
+        NZBName: "In Progress Game",
+        Status: "DOWNLOADING",
+        FileSizeMB: 10,
+        RemainingSizeMB: 5,
+        DownloadedSizeMB: 5,
+        Category: "games",
+        DownloadRate: 2,
+        PostInfoText: "",
+        PostStageProgress: 0,
+        PostStageTimeSec: 0,
+      },
+    ]);
+
+    const details = await client.getDownloadDetails("10");
+    expect(details).toMatchObject({ status: "downloading" });
+    expect(details?.downloadDir).toBeUndefined();
+    // No extra history round-trip should happen for a non-completed download.
+    expect(rpcSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes the request password, falling back to the downloader's default archive password", async () => {
+    vi.mocked(safeFetch).mockResolvedValue({
+      ok: true,
+      text: async () => "nzb-content",
+    } as Response);
+
+    // Asserts a single addDownload call's PPParameters against the expected password,
+    // reusing one client/spy across sequential calls when reuseSpy is passed.
+    const expectPasswordInRequest = async (
+      client: NZBGetClient,
+      request: Parameters<NZBGetClient["addDownload"]>[0],
+      expectedPassword: string | undefined,
+      reuseSpy?: ReturnType<typeof vi.spyOn>
+    ) => {
+      const spy =
+        reuseSpy ?? vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
+      spy.mockResolvedValueOnce(42);
+      await client.addDownload(request);
+      const lastCall = spy.mock.calls.at(-1);
+      const ppParameters = lastCall?.[1]?.at(-1);
+      expect(ppParameters).toEqual(
+        expectedPassword ? [{ Name: "*Unpack:Password", Value: expectedPassword }] : []
+      );
+      // A password-bearing append call must also require HTTPS on every hop,
+      // rejecting a redirect that would resend it over plaintext.
+      expect(lastCall?.[2]).toBe(!!expectedPassword);
+      return spy;
+    };
+
+    // Per-request password wins over the downloader's default. Uses SSL so the
+    // password isn't blocked by the plain-HTTP guard tested separately below.
+    const withDefault = new NZBGetClient(
+      createDownloader({ useSsl: true, settings: JSON.stringify({ archivePassword: "404" }) })
+    );
+    const withDefaultSpy = await expectPasswordInRequest(
+      withDefault,
+      { url: "http://indexer.local/g4u.nzb", title: "G4U Release", password: "override" },
+      "override"
+    );
+    // Falls back to the downloader's default archive password when none is given per-request.
+    await expectPasswordInRequest(
+      withDefault,
+      { url: "http://indexer.local/g4u.nzb", title: "G4U Release" },
+      "404",
+      withDefaultSpy
+    );
+
+    // No password configured anywhere — PPParameters stays empty.
+    await expectPasswordInRequest(
+      new NZBGetClient(createDownloader()),
+      { url: "http://indexer.local/plain.nzb", title: "Plain NZB" },
+      undefined
+    );
+
+    // Malformed settings JSON is tolerated and treated as no default password.
+    await expectPasswordInRequest(
+      new NZBGetClient(createDownloader({ settings: "not-json" })),
+      { url: "http://indexer.local/plain.nzb", title: "Plain NZB" },
+      undefined
+    );
+  });
+
+  it("refuses to send an archive password over a plain-HTTP NZBGet connection", async () => {
+    vi.mocked(safeFetch).mockResolvedValue({
+      ok: true,
+      text: async () => "nzb-content",
+    } as Response);
+
+    const client = new NZBGetClient(createDownloader({ useSsl: false }));
+    const rpcSpy = vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
+
+    const result = await client.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+
+    expect(result).toEqual({
+      success: false,
+      message:
+        "Refusing to send the archive password over an insecure connection. Enable SSL for this NZBGet downloader, or remove the archive password.",
+    });
+    expect(rpcSpy).not.toHaveBeenCalled();
+  });
+
+  it("redacts the archive password in PPParameters debug logging", async () => {
+    const { downloadersLogger } = await import("../logger.js");
+    vi.mocked(safeFetch).mockImplementation(async (url: string) => {
+      if (url.includes("g4u.nzb")) {
+        return { ok: true, text: async () => "nzb-content" } as Response;
+      }
+      return {
+        ok: true,
+        text: async () =>
+          `<?xml version="1.0"?>
+           <methodResponse>
+             <params>
+               <param><value><int>99</int></value></param>
+             </params>
+           </methodResponse>`,
+      } as Response;
+    });
+
+    const client = new NZBGetClient(createDownloader({ useSsl: true }));
+    await client.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+
+    const debugCalls = vi.mocked(downloadersLogger.debug).mock.calls;
+    const rpcLogCall = debugCalls.find(
+      ([, message]) => message === "Making NZBGet XML-RPC request"
+    );
+    expect(rpcLogCall).toBeDefined();
+    expect(JSON.stringify(rpcLogCall)).not.toContain("404");
+    const loggedParams = (rpcLogCall?.[0] as { params: unknown[] }).params;
+    expect(loggedParams.at(-1)).toEqual([{ Name: "*Unpack:Password", Value: "<redacted>" }]);
+  });
+
+  it("getHistoryDestDir logs and returns undefined when the history lookup fails", async () => {
+    const client = new NZBGetClient(createDownloader());
+    const rpcSpy = vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
+
+    rpcSpy
+      .mockResolvedValueOnce([]) // getDownloadStatus: not in queue
+      .mockResolvedValueOnce([
+        {
+          NZBID: 11,
+          Name: "Finished Game",
+          Status: "SUCCESS/ALL",
+          FileSizeMB: 20,
+          Category: "games",
+          DownloadTimeSec: 90,
+          ParStatus: "NONE",
+          UnpackStatus: "NONE",
+          FailedArticles: 0,
+          DeleteStatus: "NONE",
+          DestDir: "/downloads/nzbget/Questarr/Finished Game",
+        },
+      ]) // getFromHistory
+      .mockRejectedValueOnce(new Error("history failed")); // getHistoryDestDir
+
+    const details = await client.getDownloadDetails("11");
+    expect(details).toMatchObject({ status: "completed" });
+    expect(details?.downloadDir).toBeUndefined();
   });
 });

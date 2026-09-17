@@ -22,10 +22,17 @@ import {
   createSocketMock,
 } from "./fixtures/common-route-mocks.js";
 import { registerRoutes, parseCategories } from "../routes.js";
+import { matchUnmatchedFolder } from "../library-scanner.js";
 import { storage } from "../storage.js";
 import { searchAllIndexers } from "../search.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
-import { type Game, type User, type Indexer, type Downloader } from "../../shared/schema.js";
+import {
+  type Game,
+  type User,
+  type Indexer,
+  type Downloader,
+  type RootFolder,
+} from "../../shared/schema.js";
 import { DownloaderManager } from "../downloaders.js";
 import { torznabClient } from "../torznab.js";
 import { newznabClient } from "../newznab.js";
@@ -55,6 +62,28 @@ vi.mock("../search.js", () => createSearchMock());
 vi.mock("fs-extra", () => ({
   default: { remove: vi.fn(), pathExists: vi.fn(), readdir: vi.fn() },
 }));
+// Real isWithinDeletableRootFolder (pure path logic, no fs access) is used by the
+// game-delete tests above; only probeRootFolder — which does real fs.stat/statfs —
+// needs stubbing so the root-folder create/update route tests below don't depend
+// on paths that actually exist on the test runner's filesystem.
+vi.mock("../root-folders.js", async () => {
+  const actual = await vi.importActual<typeof import("../root-folders.js")>("../root-folders.js");
+  return {
+    ...actual,
+    probeRootFolder: vi.fn().mockResolvedValue({
+      accessible: true,
+      diskFreeBytes: 1000,
+      diskTotalBytes: 2000,
+    }),
+  };
+});
+vi.mock("../library-scanner.js", () => ({
+  scanRootFolderById: vi.fn().mockResolvedValue(undefined),
+  scanAllEnabledRootFolders: vi.fn().mockResolvedValue(undefined),
+  getAllScanProgress: vi.fn().mockReturnValue([]),
+  getAllUnmatched: vi.fn().mockReturnValue([]),
+  matchUnmatchedFolder: vi.fn(),
+}));
 
 // Neutralize the IP-keyed rate limiters so cumulative requests across this large
 // test file don't trip a shared 30-req/min counter; keep all other exports
@@ -72,6 +101,22 @@ vi.mock("../middleware.js", async () => {
 vi.mock("../config.js", () => ({ config: mockConfig }));
 vi.mock("../config-loader.js", () => ({ configLoader: createConfigLoaderMock() }));
 vi.mock("../socket.js", () => createSocketMock());
+
+function makeRootFolder(overrides: Partial<RootFolder> = {}): RootFolder {
+  return {
+    id: "rf-1",
+    path: "/mnt/old-library",
+    name: null,
+    enabled: true,
+    allowDelete: false,
+    accessible: true,
+    diskFreeBytes: null,
+    diskTotalBytes: null,
+    lastScannedAt: null,
+    createdAt: new Date("2024-01-01T00:00:00.000Z"),
+    ...overrides,
+  };
+}
 
 describe("API Routes - Extended Coverage", () => {
   let app: express.Express;
@@ -437,6 +482,40 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  // ─── Dashboard status ───
+  describe("GET /api/status", () => {
+    it("returns dashboard stats for the authenticated user with a no-store cache header", async () => {
+      const dashboardStatus = {
+        totalGames: 12,
+        pendingWishlist: 3,
+        activeDownloads: 2,
+        recentImports: {
+          count: 1,
+          items: [
+            { gameId: "game-1", title: "Some Game", completedAt: "2026-01-01T00:00:00.000Z" },
+          ],
+        },
+      };
+      vi.mocked(storage.getDashboardStatus).mockResolvedValue(dashboardStatus);
+
+      const res = await request(app).get("/api/status");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(dashboardStatus);
+      expect(res.headers["cache-control"]).toBe("no-store");
+      expect(storage.getDashboardStatus).toHaveBeenCalledWith("user-1");
+    });
+
+    it("returns 500 when the storage layer throws", async () => {
+      vi.mocked(storage.getDashboardStatus).mockRejectedValue(new Error("boom"));
+
+      const res = await request(app).get("/api/status");
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBeTruthy();
+    });
+  });
+
   // ─── Game routes ───
   describe("GET /api/games", () => {
     it("should return user games", async () => {
@@ -488,6 +567,7 @@ describe("API Routes - Extended Coverage", () => {
   });
 
   describe("POST /api/games", () => {
+    afterEach(() => vi.useRealTimers());
     it("should add a new game", async () => {
       const newGame = { title: "New Game", igdbId: 12345, platform: "PC" };
       const savedGame = { ...newGame, id: "game-new", userId: "user-1" };
@@ -498,6 +578,113 @@ describe("API Routes - Extended Coverage", () => {
       const response = await request(app).post("/api/games").send(newGame);
       expect(response.status).toBe(201);
       expect(response.body).toEqual(savedGame);
+    });
+
+    it("marks an already-released game as released when adding it", async () => {
+      const newGame = {
+        title: "Previously Released Game",
+        igdbId: 12346,
+        platform: "PC",
+        releaseDate: "2020-01-01",
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-released",
+        userId: "user-1",
+        releaseStatus: "released",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "released" })
+      );
+    });
+
+    it("does not mark a game releasing in the future as released", async () => {
+      vi.useFakeTimers({ now: new Date("2026-08-08T12:00:00Z") });
+      const futureDate = "2026-08-09";
+
+      const newGame = {
+        title: "Future Game",
+        igdbId: 12347,
+        platform: "PC",
+        releaseDate: futureDate,
+        releaseStatus: "upcoming",
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-future",
+        userId: "user-1",
+        releaseStatus: "upcoming",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "upcoming" })
+      );
+    });
+
+    it("does not force a release status when releaseDate is omitted", async () => {
+      const newGame = {
+        title: "Undated Game",
+        igdbId: 12348,
+        platform: "PC",
+        releaseStatus: "upcoming",
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-undated",
+        userId: "user-1",
+        releaseStatus: "upcoming",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "upcoming" })
+      );
+    });
+
+    it("marks a game releasing today as released in any timezone", async () => {
+      vi.useFakeTimers({ now: new Date("2026-08-08T12:00:00Z") });
+      const today = "2026-08-08";
+
+      const newGame = {
+        title: "Releasing Today",
+        igdbId: 12349,
+        platform: "PC",
+        releaseDate: today,
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-today",
+        userId: "user-1",
+        releaseStatus: "released",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "released" })
+      );
     });
 
     it("should prevent duplicate games", async () => {
@@ -802,6 +989,61 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.body).toEqual({
         success: true,
         fileDeletion: { deleted: false, reason: "outside-library-root", path: "/etc/passwd" },
+      });
+      expect(fsExtra.remove).not.toHaveBeenCalled();
+    });
+
+    it("should delete library files outside the library root when their root folder has allowDelete on", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/mnt/old-library/MyGame",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+        makeRootFolder({ path: "/mnt/old-library", allowDelete: true }),
+      ]);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+      vi.mocked(fsExtra.remove).mockResolvedValue(undefined as never);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        fileDeletion: { deleted: true, path: "/mnt/old-library/MyGame" },
+      });
+      expect(fsExtra.remove).toHaveBeenCalledWith(path.resolve("/mnt/old-library/MyGame"));
+    });
+
+    it("should still skip deleting library files outside the library root when their root folder has allowDelete off", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/mnt/old-library/MyGame",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+        makeRootFolder({ path: "/mnt/old-library", allowDelete: false }),
+      ]);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        fileDeletion: {
+          deleted: false,
+          reason: "outside-library-root",
+          path: "/mnt/old-library/MyGame",
+        },
       });
       expect(fsExtra.remove).not.toHaveBeenCalled();
     });
@@ -1849,6 +2091,42 @@ describe("API Routes - Extended Coverage", () => {
         expect(response.status).toBe(400);
         expect(response.body.error).toBe("Invalid settings data");
       });
+
+      it("should accept igdbRateLimitPerSecond at boundary value 1", async () => {
+        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as any);
+        vi.mocked(storage.updateUserSettings).mockResolvedValue({ id: "s-1" } as any);
+
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 1 });
+        expect(response.status).toBe(200);
+      });
+
+      it("should accept igdbRateLimitPerSecond at boundary value 4", async () => {
+        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as any);
+        vi.mocked(storage.updateUserSettings).mockResolvedValue({ id: "s-1" } as any);
+
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 4 });
+        expect(response.status).toBe(200);
+      });
+
+      it("should reject igdbRateLimitPerSecond below 1", async () => {
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 0 });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid settings data");
+      });
+
+      it("should reject igdbRateLimitPerSecond above 4", async () => {
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 5 });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid settings data");
+      });
     });
   });
 
@@ -1992,6 +2270,29 @@ describe("API Routes - Extended Coverage", () => {
           type: "synology",
           url: "https://example.com",
         })
+      );
+    });
+
+    it("should reject a non-boolean allowSelfSignedCertificate", async () => {
+      const response = await request(app).post("/api/downloaders/test").send({
+        type: "synology",
+        url: "https://example.com",
+        allowSelfSignedCertificate: "false",
+      });
+
+      expect(response.status).toBe(400);
+      expect(DownloaderManager.testDownloader).not.toHaveBeenCalled();
+    });
+
+    it("should accept an omitted allowSelfSignedCertificate and default it to false", async () => {
+      const response = await request(app).post("/api/downloaders/test").send({
+        type: "synology",
+        url: "https://example.com",
+      });
+
+      expect(response.status).toBe(200);
+      expect(DownloaderManager.testDownloader).toHaveBeenCalledWith(
+        expect.objectContaining({ allowSelfSignedCertificate: false })
       );
     });
   });
@@ -2592,6 +2893,103 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  // ─── Downloader Debug Logging ───
+  describe("Downloader debug logging settings", () => {
+    afterEach(async () => {
+      const { setCachedDownloaderDebugLogging } = await import("../downloaders/debug-logging.js");
+      setCachedDownloaderDebugLogging(false);
+    });
+
+    describe("GET /api/downloaders/debug-logging", () => {
+      it("should return the current in-memory toggle state", async () => {
+        const { setCachedDownloaderDebugLogging } = await import("../downloaders/debug-logging.js");
+        setCachedDownloaderDebugLogging(true);
+
+        const response = await request(app).get("/api/downloaders/debug-logging");
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ enabled: true });
+      });
+
+      it("should default to disabled", async () => {
+        const response = await request(app).get("/api/downloaders/debug-logging");
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ enabled: false });
+      });
+
+      it("should return 500 when reading the setting throws", async () => {
+        const debugLogging = await import("../downloaders/debug-logging.js");
+        vi.spyOn(debugLogging, "isDownloaderDebugLoggingEnabled").mockImplementation(() => {
+          throw new Error("cache read boom");
+        });
+
+        const response = await request(app).get("/api/downloaders/debug-logging");
+        expect(response.status).toBe(500);
+
+        vi.restoreAllMocks();
+      });
+    });
+
+    describe("PUT /api/downloaders/debug-logging", () => {
+      it("should persist and cache the enabled state", async () => {
+        vi.mocked(storage.setSystemConfig).mockResolvedValue(undefined);
+
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: true });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ enabled: true });
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("downloaders.debugLogging", "true");
+
+        const { isDownloaderDebugLoggingEnabled } = await import("../downloaders/debug-logging.js");
+        expect(isDownloaderDebugLoggingEnabled()).toBe(true);
+      });
+
+      it("should persist the disabled state", async () => {
+        vi.mocked(storage.setSystemConfig).mockResolvedValue(undefined);
+
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: false });
+
+        expect(response.status).toBe(200);
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("downloaders.debugLogging", "false");
+      });
+
+      it("should return 400 when enabled is not a boolean", async () => {
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: "yes" });
+        expect(response.status).toBe(400);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
+      it('should return 400 when enabled is the string "false"', async () => {
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: "false" });
+        expect(response.status).toBe(400);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
+      it('should return 400 when enabled is the string "0"', async () => {
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: "0" });
+        expect(response.status).toBe(400);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
+      it("should return 500 on storage error", async () => {
+        vi.mocked(storage.setSystemConfig).mockRejectedValue(new Error("DB error"));
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: true });
+        expect(response.status).toBe(500);
+      });
+    });
+  });
+
   // ─── Discord Share ───
   describe("POST /api/stats/discord-share", () => {
     const validImageDataUrl =
@@ -2947,6 +3345,90 @@ describe("API Routes - Extended Coverage", () => {
 
       expect(response.status).toBe(502);
       expect(response.body.error).toBe("CLI timed out");
+    });
+  });
+
+  describe("root folder routes", () => {
+    it("rejects a non-UUID :id on PATCH, DELETE, and health-check", async () => {
+      const patchRes = await request(app)
+        .patch("/api/root-folders/not-a-uuid")
+        .send({ enabled: false });
+      const deleteRes = await request(app).delete("/api/root-folders/not-a-uuid");
+      const healthRes = await request(app).post("/api/root-folders/not-a-uuid/health-check");
+
+      expect(patchRes.status).toBe(400);
+      expect(deleteRes.status).toBe(400);
+      expect(healthRes.status).toBe(400);
+      expect(storage.updateRootFolder).not.toHaveBeenCalled();
+      expect(storage.removeRootFolder).not.toHaveBeenCalled();
+      expect(storage.getRootFolder).not.toHaveBeenCalled();
+    });
+
+    it("canonicalizes the path before checking uniqueness on create", async () => {
+      vi.mocked(storage.getRootFolderByPath).mockResolvedValue(undefined);
+      vi.mocked(storage.addRootFolder).mockResolvedValue(makeRootFolder({ path: "/mnt/games" }));
+      vi.mocked(storage.updateRootFolderHealth).mockResolvedValue(
+        makeRootFolder({ path: "/mnt/games" })
+      );
+
+      await request(app).post("/api/root-folders").send({ path: "/mnt/other/../games/." });
+
+      expect(storage.getRootFolderByPath).toHaveBeenCalledWith(path.resolve("/mnt/games"));
+      expect(storage.addRootFolder).toHaveBeenCalledWith(
+        expect.objectContaining({ path: path.resolve("/mnt/games") })
+      );
+    });
+
+    it("canonicalizes the path before checking uniqueness on update", async () => {
+      const folderId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getRootFolderByPath).mockResolvedValue(undefined);
+      vi.mocked(storage.updateRootFolder).mockResolvedValue(makeRootFolder({ id: folderId }));
+      vi.mocked(storage.updateRootFolderHealth).mockResolvedValue(makeRootFolder({ id: folderId }));
+
+      await request(app)
+        .patch(`/api/root-folders/${folderId}`)
+        .send({ path: "/mnt/other/../games/." });
+
+      expect(storage.getRootFolderByPath).toHaveBeenCalledWith(path.resolve("/mnt/games"));
+      expect(storage.updateRootFolder).toHaveBeenCalledWith(
+        folderId,
+        expect.objectContaining({ path: path.resolve("/mnt/games") })
+      );
+    });
+  });
+
+  describe("POST /api/library/scan/unmatched/match", () => {
+    const validBody = { rootFolderId: "rf-1", folderName: "Some Game", igdbId: 42 };
+
+    it("returns 404 when matchUnmatchedFolder reports the root folder is gone", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(new Error("Root folder not found"));
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: "Root folder not found" });
+    });
+
+    it("returns 404 when matchUnmatchedFolder reports the unmatched entry is gone", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(
+        new Error("No matching unmatched entry for this root folder")
+      );
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: "No matching unmatched entry for this root folder" });
+    });
+
+    it("returns 500 for any other matchUnmatchedFolder failure", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(
+        new Error("Selected IGDB game not found in top candidates")
+      );
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: "Selected IGDB game not found in top candidates" });
     });
   });
 });

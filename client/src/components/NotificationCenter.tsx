@@ -11,6 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import GameDownloadDialog from "./GameDownloadDialog";
+import SendErrorReportDialog from "./SendErrorReportDialog";
 import { getSocket } from "@/lib/socket";
 
 export function NotificationCenter() {
@@ -18,6 +19,8 @@ export function NotificationCenter() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [errorReportId, setErrorReportId] = useState<string | null>(null);
+  const [errorReportDialogOpen, setErrorReportDialogOpen] = useState(false);
   const [_, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -108,6 +111,14 @@ export function NotificationCenter() {
         if (game) {
           setSelectedGame(game);
           setDownloadDialogOpen(true);
+          setOpen(false);
+          return;
+        }
+      } else if (notification.link.startsWith("error-report:")) {
+        const reportId = notification.link.split(":").pop();
+        if (reportId) {
+          setErrorReportId(reportId);
+          setErrorReportDialogOpen(true);
           setOpen(false);
           return;
         }
@@ -234,6 +245,12 @@ export function NotificationCenter() {
         game={selectedGame}
         open={downloadDialogOpen}
         onOpenChange={setDownloadDialogOpen}
+      />
+
+      <SendErrorReportDialog
+        reportId={errorReportId}
+        open={errorReportDialogOpen}
+        onOpenChange={setErrorReportDialogOpen}
       />
     </>
   );

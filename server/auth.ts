@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { type User } from "@shared/schema";
 import crypto from "crypto";
 import { logger } from "./logger.js";
+import { AUTH_COOKIE_NAME, getCookie } from "./security.js";
 
 const SALT_ROUNDS = 10;
 
@@ -82,18 +83,48 @@ export async function generateToken(user: User) {
 }
 
 /**
+ * Resolve the JWT for this request, from EITHER the Authorization: Bearer
+ * header or the httpOnly auth cookie, and report which source it came from
+ * so callers (csrfProtection in particular) can key off it. The Authorization
+ * header takes priority when both are present -- it's an explicit assertion
+ * by the caller that it wants bearer semantics for this request.
+ */
+function getRequestToken(req: Request): { token: string; source: "cookie" | "bearer" } | undefined {
+  const authHeader = req.headers["authorization"];
+  if (authHeader) {
+    const [scheme, ...rest] = authHeader.split(" ");
+    const bearerToken = rest.join(" ");
+    if (scheme?.toLowerCase() === "bearer" && bearerToken) {
+      return { token: bearerToken, source: "bearer" };
+    }
+    // Any other scheme (e.g. Basic) isn't something this server issues or
+    // accepts -- fall through to the cookie check rather than treating an
+    // unrelated credential as a bearer token and failing jwt.verify on it.
+  }
+
+  const cookieToken = getCookie(req, AUTH_COOKIE_NAME);
+  if (cookieToken) {
+    return { token: cookieToken, source: "cookie" };
+  }
+
+  return undefined;
+}
+
+/**
  * Optional authentication middleware. Sets req.user when a valid JWT is present
  * but never blocks the request — unauthenticated callers simply get no req.user.
  */
 export async function optionalAuthenticateToken(req: Request, _res: Response, next: NextFunction) {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-  if (token) {
+  const requestToken = getRequestToken(req);
+  if (requestToken) {
     try {
       const secret = await getJwtSecret();
-      const payload = jwt.verify(token, secret) as { id: string; username: string };
+      const payload = jwt.verify(requestToken.token, secret) as { id: string; username: string };
       const user = await storage.getUser(payload.id);
-      if (user) req.user = user;
+      if (user) {
+        req.user = user;
+        req.authSource = requestToken.source;
+      }
     } catch {
       // Invalid token — continue without user context
     }
@@ -102,16 +133,15 @@ export async function optionalAuthenticateToken(req: Request, _res: Response, ne
 }
 
 export async function authenticateToken(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
+  const requestToken = getRequestToken(req);
 
-  if (!token) {
+  if (!requestToken) {
     return res.status(401).json({ error: "Authentication required" });
   }
 
   try {
     const secret = await getJwtSecret();
-    const payload = jwt.verify(token, secret) as { id: string; username: string };
+    const payload = jwt.verify(requestToken.token, secret) as { id: string; username: string };
     const user = await storage.getUser(payload.id);
 
     if (!user) {
@@ -119,8 +149,101 @@ export async function authenticateToken(req: Request, res: Response, next: NextF
     }
 
     req.user = user;
+    req.authSource = requestToken.source;
     next();
   } catch {
     return res.status(403).json({ error: "Invalid or expired token" });
+  }
+}
+
+// ── Integration API keys ─────────────────────────────────────────────────────
+// Machine clients (the Playnite extension, scripts) can't run the interactive
+// login flow, so they authenticate with a long-lived key instead of a JWT.
+
+/** Prefix that makes a Questarr key recognisable in logs and config files. */
+export const API_KEY_PREFIX = "qsr_";
+
+/** Number of leading characters stored in plaintext so the UI can label a key. */
+const API_KEY_DISPLAY_PREFIX_LENGTH = 12;
+
+/**
+ * Mint a new API key. Returns the raw key (shown to the user exactly once), the
+ * SHA-256 hash to persist, and the display prefix.
+ *
+ * The key carries 256 bits of entropy, so a plain SHA-256 is the right hash
+ * here: there is no low-entropy secret to protect, and unlike bcrypt it keeps
+ * lookup to a single indexed query instead of a scan over every stored key.
+ */
+export function generateApiKey(): { rawKey: string; keyHash: string; prefix: string } {
+  const rawKey = `${API_KEY_PREFIX}${crypto.randomBytes(32).toString("base64url")}`;
+  return {
+    rawKey,
+    keyHash: hashApiKey(rawKey),
+    prefix: rawKey.slice(0, API_KEY_DISPLAY_PREFIX_LENGTH),
+  };
+}
+
+/** Hash a raw API key for storage/lookup. */
+export function hashApiKey(rawKey: string): string {
+  return crypto.createHash("sha256").update(rawKey).digest("hex");
+}
+
+/**
+ * Read the presented API key from either the `X-Api-Key` header or an
+ * `Authorization: Bearer` header, so clients can use whichever their HTTP stack
+ * makes easy. Returns undefined when neither carries a Questarr-shaped key.
+ */
+function extractApiKey(req: Request): string | undefined {
+  const headerKey = req.headers["x-api-key"];
+  if (typeof headerKey === "string" && headerKey.trim()) {
+    return headerKey.trim();
+  }
+
+  const authHeader = req.headers["authorization"];
+  if (typeof authHeader === "string") {
+    const [scheme, value] = authHeader.split(" ");
+    if (scheme?.toLowerCase() === "bearer" && value?.startsWith(API_KEY_PREFIX)) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Authenticate a request carrying an integration API key, populating req.user
+ * with the key's owner. Falls through to JWT authentication when no API key is
+ * presented, so the same routes stay usable from the browser UI.
+ */
+export async function authenticateApiKeyOrToken(req: Request, res: Response, next: NextFunction) {
+  const rawKey = extractApiKey(req);
+
+  if (!rawKey) {
+    return authenticateToken(req, res, next);
+  }
+
+  try {
+    const record = await storage.getApiKeyByHash(hashApiKey(rawKey));
+    if (!record) {
+      return res.status(401).json({ error: "Invalid API key" });
+    }
+
+    const user = await storage.getUser(record.userId);
+    if (!user) {
+      return res.status(401).json({ error: "Invalid API key" });
+    }
+
+    req.user = user;
+    req.apiKeyId = record.id;
+
+    // Best-effort usage stamp: it powers the "last used" column in Settings and
+    // must never fail the request it is describing.
+    storage.touchApiKey(record.id).catch((error) => {
+      logger.warn({ error }, "Failed to record API key usage");
+    });
+
+    next();
+  } catch (error) {
+    logger.error({ error }, "API key authentication failed");
+    res.status(500).json({ error: "Authentication failed" });
   }
 }

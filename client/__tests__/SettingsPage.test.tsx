@@ -97,6 +97,9 @@ describe("SettingsPage", () => {
       if (url.includes("/api/blacklist")) {
         return { ok: true, json: async () => [] } as Response;
       }
+      if (url.includes("/api/api-keys")) {
+        return { ok: true, json: async () => [] } as Response;
+      }
       if (url.includes("/api/settings")) {
         return { ok: true, json: async () => defaultUserSettings } as Response;
       }
@@ -120,6 +123,9 @@ describe("SettingsPage", () => {
         <SettingsPage />
       </QueryClientProvider>
     );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
 
     expect(await screen.findByLabelText("Enable Auto-Search")).toBeChecked();
     expect(screen.getByLabelText("Search Interval (hours)")).toBeInTheDocument();
@@ -148,6 +154,9 @@ describe("SettingsPage", () => {
       </QueryClientProvider>
     );
 
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+
     await screen.findByLabelText("Enable Auto-Search");
     expect(screen.queryByLabelText("Search Interval (hours)")).not.toBeInTheDocument();
   });
@@ -159,6 +168,9 @@ describe("SettingsPage", () => {
         <SettingsPage />
       </QueryClientProvider>
     );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
 
     await screen.findByLabelText("Enable Auto-Search");
     fireEvent.click(screen.getByRole("button", { name: /save auto-search/i }));
@@ -179,12 +191,15 @@ describe("SettingsPage", () => {
       </QueryClientProvider>
     );
 
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+
     const intervalInput = await screen.findByLabelText("Search Interval (hours)");
     fireEvent.change(intervalInput, { target: { value: "24" } });
     expect(intervalInput).toHaveValue(24);
   });
 
-  it("switches to the Rules tab and renders the mocked rule components", async () => {
+  it("switches to the Discovery & Downloads tab and renders the mocked rule components", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
@@ -192,13 +207,13 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Rules" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
 
     expect(await screen.findByTestId("auto-download-rules")).toBeInTheDocument();
     expect(screen.getByTestId("preferred-release-groups")).toBeInTheDocument();
   });
 
-  it("switches to the Services tab and saves a Steam ID", async () => {
+  it("switches to the Integrations tab and saves a Steam ID", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     render(
       <QueryClientProvider client={createTestQueryClient()}>
@@ -207,7 +222,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Services" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
 
     const steamInput = await screen.findByLabelText("Steam ID (64-bit)");
     fireEvent.change(steamInput, { target: { value: "76561198000000000" } });
@@ -307,7 +322,7 @@ describe("SettingsPage", () => {
     );
   });
 
-  it("switches to the Blacklist tab, lists an entry, and removes it", async () => {
+  it("switches to the Discovery & Downloads tab, lists a blacklist entry, and removes it", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -340,7 +355,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Blacklist" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
 
     expect(await screen.findByText("Space Quest")).toBeInTheDocument();
     const releaseTitle = screen.getByText("Space.Quest-GROUP");
@@ -350,5 +365,142 @@ describe("SettingsPage", () => {
     await waitFor(() => {
       expect(apiRequest).toHaveBeenCalledWith("DELETE", "/api/games/game-1/blacklist/bl-1");
     });
+  });
+
+  it("clamps IGDB rate limit input to minimum 1 when a lower value is entered", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+
+    const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
+    fireEvent.change(rateLimitInput, { target: { value: "0" } });
+    expect(rateLimitInput).toHaveValue(1);
+  });
+
+  it("clamps IGDB rate limit input to maximum 4 when a higher value is entered", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+
+    const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
+    fireEvent.change(rateLimitInput, { target: { value: "5" } });
+    expect(rateLimitInput).toHaveValue(4);
+  });
+
+  it("defaults IGDB rate limit to 3 when non-numeric input is entered", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+
+    const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
+    fireEvent.change(rateLimitInput, { target: { value: "abc" } });
+    expect(rateLimitInput).toHaveValue(3);
+  });
+
+  it("clamps an out-of-range persisted IGDB rate limit when loading settings", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/api/settings")) {
+        return {
+          ok: true,
+          json: async () => ({ ...defaultUserSettings, igdbRateLimitPerSecond: 10 }),
+        } as Response;
+      }
+      if (url.includes("/api/config")) {
+        return { ok: true, json: async () => defaultConfig } as Response;
+      }
+      if (url.includes("/api/blacklist")) {
+        return { ok: true, json: async () => [] } as Response;
+      }
+      if (url.includes("/api/api-keys")) {
+        return { ok: true, json: async () => [] } as Response;
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    }) as typeof fetch;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+
+    const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
+    expect(rateLimitInput).toHaveValue(4);
+  });
+
+  it("switches to the System tab and toggles downloader debug logging", async () => {
+    const { apiRequest } = await import("@/lib/queryClient");
+    vi.mocked(apiRequest).mockImplementation(async (method: string, url: string) => {
+      if (url === "/api/downloaders/debug-logging") {
+        const enabled = method === "PUT";
+        return { headers: { get: () => null }, json: async () => ({ enabled }) } as Response;
+      }
+      return { headers: { get: () => null }, json: async () => ({}) } as Response;
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "System" }));
+
+    const debugSwitch = await screen.findByLabelText("Log full downloader responses");
+    await waitFor(() => expect(debugSwitch).not.toBeDisabled());
+    expect(debugSwitch).not.toBeChecked();
+
+    fireEvent.click(debugSwitch);
+
+    await waitFor(() => {
+      expect(apiRequest).toHaveBeenCalledWith("PUT", "/api/downloaders/debug-logging", {
+        enabled: true,
+      });
+    });
+    await waitFor(() => expect(debugSwitch).toBeChecked());
+  });
+
+  it("disables downloader debug logging switch and shows an error when the setting fails to load", async () => {
+    const { apiRequest } = await import("@/lib/queryClient");
+    vi.mocked(apiRequest).mockImplementation(async (method: string, url: string) => {
+      if (url === "/api/downloaders/debug-logging") {
+        throw new Error("Failed to fetch");
+      }
+      return { headers: { get: () => null }, json: async () => ({}) } as Response;
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "System" }));
+
+    const debugSwitch = await screen.findByLabelText("Log full downloader responses");
+    await waitFor(() => expect(debugSwitch).toBeDisabled());
+    expect(
+      await screen.findByText("Failed to load the current setting. Refresh the page to try again.")
+    ).toBeInTheDocument();
   });
 });

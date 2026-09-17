@@ -4,6 +4,7 @@ import type { Request, Response, NextFunction } from "express";
 import { TORRENT_DOWNLOADER_TYPES, USENET_DOWNLOADER_TYPES } from "../shared/downloader-types.js";
 import { storage } from "./storage.js";
 import { expressLogger } from "./logger.js";
+import { reportServerError } from "./error-telemetry.js";
 
 const DOWNLOADER_TYPES = [...TORRENT_DOWNLOADER_TYPES, ...USENET_DOWNLOADER_TYPES];
 
@@ -115,6 +116,14 @@ export const sanitizeGameId = [
     .trim()
     .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
     .withMessage("Invalid game ID format"),
+];
+
+// Sanitization rules for root folder ID parameters
+export const sanitizeRootFolderId = [
+  param("id")
+    .trim()
+    .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+    .withMessage("Invalid root folder ID format"),
 ];
 
 // Sanitization rules for download record ID parameters
@@ -274,6 +283,60 @@ export const sanitizeIndexerUpdateData = [
 ];
 
 // Sanitization rules for downloader data
+// Accepts hostname, IP address, or FQDN -- shared by every downloader URL
+// validator below so the pattern (and any future fix to it) lives in one
+// place instead of being copy-pasted per route.
+const DOWNLOADER_HOSTNAME_REGEX =
+  /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+const DOWNLOADER_IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
+
+/**
+ * A downloader's `url` field accepts either a full http(s) URL, or (for a
+ * recognized downloader type) a bare hostname/IP/FQDN. Shared by
+ * sanitizeDownloaderData, sanitizeDownloaderTestData, and
+ * sanitizeDownloaderUpdateData.
+ */
+function isValidDownloaderUrl(value: string, type: unknown): boolean {
+  if (/^https?:\/\/.+/.test(value)) return true;
+  if (typeof type === "string" && (DOWNLOADER_TYPES as readonly string[]).includes(type)) {
+    return DOWNLOADER_HOSTNAME_REGEX.test(value) || DOWNLOADER_IP_REGEX.test(value);
+  }
+  return false;
+}
+
+// The three downloader body validators below (create, test-connection, update)
+// share most of their field rules -- these factories keep each rule defined
+// once instead of copy-pasted per validator array.
+function optionalTrimmedString(field: string, max: number, label: string) {
+  return body(field)
+    .optional()
+    .trim()
+    .isLength({ max })
+    .withMessage(`${label} must be at most ${max} characters`);
+}
+
+function optionalDownloadPath(field = "downloadPath") {
+  return optionalTrimmedString(field, 500, "Download path")
+    .custom((value) => !value.includes(".."))
+    .withMessage("Download path cannot contain '..'");
+}
+
+function optionalBoolean(field: string, label: string) {
+  return body(field)
+    .optional()
+    .isBoolean({ strict: true })
+    .withMessage(`${label} must be a boolean`)
+    .toBoolean();
+}
+
+const downloaderUsername = () => optionalTrimmedString("username", 200, "Username");
+const downloaderPassword = () => optionalTrimmedString("password", 200, "Password");
+const downloaderCategory = () => optionalTrimmedString("category", 100, "Category");
+const downloaderLabel = () => optionalTrimmedString("label", 100, "Label");
+const downloaderUrlPath = () => optionalTrimmedString("urlPath", 200, "URL path");
+const downloaderAllowSelfSignedCertificate = () =>
+  optionalBoolean("allowSelfSignedCertificate", "Allow self-signed certificate");
+
 export const sanitizeDownloaderData = [
   body("name")
     .trim()
@@ -282,56 +345,40 @@ export const sanitizeDownloaderData = [
   body("type").trim().isIn(DOWNLOADER_TYPES).withMessage("Invalid downloader type"),
   body("url")
     .trim()
-    .custom((value, { req }) => {
-      const type = req.body.type;
-
-      // If it's a valid URL, it's always acceptable
-      const isUrl = /^https?:\/\/.+/.test(value);
-      if (isUrl) return true;
-
-      // For downloaders, allow hostname/IP without protocol
-      if (DOWNLOADER_TYPES.includes(type)) {
-        // Accept hostname, IP address, or FQDN
-        const hostnameRegex =
-          /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
-        return hostnameRegex.test(value) || ipRegex.test(value);
-      }
-
-      // Other downloaders require full URL
-      return false;
-    })
+    .custom((value, { req }) => isValidDownloaderUrl(value, req.body.type))
     .withMessage("Invalid URL or hostname"),
-  body("username")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("Username must be at most 200 characters"),
-  body("password")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("Password must be at most 200 characters"),
+  downloaderUsername(),
+  downloaderPassword(),
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
-  body("downloadPath")
-    .optional()
+  optionalDownloadPath(),
+  downloaderLabel(),
+  downloaderUrlPath(),
+  downloaderAllowSelfSignedCertificate(),
+];
+
+// Sanitization rules for POST /api/downloaders/test -- validates the full
+// request body before it's used to build a temporary Downloader and test a
+// live connection, rather than only checking allowSelfSignedCertificate's
+// type. Distinct from sanitizeDownloaderData because this route never takes
+// a `name` (the server synthesizes one) and has its own body shape.
+export const sanitizeDownloaderTestData = [
+  body("type").trim().isIn(DOWNLOADER_TYPES).withMessage("Invalid downloader type"),
+  body("url")
     .trim()
-    .isLength({ max: 500 })
-    .withMessage("Download path must be at most 500 characters")
-    // 🛡️ Sentinel: Add path traversal validation.
-    // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes(".."))
-    .withMessage("Download path cannot contain '..'"),
-  body("label")
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage("Label must be at most 100 characters"),
-  body("urlPath")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("URL path must be at most 200 characters"),
+    .custom((value, { req }) => isValidDownloaderUrl(value, req.body.type))
+    .withMessage("Invalid URL or hostname"),
+  body("port").optional().isInt({ min: 1, max: 65535 }).withMessage("Invalid port").toInt(),
+  optionalBoolean("useSsl", "useSsl"),
+  downloaderUrlPath(),
+  downloaderUsername(),
+  downloaderPassword(),
+  optionalDownloadPath(),
+  downloaderCategory(),
+  downloaderLabel(),
+  optionalBoolean("addStopped", "addStopped"),
+  optionalBoolean("removeCompleted", "removeCompleted"),
+  optionalTrimmedString("postImportCategory", 100, "Post-import category"),
+  downloaderAllowSelfSignedCertificate(),
 ];
 
 // Sanitization rules for partial downloader updates (PATCH)
@@ -347,65 +394,22 @@ export const sanitizeDownloaderUpdateData = [
     .trim()
     .custom((value, { req }) => {
       if (!value) return true; // Optional field
-      const type = req.body.type;
-
-      // If it's a valid URL, it's always acceptable
-      const isUrl = /^https?:\/\/.+/.test(value);
-      if (isUrl) return true;
-
-      // For downloaders, allow hostname/IP without protocol
-      if (DOWNLOADER_TYPES.includes(type)) {
-        // Accept hostname, IP address, or FQDN
-        const hostnameRegex =
-          /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
-        return hostnameRegex.test(value) || ipRegex.test(value);
-      }
-
-      // Other downloaders require full URL
-      return false;
+      return isValidDownloaderUrl(value, req.body.type);
     })
     .withMessage("Invalid URL or hostname"),
-  body("username")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("Username must be at most 200 characters"),
-  body("password")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("Password must be at most 200 characters"),
+  downloaderUsername(),
+  downloaderPassword(),
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
   body("priority")
     .optional()
     .isInt({ min: 1 })
     .withMessage("Priority must be a positive integer")
     .toInt(),
-  body("downloadPath")
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage("Download path must be at most 500 characters")
-    // 🛡️ Sentinel: Add path traversal validation.
-    // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes(".."))
-    .withMessage("Download path cannot contain '..'"),
-  body("category")
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage("Category must be at most 100 characters"),
-  body("label")
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage("Label must be at most 100 characters"),
-  body("urlPath")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("URL path must be at most 200 characters"),
+  optionalDownloadPath(),
+  downloaderCategory(),
+  downloaderLabel(),
+  downloaderUrlPath(),
+  downloaderAllowSelfSignedCertificate(),
 ];
 
 // Sanitization rules for download add requests
@@ -455,6 +459,16 @@ export const sanitizeDownloaderDownloadData = [
     .trim()
     .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
     .withMessage("Invalid game ID format"),
+  body("password")
+    // Never echo the archive password back in a 400 response or the
+    // validation-failure log line -- hide() replaces it with a marker
+    // in the error object express-validator builds on a failed check.
+    .hide("[REDACTED]")
+    .optional()
+    .isString()
+    .withMessage("Password must be a string")
+    .isLength({ max: 200 })
+    .withMessage("Password must be at most 200 characters"),
 ];
 
 // Sanitization rules for indexer search queries
@@ -522,6 +536,68 @@ export const sanitizeNexusModsTrendingModsQuery = [
     .toInt(),
 ];
 
+// Sanitization rules for root folder creation
+export const sanitizeRootFolderData = [
+  body("path")
+    .trim()
+    .isLength({ min: 1, max: 1000 })
+    .withMessage("Path must be between 1 and 1000 characters")
+    .custom((value: string) => !value.includes("\0"))
+    .withMessage("Path must not contain null bytes"),
+  body("name")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Name must be at most 200 characters"),
+  body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
+  body("allowDelete")
+    .optional()
+    .isBoolean()
+    .withMessage("allowDelete must be a boolean")
+    .toBoolean(),
+];
+
+// Sanitization rules for partial root folder updates (PATCH)
+export const sanitizeRootFolderUpdateData = [
+  body("path")
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 1000 })
+    .withMessage("Path must be between 1 and 1000 characters")
+    .custom((value: string) => !value.includes("\0"))
+    .withMessage("Path must not contain null bytes"),
+  body("name")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Name must be at most 200 characters"),
+  body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
+  body("allowDelete")
+    .optional()
+    .isBoolean()
+    .withMessage("allowDelete must be a boolean")
+    .toBoolean(),
+];
+
+// Sanitization rules for POST /api/library/scan (rootFolderId is optional — omit to scan all)
+export const sanitizeLibraryScanData = [
+  body("rootFolderId")
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("rootFolderId must be a non-empty string"),
+];
+
+// Sanitization rules for POST /api/library/scan/unmatched/match
+export const sanitizeUnmatchedMatchData = [
+  body("rootFolderId")
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("rootFolderId is required"),
+  body("folderName").trim().isLength({ min: 1, max: 1000 }).withMessage("folderName is required"),
+  body("igdbId").isInt({ min: 1 }).withMessage("igdbId must be a positive integer").toInt(),
+];
+
 // 🛡️ Sentinel: Global error handler middleware
 // Standardizes error responses and prevents leakage of sensitive details in production
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -532,6 +608,13 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
   // Use error level for 5xx, warn/info for client errors
   if (status >= 500) {
     expressLogger.error({ err, path: req.path, method: req.method }, "Request error");
+    // Fire-and-forget: detect + report unhandled server errors for the automatic
+    // error-telemetry pipeline. Never let this delay or fail the response.
+    void reportServerError(err, {
+      source: "expressErrorHandler",
+      path: req.path,
+      method: req.method,
+    });
   } else {
     expressLogger.warn({ err, path: req.path, method: req.method }, "Request error");
   }

@@ -7,16 +7,21 @@ import {
   clearSearchCache,
   getQueryFn,
   queryClient,
+  setBearerToken,
 } from "../queryClient";
 
 describe("queryClient utilities", () => {
   beforeEach(() => {
     localStorage.clear();
+    document.cookie = "questarr_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+    setBearerToken(null);
     queryClient.clear();
     vi.restoreAllMocks();
   });
 
   afterEach(() => {
+    setBearerToken(null);
+    document.cookie = "questarr_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
     queryClient.clear();
   });
 
@@ -30,8 +35,8 @@ describe("queryClient utilities", () => {
     expect(err.data).toEqual({ reason: "invalid" });
   });
 
-  it("apiRequest sends JSON body and authorization when token is present", async () => {
-    localStorage.setItem("token", "jwt-token");
+  it("apiRequest sends JSON body and authorization when an in-memory bearer token is set", async () => {
+    setBearerToken("jwt-token");
 
     const response = new Response(JSON.stringify({ ok: true }), { status: 200 });
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
@@ -39,19 +44,31 @@ describe("queryClient utilities", () => {
     const res = await apiRequest("POST", "/api/test", { hello: "world" });
 
     expect(res).toBe(response);
-    expect(fetchMock).toHaveBeenCalledWith("/api/test", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer jwt-token",
-      },
-      body: JSON.stringify({ hello: "world" }),
-      credentials: "include",
-    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/test");
+    expect(init?.method).toBe("POST");
+    expect(init?.credentials).toBe("include");
+    expect(init?.body).toBe(JSON.stringify({ hello: "world" }));
+    const headers = new Headers(init?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer jwt-token");
+    expect(headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("apiRequest does not attach an Authorization header when no bearer token is set (cookie auth only)", async () => {
+    const response = new Response(JSON.stringify({ ok: true }), { status: 200 });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+
+    await apiRequest("GET", "/api/test");
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(init?.credentials).toBe("include");
+    const headers = new Headers(init?.headers);
+    expect(headers.has("Authorization")).toBe(false);
   });
 
   it("apiFetch clones Headers inputs before adding authorization", async () => {
-    localStorage.setItem("token", "jwt-token");
+    setBearerToken("jwt-token");
 
     const response = new Response(JSON.stringify({ ok: true }), { status: 200 });
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
@@ -65,6 +82,45 @@ describe("queryClient utilities", () => {
     expect(requestInit?.headers).toBeInstanceOf(Headers);
     expect(requestInit?.headers).not.toBe(headers);
     expect((requestInit?.headers as Headers).get("Authorization")).toBe("Bearer jwt-token");
+  });
+
+  it("attaches X-CSRF-Token from the readable CSRF cookie on non-GET requests", async () => {
+    document.cookie = "questarr_csrf=csrf-abc123; path=/";
+
+    const response = new Response(JSON.stringify({ ok: true }), { status: 200 });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+
+    await apiRequest("POST", "/api/test", { hello: "world" });
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    const headers = new Headers(init?.headers);
+    expect(headers.get("X-CSRF-Token")).toBe("csrf-abc123");
+  });
+
+  it("does not attach X-CSRF-Token on GET requests even when the cookie is present", async () => {
+    document.cookie = "questarr_csrf=csrf-abc123; path=/";
+
+    const response = new Response(JSON.stringify({ ok: true }), { status: 200 });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+
+    await apiFetch("/api/test");
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    const headers = new Headers(init?.headers);
+    expect(headers.has("X-CSRF-Token")).toBe(false);
+  });
+
+  it("does not attach X-CSRF-Token on non-GET requests when there is no CSRF cookie (e.g. bearer-only session)", async () => {
+    setBearerToken("jwt-token");
+
+    const response = new Response(JSON.stringify({ ok: true }), { status: 200 });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+
+    await apiRequest("POST", "/api/test", { hello: "world" });
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    const headers = new Headers(init?.headers);
+    expect(headers.has("X-CSRF-Token")).toBe(false);
   });
 
   it("apiRequest surfaces API message from JSON error payload", async () => {
@@ -159,7 +215,7 @@ describe("queryClient utilities", () => {
   });
 
   it("getQueryFn joins query keys and includes auth header", async () => {
-    localStorage.setItem("token", "jwt-token");
+    setBearerToken("jwt-token");
 
     const response = new Response(JSON.stringify({ id: 1 }), { status: 200 });
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
@@ -168,12 +224,11 @@ describe("queryClient utilities", () => {
     const result = await queryFn({ queryKey: ["/api", "games", "1"] } as never);
 
     expect(result).toEqual({ id: 1 });
-    expect(fetchMock).toHaveBeenCalledWith("/api/games/1", {
-      headers: {
-        Authorization: "Bearer jwt-token",
-      },
-      credentials: "include",
-    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/games/1");
+    expect(init?.credentials).toBe("include");
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer jwt-token");
   });
 
   it("queryClient default options disable retries and refetching", () => {

@@ -1,6 +1,8 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
+import { normalizeDownloadHash } from "./download-hash.js";
 import { igdbClient } from "./igdb.js";
 import type { IGDBGame } from "./igdb.js";
 import { db } from "./db.js";
@@ -21,20 +23,32 @@ import {
   passwordPolicySchema,
   insertRssFeedSchema,
   insertReleaseBlacklistSchema,
+  insertGameFileSchema,
   claimDownloadRequestSchema,
+  insertRootFolderSchema,
+  updateRootFolderSchema,
   type Config,
   type Game,
   type Indexer,
   type Downloader,
   type InsertImportTaskItem,
+  type ScannedGameFile,
+  type GameFileCategory,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
+import { parseJsonObject } from "../shared/json-object-utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
+import {
+  DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
+  isDownloaderDebugLoggingEnabled,
+  setCachedDownloaderDebugLogging,
+} from "./downloaders/debug-logging.js";
 import { z } from "zod";
 import { routesLogger } from "./logger.js";
+import { getPendingReport, sendPendingReport } from "./error-telemetry.js";
 import {
   igdbRateLimiter,
   sensitiveEndpointLimiter,
@@ -49,6 +63,7 @@ import {
   sanitizeIndexerData,
   sanitizeIndexerUpdateData,
   sanitizeDownloaderData,
+  sanitizeDownloaderTestData,
   sanitizeDownloaderUpdateData,
   sanitizeDownloaderDownloadData,
   sanitizeIndexerSearchQuery,
@@ -56,6 +71,11 @@ import {
   sanitizeMatchAndAddTitle,
   sanitizeNexusModsGameDomainQuery,
   sanitizeNexusModsTrendingModsQuery,
+  sanitizeRootFolderData,
+  sanitizeRootFolderUpdateData,
+  sanitizeRootFolderId,
+  sanitizeLibraryScanData,
+  sanitizeUnmatchedMatchData,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
@@ -67,7 +87,9 @@ import {
   generateToken,
   authenticateToken,
   optionalAuthenticateToken,
+  authenticateApiKeyOrToken,
 } from "./auth.js";
+import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import {
   appriseClient,
@@ -83,6 +105,96 @@ import { readLastLogLines } from "./log-file.js";
 
 // Root directory for the file system browser; restrict browsing to this tree
 const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
+
+type IgdbConfigSource = "env" | "database" | undefined;
+
+interface IgdbConfigStatus {
+  configured: boolean;
+  source: IgdbConfigSource;
+}
+
+/**
+ * Whether IGDB credentials are configured (DB takes precedence over env vars),
+ * and which source they came from. Shared between the authenticated
+ * GET /api/config endpoint and the unauthenticated GET /api/auth/status
+ * endpoint (which needs just this boolean to drive the setup wizard, without
+ * exposing anything else config-related pre-login).
+ */
+async function getIgdbConfigStatus(): Promise<IgdbConfigStatus> {
+  const dbClientId = await storage.getSystemConfig("igdb.clientId");
+  const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
+
+  if (dbClientId && dbClientSecret) {
+    return { configured: true, source: "database" };
+  }
+  if (appConfig.igdb.isConfigured) {
+    return { configured: true, source: "env" };
+  }
+  return { configured: false, source: undefined };
+}
+
+// ── Default-deny API auth boundary ─────────────────────────────────────────
+// Every /api/* route requires authentication unless explicitly allowlisted
+// here. This is intentionally an allowlist (not a denylist of "routes that
+// need auth") so that a new route added without updating this list fails
+// safe -- it requires a token by default rather than accidentally becoming
+// public. Paths are relative to the "/api" mount point (no leading "/api").
+export const PUBLIC_API_ROUTES = new Set<string>([
+  "GET /auth/status", // setup-wizard / login-page bootstrap check, runs pre-login
+  "POST /auth/setup", // creates the first user; there is no user/token yet
+  "POST /auth/login", // issues the token; obviously can't require one
+  "GET /health", // liveness probe (docker/compose healthcheck, DAST workflow)
+  "GET /ready", // readiness probe (db/IGDB connectivity), no sensitive data
+]);
+
+function isPublicApiRequest(req: Request): boolean {
+  if (req.method === "OPTIONS") return true;
+  return PUBLIC_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
+}
+
+/** Paths under the /api mount that accept an integration API key as well as a JWT. */
+function isIntegrationApiRequest(req: Request): boolean {
+  return req.path === "/integration" || req.path.startsWith("/integration/");
+}
+
+// Routes that must always run, even with a missing/expired/invalid token,
+// but should still pick up req.user/req.authSource when the token IS valid
+// (so e.g. csrfProtection still enforces the CSRF check for a cookie-backed
+// caller). Logout is the motivating case: JWTs are stateless, so the only
+// server-side effect is clearing the auth/CSRF cookies, and a user stuck
+// with an expired cookie must still be able to do that -- hard-rejecting
+// the request at the boundary would leave the stale cookies in the browser.
+const SOFT_AUTH_API_ROUTES = new Set<string>(["POST /auth/logout"]);
+
+function isSoftAuthApiRequest(req: Request): boolean {
+  return SOFT_AUTH_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
+}
+
+/**
+ * Default-deny gate for the entire /api surface: anything not explicitly
+ * allowlisted above requires a valid token. Mounted before any /api route is
+ * registered so it always runs first, regardless of whether an individual
+ * route handler also happens to apply authenticateToken itself.
+ */
+export function requireAuthenticationForApi(req: Request, res: Response, next: NextFunction) {
+  if (isPublicApiRequest(req)) {
+    next();
+    return;
+  }
+  // The integration surface is the one place that also accepts a long-lived
+  // API key, for machine clients (the Playnite extension, scripts) that cannot
+  // run the interactive login flow. Everything else — key management included —
+  // stays JWT-only, so a leaked key can never mint or revoke another one.
+  if (isIntegrationApiRequest(req)) {
+    authenticateApiKeyOrToken(req, res, next);
+    return;
+  }
+  if (isSoftAuthApiRequest(req)) {
+    optionalAuthenticateToken(req, res, next);
+    return;
+  }
+  authenticateToken(req, res, next);
+}
 
 // Configure multer for memory storage
 const upload = multer({
@@ -100,15 +212,32 @@ import {
   parseReleaseMetadata,
   matchesPlatformFilter,
 } from "../shared/title-utils.js";
-import { categorizeDownload } from "../shared/download-categorizer.js";
+import { categorizeDownload, type DownloadCategory } from "../shared/download-categorizer.js";
 import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import {
+  getContentFilterFlags,
+  isContentFiltered,
+  excludeFilteredContent,
+} from "./content-filter.js";
+import { normalizeInitialReleaseStatus } from "./game-status.js";
+import { quickAddGameByTitle } from "./game-quick-add.js";
 import { importRouter } from "./routes/import.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
+import { probeRootFolder, isWithinDeletableRootFolder } from "./root-folders.js";
+import {
+  scanRootFolderById,
+  scanAllEnabledRootFolders,
+  getAllScanProgress,
+  getAllUnmatched,
+  matchUnmatchedFolder,
+} from "./library-scanner.js";
+import { integrationRouter } from "./routes/integration.js";
+import { apiKeysRouter } from "./routes/api-keys.js";
 
 // Cache-Control header values for IGDB discovery endpoints
 const CC_IGDB_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
@@ -153,14 +282,52 @@ function isValidDiscordWebhook(value: string): boolean {
   }
 }
 
+/**
+ * Masks an indexer's API key before exposing its configuration.
+ *
+ * @param indexer - The indexer configuration to sanitize
+ * @returns The indexer with its API key replaced by a redaction placeholder when configured
+ */
 function maskIndexer(indexer: Indexer): Indexer {
   return indexer.apiKey ? { ...indexer, apiKey: REDACTED_PLACEHOLDER } : indexer;
 }
 
-function maskDownloader(downloader: Downloader): Downloader {
-  return downloader.password ? { ...downloader, password: REDACTED_PLACEHOLDER } : downloader;
+// The SABnzbd archive password lives inside the free-form `settings` JSON blob
+// (alongside qBittorrent's initialState etc.), so it needs its own mask/restore
+/**
+ * Masks the archive password in serialized downloader settings.
+ *
+ * @param settingsJson - The serialized downloader settings, or `null`
+ * @returns The settings with the archive password redacted, or the original value when no archive password is configured
+ */
+function maskDownloaderSettings(settingsJson: string | null): string | null {
+  const settings = parseJsonObject(settingsJson);
+  if (!settings.archivePassword) return settingsJson;
+  return JSON.stringify({ ...settings, archivePassword: REDACTED_PLACEHOLDER });
 }
 
+/**
+ * Masks sensitive credentials in a downloader configuration.
+ *
+ * @param downloader - The downloader configuration whose credentials should be masked
+ * @returns A downloader configuration with its password and archive password redacted
+ */
+function maskDownloader(downloader: Downloader): Downloader {
+  const masked = downloader.password
+    ? { ...downloader, password: REDACTED_PLACEHOLDER }
+    : downloader;
+  const maskedSettings = maskDownloaderSettings(masked.settings);
+  return maskedSettings !== masked.settings ? { ...masked, settings: maskedSettings } : masked;
+}
+
+/**
+ * Sends a bad-request response containing a message and Zod validation issues.
+ *
+ * @param res - The response used to send the error
+ * @param error - The Zod validation error containing issue details
+ * @param message - The error message included in the response
+ * @returns The configured response
+ */
 function respondWithZodError(res: Response, error: z.ZodError, message: string): Response {
   return res.status(400).json({ error: message, details: error.issues });
 }
@@ -329,36 +496,6 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
   return { limit, offset };
 }
 
-interface ContentFilterFlags {
-  hideAdultContent: boolean;
-  hideAgeRestrictedContent: boolean;
-}
-
-/** The two content-filter signals are independent user settings: "Erotic" theme vs. ESRB AO/PEGI 18 age ratings. */
-async function getContentFilterFlags(userId: string): Promise<ContentFilterFlags> {
-  const settings = await storage.getUserSettings(userId);
-  return {
-    hideAdultContent: settings?.hideAdultContent ?? true,
-    hideAgeRestrictedContent: settings?.hideAgeRestrictedContent ?? true,
-  };
-}
-
-function isContentFiltered(
-  game: { isAdultContent?: boolean; isAgeRestricted?: boolean },
-  flags: ContentFilterFlags
-): boolean {
-  return (
-    (flags.hideAdultContent && game.isAdultContent === true) ||
-    (flags.hideAgeRestrictedContent && game.isAgeRestricted === true)
-  );
-}
-
-function excludeFilteredContent<T>(games: T[], flags: ContentFilterFlags): T[] {
-  return games.filter(
-    (g) => !isContentFiltered(g as { isAdultContent?: boolean; isAgeRestricted?: boolean }, flags)
-  );
-}
-
 /** Filters an already-fetched list of library games according to the user's content-filter preferences. */
 async function applyContentFilter<T>(userId: string, games: T[]): Promise<T[]> {
   const flags = await getContentFilterFlags(userId);
@@ -444,6 +581,12 @@ function registerIgdbParamListRoute(
   });
 }
 
+/**
+ * Registers application middleware and API routes, then creates the HTTP server.
+ *
+ * @param app - The Express application to configure
+ * @returns The configured HTTP server
+ */
 export async function registerRoutes(app: Express): Promise<Server> {
   // 🛡️ Sentinel: Add security headers with Helmet
   // Configured to allow Vite/React (unsafe-inline/eval) in dev, and IGDB images everywhere
@@ -499,6 +642,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     );
     next();
   });
+  // Explicit robots.txt so well-behaved crawlers stay out even before
+  // fetching any other page (belt-and-suspenders alongside the X-Robots-Tag
+  // header set in app.ts). Registered here, after helmet(), so it still gets
+  // the same security headers as every other response.
+  app.get("/robots.txt", (_req, res) => {
+    res.type("text/plain").send("User-agent: *\nDisallow: /\n");
+  });
+  // Default-deny auth boundary for the whole /api surface. Mounted before any
+  // /api route (including the routers below) is registered, so every /api/*
+  // request is required to authenticate unless explicitly allowlisted above.
+  app.use("/api", requireAuthenticationForApi);
+  // CSRF protection for cookie-authenticated requests. Must run after the
+  // auth boundary above so req.authSource is already populated.
+  app.use("/api", csrfProtection);
+
   // Use Steam Routes
   app.use(steamRoutes);
   // Use PCGamingWiki Routes
@@ -509,8 +667,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/logs", authenticateToken, async (req, res) => {
     try {
       const rawLimit =
-        typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : 200;
-      const limit = Number.isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
+        typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : 1000;
+      const limit = Number.isNaN(rawLimit) || rawLimit < 1 ? 1000 : Math.min(rawLimit, 5000);
 
       const logPath = path.resolve(process.cwd(), "server.log");
 
@@ -538,7 +696,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/auth/status", async (_req, res) => {
     try {
       const userCount = await storage.countUsers();
-      res.json({ hasUsers: userCount > 0 });
+      const hasUsers = userCount > 0;
+      // Also surface IGDB configured-status here (not just hasUsers) so the
+      // unauthenticated setup wizard can decide whether to ask for IGDB
+      // credentials without needing to call the authenticated /api/config
+      // endpoint pre-login. This route stays on the public allowlist even
+      // after setup completes (existing sessions re-check it), so once a
+      // user exists, omit the igdb field entirely rather than leaving IGDB
+      // configuration status queryable by any anonymous caller forever.
+      if (!hasUsers) {
+        const igdb = await getIgdbConfigStatus();
+        return res.json({ hasUsers, igdb });
+      }
+      res.json({ hasUsers });
     } catch (error) {
       routesLogger.error({ error }, "Failed to check setup status");
       res.status(500).json({ error: "Failed to check setup status" });
@@ -581,6 +751,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
+      // Cookie-based auth is the primary mechanism for browser clients (see
+      // server/security.ts); the token is also still returned in the body
+      // for backward compatibility with any non-browser/bearer-only client.
+      setAuthCookies(req, res, token);
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
       routesLogger.error(
@@ -628,12 +802,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await storage.assignOrphanGamesToUser(user.id);
 
     const token = await generateToken(user);
+    // Cookie-based auth is the primary mechanism for browser clients (see
+    // server/security.ts); the token is also still returned in the body
+    // for backward compatibility with any non-browser/bearer-only client.
+    setAuthCookies(req, res, token);
     res.json({ token, user: { id: user.id, username: user.username } });
   });
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
     const user = req.user!;
     res.json({ id: user.id, username: user.username, steamId64: user.steamId64 });
+  });
+
+  // Logout must be idempotent: an expired/invalid/missing session cookie
+  // must still be cleared, otherwise the browser keeps a stale cookie
+  // forever. It's a SOFT_AUTH_API_ROUTES entry (see requireAuthenticationForApi
+  // above), which already ran optionalAuthenticateToken for this request --
+  // req.authSource is populated when a valid cookie is present, so
+  // csrfProtection (mounted before route registration) still enforces the
+  // CSRF check for cookie-authenticated callers. JWTs are stateless, so
+  // there's nothing to invalidate server-side beyond clearing the cookies.
+  app.post("/api/auth/logout", (req, res) => {
+    clearAuthCookies(req, res);
+    res.json({ success: true });
   });
 
   app.patch("/api/auth/password", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
@@ -666,7 +857,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Health check endpoint
-  app.get("/api/health", async (req, res) => {
+  app.get("/api/health", async (_req, res) => {
     // 🛡️ Sentinel: Harden health check endpoint.
     // This liveness probe only confirms the server is responsive.
     // For readiness checks (e.g., database connectivity), use the /api/ready endpoint.
@@ -674,7 +865,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // SSL Settings - Get
-  app.get("/api/settings/ssl", authenticateToken, async (req, res) => {
+  app.get("/api/settings/ssl", authenticateToken, async (_req, res) => {
     try {
       const sslConfig = configLoader.getSslConfig();
 
@@ -790,7 +981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/settings/ssl/generate",
     authenticateToken,
     sensitiveEndpointLimiter,
-    async (req, res) => {
+    async (_req, res) => {
       try {
         const { generateSelfSignedCert } = await import("./ssl.js");
         const { certPath, keyPath } = await generateSelfSignedCert();
@@ -1024,29 +1215,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  // Configuration endpoint - read-only access to key settings
-  app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
+  // Configuration endpoint - read-only access to key settings. Requires
+  // authentication (enforced by the default-deny API auth boundary below);
+  // the unauthenticated setup flow instead uses the `igdb` field on
+  // GET /api/auth/status, which exposes only the configured/source booleans.
+  app.get("/api/config", sensitiveEndpointLimiter, async (_req, res) => {
     try {
       // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
       // Only expose boolean flags indicating if services are configured, not
       // sensitive details like database URLs or partial API keys.
       // clientId is intentionally omitted here; use the authenticated
       // GET /api/settings/igdb endpoint to retrieve it.
-      let isConfigured = false;
-      let source: "env" | "database" | undefined;
-
-      // Check database first (takes precedence)
-      const dbClientId = await storage.getSystemConfig("igdb.clientId");
-      const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-
-      if (dbClientId && dbClientSecret) {
-        isConfigured = true;
-        source = "database";
-      } else if (appConfig.igdb.isConfigured) {
-        // Fallback to environment variables
-        isConfigured = true;
-        source = "env";
-      }
+      const { configured: isConfigured, source } = await getIgdbConfigStatus();
 
       const xrelApiBase =
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
@@ -1067,20 +1247,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Protect all API routes from here
-  app.use("/api", (req, res, next) => {
-    // Skip authentication for specific public endpoints that were already defined or need to be excluded
-    // Note: Auth routes are defined before this middleware, so they are already skipped.
-    // We explicitly skip health check if it matched /api/health (it was defined before, so express handles it first? Yes.)
-
-    // Just applying authenticateToken middleware
-    authenticateToken(req, res, next);
-  });
-
-  // Mount Feature Routers (explicitly protected)
-  app.use("/api/imports", authenticateToken, importRouter);
-  app.use("/api/import-tasks", authenticateToken, importTasksRouter);
-  app.use("/api/system", authenticateToken, systemRouter);
+  // Mount Feature Routers. No per-mount authenticateToken here: the
+  // default-deny boundary (requireAuthenticationForApi, mounted above
+  // before any /api route is registered) already authenticates every
+  // request to these paths -- none of them are in PUBLIC_API_ROUTES.
+  // Repeating the check here bought no additional protection (it re-runs
+  // the identical jwt.verify + storage.getUser after the same middleware
+  // already accepted the request) while doubling the per-request auth cost.
+  app.use("/api/imports", importRouter);
+  app.use("/api/import-tasks", importTasksRouter);
+  app.use("/api/system", systemRouter);
+  // Authenticated by the /api gate above (JWT or integration API key); same
+  // reasoning as the mounts above.
+  app.use("/api/integration", integrationRouter);
+  app.use("/api/api-keys", apiKeysRouter);
 
   // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {
@@ -1110,7 +1290,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/ready", async (req, res) => {
+  app.get("/api/ready", async (_req, res) => {
     let isHealthy = true;
 
     // Check database connectivity
@@ -1134,6 +1314,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(200).json({ status: "ok" });
     } else {
       res.status(503).json({ status: "error" });
+    }
+  });
+
+  // Lightweight dashboard stats for external status widgets (Homepage, Homarr, Organizr, etc.)
+  app.get("/api/status", authenticateToken, async (req, res) => {
+    try {
+      const status = await storage.getDashboardStatus(req.user!.id);
+      // User-specific data: never let a shared/browser cache reuse this across accounts.
+      res.set("Cache-Control", "no-store");
+      res.json(status);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to get dashboard status");
+      res.status(500).json({ error: "Failed to get dashboard status" });
     }
   });
 
@@ -1247,8 +1440,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(409).json({ error: "Game already in collection", game: existingGame });
         }
 
-        // Always generate new UUID - never trust client-provided IDs
-        const game = await storage.addGame(gameData);
+        // Avoid a misleading release notification for games already released at add time.
+        const normalizedGameData = normalizeInitialReleaseStatus(gameData);
+        const game = await storage.addGame(normalizedGameData);
         res.status(201).json(game);
       } catch (error) {
         if (error instanceof z.ZodError) {
@@ -1564,6 +1758,253 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==========================================================================
+  // Root folders — extra directories scanned (read-only discovery) for games
+  // already on disk outside the configured library root, e.g. an older
+  // library or a secondary drive. Separate from the library root used by the
+  // download-import pipeline.
+  // ==========================================================================
+
+  app.get("/api/root-folders", authenticateToken, async (_req: Request, res: Response) => {
+    try {
+      const folders = await storage.getAllRootFolders();
+      res.json(folders);
+    } catch (error) {
+      routesLogger.error({ error }, "error listing root folders");
+      res.status(500).json({ error: "Failed to list root folders" });
+    }
+  });
+
+  app.post(
+    "/api/root-folders",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const data = insertRootFolderSchema.parse(req.body);
+        // Canonicalize before the uniqueness check and probe so equivalent
+        // paths (`/mnt/games`, `/mnt/games/.`, `/mnt/other/../games`) can't
+        // bypass the unique-path constraint and get scanned as duplicates.
+        // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- root folders are intentionally arbitrary admin-supplied absolute paths (same trust level as the existing libraryRoot/downloadPath config), not a filename joined onto a fixed destination directory to be escaped
+        data.path = path.resolve(data.path);
+
+        const existing = await storage.getRootFolderByPath(data.path);
+        if (existing) {
+          return res.status(409).json({ error: "A root folder with this path already exists" });
+        }
+
+        const probe = await probeRootFolder(data.path);
+        if (!probe.accessible) {
+          return res.status(400).json({
+            error: "Path is not accessible",
+            details: probe.error ?? "Path must exist and be a readable directory",
+          });
+        }
+
+        const folder = await storage.addRootFolder(data);
+        const withHealth = await storage.updateRootFolderHealth(folder.id, {
+          accessible: probe.accessible,
+          diskFreeBytes: probe.diskFreeBytes,
+          diskTotalBytes: probe.diskTotalBytes,
+        });
+
+        res.status(201).json(withHealth ?? folder);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid root folder data");
+        }
+        routesLogger.error({ error }, "error creating root folder");
+        res.status(500).json({ error: "Failed to create root folder" });
+      }
+    }
+  );
+
+  app.patch(
+    "/api/root-folders/:id",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
+    sanitizeRootFolderUpdateData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const updates = updateRootFolderSchema.parse(req.body);
+
+        if (updates.path) {
+          // Same canonicalization as the create route — resolve before the
+          // uniqueness check and probe so equivalent paths can't collide.
+          // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- same as the create route: an arbitrary admin-supplied absolute path, not a filename joined onto a fixed destination
+          updates.path = path.resolve(updates.path);
+          const clash = await storage.getRootFolderByPath(updates.path);
+          if (clash && clash.id !== req.params.id) {
+            return res.status(409).json({ error: "Another root folder already uses this path" });
+          }
+
+          // Re-probe on every path change so stale health from the old path
+          // is never carried over onto the new one.
+          const probe = await probeRootFolder(updates.path);
+          if (!probe.accessible) {
+            return res.status(400).json({
+              error: "Path is not accessible",
+              details: probe.error ?? "Path must exist and be a readable directory",
+            });
+          }
+          const folder = await storage.updateRootFolder(req.params.id, updates);
+          if (!folder) return res.status(404).json({ error: "Root folder not found" });
+          const withHealth = await storage.updateRootFolderHealth(folder.id, {
+            accessible: probe.accessible,
+            diskFreeBytes: probe.diskFreeBytes,
+            diskTotalBytes: probe.diskTotalBytes,
+          });
+          return res.json(withHealth ?? folder);
+        }
+
+        const folder = await storage.updateRootFolder(req.params.id, updates);
+        if (!folder) return res.status(404).json({ error: "Root folder not found" });
+        res.json(folder);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid root folder data");
+        }
+        routesLogger.error({ error }, "error updating root folder");
+        res.status(500).json({ error: "Failed to update root folder" });
+      }
+    }
+  );
+
+  app.delete(
+    "/api/root-folders/:id",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const success = await storage.removeRootFolder(req.params.id);
+        if (!success) return res.status(404).json({ error: "Root folder not found" });
+        res.status(204).send();
+      } catch (error) {
+        routesLogger.error({ error }, "error deleting root folder");
+        res.status(500).json({ error: "Failed to delete root folder" });
+      }
+    }
+  );
+
+  // Force-refresh accessibility + disk stats for one root folder.
+  app.post(
+    "/api/root-folders/:id/health-check",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const folder = await storage.getRootFolder(req.params.id);
+        if (!folder) return res.status(404).json({ error: "Root folder not found" });
+
+        const probe = await probeRootFolder(folder.path);
+        const updated = await storage.updateRootFolderHealth(folder.id, {
+          accessible: probe.accessible,
+          diskFreeBytes: probe.diskFreeBytes,
+          diskTotalBytes: probe.diskTotalBytes,
+        });
+        res.json({ ...updated, error: probe.error ?? null });
+      } catch (error) {
+        routesLogger.error({ error }, "error running root folder health check");
+        res.status(500).json({ error: "Failed to run health check" });
+      }
+    }
+  );
+
+  // ==========================================================================
+  // Library scanner — scans configured root folders for games not yet
+  // tracked in Questarr and matches them against IGDB.
+  // ==========================================================================
+
+  app.post(
+    "/api/library/scan",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeLibraryScanData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = req.user!.id;
+        const { rootFolderId } = (req.body ?? {}) as { rootFolderId?: string };
+        if (rootFolderId) {
+          const folder = await storage.getRootFolder(rootFolderId);
+          if (!folder) return res.status(404).json({ error: "Root folder not found" });
+          // Fire-and-forget; progress is available via GET /api/library/scan/status
+          scanRootFolderById(rootFolderId, userId).catch((err) =>
+            routesLogger.error({ err }, "scanRootFolderById crashed")
+          );
+          return res.status(202).json({ accepted: true, rootFolderId });
+        }
+        scanAllEnabledRootFolders(userId).catch((err) =>
+          routesLogger.error({ err }, "scanAllEnabledRootFolders crashed")
+        );
+        res.status(202).json({ accepted: true, rootFolderId: null });
+      } catch (error) {
+        routesLogger.error({ error }, "error starting library scan");
+        res.status(500).json({ error: "Failed to start library scan" });
+      }
+    }
+  );
+
+  app.get("/api/library/scan/status", authenticateToken, async (_req: Request, res: Response) => {
+    try {
+      res.json(getAllScanProgress());
+    } catch (error) {
+      routesLogger.error({ error }, "error reading scan status");
+      res.status(500).json({ error: "Failed to read scan status" });
+    }
+  });
+
+  app.get(
+    "/api/library/scan/unmatched",
+    authenticateToken,
+    async (_req: Request, res: Response) => {
+      try {
+        res.json(getAllUnmatched());
+      } catch (error) {
+        routesLogger.error({ error }, "error reading unmatched list");
+        res.status(500).json({ error: "Failed to read unmatched list" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/library/scan/unmatched/match",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeUnmatchedMatchData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { rootFolderId, folderName, igdbId } = req.body as {
+          rootFolderId: string;
+          folderName: string;
+          igdbId: number;
+        };
+        const result = await matchUnmatchedFolder(rootFolderId, folderName, igdbId, req.user!.id);
+        res.json(result);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        routesLogger.error({ error }, "error resolving unmatched folder");
+        // matchUnmatchedFolder throws these two plain-Error messages for the
+        // "client asked to match something that no longer exists" cases —
+        // report them as 404s rather than 500s; everything else (IGDB
+        // lookup failure, filesystem error) stays a 500.
+        const notFound =
+          msg === "Root folder not found" ||
+          msg === "No matching unmatched entry for this root folder";
+        res.status(notFound ? 404 : 500).json({ error: msg });
+      }
+    }
+  );
+
   // Remove game from collection
   type FileDeletionResult =
     | { deleted: true; path: string | null }
@@ -1592,8 +2033,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const resolvedTarget = path.resolve(game.libraryPath);
             const insideRoot =
               resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
+            // Games discovered by the root-folder scanner live outside the
+            // configured library root by design. Allow deleting their files
+            // too, but only when the user has explicitly opted that specific
+            // root folder in to deletion — discovery itself never does.
+            const canDelete = insideRoot || (await isWithinDeletableRootFolder(resolvedTarget));
 
-            if (insideRoot) {
+            if (canDelete) {
               try {
                 await fsExtra.remove(resolvedTarget);
                 fileDeletion = { deleted: true, path: game.libraryPath };
@@ -1754,6 +2200,238 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to list blacklists" });
     }
   });
+  const gameIdParamValidation = [
+    param("gameId").trim().isUUID().withMessage("Invalid game ID format"),
+  ];
+  const gameFileIdParamValidation = [
+    param("id").trim().isUUID().withMessage("Invalid game file ID format"),
+  ];
+  const gameFileBodyValidation = [
+    body("gameId").trim().isUUID().withMessage("Invalid game ID format"),
+    body("downloadId")
+      .optional({ nullable: true })
+      .trim()
+      .isUUID()
+      .withMessage("Invalid download ID format"),
+    body("category")
+      .trim()
+      .isIn(["main", "dlc", "update", "extra"])
+      .withMessage("Invalid game file category"),
+  ];
+
+  // Recursively scan a game library folder. This endpoint is read-only; imports are handled separately.
+  app.get(
+    "/api/games/:gameId/files",
+    authenticateToken,
+    gameIdParamValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      // A missing path, a path that isn't a directory, or a symlink cycle are expected
+      // conditions for a stale/misconfigured library path — treat them as "nothing here".
+      // Anything else (EACCES, EPERM, other I/O failures) is a real failure and should
+      // surface as a 500 rather than silently reporting an empty or partial scan.
+      const isExpectedFsError = (error: unknown): boolean =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        ["ENOENT", "ENOTDIR", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "");
+      const realpathOrNull = async (target: string): Promise<string | null> => {
+        try {
+          return await fs.promises.realpath(target);
+        } catch (error) {
+          if (isExpectedFsError(error)) return null;
+          throw error;
+        }
+      };
+      try {
+        const game = await resolveOwnedGame(req.params.gameId, req.user!.id, res);
+        if (!game) return;
+        if (!game.libraryPath) return res.json({ files: [] });
+
+        const importConfig = await storage.getImportConfig(req.user!.id);
+        const libraryRoot = await realpathOrNull(importConfig.libraryRoot);
+        const scanRoot = await realpathOrNull(game.libraryPath);
+        const isContained = (candidate: string, root: string) =>
+          candidate === root ||
+          candidate.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
+        if (!libraryRoot || !scanRoot || !isContained(scanRoot, libraryRoot)) {
+          return res.json({ files: [] });
+        }
+
+        const categoryDirs = new Set<DownloadCategory>(["dlc", "update", "extra", "packs"]);
+        const isCategoryDirName = (name: string): name is DownloadCategory =>
+          categoryDirs.has(name as DownloadCategory);
+        // "packs" is recognized as a category-inheriting folder name, but game_files only
+        // persists the four categories the UI groups by ("main" | "dlc" | "update" | "extra").
+        // Normalize it (and the same category from filename-based categorizeDownload
+        // matches) to "extra" so scan results are always postable via POST /api/game-files.
+        const normalizeCategory = (category: DownloadCategory): GameFileCategory =>
+          category === "packs" ? "extra" : category;
+        const files: ScannedGameFile[] = [];
+        const walk = async (dir: string, inheritedCategory?: DownloadCategory): Promise<void> => {
+          const canonicalDir = await realpathOrNull(dir);
+          if (!canonicalDir || !isContained(canonicalDir, libraryRoot)) return;
+          let entries: fs.Dirent[];
+          try {
+            entries = await fs.promises.readdir(canonicalDir, { withFileTypes: true });
+          } catch (error) {
+            if (isExpectedFsError(error)) return;
+            throw error;
+          }
+          for (const entry of entries) {
+            const fullPath = path.join(canonicalDir, entry.name);
+            if (entry.isDirectory()) {
+              const lowerName = entry.name.toLowerCase();
+              const nextCategory = isCategoryDirName(lowerName) ? lowerName : inheritedCategory;
+              await walk(fullPath, nextCategory);
+              continue;
+            }
+            if (!entry.isFile()) continue;
+            const canonicalFile = await realpathOrNull(fullPath);
+            if (!canonicalFile || !isContained(canonicalFile, libraryRoot)) continue;
+            let stat: Awaited<ReturnType<typeof fs.promises.stat>>;
+            try {
+              stat = await fs.promises.stat(canonicalFile);
+            } catch (error) {
+              if (isExpectedFsError(error)) continue;
+              throw error;
+            }
+            const category = normalizeCategory(
+              inheritedCategory ?? categorizeDownload(path.parse(entry.name).name).category
+            );
+            files.push({ name: entry.name, path: canonicalFile, category, size: stat.size });
+          }
+        };
+        await walk(scanRoot);
+        res.json({ files });
+      } catch (error) {
+        routesLogger.error({ error }, "error scanning game files");
+        res.status(500).json({ error: "Failed to scan game files" });
+      }
+    }
+  );
+
+  // Get game files for a specific game, grouped by category
+  app.get(
+    "/api/games/:gameId/content",
+    authenticateToken,
+    gameIdParamValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId } = req.params;
+        const userId = req.user!.id;
+
+        const game = await resolveOwnedGame(gameId, userId, res);
+        if (!game) return;
+
+        const gameFiles = await storage.getGameFiles(gameId);
+
+        const CATEGORIES = [
+          { category: "main", label: "Main Game" },
+          { category: "dlc", label: "DLC & Expansions" },
+          { category: "update", label: "Updates & Patches" },
+          { category: "extra", label: "Extras" },
+        ] as const;
+
+        const slots = CATEGORIES.map(({ category, label }) => {
+          const files = gameFiles
+            .filter((f) => f.category === category)
+            .map((f) => ({
+              id: f.id,
+              originalName: f.originalName,
+              storedName: f.storedName,
+              downloadId: f.downloadId,
+              fileSize: f.fileSize,
+              createdAt: f.createdAt,
+            }));
+          return { category, label, present: files.length > 0, files };
+        });
+
+        res.json({ slots });
+      } catch (error) {
+        routesLogger.error({ error }, "error fetching game content");
+        res.status(500).json({ error: "Failed to fetch game content" });
+      }
+    }
+  );
+
+  // Get game files by download
+  app.get(
+    "/api/game-files/by-download/:downloadId",
+    authenticateToken,
+    sanitizeDownloadId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { downloadId } = req.params;
+        const download = await storage.getGameDownload(downloadId, req.user!.id);
+        if (!download) {
+          return res.status(404).json({ error: "Download not found" });
+        }
+        const files = await storage.getGameFilesByDownload(downloadId);
+        res.json(files);
+      } catch (error) {
+        routesLogger.error({ error }, "error fetching game files by download");
+        res.status(500).json({ error: "Failed to fetch game files" });
+      }
+    }
+  );
+
+  // Create a game file record
+  app.post(
+    "/api/game-files",
+    authenticateToken,
+    gameFileBodyValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const parsed = insertGameFileSchema.parse(req.body);
+        const game = await resolveOwnedGame(parsed.gameId, req.user!.id, res);
+        if (!game) return;
+        if (parsed.downloadId) {
+          const download = await storage.getGameDownload(parsed.downloadId, req.user!.id);
+          if (!download || download.gameId !== parsed.gameId) {
+            return res.status(404).json({ error: "Download not found for game" });
+          }
+        }
+        const gameFile = await storage.addGameFile(parsed);
+        res.status(201).json(gameFile);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid game file data");
+        }
+        routesLogger.error({ error }, "error creating game file");
+        res.status(500).json({ error: "Failed to create game file" });
+      }
+    }
+  );
+
+  // Delete a game file record
+  app.delete(
+    "/api/game-files/:id",
+    authenticateToken,
+    gameFileIdParamValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const gameFile = await storage.getGameFile(id);
+        if (!gameFile) {
+          return res.status(404).json({ error: "Game file not found" });
+        }
+        if (!(await resolveOwnedGame(gameFile.gameId, req.user!.id, res))) return;
+        const deleted = await storage.removeGameFile(id);
+        if (!deleted) {
+          return res.status(404).json({ error: "Game file not found" });
+        }
+        res.json({ success: true });
+      } catch (error) {
+        routesLogger.error({ error }, "error deleting game file");
+        res.status(500).json({ error: "Failed to delete game file" });
+      }
+    }
+  );
 
   // IGDB discovery routes
 
@@ -1860,7 +2538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Get available genres (for UI dropdowns/filters)
-  app.get("/api/igdb/genres", igdbRateLimiter, async (req, res) => {
+  app.get("/api/igdb/genres", igdbRateLimiter, async (_req, res) => {
     try {
       const genres = await igdbClient.getGenres();
       res.set("Cache-Control", CC_IGDB_METADATA);
@@ -1872,7 +2550,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get available platforms (for UI dropdowns/filters)
-  app.get("/api/igdb/platforms", igdbRateLimiter, async (req, res) => {
+  app.get("/api/igdb/platforms", igdbRateLimiter, async (_req, res) => {
     try {
       const platforms = await igdbClient.getPlatforms();
       res.set("Cache-Control", CC_IGDB_METADATA);
@@ -1925,7 +2603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Indexer management routes
 
   // Get all indexers
-  app.get("/api/indexers", async (req, res) => {
+  app.get("/api/indexers", async (_req, res) => {
     try {
       const indexers = await storage.getAllIndexers();
       res.json(indexers.map(maskIndexer));
@@ -1936,7 +2614,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get enabled indexers only
-  app.get("/api/indexers/enabled", async (req, res) => {
+  app.get("/api/indexers/enabled", async (_req, res) => {
     try {
       const indexers = await storage.getEnabledIndexers();
       res.json(indexers.map(maskIndexer));
@@ -2046,7 +2724,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Downloader management routes
 
   // Get all downloaders
-  app.get("/api/downloaders", async (req, res) => {
+  // Verbose debug logging of full downloader responses (qBittorrent, Transmission,
+  // rTorrent, Deluge, Synology, sabnzbd, nzbget). Off by default - meant to be
+  // toggled on temporarily while diagnosing a downloader integration issue.
+  app.get("/api/downloaders/debug-logging", async (_req, res) => {
+    try {
+      res.json({ enabled: isDownloaderDebugLoggingEnabled() });
+    } catch (error) {
+      routesLogger.error({ error }, "error fetching downloader debug logging setting");
+      res.status(500).json({ error: "Failed to fetch downloader debug logging setting" });
+    }
+  });
+
+  app.put(
+    "/api/downloaders/debug-logging",
+    body("enabled").isBoolean({ strict: true }).withMessage("enabled must be a boolean"),
+    validateRequest,
+    async (req, res) => {
+      try {
+        const { enabled } = req.body as { enabled: boolean };
+        await storage.setSystemConfig(
+          DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
+          enabled ? "true" : "false"
+        );
+        setCachedDownloaderDebugLogging(enabled);
+        routesLogger.info({ enabled }, "Downloader debug logging setting updated");
+        res.json({ enabled });
+      } catch (error) {
+        routesLogger.error({ error }, "error updating downloader debug logging setting");
+        res.status(500).json({ error: "Failed to update downloader debug logging setting" });
+      }
+    }
+  );
+
+  app.get("/api/downloaders", async (_req, res) => {
     try {
       const downloaders = await storage.getAllDownloaders();
       res.json(downloaders.map(maskDownloader));
@@ -2057,7 +2768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get enabled downloaders only
-  app.get("/api/downloaders/enabled", async (req, res) => {
+  app.get("/api/downloaders/enabled", async (_req, res) => {
     try {
       const downloaders = await storage.getEnabledDownloaders();
       res.json(downloaders.map(maskDownloader));
@@ -2068,7 +2779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get free space for all enabled downloaders
-  app.get("/api/downloaders/storage", async (req, res) => {
+  app.get("/api/downloaders/storage", async (_req, res) => {
     try {
       // ⚡ Bolt: Check cache first
       if (storageCache.data && Date.now() < storageCache.expiry) {
@@ -2182,6 +2893,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           delete updates.password;
         }
 
+        // Same masked-sentinel handling for the archive password nested inside
+        // `settings` -- restore the stored value instead of overwriting it with
+        // the redaction placeholder the UI echoes back unchanged.
+        if (typeof updates.settings === "string") {
+          const incomingSettings = parseJsonObject(updates.settings);
+          if (isUnchangedSentinel(incomingSettings.archivePassword)) {
+            const existing = await storage.getDownloader(id);
+            const existingPassword = parseJsonObject(existing?.settings).archivePassword;
+            if (existingPassword) {
+              incomingSettings.archivePassword = existingPassword;
+            } else {
+              delete incomingSettings.archivePassword;
+            }
+            updates.settings = JSON.stringify(incomingSettings);
+          }
+        }
+
         const downloader = await storage.updateDownloader(id, updates);
         if (!downloader) {
           return res.status(404).json({ error: "Downloader not found" });
@@ -2257,6 +2985,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         categories: categories || [],
         rssEnabled: rssEnabled ?? true,
         autoSearchEnabled: autoSearchEnabled ?? true,
+        allowInsecureLan: false,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -2357,67 +3086,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Downloader integration routes
 
   // Test downloader connection with provided configuration (doesn't require saving first)
-  app.post("/api/downloaders/test", async (req, res) => {
-    try {
-      const {
-        type,
-        url,
-        port,
-        useSsl,
-        urlPath,
-        username,
-        password,
-        downloadPath,
-        category,
-        label,
-        addStopped,
-        removeCompleted,
-        postImportCategory,
-        settings,
-      } = req.body;
+  app.post(
+    "/api/downloaders/test",
+    sanitizeDownloaderTestData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const {
+          type,
+          url,
+          port,
+          useSsl,
+          urlPath,
+          username,
+          password,
+          downloadPath,
+          category,
+          label,
+          addStopped,
+          removeCompleted,
+          postImportCategory,
+          settings,
+          allowSelfSignedCertificate,
+        } = req.body;
 
-      if (!type || !url) {
-        return res.status(400).json({ error: "Type and URL are required" });
+        // Check for SSRF
+        if (!(await isSafeUrl(url))) {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
+        // Create a temporary downloader object for testing
+        const tempDownloader: Downloader = {
+          id: "test",
+          name: "Test Connection",
+          type,
+          url,
+          port: port || null,
+          useSsl: useSsl ?? false,
+          urlPath: urlPath || null,
+          username: username || null,
+          password: password || null,
+          enabled: true,
+          priority: 1,
+          downloadPath: downloadPath || null,
+          category: category || null,
+          label: label || "Questarr",
+          addStopped: addStopped ?? false,
+          removeCompleted: removeCompleted ?? false,
+          postImportCategory: postImportCategory || null,
+          settings: settings || null,
+          allowSelfSignedCertificate: allowSelfSignedCertificate ?? false,
+          allowInsecureLan: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const result = await DownloaderManager.testDownloader(tempDownloader);
+        res.json(result);
+      } catch (error) {
+        routesLogger.error({ error }, "error testing downloader");
+        res.status(500).json({
+          error: "Failed to test downloader connection",
+        });
       }
-
-      // Check for SSRF
-      if (!(await isSafeUrl(url))) {
-        return res.status(400).json({ error: "Invalid or unsafe URL" });
-      }
-
-      // Create a temporary downloader object for testing
-      const tempDownloader: Downloader = {
-        id: "test",
-        name: "Test Connection",
-        type,
-        url,
-        port: port || null,
-        useSsl: useSsl ?? false,
-        urlPath: urlPath || null,
-        username: username || null,
-        password: password || null,
-        enabled: true,
-        priority: 1,
-        downloadPath: downloadPath || null,
-        category: category || null,
-        label: label || "Questarr",
-        addStopped: addStopped ?? false,
-        removeCompleted: removeCompleted ?? false,
-        postImportCategory: postImportCategory || null,
-        settings: settings || null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const result = await DownloaderManager.testDownloader(tempDownloader);
-      res.json(result);
-    } catch (error) {
-      routesLogger.error({ error }, "error testing downloader");
-      res.status(500).json({
-        error: "Failed to test downloader connection",
-      });
     }
-  });
+  );
 
   // Test existing downloader connection by ID
   app.post("/api/downloaders/:id/test", async (req, res) => {
@@ -2448,7 +3181,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
-        const { url, title, category, downloadPath, priority, downloadType } = req.body;
+        const { url, title, category, downloadPath, priority, downloadType, password } = req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -2470,6 +3203,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadPath,
           priority,
           downloadType,
+          password,
         });
 
         res.json(result);
@@ -2611,7 +3345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get aggregated downloads from all enabled downloaders
-  app.get("/api/downloads", async (req, res) => {
+  app.get("/api/downloads", async (_req, res) => {
     try {
       const enabledDownloaders = await storage.getEnabledDownloaders();
       const [trackedKeys, gameStatuses] = await Promise.all([
@@ -2878,11 +3612,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               : "wanted";
 
           const game = await storage.addGame(
-            insertGameSchema.parse({
-              ...newGame,
-              userId,
-              status: initialGameStatus,
-            })
+            normalizeInitialReleaseStatus(
+              insertGameSchema.parse({
+                ...newGame,
+                userId,
+                status: initialGameStatus,
+              })
+            )
           );
           resolvedGameId = game.id;
         }
@@ -3025,7 +3761,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   : "downloading"
                 : "wanted";
             const game = await storage.addGame(
-              insertGameSchema.parse({ ...item.newGame, userId, status: initialStatus })
+              normalizeInitialReleaseStatus(
+                insertGameSchema.parse({ ...item.newGame, userId, status: initialStatus })
+              )
             );
             resolvedGameId = game.id;
             if (item.newGame.igdbId != null) {
@@ -3142,11 +3880,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { url, title, category, downloadPath, priority, gameId, downloadType } = req.body;
+        const { url, title, category, downloadPath, priority, gameId, downloadType, password } =
+          req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
         }
+
+        // gameId comes from the request body, so verify ownership before
+        // touching the downloader: otherwise a user who knows another user's
+        // game UUID could link a download to that game and flip its status.
+        if (gameId && !(await resolveOwnedGame(gameId, req.user!.id, res))) return;
 
         const enabledDownloaders = await storage.getEnabledDownloaders();
         if (enabledDownloaders.length === 0) {
@@ -3161,6 +3905,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadPath,
           priority,
           downloadType,
+          password,
         });
 
         if (result && result.success === false) {
@@ -3168,13 +3913,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json(result);
         }
 
-        // If gameId is provided, track this download and update game status
-        if (gameId && result.success && result.id && result.downloaderId) {
+        // If gameId is provided, track this download and update game status.
+        // For async qBittorrent adds (pending_count with no hash yet), the
+        // downloader returns a correlationTag we use as a temporary downloadHash
+        // so the tracking record exists upfront. The cron resolves the real hash.
+        const rawDownloadHash = result.id ?? result.correlationTag;
+        const downloadHash = rawDownloadHash
+          ? normalizeDownloadHash(rawDownloadHash)
+          : rawDownloadHash;
+        if (gameId && result.success && downloadHash && result.downloaderId) {
           try {
             await storage.addGameDownload({
               gameId,
               downloaderId: result.downloaderId,
-              downloadHash: result.id,
+              downloadHash,
               downloadTitle: title,
               status: "downloading",
               downloadType: downloadType || "torrent",
@@ -3333,8 +4085,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Automatic error-telemetry routes ────────────────────────────────────────
+  // Backs the consent flow opened from an "error-detected" notification's link
+  // (`error-report:<reportId>`), see SendErrorReportDialog and error-telemetry.ts.
+  // Reports are scoped to the authenticated user: getPendingReport/sendPendingReport
+  // only return a report that belongs to req.user!.id.
+
+  const telemetryReportIdValidation = [
+    param("reportId").trim().isUUID().withMessage("Invalid report ID format"),
+  ];
+
+  app.get(
+    "/api/telemetry/pending/:reportId",
+    authenticateToken,
+    telemetryReportIdValidation,
+    validateRequest,
+    (req: Request, res: Response) => {
+      const report = getPendingReport(req.params.reportId, req.user!.id);
+      if (!report) {
+        return res.status(404).json({ error: "This report is no longer available." });
+      }
+      res.json({
+        lineCount: report.lineCount,
+        appVersion: report.appVersion,
+        platform: report.platform,
+        timestamp: report.timestamp,
+      });
+    }
+  );
+
+  app.post(
+    "/api/telemetry/pending/:reportId/send",
+    authenticateToken,
+    telemetryReportIdValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const result = await sendPendingReport(req.params.reportId, req.user!.id);
+        if (!result.ok) {
+          return res.status(422).json({ error: result.message });
+        }
+        res.json({ code: result.code, issueNumber: result.issueNumber });
+      } catch (error) {
+        routesLogger.error({ error }, "error sending pending telemetry report");
+        res.status(500).json({ error: "Failed to send diagnostic report" });
+      }
+    }
+  );
+
   // IGDB Configuration endpoint
-  app.get("/api/settings/igdb", sensitiveEndpointLimiter, async (req, res) => {
+  app.get("/api/settings/igdb", sensitiveEndpointLimiter, async (_req, res) => {
     try {
       const dbClientId = await storage.getSystemConfig("igdb.clientId");
       const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
@@ -3394,7 +4194,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/settings/discord", sensitiveEndpointLimiter, async (req, res) => {
+  app.get("/api/settings/discord", sensitiveEndpointLimiter, async (_req, res) => {
     try {
       const webhookUrl = await storage.getSystemConfig("discord.webhookUrl");
       const isConfigured = !!(webhookUrl && webhookUrl.length > 0);
@@ -3812,7 +4612,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Match and add game from name (Quick Add)
+  // Match and add game from name (Quick Add). Shares its search/filter/dedupe
+  // logic with the integration API's POST /api/integration/games/request
+  // (server/game-quick-add.ts) so the two entry points can't drift apart.
   app.post(
     "/api/games/match-and-add",
     sanitizeMatchAndAddTitle,
@@ -3824,63 +4626,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const userId = (req as any).user.id;
 
-        // 1. Search IGDB for the title
-        const igdbResults = await igdbClient.searchGames(title, 1);
-        if (igdbResults.length === 0) {
-          return res.status(404).json({ error: "No game found on IGDB for this title" });
+        const result = await quickAddGameByTitle(userId, title);
+
+        switch (result.outcome) {
+          case "not_found":
+            return res.status(404).json({ error: "No game found on IGDB for this title" });
+          case "duplicate":
+            return res.status(409).json({ error: "Game already in collection", game: result.game });
+          case "added":
+            routesLogger.info(
+              { userId, title: result.game.title, igdbId: result.game.igdbId },
+              "Game quick-added from matching"
+            );
+            return res.status(201).json(result.game);
         }
-
-        const match = igdbResults[0];
-        const formattedMatch = igdbClient.formatGameData(match);
-        const quickAddFilterFlags = await getContentFilterFlags(userId);
-        if (
-          isContentFiltered(
-            formattedMatch as { isAdultContent?: boolean; isAgeRestricted?: boolean },
-            quickAddFilterFlags
-          )
-        ) {
-          return res.status(404).json({ error: "Game not found" });
-        }
-
-        // 2. Add to library (similar to POST /api/games)
-        const gameData = insertGameSchema.parse({
-          userId,
-          title: formattedMatch.title,
-          igdbId: formattedMatch.igdbId,
-          status: "wanted", // Default status for quick add
-          platform: "PC", // Default platform, user can change later
-          platforms: formattedMatch.platforms,
-          genres: formattedMatch.genres,
-          themes: formattedMatch.themes,
-          isAdultContent: formattedMatch.isAdultContent,
-          isAgeRestricted: formattedMatch.isAgeRestricted,
-          coverUrl: formattedMatch.coverUrl,
-          releaseDate: formattedMatch.releaseDate,
-          summary: formattedMatch.summary,
-          publishers: formattedMatch.publishers,
-          developers: formattedMatch.developers,
-          screenshots: formattedMatch.screenshots,
-          rating: formattedMatch.rating,
-        });
-
-        // Check for existing
-        const userGames = await storage.getUserGames(userId, true);
-        const existingGame = userGames.find((g) =>
-          gameData.igdbId != null
-            ? g.igdbId === gameData.igdbId
-            : g.title.toLowerCase() === gameData.title.toLowerCase()
-        );
-
-        if (existingGame) {
-          return res.status(409).json({ error: "Game already in collection", game: existingGame });
-        }
-
-        const game = await storage.addGame(gameData);
-        routesLogger.info(
-          { userId, title: game.title, igdbId: game.igdbId },
-          "Game quick-added from matching"
-        );
-        res.status(201).json(game);
       } catch (error) {
         next(error);
       }
@@ -3888,7 +4647,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // RSS Feeds Routes
-  app.get("/api/rss/feeds", async (req, res) => {
+  app.get("/api/rss/feeds", async (_req, res) => {
     try {
       const feeds = await storage.getAllRssFeeds();
       res.json(feeds);
@@ -3975,7 +4734,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/rss/refresh", async (req, res) => {
+  app.post("/api/rss/refresh", async (_req, res) => {
     try {
       await rssService.refreshFeeds();
       res.json({ success: true });

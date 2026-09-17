@@ -1,7 +1,7 @@
 import { type IStorage } from "../storage.js";
 import { PathMappingService } from "./PathMappingService.js";
 import { PlatformMappingService } from "./PlatformMappingService.js";
-import { ArchiveService } from "./ArchiveService.js";
+import { ArchiveService, ArchivePasswordRequiredError } from "./ArchiveService.js";
 import {
   ImportStrategy,
   ImportReview,
@@ -9,13 +9,15 @@ import {
   sanitizeFsName,
 } from "./ImportStrategies.js";
 import { DownloaderManager } from "../downloaders.js";
-import { resolveDownloadRelativePath } from "../downloaders/utils.js";
+import { resolveDownloadRelativePath, buildRemoteImportPath } from "../downloaders/utils.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { parseReleaseMetadata } from "../../shared/title-utils.js";
+import { GAME_LINK_REQUIRED_STATUS } from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath } from "../path-security.js";
+import { notifyUser } from "../socket.js";
 
 const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
   nes: 18,
@@ -74,13 +76,19 @@ const IGDB_ID_TO_PLATFORM_KEY: Record<number, string> = Object.fromEntries(
 const MAX_PATH_RETRY = 5;
 const MAX_LISTED_FILES = 100;
 
+// Prefixes a game_downloads.error_message value to mark it as an ArchivePasswordRequiredError
+// rather than a generic failure, without a dedicated schema column. GET /api/imports/pending
+// strips this prefix and turns its presence into a `passwordRequired` flag so the manual-review
+// UI can show a password field instead of the normal path-review form.
+export const ARCHIVE_PASSWORD_REQUIRED_PREFIX = "ARCHIVE_PASSWORD_REQUIRED:";
+
 export class ImportManager {
   private readonly pathRetryCount = new Map<string, number>();
 
   constructor(
     private readonly storage: IStorage,
     private readonly pathService: PathMappingService,
-    private readonly _platformService: PlatformMappingService,
+    _platformService: PlatformMappingService,
     private readonly archiveService: ArchiveService
   ) {}
 
@@ -133,15 +141,38 @@ export class ImportManager {
     return "PC";
   }
 
-  private async extractIfArchive(sourcePath: string): Promise<string> {
+  // Renders a caught error for storage in game_downloads.error_message, tagging an
+  // ArchivePasswordRequiredError with ARCHIVE_PASSWORD_REQUIRED_PREFIX so the pending-imports
+  // API can turn it into a `passwordRequired` flag instead of a generic failure message.
+  private formatErrorMessage(err: unknown): string {
+    const message = err instanceof Error ? err.message : String(err);
+    return err instanceof ArchivePasswordRequiredError
+      ? `${ARCHIVE_PASSWORD_REQUIRED_PREFIX}${message}`
+      : message;
+  }
+
+  private async runExtract(
+    archivePath: string,
+    extractDir: string,
+    password?: string
+  ): Promise<string> {
+    try {
+      await this.archiveService.extract(archivePath, extractDir, password);
+      return extractDir;
+    } catch (err) {
+      await fs.remove(extractDir).catch(() => undefined);
+      throw err;
+    }
+  }
+
+  private async extractIfArchive(sourcePath: string, password?: string): Promise<string> {
     if (isSensitivePath(sourcePath)) {
       throw new Error("Refusing to process a sensitive system path");
     }
 
     if (this.archiveService.isArchive(sourcePath)) {
       const extractDir = sourcePath + "_extracted";
-      await this.archiveService.extract(sourcePath, extractDir);
-      return extractDir;
+      return this.runExtract(sourcePath, extractDir, password);
     }
 
     // Directory: scan for archive files inside (handles torrent dirs containing .rar etc.)
@@ -157,8 +188,7 @@ export class ImportManager {
     // 7zip handles multi-part archives when given the first part
     const mainArchive = path.join(sourcePath, archiveEntries[0]);
     const extractDir = sourcePath + "_extracted";
-    await this.archiveService.extract(mainArchive, extractDir);
-    return extractDir;
+    return this.runExtract(mainArchive, extractDir, password);
   }
 
   private async readSourceFiles(sourcePath: string): Promise<{
@@ -250,7 +280,12 @@ export class ImportManager {
   private async verifyLocalPath(
     downloadId: string,
     localPath: string,
-    meta: { downloaderName: string; remoteDownloadPath: string }
+    meta: {
+      downloaderName: string;
+      remoteDownloadPath: string;
+      gameTitle?: string;
+      userId?: string;
+    }
   ): Promise<boolean> {
     if (await fs.pathExists(localPath)) {
       this.pathRetryCount.delete(downloadId);
@@ -282,6 +317,23 @@ export class ImportManager {
       "[ImportManager] Path not accessible after retries — check path mappings under Settings → Path Mappings"
     );
     await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+    if (meta.gameTitle && meta.userId) {
+      try {
+        const notification = await this.storage.addNotification({
+          userId: meta.userId,
+          type: "warning",
+          title: "Import needs attention",
+          message: `"${meta.gameTitle}" finished downloading but its local path could not be accessed. Check Settings → Path Mappings or trigger the import manually.`,
+          link: "/library",
+        });
+        notifyUser("notification", notification);
+      } catch (err) {
+        logger.error(
+          { err, downloadId },
+          "[ImportManager] Failed to create path-inaccessible notification"
+        );
+      }
+    }
     return false;
   }
 
@@ -324,7 +376,54 @@ export class ImportManager {
     }
   }
 
-  async processImport(downloadId: string, remoteDownloadPath: string): Promise<void> {
+  private async flagNeedsReview(
+    downloadId: string,
+    game: { title: string },
+    plan: ImportReview,
+    processingPath: string,
+    localPath: string
+  ): Promise<void> {
+    logger.info(
+      { gameTitle: game.title, reviewReason: plan.reviewReason },
+      "[ImportManager] Manual review required"
+    );
+    await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+    if (processingPath !== localPath) {
+      await fs.remove(processingPath).catch(() => undefined);
+    }
+  }
+
+  private async autoDeleteIfConfigured(
+    downloadId: string,
+    download: NonNullable<Awaited<ReturnType<IStorage["getGameDownload"]>>>,
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    config: Awaited<ReturnType<IStorage["getImportConfig"]>>
+  ): Promise<void> {
+    if (
+      !config.autoDeleteAfterImport ||
+      (config.transferMode !== "copy" && config.transferMode !== "move")
+    ) {
+      return;
+    }
+    try {
+      await this.performAutoDelete(downloadId, download, game);
+    } catch (autoDeleteErr) {
+      // The import itself already succeeded and was finalized (status "imported", library
+      // path set) — a failure here must not fall through to the outer catch, which would
+      // demote the download back to manual_review_required and risk a duplicate transfer
+      // on retry.
+      logger.error(
+        { err: autoDeleteErr, downloadId },
+        "[ImportManager] Auto-delete after import failed unexpectedly"
+      );
+    }
+  }
+
+  async processImport(
+    downloadId: string,
+    remoteDownloadPath: string,
+    password?: string
+  ): Promise<void> {
     const download = await this.storage.getGameDownload(downloadId);
     if (!download) {
       logger.warn({ downloadId }, "[ImportManager] Download not found");
@@ -334,7 +433,25 @@ export class ImportManager {
     const game = await this.storage.getGame(download.gameId);
     if (!game) {
       logger.error({ downloadId }, "[ImportManager] Game not found for download");
-      await this.storage.updateGameDownloadStatus(downloadId, "error");
+      // "error" is a dead end: unlike "manual_review_required", nothing ever
+      // re-polls or surfaces it in the UI (getDownloadingGameDownloads only
+      // selects status="downloading", and getPendingImportReviews only
+      // selects "manual_review_required") - a download that lands here would
+      // sit invisibly forever even if the underlying issue (e.g. a
+      // transiently missing game row) was momentary.
+      //
+      // This is deliberately its own status rather than "manual_review_required":
+      // that review flow (ImportReviewModal) only ever asks the user to confirm
+      // source/destination paths for an *existing* game — it has no way to
+      // recover from there being no game to import into at all. "game_link_required"
+      // is surfaced separately so the user is prompted to pick the right game first;
+      // relinking (POST /api/imports/:id/link) then drops the download back into the
+      // normal "manual_review_required" path-review flow once a game is attached.
+      await this.storage.updateGameDownloadStatus(
+        downloadId,
+        GAME_LINK_REQUIRED_STATUS,
+        "This download's linked game could not be found — select a game to continue importing it."
+      );
       return;
     }
 
@@ -357,12 +474,19 @@ export class ImportManager {
 
       logger.debug({ localPath }, "[ImportManager] Checking path accessibility");
       if (
-        !(await this.verifyLocalPath(downloadId, localPath, { downloaderName, remoteDownloadPath }))
+        !(await this.verifyLocalPath(downloadId, localPath, {
+          downloaderName,
+          remoteDownloadPath,
+          gameTitle: game.title,
+          userId: game.userId ?? undefined,
+        }))
       ) {
         return;
       }
 
-      processingPath = config.autoUnpack ? await this.extractIfArchive(localPath) : localPath;
+      processingPath = config.autoUnpack
+        ? await this.extractIfArchive(localPath, password)
+        : localPath;
 
       const strategy = new PCImportStrategy();
       const libraryRoot = config.libraryRoot || "/data";
@@ -391,11 +515,7 @@ export class ImportManager {
       );
 
       if (plan.needsReview) {
-        logger.info(
-          { gameTitle: game.title, reviewReason: plan.reviewReason },
-          "[ImportManager] Manual review required"
-        );
-        await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+        await this.flagNeedsReview(downloadId, game, plan, processingPath, localPath);
         return;
       }
 
@@ -407,25 +527,7 @@ export class ImportManager {
       }
 
       await this.finalizeImport(downloadId, game, result.destDir);
-
-      if (
-        config.autoDeleteAfterImport &&
-        (config.transferMode === "copy" || config.transferMode === "move")
-      ) {
-        try {
-          await this.performAutoDelete(downloadId, download, game);
-        } catch (autoDeleteErr) {
-          // The import itself already succeeded and was finalized (status
-          // "imported", library path set) — a failure here must not fall
-          // through to the outer catch, which would demote the download
-          // back to manual_review_required and risk a duplicate transfer
-          // on retry.
-          logger.error(
-            { err: autoDeleteErr, downloadId },
-            "[ImportManager] Auto-delete after import failed unexpectedly"
-          );
-        }
-      }
+      await this.autoDeleteIfConfigured(downloadId, download, game, config);
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] Import failed");
       if (processingPath && localPath && processingPath !== localPath) {
@@ -438,7 +540,7 @@ export class ImportManager {
         await this.storage.updateGameDownloadStatus(
           downloadId,
           "manual_review_required",
-          err instanceof Error ? err.message : String(err)
+          this.formatErrorMessage(err)
         );
       } catch (statusErr) {
         logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
@@ -458,7 +560,10 @@ export class ImportManager {
     const details = await DownloaderManager.getDownloadDetails(downloader, download.downloadHash);
     if (!details?.downloadDir) return undefined;
 
-    const remotePath = `${details.downloadDir}/${resolveDownloadRelativePath(details)}`;
+    const remotePath = buildRemoteImportPath(
+      details.downloadDir,
+      resolveDownloadRelativePath(details)
+    );
     const remoteHost = this.extractRemoteHost(downloader.url);
     return this.pathService.translatePath(remotePath, remoteHost);
   }
@@ -538,6 +643,7 @@ export class ImportManager {
     overridePlan?: ImportReview & {
       transferMode?: "move" | "copy" | "hardlink" | "symlink";
       unpack?: boolean;
+      password?: string;
     },
     callerUserId?: string
   ): Promise<void> {
@@ -562,6 +668,10 @@ export class ImportManager {
       );
     }
 
+    if (!(await fs.pathExists(resolvedOriginalPath))) {
+      throw new Error(`Source path not found: ${resolvedOriginalPath}`);
+    }
+
     const game = await this.storage.getGame(download.gameId);
     if (!game) {
       throw new Error(`Game not found for download ${downloadId}`);
@@ -581,19 +691,33 @@ export class ImportManager {
       throw new Error("Proposed path is outside configured library root");
     }
 
-    const processPath = overridePlan.unpack
-      ? await this.extractIfArchive(resolvedOriginalPath)
-      : resolvedOriginalPath;
-
-    const planToExecute: ImportReview = {
-      ...overridePlan,
-      originalPath: processPath,
-    };
-
     const transferMode = overridePlan.transferMode ?? config.transferMode;
 
+    let processPath = resolvedOriginalPath;
+
     try {
+      processPath = overridePlan.unpack
+        ? await this.extractIfArchive(resolvedOriginalPath, overridePlan.password)
+        : resolvedOriginalPath;
+
+      const planToExecute: ImportReview = {
+        ...overridePlan,
+        // Recomputed server-side below when sorting is enabled — never trust
+        // client-supplied categories.
+        fileCategories: undefined,
+        originalPath: processPath,
+      };
+
       const strategy = new PCImportStrategy();
+      if (config.sortExtras) {
+        const categorizedPlan = await strategy.planImport(
+          processPath,
+          game,
+          config.libraryRoot,
+          config
+        );
+        planToExecute.fileCategories = categorizedPlan.fileCategories;
+      }
       const result = await strategy.executeImport(planToExecute, transferMode);
 
       await this.finalizeImport(downloadId, game, result.destDir);
@@ -605,7 +729,7 @@ export class ImportManager {
         await this.storage.updateGameDownloadStatus(
           downloadId,
           "manual_review_required",
-          err instanceof Error ? err.message : String(err)
+          this.formatErrorMessage(err)
         );
       } catch (statusErr) {
         logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
@@ -613,7 +737,7 @@ export class ImportManager {
       throw err;
     } finally {
       if (processPath !== resolvedOriginalPath) {
-        await fs.remove(processPath);
+        await fs.remove(processPath).catch(() => undefined);
       }
     }
   }

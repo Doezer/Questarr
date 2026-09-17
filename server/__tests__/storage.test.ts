@@ -13,6 +13,7 @@ import type {
   InsertIndexer,
   InsertDownloader,
   InsertGameDownload,
+  InsertGameFile,
   InsertUserSettings,
   InsertReleaseBlacklist,
 } from "../../shared/schema";
@@ -206,6 +207,25 @@ describe("MemStorage", () => {
 
       const retrieved = await storage.getGame(game.id);
       expect(retrieved).toBeUndefined();
+    });
+
+    it("cascades game files when removing a game", async () => {
+      const game = await storage.addGame({
+        title: "Game with file",
+        status: "owned",
+        userId: "user-1",
+        hidden: false,
+      });
+      await storage.addGameFile({
+        gameId: game.id,
+        originalName: "game.exe",
+        storedName: "game.exe",
+        category: "main",
+        filePath: "/library/game.exe",
+      } as InsertGameFile);
+
+      await expect(storage.removeGame(game.id)).resolves.toBe(true);
+      await expect(storage.getGameFiles(game.id)).resolves.toEqual([]);
     });
 
     it("should filter games by status", async () => {
@@ -656,6 +676,150 @@ describe("MemStorage", () => {
       expect(downloads[0].downloaderName).toBeNull();
     });
 
+    describe("getUnlinkedImportReviews / relinkGameDownload", () => {
+      it("returns downloads with status game_link_required regardless of their gameId", async () => {
+        const unlinked = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-unlinked",
+          downloadTitle: "Orphaned-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-reviewing",
+          downloadTitle: "Reviewing-GROUP",
+          status: "manual_review_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        const results = await storage.getUnlinkedImportReviews();
+        expect(results).toHaveLength(1);
+        expect(results[0].id).toBe(unlinked.id);
+      });
+
+      it("relinkGameDownload updates the gameId and returns to manual_review_required", async () => {
+        const otherGame = await storage.addGame({
+          title: "Correct Game",
+          igdbId: 5002,
+          status: "wanted",
+          hidden: false,
+          userId,
+        } as InsertGame);
+
+        const download = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-to-relink",
+          downloadTitle: "NeedsLink-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.updateGameDownloadStatus(
+          download.id,
+          "game_link_required",
+          "This download's linked game could not be found"
+        );
+
+        const updated = await storage.relinkGameDownload(download.id, otherGame.id);
+
+        expect(updated?.gameId).toBe(otherGame.id);
+        expect(updated?.status).toBe("manual_review_required");
+        expect(updated?.errorMessage).toBeNull();
+
+        // No longer surfaced as needing a game link…
+        expect(await storage.getUnlinkedImportReviews()).toHaveLength(0);
+        // …and now surfaces in the normal path-review list instead.
+        const pending = await storage.getPendingImportReviews(userId);
+        expect(pending.some((d) => d.id === download.id)).toBe(true);
+      });
+
+      it("relinkGameDownload returns undefined for a nonexistent download", async () => {
+        const result = await storage.relinkGameDownload("nonexistent-id", gameId);
+        expect(result).toBeUndefined();
+      });
+
+      it("relinkGameDownload is a no-op once the download has already moved past game_link_required", async () => {
+        const otherGame = await storage.addGame({
+          title: "Second Correct Game",
+          igdbId: 5003,
+          status: "wanted",
+          hidden: false,
+          userId,
+        } as InsertGame);
+
+        const download = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-race",
+          downloadTitle: "Race-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        // Simulates a concurrent request winning the race first.
+        await storage.relinkGameDownload(download.id, otherGame.id);
+
+        const secondAttempt = await storage.relinkGameDownload(download.id, gameId);
+        expect(secondAttempt).toBeUndefined();
+
+        // The first relink's choice of game must survive untouched.
+        const current = await storage.getGameDownload(download.id);
+        expect(current?.gameId).toBe(otherGame.id);
+      });
+
+      it("completeUnlinkedGameDownload dismisses a game_link_required download as completed", async () => {
+        const download = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-to-skip",
+          downloadTitle: "Skip-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        const updated = await storage.completeUnlinkedGameDownload(download.id);
+
+        expect(updated?.status).toBe("completed");
+        expect(updated?.completedAt).not.toBeNull();
+        expect(await storage.getUnlinkedImportReviews()).toHaveLength(0);
+      });
+
+      it("completeUnlinkedGameDownload returns undefined for a nonexistent download", async () => {
+        const result = await storage.completeUnlinkedGameDownload("nonexistent-id");
+        expect(result).toBeUndefined();
+      });
+
+      it("completeUnlinkedGameDownload is a no-op once the download has already been relinked", async () => {
+        const download = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-skip-race",
+          downloadTitle: "SkipRace-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        // Simulates a concurrent POST /:id/link winning the race first.
+        await storage.relinkGameDownload(download.id, gameId);
+
+        const result = await storage.completeUnlinkedGameDownload(download.id);
+        expect(result).toBeUndefined();
+
+        // The relink must survive untouched — not clobbered back to "completed".
+        const current = await storage.getGameDownload(download.id);
+        expect(current?.status).toBe("manual_review_required");
+      });
+    });
+
     describe("getTrackedDownloadKeys", () => {
       it("returns an empty set when there are no game downloads", async () => {
         const keys = await storage.getTrackedDownloadKeys();
@@ -688,6 +852,218 @@ describe("MemStorage", () => {
         expect(keys.size).toBe(2);
       });
     });
+
+    describe("getDashboardStatus", () => {
+      it("counts games, wishlist items, active downloads and recent imports for the user", async () => {
+        // A second "wanted" game to exercise pendingWishlist counting.
+        await storage.addGame({
+          title: "Wishlist Game",
+          igdbId: 5002,
+          status: "wanted",
+          hidden: false,
+          userId,
+        } as InsertGame);
+
+        await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "active-1",
+          downloadTitle: "Active-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        const completed = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "completed-1",
+          downloadTitle: "Completed-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.updateGameDownloadStatus(completed.id, "completed");
+
+        const status = await storage.getDashboardStatus(userId);
+
+        expect(status.totalGames).toBe(2);
+        expect(status.pendingWishlist).toBe(2);
+        expect(status.activeDownloads).toBe(1);
+        expect(status.recentImports.count).toBe(1);
+        expect(status.recentImports.items).toHaveLength(1);
+        expect(status.recentImports.items[0]).toMatchObject({
+          gameId,
+          title: "Download Game",
+        });
+      });
+
+      it("returns zeroed stats for a user with no games", async () => {
+        const otherUser = await storage.createUser({
+          username: "emptyuser",
+          passwordHash: "hash",
+        });
+
+        const status = await storage.getDashboardStatus(otherUser.id);
+
+        expect(status).toEqual({
+          totalGames: 0,
+          pendingWishlist: 0,
+          activeDownloads: 0,
+          recentImports: { count: 0, items: [] },
+        });
+      });
+
+      it("excludes hidden games from every metric", async () => {
+        const hiddenGame = await storage.addGame({
+          title: "Hidden Game",
+          igdbId: 5003,
+          status: "wanted",
+          hidden: true,
+          userId,
+        } as InsertGame);
+
+        const hiddenDownload = await storage.addGameDownload({
+          gameId: hiddenGame.id,
+          downloaderId,
+          downloadHash: "hidden-completed-1",
+          downloadTitle: "Hidden-Completed-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.updateGameDownloadStatus(hiddenDownload.id, "completed");
+        await storage.addGameDownload({
+          gameId: hiddenGame.id,
+          downloaderId,
+          downloadHash: "hidden-active-1",
+          downloadTitle: "Hidden-Active-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        const status = await storage.getDashboardStatus(userId);
+
+        // Only the non-hidden "Download Game" from the outer beforeEach counts;
+        // the hidden game and its downloads are excluded from every metric.
+        expect(status.totalGames).toBe(1);
+        expect(status.pendingWishlist).toBe(1);
+        expect(status.activeDownloads).toBe(0);
+        expect(status.recentImports.count).toBe(0);
+        expect(status.recentImports.items).toHaveLength(0);
+      });
+
+      it("excludes completed downloads older than seven days from both count and items", async () => {
+        vi.useFakeTimers();
+        try {
+          vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+          const oldDownload = await storage.addGameDownload({
+            gameId,
+            downloaderId,
+            downloadHash: "old-completed-1",
+            downloadTitle: "Old-Completed-GROUP",
+            status: "downloading",
+            downloadType: "torrent",
+            fileSize: null,
+          } as InsertGameDownload);
+          await storage.updateGameDownloadStatus(oldDownload.id, "completed");
+
+          // 8 days later: outside the 7-day recent-imports window.
+          vi.setSystemTime(new Date("2026-01-09T00:00:00.000Z"));
+          const status = await storage.getDashboardStatus(userId);
+
+          expect(status.recentImports.count).toBe(0);
+          expect(status.recentImports.items).toHaveLength(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+  });
+});
+
+describe("Root Folder Management", () => {
+  let storage: MemStorageType;
+
+  beforeEach(() => {
+    storage = new MemStorage();
+  });
+
+  it("creates a root folder with defaults and no health data yet", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library" });
+    expect(folder.id).toBeDefined();
+    expect(folder.path).toBe("/mnt/old-library");
+    expect(folder.name).toBeNull();
+    expect(folder.enabled).toBe(true);
+    expect(folder.allowDelete).toBe(false);
+    expect(folder.accessible).toBeNull();
+  });
+
+  it("creates a root folder with allowDelete explicitly enabled", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library", allowDelete: true });
+    expect(folder.allowDelete).toBe(true);
+  });
+
+  it("lists all root folders and filters to enabled ones", async () => {
+    await storage.addRootFolder({ path: "/mnt/a" });
+    const disabled = await storage.addRootFolder({ path: "/mnt/b", enabled: false });
+
+    expect(await storage.getAllRootFolders()).toHaveLength(2);
+    const enabled = await storage.getEnabledRootFolders();
+    expect(enabled).toHaveLength(1);
+    expect(enabled.some((f) => f.id === disabled.id)).toBe(false);
+  });
+
+  it("gets a root folder by id and by path", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library", name: "Old NAS" });
+    expect((await storage.getRootFolder(folder.id))?.name).toBe("Old NAS");
+    expect((await storage.getRootFolderByPath("/mnt/old-library"))?.id).toBe(folder.id);
+    expect(await storage.getRootFolder("missing")).toBeUndefined();
+    expect(await storage.getRootFolderByPath("/nowhere")).toBeUndefined();
+  });
+
+  it("updates a root folder's fields", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library" });
+    const updated = await storage.updateRootFolder(folder.id, {
+      name: "Renamed",
+      enabled: false,
+      allowDelete: true,
+    });
+    expect(updated?.name).toBe("Renamed");
+    expect(updated?.enabled).toBe(false);
+    expect(updated?.allowDelete).toBe(true);
+    expect(await storage.updateRootFolder("missing", { enabled: false })).toBeUndefined();
+  });
+
+  it("updates and touches health/scan metadata", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library" });
+    const withHealth = await storage.updateRootFolderHealth(folder.id, {
+      accessible: true,
+      diskFreeBytes: 1000,
+      diskTotalBytes: 2000,
+    });
+    expect(withHealth?.accessible).toBe(true);
+    expect(withHealth?.diskFreeBytes).toBe(1000);
+    expect(
+      await storage.updateRootFolderHealth("missing", {
+        accessible: false,
+        diskFreeBytes: null,
+        diskTotalBytes: null,
+      })
+    ).toBeUndefined();
+
+    expect(folder.lastScannedAt).toBeNull();
+    await storage.touchRootFolderScanned(folder.id);
+    expect((await storage.getRootFolder(folder.id))?.lastScannedAt).toBeInstanceOf(Date);
+    // Touching a missing folder is a silent no-op.
+    await storage.touchRootFolderScanned("missing");
+  });
+
+  it("removes a root folder", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library" });
+    expect(await storage.removeRootFolder(folder.id)).toBe(true);
+    expect(await storage.getRootFolder(folder.id)).toBeUndefined();
+    expect(await storage.removeRootFolder(folder.id)).toBe(false);
   });
 });
 
@@ -745,6 +1121,53 @@ describe("Import And Mapping Helpers", () => {
     );
   });
 
+  it("should persist enabled sortExtras in import config", async () => {
+    const user = await storage.createUser({ username: "sort-user", passwordHash: "hash" });
+    await storage.createUserSettings({ userId: user.id, sortExtras: true });
+
+    await expect(storage.getImportConfig(user.id)).resolves.toEqual(
+      expect.objectContaining({ sortExtras: true })
+    );
+  });
+
+  it("clears game-file download references when removing a download", async () => {
+    const game = await storage.addGame({
+      title: "Download game",
+      status: "owned",
+      userId: "user-1",
+      hidden: false,
+    });
+    const downloader = await storage.addDownloader({
+      name: "test",
+      type: "qbittorrent",
+      url: "http://localhost",
+      apiKey: "",
+      enabled: true,
+      priority: 1,
+    } as InsertDownloader);
+    const download = await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId: downloader.id,
+      downloadHash: "hash",
+      downloadTitle: "Game",
+      status: "downloading",
+      downloadType: "torrent",
+      fileSize: null,
+    } as InsertGameDownload);
+    await storage.addGameFile({
+      gameId: game.id,
+      downloadId: download!.id,
+      originalName: "game.exe",
+      storedName: "game.exe",
+      category: "main",
+      filePath: "/library/game.exe",
+    } as InsertGameFile);
+
+    await expect(storage.removeGameDownload(download!.id, game.id)).resolves.toBe(true);
+    const files = await storage.getGameFiles(game.id);
+    expect(files[0]?.downloadId).toBeNull();
+  });
+
   it("should apply defaults when no matching scoped settings exist", async () => {
     const importConfig = await storage.getImportConfig("missing-user");
     expect(importConfig).toEqual({
@@ -758,6 +1181,7 @@ describe("Import And Mapping Helpers", () => {
       minFileSize: 0,
       libraryRoot: "/data",
       autoDeleteAfterImport: false,
+      sortExtras: false,
     });
   });
 

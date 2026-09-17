@@ -1,0 +1,1 @@
+ALTER TABLE `games` ADD `search_results_available_at` integer;

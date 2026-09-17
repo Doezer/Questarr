@@ -23,7 +23,7 @@ const RELEASE_TAGS = [
   /\b(1080p|720p|2160p|4k|uhd|bluray|h264|x264|h265|x265|hevc)\b/gi,
   /\b(multi\d*|multilingual|language|languages|german|english|french|italian|spanish|nordic|pal|ntsc|russian|japanese)\b/gi,
   /\b(iso|rip|repack|re-repack|proper|internal|readnfo|nfo|re-nfo|crackfix|fix|fixed|hotfix|update|dlc|unlocker)\b/gi,
-  /\b(ps3|ps4|ps5|xbox|xbox360|x360|switch|nsw|wii|wiiu|nds|3ds|gba|psp|psvita|vita)\b/gi,
+  /\b(ps3|ps4|ps5|xbox|xbox360|x360|switch|nsw|nsp|xci|wii|wiiu|nds|3ds|gba|psp|psvita|vita)\b/gi,
   /\b(mac|linux|osx|os\.x|macos)\b/gi,
   /\b(gog|steam|epic|uplay|origin|drm[ -]?free)\b/gi,
   /\b(goty|deluxe|complete|gold|ultimate|collectors|definitive|remastered|remake|remaster)\b/gi,
@@ -307,7 +307,7 @@ export const PLATFORM_CATALOG = [
     canonical: "Switch",
     igdbIds: [130],
     igdbNames: ["Nintendo Switch"],
-    releasePattern: /(?:^|[^a-z0-9])(nintendo\s*switch|switch|nsw)(?=$|[^a-z0-9])/i,
+    releasePattern: /(?:^|[^a-z0-9])(nintendo\s*switch|switch|nsw|nsp|xci)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "GameCube",

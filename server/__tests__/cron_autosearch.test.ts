@@ -27,6 +27,7 @@ const mockGetUserSettings = vi.fn();
 const mockUpdateUserSettings = vi.fn();
 const mockAddNotification = vi.fn();
 const mockUpdateGameSearchResultsAvailable = vi.fn();
+const mockUpdateGameSearchResultsByCategory = vi.fn();
 const mockUpdateGameStatus = vi.fn();
 const mockAddGameDownload = vi.fn();
 const mockGetEnabledDownloaders = vi.fn().mockResolvedValue([]);
@@ -41,6 +42,7 @@ vi.mock("../storage.js", () => ({
     updateUserSettings: mockUpdateUserSettings,
     addNotification: mockAddNotification,
     updateGameSearchResultsAvailable: mockUpdateGameSearchResultsAvailable,
+    updateGameSearchResultsByCategory: mockUpdateGameSearchResultsByCategory,
     updateGameStatus: mockUpdateGameStatus,
     addGameDownload: mockAddGameDownload,
     getEnabledDownloaders: mockGetEnabledDownloaders,
@@ -87,7 +89,7 @@ vi.mock("../xrel.js", () => ({
 
 // Import the function under test
 // We need to use dynamic import or require because of the hoisting of vi.mock
-const { checkAutoSearch } = await import("../cron.js");
+const { checkAutoSearch, categorizeSearchItems } = await import("../cron.js");
 
 describe("Cron - checkAutoSearch", () => {
   const userId = "user-123";
@@ -115,6 +117,9 @@ describe("Cron - checkAutoSearch", () => {
     developers: [],
     screenshots: [],
     originalReleaseDate: null,
+    searchResultsAvailable: false,
+    updateSearchResultsAvailable: false,
+    packsSearchResultsAvailable: false,
   };
 
   const baseSettings: UserSettings = {
@@ -1249,6 +1254,59 @@ describe("Cron - checkAutoSearch", () => {
       await expect(checkAutoSearch()).resolves.not.toThrow();
       expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
     });
+
+    it("should sort by indexer priority (lower number = higher priority sorts first)", () => {
+      const itemFromLowPriorityIndexer = {
+        ...ITEM_LOW_SEEDERS,
+        title: "Test Game-LOWPRIO",
+        indexerId: "indexer-low",
+      };
+      const itemFromHighPriorityIndexer = {
+        ...ITEM_HIGH_SEEDERS,
+        title: "Test Game-HIGHPRIO",
+        indexerId: "indexer-high",
+      };
+      const indexerPriorityMap = new Map([
+        ["indexer-low", 5],
+        ["indexer-high", 1],
+      ]);
+
+      const result = categorizeSearchItems(
+        [itemFromLowPriorityIndexer, itemFromHighPriorityIndexer],
+        { minSeeders: 0, sortBy: "priority", visibleCategoriesSet: new Set(["main"]) },
+        indexerPriorityMap
+      );
+
+      expect(result.mainItems.map((item) => item.title)).toEqual([
+        "Test Game-HIGHPRIO",
+        "Test Game-LOWPRIO",
+      ]);
+    });
+
+    it("should treat unknown indexers as lowest priority when sorting by priority", () => {
+      const itemFromKnownIndexer = {
+        ...ITEM_LOW_SEEDERS,
+        title: "Test Game-KNOWN",
+        indexerId: "indexer-known",
+      };
+      const itemFromUnknownIndexer = {
+        ...ITEM_HIGH_SEEDERS,
+        title: "Test Game-UNKNOWN",
+        indexerId: "indexer-unknown",
+      };
+      const indexerPriorityMap = new Map([["indexer-known", 3]]);
+
+      const result = categorizeSearchItems(
+        [itemFromUnknownIndexer, itemFromKnownIndexer],
+        { minSeeders: 0, sortBy: "priority", visibleCategoriesSet: new Set(["main"]) },
+        indexerPriorityMap
+      );
+
+      expect(result.mainItems.map((item) => item.title)).toEqual([
+        "Test Game-KNOWN",
+        "Test Game-UNKNOWN",
+      ]);
+    });
   });
 
   describe("Notification dedup (transition gating)", () => {
@@ -1371,7 +1429,11 @@ describe("Cron - checkAutoSearch", () => {
       );
       mockAddNotification.mockClear();
 
-      const stillAvailable = { ...ownedGame, searchResultsAvailable: true };
+      const stillAvailable = {
+        ...ownedGame,
+        searchResultsAvailable: true,
+        updateSearchResultsAvailable: true,
+      };
       mockGetUserGames.mockResolvedValue([stillAvailable]);
 
       await checkAutoSearch();
@@ -1380,6 +1442,86 @@ describe("Cron - checkAutoSearch", () => {
       );
     });
 
+    it("notifies independently when an update is followed by a pack", async () => {
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      const updateResult = { items: [UPDATE_ITEM], errors: [], total: 1 };
+      const packResult = {
+        items: [{ ...UPDATE_ITEM, title: "Test Game Content Pack" }],
+        errors: [],
+        total: 1,
+      };
+      let game = {
+        ...baseGame,
+        status: "owned" as const,
+        releaseStatus: "released" as const,
+        searchResultsAvailable: false,
+        updateSearchResultsAvailable: false,
+        packsSearchResultsAvailable: false,
+      };
+      mockGetUserGames.mockResolvedValue([game]);
+
+      mockSearchAllIndexers.mockResolvedValue(updateResult);
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Updates Available" })
+      );
+      mockAddNotification.mockClear();
+
+      game = { ...game, searchResultsAvailable: true, updateSearchResultsAvailable: true };
+      mockGetUserGames.mockResolvedValue([game]);
+      mockSearchAllIndexers.mockResolvedValue(packResult);
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Packs Available" })
+      );
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Updates Available" })
+      );
+
+      mockAddNotification.mockClear();
+      game = { ...game, searchResultsAvailable: true, packsSearchResultsAvailable: true };
+      mockGetUserGames.mockResolvedValue([game]);
+      await checkAutoSearch();
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Packs Available" })
+      );
+    });
+    it("notifies independently when a pack is followed by an update", async () => {
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      const packResult = {
+        items: [{ ...UPDATE_ITEM, title: "Test Game Content Pack" }],
+        errors: [],
+        total: 1,
+      };
+      const updateResult = { items: [UPDATE_ITEM], errors: [], total: 1 };
+      let game = {
+        ...baseGame,
+        status: "owned" as const,
+        releaseStatus: "released" as const,
+        searchResultsAvailable: false,
+        updateSearchResultsAvailable: false,
+        packsSearchResultsAvailable: false,
+      };
+      mockGetUserGames.mockResolvedValue([game]);
+
+      mockSearchAllIndexers.mockResolvedValue(packResult);
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Packs Available" })
+      );
+      mockAddNotification.mockClear();
+
+      game = { ...game, searchResultsAvailable: true, packsSearchResultsAvailable: true };
+      mockGetUserGames.mockResolvedValue([game]);
+      mockSearchAllIndexers.mockResolvedValue(updateResult);
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Updates Available" })
+      );
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Packs Available" })
+      );
+    });
     it("re-notifies 'Game Available' after a false→true→false→true flap", async () => {
       let game = {
         ...baseGame,

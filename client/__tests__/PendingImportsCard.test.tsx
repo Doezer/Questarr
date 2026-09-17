@@ -1,15 +1,29 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import PendingImportsCard from "../src/components/PendingImportsCard";
 import { createTestQueryClient, getRequestUrl } from "./test-utils";
 
+const { mockImportReviewModal, mockLinkGameModal } = vi.hoisted(() => ({
+  mockImportReviewModal: vi.fn(),
+  mockLinkGameModal: vi.fn(),
+}));
+
 vi.mock("../src/components/ImportReviewModal", () => ({
-  default: () => null,
+  default: (props: Record<string, unknown>) => {
+    mockImportReviewModal(props);
+    return <div data-testid="import-review-modal" />;
+  },
+}));
+vi.mock("../src/components/LinkGameModal", () => ({
+  default: (props: Record<string, unknown>) => {
+    mockLinkGameModal(props);
+    return <div data-testid="link-game-modal" />;
+  },
 }));
 
 function createJsonResponse(data: unknown): Response {
@@ -28,6 +42,11 @@ function renderCard() {
 }
 
 describe("PendingImportsCard", () => {
+  beforeEach(() => {
+    mockImportReviewModal.mockClear();
+    mockLinkGameModal.mockClear();
+  });
+
   it("renders nothing when there are no pending imports", async () => {
     const fetchMock = vi.fn(async () => createJsonResponse([]));
     globalThis.fetch = fetchMock;
@@ -61,6 +80,132 @@ describe("PendingImportsCard", () => {
 
     expect(await screen.findByText("My Game")).toBeInTheDocument();
     expect(screen.getByText("Import failed: disk full")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Review" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+
+    expect(screen.getByTestId("import-review-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("link-game-modal")).not.toBeInTheDocument();
+    expect(mockImportReviewModal).toHaveBeenCalledWith(
+      expect.objectContaining({ downloadId: "dl-1", open: true })
+    );
+    expect(mockLinkGameModal).not.toHaveBeenCalled();
+  });
+
+  it("offers a Link Game action for a download whose game record is missing", async () => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (getRequestUrl(url).includes("/api/imports/pending")) {
+        return createJsonResponse([
+          {
+            id: "dl-2",
+            // The backend has no game to derive a title from for this status —
+            // gameTitle falls back to downloadTitle, so both lines render the
+            // same text.
+            gameTitle: "Orphaned.Release-GROUP",
+            downloadTitle: "Orphaned.Release-GROUP",
+            status: "game_link_required",
+            createdAt: new Date().toISOString(),
+            errorMessage: "This download's linked game could not be found",
+          },
+        ]);
+      }
+      return createJsonResponse({});
+    });
+
+    renderCard();
+
+    // No "Import failed:" prefix for this case — it isn't a failed import, it's
+    // missing a game link.
+    expect(
+      await screen.findByText("This download's linked game could not be found")
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Orphaned.Release-GROUP")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Review" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Link Game" }));
+
+    expect(screen.getByTestId("link-game-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("import-review-modal")).not.toBeInTheDocument();
+    expect(mockLinkGameModal).toHaveBeenCalledWith(
+      expect.objectContaining({ downloadId: "dl-2", open: true })
+    );
+    expect(mockImportReviewModal).not.toHaveBeenCalled();
+
+    // Simulate the modal closing itself (e.g. after a successful link).
+    const { onOpenChange } = mockLinkGameModal.mock.calls.at(-1)?.[0] as {
+      onOpenChange: (open: boolean) => void;
+    };
+    act(() => onOpenChange(false));
+    expect(screen.queryByTestId("link-game-modal")).not.toBeInTheDocument();
+  });
+
+  it("offers an Enter Password action and passes passwordRequired through for an encrypted archive", async () => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (getRequestUrl(url).includes("/api/imports/pending")) {
+        return createJsonResponse([
+          {
+            id: "dl-3",
+            gameTitle: "Encrypted Game",
+            downloadTitle: "Encrypted.Game.Release-GROUP",
+            status: "manual_review_required",
+            createdAt: new Date().toISOString(),
+            errorMessage:
+              "This archive is password-protected — a password is required to extract it.",
+            passwordRequired: true,
+          },
+        ]);
+      }
+      return createJsonResponse({});
+    });
+
+    renderCard();
+
+    expect(await screen.findByText("Encrypted Game")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Password required: This archive is password-protected — a password is required to extract it."
+      )
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Enter Password" }));
+
+    expect(screen.getByTestId("import-review-modal")).toBeInTheDocument();
+    expect(mockImportReviewModal).toHaveBeenCalledWith(
+      expect.objectContaining({ downloadId: "dl-3", open: true, passwordRequired: true })
+    );
+  });
+
+  it("collapses a multi-item queue by default and reveals items via the toggle", async () => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (getRequestUrl(url).includes("/api/imports/pending")) {
+        return createJsonResponse([
+          {
+            id: "dl-4",
+            gameTitle: "First Game",
+            downloadTitle: "First.Game.Release-GROUP",
+            status: "manual_review_required",
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: "dl-5",
+            gameTitle: "Second Game",
+            downloadTitle: "Second.Game.Release-GROUP",
+            status: "manual_review_required",
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
+      return createJsonResponse({});
+    });
+
+    renderCard();
+
+    expect(await screen.findByText("2 Pending Manual Imports")).toBeInTheDocument();
+    expect(screen.queryByText("First Game")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show pending imports" }));
+
+    expect(await screen.findByText("First Game")).toBeInTheDocument();
+    expect(screen.getByText("Second Game")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide pending imports" })).toBeInTheDocument();
   });
 });

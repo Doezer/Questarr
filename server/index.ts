@@ -16,8 +16,39 @@ import { nexusmodsClient } from "./nexusmods.js";
 import { appriseClient, readAppriseSettings } from "./apprise.js";
 import { storage } from "./storage.js";
 import { platformMappingService } from "./services/index.js";
+import { reportServerError } from "./error-telemetry.js";
+import { logger } from "./logger.js";
+import {
+  DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
+  setCachedDownloaderDebugLogging,
+} from "./downloaders/debug-logging.js";
 
 const app = createApp();
+
+// Best-effort error telemetry for crashes that never reach Express (startup code,
+// timers, unawaited promises, etc). Both handlers keep Node's default fatal
+// behavior for these events — a bounded window to report the error, then
+// process.exit(1) — rather than letting the process linger in a decayed state.
+function handleFatalError(source: "uncaughtException" | "unhandledRejection", err: unknown): void {
+  const message =
+    source === "uncaughtException"
+      ? "Uncaught exception — process will exit"
+      : "Unhandled promise rejection — process will exit";
+  logger.fatal({ err }, message);
+  Promise.race([
+    reportServerError(err, { source }),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ])
+    .catch(() => {
+      // reportServerError already swallows its own errors; this is defensive only.
+    })
+    .finally(() => {
+      process.exit(1);
+    });
+}
+
+process.on("uncaughtException", (err) => handleFatalError("uncaughtException", err));
+process.on("unhandledRejection", (reason) => handleFatalError("unhandledRejection", reason));
 
 (async () => {
   try {
@@ -33,6 +64,18 @@ const app = createApp();
 
     // Initialize RSS service (seeding default feeds)
     await rssService.initialize();
+
+    // Load the downloader debug-logging setting from the DB into memory
+    try {
+      const debugLoggingSetting = await storage.getSystemConfig(
+        DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY
+      );
+      setCachedDownloaderDebugLogging(debugLoggingSetting === "true");
+    } catch (err) {
+      log(
+        "Failed to load downloader debug logging setting; defaulting to disabled: " + String(err)
+      );
+    }
 
     // Initialize NexusMods client from DB (env var already applied at module load)
     const dbNexusKey = await storage.getSystemConfig("nexusmods.apiKey");

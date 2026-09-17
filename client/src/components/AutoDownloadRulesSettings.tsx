@@ -37,6 +37,11 @@ const CATEGORY_DEFINITIONS = [
     description: "Downloadable content and season passes",
   },
   {
+    value: "packs",
+    label: "Packs/Addons",
+    description: "Game packs and add-ons",
+  },
+  {
     value: "extra",
     label: "Extras",
     description: "Soundtracks, artbooks, and bonus content",
@@ -46,7 +51,7 @@ const CATEGORY_DEFINITIONS = [
 const DEFAULT_RULES: DownloadRules = {
   minSeeders: 0,
   sortBy: "seeders",
-  visibleCategories: ["main", "update", "dlc", "extra"],
+  visibleCategories: ["main", "update", "dlc", "extra", "packs"],
 };
 
 export default function AutoDownloadRulesSettings({
@@ -58,9 +63,19 @@ export default function AutoDownloadRulesSettings({
   const queryClient = useQueryClient();
 
   const [minSeeders, setMinSeeders] = useState<number>(rules?.minSeeders ?? 0);
-  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">(rules?.sortBy ?? "seeders");
+  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size" | "priority">(
+    rules?.sortBy ?? "seeders"
+  );
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
-    new Set((rules?.visibleCategories ?? ["main", "update", "dlc", "extra"]) as DownloadCategory[])
+    new Set(
+      (rules?.visibleCategories ?? [
+        "main",
+        "update",
+        "dlc",
+        "extra",
+        "packs",
+      ]) as DownloadCategory[]
+    )
   );
 
   const saveRulesMutation = useMutation({
@@ -132,7 +147,7 @@ export default function AutoDownloadRulesSettings({
     setMinSeeders(value);
   };
 
-  const handleSortByChange = (value: "seeders" | "date" | "size") => {
+  const handleSortByChange = (value: "seeders" | "date" | "size" | "priority") => {
     setSortBy(value);
   };
 
@@ -177,7 +192,9 @@ export default function AutoDownloadRulesSettings({
             </Label>
             <Select
               value={sortBy}
-              onValueChange={(v) => handleSortByChange(v as "seeders" | "date" | "size")}
+              onValueChange={(v) =>
+                handleSortByChange(v as "seeders" | "date" | "size" | "priority")
+              }
             >
               <SelectTrigger id="sortBy">
                 <SelectValue />
@@ -186,6 +203,7 @@ export default function AutoDownloadRulesSettings({
                 <SelectItem value="seeders">Seeders (High to Low)</SelectItem>
                 <SelectItem value="date">Date (Newest First)</SelectItem>
                 <SelectItem value="size">Size (Largest First)</SelectItem>
+                <SelectItem value="priority">Indexer Priority</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
@@ -216,7 +234,7 @@ export default function AutoDownloadRulesSettings({
               ))}
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              {visibleCategories.size} of 4 categories enabled
+              {visibleCategories.size} of {CATEGORY_DEFINITIONS.length} categories enabled
             </p>
           </div>
         </div>

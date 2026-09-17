@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   asZodType,
   compareEnabledPriorityName,
+  copyToClipboard,
   formatBytes,
   isDiscoveryId,
   mapGameToInsertGame,
@@ -155,5 +156,64 @@ describe("parseReleaseDate", () => {
       year: "2024",
       fullDate: "03/02/2024",
     });
+  });
+});
+
+describe("copyToClipboard", () => {
+  const originalClipboard = navigator.clipboard;
+  const originalExecCommand = document.execCommand;
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: originalClipboard,
+    });
+    document.execCommand = originalExecCommand;
+  });
+
+  it("uses the async Clipboard API when available and resolves true", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    await expect(copyToClipboard("hello")).resolves.toBe(true);
+    expect(writeText).toHaveBeenCalledWith("hello");
+  });
+
+  it("falls back to document.execCommand when navigator.clipboard is unavailable (e.g. plain HTTP)", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+    const execCommand = vi.fn().mockReturnValue(true);
+    document.execCommand = execCommand;
+
+    await expect(copyToClipboard("hello")).resolves.toBe(true);
+    expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+
+  it("falls back to document.execCommand when the async Clipboard API throws", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const execCommand = vi.fn().mockReturnValue(true);
+    document.execCommand = execCommand;
+
+    await expect(copyToClipboard("hello")).resolves.toBe(true);
+    expect(execCommand).toHaveBeenCalledWith("copy");
+  });
+
+  it("resolves false when every copy method fails", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+    document.execCommand = vi.fn().mockReturnValue(false);
+
+    await expect(copyToClipboard("hello")).resolves.toBe(false);
   });
 });

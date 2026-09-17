@@ -11,6 +11,7 @@ import {
   type GameDownload,
   type InsertGameDownload,
   type DownloadSummary,
+  type DashboardStatus,
   type Notification,
   type InsertNotification,
   type UserSettings,
@@ -51,9 +52,21 @@ import {
   type ImportConfig,
   importConfigSchema,
   releaseBlacklist,
+  type GameFile,
+  type InsertGameFile,
+  gameFiles,
+  type ApiKey,
+  type ApiKeyPublic,
+  apiKeys,
+  GAME_LINK_REQUIRED_STATUS,
+  type RootFolder,
+  type InsertRootFolder,
+  type UpdateRootFolder,
+  rootFolders,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
+import { normalizeDownloadHash } from "./download-hash.js";
 import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import {
@@ -93,6 +106,7 @@ function buildImportConfigFromSettings(
     | "minFileSize"
     | "libraryRoot"
     | "autoDeleteAfterImport"
+    | "sortExtras"
   >
 ): ImportConfig {
   const parsed = importConfigSchema.safeParse({
@@ -106,6 +120,7 @@ function buildImportConfigFromSettings(
     minFileSize: settings?.minFileSize ?? 0,
     libraryRoot: settings?.libraryRoot ?? "/data",
     autoDeleteAfterImport: settings?.autoDeleteAfterImport ?? false,
+    sortExtras: settings?.sortExtras ?? false,
   });
 
   if (parsed.success) return parsed.data;
@@ -121,6 +136,7 @@ function buildImportConfigFromSettings(
     minFileSize: settings?.minFileSize ?? 0,
     libraryRoot: settings?.libraryRoot ?? "/data",
     autoDeleteAfterImport: settings?.autoDeleteAfterImport ?? false,
+    sortExtras: settings?.sortExtras ?? false,
   };
 }
 
@@ -135,6 +151,15 @@ type ImportTaskUpdate = Pick<
   | "failedItems"
   | "errorMessage"
 >;
+
+/**
+ * Result of resolving a temporary questarr-add-* correlation tag to a real hash.
+ * - "updated": the tag row now carries the real hash.
+ * - "merged": the tag row was deleted because a real-hash row already tracked
+ *   the same torrent; callers must stop processing the deleted record.
+ * - "noop": nothing changed (record missing or already has a real hash).
+ */
+export type UpdateGameDownloadHashOutcome = "updated" | "merged" | "noop";
 
 export interface IStorage {
   // System Config methods
@@ -168,6 +193,10 @@ export interface IStorage {
   ): Promise<Game | undefined>;
   updateGameNotes(id: string, userId: string, notes: string | null): Promise<Game | undefined>;
   updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void>;
+  updateGameSearchResultsByCategory(
+    gameId: string,
+    availability: { updates: boolean; packs: boolean }
+  ): Promise<void>;
   updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined>;
   updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
   removeGame(id: string): Promise<boolean>;
@@ -195,16 +224,36 @@ export interface IStorage {
   // GameDownload methods
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
   getPendingImportReviews(userId: string): Promise<GameDownload[]>;
+  // Downloads whose linked game record couldn't be found (status "game_link_required").
+  // Unlike getPendingImportReviews, this can't be scoped by userId — there's no game
+  // row left to join against to determine ownership.
+  getUnlinkedImportReviews(): Promise<GameDownload[]>;
   getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined>;
   getDownloadsByGameId(
     gameId: string
   ): Promise<(GameDownload & { downloaderName: string | null })[]>;
   updateGameDownloadStatus(id: string, status: string, errorMessage?: string | null): Promise<void>;
+  // Resolves a temporary correlation-tag hash (from an async qBittorrent add)
+  // to the real torrent hash once it becomes known. No-op if the record already
+  // has a real hash or doesn't exist. If another row already tracks the same
+  // (downloaderId, downloadHash) — e.g. claimed before cron resolved the tag —
+  // the stale tag row is deleted and "merged" is returned, so callers can stop
+  // processing the now-deleted record instead of acting on a stale id.
+  updateGameDownloadHash(id: string, downloadHash: string): Promise<UpdateGameDownloadHashOutcome>;
+  // Attaches a "game_link_required" download to the given game and drops it back into
+  // the normal "manual_review_required" path-review flow.
+  relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined>;
+  // Dismisses a "game_link_required" download without linking it to a game.
+  // Conditional on the download still being game_link_required at write time,
+  // so it can't race with a concurrent relinkGameDownload for the same id.
+  completeUnlinkedGameDownload(id: string): Promise<GameDownload | undefined>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload | undefined>;
   removeGameDownload(id: string, gameId: string): Promise<boolean>;
   getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>>;
   getTrackedDownloadKeys(): Promise<Set<string>>;
   getTrackedDownloadGameStatuses(): Promise<Map<string, string>>;
+  // Lightweight aggregate stats for the /api/status dashboard endpoint.
+  getDashboardStatus(userId: string): Promise<DashboardStatus>;
 
   // Notification methods
   getNotifications(userId: string, limit?: number): Promise<Notification[]>;
@@ -291,6 +340,40 @@ export interface IStorage {
   getImportTask(id: string): Promise<ImportTask | undefined>;
   getImportTaskItems(taskId: string): Promise<ImportTaskItem[]>;
   deleteImportTasksOlderThan(cutoffMs: number): Promise<number>;
+
+  // GameFile methods
+  getGameFiles(gameId: string): Promise<GameFile[]>;
+  getGameFile(id: string): Promise<GameFile | undefined>;
+  getGameFilesByDownload(downloadId: string): Promise<GameFile[]>;
+  addGameFile(file: InsertGameFile): Promise<GameFile>;
+  addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]>;
+  removeGameFile(id: string): Promise<boolean>;
+  removeGameFilesByGameId(gameId: string): Promise<number>;
+
+  // RootFolder methods (extra directories scanned for games already on disk)
+  getAllRootFolders(): Promise<RootFolder[]>;
+  getEnabledRootFolders(): Promise<RootFolder[]>;
+  getRootFolder(id: string): Promise<RootFolder | undefined>;
+  getRootFolderByPath(path: string): Promise<RootFolder | undefined>;
+  addRootFolder(folder: InsertRootFolder): Promise<RootFolder>;
+  updateRootFolder(id: string, updates: UpdateRootFolder): Promise<RootFolder | undefined>;
+  updateRootFolderHealth(
+    id: string,
+    health: { accessible: boolean; diskFreeBytes: number | null; diskTotalBytes: number | null }
+  ): Promise<RootFolder | undefined>;
+  touchRootFolderScanned(id: string): Promise<void>;
+  removeRootFolder(id: string): Promise<boolean>;
+
+  // Integration API key methods
+  getApiKeys(userId: string): Promise<ApiKeyPublic[]>;
+  /** Throws "API key limit reached" (as a plain Error) if the user already has maxKeys. */
+  addApiKey(
+    key: { userId: string; name: string; keyHash: string; prefix: string },
+    maxKeys: number
+  ): Promise<ApiKeyPublic>;
+  getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined>;
+  touchApiKey(id: string): Promise<void>;
+  removeApiKey(id: string, userId: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -308,6 +391,9 @@ export class MemStorage implements IStorage {
   private readonly pathMappings: Map<string, PathMapping>;
   private readonly platformMappings: Map<string, PlatformMapping>;
   private releaseBlacklists: Map<string, ReleaseBlacklist>;
+  private gameFiles: Map<string, GameFile>;
+  private rootFolders: Map<string, RootFolder>;
+  private apiKeys: Map<string, ApiKey>;
 
   constructor() {
     this.users = new Map();
@@ -324,6 +410,9 @@ export class MemStorage implements IStorage {
     this.pathMappings = new Map();
     this.platformMappings = new Map();
     this.releaseBlacklists = new Map();
+    this.gameFiles = new Map();
+    this.rootFolders = new Map();
+    this.apiKeys = new Map();
   }
 
   // System Config methods
@@ -469,6 +558,9 @@ export class MemStorage implements IStorage {
       releaseStatus: insertGame.releaseStatus || "upcoming",
       earlyAccess: insertGame.earlyAccess ?? false,
       searchResultsAvailable: false,
+      searchResultsAvailableAt: null,
+      updateSearchResultsAvailable: false,
+      packsSearchResultsAvailable: false,
       userRating: null,
       notes: null,
       libraryPath: null,
@@ -489,7 +581,13 @@ export class MemStorage implements IStorage {
       ...game,
       status: statusUpdate.status,
       completedAt: statusUpdate.status === "completed" ? new Date() : null,
-      ...(leavingWanted ? { searchResultsAvailable: false } : {}),
+      ...(leavingWanted
+        ? {
+            searchResultsAvailable: false,
+            updateSearchResultsAvailable: false,
+            packsSearchResultsAvailable: false,
+          }
+        : {}),
     };
 
     this.games.set(id, updatedGame);
@@ -538,7 +636,28 @@ export class MemStorage implements IStorage {
   async updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void> {
     const game = this.games.get(gameId);
     if (game) {
+      if (available && !game.searchResultsAvailable) {
+        game.searchResultsAvailableAt = new Date();
+      }
       game.searchResultsAvailable = available;
+      this.games.set(gameId, game);
+    }
+  }
+
+  async updateGameSearchResultsByCategory(
+    gameId: string,
+    availability: { updates: boolean; packs: boolean }
+  ): Promise<void> {
+    const game = this.games.get(gameId);
+    if (game) {
+      const wasAvailable = game.searchResultsAvailable;
+      const nowAvailable = availability.updates || availability.packs;
+      if (nowAvailable && !wasAvailable) {
+        game.searchResultsAvailableAt = new Date();
+      }
+      game.updateSearchResultsAvailable = availability.updates;
+      game.packsSearchResultsAvailable = availability.packs;
+      game.searchResultsAvailable = nowAvailable;
       this.games.set(gameId, game);
     }
   }
@@ -563,7 +682,9 @@ export class MemStorage implements IStorage {
   }
 
   async removeGame(id: string): Promise<boolean> {
-    return this.games.delete(id);
+    const deleted = this.games.delete(id);
+    if (deleted) await this.removeGameFilesByGameId(id);
+    return deleted;
   }
 
   async assignOrphanGamesToUser(userId: string): Promise<number> {
@@ -618,6 +739,7 @@ export class MemStorage implements IStorage {
       categories: insertIndexer.categories ?? [],
       rssEnabled: insertIndexer.rssEnabled ?? true,
       autoSearchEnabled: insertIndexer.autoSearchEnabled ?? true,
+      allowInsecureLan: insertIndexer.allowInsecureLan ?? false,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -693,6 +815,7 @@ export class MemStorage implements IStorage {
             categories: idx.categories ?? [],
             rssEnabled: idx.rssEnabled ?? true,
             autoSearchEnabled: idx.autoSearchEnabled ?? true,
+            allowInsecureLan: idx.allowInsecureLan ?? false,
             createdAt: new Date(),
             updatedAt: new Date(),
           };
@@ -746,6 +869,8 @@ export class MemStorage implements IStorage {
       removeCompleted: insertDownloader.removeCompleted ?? false,
       postImportCategory: insertDownloader.postImportCategory ?? null,
       settings: insertDownloader.settings ?? null,
+      allowSelfSignedCertificate: insertDownloader.allowSelfSignedCertificate ?? false,
+      allowInsecureLan: insertDownloader.allowInsecureLan ?? false,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -787,6 +912,37 @@ export class MemStorage implements IStorage {
     });
   }
 
+  async getUnlinkedImportReviews(): Promise<GameDownload[]> {
+    return Array.from(this.gameDownloads.values()).filter(
+      (d) => d.status === GAME_LINK_REQUIRED_STATUS
+    );
+  }
+
+  async relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined> {
+    const gd = this.gameDownloads.get(id);
+    // Conditional on still being game_link_required, not just present, so two
+    // concurrent relink requests for the same download can't race: only the
+    // first to observe this status wins, the second sees it already moved on
+    // and returns undefined instead of silently overwriting the first pick.
+    if (gd?.status !== GAME_LINK_REQUIRED_STATUS) return undefined;
+    const updated: GameDownload = {
+      ...gd,
+      gameId,
+      status: "manual_review_required",
+      errorMessage: null,
+    };
+    this.gameDownloads.set(id, updated);
+    return updated;
+  }
+
+  async completeUnlinkedGameDownload(id: string): Promise<GameDownload | undefined> {
+    const gd = this.gameDownloads.get(id);
+    if (gd?.status !== GAME_LINK_REQUIRED_STATUS) return undefined;
+    const updated: GameDownload = { ...gd, status: "completed", completedAt: new Date() };
+    this.gameDownloads.set(id, updated);
+    return updated;
+  }
+
   async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {
     const download = this.gameDownloads.get(id);
     if (download && userId !== undefined) {
@@ -823,11 +979,42 @@ export class MemStorage implements IStorage {
     }
   }
 
+  async updateGameDownloadHash(
+    id: string,
+    downloadHash: string
+  ): Promise<UpdateGameDownloadHashOutcome> {
+    const gd = this.gameDownloads.get(id);
+    if (!gd || !gd.downloadHash.startsWith("questarr-add-")) {
+      return "noop";
+    }
+    const normalizedHash = normalizeDownloadHash(downloadHash);
+    // Claim race: the torrent may already be tracked under its real hash
+    // (e.g. claimed via /api/downloads/claim before cron resolved the tag).
+    // The unique index on (downloaderId, downloadHash) forbids converging both
+    // rows, so drop the stale tag row and keep the real-hash row. The lookup is
+    // case-insensitive because rows written before normalization can hold the
+    // uppercase form of the same hex hash; comparing raw text would miss them
+    // and leave the torrent tracked twice.
+    for (const [otherId, other] of this.gameDownloads) {
+      if (
+        otherId !== id &&
+        other.downloaderId === gd.downloaderId &&
+        other.downloadHash.toLowerCase() === normalizedHash.toLowerCase()
+      ) {
+        this.gameDownloads.delete(id);
+        return "merged";
+      }
+    }
+    this.gameDownloads.set(id, { ...gd, downloadHash: normalizedHash });
+    return "updated";
+  }
+
   async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload> {
     const id = randomUUID();
     const gameDownload: GameDownload = {
       ...insertGameDownload,
       id,
+      downloadHash: normalizeDownloadHash(insertGameDownload.downloadHash),
       status: insertGameDownload.status || "downloading",
       downloadType: insertGameDownload.downloadType || "torrent",
       errorMessage: insertGameDownload.errorMessage ?? null,
@@ -842,6 +1029,9 @@ export class MemStorage implements IStorage {
   async removeGameDownload(id: string, gameId: string): Promise<boolean> {
     const gd = this.gameDownloads.get(id);
     if (!gd || gd.gameId !== gameId) return false;
+    for (const [fileId, file] of this.gameFiles.entries()) {
+      if (file.downloadId === id) this.gameFiles.set(fileId, { ...file, downloadId: null });
+    }
     return this.gameDownloads.delete(id);
   }
 
@@ -894,6 +1084,58 @@ export class MemStorage implements IStorage {
       }
     }
     return result;
+  }
+
+  /**
+   * Computes lightweight aggregate dashboard stats for a given user.
+   * Returns total games count, pending wishlist count, active downloads count,
+   * and recent completed imports within the last 7 days, excluding hidden games.
+   */
+  async getDashboardStatus(userId: string): Promise<DashboardStatus> {
+    const userGames = new Map(
+      Array.from(this.games.values())
+        .filter((g) => g.userId === userId && !g.hidden)
+        .map((g) => [g.id, g] as const)
+    );
+
+    const totalGames = userGames.size;
+    const pendingWishlist = Array.from(userGames.values()).filter(
+      (g) => g.status === "wanted"
+    ).length;
+
+    const userDownloads = Array.from(this.gameDownloads.values()).filter((gd) =>
+      userGames.has(gd.gameId)
+    );
+
+    const activeDownloads = userDownloads.filter((gd) =>
+      ["downloading", "paused"].includes(gd.status)
+    ).length;
+
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const recentCompleted = userDownloads
+      .filter(
+        (gd) =>
+          gd.status === "completed" &&
+          gd.completedAt &&
+          new Date(gd.completedAt).getTime() >= sevenDaysAgo
+      )
+      .sort(
+        (a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime()
+      );
+
+    return {
+      totalGames,
+      pendingWishlist,
+      activeDownloads,
+      recentImports: {
+        count: recentCompleted.length,
+        items: recentCompleted.slice(0, 5).map((gd) => ({
+          gameId: gd.gameId,
+          title: userGames.get(gd.gameId)?.title ?? gd.downloadTitle,
+          completedAt: gd.completedAt ? new Date(gd.completedAt).toISOString() : null,
+        })),
+      },
+    };
   }
 
   // Notification methods
@@ -1083,12 +1325,14 @@ export class MemStorage implements IStorage {
       minFileSize: insertSettings.minFileSize ?? 0,
       libraryRoot: insertSettings.libraryRoot ?? "/data",
       autoDeleteAfterImport: insertSettings.autoDeleteAfterImport ?? false,
+      sortExtras: insertSettings.sortExtras ?? false,
 
       preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,
       preferredPlatform: insertSettings.preferredPlatform ?? null,
       hideAdultContent: insertSettings.hideAdultContent ?? true,
       hideAgeRestrictedContent: insertSettings.hideAgeRestrictedContent ?? true,
+      telemetryEnabled: insertSettings.telemetryEnabled ?? false,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);
@@ -1281,6 +1525,57 @@ export class MemStorage implements IStorage {
     return new Set(titles);
   }
 
+  // GameFile methods
+  async getGameFiles(gameId: string): Promise<GameFile[]> {
+    return Array.from(this.gameFiles.values()).filter((f) => f.gameId === gameId);
+  }
+
+  async getGameFile(id: string): Promise<GameFile | undefined> {
+    return this.gameFiles.get(id);
+  }
+
+  async getGameFilesByDownload(downloadId: string): Promise<GameFile[]> {
+    return Array.from(this.gameFiles.values()).filter((f) => f.downloadId === downloadId);
+  }
+
+  async addGameFile(file: InsertGameFile): Promise<GameFile> {
+    if (!this.games.has(file.gameId)) throw new Error(`Game ${file.gameId} not found`);
+    if (file.downloadId && !this.gameDownloads.has(file.downloadId)) {
+      throw new Error(`Download ${file.downloadId} not found`);
+    }
+    const id = randomUUID();
+    const gf: GameFile = {
+      ...file,
+      id,
+      downloadId: file.downloadId ?? null,
+      category: file.category as GameFile["category"],
+      fileSize: file.fileSize ?? null,
+      createdAt: new Date(),
+    };
+    this.gameFiles.set(id, gf);
+    return gf;
+  }
+
+  async addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]> {
+    const result: GameFile[] = [];
+    for (const file of files) {
+      result.push(await this.addGameFile(file));
+    }
+    return result;
+  }
+
+  async removeGameFile(id: string): Promise<boolean> {
+    return this.gameFiles.delete(id);
+  }
+
+  async removeGameFilesByGameId(gameId: string): Promise<number> {
+    const toDelete = Array.from(this.gameFiles.values()).filter((f) => f.gameId === gameId);
+    for (const f of toDelete) {
+      this.gameFiles.delete(f.id);
+    }
+    return toDelete.length;
+  }
+
   // Import task history — not implemented in MemStorage (tests use DatabaseStorage)
   async createImportTask(_data: {
     userId: string;
@@ -1312,6 +1607,114 @@ export class MemStorage implements IStorage {
   }
   async deleteImportTasksOlderThan(_cutoffMs: number): Promise<number> {
     return 0;
+  }
+
+  // RootFolder methods
+  async getAllRootFolders(): Promise<RootFolder[]> {
+    return Array.from(this.rootFolders.values());
+  }
+
+  async getEnabledRootFolders(): Promise<RootFolder[]> {
+    return Array.from(this.rootFolders.values()).filter((f) => f.enabled);
+  }
+
+  async getRootFolder(id: string): Promise<RootFolder | undefined> {
+    return this.rootFolders.get(id);
+  }
+
+  async getRootFolderByPath(path: string): Promise<RootFolder | undefined> {
+    return Array.from(this.rootFolders.values()).find((f) => f.path === path);
+  }
+
+  async addRootFolder(folder: InsertRootFolder): Promise<RootFolder> {
+    const id = randomUUID();
+    const rf: RootFolder = {
+      id,
+      path: folder.path,
+      name: folder.name ?? null,
+      enabled: folder.enabled ?? true,
+      allowDelete: folder.allowDelete ?? false,
+      accessible: null,
+      diskFreeBytes: null,
+      diskTotalBytes: null,
+      lastScannedAt: null,
+      createdAt: new Date(),
+    };
+    this.rootFolders.set(id, rf);
+    return rf;
+  }
+
+  async updateRootFolder(id: string, updates: UpdateRootFolder): Promise<RootFolder | undefined> {
+    const existing = this.rootFolders.get(id);
+    if (!existing) return undefined;
+    const updated: RootFolder = { ...existing, ...updates };
+    this.rootFolders.set(id, updated);
+    return updated;
+  }
+
+  async updateRootFolderHealth(
+    id: string,
+    health: { accessible: boolean; diskFreeBytes: number | null; diskTotalBytes: number | null }
+  ): Promise<RootFolder | undefined> {
+    const existing = this.rootFolders.get(id);
+    if (!existing) return undefined;
+    const updated: RootFolder = { ...existing, ...health };
+    this.rootFolders.set(id, updated);
+    return updated;
+  }
+
+  async touchRootFolderScanned(id: string): Promise<void> {
+    const existing = this.rootFolders.get(id);
+    if (!existing) return;
+    this.rootFolders.set(id, { ...existing, lastScannedAt: new Date() });
+  }
+
+  async removeRootFolder(id: string): Promise<boolean> {
+    return this.rootFolders.delete(id);
+  }
+
+  // Integration API key methods
+  async getApiKeys(userId: string): Promise<ApiKeyPublic[]> {
+    return Array.from(this.apiKeys.values())
+      .filter((k) => k.userId === userId)
+      .map(({ keyHash: _keyHash, ...rest }) => rest)
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+  }
+
+  async addApiKey(
+    key: { userId: string; name: string; keyHash: string; prefix: string },
+    maxKeys: number
+  ): Promise<ApiKeyPublic> {
+    // MemStorage has no concurrent callers (single-threaded test usage), so a
+    // plain count check is sufficient here; DatabaseStorage's transaction is
+    // what actually closes the race for the real, multi-request server.
+    const existingCount = Array.from(this.apiKeys.values()).filter(
+      (k) => k.userId === key.userId
+    ).length;
+    if (existingCount >= maxKeys) {
+      throw new Error("API key limit reached");
+    }
+
+    const id = randomUUID();
+    const record: ApiKey = { ...key, id, createdAt: new Date(), lastUsedAt: null };
+    this.apiKeys.set(id, record);
+    const { keyHash: _keyHash, ...rest } = record;
+    return rest;
+  }
+
+  async getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined> {
+    return Array.from(this.apiKeys.values()).find((k) => k.keyHash === keyHash);
+  }
+
+  async touchApiKey(id: string): Promise<void> {
+    const existing = this.apiKeys.get(id);
+    if (existing) this.apiKeys.set(id, { ...existing, lastUsedAt: new Date() });
+  }
+
+  async removeApiKey(id: string, userId: string): Promise<boolean> {
+    const existing = this.apiKeys.get(id);
+    if (!existing || existing.userId !== userId) return false;
+    return this.apiKeys.delete(id);
   }
 }
 
@@ -1628,7 +2031,13 @@ export class DatabaseStorage implements IStorage {
       .set({
         status: statusUpdate.status,
         completedAt: statusUpdate.status === "completed" ? new Date() : null,
-        ...(leavingWanted ? { searchResultsAvailable: false } : {}),
+        ...(leavingWanted
+          ? {
+              searchResultsAvailable: false,
+              updateSearchResultsAvailable: false,
+              packsSearchResultsAvailable: false,
+            }
+          : {}),
       })
       .where(eq(games.id, id))
       .returning();
@@ -1672,7 +2081,41 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void> {
-    await db.update(games).set({ searchResultsAvailable: available }).where(eq(games.id, gameId));
+    await db
+      .update(games)
+      .set(
+        available
+          ? {
+              searchResultsAvailable: true,
+              // Only stamp the "became downloadable" time on the false→true transition,
+              // so re-confirming availability on subsequent cron runs doesn't keep bumping it.
+              searchResultsAvailableAt: sql`CASE WHEN ${games.searchResultsAvailable} = 0 THEN ${Date.now()} ELSE ${games.searchResultsAvailableAt} END`,
+            }
+          : {
+              searchResultsAvailable: false,
+              updateSearchResultsAvailable: false,
+              packsSearchResultsAvailable: false,
+            }
+      )
+      .where(eq(games.id, gameId));
+  }
+
+  async updateGameSearchResultsByCategory(
+    gameId: string,
+    availability: { updates: boolean; packs: boolean }
+  ): Promise<void> {
+    const nowAvailable = availability.updates || availability.packs;
+    await db
+      .update(games)
+      .set({
+        updateSearchResultsAvailable: availability.updates,
+        packsSearchResultsAvailable: availability.packs,
+        searchResultsAvailable: nowAvailable,
+        searchResultsAvailableAt: nowAvailable
+          ? sql`CASE WHEN ${games.searchResultsAvailable} = 0 THEN ${Date.now()} ELSE ${games.searchResultsAvailableAt} END`
+          : games.searchResultsAvailableAt,
+      })
+      .where(eq(games.id, gameId));
   }
 
   async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {
@@ -1690,7 +2133,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async removeGame(id: string): Promise<boolean> {
-    const _result = await db.delete(games).where(eq(games.id, id));
+    await db.delete(games).where(eq(games.id, id));
     return true;
   }
 
@@ -1933,8 +2376,10 @@ export class DatabaseStorage implements IStorage {
           inArray(gameDownloads.status, [
             "completed",
             "error",
+            "failed",
             "imported",
             "manual_review_required",
+            GAME_LINK_REQUIRED_STATUS,
           ])
         )
       );
@@ -1947,6 +2392,39 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(games, eq(gameDownloads.gameId, games.id))
       .where(and(eq(gameDownloads.status, "manual_review_required"), eq(games.userId, userId)));
     return rows.map((r) => r.gameDownloads);
+  }
+
+  async getUnlinkedImportReviews(): Promise<GameDownload[]> {
+    return db
+      .select()
+      .from(gameDownloads)
+      .where(eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS));
+  }
+
+  async relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined> {
+    // Conditional on still being game_link_required, not just id, so two
+    // concurrent relink requests for the same download can't race: only the
+    // first to match this predicate updates anything, the second's WHERE
+    // matches zero rows and it returns undefined instead of silently
+    // overwriting the first pick.
+    const [updated] = await db
+      .update(gameDownloads)
+      .set({ gameId, status: "manual_review_required", errorMessage: null })
+      .where(and(eq(gameDownloads.id, id), eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS)))
+      .returning();
+    return updated;
+  }
+
+  async completeUnlinkedGameDownload(id: string): Promise<GameDownload | undefined> {
+    // Same conditional-update pattern as relinkGameDownload: only transitions
+    // rows still game_link_required, so this can't race with a concurrent
+    // relink for the same download silently discarding it.
+    const [updated] = await db
+      .update(gameDownloads)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(and(eq(gameDownloads.id, id), eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS)))
+      .returning();
+    return updated;
   }
 
   async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {
@@ -2002,11 +2480,84 @@ export class DatabaseStorage implements IStorage {
     await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
   }
 
+  async updateGameDownloadHash(
+    id: string,
+    downloadHash: string
+  ): Promise<UpdateGameDownloadHashOutcome> {
+    const [current] = await db
+      .select({
+        downloaderId: gameDownloads.downloaderId,
+        downloadHash: gameDownloads.downloadHash,
+      })
+      .from(gameDownloads)
+      .where(eq(gameDownloads.id, id));
+    if (!current || !current.downloadHash.startsWith("questarr-add-")) {
+      return "noop";
+    }
+    const normalizedHash = normalizeDownloadHash(downloadHash);
+    // Claim race: the torrent may already be tracked under its real hash
+    // (e.g. claimed via /api/downloads/claim before cron resolved the tag).
+    // The unique index on (downloaderId, downloadHash) forbids converging both
+    // rows, so drop the stale tag row and keep the real-hash row. The lookup is
+    // case-insensitive because rows written before normalization can hold the
+    // uppercase form of the same hex hash; comparing raw text would miss them
+    // and leave the torrent tracked twice.
+    const existing = await db
+      .select({ id: gameDownloads.id })
+      .from(gameDownloads)
+      .where(
+        and(
+          eq(gameDownloads.downloaderId, current.downloaderId),
+          eq(sql`lower(${gameDownloads.downloadHash})`, normalizedHash.toLowerCase())
+        )
+      );
+    if (existing.some((row) => row.id !== id)) {
+      await db.delete(gameDownloads).where(eq(gameDownloads.id, id));
+      return "merged";
+    }
+    try {
+      await db
+        .update(gameDownloads)
+        .set({ downloadHash: normalizedHash })
+        .where(and(eq(gameDownloads.id, id), like(gameDownloads.downloadHash, "questarr-add-%")));
+      return "updated";
+    } catch (error) {
+      // TOCTOU: /api/downloads/claim may have inserted the real-hash row
+      // between our check and update, violating the unique index on
+      // (downloaderId, downloadHash). Re-check; if the conflict is the
+      // expected claim race, drop the stale tag row instead of propagating.
+      const isUniqueConflict =
+        error instanceof Error &&
+        (/UNIQUE constraint failed/i.test(error.message) ||
+          (error as NodeJS.ErrnoException).code === "SQLITE_CONSTRAINT_UNIQUE" ||
+          (error as NodeJS.ErrnoException).code === "SQLITE_CONSTRAINT");
+      if (!isUniqueConflict) throw error;
+      const retry = await db
+        .select({ id: gameDownloads.id })
+        .from(gameDownloads)
+        .where(
+          and(
+            eq(gameDownloads.downloaderId, current.downloaderId),
+            eq(sql`lower(${gameDownloads.downloadHash})`, normalizedHash.toLowerCase())
+          )
+        );
+      if (retry.some((row) => row.id !== id)) {
+        await db.delete(gameDownloads).where(eq(gameDownloads.id, id));
+        return "merged";
+      }
+      throw error;
+    }
+  }
+
   async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload | undefined> {
     const id = randomUUID();
     const [gameDownload] = await db
       .insert(gameDownloads)
-      .values({ ...insertGameDownload, id })
+      .values({
+        ...insertGameDownload,
+        id,
+        downloadHash: normalizeDownloadHash(insertGameDownload.downloadHash),
+      })
       .onConflictDoNothing()
       .returning();
     return gameDownload;
@@ -2088,6 +2639,80 @@ export class DatabaseStorage implements IStorage {
         ];
       })
     );
+  }
+
+  /**
+   * Computes lightweight aggregate dashboard stats for a given user.
+   * Returns total games count, pending wishlist count, active downloads count,
+   * and recent completed imports within the last 7 days, excluding hidden games.
+   */
+  async getDashboardStatus(userId: string): Promise<DashboardStatus> {
+    const [gameCounts] = await db
+      .select({
+        totalGames: sql<number>`count(*)`,
+        pendingWishlist: sql<number>`sum(CASE WHEN ${games.status} = 'wanted' THEN 1 ELSE 0 END)`,
+      })
+      .from(games)
+      .where(and(eq(games.userId, userId), eq(games.hidden, false)));
+
+    const [activeDownloadsResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(gameDownloads)
+      .innerJoin(games, eq(gameDownloads.gameId, games.id))
+      .where(
+        and(
+          eq(games.userId, userId),
+          eq(games.hidden, false),
+          inArray(gameDownloads.status, ["downloading", "paused"])
+        )
+      );
+
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const [recentImportsCountResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(gameDownloads)
+      .innerJoin(games, eq(gameDownloads.gameId, games.id))
+      .where(
+        and(
+          eq(games.userId, userId),
+          eq(games.hidden, false),
+          eq(gameDownloads.status, "completed"),
+          sql`${gameDownloads.completedAt} >= ${sevenDaysAgo.getTime()}`
+        )
+      );
+
+    const recentImportItems = await db
+      .select({
+        gameId: gameDownloads.gameId,
+        title: games.title,
+        completedAt: gameDownloads.completedAt,
+      })
+      .from(gameDownloads)
+      .innerJoin(games, eq(gameDownloads.gameId, games.id))
+      .where(
+        and(
+          eq(games.userId, userId),
+          eq(games.hidden, false),
+          eq(gameDownloads.status, "completed"),
+          sql`${gameDownloads.completedAt} >= ${sevenDaysAgo.getTime()}`
+        )
+      )
+      .orderBy(desc(gameDownloads.completedAt))
+      .limit(5);
+
+    return {
+      totalGames: gameCounts?.totalGames ?? 0,
+      pendingWishlist: gameCounts?.pendingWishlist ?? 0,
+      activeDownloads: activeDownloadsResult?.count ?? 0,
+      recentImports: {
+        count: recentImportsCountResult?.count ?? 0,
+        items: recentImportItems.map((row) => ({
+          gameId: row.gameId,
+          title: row.title,
+          completedAt: row.completedAt ? new Date(row.completedAt).toISOString() : null,
+        })),
+      },
+    };
   }
 
   // Notification methods
@@ -2356,6 +2981,49 @@ export class DatabaseStorage implements IStorage {
     return new Set(rows.map((r) => r.releaseTitle));
   }
 
+  // GameFile methods
+  async getGameFiles(gameId: string): Promise<GameFile[]> {
+    return db.select().from(gameFiles).where(eq(gameFiles.gameId, gameId));
+  }
+
+  async getGameFile(id: string): Promise<GameFile | undefined> {
+    const [file] = await db.select().from(gameFiles).where(eq(gameFiles.id, id)).limit(1);
+    return file;
+  }
+
+  async getGameFilesByDownload(downloadId: string): Promise<GameFile[]> {
+    return db.select().from(gameFiles).where(eq(gameFiles.downloadId, downloadId));
+  }
+
+  async addGameFile(file: InsertGameFile): Promise<GameFile> {
+    const id = randomUUID();
+    const [gf] = await db
+      .insert(gameFiles)
+      .values({ ...file, id, category: file.category as "main" | "dlc" | "update" | "extra" })
+      .returning();
+    return gf;
+  }
+
+  async addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]> {
+    if (files.length === 0) return [];
+    const values = files.map((file) => ({
+      ...file,
+      id: randomUUID(),
+      category: file.category as "main" | "dlc" | "update" | "extra",
+    }));
+    return db.insert(gameFiles).values(values).returning();
+  }
+
+  async removeGameFile(id: string): Promise<boolean> {
+    const result = await db.delete(gameFiles).where(eq(gameFiles.id, id));
+    return (result.changes ?? 0) > 0;
+  }
+
+  async removeGameFilesByGameId(gameId: string): Promise<number> {
+    const result = await db.delete(gameFiles).where(eq(gameFiles.gameId, gameId));
+    return result.changes ?? 0;
+  }
+
   // Import task history methods
   async createImportTask(data: {
     userId: string;
@@ -2448,6 +3116,133 @@ export class DatabaseStorage implements IStorage {
         and(not(eq(importTasks.status, "in_progress")), sql`${importTasks.createdAt} < ${cutoffMs}`)
       );
     return result.changes;
+  }
+
+  // RootFolder methods
+  async getAllRootFolders(): Promise<RootFolder[]> {
+    return db.select().from(rootFolders);
+  }
+
+  async getEnabledRootFolders(): Promise<RootFolder[]> {
+    return db.select().from(rootFolders).where(eq(rootFolders.enabled, true));
+  }
+
+  async getRootFolder(id: string): Promise<RootFolder | undefined> {
+    const [folder] = await db.select().from(rootFolders).where(eq(rootFolders.id, id)).limit(1);
+    return folder;
+  }
+
+  async getRootFolderByPath(path: string): Promise<RootFolder | undefined> {
+    const [folder] = await db.select().from(rootFolders).where(eq(rootFolders.path, path)).limit(1);
+    return folder;
+  }
+
+  async addRootFolder(folder: InsertRootFolder): Promise<RootFolder> {
+    const id = randomUUID();
+    const [rf] = await db
+      .insert(rootFolders)
+      .values({ ...folder, id })
+      .returning();
+    return rf;
+  }
+
+  async updateRootFolder(id: string, updates: UpdateRootFolder): Promise<RootFolder | undefined> {
+    // Every field on UpdateRootFolder is optional, so an empty {} is a valid
+    // input (e.g. a PATCH with no recognized fields). Drizzle's .set({})
+    // throws "No values to set" rather than returning the unchanged row —
+    // short-circuit here to match MemStorage's behavior for the same input.
+    if (Object.keys(updates).length === 0) {
+      return this.getRootFolder(id);
+    }
+    const [rf] = await db
+      .update(rootFolders)
+      .set(updates)
+      .where(eq(rootFolders.id, id))
+      .returning();
+    return rf;
+  }
+
+  async updateRootFolderHealth(
+    id: string,
+    health: { accessible: boolean; diskFreeBytes: number | null; diskTotalBytes: number | null }
+  ): Promise<RootFolder | undefined> {
+    const [rf] = await db.update(rootFolders).set(health).where(eq(rootFolders.id, id)).returning();
+    return rf;
+  }
+
+  async touchRootFolderScanned(id: string): Promise<void> {
+    await db.update(rootFolders).set({ lastScannedAt: new Date() }).where(eq(rootFolders.id, id));
+  }
+
+  async removeRootFolder(id: string): Promise<boolean> {
+    const result = await db.delete(rootFolders).where(eq(rootFolders.id, id));
+    return (result.changes ?? 0) > 0;
+  }
+
+  // Integration API key methods
+  async getApiKeys(userId: string): Promise<ApiKeyPublic[]> {
+    return db
+      .select({
+        id: apiKeys.id,
+        userId: apiKeys.userId,
+        name: apiKeys.name,
+        prefix: apiKeys.prefix,
+        createdAt: apiKeys.createdAt,
+        lastUsedAt: apiKeys.lastUsedAt,
+      })
+      .from(apiKeys)
+      .where(eq(apiKeys.userId, userId))
+      .orderBy(desc(apiKeys.createdAt));
+  }
+
+  async addApiKey(
+    key: { userId: string; name: string; keyHash: string; prefix: string },
+    maxKeys: number
+  ): Promise<ApiKeyPublic> {
+    // Counting and inserting inside one transaction closes the race two
+    // concurrent requests would otherwise have around the cap: without it,
+    // both could read the same under-limit count before either insert lands.
+    return db.transaction((tx) => {
+      const [{ count }] = tx
+        .select({ count: sql<number>`count(*)` })
+        .from(apiKeys)
+        .where(eq(apiKeys.userId, key.userId))
+        .all();
+
+      if (count >= maxKeys) {
+        throw new Error("API key limit reached");
+      }
+
+      const [created] = tx
+        .insert(apiKeys)
+        .values({ ...key, id: randomUUID() })
+        .returning({
+          id: apiKeys.id,
+          userId: apiKeys.userId,
+          name: apiKeys.name,
+          prefix: apiKeys.prefix,
+          createdAt: apiKeys.createdAt,
+          lastUsedAt: apiKeys.lastUsedAt,
+        })
+        .all();
+      return created;
+    });
+  }
+
+  async getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined> {
+    const [key] = await db.select().from(apiKeys).where(eq(apiKeys.keyHash, keyHash));
+    return key ?? undefined;
+  }
+
+  async touchApiKey(id: string): Promise<void> {
+    await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, id));
+  }
+
+  async removeApiKey(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(apiKeys)
+      .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)));
+    return result.changes > 0;
   }
 }
 

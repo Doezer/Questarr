@@ -26,6 +26,7 @@ import {
   FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { RequiredFormLabel } from "@/components/ui/required-form-label";
 import {
   Select,
@@ -117,11 +118,7 @@ export default function IndexersPage() {
 
   const syncProwlarrMutation = useMutation({
     mutationFn: async () => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch("/api/indexers/prowlarr/sync", {
         method: "POST",
         headers,
@@ -153,11 +150,7 @@ export default function IndexersPage() {
 
   const addMutation = useMutation({
     mutationFn: async (data: InsertIndexer) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch("/api/indexers", {
         method: "POST",
         headers,
@@ -180,11 +173,7 @@ export default function IndexersPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<InsertIndexer> }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/indexers/${id}`, {
         method: "PATCH",
         headers,
@@ -207,14 +196,8 @@ export default function IndexersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/indexers/${id}`, {
         method: "DELETE",
-        headers,
       });
       if (!response.ok) throw new Error("Failed to delete indexer");
     },
@@ -230,11 +213,7 @@ export default function IndexersPage() {
 
   const toggleEnabledMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/indexers/${id}`, {
         method: "PATCH",
         headers,
@@ -251,11 +230,7 @@ export default function IndexersPage() {
 
   const updatePriorityMutation = useMutation({
     mutationFn: async ({ id, priority }: { id: string; priority: number }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/indexers/${id}`, {
         method: "PATCH",
         headers,
@@ -272,11 +247,7 @@ export default function IndexersPage() {
 
   const testConnectionMutation = useMutation({
     mutationFn: async (data: { id?: string; formData?: InsertIndexer }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       if (data.id) {
         // Test existing indexer by ID
         const response = await apiFetch(`/api/indexers/${data.id}/test`, {
@@ -337,6 +308,7 @@ export default function IndexersPage() {
       categories: [],
       rssEnabled: true,
       autoSearchEnabled: true,
+      allowInsecureLan: false,
     },
   });
 
@@ -351,12 +323,7 @@ export default function IndexersPage() {
   const fetchCategories = async (indexerId: string) => {
     setLoadingCategories(true);
     try {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const response = await apiFetch(`/api/indexers/${indexerId}/categories`, { headers });
+      const response = await apiFetch(`/api/indexers/${indexerId}/categories`);
       if (response.ok) {
         const categories = (await response.json()) as { id: string; name: string }[];
         setAvailableCategories(
@@ -398,6 +365,7 @@ export default function IndexersPage() {
       categories: indexer.categories || [],
       rssEnabled: indexer.rssEnabled,
       autoSearchEnabled: indexer.autoSearchEnabled,
+      allowInsecureLan: indexer.allowInsecureLan ?? false,
     });
     setIsDialogOpen(true);
     // Fetch available categories from the indexer
@@ -416,6 +384,7 @@ export default function IndexersPage() {
       categories: [],
       rssEnabled: true,
       autoSearchEnabled: true,
+      allowInsecureLan: false,
     });
     setAvailableCategories([]);
     setIsDialogOpen(true);
@@ -713,6 +682,29 @@ export default function IndexersPage() {
                       />
                     </FormControl>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="allowInsecureLan"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
+                    <div className="space-y-0">
+                      <FormLabel className="text-sm">Allow insecure LAN connection</FormLabel>
+                      <FormDescription className="text-xs">
+                        Sends the API key over plain HTTP (no encryption). Only enable this for a
+                        trusted local-network indexer that does not support HTTPS. Enabling this on
+                        an internet-facing indexer exposes your API key in clear text.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Checkbox
+                        checked={!!field.value}
+                        onCheckedChange={(checked) => field.onChange(!!checked)}
+                        data-testid="checkbox-indexer-allow-insecure-lan"
+                      />
+                    </FormControl>
                   </FormItem>
                 )}
               />

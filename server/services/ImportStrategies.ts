@@ -3,7 +3,7 @@ import { categorizeDownload, type DownloadCategory } from "../../shared/download
 import fs from "fs-extra";
 import path from "node:path";
 import { logger } from "../logger.js";
-import { isSensitivePath } from "../path-security.js";
+import { isSensitivePath, SENSITIVE_PATH_REGEX } from "../path-security.js";
 export type TransferMode = "copy" | "move" | "hardlink" | "symlink";
 
 export function sanitizeFsName(name: string | null | undefined): string {
@@ -237,7 +237,10 @@ async function transferFile(
   // below — walk the filesystem independently of that call site, so a guard here
   // stands on its own rather than depending on every future caller to have checked
   // upstream first.
-  if (isSensitivePath(source) || isSensitivePath(destination)) {
+  if (
+    SENSITIVE_PATH_REGEX.test(path.resolve(source)) ||
+    SENSITIVE_PATH_REGEX.test(path.resolve(destination))
+  ) {
     throw new Error("Refusing to process a sensitive system path");
   }
 
@@ -260,7 +263,7 @@ async function transferFile(
 }
 
 export async function gatherFiles(rootPath: string): Promise<string[]> {
-  if (isSensitivePath(rootPath)) {
+  if (SENSITIVE_PATH_REGEX.test(path.resolve(rootPath))) {
     throw new Error("Refusing to process a sensitive system path");
   }
 

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -81,7 +81,22 @@ export default function CalendarPage() {
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const today = useMemo(() => new Date(), []);
+  const [today, setToday] = useState(() => new Date());
+
+  useEffect(() => {
+    let timeoutId: number;
+    const scheduleRefresh = () => {
+      const now = new Date();
+      const nextMidnight = new Date(now);
+      nextMidnight.setHours(24, 0, 0, 0);
+      timeoutId = window.setTimeout(() => {
+        setToday(new Date());
+        scheduleRefresh();
+      }, nextMidnight.getTime() - now.getTime());
+    };
+    scheduleRefresh();
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   const handleGameClick = (game: Game) => {
     setSelectedGame(game);

@@ -241,7 +241,11 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     const supportedOptions = getSupportedTargetOptions(game);
     const key = String(game.igdbId ?? game.id);
     const explicitValue = targetPlatforms[key];
-    if (explicitValue && supportedOptions.some(({ id }) => String(id) === explicitValue)) {
+    if (
+      explicitValue &&
+      (explicitValue === "default" ||
+        supportedOptions.some(({ id }) => String(id) === explicitValue))
+    ) {
       return explicitValue;
     }
     if (

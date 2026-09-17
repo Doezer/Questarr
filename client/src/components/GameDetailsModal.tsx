@@ -95,6 +95,17 @@ import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
 
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
+/** Derives the target-platform Select value, falling back to "default" for malformed or unsupported saved pairs. */
+function getTargetPlatformSelectValue(
+  target:
+    { targetPlatformId?: number | null; targetPlatformName?: string | null } | null | undefined
+): string {
+  if (target?.targetPlatformId == null) return "default";
+  return resolveTargetPlatform(target.targetPlatformId, target.targetPlatformName)
+    ? String(target.targetPlatformId)
+    : "default";
+}
+
 interface GameDetailsModalProps {
   game: Game | null;
   open: boolean;
@@ -423,7 +434,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   useEffect(() => {
     setIsSummaryExpanded(false);
     setNotesValue(game?.notes ?? "");
-    setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "default");
+    setTargetPlatformValue(getTargetPlatformSelectValue(game));
     setIsEditingNotes(false);
     queuedNotesSaveRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -441,8 +452,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   // Keep targetPlatformValue in sync with the server value for the same game
   // (e.g. after the target-platform mutation's invalidateQueries refetch lands).
   useEffect(() => {
-    setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "default");
-  }, [game?.targetPlatformId]);
+    setTargetPlatformValue(
+      getTargetPlatformSelectValue({
+        targetPlatformId: game?.targetPlatformId,
+        targetPlatformName: game?.targetPlatformName,
+      })
+    );
+  }, [game?.targetPlatformId, game?.targetPlatformName]);
 
   useEffect(() => {
     setSelectedScreenshotIndex(null);
@@ -670,7 +686,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       toast({ description: "Download target updated" });
     },
     onError: () => {
-      setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "default");
+      setTargetPlatformValue(getTargetPlatformSelectValue(game));
       toast({ description: "Failed to update download target", variant: "destructive" });
     },
   });

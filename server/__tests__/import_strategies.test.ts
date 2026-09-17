@@ -237,6 +237,45 @@ describe("ImportStrategies", () => {
       expect(plan.proposedPath).toMatch(/My Game\.exe$/);
     });
 
+    it("rejects a computed destination that would escape targetRoot", async () => {
+      const root = tempDir();
+      const source = path.join(root, "downloads", "game.exe");
+      await fs.ensureDir(path.dirname(source));
+      await fs.writeFile(source, "exe-bytes");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.planImport(
+          source,
+          makeGame({ title: "My Game" }),
+          path.join(root, "library"),
+          makeImportConfig(),
+          // platformDir is always a fixed, code-controlled value in production
+          // (resolvePlatformFolderName's lookup table or "PC"), never user input —
+          // this exercises the containment guard as a defensive invariant, the same
+          // way sourcePath's traversal would be caught if that ever changed.
+          "../../outside"
+        )
+      ).rejects.toThrow("Computed destination escapes the configured library root");
+    });
+
+    it("sanitizeFsName strips path separators, so a title alone can never escape targetRoot", async () => {
+      const root = tempDir();
+      const source = path.join(root, "downloads", "game.exe");
+      await fs.ensureDir(path.dirname(source));
+      await fs.writeFile(source, "exe-bytes");
+
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        source,
+        makeGame({ title: "../../../etc" }),
+        path.join(root, "library"),
+        makeImportConfig()
+      );
+
+      expect(plan.proposedPath.startsWith(path.join(root, "library"))).toBe(true);
+    });
+
     it("needsReview true when destination exists and overwriteExisting is false", async () => {
       const root = tempDir();
       const source = path.join(root, "downloads", "game.exe");

@@ -347,6 +347,16 @@ export class PCImportStrategy implements ImportStrategy {
     const cleanTitle = sanitizeFsName(game.title);
     const ext = options?.treatAsDirectory || stats.isDirectory() ? "" : path.extname(sourcePath);
     const destination = path.join(targetRoot, platformDir ?? "PC", cleanTitle + ext);
+
+    // sanitizeFsName strips filesystem-illegal characters but not ".." segments, so a
+    // game title alone doesn't guarantee destination stays under targetRoot. Verify
+    // containment the same way resolveContainedPath does below, rather than trusting
+    // the title never contains a traversal sequence.
+    const relativeToRoot = path.relative(targetRoot, destination);
+    if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
+      throw new Error("Computed destination escapes the configured library root");
+    }
+
     const fileCategories =
       stats.isDirectory() && config.sortExtras
         ? await categorizeSourceFiles(sourcePath)

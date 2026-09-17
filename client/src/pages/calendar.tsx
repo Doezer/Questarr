@@ -401,6 +401,7 @@ function MonthView({
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
           const isToday = todayKey === dateKey;
+          const isPast = dateKey < todayKey;
           const isSelected = selectedDayKey === dateKey;
           const formattedDayLabel = day.toLocaleDateString(undefined, {
             weekday: "long",
@@ -418,6 +419,7 @@ function MonthView({
               className={cn(
                 "min-h-[48px] md:min-h-[120px] border rounded-lg p-1 md:p-2 transition-colors",
                 !isCurrentMonth && "bg-muted/30",
+                isPast && !isToday && "opacity-50 grayscale-[0.3]",
                 isToday && "border-primary border-2",
                 isSelected && "border-primary/60 bg-primary/5"
               )}
@@ -465,7 +467,13 @@ function MonthView({
                 aria-hidden={gamesOnDay.length === 0 ? undefined : true}
               >
                 {gamesOnDay.map((game) => (
-                  <GameBadge key={game.id} game={game} compact onClick={() => onGameClick(game)} />
+                  <GameBadge
+                    key={game.id}
+                    game={game}
+                    compact
+                    muted={isPast && !isToday}
+                    onClick={() => onGameClick(game)}
+                  />
                 ))}
               </div>
             </div>
@@ -484,7 +492,12 @@ function MonthView({
           </p>
           <div className="space-y-2">
             {selectedGames.map((game) => (
-              <GameBadge key={game.id} game={game} onClick={() => onGameClick(game)} />
+              <GameBadge
+                key={game.id}
+                game={game}
+                muted={selectedDayKey < todayKey}
+                onClick={() => onGameClick(game)}
+              />
             ))}
           </div>
         </div>
@@ -515,6 +528,7 @@ function WeekView({
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
           const isToday = todayKey === dateKey;
+          const isPast = dateKey < todayKey;
           const dayName = day.toLocaleDateString(undefined, { weekday: "short" });
           const monthName = day.toLocaleDateString(undefined, { month: "short" });
 
@@ -524,7 +538,8 @@ function WeekView({
               className={cn(
                 "flex gap-3 rounded-lg border p-3",
                 isToday ? "border-primary border-2" : "border-border",
-                gamesOnDay.length === 0 && "opacity-60"
+                gamesOnDay.length === 0 && "opacity-60",
+                isPast && !isToday && "opacity-50 grayscale-[0.3]"
               )}
             >
               {/* Date column */}
@@ -548,7 +563,12 @@ function WeekView({
                 {gamesOnDay.length > 0 ? (
                   <div className="w-full space-y-2">
                     {gamesOnDay.map((game) => (
-                      <GameBadge key={game.id} game={game} onClick={() => onGameClick(game)} />
+                      <GameBadge
+                        key={game.id}
+                        game={game}
+                        muted={isPast && !isToday}
+                        onClick={() => onGameClick(game)}
+                      />
                     ))}
                   </div>
                 ) : (
@@ -566,12 +586,17 @@ function WeekView({
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
           const isToday = todayKey === dateKey;
+          const isPast = dateKey < todayKey;
           const dayName = day.toLocaleDateString(undefined, { weekday: "short" });
 
           return (
             <div
               key={dateKey}
-              className={cn("border rounded-lg p-3", isToday && "border-primary border-2")}
+              className={cn(
+                "border rounded-lg p-3",
+                isToday && "border-primary border-2",
+                isPast && !isToday && "opacity-50 grayscale-[0.3]"
+              )}
             >
               <div className="text-center mb-3">
                 <div className={cn("font-semibold", isToday && "text-primary")}>{dayName}</div>
@@ -585,7 +610,12 @@ function WeekView({
               <div className="space-y-2">
                 {gamesOnDay.length > 0 ? (
                   gamesOnDay.map((game) => (
-                    <GameBadge key={game.id} game={game} onClick={() => onGameClick(game)} />
+                    <GameBadge
+                      key={game.id}
+                      game={game}
+                      muted={isPast && !isToday}
+                      onClick={() => onGameClick(game)}
+                    />
                   ))
                 ) : (
                   <p className="text-xs text-muted-foreground text-center">No releases</p>
@@ -632,11 +662,13 @@ function GameBadge({
   game,
   compact = false,
   hideDate = false,
+  muted = false,
   onClick,
 }: {
   game: Game;
   compact?: boolean;
   hideDate?: boolean;
+  muted?: boolean;
   onClick?: () => void;
 }) {
   const isDelayed = game.releaseStatus === "delayed";
@@ -650,7 +682,8 @@ function GameBadge({
             onClick={onClick}
             className={cn(
               "flex items-center gap-1 p-1 rounded hover:opacity-80 transition-opacity w-full text-left",
-              isDelayed ? "bg-destructive/20 border border-destructive/30" : "bg-muted"
+              isDelayed ? "bg-destructive/20 border border-destructive/30" : "bg-muted",
+              muted && "opacity-50 grayscale-[0.5]"
             )}
           >
             <img
@@ -705,7 +738,8 @@ function GameBadge({
           onClick={onClick}
           className={cn(
             "flex items-center gap-2 p-2 rounded hover:opacity-80 transition-all w-full text-left",
-            isDelayed ? "bg-destructive/10 border border-destructive/20" : "bg-muted"
+            isDelayed ? "bg-destructive/10 border border-destructive/20" : "bg-muted",
+            muted && "opacity-50 grayscale-[0.5]"
           )}
         >
           <img

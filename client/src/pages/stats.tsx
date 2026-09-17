@@ -52,6 +52,7 @@ export default function StatsPage() {
     return [
       { name: "Wanted", value: stats.statusBreakdown.wanted },
       { name: "Owned", value: stats.statusBreakdown.owned },
+      { name: "Playing", value: stats.statusBreakdown.playing },
       { name: "Completed", value: stats.statusBreakdown.completed },
       { name: "Downloading", value: stats.statusBreakdown.downloading },
     ].filter((item) => item.value > 0);
@@ -60,6 +61,7 @@ export default function StatsPage() {
   const chartColors = {
     Wanted: "#ef4444",
     Owned: "#3b82f6",
+    Playing: "#06b6d4",
     Completed: "#10b981",
     Downloading: "#8b5cf6",
   };
@@ -120,7 +122,7 @@ export default function StatsPage() {
         <StatsCard
           title="Completion Rate"
           value={`${stats.completionRate}%`}
-          subtitle="of owned games"
+          subtitle="of acquired games"
           icon={CheckCircle2}
         />
         <StatsCard

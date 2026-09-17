@@ -871,7 +871,10 @@ describe("Cron - checkAutoSearch", () => {
 
       await checkAutoSearch();
 
-      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(ownedGame.id, true);
+      expect(mockUpdateGameSearchResultsByCategory).toHaveBeenCalledWith(ownedGame.id, {
+        updates: true,
+        packs: false,
+      });
       expect(mockAddNotification).toHaveBeenCalledWith(
         expect.objectContaining({
           title: "Game Updates Available",

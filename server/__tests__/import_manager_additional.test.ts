@@ -818,11 +818,16 @@ describe("ImportManager - confirmImport path resolution failures", () => {
       })
     ).rejects.toThrow("disk full");
 
-    expect(fsMock.move).toHaveBeenCalledWith(
+    // The archive is copied into the library (never moved directly) so a mid-family
+    // failure can't split a multi-volume set across source and destination; the
+    // source is only removed after the copy succeeds, which it does here — the
+    // failure below is extract()'s, not the relocation's.
+    expect(fsMock.copy).toHaveBeenCalledWith(
       "/downloads/game.zip",
       "/safe/root/PC/My Game/game.zip",
       { overwrite: true }
     );
+    expect(fsMock.remove).toHaveBeenCalledWith("/downloads/game.zip");
     expect(fsMock.remove).not.toHaveBeenCalledWith("/safe/root/PC/My Game/game.zip");
     expect(storage.addNotification).toHaveBeenCalledWith(
       expect.objectContaining({

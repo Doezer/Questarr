@@ -214,6 +214,48 @@ describe("ImportManager archive extraction (library-side)", () => {
     expect(await fs.pathExists(path.join(destDir, "readme.nfo"))).toBe(true);
   });
 
+  it("move mode: rolls back a partially-relocated volume family if a later volume fails to copy", async () => {
+    // Regression test: copying the whole family before removing any source (rather
+    // than moving volumes one at a time) means a mid-family failure can't split the
+    // set across source and destination — whatever copied successfully is rolled
+    // back, and every source volume is left intact since nothing was ever deleted.
+    const sourceDir = path.join(downloadsRoot, "Game-Release");
+    await fs.ensureDir(sourceDir);
+    await fs.writeFile(path.join(sourceDir, "game.part1.rar"), "part1-bytes");
+    await fs.writeFile(path.join(sourceDir, "game.part2.rar"), "part2-bytes");
+
+    const { archiveService } = makeArchiveService({
+      extractResult: { "game.exe": "exe-bytes" },
+    });
+
+    const copySpy = vi
+      .spyOn(fs, "copy")
+      .mockImplementationOnce(async (src, dest) => {
+        await fs.writeFile(dest as string, await fs.readFile(src as string));
+      })
+      .mockImplementationOnce(async () => {
+        throw new Error("disk full");
+      });
+
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, { transferMode: "move", libraryRoot });
+
+    await manager.processImport("dl-1", sourceDir);
+
+    const destDir = path.join(libraryRoot, "PC", "My Game");
+    expect(await fs.pathExists(path.join(destDir, "game.part1.rar"))).toBe(false);
+    expect(await fs.pathExists(path.join(destDir, "game.part2.rar"))).toBe(false);
+    expect(await fs.pathExists(path.join(sourceDir, "game.part1.rar"))).toBe(true);
+    expect(await fs.pathExists(path.join(sourceDir, "game.part2.rar"))).toBe(true);
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+      "dl-1",
+      "manual_review_required",
+      expect.stringContaining("disk full")
+    );
+
+    copySpy.mockRestore();
+  });
+
   it("move mode: picks the primary .rar volume over .rNN continuations as the extraction entry point", async () => {
     // Regression test: a plain lexicographic sort puts "game.r00" before "game.rar"
     // ('0' < 'a'), which would hand 7-Zip/unrar the continuation volume instead of the

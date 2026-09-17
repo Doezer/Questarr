@@ -377,14 +377,31 @@ export class ImportManager {
     const volumePaths = resolution.isDirectorySource
       ? [...resolution.excludePaths]
       : [resolution.archivePath];
-    for (const volumePath of volumePaths) {
-      const volumeInDest = path.join(destDir, path.basename(volumePath));
-      if (transferMode === "move") {
-        await fs.move(volumePath, volumeInDest, { overwrite: true });
-      } else {
+
+    // Copy the whole family first — never move a volume directly — so a mid-family
+    // failure (e.g. volume 2 of 3 hits a full disk) can't split the set across source
+    // and destination with no way back. If any copy fails, everything copied so far
+    // is rolled back and every source volume is still intact, untouched. Only once
+    // every volume has copied successfully do move-mode sources get removed.
+    const copiedInDest: string[] = [];
+    try {
+      for (const volumePath of volumePaths) {
+        const volumeInDest = path.join(destDir, path.basename(volumePath));
         await fs.copy(volumePath, volumeInDest, { overwrite: true });
+        copiedInDest.push(volumeInDest);
+        if (path.resolve(volumePath) !== resolvedArchive) siblingsInDest.push(volumeInDest);
       }
-      if (path.resolve(volumePath) !== resolvedArchive) siblingsInDest.push(volumeInDest);
+    } catch (err) {
+      for (const partial of copiedInDest) {
+        await fs.remove(partial).catch(() => undefined);
+      }
+      throw err;
+    }
+
+    if (transferMode === "move") {
+      for (const volumePath of volumePaths) {
+        await fs.remove(volumePath).catch(() => undefined);
+      }
     }
 
     return { archiveInDest, siblingsInDest };

@@ -542,6 +542,38 @@ describe("ImportStrategies", () => {
       ).rejects.toThrow("No files to transfer after applying exclusions");
     });
 
+    it("refuses to overwrite a destination file that already exists (e.g. from a prior extraction)", async () => {
+      // Regression test: transferDirectoryPerFile is how ImportManager transfers a
+      // directory source's remaining loose files after extracting the archive straight
+      // into destination (hardlink/symlink mode). transferSingleFile always overwrites,
+      // so a loose file sharing a name with something extraction just produced would
+      // silently replace it instead of failing loudly.
+      const { sourceDir, destination, excludePaths } = await makeExcludeFixture({
+        "game.rom": "loose-rom-bytes",
+      });
+      await fs.ensureDir(destination);
+      await fs.writeFile(path.join(destination, "game.rom"), "extracted-rom-bytes");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: destination,
+            strategy: "pc",
+          },
+          "copy",
+          excludePaths
+        )
+      ).rejects.toThrow("Destination already exists, refusing to overwrite");
+
+      // The pre-existing (extracted) file survives untouched.
+      expect(await fs.readFile(path.join(destination, "game.rom"), "utf8")).toBe(
+        "extracted-rom-bytes"
+      );
+    });
+
     it("skips excluded entries in the sortExtras per-file path too", async () => {
       const { sourceDir, destination, excludePaths } = await makeExcludeFixture({
         "Game Update v1.nsp": "update",

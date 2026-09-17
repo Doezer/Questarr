@@ -242,6 +242,25 @@ describe("ArchiveService", () => {
       expect(files).toEqual([expect.stringMatching(/library[\\/]game\.rom$/)]);
     });
 
+    it("preserves other volumes of a multi-part archive already extracted in place", async () => {
+      // Regression test: the in-place cleanup above only protected the exact archive
+      // file passed in (archiveBasename), so extracting "game.7z.001" would delete its
+      // sibling volume "game.7z.002" before 7-Zip ever got to read it.
+      const service = await freshArchiveService();
+      mockExecAlways(null, "", "");
+      readdirMock.mockResolvedValueOnce([
+        { name: "game.7z.001", isDirectory: () => false },
+        { name: "game.7z.002", isDirectory: () => false },
+        { name: "stale.tmp", isDirectory: () => false },
+      ]);
+      readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
+
+      await service.extract("/tmp/library/game.7z.001", "/tmp/library"); // NOSONAR - mocked fs
+
+      expect(emptyDirMock).not.toHaveBeenCalled();
+      expect(removeMock).toHaveBeenCalledExactlyOnceWith(path.join("/tmp/library", "stale.tmp"));
+    });
+
     it("still empties the whole output directory when the archive lives elsewhere", async () => {
       // Regression guard for the test above: the in-place branch must only trigger when
       // the archive's own directory matches outputDir, not whenever outputDir is non-empty.

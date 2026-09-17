@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { emptyDirMock, readdirMock, loggerMocks } = vi.hoisted(() => ({
+const { emptyDirMock, readdirMock, statMock, loggerMocks } = vi.hoisted(() => ({
   emptyDirMock: vi.fn().mockResolvedValue(undefined),
   readdirMock: vi.fn().mockResolvedValue([]),
+  statMock: vi.fn(),
   loggerMocks: {
     debug: vi.fn(),
     info: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock("fs-extra", () => ({
   default: {
     emptyDir: emptyDirMock,
     readdir: readdirMock,
+    stat: statMock,
   },
 }));
 
@@ -453,6 +455,184 @@ describe("ArchiveService", () => {
       await expect(
         service.extract("/downloads/game.rar", "/tmp/rar-out", "wrongpass") // NOSONAR - mocked fs
       ).rejects.toThrow(/incorrect/i);
+    });
+  });
+
+  describe("listEntries()", () => {
+    // A real `7z l -slt` transcript: a blank-line-delimited archive-header block
+    // followed by one block per entry (files and, for "sub", a directory).
+    const SLT_OUTPUT = [
+      "Path = test.zip",
+      "Type = zip",
+      "Physical Size = 569",
+      "",
+      "----------",
+      "Path = config.cfg",
+      "Folder = -",
+      "Size = 12",
+      "Packed Size = 12",
+      "",
+      "Path = sub",
+      "Folder = +",
+      "Size = 0",
+      "Packed Size = 0",
+      "",
+      "Path = sub/deep.dat",
+      "Folder = -",
+      "Size = 7",
+      "Packed Size = 7",
+      "",
+    ].join("\n");
+
+    it("parses -slt output into leaf-file entries, excluding directories", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(null, SLT_OUTPUT, "");
+
+      const entries = await service.listEntries("/downloads/test.zip"); // NOSONAR - mocked fs
+
+      expect(entries).toEqual([
+        { name: "config.cfg", size: 12 },
+        { name: "sub/deep.dat", size: 7 },
+      ]);
+      const calls = vi.mocked(execFile).mock.calls;
+      expect(calls[0][0]).toBe(fakeSevenZipPath);
+      expect(calls[0][1]).toEqual(["l", "-slt", "-p-", "--", "/downloads/test.zip"]);
+    });
+
+    it("routes listing through 7-Zip even for a .rar path", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(null, SLT_OUTPUT, "");
+
+      await service.listEntries("/downloads/game.rar"); // NOSONAR - mocked fs
+
+      // Extraction routes .rar to unrar, but listing always goes through 7-Zip — its
+      // -slt format is the same regardless of archive type, unlike unrar's own
+      // column-aligned list commands.
+      expect(vi.mocked(execFile).mock.calls[0][0]).toBe(fakeSevenZipPath);
+    });
+
+    it("rejects when 7-Zip fails to list the archive", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(new Error("exit code 2"), "", "Cannot open the file as archive");
+
+      await expect(
+        service.listEntries("/downloads/corrupt.zip") // NOSONAR - mocked fs
+      ).rejects.toThrow("Cannot open the file as archive");
+    });
+  });
+
+  describe("isAlreadyExtracted()", () => {
+    const SLT_OUTPUT = [
+      "Path = test.zip",
+      "Type = zip",
+      "",
+      "----------",
+      "Path = game.rom",
+      "Folder = -",
+      "Size = 12",
+      "",
+    ].join("\n");
+
+    it("returns true when every entry matches a loose file by name and size", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(null, SLT_OUTPUT, "");
+      statMock.mockResolvedValue({ isDirectory: () => false, size: 12 });
+
+      const result = await service.isAlreadyExtracted("/downloads/test.zip", "/downloads"); // NOSONAR - mocked fs
+
+      expect(result).toBe(true);
+    });
+
+    it("returns false when a matching-name file has a different size (partial/incomplete extraction)", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(null, SLT_OUTPUT, "");
+      statMock.mockResolvedValue({ isDirectory: () => false, size: 5 });
+
+      const result = await service.isAlreadyExtracted("/downloads/test.zip", "/downloads"); // NOSONAR - mocked fs
+
+      expect(result).toBe(false);
+    });
+
+    it("returns false when the candidate loose file doesn't exist", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(null, SLT_OUTPUT, "");
+      statMock.mockRejectedValue(new Error("ENOENT"));
+
+      const result = await service.isAlreadyExtracted("/downloads/test.zip", "/downloads"); // NOSONAR - mocked fs
+
+      expect(result).toBe(false);
+    });
+
+    it("returns false when the archive has no entries at all", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(null, "", "");
+
+      const result = await service.isAlreadyExtracted("/downloads/empty.zip", "/downloads"); // NOSONAR - mocked fs
+
+      expect(result).toBe(false);
+    });
+
+    it("returns false (never throws) when listing the archive fails", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(new Error("exit code 2"), "", "Cannot open the file as archive");
+
+      const result = await service.isAlreadyExtracted("/downloads/corrupt.zip", "/downloads"); // NOSONAR - mocked fs
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe("findVolumeSiblings()", () => {
+    it("matches classic .rNN split-volume siblings", () => {
+      const service = new ArchiveService();
+
+      const result = service.findVolumeSiblings("/dl/Game.rar", [
+        "/dl/Game.rar",
+        "/dl/Game.r00",
+        "/dl/Game.r01",
+        "/dl/readme.txt",
+        "/dl/Other.rar",
+      ]);
+
+      expect(result.sort()).toEqual(["/dl/Game.r00", "/dl/Game.r01", "/dl/Game.rar"].sort());
+    });
+
+    it("matches .partN.rar siblings including double-digit part numbers (regression: stem used to keep .part1 attached)", () => {
+      const service = new ArchiveService();
+
+      const result = service.findVolumeSiblings("/dl/Game.part1.rar", [
+        "/dl/Game.part1.rar",
+        "/dl/Game.part2.rar",
+        "/dl/Game.part10.rar",
+        "/dl/readme.txt",
+      ]);
+
+      expect(result.sort()).toEqual(
+        ["/dl/Game.part1.rar", "/dl/Game.part2.rar", "/dl/Game.part10.rar"].sort()
+      );
+    });
+
+    it("matches .7z.NNN split-volume siblings", () => {
+      const service = new ArchiveService();
+
+      const result = service.findVolumeSiblings("/dl/Game.7z.001", [
+        "/dl/Game.7z.001",
+        "/dl/Game.7z.002",
+        "/dl/Other.7z.001",
+      ]);
+
+      expect(result.sort()).toEqual(["/dl/Game.7z.001", "/dl/Game.7z.002"].sort());
+    });
+
+    it("does not match an unrelated archive that merely shares a prefix", () => {
+      const service = new ArchiveService();
+
+      const result = service.findVolumeSiblings("/dl/Game.rar", [
+        "/dl/Game.rar",
+        "/dl/Game Extended.rar",
+      ]);
+
+      expect(result).toEqual(["/dl/Game.rar"]);
     });
   });
 });

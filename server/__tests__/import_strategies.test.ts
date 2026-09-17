@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
-import { PCImportStrategy } from "../services/ImportStrategies.js";
+import { PCImportStrategy, reorganizeBySortExtras } from "../services/ImportStrategies.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
 const cleanup: string[] = [];
@@ -363,6 +363,181 @@ describe("ImportStrategies", () => {
 
       expect(plan.proposedPath).toMatch(/My Game\.exe$/);
       expect(plan.fileCategories).toBeUndefined();
+    });
+
+    it("treatAsDirectory strips the extension even for a single-file source", async () => {
+      const root = tempDir();
+      const source = path.join(root, "downloads", "game.zip");
+      await fs.ensureDir(path.dirname(source));
+      await fs.writeFile(source, "zip-bytes");
+
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        source,
+        makeGame({ title: "My Game" }),
+        path.join(root, "library"),
+        makeImportConfig(),
+        undefined,
+        { treatAsDirectory: true }
+      );
+
+      expect(plan.proposedPath).toMatch(/My Game$/);
+      expect(plan.proposedPath.endsWith(".zip")).toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // PCImportStrategy.executeImport() — excludePaths
+  // ---------------------------------------------------------------------------
+
+  describe("PCImportStrategy.executeImport() with excludePaths", () => {
+    it("skips excluded files during a directory move, but still moves the rest", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "release");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(sourceDir);
+      const archivePath = path.join(sourceDir, "game.zip");
+      const looseFile = path.join(sourceDir, "game.rom");
+      await fs.writeFile(archivePath, "zip-bytes");
+      await fs.writeFile(looseFile, "rom-bytes");
+
+      const strategy = new PCImportStrategy();
+      const result = await strategy.executeImport(
+        {
+          needsReview: false,
+          originalPath: sourceDir,
+          proposedPath: destination,
+          strategy: "pc",
+        },
+        "move",
+        new Set([path.resolve(archivePath)])
+      );
+
+      expect(result.filesPlaced).toEqual([path.join(destination, "game.rom")]);
+      expect(await fs.pathExists(path.join(destination, "game.zip"))).toBe(false);
+      expect(await fs.pathExists(path.join(destination, "game.rom"))).toBe(true);
+      // Excluded files are left behind when the rest of the directory is moved out —
+      // the whole source directory (including what wasn't transferred) is removed at
+      // the end of a move, same as if nothing had been excluded.
+      expect(await fs.pathExists(sourceDir)).toBe(false);
+    });
+
+    it("skips excluded files during a directory hardlink", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "release");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(sourceDir);
+      const archivePath = path.join(sourceDir, "game.zip");
+      const looseFile = path.join(sourceDir, "game.rom");
+      await fs.writeFile(archivePath, "zip-bytes");
+      await fs.writeFile(looseFile, "rom-bytes");
+
+      const strategy = new PCImportStrategy();
+      const result = await strategy.executeImport(
+        {
+          needsReview: false,
+          originalPath: sourceDir,
+          proposedPath: destination,
+          strategy: "pc",
+        },
+        "hardlink",
+        new Set([path.resolve(archivePath)])
+      );
+
+      expect(result.modeUsed).toBe("hardlink");
+      expect(await fs.pathExists(path.join(destination, "game.zip"))).toBe(false);
+      const romSource = await fs.stat(looseFile);
+      const romDest = await fs.stat(path.join(destination, "game.rom"));
+      expect(romDest.ino).toBe(romSource.ino);
+      // The excluded archive is untouched at the source — hardlink mode never removes
+      // the source directory the way move does.
+      expect(await fs.pathExists(archivePath)).toBe(true);
+    });
+
+    it("throws when every file in the directory is excluded", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "release");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(sourceDir);
+      const archivePath = path.join(sourceDir, "game.zip");
+      await fs.writeFile(archivePath, "zip-bytes");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: destination,
+            strategy: "pc",
+          },
+          "copy",
+          new Set([path.resolve(archivePath)])
+        )
+      ).rejects.toThrow("No files to transfer after applying exclusions");
+    });
+
+    it("skips excluded entries in the sortExtras per-file path too", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "release");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(sourceDir);
+      const archivePath = path.join(sourceDir, "game.zip");
+      await fs.writeFile(archivePath, "zip-bytes");
+      await fs.writeFile(path.join(sourceDir, "Game Update v1.nsp"), "update");
+
+      const strategy = new PCImportStrategy();
+      const result = await strategy.executeImport(
+        {
+          needsReview: false,
+          originalPath: sourceDir,
+          proposedPath: destination,
+          strategy: "pc",
+          fileCategories: [
+            { name: "game.zip", category: "main" },
+            { name: "Game Update v1.nsp", category: "update" },
+          ],
+        },
+        "copy",
+        new Set([path.resolve(archivePath)])
+      );
+
+      expect(result.filesPlaced).toEqual([path.join(destination, "update", "Game Update v1.nsp")]);
+      expect(await fs.pathExists(path.join(destination, "game.zip"))).toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // reorganizeBySortExtras() — post-extraction categorization pass
+  // ---------------------------------------------------------------------------
+
+  describe("reorganizeBySortExtras()", () => {
+    it("moves categorized files into subdirectories in place, leaving main files alone", async () => {
+      const root = tempDir();
+      const destDir = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(destDir);
+      await fs.writeFile(path.join(destDir, "game.exe"), "main");
+      await fs.writeFile(path.join(destDir, "Game Update v1.nsp"), "update");
+      await fs.writeFile(path.join(destDir, "Game Expansion Pack.nsp"), "dlc");
+
+      await reorganizeBySortExtras(destDir);
+
+      expect(await fs.pathExists(path.join(destDir, "game.exe"))).toBe(true);
+      expect(await fs.pathExists(path.join(destDir, "update", "Game Update v1.nsp"))).toBe(true);
+      expect(await fs.pathExists(path.join(destDir, "dlc", "Game Expansion Pack.nsp"))).toBe(true);
+      expect(await fs.pathExists(path.join(destDir, "Game Update v1.nsp"))).toBe(false);
+    });
+
+    it("is a no-op for files that already sit in their correct category directory", async () => {
+      const root = tempDir();
+      const destDir = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(path.join(destDir, "dlc"));
+      await fs.writeFile(path.join(destDir, "dlc", "Game DLC Pack.nsp"), "dlc");
+
+      const moveSpy = vi.spyOn(fs, "move");
+      await reorganizeBySortExtras(destDir);
+
+      expect(moveSpy).not.toHaveBeenCalled();
     });
   });
 });

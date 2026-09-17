@@ -5,8 +5,12 @@ import { ArchiveService, ArchivePasswordRequiredError } from "./ArchiveService.j
 import {
   ImportStrategy,
   ImportReview,
+  ImportResult,
   PCImportStrategy,
+  TransferMode,
   sanitizeFsName,
+  gatherFiles,
+  reorganizeBySortExtras,
 } from "./ImportStrategies.js";
 import { DownloaderManager } from "../downloaders.js";
 import { resolveDownloadRelativePath, buildRemoteImportPath } from "../downloaders/utils.js";
@@ -82,6 +86,14 @@ const MAX_LISTED_FILES = 100;
 // UI can show a password field instead of the normal path-review form.
 export const ARCHIVE_PASSWORD_REQUIRED_PREFIX = "ARCHIVE_PASSWORD_REQUIRED:";
 
+interface ArchiveResolution {
+  archivePath: string;
+  isDirectorySource: boolean;
+  alreadyExtracted: boolean;
+  excludePaths: Set<string>;
+  hasRemainingFiles: boolean;
+}
+
 export class ImportManager {
   private readonly pathRetryCount = new Map<string, number>();
 
@@ -151,44 +163,147 @@ export class ImportManager {
       : message;
   }
 
-  private async runExtract(
-    archivePath: string,
-    extractDir: string,
-    password?: string
-  ): Promise<string> {
-    try {
-      await this.archiveService.extract(archivePath, extractDir, password);
-      return extractDir;
-    } catch (err) {
-      await fs.remove(extractDir).catch(() => undefined);
-      throw err;
-    }
-  }
-
-  private async extractIfArchive(sourcePath: string, password?: string): Promise<string> {
+  /**
+   * Resolves the archive (if any) relevant to a source path, without
+   * extracting or moving anything. Directory sources are scanned for the
+   * first archive entry (7zip/unrar handle multi-part volumes given the
+   * first part); already-extracted detection and volume-sibling exclusion
+   * are only meaningful for directory sources, since a lone file has no
+   * reliable sibling scope to check against.
+   */
+  private async resolveArchive(sourcePath: string): Promise<ArchiveResolution | null> {
     if (isSensitivePath(sourcePath)) {
       throw new Error("Refusing to process a sensitive system path");
     }
 
-    if (this.archiveService.isArchive(sourcePath)) {
-      const extractDir = sourcePath + "_extracted";
-      return this.runExtract(sourcePath, extractDir, password);
+    const stats = await fs.stat(sourcePath);
+
+    if (!stats.isDirectory()) {
+      if (!this.archiveService.isArchive(sourcePath)) return null;
+      return {
+        archivePath: sourcePath,
+        isDirectorySource: false,
+        alreadyExtracted: false,
+        excludePaths: new Set(),
+        hasRemainingFiles: false,
+      };
     }
 
-    // Directory: scan for archive files inside (handles torrent dirs containing .rar etc.)
-    const stats = await fs.stat(sourcePath);
-    if (!stats.isDirectory()) return sourcePath;
-
     const entries = await fs.readdir(sourcePath);
-    const archiveEntries = entries
-      .filter((name: string) => this.archiveService.isArchive(name))
-      .sort();
-    if (archiveEntries.length === 0) return sourcePath;
+    const archiveEntries = entries.filter((name) => this.archiveService.isArchive(name)).sort();
+    if (archiveEntries.length === 0) return null;
 
-    // 7zip handles multi-part archives when given the first part
+    // 7zip/unrar handle multi-part archives when given the first part.
     const mainArchive = path.join(sourcePath, archiveEntries[0]);
-    const extractDir = sourcePath + "_extracted";
-    return this.runExtract(mainArchive, extractDir, password);
+    const allAbsolutePaths = entries.map((name) => path.join(sourcePath, name));
+    const volumeSiblings = this.archiveService.findVolumeSiblings(mainArchive, allAbsolutePaths);
+    const excludePaths = new Set(volumeSiblings.map((p) => path.resolve(p)));
+    const alreadyExtracted = await this.archiveService.isAlreadyExtracted(mainArchive, sourcePath);
+    const hasRemainingFiles = allAbsolutePaths.some((p) => !excludePaths.has(path.resolve(p)));
+
+    return {
+      archivePath: mainArchive,
+      isDirectorySource: true,
+      alreadyExtracted,
+      excludePaths,
+      hasRemainingFiles,
+    };
+  }
+
+  /**
+   * Transfers a plan into the library, unpacking an archive in place at the
+   * destination rather than in the downloader's own directory. move/copy
+   * relocate the raw source into the library first, then extract in place
+   * (a failed extraction strands the raw archive in the library — there is
+   * no retry-import path to recover it, which is an accepted trade-off).
+   * hardlink/symlink never relocate the raw archive: extraction reads
+   * directly from the downloader-side path into the destination.
+   */
+  private async transferWithUnpack(
+    plan: ImportReview,
+    transferMode: TransferMode,
+    resolution: ArchiveResolution | null,
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    password: string | undefined,
+    sortExtras: boolean
+  ): Promise<ImportResult> {
+    const strategy = new PCImportStrategy();
+
+    if (!resolution || resolution.alreadyExtracted) {
+      return strategy.executeImport(plan, transferMode, resolution?.excludePaths);
+    }
+
+    const destDir = plan.proposedPath;
+
+    if (transferMode === "hardlink" || transferMode === "symlink") {
+      await fs.ensureDir(destDir);
+      await this.archiveService.extract(resolution.archivePath, destDir, password);
+      if (sortExtras) await reorganizeBySortExtras(destDir);
+
+      if (resolution.isDirectorySource && resolution.hasRemainingFiles) {
+        return strategy.executeImport(plan, transferMode, resolution.excludePaths);
+      }
+
+      return {
+        destDir,
+        filesPlaced: await gatherFiles(destDir),
+        modeUsed: transferMode,
+        conflictsResolved: [],
+      };
+    }
+
+    // move / copy: relocate the raw source into the library first, then extract in place.
+    let archiveInDest: string;
+    let siblingsInDest: string[];
+
+    if (resolution.isDirectorySource) {
+      await strategy.executeImport(plan, transferMode);
+      archiveInDest = path.join(destDir, path.basename(resolution.archivePath));
+      const resolvedArchive = path.resolve(resolution.archivePath);
+      siblingsInDest = [...resolution.excludePaths]
+        .filter((p) => p !== resolvedArchive)
+        .map((p) => path.join(destDir, path.basename(p)));
+    } else {
+      await fs.ensureDir(destDir);
+      archiveInDest = path.join(destDir, path.basename(resolution.archivePath));
+      if (transferMode === "move") {
+        await fs.move(resolution.archivePath, archiveInDest, { overwrite: true });
+      } else {
+        await fs.copy(resolution.archivePath, archiveInDest, { overwrite: true });
+      }
+      siblingsInDest = [];
+    }
+
+    try {
+      await this.archiveService.extract(archiveInDest, destDir, password);
+    } catch (err) {
+      await this.storage
+        .addNotification({
+          userId: game.userId ?? "",
+          type: "error",
+          title: "Import extraction failed",
+          message: `"${game.title}" was moved into your library, but extracting the archive failed: ${err instanceof Error ? err.message : String(err)}. The archive is left at ${archiveInDest} — extract or delete it manually to finish the import.`,
+        })
+        .catch((notifErr) =>
+          logger.error(
+            { notifErr, archiveInDest },
+            "[ImportManager] Failed to create stranded-import notification"
+          )
+        );
+      throw err;
+    }
+    await fs.remove(archiveInDest).catch(() => undefined);
+    for (const sibling of siblingsInDest) {
+      await fs.remove(sibling).catch(() => undefined);
+    }
+    if (sortExtras) await reorganizeBySortExtras(destDir);
+
+    return {
+      destDir,
+      filesPlaced: await gatherFiles(destDir),
+      modeUsed: transferMode,
+      conflictsResolved: [],
+    };
   }
 
   private async readSourceFiles(sourcePath: string): Promise<{
@@ -379,18 +494,13 @@ export class ImportManager {
   private async flagNeedsReview(
     downloadId: string,
     game: { title: string },
-    plan: ImportReview,
-    processingPath: string,
-    localPath: string
+    plan: ImportReview
   ): Promise<void> {
     logger.info(
       { gameTitle: game.title, reviewReason: plan.reviewReason },
       "[ImportManager] Manual review required"
     );
     await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
-    if (processingPath !== localPath) {
-      await fs.remove(processingPath).catch(() => undefined);
-    }
   }
 
   private async autoDeleteIfConfigured(
@@ -462,14 +572,11 @@ export class ImportManager {
       return;
     }
 
-    let localPath: string | undefined;
-    let processingPath: string | undefined;
-
     try {
       await this.storage.updateGameDownloadStatus(downloadId, "unpacking");
 
       const resolved = await this.resolveLocalPath(remoteDownloadPath, download.downloaderId);
-      localPath = resolved.localPath;
+      const localPath = resolved.localPath;
       const downloaderName = resolved.downloaderName;
 
       logger.debug({ localPath }, "[ImportManager] Checking path accessibility");
@@ -484,9 +591,8 @@ export class ImportManager {
         return;
       }
 
-      processingPath = config.autoUnpack
-        ? await this.extractIfArchive(localPath, password)
-        : localPath;
+      const archiveResolution = config.autoUnpack ? await this.resolveArchive(localPath) : null;
+      const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
 
       const strategy = new PCImportStrategy();
       const libraryRoot = config.libraryRoot || "/data";
@@ -507,32 +613,35 @@ export class ImportManager {
 
       const platformDir = this.resolvePlatformFolderName(download.downloadTitle || "", game);
       const plan = await strategy.planImport(
-        processingPath,
+        localPath,
         game,
         libraryRoot,
         config,
-        platformDir
+        platformDir,
+        needsExtraction && !archiveResolution!.isDirectorySource
+          ? { treatAsDirectory: true }
+          : undefined
       );
 
       if (plan.needsReview) {
-        await this.flagNeedsReview(downloadId, game, plan, processingPath, localPath);
+        await this.flagNeedsReview(downloadId, game, plan);
         return;
       }
 
       await this.storage.updateGameDownloadStatus(downloadId, "completed_pending_import");
-      const result = await strategy.executeImport(plan, config.transferMode);
-
-      if (processingPath !== localPath) {
-        await fs.remove(processingPath);
-      }
+      const result = await this.transferWithUnpack(
+        plan,
+        config.transferMode,
+        archiveResolution,
+        game,
+        password,
+        config.sortExtras
+      );
 
       await this.finalizeImport(downloadId, game, result.destDir);
       await this.autoDeleteIfConfigured(downloadId, download, game, config);
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] Import failed");
-      if (processingPath && localPath && processingPath !== localPath) {
-        await fs.remove(processingPath).catch(() => undefined);
-      }
       try {
         // Route to manual review instead of a terminal "error" status so the
         // download stays actionable — it surfaces under Pending Manual Imports
@@ -683,8 +792,25 @@ export class ImportManager {
       throw new Error("Proposed path is required for import validation");
     }
 
+    const archiveResolution = overridePlan.unpack
+      ? await this.resolveArchive(resolvedOriginalPath)
+      : null;
+    const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
+
+    // The client always echoes back an extension-bearing proposedPath regardless of the
+    // unpack toggle (it can't know in advance whether unpack will be requested), so a
+    // single-file archive that will be unpacked has its extension stripped here — the one
+    // place that knows both the resolved archive and the confirmed unpack intent.
+    let proposedPath = overridePlan.proposedPath;
+    if (needsExtraction && !archiveResolution!.isDirectorySource) {
+      const ext = path.extname(resolvedOriginalPath);
+      if (ext && proposedPath.toLowerCase().endsWith(ext.toLowerCase())) {
+        proposedPath = proposedPath.slice(0, -ext.length);
+      }
+    }
+
     const resolvedRoot = path.resolve(config.libraryRoot);
-    const resolvedTarget = path.resolve(overridePlan.proposedPath);
+    const resolvedTarget = path.resolve(proposedPath);
     const insideRoot =
       resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
     if (!insideRoot) {
@@ -693,32 +819,37 @@ export class ImportManager {
 
     const transferMode = overridePlan.transferMode ?? config.transferMode;
 
-    let processPath = resolvedOriginalPath;
+    const planToExecute: ImportReview = {
+      ...overridePlan,
+      // Recomputed just below when sorting is enabled and no extraction is happening —
+      // never trust client-supplied categories. An archive being unpacked gets its
+      // categories applied afterward instead, via transferWithUnpack's post-extraction
+      // reorganizeBySortExtras pass, since there's nothing to categorize here yet.
+      fileCategories: undefined,
+      originalPath: resolvedOriginalPath,
+      proposedPath,
+    };
+
+    const strategy = new PCImportStrategy();
+    if (config.sortExtras && !needsExtraction) {
+      const categorizedPlan = await strategy.planImport(
+        resolvedOriginalPath,
+        game,
+        config.libraryRoot,
+        config
+      );
+      planToExecute.fileCategories = categorizedPlan.fileCategories;
+    }
 
     try {
-      processPath = overridePlan.unpack
-        ? await this.extractIfArchive(resolvedOriginalPath, overridePlan.password)
-        : resolvedOriginalPath;
-
-      const planToExecute: ImportReview = {
-        ...overridePlan,
-        // Recomputed server-side below when sorting is enabled — never trust
-        // client-supplied categories.
-        fileCategories: undefined,
-        originalPath: processPath,
-      };
-
-      const strategy = new PCImportStrategy();
-      if (config.sortExtras) {
-        const categorizedPlan = await strategy.planImport(
-          processPath,
-          game,
-          config.libraryRoot,
-          config
-        );
-        planToExecute.fileCategories = categorizedPlan.fileCategories;
-      }
-      const result = await strategy.executeImport(planToExecute, transferMode);
+      const result = await this.transferWithUnpack(
+        planToExecute,
+        transferMode,
+        archiveResolution,
+        game,
+        overridePlan.password,
+        config.sortExtras
+      );
 
       await this.finalizeImport(downloadId, game, result.destDir);
     } catch (err) {
@@ -735,10 +866,6 @@ export class ImportManager {
         logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
       }
       throw err;
-    } finally {
-      if (processPath !== resolvedOriginalPath) {
-        await fs.remove(processPath).catch(() => undefined);
-      }
     }
   }
 }

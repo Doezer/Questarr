@@ -7,6 +7,15 @@ import { logger } from "../logger.js";
 type ArchiveTool = "7zip" | "unrar";
 type ExecFileResult = { stdout: string; stderr: string };
 
+export interface ArchiveEntry {
+  name: string;
+  size: number;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const EXEC_TIMEOUT_MS = 30 * 60_000;
 const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
 
@@ -150,6 +159,27 @@ function runUnrar(args: string[]): Promise<ExecFileResult> {
     );
   }
   return runTool(binary, args, "unrar");
+}
+
+// Parses `7z l -slt` output: a blank-line-delimited series of "Key = Value" blocks. The
+// first block describes the archive itself (no "Folder" field) and is skipped; each
+// following block describes one entry, with "Folder = +" marking a directory (excluded —
+// only leaf files are returned, matching listEntries' contract).
+function parseSevenZipSltListing(stdout: string): ArchiveEntry[] {
+  const entries: ArchiveEntry[] = [];
+  for (const block of stdout.split(/\r?\n\r?\n/)) {
+    const fields: Record<string, string> = {};
+    for (const line of block.split(/\r?\n/)) {
+      const separatorIndex = line.indexOf(" = ");
+      if (separatorIndex === -1) continue;
+      fields[line.slice(0, separatorIndex).trim()] = line.slice(separatorIndex + 3).trim();
+    }
+    if (!("Folder" in fields) || !fields.Path) continue;
+    if (fields.Folder === "+") continue;
+    const size = Number(fields.Size);
+    entries.push({ name: fields.Path, size: Number.isFinite(size) ? size : 0 });
+  }
+  return entries;
 }
 
 export class ArchiveService {
@@ -330,5 +360,94 @@ export class ArchiveService {
   isArchive(filePath: string): boolean {
     const ext = path.extname(filePath).toLowerCase();
     return [".zip", ".7z", ".rar", ".gz", ".tar", ".iso", ".bz2"].includes(ext);
+  }
+
+  /**
+   * Lists an archive's file entries without extracting it. Directory entries
+   * are excluded — only leaf files are returned.
+   *
+   * Always shells out to 7-Zip, even for .rar (which extraction routes to
+   * unrar instead): 7-Zip's `-slt` mode has a stable, unambiguous
+   * block-per-entry format regardless of archive type, whereas unrar's own
+   * listing commands (`l`/`v`/`lb`) are column-aligned text tables whose
+   * exact layout isn't safe to assume across the unrar builds this may run
+   * against. 7-Zip has read-only support for RAR (including RAR5) built in,
+   * so this works without needing unrar at all for the listing case.
+   */
+  async listEntries(filePath: string): Promise<ArchiveEntry[]> {
+    logger.debug({ filePath }, "Listing archive contents");
+    const { stdout } = await runSevenZip(["l", "-slt", "-p-", "--", filePath]);
+    return parseSevenZipSltListing(stdout);
+  }
+
+  /**
+   * Checks whether every file inside the archive already exists as a loose
+   * file (same relative path and size) under baseDir — i.e. the archive has
+   * already been extracted alongside itself by something upstream (a
+   * download client's own post-processing, for example). Listing failures
+   * (unsupported/unreadable archive for 7-Zip's listing path) are treated as
+   * "can't tell" rather than propagated — this check is purely an
+   * optimization to skip redundant extraction, never load-bearing for
+   * correctness, so a failure here should fall through to a normal
+   * extraction rather than fail the import.
+   */
+  async isAlreadyExtracted(archivePath: string, baseDir: string): Promise<boolean> {
+    let entries: ArchiveEntry[];
+    try {
+      entries = await this.listEntries(archivePath);
+    } catch (err) {
+      logger.debug(
+        { err, archivePath },
+        "[ArchiveService] Could not list archive contents to check for a prior extraction — assuming not extracted"
+      );
+      return false;
+    }
+    if (entries.length === 0) return false;
+
+    for (const entry of entries) {
+      const normalizedName = entry.name.split(/[/\\]+/).join(path.sep);
+      const candidatePath = path.join(baseDir, normalizedName);
+      try {
+        const stats = await fs.stat(candidatePath);
+        if (stats.isDirectory() || stats.size !== entry.size) return false;
+      } catch {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Given a main archive path and the absolute paths of its siblings,
+   * returns the subset that belongs to the same archive: the main archive
+   * itself plus any split/multi-part volume companions (.r00, .part2.rar,
+   * .7z.002, etc).
+   */
+  findVolumeSiblings(archivePath: string, siblingPaths: string[]): string[] {
+    const resolvedArchive = path.resolve(archivePath);
+    // A volume-suffix pattern (.partN.rar, .rNN, .7z.NNN, .zip.NNN, bare .NNN) has to be
+    // stripped as its own alternative before the plain single-extension fallback: the
+    // "main" archive passed in is often itself a numbered volume (e.g. 7-Zip splits
+    // produce "Game.7z.001"/"Game.7z.002" with no separate "Game.7z"), and stripping
+    // only a plain extension would leave the stem as "Game.7z.001", which then never
+    // matches sibling "Game.7z.002" (whose own stem, by the same logic, would be
+    // "Game.7z.002" — never equal). Matching the whole numbered-volume tail first
+    // reduces every volume to the same "Game" stem regardless of which one was passed in.
+    const stem = path
+      .basename(archivePath)
+      .replace(
+        /\.(part\d+\.rar|r\d{2,3}|7z\.\d{3}|zip\.\d{3}|\d{3}|rar|zip|7z|gz|tar|iso|bz2)$/i,
+        ""
+      );
+    const volumePattern = new RegExp(
+      `^${escapeRegExp(stem)}\\.(r\\d{2,3}|part\\d+\\.rar|7z\\.\\d{3}|zip\\.\\d{3}|\\d{3})$`,
+      "i"
+    );
+
+    return siblingPaths.filter((siblingPath) => {
+      if (path.resolve(siblingPath) === resolvedArchive) return true;
+      return volumePattern.test(path.basename(siblingPath));
+    });
   }
 }

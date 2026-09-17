@@ -116,23 +116,50 @@ describe("ImportManager archive extraction (library-side)", () => {
     downloadsRoot = tempDir();
   });
 
-  it("move mode: relocates a multi-volume RAR set into the library and extracts it there, leaving nothing behind", async () => {
+  // Shared by the move-mode directory-source tests below: writes `files` into a fresh
+  // source directory, runs processImport against it, and hands back everything an
+  // individual test needs to assert against.
+  async function importDirectorySource(
+    files: Record<string, string>,
+    archiveServiceOptions: Parameters<typeof makeArchiveService>[0],
+    configOverrides: Partial<ImportConfig> = {}
+  ) {
     const sourceDir = path.join(downloadsRoot, "Game-Release");
     await fs.ensureDir(sourceDir);
-    await fs.writeFile(path.join(sourceDir, "game.part1.rar"), "part1-bytes");
-    await fs.writeFile(path.join(sourceDir, "game.part2.rar"), "part2-bytes");
-    await fs.writeFile(path.join(sourceDir, "readme.nfo"), "release notes");
+    for (const [name, content] of Object.entries(files)) {
+      await fs.writeFile(path.join(sourceDir, name), content);
+    }
 
-    const { archiveService, extractSpy } = makeArchiveService({
-      extractResult: { "game.exe": "exe-bytes" },
-    });
-
+    const { archiveService, extractSpy } = makeArchiveService(archiveServiceOptions);
     const storage = makeStorage();
-    const manager = createManager(archiveService, storage, { transferMode: "move", libraryRoot });
+    const manager = createManager(archiveService, storage, {
+      transferMode: "move",
+      libraryRoot,
+      ...configOverrides,
+    });
 
     await manager.processImport("dl-1", sourceDir);
 
-    const destDir = path.join(libraryRoot, "PC", "My Game");
+    return {
+      sourceDir,
+      destDir: path.join(libraryRoot, "PC", "My Game"),
+      archiveService,
+      extractSpy,
+      storage,
+      manager,
+    };
+  }
+
+  it("move mode: relocates a multi-volume RAR set into the library and extracts it there, leaving nothing behind", async () => {
+    const { sourceDir, destDir, extractSpy, storage } = await importDirectorySource(
+      {
+        "game.part1.rar": "part1-bytes",
+        "game.part2.rar": "part2-bytes",
+        "readme.nfo": "release notes",
+      },
+      { extractResult: { "game.exe": "exe-bytes" } }
+    );
+
     expect(await fs.pathExists(path.join(destDir, "game.exe"))).toBe(true);
     expect(await fs.pathExists(path.join(destDir, "readme.nfo"))).toBe(true);
     // Neither RAR volume survives: both were relocated into the library then deleted
@@ -154,21 +181,11 @@ describe("ImportManager archive extraction (library-side)", () => {
     // Regression test: a plain lexicographic sort puts "game.r00" before "game.rar"
     // ('0' < 'a'), which would hand 7-Zip/unrar the continuation volume instead of the
     // primary one as the extraction entry point.
-    const sourceDir = path.join(downloadsRoot, "Game-Release");
-    await fs.ensureDir(sourceDir);
-    await fs.writeFile(path.join(sourceDir, "game.r00"), "r00-bytes");
-    await fs.writeFile(path.join(sourceDir, "game.rar"), "rar-bytes");
+    const { destDir, extractSpy } = await importDirectorySource(
+      { "game.r00": "r00-bytes", "game.rar": "rar-bytes" },
+      { extractResult: { "game.exe": "exe-bytes" } }
+    );
 
-    const { archiveService, extractSpy } = makeArchiveService({
-      extractResult: { "game.exe": "exe-bytes" },
-    });
-
-    const storage = makeStorage();
-    const manager = createManager(archiveService, storage, { transferMode: "move", libraryRoot });
-
-    await manager.processImport("dl-1", sourceDir);
-
-    const destDir = path.join(libraryRoot, "PC", "My Game");
     expect(extractSpy).toHaveBeenCalledWith(path.join(destDir, "game.rar"), destDir, undefined);
   });
 
@@ -177,24 +194,12 @@ describe("ImportManager archive extraction (library-side)", () => {
     // the archive) when sortExtras is enabled. For an archive still pending extraction,
     // that would relocate it to e.g. destDir/update/game.zip while extract() is called
     // expecting it flat at destDir/game.zip, failing extraction outright.
-    const sourceDir = path.join(downloadsRoot, "Game-Release");
-    await fs.ensureDir(sourceDir);
-    await fs.writeFile(path.join(sourceDir, "Game Update v1.zip"), "zip-bytes");
+    const { destDir, extractSpy, storage } = await importDirectorySource(
+      { "Game Update v1.zip": "zip-bytes" },
+      { extractResult: { "game.exe": "exe-bytes" } },
+      { sortExtras: true }
+    );
 
-    const { archiveService, extractSpy } = makeArchiveService({
-      extractResult: { "game.exe": "exe-bytes" },
-    });
-
-    const storage = makeStorage();
-    const manager = createManager(archiveService, storage, {
-      transferMode: "move",
-      libraryRoot,
-      sortExtras: true,
-    });
-
-    await manager.processImport("dl-1", sourceDir);
-
-    const destDir = path.join(libraryRoot, "PC", "My Game");
     expect(extractSpy).toHaveBeenCalledWith(
       path.join(destDir, "Game Update v1.zip"),
       destDir,
@@ -240,20 +245,11 @@ describe("ImportManager archive extraction (library-side)", () => {
   });
 
   it("skips extraction and excludes the archive when the downloader already extracted it", async () => {
-    const sourceDir = path.join(downloadsRoot, "Game-Release");
-    await fs.ensureDir(sourceDir);
-    const archivePath = path.join(sourceDir, "game.zip");
-    await fs.writeFile(archivePath, "zip-bytes");
-    await fs.writeFile(path.join(sourceDir, "game.exe"), "exe-bytes");
+    const { sourceDir, destDir, extractSpy } = await importDirectorySource(
+      { "game.zip": "zip-bytes", "game.exe": "exe-bytes" },
+      { alreadyExtracted: true }
+    );
 
-    const { archiveService, extractSpy } = makeArchiveService({ alreadyExtracted: true });
-
-    const storage = makeStorage();
-    const manager = createManager(archiveService, storage, { transferMode: "move", libraryRoot });
-
-    await manager.processImport("dl-1", sourceDir);
-
-    const destDir = path.join(libraryRoot, "PC", "My Game");
     expect(extractSpy).not.toHaveBeenCalled();
     expect(await fs.pathExists(path.join(destDir, "game.exe"))).toBe(true);
     // The redundant archive is excluded from transfer and never lands in the library —

@@ -232,6 +232,15 @@ async function transferFile(
   mode: TransferMode,
   excludePaths?: Set<string>
 ): Promise<TransferMode> {
+  // Callers (ImportManager.resolveArchive, PCImportStrategy.planImport) already check
+  // the plan's originalPath before it gets here, but this function — and gatherFiles
+  // below — walk the filesystem independently of that call site, so a guard here
+  // stands on its own rather than depending on every future caller to have checked
+  // upstream first.
+  if (isSensitivePath(source) || isSensitivePath(destination)) {
+    throw new Error("Refusing to process a sensitive system path");
+  }
+
   if (path.resolve(source) === path.resolve(destination)) {
     return mode;
   }
@@ -251,6 +260,10 @@ async function transferFile(
 }
 
 export async function gatherFiles(rootPath: string): Promise<string[]> {
+  if (isSensitivePath(rootPath)) {
+    throw new Error("Refusing to process a sensitive system path");
+  }
+
   const stats = await fs.stat(rootPath);
   if (!stats.isDirectory()) return [rootPath];
 

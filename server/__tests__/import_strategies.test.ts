@@ -514,6 +514,29 @@ describe("ImportStrategies", () => {
       ).rejects.toThrow("No files to transfer after applying exclusions");
     });
 
+    it("throws when exclusions consume the entire categorized (fileCategories) plan too", async () => {
+      // Same regression as "throws when every file in the directory is excluded", but for
+      // the categorized branch: isAlreadyExtracted matching doesn't guarantee any
+      // category entry survives outside the excluded volume set, so this branch needs
+      // the same empty-plan guard rather than silently reporting success.
+      const { sourceDir, destination, excludePaths } = await makeExcludeFixture({});
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: destination,
+            strategy: "pc",
+            fileCategories: [{ name: "game.zip", category: "main" }],
+          },
+          "copy",
+          excludePaths
+        )
+      ).rejects.toThrow("No files to transfer after applying exclusions");
+    });
+
     it("skips excluded entries in the sortExtras per-file path too", async () => {
       const { sourceDir, destination, excludePaths } = await makeExcludeFixture({
         "Game Update v1.nsp": "update",
@@ -570,6 +593,28 @@ describe("ImportStrategies", () => {
         "Refusing to process a sensitive system path"
       );
     });
+
+    it("executeImport refuses a sensitive path in the categorized (fileCategories) branch too", async () => {
+      // Regression test: the categorized branch calls transferSingleFile directly,
+      // bypassing transferFile's own guard — the check has to live at executeImport's
+      // shared entry point to actually cover this branch.
+      const root = tempDir();
+      const destination = path.join(root, "library", "PC", "My Game");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: "/etc",
+            proposedPath: destination,
+            strategy: "pc",
+            fileCategories: [{ name: "passwd", category: "main" }],
+          },
+          "copy"
+        )
+      ).rejects.toThrow("Refusing to process a sensitive system path");
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -602,6 +647,24 @@ describe("ImportStrategies", () => {
       const moveSpy = vi.spyOn(fs, "move");
       await reorganizeBySortExtras(destDir);
 
+      expect(moveSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a collision instead of silently overwriting one file with another", async () => {
+      // A root-level update file and an identically-named file already sitting in
+      // "update/" both categorize to the same destination — without a collision check,
+      // whichever fs.move runs second overwrites the first (overwrite: true) rather than
+      // surfacing the conflict.
+      const root = tempDir();
+      const destDir = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(path.join(destDir, "update"));
+      await fs.writeFile(path.join(destDir, "Game Update v1.nsp"), "root-copy");
+      await fs.writeFile(path.join(destDir, "update", "Game Update v1.nsp"), "existing-copy");
+
+      const moveSpy = vi.spyOn(fs, "move");
+      await expect(reorganizeBySortExtras(destDir)).rejects.toThrow(
+        "Duplicate sortExtras destination"
+      );
       expect(moveSpy).not.toHaveBeenCalled();
     });
   });

@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { emptyDirMock, readdirMock, statMock, loggerMocks } = vi.hoisted(() => ({
+const { emptyDirMock, readdirMock, statMock, removeMock, loggerMocks } = vi.hoisted(() => ({
   emptyDirMock: vi.fn().mockResolvedValue(undefined),
   readdirMock: vi.fn().mockResolvedValue([]),
   statMock: vi.fn(),
+  removeMock: vi.fn().mockResolvedValue(undefined),
   loggerMocks: {
     debug: vi.fn(),
     info: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("fs-extra", () => ({
     emptyDir: emptyDirMock,
     readdir: readdirMock,
     stat: statMock,
+    remove: removeMock,
   },
 }));
 
@@ -95,6 +97,7 @@ describe("ArchiveService", () => {
     vi.clearAllMocks();
     emptyDirMock.mockResolvedValue(undefined);
     readdirMock.mockResolvedValue([]);
+    removeMock.mockResolvedValue(undefined);
     process.env.SEVENZIP_PATH = fakeSevenZipPath;
     process.env.UNRAR_PATH = fakeUnrarPath;
   });
@@ -150,6 +153,20 @@ describe("ArchiveService", () => {
     expect(service.isArchive("setup.exe")).toBe(false);
   });
 
+  it("isArchive recognizes numbered multi-volume continuations with no plain archive extension", () => {
+    // path.extname("game.7z.001") is ".001", not a recognized archive extension on its
+    // own — without this, a directory containing only numbered volumes (no separate
+    // plain .rar/.7z/.zip file) would never be seen as containing an archive at all.
+    const service = new ArchiveService();
+    expect(service.isArchive("game.7z.001")).toBe(true);
+    expect(service.isArchive("game.7z.010")).toBe(true);
+    expect(service.isArchive("game.zip.002")).toBe(true);
+    expect(service.isArchive("game.r00")).toBe(true);
+    expect(service.isArchive("game.r99")).toBe(true);
+    expect(service.isArchive("game.001")).toBe(true);
+    expect(service.isArchive("readme.001")).toBe(true);
+  });
+
   describe("7-Zip support (.zip/.7z/.iso/.tar/.gz/.bz2)", () => {
     it("routes non-RAR archives to the native 7-Zip binary for test and extraction", async () => {
       const service = await freshArchiveService();
@@ -200,6 +217,42 @@ describe("ArchiveService", () => {
 
       expect(emptyDirMock).toHaveBeenCalledOnce();
       expect(emptyDirMock).toHaveBeenCalledWith("/tmp/existing-dir"); // NOSONAR - mocked fs, no real dir access
+    });
+
+    it("does not delete the archive when it already lives inside outputDir (move/copy extract-in-place)", async () => {
+      // Regression test: ImportManager's move/copy import modes relocate the raw archive
+      // into the library destination before calling extract() there, so outputDir and the
+      // archive's own directory are the same path. Unconditionally emptying outputDir
+      // would delete the archive before the tool ever reads it.
+      const service = await freshArchiveService();
+      mockExecAlways(null, "", "");
+      // First readdir: this method's own pre-cleanup listing of outputDir, containing the
+      // archive plus a stale leftover from a killed prior attempt.
+      readdirMock.mockResolvedValueOnce([
+        { name: "game.zip", isDirectory: () => false },
+        { name: "stale.tmp", isDirectory: () => false },
+      ]);
+      // Second readdir: listExtractedFiles's post-extraction listing.
+      readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
+
+      const files = await service.extract("/tmp/library/game.zip", "/tmp/library"); // NOSONAR - mocked fs
+
+      expect(emptyDirMock).not.toHaveBeenCalled();
+      expect(removeMock).toHaveBeenCalledExactlyOnceWith(path.join("/tmp/library", "stale.tmp"));
+      expect(files).toEqual([expect.stringMatching(/library[\\/]game\.rom$/)]);
+    });
+
+    it("still empties the whole output directory when the archive lives elsewhere", async () => {
+      // Regression guard for the test above: the in-place branch must only trigger when
+      // the archive's own directory matches outputDir, not whenever outputDir is non-empty.
+      const service = await freshArchiveService();
+      mockExecAlways(null, "", "");
+      readdirMock.mockResolvedValueOnce([]);
+
+      await service.extract("/downloads/game.zip", "/tmp/out"); // NOSONAR - mocked fs, no real dir access
+
+      expect(emptyDirMock).toHaveBeenCalledWith("/tmp/out"); // NOSONAR - mocked fs, no real dir access
+      expect(removeMock).not.toHaveBeenCalled();
     });
 
     it("rejects with the tool's error message when extraction fails", async () => {
@@ -580,6 +633,33 @@ describe("ArchiveService", () => {
 
       expect(result).toBe(false);
     });
+
+    it("returns false for an entry whose name escapes baseDir, without stat-ing outside it", async () => {
+      // entry.name comes from the archive's own listing, which is attacker-controllable
+      // content — a crafted "../../elsewhere/passwd"-style entry must not let an
+      // unrelated file outside baseDir satisfy the already-extracted check.
+      const service = await freshArchiveService();
+      mockExecAlways(
+        null,
+        [
+          "Path = test.zip",
+          "Type = zip",
+          "",
+          "----------",
+          "Path = ../../etc/passwd",
+          "Folder = -",
+          "Size = 12",
+          "",
+        ].join("\n"),
+        ""
+      );
+      statMock.mockResolvedValue({ isDirectory: () => false, size: 12 });
+
+      const result = await service.isAlreadyExtracted("/downloads/test.zip", "/downloads/sub"); // NOSONAR - mocked fs
+
+      expect(result).toBe(false);
+      expect(statMock).not.toHaveBeenCalled();
+    });
   });
 
   describe("findVolumeSiblings()", () => {
@@ -633,6 +713,37 @@ describe("ArchiveService", () => {
       ]);
 
       expect(result).toEqual(["/dl/Game.rar"]);
+    });
+
+    it("does not match a different archive family sharing the same stem (regression: any numbered suffix used to match regardless of type)", () => {
+      const service = new ArchiveService();
+
+      // "Game.rar" (classic RAR) and "Game.7z.001"/"Game.zip.001" are three entirely
+      // unrelated archives that only happen to share the "Game" filename stem — matching
+      // across families would wrongly exclude/delete the other formats' volumes when
+      // only one of them was actually selected for import.
+      const result = service.findVolumeSiblings("/dl/Game.rar", [
+        "/dl/Game.rar",
+        "/dl/Game.r00",
+        "/dl/Game.7z.001",
+        "/dl/Game.zip.001",
+        "/dl/Game.001",
+      ]);
+
+      expect(result.sort()).toEqual(["/dl/Game.r00", "/dl/Game.rar"].sort());
+    });
+
+    it("scopes 7z.NNN matching to the 7z family only", () => {
+      const service = new ArchiveService();
+
+      const result = service.findVolumeSiblings("/dl/Game.7z.001", [
+        "/dl/Game.7z.001",
+        "/dl/Game.7z.002",
+        "/dl/Game.rar",
+        "/dl/Game.zip.001",
+      ]);
+
+      expect(result.sort()).toEqual(["/dl/Game.7z.001", "/dl/Game.7z.002"].sort());
     });
   });
 });

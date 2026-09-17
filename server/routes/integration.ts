@@ -37,9 +37,7 @@ integrationRouter.use((req, res, next) => {
   // Every response here varies by req.user (auth status, library contents),
   // so it must never be cached by a shared proxy or the client's HTTP cache.
   res.set("Cache-Control", "no-store");
-  next();
-
-  return;
+  return next();
 });
 
 /** The library shape handed to external clients — a stable subset of Game. */
@@ -104,14 +102,10 @@ integrationRouter.get("/library", async (req: Request, res: Response) => {
     // content, age-restricted) must not leak through this endpoint either.
     const filterFlags = await getContentFilterFlags(req.user!.id);
     const visibleGames = excludeFilteredContent(games, filterFlags);
-    res.json({ games: visibleGames.map(toIntegrationGame), count: visibleGames.length });
-
-    return;
+    return res.json({ games: visibleGames.map(toIntegrationGame), count: visibleGames.length });
   } catch (error) {
     logger.error({ error }, "Integration library fetch failed");
-    res.status(500).json({ error: "Failed to fetch library" });
-
-    return;
+    return res.status(500).json({ error: "Failed to fetch library" });
   }
 });
 
@@ -198,19 +192,15 @@ integrationRouter.post("/library/sync", async (req: Request, res: Response) => {
       "Integration library sync"
     );
 
-    res.json({
+    return res.json({
       received: incoming.length,
       matched,
       unmatched,
       promotedToOwned: promoted.length,
     });
-
-    return;
   } catch (error) {
     logger.error({ error }, "Integration library sync failed");
-    res.status(500).json({ error: "Library sync failed" });
-
-    return;
+    return res.status(500).json({ error: "Library sync failed" });
   }
 });
 
@@ -268,8 +258,6 @@ integrationRouter.post("/games/request", async (req: Request, res: Response) => 
       return res.status(400).json({ error: error.issues });
     }
     logger.error({ error }, "Integration game request failed");
-    res.status(500).json({ error: "Failed to request game" });
-
-    return;
+    return res.status(500).json({ error: "Failed to request game" });
   }
 });

@@ -36,9 +36,7 @@ systemRouter.use((req, res, next) => {
   }
 
   res.locals.userId = req.user.id;
-  next();
-
-  return;
+  return next();
 });
 
 // GET /api/system/browse?path=/data[&root=/]
@@ -116,17 +114,13 @@ systemRouter.get("/browse", async (req, res) => {
     // Sort: Directories first, then files
     items.sort(sortDirents);
 
-    res.json({
+    return res.json({
       path: toVirtualPath(root, validPath),
       parent: validPath === root ? null : toVirtualPath(root, path.dirname(validPath)),
       items,
     });
-
-    return;
   } catch (error) {
     logger.error({ error }, "File browser error");
-    res.status(500).json({ error: "Internal server error" });
-
-    return;
+    return res.status(500).json({ error: "Internal server error" });
   }
 });

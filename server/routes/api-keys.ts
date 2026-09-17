@@ -82,14 +82,10 @@ apiKeysRouter.post("/", sensitiveEndpointLimiter, async (req: Request, res: Resp
     );
 
     // The only time the raw key is ever returned: it is not recoverable later.
-    res.status(201).json({ ...created, key: rawKey });
-
-    return;
+    return res.status(201).json({ ...created, key: rawKey });
   } catch (error) {
     logger.error({ error }, "Failed to create API key");
-    res.status(500).json({ error: "Failed to create API key" });
-
-    return;
+    return res.status(500).json({ error: "Failed to create API key" });
   }
 });
 
@@ -106,14 +102,10 @@ apiKeysRouter.delete(
         return res.status(404).json({ error: "API key not found" });
       }
       logger.info({ userId, apiKeyId: req.params.id }, "Integration API key revoked");
-      res.status(204).send();
-
-      return;
+      return res.status(204).send();
     } catch (error) {
       logger.error({ error }, "Failed to revoke API key");
-      res.status(500).json({ error: "Failed to revoke API key" });
-
-      return;
+      return res.status(500).json({ error: "Failed to revoke API key" });
     }
   }
 );

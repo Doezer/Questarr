@@ -3,7 +3,11 @@ import { randomBytes } from "node:crypto";
 import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
-import { PCImportStrategy, reorganizeBySortExtras } from "../services/ImportStrategies.js";
+import {
+  PCImportStrategy,
+  reorganizeBySortExtras,
+  gatherFiles,
+} from "../services/ImportStrategies.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
 const cleanup: string[] = [];
@@ -494,6 +498,38 @@ describe("ImportStrategies", () => {
 
       expect(result.filesPlaced).toEqual([path.join(destination, "update", "Game Update v1.nsp")]);
       expect(await fs.pathExists(path.join(destination, "game.zip"))).toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Sensitive-path guards — transferFile/gatherFiles walk the filesystem
+  // independently of the planImport-time isSensitivePath check, so they carry
+  // their own guard rather than trusting every future caller to check first.
+  // ---------------------------------------------------------------------------
+
+  describe("sensitive-path guards", () => {
+    it("executeImport refuses a source under a sensitive system path", async () => {
+      const root = tempDir();
+      const destination = path.join(root, "library", "PC", "My Game");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: "/etc/passwd",
+            proposedPath: destination,
+            strategy: "pc",
+          },
+          "copy"
+        )
+      ).rejects.toThrow("Refusing to process a sensitive system path");
+    });
+
+    it("gatherFiles refuses a sensitive system path", async () => {
+      await expect(gatherFiles("/etc")).rejects.toThrow(
+        "Refusing to process a sensitive system path"
+      );
     });
   });
 

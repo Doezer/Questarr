@@ -193,6 +193,15 @@ export class ImportManager {
     const archiveEntries = entries.filter((name) => this.archiveService.isArchive(name)).sort();
     if (archiveEntries.length === 0) return null;
 
+    // Lexicographic sort puts "Game.r00" before "Game.rar" (since '0' < 'a'), but
+    // 7-Zip/unrar expect the plain .rar file as the entry point for classic RAR
+    // multi-volume sets — .r00/.r01/... are continuations, not the first volume.
+    const primaryRarIndex = archiveEntries.findIndex((name) => /\.rar$/i.test(name));
+    if (primaryRarIndex > 0) {
+      const [primaryRar] = archiveEntries.splice(primaryRarIndex, 1);
+      archiveEntries.unshift(primaryRar);
+    }
+
     // 7zip/unrar handle multi-part archives when given the first part.
     const mainArchive = path.join(sourcePath, archiveEntries[0]);
     const allAbsolutePaths = entries.map((name) => path.join(sourcePath, name));
@@ -690,6 +699,16 @@ export class ImportManager {
       if (plan.needsReview) {
         await this.flagNeedsReview(downloadId, game, plan);
         return;
+      }
+
+      // planImport pre-categorizes a directory source's files into sortExtras
+      // subfolders, including the archive itself. When extraction is still pending,
+      // that categorization is both wrong (the archive gets relocated expecting a
+      // flat destDir, not a category subfolder) and redundant — the post-extraction
+      // reorganizeBySortExtras pass in transferWithUnpack re-categorizes everything,
+      // extracted contents included, once the real files exist.
+      if (needsExtraction) {
+        plan.fileCategories = undefined;
       }
 
       await this.storage.updateGameDownloadStatus(downloadId, "completed_pending_import");

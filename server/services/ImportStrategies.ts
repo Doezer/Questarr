@@ -202,14 +202,28 @@ async function transferDirectoryPerFile(
   excludePaths: Set<string>
 ): Promise<TransferMode> {
   const relFiles = await walkRelative(source);
+  const plannedTransfers = relFiles
+    .map((rel) => ({
+      rel,
+      srcFile: path.join(source, rel),
+      destFile: path.join(destination, rel),
+    }))
+    .filter(({ srcFile }) => !excludePaths.has(path.resolve(srcFile)));
+
+  // destination can already hold files by the time this runs — e.g. an archive's
+  // volumes are excluded here because they were already extracted straight into
+  // destination, and transferSingleFile's unconditional overwrite would otherwise
+  // silently replace an extracted file with an unrelated loose one of the same name.
+  for (const { destFile } of plannedTransfers) {
+    if (await fs.pathExists(destFile)) {
+      throw new Error(`Destination already exists, refusing to overwrite: ${destFile}`);
+    }
+  }
+
   let usedCopyFallback = false;
   let transferredAny = false;
 
-  for (const rel of relFiles) {
-    const srcFile = path.join(source, rel);
-    if (excludePaths.has(path.resolve(srcFile))) continue;
-
-    const destFile = path.join(destination, rel);
+  for (const { srcFile, destFile } of plannedTransfers) {
     const entryMode = await transferSingleFile(srcFile, destFile, mode);
     if (mode === "hardlink" && entryMode === "copy") usedCopyFallback = true;
     transferredAny = true;

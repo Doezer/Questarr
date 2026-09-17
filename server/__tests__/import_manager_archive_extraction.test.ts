@@ -150,6 +150,60 @@ describe("ImportManager archive extraction (library-side)", () => {
     expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
   });
 
+  it("move mode: picks the primary .rar volume over .rNN continuations as the extraction entry point", async () => {
+    // Regression test: a plain lexicographic sort puts "game.r00" before "game.rar"
+    // ('0' < 'a'), which would hand 7-Zip/unrar the continuation volume instead of the
+    // primary one as the extraction entry point.
+    const sourceDir = path.join(downloadsRoot, "Game-Release");
+    await fs.ensureDir(sourceDir);
+    await fs.writeFile(path.join(sourceDir, "game.r00"), "r00-bytes");
+    await fs.writeFile(path.join(sourceDir, "game.rar"), "rar-bytes");
+
+    const { archiveService, extractSpy } = makeArchiveService({
+      extractResult: { "game.exe": "exe-bytes" },
+    });
+
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, { transferMode: "move", libraryRoot });
+
+    await manager.processImport("dl-1", sourceDir);
+
+    const destDir = path.join(libraryRoot, "PC", "My Game");
+    expect(extractSpy).toHaveBeenCalledWith(path.join(destDir, "game.rar"), destDir, undefined);
+  });
+
+  it("does not mis-categorize the archive itself into a sortExtras subfolder before extraction", async () => {
+    // Regression test: planImport pre-categorizes a directory source's files (including
+    // the archive) when sortExtras is enabled. For an archive still pending extraction,
+    // that would relocate it to e.g. destDir/update/game.zip while extract() is called
+    // expecting it flat at destDir/game.zip, failing extraction outright.
+    const sourceDir = path.join(downloadsRoot, "Game-Release");
+    await fs.ensureDir(sourceDir);
+    await fs.writeFile(path.join(sourceDir, "Game Update v1.zip"), "zip-bytes");
+
+    const { archiveService, extractSpy } = makeArchiveService({
+      extractResult: { "game.exe": "exe-bytes" },
+    });
+
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, {
+      transferMode: "move",
+      libraryRoot,
+      sortExtras: true,
+    });
+
+    await manager.processImport("dl-1", sourceDir);
+
+    const destDir = path.join(libraryRoot, "PC", "My Game");
+    expect(extractSpy).toHaveBeenCalledWith(
+      path.join(destDir, "Game Update v1.zip"),
+      destDir,
+      undefined
+    );
+    expect(await fs.pathExists(path.join(destDir, "game.exe"))).toBe(true);
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+  });
+
   it("hardlink mode: extracts straight from the source archive to the destination and hardlinks the remaining loose file", async () => {
     const sourceDir = path.join(downloadsRoot, "Game-Release");
     await fs.ensureDir(sourceDir);

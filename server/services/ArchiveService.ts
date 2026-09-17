@@ -341,11 +341,16 @@ export class ArchiveService {
     const resolvedFilePath = path.resolve(filePath);
     const resolvedOutputDir = path.resolve(outputDir);
     if (path.dirname(resolvedFilePath) === resolvedOutputDir) {
-      const archiveBasename = path.basename(resolvedFilePath);
       const entries = await fs.readdir(outputDir, { withFileTypes: true });
+      const archiveVolumes = new Set(
+        this.findVolumeSiblings(
+          resolvedFilePath,
+          entries.map((entry) => path.join(outputDir, entry.name))
+        ).map((entryPath) => path.resolve(entryPath))
+      );
       await Promise.all(
         entries
-          .filter((entry) => entry.name !== archiveBasename)
+          .filter((entry) => !archiveVolumes.has(path.resolve(outputDir, entry.name)))
           .map((entry) => fs.remove(path.join(outputDir, entry.name)))
       );
     } else {

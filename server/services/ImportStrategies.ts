@@ -98,28 +98,40 @@ function isHardlinkFallbackErrno(code: string | undefined): boolean {
   );
 }
 
-async function linkOrCopyFallback(
+// Shared by both hardlink paths below: try the hardlink, and on a fallback-eligible
+// errno (EXDEV/EPERM/EACCES/ENOTSUP/EOPNOTSUPP), log once and copy instead. `cleanup`
+// runs before the copy — needed for the whole-tree path, where a failure can leave a
+// partial tree behind that would otherwise merge into the copy fallback's output.
+async function withHardlinkFallback(
   source: string,
-  destination: string
+  destination: string,
+  attemptHardlink: () => Promise<void>,
+  cleanup?: () => Promise<void>
 ): Promise<"hardlink" | "copy"> {
   if (await fs.pathExists(destination)) {
     await fs.remove(destination);
   }
   try {
-    await fs.link(source, destination);
+    await attemptHardlink();
     return "hardlink";
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (isHardlinkFallbackErrno(code)) {
-      logger.warn(
-        { source, destination, code },
-        "[ImportStrategies] Hardlink failed, falling back to copy"
-      );
-      await fs.copy(source, destination, { overwrite: true });
-      return "copy";
-    }
-    throw error;
+    if (!isHardlinkFallbackErrno(code)) throw error;
+    logger.warn(
+      { source, destination, code },
+      "[ImportStrategies] Hardlink failed, falling back to copy"
+    );
+    if (cleanup) await cleanup();
+    await fs.copy(source, destination, { overwrite: true });
+    return "copy";
   }
+}
+
+async function linkOrCopyFallback(
+  source: string,
+  destination: string
+): Promise<"hardlink" | "copy"> {
+  return withHardlinkFallback(source, destination, () => fs.link(source, destination));
 }
 
 // Linux's link(2) always rejects a directory target with EPERM — hard links
@@ -145,28 +157,12 @@ async function transferDirectoryHardlink(
   source: string,
   destination: string
 ): Promise<TransferMode> {
-  if (await fs.pathExists(destination)) {
-    await fs.remove(destination);
-  }
-
-  try {
-    await hardlinkTree(source, destination);
-    return "hardlink";
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (isHardlinkFallbackErrno(code)) {
-      logger.warn(
-        { source, destination, code },
-        "[ImportStrategies] Hardlink failed, falling back to copy"
-      );
-      // Clean up any partial tree hardlinkTree() managed to create before
-      // the failure, so the copy fallback isn't merging into leftovers.
-      await fs.remove(destination).catch(() => undefined);
-      await fs.copy(source, destination, { overwrite: true });
-      return "copy";
-    }
-    throw error;
-  }
+  return withHardlinkFallback(
+    source,
+    destination,
+    () => hardlinkTree(source, destination),
+    () => fs.remove(destination).catch(() => undefined)
+  );
 }
 
 async function transferSingleFile(

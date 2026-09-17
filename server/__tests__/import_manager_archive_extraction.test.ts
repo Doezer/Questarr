@@ -12,6 +12,7 @@ import path from "node:path";
 import { ImportManager } from "../services/ImportManager.js";
 import { ArchiveService } from "../services/ArchiveService.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
+import type { ImportConfig } from "../../shared/schema.js";
 
 const cleanup: string[] = [];
 
@@ -31,7 +32,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-function makeStorage(userId: string, gameTitle: string) {
+function makeStorage() {
   return {
     getGameDownload: vi.fn().mockResolvedValue({
       id: "dl-1",
@@ -41,7 +42,7 @@ function makeStorage(userId: string, gameTitle: string) {
     }),
     getGame: vi
       .fn()
-      .mockResolvedValue(makeGame({ id: "g1", userId, title: gameTitle, platforms: [6] })),
+      .mockResolvedValue(makeGame({ id: "g1", userId: "u1", title: "My Game", platforms: [6] })),
     getImportConfig: vi.fn(),
     getDownloader: vi.fn().mockResolvedValue(undefined),
     updateGameDownloadStatus: vi.fn().mockResolvedValue(undefined),
@@ -53,6 +54,22 @@ function makeStorage(userId: string, gameTitle: string) {
 
 const pathService = { translatePath: vi.fn(async (p: string) => p) };
 const platformService = {};
+
+function createManager(
+  archiveService: ArchiveService,
+  storage: ReturnType<typeof makeStorage>,
+  configOverrides: Partial<ImportConfig>
+): ImportManager {
+  storage.getImportConfig.mockResolvedValue(
+    makeImportConfig({ autoUnpack: true, overwriteExisting: true, ...configOverrides })
+  );
+  return new ImportManager(
+    storage as never, // NOSONAR
+    pathService as never, // NOSONAR
+    platformService as never, // NOSONAR
+    archiveService
+  );
+}
 
 // Simulates extraction by writing a fixed set of files into outputDir, mirroring what
 // a real archive tool would leave behind — without needing one installed.
@@ -67,6 +84,27 @@ function fakeExtractInto(files: Record<string, string>) {
     }
     return written;
   };
+}
+
+// A real ArchiveService with only `extract`/`isAlreadyExtracted` faked out (see the
+// file-level comment on why: no 7z/unrar binary in CI). `extractResult` is the fake
+// extracted-file set on success, or an Error to reject with; `alreadyExtracted`
+// defaults to false since most tests are exercising the extraction path itself.
+function makeArchiveService(options: {
+  extractResult?: Record<string, string> | Error;
+  alreadyExtracted?: boolean;
+}) {
+  const archiveService = new ArchiveService();
+  const extractSpy = vi.spyOn(archiveService, "extract");
+  if (options.extractResult instanceof Error) {
+    extractSpy.mockRejectedValue(options.extractResult);
+  } else if (options.extractResult) {
+    extractSpy.mockImplementation(fakeExtractInto(options.extractResult));
+  }
+  vi.spyOn(archiveService, "isAlreadyExtracted").mockResolvedValue(
+    options.alreadyExtracted ?? false
+  );
+  return { archiveService, extractSpy };
 }
 
 describe("ImportManager archive extraction (library-side)", () => {
@@ -85,28 +123,12 @@ describe("ImportManager archive extraction (library-side)", () => {
     await fs.writeFile(path.join(sourceDir, "game.part2.rar"), "part2-bytes");
     await fs.writeFile(path.join(sourceDir, "readme.nfo"), "release notes");
 
-    const archiveService = new ArchiveService();
-    const extractSpy = vi
-      .spyOn(archiveService, "extract")
-      .mockImplementation(fakeExtractInto({ "game.exe": "exe-bytes" }));
-    vi.spyOn(archiveService, "isAlreadyExtracted").mockResolvedValue(false);
+    const { archiveService, extractSpy } = makeArchiveService({
+      extractResult: { "game.exe": "exe-bytes" },
+    });
 
-    const storage = makeStorage("u1", "My Game");
-    storage.getImportConfig.mockResolvedValue(
-      makeImportConfig({
-        autoUnpack: true,
-        transferMode: "move",
-        libraryRoot,
-        overwriteExisting: true,
-      })
-    );
-
-    const manager = new ImportManager(
-      storage as never, // NOSONAR
-      pathService as never, // NOSONAR
-      platformService as never, // NOSONAR
-      archiveService
-    );
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, { transferMode: "move", libraryRoot });
 
     await manager.processImport("dl-1", sourceDir);
 
@@ -136,28 +158,15 @@ describe("ImportManager archive extraction (library-side)", () => {
     await fs.writeFile(archivePath, "zip-bytes");
     await fs.writeFile(looseFile, "pdf-bytes");
 
-    const archiveService = new ArchiveService();
-    const extractSpy = vi
-      .spyOn(archiveService, "extract")
-      .mockImplementation(fakeExtractInto({ "game.exe": "exe-bytes" }));
-    vi.spyOn(archiveService, "isAlreadyExtracted").mockResolvedValue(false);
+    const { archiveService, extractSpy } = makeArchiveService({
+      extractResult: { "game.exe": "exe-bytes" },
+    });
 
-    const storage = makeStorage("u1", "My Game");
-    storage.getImportConfig.mockResolvedValue(
-      makeImportConfig({
-        autoUnpack: true,
-        transferMode: "hardlink",
-        libraryRoot,
-        overwriteExisting: true,
-      })
-    );
-
-    const manager = new ImportManager(
-      storage as never, // NOSONAR
-      pathService as never, // NOSONAR
-      platformService as never, // NOSONAR
-      archiveService
-    );
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, {
+      transferMode: "hardlink",
+      libraryRoot,
+    });
 
     await manager.processImport("dl-1", sourceDir);
 
@@ -183,26 +192,10 @@ describe("ImportManager archive extraction (library-side)", () => {
     await fs.writeFile(archivePath, "zip-bytes");
     await fs.writeFile(path.join(sourceDir, "game.exe"), "exe-bytes");
 
-    const archiveService = new ArchiveService();
-    const extractSpy = vi.spyOn(archiveService, "extract");
-    vi.spyOn(archiveService, "isAlreadyExtracted").mockResolvedValue(true);
+    const { archiveService, extractSpy } = makeArchiveService({ alreadyExtracted: true });
 
-    const storage = makeStorage("u1", "My Game");
-    storage.getImportConfig.mockResolvedValue(
-      makeImportConfig({
-        autoUnpack: true,
-        transferMode: "move",
-        libraryRoot,
-        overwriteExisting: true,
-      })
-    );
-
-    const manager = new ImportManager(
-      storage as never, // NOSONAR
-      pathService as never, // NOSONAR
-      platformService as never, // NOSONAR
-      archiveService
-    );
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, { transferMode: "move", libraryRoot });
 
     await manager.processImport("dl-1", sourceDir);
 
@@ -220,31 +213,16 @@ describe("ImportManager archive extraction (library-side)", () => {
     await fs.ensureDir(downloadsRoot);
     await fs.writeFile(sourcePath, "zip-bytes");
 
-    const archiveService = new ArchiveService();
-    vi.spyOn(archiveService, "extract").mockImplementation(
-      fakeExtractInto({
-        "game.exe": "exe-bytes",
-        "Game Update v1.nsp": "update-bytes",
-      })
-    );
+    const { archiveService } = makeArchiveService({
+      extractResult: { "game.exe": "exe-bytes", "Game Update v1.nsp": "update-bytes" },
+    });
 
-    const storage = makeStorage("u1", "My Game");
-    storage.getImportConfig.mockResolvedValue(
-      makeImportConfig({
-        autoUnpack: true,
-        transferMode: "move",
-        libraryRoot,
-        overwriteExisting: true,
-        sortExtras: true,
-      })
-    );
-
-    const manager = new ImportManager(
-      storage as never, // NOSONAR
-      pathService as never, // NOSONAR
-      platformService as never, // NOSONAR
-      archiveService
-    );
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, {
+      transferMode: "move",
+      libraryRoot,
+      sortExtras: true,
+    });
 
     await manager.processImport("dl-1", sourcePath);
 
@@ -259,25 +237,10 @@ describe("ImportManager archive extraction (library-side)", () => {
     await fs.ensureDir(downloadsRoot);
     await fs.writeFile(sourcePath, "zip-bytes");
 
-    const archiveService = new ArchiveService();
-    vi.spyOn(archiveService, "extract").mockRejectedValue(new Error("corrupt archive"));
+    const { archiveService } = makeArchiveService({ extractResult: new Error("corrupt archive") });
 
-    const storage = makeStorage("u1", "My Game");
-    storage.getImportConfig.mockResolvedValue(
-      makeImportConfig({
-        autoUnpack: true,
-        transferMode: "copy",
-        libraryRoot,
-        overwriteExisting: true,
-      })
-    );
-
-    const manager = new ImportManager(
-      storage as never, // NOSONAR
-      pathService as never, // NOSONAR
-      platformService as never, // NOSONAR
-      archiveService
-    );
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, { transferMode: "copy", libraryRoot });
 
     await manager.processImport("dl-1", sourcePath);
 

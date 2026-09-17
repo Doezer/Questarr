@@ -391,26 +391,36 @@ describe("ImportStrategies", () => {
   // ---------------------------------------------------------------------------
 
   describe("PCImportStrategy.executeImport() with excludePaths", () => {
-    it("skips excluded files during a directory move, but still moves the rest", async () => {
+    // Shared by every test below: a source directory holding an archive plus whatever
+    // extra content the test itself writes, and the destination it'll import into.
+    async function makeExcludeFixture(
+      extraFiles: Record<string, string> = { "game.rom": "rom-bytes" }
+    ) {
       const root = tempDir();
       const sourceDir = path.join(root, "downloads", "release");
       const destination = path.join(root, "library", "PC", "My Game");
-      await fs.ensureDir(sourceDir);
       const archivePath = path.join(sourceDir, "game.zip");
-      const looseFile = path.join(sourceDir, "game.rom");
+      await fs.ensureDir(sourceDir);
       await fs.writeFile(archivePath, "zip-bytes");
-      await fs.writeFile(looseFile, "rom-bytes");
+      for (const [name, content] of Object.entries(extraFiles)) {
+        await fs.writeFile(path.join(sourceDir, name), content);
+      }
+      return {
+        sourceDir,
+        destination,
+        archivePath,
+        excludePaths: new Set([path.resolve(archivePath)]),
+      };
+    }
+
+    it("skips excluded files during a directory move, but still moves the rest", async () => {
+      const { sourceDir, destination, excludePaths } = await makeExcludeFixture();
 
       const strategy = new PCImportStrategy();
       const result = await strategy.executeImport(
-        {
-          needsReview: false,
-          originalPath: sourceDir,
-          proposedPath: destination,
-          strategy: "pc",
-        },
+        { needsReview: false, originalPath: sourceDir, proposedPath: destination, strategy: "pc" },
         "move",
-        new Set([path.resolve(archivePath)])
+        excludePaths
       );
 
       expect(result.filesPlaced).toEqual([path.join(destination, "game.rom")]);
@@ -423,25 +433,14 @@ describe("ImportStrategies", () => {
     });
 
     it("skips excluded files during a directory hardlink", async () => {
-      const root = tempDir();
-      const sourceDir = path.join(root, "downloads", "release");
-      const destination = path.join(root, "library", "PC", "My Game");
-      await fs.ensureDir(sourceDir);
-      const archivePath = path.join(sourceDir, "game.zip");
+      const { sourceDir, destination, archivePath, excludePaths } = await makeExcludeFixture();
       const looseFile = path.join(sourceDir, "game.rom");
-      await fs.writeFile(archivePath, "zip-bytes");
-      await fs.writeFile(looseFile, "rom-bytes");
 
       const strategy = new PCImportStrategy();
       const result = await strategy.executeImport(
-        {
-          needsReview: false,
-          originalPath: sourceDir,
-          proposedPath: destination,
-          strategy: "pc",
-        },
+        { needsReview: false, originalPath: sourceDir, proposedPath: destination, strategy: "pc" },
         "hardlink",
-        new Set([path.resolve(archivePath)])
+        excludePaths
       );
 
       expect(result.modeUsed).toBe("hardlink");
@@ -455,12 +454,7 @@ describe("ImportStrategies", () => {
     });
 
     it("throws when every file in the directory is excluded", async () => {
-      const root = tempDir();
-      const sourceDir = path.join(root, "downloads", "release");
-      const destination = path.join(root, "library", "PC", "My Game");
-      await fs.ensureDir(sourceDir);
-      const archivePath = path.join(sourceDir, "game.zip");
-      await fs.writeFile(archivePath, "zip-bytes");
+      const { sourceDir, destination, excludePaths } = await makeExcludeFixture({});
 
       const strategy = new PCImportStrategy();
       await expect(
@@ -472,19 +466,15 @@ describe("ImportStrategies", () => {
             strategy: "pc",
           },
           "copy",
-          new Set([path.resolve(archivePath)])
+          excludePaths
         )
       ).rejects.toThrow("No files to transfer after applying exclusions");
     });
 
     it("skips excluded entries in the sortExtras per-file path too", async () => {
-      const root = tempDir();
-      const sourceDir = path.join(root, "downloads", "release");
-      const destination = path.join(root, "library", "PC", "My Game");
-      await fs.ensureDir(sourceDir);
-      const archivePath = path.join(sourceDir, "game.zip");
-      await fs.writeFile(archivePath, "zip-bytes");
-      await fs.writeFile(path.join(sourceDir, "Game Update v1.nsp"), "update");
+      const { sourceDir, destination, excludePaths } = await makeExcludeFixture({
+        "Game Update v1.nsp": "update",
+      });
 
       const strategy = new PCImportStrategy();
       const result = await strategy.executeImport(
@@ -499,7 +489,7 @@ describe("ImportStrategies", () => {
           ],
         },
         "copy",
-        new Set([path.resolve(archivePath)])
+        excludePaths
       );
 
       expect(result.filesPlaced).toEqual([path.join(destination, "update", "Game Update v1.nsp")]);

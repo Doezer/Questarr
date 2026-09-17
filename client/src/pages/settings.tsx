@@ -55,6 +55,7 @@ import {
   THEME_CONFIGS,
   THEME_KEY,
   type Theme,
+  getCurrentTheme,
   migrateLegacyTheme,
   applyThemeClass,
   setTheme,
@@ -107,8 +108,16 @@ export default function SettingsPage() {
   const [ghostUnlocked] = useLocalStorageState(GHOST_UNLOCK_KEY, false);
   const [selectedTheme, setSelectedTheme] = useLocalStorageState<Theme>(
     THEME_KEY,
-    migrateLegacyTheme(ghostUnlocked)
+    getCurrentTheme(ghostUnlocked)
   );
+
+  // Migrate legacy theme keys once on mount. Not done inline in the useLocalStorageState
+  // initializer above, since that runs during render and migration has localStorage
+  // side effects (React may render a component without committing it).
+  useEffect(() => {
+    migrateLegacyTheme(ghostUnlocked);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Apply theme class on mount and when theme changes
   useEffect(() => {

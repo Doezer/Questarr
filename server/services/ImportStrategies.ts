@@ -36,19 +36,90 @@ export interface FileCategoryEntry {
   category: DownloadCategory;
 }
 
+export interface PlanImportOptions {
+  // Force the destination to be treated as a directory (no extension), used
+  // when a single-file archive source will be unpacked before landing in
+  // the library — the destination is a directory of extracted files, not a
+  // file sharing the archive's own extension.
+  treatAsDirectory?: boolean;
+}
+
 export interface ImportStrategy {
   planImport(
     sourcePath: string,
     game: Game,
     targetRoot: string,
     config: ImportConfig,
-    platformDir?: string
+    platformDir?: string,
+    options?: PlanImportOptions
   ): Promise<ImportReview>;
-  executeImport(review: ImportReview, transferMode: TransferMode): Promise<ImportResult>;
+  executeImport(
+    review: ImportReview,
+    transferMode: TransferMode,
+    excludePaths?: Set<string>
+  ): Promise<ImportResult>;
 }
 
 async function ensureParentDir(filePath: string): Promise<void> {
   await fs.ensureDir(path.dirname(filePath));
+}
+
+async function walkRelative(rootPath: string): Promise<string[]> {
+  const stats = await fs.stat(rootPath);
+  if (!stats.isDirectory()) return [path.basename(rootPath)];
+
+  const collected: string[] = [];
+  const stack: string[] = [""];
+
+  while (stack.length > 0) {
+    const rel = stack.pop() as string;
+    const current = rel ? path.join(rootPath, rel) : rootPath;
+    const entries = await fs.readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryRel = rel ? path.join(rel, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        stack.push(entryRel);
+      } else {
+        collected.push(entryRel);
+      }
+    }
+  }
+
+  return collected;
+}
+
+function isHardlinkFallbackErrno(code: string | undefined): boolean {
+  return (
+    code === "EXDEV" ||
+    code === "EPERM" ||
+    code === "EACCES" ||
+    code === "ENOTSUP" ||
+    code === "EOPNOTSUPP"
+  );
+}
+
+async function linkOrCopyFallback(
+  source: string,
+  destination: string
+): Promise<"hardlink" | "copy"> {
+  if (await fs.pathExists(destination)) {
+    await fs.remove(destination);
+  }
+  try {
+    await fs.link(source, destination);
+    return "hardlink";
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (isHardlinkFallbackErrno(code)) {
+      logger.warn(
+        { source, destination, code },
+        "[ImportStrategies] Hardlink failed, falling back to copy"
+      );
+      await fs.copy(source, destination, { overwrite: true });
+      return "copy";
+    }
+    throw error;
+  }
 }
 
 // Linux's link(2) always rejects a directory target with EPERM — hard links
@@ -70,15 +141,39 @@ async function hardlinkTree(source: string, destination: string): Promise<void> 
   }
 }
 
-async function transferFile(
+async function transferDirectoryHardlink(
   source: string,
-  destination: string,
-  mode: "move" | "copy" | "hardlink" | "symlink"
-): Promise<"move" | "copy" | "hardlink" | "symlink"> {
-  if (path.resolve(source) === path.resolve(destination)) {
-    return mode;
+  destination: string
+): Promise<TransferMode> {
+  if (await fs.pathExists(destination)) {
+    await fs.remove(destination);
   }
 
+  try {
+    await hardlinkTree(source, destination);
+    return "hardlink";
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (isHardlinkFallbackErrno(code)) {
+      logger.warn(
+        { source, destination, code },
+        "[ImportStrategies] Hardlink failed, falling back to copy"
+      );
+      // Clean up any partial tree hardlinkTree() managed to create before
+      // the failure, so the copy fallback isn't merging into leftovers.
+      await fs.remove(destination).catch(() => undefined);
+      await fs.copy(source, destination, { overwrite: true });
+      return "copy";
+    }
+    throw error;
+  }
+}
+
+async function transferSingleFile(
+  source: string,
+  destination: string,
+  mode: TransferMode
+): Promise<TransferMode> {
   await ensureParentDir(destination);
 
   if (mode === "move") {
@@ -97,57 +192,74 @@ async function transferFile(
     return "symlink";
   }
 
-  if (await fs.pathExists(destination)) {
-    await fs.remove(destination);
-  }
-
-  try {
-    await hardlinkTree(source, destination);
-    return "hardlink";
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (
-      code === "EXDEV" ||
-      code === "EPERM" ||
-      code === "EACCES" ||
-      code === "ENOTSUP" ||
-      code === "EOPNOTSUPP"
-    ) {
-      logger.warn(
-        { source, destination, code },
-        "[ImportStrategies] Hardlink failed, falling back to copy"
-      );
-      // Clean up any partial tree hardlinkTree() managed to create before
-      // the failure, so the copy fallback isn't merging into leftovers.
-      await fs.remove(destination).catch(() => undefined);
-      await fs.copy(source, destination, { overwrite: true });
-      return "copy";
-    }
-    throw error;
-  }
+  return linkOrCopyFallback(source, destination);
 }
 
-async function gatherFiles(rootPath: string): Promise<string[]> {
+// Hardlinks can't target a directory as one call, and excluding specific
+// files (e.g. a raw archive whose contents were already extracted straight
+// to the destination) requires acting per-file rather than on the
+// directory as a whole.
+async function transferDirectoryPerFile(
+  source: string,
+  destination: string,
+  mode: TransferMode,
+  excludePaths: Set<string>
+): Promise<TransferMode> {
+  const relFiles = await walkRelative(source);
+  let usedCopyFallback = false;
+  let transferredAny = false;
+
+  for (const rel of relFiles) {
+    const srcFile = path.join(source, rel);
+    if (excludePaths.has(path.resolve(srcFile))) continue;
+
+    const destFile = path.join(destination, rel);
+    const entryMode = await transferSingleFile(srcFile, destFile, mode);
+    if (mode === "hardlink" && entryMode === "copy") usedCopyFallback = true;
+    transferredAny = true;
+  }
+
+  if (!transferredAny) {
+    throw new Error("No files to transfer after applying exclusions");
+  }
+
+  if (mode === "move") {
+    await fs.remove(source).catch(() => undefined);
+  }
+
+  return mode === "hardlink" && usedCopyFallback ? "copy" : mode;
+}
+
+async function transferFile(
+  source: string,
+  destination: string,
+  mode: TransferMode,
+  excludePaths?: Set<string>
+): Promise<TransferMode> {
+  if (path.resolve(source) === path.resolve(destination)) {
+    return mode;
+  }
+
+  const stats = await fs.stat(source);
+  const hasExcludes = !!excludePaths && excludePaths.size > 0;
+
+  if (stats.isDirectory() && hasExcludes) {
+    return transferDirectoryPerFile(source, destination, mode, excludePaths);
+  }
+
+  if (mode === "hardlink" && stats.isDirectory()) {
+    return transferDirectoryHardlink(source, destination);
+  }
+
+  return transferSingleFile(source, destination, mode);
+}
+
+export async function gatherFiles(rootPath: string): Promise<string[]> {
   const stats = await fs.stat(rootPath);
   if (!stats.isDirectory()) return [rootPath];
 
-  const collected: string[] = [];
-  const stack: string[] = [rootPath];
-
-  while (stack.length > 0) {
-    const current = stack.pop() as string;
-    const entries = await fs.readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-      } else {
-        collected.push(fullPath);
-      }
-    }
-  }
-
-  return collected;
+  const relFiles = await walkRelative(rootPath);
+  return relFiles.map((rel) => path.join(rootPath, rel));
 }
 
 const CATEGORY_DIR_MAP: Record<DownloadCategory, string> = {
@@ -189,13 +301,31 @@ function destinationForFile(gameDir: string, entry: FileCategoryEntry): string {
   return path.join(gameDir, subdir, entry.name);
 }
 
+// An archive's final layout only exists once it's been extracted, so sortExtras
+// categorization for an unpacked archive can't happen up front the way it does for a
+// plain directory source (planImport/executeImport's fileCategories path, which reads
+// the source before any transfer). Instead this runs as a cheap same-filesystem
+// reorganization pass over the destination directory after extraction has already
+// placed everything there.
+export async function reorganizeBySortExtras(destDir: string): Promise<void> {
+  const entries = await categorizeSourceFiles(destDir);
+  for (const entry of entries) {
+    const currentPath = path.join(destDir, entry.name);
+    const desiredPath = destinationForFile(destDir, entry);
+    if (path.resolve(currentPath) === path.resolve(desiredPath)) continue;
+    await fs.ensureDir(path.dirname(desiredPath));
+    await fs.move(currentPath, desiredPath, { overwrite: true });
+  }
+}
+
 export class PCImportStrategy implements ImportStrategy {
   async planImport(
     sourcePath: string,
     game: Game,
     targetRoot: string,
     config: ImportConfig,
-    platformDir?: string
+    platformDir?: string,
+    options?: PlanImportOptions
   ): Promise<ImportReview> {
     if (isSensitivePath(sourcePath)) {
       throw new Error("Refusing to process a sensitive system path");
@@ -203,7 +333,7 @@ export class PCImportStrategy implements ImportStrategy {
 
     const stats = await fs.stat(sourcePath);
     const cleanTitle = sanitizeFsName(game.title);
-    const ext = stats.isDirectory() ? "" : path.extname(sourcePath);
+    const ext = options?.treatAsDirectory || stats.isDirectory() ? "" : path.extname(sourcePath);
     const destination = path.join(targetRoot, platformDir ?? "PC", cleanTitle + ext);
     const fileCategories =
       stats.isDirectory() && config.sortExtras
@@ -225,7 +355,8 @@ export class PCImportStrategy implements ImportStrategy {
 
   async executeImport(
     review: ImportReview,
-    transferMode: "move" | "copy" | "hardlink" | "symlink"
+    transferMode: TransferMode,
+    excludePaths?: Set<string>
   ): Promise<ImportResult> {
     if (review.fileCategories && review.fileCategories.length > 0) {
       const filesPlaced: string[] = [];
@@ -235,17 +366,21 @@ export class PCImportStrategy implements ImportStrategy {
       // conflictsResolved instead, so it isn't lost by being overwritten here.
       const modeUsed: TransferMode = transferMode;
 
-      const plannedTransfers = review.fileCategories.map((entry) => ({
-        entry,
-        sourceFile: resolveContainedPath(
-          review.originalPath,
-          path.join(review.originalPath, entry.name)
-        ),
-        destinationFile: resolveContainedPath(
-          review.proposedPath,
-          destinationForFile(review.proposedPath, entry)
-        ),
-      }));
+      const plannedTransfers = review.fileCategories
+        .map((entry) => ({
+          entry,
+          sourceFile: resolveContainedPath(
+            review.originalPath,
+            path.join(review.originalPath, entry.name)
+          ),
+          destinationFile: resolveContainedPath(
+            review.proposedPath,
+            destinationForFile(review.proposedPath, entry)
+          ),
+        }))
+        // Excluded entries (e.g. a raw archive already extracted straight to the
+        // destination) stay untransferred — same as the plain-directory path below.
+        .filter(({ sourceFile }) => !excludePaths?.has(path.resolve(sourceFile)));
       const destinations = new Set<string>();
       for (const { destinationFile } of plannedTransfers) {
         const resolvedDestination = path.resolve(destinationFile);
@@ -256,7 +391,7 @@ export class PCImportStrategy implements ImportStrategy {
       }
 
       for (const { entry, sourceFile, destinationFile } of plannedTransfers) {
-        const entryMode = await transferFile(sourceFile, destinationFile, transferMode);
+        const entryMode = await transferSingleFile(sourceFile, destinationFile, transferMode);
         filesPlaced.push(destinationFile);
         if (entryMode !== transferMode) {
           conflictsResolved.push(`${entry.name} (mode fallback: ${entryMode})`);
@@ -283,7 +418,12 @@ export class PCImportStrategy implements ImportStrategy {
     }
 
     await fs.ensureDir(path.dirname(review.proposedPath));
-    const modeUsed = await transferFile(review.originalPath, review.proposedPath, transferMode);
+    const modeUsed = await transferFile(
+      review.originalPath,
+      review.proposedPath,
+      transferMode,
+      excludePaths
+    );
     const filesPlaced = await gatherFiles(review.proposedPath);
     return {
       destDir: review.proposedPath,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -675,6 +675,19 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
   });
 
+  const handleTargetPlatformChange = useCallback(
+    (value: string) => {
+      setTargetPlatformValue(value);
+      const selected = supportedTargetPlatformOptions.find(({ id }) => String(id) === value);
+      targetPlatformMutation.mutate(
+        selected
+          ? { targetPlatformId: selected.id, targetPlatformName: selected.name }
+          : { targetPlatformId: null, targetPlatformName: null }
+      );
+    },
+    [supportedTargetPlatformOptions, targetPlatformMutation]
+  );
+
   const notesMutation = useMutation({
     mutationFn: async ({ gameId, notes }: { gameId: string; notes: string | null }) => {
       await apiRequest("PATCH", `/api/games/${gameId}/notes`, { notes });
@@ -1219,22 +1232,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                     <Select
                       value={targetPlatformValue}
                       disabled={targetPlatformMutation.isPending}
-                      onValueChange={(value) => {
-                        setTargetPlatformValue(value);
-                        const selected = supportedTargetPlatformOptions.find(
-                          ({ id }) => String(id) === value
-                        );
-                        targetPlatformMutation.mutate(
-                          selected
-                            ? {
-                                targetPlatformId: selected.id,
-                                targetPlatformName: selected.name,
-                              }
-                            : { targetPlatformId: null, targetPlatformName: null }
-                        );
-                      }}
+                      onValueChange={handleTargetPlatformChange}
                     >
-                      <SelectTrigger id="target-platform" className="w-full max-w-sm">
+                      <SelectTrigger
+                        id="target-platform"
+                        aria-label="Automatic download target"
+                        className="w-full max-w-sm"
+                      >
                         <SelectValue placeholder="Use account default" />
                       </SelectTrigger>
                       <SelectContent>

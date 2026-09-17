@@ -177,6 +177,43 @@ describe("ImportManager archive extraction (library-side)", () => {
     expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
   });
 
+  it("move mode: keeps other source files out of destDir until after extraction, so extract()'s own cleanup can't delete them", async () => {
+    // Regression test: relocateArchiveToDest used to relocate the WHOLE source
+    // directory (archive + any other loose files, like a readme) into destDir before
+    // calling extract(). extract()'s own in-place cleanup then deletes anything in
+    // destDir it doesn't recognize as part of the archive's volume family — in move
+    // mode, with the source already emptied, that permanently destroyed those loose
+    // files. Only the archive family should be relocated before extraction; other
+    // files get transferred afterward.
+    const sourceDir = path.join(downloadsRoot, "Game-Release");
+    await fs.ensureDir(sourceDir);
+    await fs.writeFile(path.join(sourceDir, "game.zip"), "zip-bytes");
+    await fs.writeFile(path.join(sourceDir, "readme.nfo"), "release notes");
+
+    const archiveService = new ArchiveService();
+    const extractSpy = vi
+      .spyOn(archiveService, "extract")
+      .mockImplementation(async (_p, outputDir) => {
+        // At the moment extraction runs, destDir must contain only the archive itself —
+        // readme.nfo must still be sitting untouched in the source directory.
+        expect(await fs.readdir(outputDir as string)).toEqual(["game.zip"]);
+        const dest = path.join(outputDir as string, "game.exe");
+        await fs.writeFile(dest, "exe-bytes");
+        return [dest];
+      });
+    vi.spyOn(archiveService, "isAlreadyExtracted").mockResolvedValue(false);
+
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, { transferMode: "move", libraryRoot });
+
+    await manager.processImport("dl-1", sourceDir);
+
+    const destDir = path.join(libraryRoot, "PC", "My Game");
+    expect(extractSpy).toHaveBeenCalled();
+    expect(await fs.pathExists(path.join(destDir, "game.exe"))).toBe(true);
+    expect(await fs.pathExists(path.join(destDir, "readme.nfo"))).toBe(true);
+  });
+
   it("move mode: picks the primary .rar volume over .rNN continuations as the extraction entry point", async () => {
     // Regression test: a plain lexicographic sort puts "game.r00" before "game.rar"
     // ('0' < 'a'), which would hand 7-Zip/unrar the continuation volume instead of the
@@ -187,6 +224,18 @@ describe("ImportManager archive extraction (library-side)", () => {
     );
 
     expect(extractSpy).toHaveBeenCalledWith(path.join(destDir, "game.rar"), destDir, undefined);
+  });
+
+  it("move mode: does not let an unrelated .rar jump ahead of a correctly-ordered 7z set", async () => {
+    // Regression test: the .rar-promotion fix above must only fire when the current
+    // first entry is actually one of ITS OWN continuations — otherwise an unrelated
+    // .rar belonging to a second, independent archive set could jump the queue.
+    const { destDir, extractSpy } = await importDirectorySource(
+      { "A.7z.001": "a1-bytes", "A.7z.002": "a2-bytes", "B.rar": "b-bytes" },
+      { extractResult: { "game.exe": "exe-bytes" } }
+    );
+
+    expect(extractSpy).toHaveBeenCalledWith(path.join(destDir, "A.7z.001"), destDir, undefined);
   });
 
   it("does not mis-categorize the archive itself into a sortExtras subfolder before extraction", async () => {
@@ -242,6 +291,33 @@ describe("ImportManager archive extraction (library-side)", () => {
     const looseDest = await fs.stat(path.join(destDir, "manual.pdf"));
     expect(looseDest.ino).toBe(looseSource.ino);
     expect(looseDest.dev).toBe(looseSource.dev);
+  });
+
+  it("hardlink mode: categorizes the remaining loose file too, not just the extracted contents", async () => {
+    // Regression test: reorganizeBySortExtras used to run before the remaining loose
+    // file was transferred in, so it never saw that file and left it sitting
+    // uncategorized at destDir's root.
+    const sourceDir = path.join(downloadsRoot, "Game-Release");
+    await fs.ensureDir(sourceDir);
+    await fs.writeFile(path.join(sourceDir, "game.zip"), "zip-bytes");
+    await fs.writeFile(path.join(sourceDir, "Game Update v1.nsp"), "update-bytes");
+
+    const { archiveService } = makeArchiveService({
+      extractResult: { "game.exe": "exe-bytes" },
+    });
+
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, {
+      transferMode: "hardlink",
+      libraryRoot,
+      sortExtras: true,
+    });
+
+    await manager.processImport("dl-1", sourceDir);
+
+    const destDir = path.join(libraryRoot, "PC", "My Game");
+    expect(await fs.pathExists(path.join(destDir, "update", "Game Update v1.nsp"))).toBe(true);
+    expect(await fs.pathExists(path.join(destDir, "Game Update v1.nsp"))).toBe(false);
   });
 
   it("skips extraction and excludes the archive when the downloader already extracted it", async () => {

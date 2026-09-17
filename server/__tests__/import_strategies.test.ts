@@ -273,7 +273,12 @@ describe("ImportStrategies", () => {
         makeImportConfig()
       );
 
-      expect(plan.proposedPath.startsWith(path.join(root, "library"))).toBe(true);
+      const libraryRoot = path.join(root, "library");
+      const relativeToLibrary = path.relative(libraryRoot, plan.proposedPath);
+      expect(
+        relativeToLibrary === "" ||
+          (!relativeToLibrary.startsWith("..") && !path.isAbsolute(relativeToLibrary))
+      ).toBe(true);
     });
 
     it("needsReview true when destination exists and overwriteExisting is false", async () => {

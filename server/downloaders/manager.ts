@@ -99,15 +99,23 @@ export class DownloaderManager {
     return downloads;
   }
 
+  // `throwOnError` lets a caller distinguish "the downloader confirmed this
+  // download doesn't exist" (a clean `null`) from "we couldn't reach the
+  // downloader to find out" (a thrown error) -- collapsing both to `null`,
+  // as the default below does for backwards compatibility, means a transient
+  // network blip looks identical to genuine absence to any caller that acts
+  // on repeated misses (e.g. cron's stale-download detection).
   static async getDownloadStatus(
     downloader: Downloader,
-    id: string
+    id: string,
+    options?: { throwOnError?: boolean }
   ): Promise<DownloadStatus | null> {
     try {
       const client = this.createClient(downloader);
-      return await client.getDownloadStatus(id);
+      return await client.getDownloadStatus(id, options);
     } catch (error) {
       downloadersLogger.error({ error }, "error getting download status");
+      if (options?.throwOnError) throw error;
       return null;
     }
   }

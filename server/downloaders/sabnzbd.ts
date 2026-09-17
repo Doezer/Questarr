@@ -415,7 +415,10 @@ export class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
     try {
       const url = this.getApiUrl("queue");
       const response = await this.fetchWithFallback(url);
@@ -429,7 +432,7 @@ export class SABnzbdClient implements DownloaderClient {
           { id, queueSize: queue.slots.length },
           "SABnzbd: item not in queue, checking history"
         );
-        return await this.getFromHistory(id);
+        return await this.getFromHistory(id, options);
       }
 
       const progress = parseFloat(item.percentage) || 0;
@@ -496,6 +499,7 @@ export class SABnzbdClient implements DownloaderClient {
       };
     } catch (error) {
       downloadersLogger.error({ error }, "Failed to get SABnzbd status");
+      if (options?.throwOnError) throw error;
       return null;
     }
   }
@@ -520,7 +524,19 @@ export class SABnzbdClient implements DownloaderClient {
   // filtering isn't supported, or simply doesn't match on this SABnzbd
   // instance) using a large explicit `limit` so the job isn't missed just for
   // being older than the default page.
-  private async fetchHistorySlot(id: string): Promise<SABnzbdHistory["slots"][number] | null> {
+  private async fetchHistorySlot(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<SABnzbdHistory["slots"][number] | null> {
+    // Tracks whether ANY attempt actually reached SABnzbd and got a response
+    // (even an empty/non-matching one). If every single attempt threw --
+    // e.g. the downloader is unreachable -- a `null` return would look
+    // identical to "confirmed not in history", which is wrong: we simply
+    // couldn't check. In that case, callers that asked for `throwOnError`
+    // get the last error instead of a false "not found".
+    let sawCleanResponse = false;
+    let lastError: unknown;
+
     for (const archive of [false, true]) {
       for (const useFilter of [true, false]) {
         try {
@@ -532,6 +548,7 @@ export class SABnzbdClient implements DownloaderClient {
           downloadersLogger.debug({ id, useFilter, archive }, "SABnzbd: fetching history");
           const response = await this.fetchWithFallback(url);
           const data = await response.json();
+          sawCleanResponse = true;
           const history: SABnzbdHistory = data.history;
 
           if (!history?.slots) {
@@ -555,6 +572,7 @@ export class SABnzbdClient implements DownloaderClient {
           if (useFilter) continue;
           break;
         } catch (error) {
+          lastError = error;
           downloadersLogger.error(
             { error, id, useFilter, archive },
             "Failed to get SABnzbd history"
@@ -564,11 +582,18 @@ export class SABnzbdClient implements DownloaderClient {
         }
       }
     }
+
+    if (!sawCleanResponse && options?.throwOnError && lastError) {
+      throw lastError;
+    }
     return null;
   }
 
-  private async getFromHistory(id: string): Promise<DownloadStatus | null> {
-    const item = await this.fetchHistorySlot(id);
+  private async getFromHistory(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
+    const item = await this.fetchHistorySlot(id, options);
     if (!item) return null;
 
     let status: DownloadStatus["status"];

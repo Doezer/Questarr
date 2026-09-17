@@ -199,7 +199,9 @@ describe("Cron - checkDownloadStatus", () => {
 
     await checkDownloadStatus();
 
-    expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
+    expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash, {
+      throwOnError: true,
+    });
     expect(mockGetDownloadDetails).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
     expect(mockProcessImport).toHaveBeenCalledWith(
       baseDownload.id,
@@ -224,7 +226,9 @@ describe("Cron - checkDownloadStatus", () => {
     await checkDownloadStatus();
     await checkDownloadStatus();
 
-    expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
+    expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash, {
+      throwOnError: true,
+    });
     // Falls through to the "missing" path after threshold is reached — never assume success.
     expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
       baseDownload.id,
@@ -235,6 +239,25 @@ describe("Cron - checkDownloadStatus", () => {
     expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "wanted" });
     expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
     expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", baseDownload.gameId);
+  });
+
+  it("should skip a cycle without counting a miss when the individual status lookup throws", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+
+    mockGetAllDownloads.mockResolvedValue([]);
+    // Simulate a transient downloader outage on every check -- this must
+    // never be treated the same as a confirmed "not found".
+    mockGetDownloadStatus.mockRejectedValue(new Error("downloader unreachable"));
+
+    // Run past the miss threshold; a real "not found" would trip it by now.
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
+    expect(mockUpdateGameStatus).not.toHaveBeenCalled();
   });
 
   it("should not reset the game to wanted when a sibling download is still actively downloading", async () => {

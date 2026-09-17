@@ -33,7 +33,14 @@ export interface DownloaderClient {
   testConnection(): Promise<DownloaderActionResult>;
   logVersionInfo(): Promise<void>;
   addDownload(request: DownloadRequest): Promise<DownloadResult>;
-  getDownloadStatus(id: string): Promise<DownloadStatus | null>;
+  // `throwOnError` (default false) lets a caller distinguish "confirmed not
+  // found" (a clean `null`) from "couldn't reach the downloader to check" (a
+  // thrown error). Only SABnzbdClient currently honors it; other clients
+  // continue to swallow fetch errors into `null` regardless of the option.
+  getDownloadStatus(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null>;
   getDownloadDetails(id: string): Promise<DownloadDetails | null>;
   getAllDownloads(): Promise<DownloadStatus[]>;
   pauseDownload(id: string): Promise<DownloaderActionResult>;

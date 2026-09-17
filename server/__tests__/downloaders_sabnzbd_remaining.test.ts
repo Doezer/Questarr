@@ -830,4 +830,56 @@ describe("sabnzbd remaining regression coverage", () => {
       downloadDir: "C:\\downloads\\complete\\Aethus.v1.036-ElAmigos",
     });
   });
+
+  it("swallows errors into null by default but rethrows when throwOnError is requested", async () => {
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    // Default behavior (no options) is unchanged: swallow to null.
+    fetchWithFallbackSpy.mockRejectedValueOnce(new Error("queue unreachable"));
+    await expect(client.getDownloadStatus("some-id")).resolves.toBeNull();
+
+    // With throwOnError, a failure fetching the queue itself rethrows.
+    fetchWithFallbackSpy.mockRejectedValueOnce(new Error("queue unreachable"));
+    await expect(client.getDownloadStatus("some-id", { throwOnError: true })).rejects.toThrow(
+      "queue unreachable"
+    );
+  });
+
+  it("rethrows from the history fallback with throwOnError only when every attempt failed to get a response", async () => {
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+      getFromHistory(id: string, options?: { throwOnError?: boolean }): Promise<unknown>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    // Not in queue, and every one of the 4 history attempts (archive x
+    // useFilter) throws -- we never got a clean response from SABnzbd at
+    // all, so this must be surfaced as an error, not a false "not found".
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(queueResponse([]))
+      .mockRejectedValueOnce(new Error("history unreachable"))
+      .mockRejectedValueOnce(new Error("history unreachable"))
+      .mockRejectedValueOnce(new Error("history unreachable"))
+      .mockRejectedValueOnce(new Error("history unreachable"));
+
+    await expect(
+      client.getDownloadStatus("unreachable-id", { throwOnError: true })
+    ).rejects.toThrow("history unreachable");
+
+    // But if at least one attempt got a clean (even empty) response, that's
+    // a confirmed "not found" -- still resolves to null even with throwOnError.
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(historyResponse([]))
+      .mockResolvedValueOnce(historyResponse([]))
+      .mockResolvedValueOnce(historyResponse([]))
+      .mockResolvedValueOnce(historyResponse([]));
+    await expect(
+      privateClient.getFromHistory("confirmed-missing", { throwOnError: true })
+    ).resolves.toBeNull();
+  });
 });

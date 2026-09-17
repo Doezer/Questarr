@@ -701,10 +701,25 @@ export async function checkDownloadStatus() {
         // from the queue. Fall back to a direct per-item check so history items
         // are found before declaring the download missing.
         if (!remoteDownload) {
-          const individualStatus = await DownloaderManager.getDownloadStatus(
-            downloader,
-            download.downloadHash
-          );
+          let individualStatus: Awaited<ReturnType<typeof DownloaderManager.getDownloadStatus>>;
+          try {
+            // throwOnError so a transient fetch failure surfaces here distinctly
+            // from a confirmed "not found" (a clean null) -- otherwise an
+            // outage would look identical to genuine absence and could
+            // eventually trip the miss-threshold fallback below, wrongly
+            // marking an active download as failed.
+            individualStatus = await DownloaderManager.getDownloadStatus(
+              downloader,
+              download.downloadHash,
+              { throwOnError: true }
+            );
+          } catch (error) {
+            igdbLogger.warn(
+              { error, downloadId: download.id, downloadHash: download.downloadHash },
+              "Individual download status lookup failed — skipping this cycle without counting a miss"
+            );
+            continue;
+          }
           if (individualStatus) {
             remoteDownload = individualStatus;
           }

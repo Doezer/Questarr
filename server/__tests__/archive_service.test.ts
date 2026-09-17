@@ -219,23 +219,36 @@ describe("ArchiveService", () => {
       expect(emptyDirMock).toHaveBeenCalledWith("/tmp/existing-dir"); // NOSONAR - mocked fs, no real dir access
     });
 
+    // Shared by the two in-place-extraction tests below: mocks the two readdir calls
+    // `extract()` makes (its own pre-cleanup listing, then listExtractedFiles's
+    // post-extraction listing) and runs extract() against them.
+    async function extractInPlace(
+      archivePath: string,
+      outputDir: string,
+      preExistingEntries: Array<{ name: string; isDirectory: () => boolean }>,
+      postExtractionEntries: Array<{ name: string; isDirectory: () => boolean }>
+    ): Promise<string[]> {
+      const service = await freshArchiveService();
+      mockExecAlways(null, "", "");
+      readdirMock.mockResolvedValueOnce(preExistingEntries);
+      readdirMock.mockResolvedValueOnce(postExtractionEntries);
+      return service.extract(archivePath, outputDir); // NOSONAR - mocked fs
+    }
+
     it("does not delete the archive when it already lives inside outputDir (move/copy extract-in-place)", async () => {
       // Regression test: ImportManager's move/copy import modes relocate the raw archive
       // into the library destination before calling extract() there, so outputDir and the
       // archive's own directory are the same path. Unconditionally emptying outputDir
       // would delete the archive before the tool ever reads it.
-      const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
-      // First readdir: this method's own pre-cleanup listing of outputDir, containing the
-      // archive plus a stale leftover from a killed prior attempt.
-      readdirMock.mockResolvedValueOnce([
-        { name: "game.zip", isDirectory: () => false },
-        { name: "stale.tmp", isDirectory: () => false },
-      ]);
-      // Second readdir: listExtractedFiles's post-extraction listing.
-      readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
-
-      const files = await service.extract("/tmp/library/game.zip", "/tmp/library"); // NOSONAR - mocked fs
+      const files = await extractInPlace(
+        "/tmp/library/game.zip",
+        "/tmp/library",
+        [
+          { name: "game.zip", isDirectory: () => false },
+          { name: "stale.tmp", isDirectory: () => false },
+        ],
+        [{ name: "game.rom", isDirectory: () => false }]
+      );
 
       expect(emptyDirMock).not.toHaveBeenCalled();
       expect(removeMock).toHaveBeenCalledExactlyOnceWith(path.join("/tmp/library", "stale.tmp"));
@@ -246,16 +259,16 @@ describe("ArchiveService", () => {
       // Regression test: the in-place cleanup above only protected the exact archive
       // file passed in (archiveBasename), so extracting "game.7z.001" would delete its
       // sibling volume "game.7z.002" before 7-Zip ever got to read it.
-      const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
-      readdirMock.mockResolvedValueOnce([
-        { name: "game.7z.001", isDirectory: () => false },
-        { name: "game.7z.002", isDirectory: () => false },
-        { name: "stale.tmp", isDirectory: () => false },
-      ]);
-      readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
-
-      await service.extract("/tmp/library/game.7z.001", "/tmp/library"); // NOSONAR - mocked fs
+      await extractInPlace(
+        "/tmp/library/game.7z.001",
+        "/tmp/library",
+        [
+          { name: "game.7z.001", isDirectory: () => false },
+          { name: "game.7z.002", isDirectory: () => false },
+          { name: "stale.tmp", isDirectory: () => false },
+        ],
+        [{ name: "game.rom", isDirectory: () => false }]
+      );
 
       expect(emptyDirMock).not.toHaveBeenCalled();
       expect(removeMock).toHaveBeenCalledExactlyOnceWith(path.join("/tmp/library", "stale.tmp"));

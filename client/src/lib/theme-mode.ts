@@ -65,6 +65,25 @@ export function getCurrentTheme(ghostUnlocked: boolean): Theme {
 }
 
 /**
+ * Apply the given theme's class to the document root, removing any other theme
+ * classes first. The "default" theme has an empty className, so it is skipped
+ * to avoid `DOMTokenList.remove("")` / `.add("")` throwing a SyntaxError.
+ */
+export function applyThemeClass(theme: Theme): void {
+  THEMES.forEach((t) => {
+    const className = THEME_CONFIGS[t].className;
+    if (className) {
+      document.documentElement.classList.remove(className);
+    }
+  });
+
+  const className = THEME_CONFIGS[theme].className;
+  if (className) {
+    document.documentElement.classList.add(className);
+  }
+}
+
+/**
  * Set the theme and clean up legacy keys.
  */
 export function setTheme(theme: Theme, ghostUnlocked: boolean): void {
@@ -76,13 +95,7 @@ export function setTheme(theme: Theme, ghostUnlocked: boolean): void {
   // Set new theme key
   localStorage.setItem(THEME_KEY, theme);
 
-  // Apply theme class
-  THEMES.forEach((t) => {
-    document.documentElement.classList.remove(THEME_CONFIGS[t].className);
-  });
-  if (theme !== "default") {
-    document.documentElement.classList.add(THEME_CONFIGS[theme].className);
-  }
+  applyThemeClass(theme);
 
   // Clean up legacy keys
   localStorage.removeItem(GHOST_THEME_KEY);

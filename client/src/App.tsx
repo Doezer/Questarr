@@ -15,7 +15,7 @@ import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
 import { routerBase } from "@/lib/app-path";
 import { routePaths } from "@/lib/routes";
-import { THEME_CONFIGS, THEMES, getCurrentTheme } from "@/lib/theme-mode";
+import { applyThemeClass, getCurrentTheme } from "@/lib/theme-mode";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
 // ⚡ Bolt: Code splitting with React.lazy
@@ -157,16 +157,7 @@ function AppShell() {
   useLayoutEffect(() => {
     const ghostUnlocked = localStorage.getItem(GHOST_UNLOCK_KEY) === "true";
     const theme = getCurrentTheme(ghostUnlocked);
-
-    // Remove all theme classes first
-    THEMES.forEach((t) => {
-      document.documentElement.classList.remove(THEME_CONFIGS[t].className);
-    });
-
-    // Add the selected theme class
-    if (theme !== "default") {
-      document.documentElement.classList.add(THEME_CONFIGS[theme].className);
-    }
+    applyThemeClass(theme);
   }, []);
 
   // Custom sidebar width for the application

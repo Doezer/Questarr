@@ -50,7 +50,14 @@ import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
-import { THEMES, THEME_CONFIGS, type Theme, getCurrentTheme } from "@/lib/theme-mode";
+import {
+  THEMES,
+  THEME_CONFIGS,
+  THEME_KEY,
+  type Theme,
+  getCurrentTheme,
+  applyThemeClass,
+} from "@/lib/theme-mode";
 import PasswordSettings from "@/components/PasswordSettings";
 import {
   downloadRulesSchema,
@@ -98,20 +105,13 @@ export default function SettingsPage() {
 
   const [ghostUnlocked] = useLocalStorageState(GHOST_UNLOCK_KEY, false);
   const [selectedTheme, setSelectedTheme] = useLocalStorageState<Theme>(
-    "questarr-selected-theme",
+    THEME_KEY,
     getCurrentTheme(ghostUnlocked)
   );
 
   // Apply theme class on mount and when theme changes
   useEffect(() => {
-    // Remove all theme classes first
-    THEMES.forEach((theme) => {
-      document.documentElement.classList.remove(THEME_CONFIGS[theme].className);
-    });
-    // Add the selected theme class
-    if (selectedTheme !== "default") {
-      document.documentElement.classList.add(THEME_CONFIGS[selectedTheme].className);
-    }
+    applyThemeClass(selectedTheme);
   }, [selectedTheme]);
 
   const {

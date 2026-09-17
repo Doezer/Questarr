@@ -20,6 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -362,7 +369,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [notesValue, setNotesValue] = useState<string>("");
-  const [targetPlatformValue, setTargetPlatformValue] = useState("");
+  const [targetPlatformValue, setTargetPlatformValue] = useState("default");
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   // Tracks the live notesValue so the async save's onSuccess (below) can tell
   // whether the user kept typing after blur, instead of seeing the stale
@@ -416,7 +423,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   useEffect(() => {
     setIsSummaryExpanded(false);
     setNotesValue(game?.notes ?? "");
-    setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "");
+    setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "default");
     setIsEditingNotes(false);
     queuedNotesSaveRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -434,7 +441,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   // Keep targetPlatformValue in sync with the server value for the same game
   // (e.g. after the target-platform mutation's invalidateQueries refetch lands).
   useEffect(() => {
-    setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "");
+    setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "default");
   }, [game?.targetPlatformId]);
 
   useEffect(() => {
@@ -663,7 +670,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       toast({ description: "Download target updated" });
     },
     onError: () => {
-      setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "");
+      setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "default");
       toast({ description: "Failed to update download target", variant: "destructive" });
     },
   });
@@ -1209,12 +1216,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       <Gamepad2 className="w-4 h-4" />
                       Automatic download target
                     </label>
-                    <select
-                      id="target-platform"
+                    <Select
                       value={targetPlatformValue}
                       disabled={targetPlatformMutation.isPending}
-                      onChange={(event) => {
-                        const value = event.target.value;
+                      onValueChange={(value) => {
                         setTargetPlatformValue(value);
                         const selected = supportedTargetPlatformOptions.find(
                           ({ id }) => String(id) === value
@@ -1228,15 +1233,19 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                             : { targetPlatformId: null, targetPlatformName: null }
                         );
                       }}
-                      className="flex h-9 w-full max-w-sm rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <option value="">Use account default</option>
-                      {supportedTargetPlatformOptions.map((platform) => (
-                        <option key={platform.id} value={platform.id}>
-                          {platform.name}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="target-platform" className="w-full max-w-sm">
+                        <SelectValue placeholder="Use account default" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Use account default</SelectItem>
+                        {supportedTargetPlatformOptions.map((platform) => (
+                          <SelectItem key={platform.id} value={String(platform.id)}>
+                            {platform.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Overrides the account platform for automatic release matching.
                     </p>

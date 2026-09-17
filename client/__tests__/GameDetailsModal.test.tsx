@@ -31,6 +31,47 @@ vi.mock("../src/components/GameDownloadDialog", () => ({
     open ? <div data-testid="game-download-dialog">Download Dialog</div> : null,
 }));
 
+vi.mock("@/components/ui/select", () => {
+  const SelectTrigger = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
+  const Select = ({
+    value,
+    onValueChange,
+    disabled,
+    children,
+  }: {
+    value: string;
+    onValueChange: (value: string) => void;
+    disabled?: boolean;
+    children: React.ReactNode;
+  }) => {
+    let id: string | undefined;
+    React.Children.forEach(children, (child) => {
+      if (React.isValidElement(child) && child.type === SelectTrigger) {
+        id = (child.props as { id?: string }).id;
+      }
+    });
+    return (
+      <select
+        id={id}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onValueChange(event.target.value)}
+      >
+        {children}
+      </select>
+    );
+  };
+  return {
+    Select,
+    SelectTrigger,
+    SelectValue: () => null,
+    SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+      <option value={value}>{children}</option>
+    ),
+  };
+});
+
 vi.mock("lucide-react", () => ({
   Calendar: (props: Record<string, unknown>) => <div data-testid="icon-calendar" {...props} />,
   Star: (props: Record<string, unknown>) => <div data-testid="icon-star" {...props} />,
@@ -218,7 +259,7 @@ describe("GameDetailsModal", () => {
       );
     });
 
-    fireEvent.change(targetSelect, { target: { value: "" } });
+    fireEvent.change(targetSelect, { target: { value: "default" } });
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
         "/api/games/1/target-platform",

@@ -1275,7 +1275,7 @@ export async function checkAutoSearch() {
             // Packs/add-ons are content for owned games, surfaced like updates.
             const platformFilteredPacks = applyPreferredPlatformFilter(
               searchResult.packsItems,
-              preferredPlatform
+              effectivePlatform
             );
             const groupFilteredPacks = applyPreferredGroupsFilter(
               platformFilteredPacks,

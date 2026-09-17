@@ -3,7 +3,7 @@ import { categorizeDownload, type DownloadCategory } from "../../shared/download
 import fs from "fs-extra";
 import path from "node:path";
 import { logger } from "../logger.js";
-import { isSensitivePath, SENSITIVE_PATH_REGEX } from "../path-security.js";
+import { isSensitivePath } from "../path-security.js";
 export type TransferMode = "copy" | "move" | "hardlink" | "symlink";
 
 export function sanitizeFsName(name: string | null | undefined): string {
@@ -220,7 +220,15 @@ async function transferDirectoryPerFile(
   }
 
   if (mode === "move") {
-    await fs.remove(source).catch(() => undefined);
+    const resolvedSource = path.resolve(source);
+    const resolvedDestination = path.resolve(destination);
+    const destinationInsideSource = resolvedDestination.startsWith(resolvedSource + path.sep);
+    // A destination nested inside its own source (e.g. hardlink/symlink extraction
+    // landing inside the source directory) must not have that source removed out from
+    // under it — the per-entry loop above already transferred everything worth keeping.
+    if (resolvedSource !== resolvedDestination && !destinationInsideSource) {
+      await fs.remove(source).catch(() => undefined);
+    }
   }
 
   return mode === "hardlink" && usedCopyFallback ? "copy" : mode;
@@ -232,18 +240,6 @@ async function transferFile(
   mode: TransferMode,
   excludePaths?: Set<string>
 ): Promise<TransferMode> {
-  // Callers (ImportManager.resolveArchive, PCImportStrategy.planImport) already check
-  // the plan's originalPath before it gets here, but this function — and gatherFiles
-  // below — walk the filesystem independently of that call site, so a guard here
-  // stands on its own rather than depending on every future caller to have checked
-  // upstream first.
-  if (
-    SENSITIVE_PATH_REGEX.test(path.resolve(source)) ||
-    SENSITIVE_PATH_REGEX.test(path.resolve(destination))
-  ) {
-    throw new Error("Refusing to process a sensitive system path");
-  }
-
   if (path.resolve(source) === path.resolve(destination)) {
     return mode;
   }
@@ -263,7 +259,7 @@ async function transferFile(
 }
 
 export async function gatherFiles(rootPath: string): Promise<string[]> {
-  if (SENSITIVE_PATH_REGEX.test(path.resolve(rootPath))) {
+  if (isSensitivePath(rootPath)) {
     throw new Error("Refusing to process a sensitive system path");
   }
 
@@ -321,10 +317,25 @@ function destinationForFile(gameDir: string, entry: FileCategoryEntry): string {
 // placed everything there.
 export async function reorganizeBySortExtras(destDir: string): Promise<void> {
   const entries = await categorizeSourceFiles(destDir);
-  for (const entry of entries) {
-    const currentPath = path.join(destDir, entry.name);
-    const desiredPath = destinationForFile(destDir, entry);
-    if (path.resolve(currentPath) === path.resolve(desiredPath)) continue;
+  const moves = entries.map((entry) => ({
+    currentPath: path.resolve(path.join(destDir, entry.name)),
+    desiredPath: path.resolve(destinationForFile(destDir, entry)),
+  }));
+
+  // Resolve every destination before moving anything: two entries landing on the same
+  // categorized path (e.g. a root-level file and an identically-named one already
+  // sitting in that category's subfolder) would otherwise have the second `fs.move`
+  // silently overwrite the first with `overwrite: true`.
+  const desiredPaths = new Set<string>();
+  for (const { desiredPath } of moves) {
+    if (desiredPaths.has(desiredPath)) {
+      throw new Error(`Duplicate sortExtras destination: ${desiredPath}`);
+    }
+    desiredPaths.add(desiredPath);
+  }
+
+  for (const { currentPath, desiredPath } of moves) {
+    if (currentPath === desiredPath) continue;
     await fs.ensureDir(path.dirname(desiredPath));
     await fs.move(currentPath, desiredPath, { overwrite: true });
   }
@@ -380,6 +391,14 @@ export class PCImportStrategy implements ImportStrategy {
     transferMode: TransferMode,
     excludePaths?: Set<string>
   ): Promise<ImportResult> {
+    // Checked once here rather than in transferFile/gatherFiles individually: the
+    // categorized branch below calls transferSingleFile directly (bypassing
+    // transferFile's own checks), so a single guard at this shared entry point is what
+    // actually covers every branch, including that one.
+    if (isSensitivePath(review.originalPath) || isSensitivePath(review.proposedPath)) {
+      throw new Error("Refusing to process a sensitive system path");
+    }
+
     if (review.fileCategories && review.fileCategories.length > 0) {
       const filesPlaced: string[] = [];
       const conflictsResolved: string[] = [];
@@ -403,6 +422,16 @@ export class PCImportStrategy implements ImportStrategy {
         // Excluded entries (e.g. a raw archive already extracted straight to the
         // destination) stay untransferred — same as the plain-directory path below.
         .filter(({ sourceFile }) => !excludePaths?.has(path.resolve(sourceFile)));
+
+      // If exclusions consumed the entire plan (isAlreadyExtracted's match doesn't
+      // guarantee any file survives outside the excluded volume set), fail loudly the
+      // same way transferDirectoryPerFile does — silently "succeeding" with an empty
+      // filesPlaced would still finalize the import and, in move mode, remove
+      // originalPath below despite having transferred nothing.
+      if (plannedTransfers.length === 0) {
+        throw new Error("No files to transfer after applying exclusions");
+      }
+
       const destinations = new Set<string>();
       for (const { destinationFile } of plannedTransfers) {
         const resolvedDestination = path.resolve(destinationFile);

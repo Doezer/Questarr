@@ -195,11 +195,20 @@ export class ImportManager {
 
     // Lexicographic sort puts "Game.r00" before "Game.rar" (since '0' < 'a'), but
     // 7-Zip/unrar expect the plain .rar file as the entry point for classic RAR
-    // multi-volume sets — .r00/.r01/... are continuations, not the first volume.
-    const primaryRarIndex = archiveEntries.findIndex((name) => /\.rar$/i.test(name));
-    if (primaryRarIndex > 0) {
-      const [primaryRar] = archiveEntries.splice(primaryRarIndex, 1);
-      archiveEntries.unshift(primaryRar);
+    // multi-volume sets — .r00/.r01/... are continuations, not the first volume. Only
+    // promote a .rar when the current first entry is actually one of ITS continuations
+    // (same stem) — otherwise an unrelated .rar elsewhere in the directory (a second,
+    // independent archive set) could jump the queue ahead of a correctly-ordered one.
+    const continuationMatch = /^(.*)\.r\d{2,3}$/i.exec(archiveEntries[0]);
+    if (continuationMatch) {
+      const stem = continuationMatch[1].toLowerCase();
+      const primaryRarIndex = archiveEntries.findIndex(
+        (name) => /\.rar$/i.test(name) && name.slice(0, -".rar".length).toLowerCase() === stem
+      );
+      if (primaryRarIndex > 0) {
+        const [primaryRar] = archiveEntries.splice(primaryRarIndex, 1);
+        archiveEntries.unshift(primaryRar);
+      }
     }
 
     // 7zip/unrar handle multi-part archives when given the first part.
@@ -277,16 +286,21 @@ export class ImportManager {
     const destDir = plan.proposedPath;
     await fs.ensureDir(destDir);
     await this.archiveService.extract(resolution.archivePath, destDir, password);
-    if (sortExtras) await reorganizeBySortExtras(destDir);
 
+    let modeUsed = transferMode;
     if (resolution.isDirectorySource && resolution.hasRemainingFiles) {
-      return strategy.executeImport(plan, transferMode, resolution.excludePaths);
+      modeUsed = (await strategy.executeImport(plan, transferMode, resolution.excludePaths))
+        .modeUsed;
     }
+
+    // Sorting after the remaining-files transfer (not before) so a categorized loose
+    // file doesn't land at destDir's root, outside this pass's reach.
+    if (sortExtras) await reorganizeBySortExtras(destDir);
 
     return {
       destDir,
       filesPlaced: await gatherFiles(destDir),
-      modeUsed: transferMode,
+      modeUsed,
       conflictsResolved: [],
     };
   }
@@ -305,10 +319,8 @@ export class ImportManager {
   ): Promise<ImportResult> {
     const destDir = plan.proposedPath;
     const { archiveInDest, siblingsInDest } = await this.relocateArchiveToDest(
-      plan,
       transferMode,
       resolution,
-      strategy,
       destDir
     );
 
@@ -322,41 +334,60 @@ export class ImportManager {
     for (const sibling of siblingsInDest) {
       await fs.remove(sibling).catch(() => undefined);
     }
+
+    let modeUsed = transferMode;
+    if (resolution.isDirectorySource) {
+      if (resolution.hasRemainingFiles) {
+        modeUsed = (await strategy.executeImport(plan, transferMode, resolution.excludePaths))
+          .modeUsed;
+      } else if (transferMode === "move") {
+        // Only archive-family files were relocated above, leaving an empty source
+        // directory behind — the plain-directory transfer path would normally remove
+        // it as part of moving everything out, so replicate that here.
+        await fs.remove(plan.originalPath).catch(() => undefined);
+      }
+    }
+
     if (sortExtras) await reorganizeBySortExtras(destDir);
 
     return {
       destDir,
       filesPlaced: await gatherFiles(destDir),
-      modeUsed: transferMode,
+      modeUsed,
       conflictsResolved: [],
     };
   }
 
+  // Relocates only the archive's own volume family into destDir — never the whole
+  // source directory. A directory source can hold other legitimate files alongside
+  // the archive (a readme, bonus content); extract()'s own in-place cleanup treats
+  // anything in destDir it doesn't recognize as an archive volume as a stale leftover
+  // and deletes it, so those files must stay put in the source until after extraction
+  // runs, then get transferred separately (see unpackViaRelocatedExtraction above).
   private async relocateArchiveToDest(
-    plan: ImportReview,
     transferMode: TransferMode,
     resolution: ArchiveResolution,
-    strategy: PCImportStrategy,
     destDir: string
   ): Promise<{ archiveInDest: string; siblingsInDest: string[] }> {
-    if (resolution.isDirectorySource) {
-      await strategy.executeImport(plan, transferMode);
-      const archiveInDest = path.join(destDir, path.basename(resolution.archivePath));
-      const resolvedArchive = path.resolve(resolution.archivePath);
-      const siblingsInDest = [...resolution.excludePaths]
-        .filter((p) => p !== resolvedArchive)
-        .map((p) => path.join(destDir, path.basename(p)));
-      return { archiveInDest, siblingsInDest };
+    await fs.ensureDir(destDir);
+    const resolvedArchive = path.resolve(resolution.archivePath);
+    const archiveInDest = path.join(destDir, path.basename(resolution.archivePath));
+    const siblingsInDest: string[] = [];
+
+    const volumePaths = resolution.isDirectorySource
+      ? [...resolution.excludePaths]
+      : [resolution.archivePath];
+    for (const volumePath of volumePaths) {
+      const volumeInDest = path.join(destDir, path.basename(volumePath));
+      if (transferMode === "move") {
+        await fs.move(volumePath, volumeInDest, { overwrite: true });
+      } else {
+        await fs.copy(volumePath, volumeInDest, { overwrite: true });
+      }
+      if (path.resolve(volumePath) !== resolvedArchive) siblingsInDest.push(volumeInDest);
     }
 
-    await fs.ensureDir(destDir);
-    const archiveInDest = path.join(destDir, path.basename(resolution.archivePath));
-    if (transferMode === "move") {
-      await fs.move(resolution.archivePath, archiveInDest, { overwrite: true });
-    } else {
-      await fs.copy(resolution.archivePath, archiveInDest, { overwrite: true });
-    }
-    return { archiveInDest, siblingsInDest: [] };
+    return { archiveInDest, siblingsInDest };
   }
 
   private async notifyStrandedImport(

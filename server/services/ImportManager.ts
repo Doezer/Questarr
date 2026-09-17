@@ -233,63 +233,80 @@ export class ImportManager {
       return strategy.executeImport(plan, transferMode, resolution?.excludePaths);
     }
 
-    const destDir = plan.proposedPath;
-
     if (transferMode === "hardlink" || transferMode === "symlink") {
-      await fs.ensureDir(destDir);
-      await this.archiveService.extract(resolution.archivePath, destDir, password);
-      if (sortExtras) await reorganizeBySortExtras(destDir);
-
-      if (resolution.isDirectorySource && resolution.hasRemainingFiles) {
-        return strategy.executeImport(plan, transferMode, resolution.excludePaths);
-      }
-
-      return {
-        destDir,
-        filesPlaced: await gatherFiles(destDir),
-        modeUsed: transferMode,
-        conflictsResolved: [],
-      };
+      return this.unpackViaLinkedExtraction(
+        plan,
+        transferMode,
+        resolution,
+        strategy,
+        password,
+        sortExtras
+      );
     }
 
-    // move / copy: relocate the raw source into the library first, then extract in place.
-    let archiveInDest: string;
-    let siblingsInDest: string[];
+    return this.unpackViaRelocatedExtraction(
+      plan,
+      transferMode,
+      resolution,
+      strategy,
+      game,
+      password,
+      sortExtras
+    );
+  }
 
-    if (resolution.isDirectorySource) {
-      await strategy.executeImport(plan, transferMode);
-      archiveInDest = path.join(destDir, path.basename(resolution.archivePath));
-      const resolvedArchive = path.resolve(resolution.archivePath);
-      siblingsInDest = [...resolution.excludePaths]
-        .filter((p) => p !== resolvedArchive)
-        .map((p) => path.join(destDir, path.basename(p)));
-    } else {
-      await fs.ensureDir(destDir);
-      archiveInDest = path.join(destDir, path.basename(resolution.archivePath));
-      if (transferMode === "move") {
-        await fs.move(resolution.archivePath, archiveInDest, { overwrite: true });
-      } else {
-        await fs.copy(resolution.archivePath, archiveInDest, { overwrite: true });
-      }
-      siblingsInDest = [];
+  // hardlink/symlink never relocate the raw archive: extraction reads directly from the
+  // downloader-side path into the destination.
+  private async unpackViaLinkedExtraction(
+    plan: ImportReview,
+    transferMode: TransferMode,
+    resolution: ArchiveResolution,
+    strategy: PCImportStrategy,
+    password: string | undefined,
+    sortExtras: boolean
+  ): Promise<ImportResult> {
+    const destDir = plan.proposedPath;
+    await fs.ensureDir(destDir);
+    await this.archiveService.extract(resolution.archivePath, destDir, password);
+    if (sortExtras) await reorganizeBySortExtras(destDir);
+
+    if (resolution.isDirectorySource && resolution.hasRemainingFiles) {
+      return strategy.executeImport(plan, transferMode, resolution.excludePaths);
     }
+
+    return {
+      destDir,
+      filesPlaced: await gatherFiles(destDir),
+      modeUsed: transferMode,
+      conflictsResolved: [],
+    };
+  }
+
+  // move/copy: relocate the raw source into the library first, then extract in place. A
+  // failed extraction strands the raw archive in the library — there is no retry-import
+  // path to recover it, which is an accepted trade-off.
+  private async unpackViaRelocatedExtraction(
+    plan: ImportReview,
+    transferMode: TransferMode,
+    resolution: ArchiveResolution,
+    strategy: PCImportStrategy,
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    password: string | undefined,
+    sortExtras: boolean
+  ): Promise<ImportResult> {
+    const destDir = plan.proposedPath;
+    const { archiveInDest, siblingsInDest } = await this.relocateArchiveToDest(
+      plan,
+      transferMode,
+      resolution,
+      strategy,
+      destDir
+    );
 
     try {
       await this.archiveService.extract(archiveInDest, destDir, password);
     } catch (err) {
-      await this.storage
-        .addNotification({
-          userId: game.userId ?? "",
-          type: "error",
-          title: "Import extraction failed",
-          message: `"${game.title}" was moved into your library, but extracting the archive failed: ${err instanceof Error ? err.message : String(err)}. The archive is left at ${archiveInDest} — extract or delete it manually to finish the import.`,
-        })
-        .catch((notifErr) =>
-          logger.error(
-            { notifErr, archiveInDest },
-            "[ImportManager] Failed to create stranded-import notification"
-          )
-        );
+      await this.notifyStrandedImport(game, archiveInDest, err);
       throw err;
     }
     await fs.remove(archiveInDest).catch(() => undefined);
@@ -304,6 +321,53 @@ export class ImportManager {
       modeUsed: transferMode,
       conflictsResolved: [],
     };
+  }
+
+  private async relocateArchiveToDest(
+    plan: ImportReview,
+    transferMode: TransferMode,
+    resolution: ArchiveResolution,
+    strategy: PCImportStrategy,
+    destDir: string
+  ): Promise<{ archiveInDest: string; siblingsInDest: string[] }> {
+    if (resolution.isDirectorySource) {
+      await strategy.executeImport(plan, transferMode);
+      const archiveInDest = path.join(destDir, path.basename(resolution.archivePath));
+      const resolvedArchive = path.resolve(resolution.archivePath);
+      const siblingsInDest = [...resolution.excludePaths]
+        .filter((p) => p !== resolvedArchive)
+        .map((p) => path.join(destDir, path.basename(p)));
+      return { archiveInDest, siblingsInDest };
+    }
+
+    await fs.ensureDir(destDir);
+    const archiveInDest = path.join(destDir, path.basename(resolution.archivePath));
+    if (transferMode === "move") {
+      await fs.move(resolution.archivePath, archiveInDest, { overwrite: true });
+    } else {
+      await fs.copy(resolution.archivePath, archiveInDest, { overwrite: true });
+    }
+    return { archiveInDest, siblingsInDest: [] };
+  }
+
+  private async notifyStrandedImport(
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    archiveInDest: string,
+    err: unknown
+  ): Promise<void> {
+    await this.storage
+      .addNotification({
+        userId: game.userId ?? "",
+        type: "error",
+        title: "Import extraction failed",
+        message: `"${game.title}" was moved into your library, but extracting the archive failed: ${err instanceof Error ? err.message : String(err)}. The archive is left at ${archiveInDest} — extract or delete it manually to finish the import.`,
+      })
+      .catch((notifErr) =>
+        logger.error(
+          { notifErr, archiveInDest },
+          "[ImportManager] Failed to create stranded-import notification"
+        )
+      );
   }
 
   private async readSourceFiles(sourcePath: string): Promise<{

@@ -300,8 +300,8 @@ export default function ImportReviewModal({
               </Select>
               {transferMode === "hardlink" && (
                 <p className="text-xs text-muted-foreground">
-                  Requires the download and library folders to be on the same volume; survives the
-                  source file being removed later.
+                  Uses a hardlink when both folders are on the same volume and falls back to a copy
+                  otherwise. The imported file survives later source removal.
                 </p>
               )}
               {transferMode === "symlink" && (

@@ -24,18 +24,13 @@ function isWithinAnyRoot(resolvedCandidate: string, resolvedRoots: string[]): bo
   });
 }
 
-// Resolves symlinks via realpath so a symlink sitting inside a configured root
-// can't point somewhere outside it and slip past a pathname-only check. realpath
-// requires the whole path (including the final component) to already exist, so a
-// path that doesn't exist yet — e.g. a download still in flight, being polled for
-// existence — falls back to the already-resolved pathname; there's nothing to
-// canonicalize until it exists, and callers checking existence need that check to
-// run regardless.
-async function canonicalize(resolvedPath: string): Promise<string> {
+// Roots come from configuration, not request input, so resolving symlinks in them
+// carries no taint for CodeQL's path-injection analysis; a shared helper is fine here.
+async function canonicalizeRoot(resolvedRoot: string): Promise<string> {
   try {
-    return await fs.realpath(resolvedPath);
+    return await fs.realpath(resolvedRoot);
   } catch {
-    return resolvedPath;
+    return resolvedRoot;
   }
 }
 
@@ -62,9 +57,24 @@ export async function assertWithinRoots(
 
   // The pathname passed containment, but path.resolve() doesn't follow symlinks — a
   // symlink sitting inside an allowed root could still point outside it. Canonicalize
-  // and check again to catch that.
-  const canonicalCandidate = await canonicalize(resolvedCandidate);
-  const canonicalRoots = await Promise.all(resolvedRoots.map(canonicalize));
+  // and check again to catch that. realpath requires the whole path (including the
+  // final component) to already exist, so a path that doesn't exist yet — e.g. a
+  // download still in flight, being polled for existence — falls back to the
+  // already-resolved pathname; there's nothing to canonicalize until it exists, and
+  // callers checking existence need that check to run regardless.
+  //
+  // Kept inline (rather than delegated to a shared helper) so the realpath call sits
+  // in the same function as the containment check that gates it: CodeQL's
+  // path-injection sanitizer recognition doesn't credit a guard performed in a caller
+  // as sanitizing a filesystem call in a separate callee.
+  let canonicalCandidate: string;
+  try {
+    canonicalCandidate = await fs.realpath(resolvedCandidate);
+  } catch {
+    canonicalCandidate = resolvedCandidate;
+  }
+
+  const canonicalRoots = await Promise.all(resolvedRoots.map(canonicalizeRoot));
   if (!isWithinAnyRoot(canonicalCandidate, canonicalRoots)) {
     throw new Error(errorMessage);
   }

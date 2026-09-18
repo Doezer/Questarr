@@ -2,7 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
-import { normalizeDownloadHash } from "./download-hash.js";
+import { normalizeDownloadHash, normalizeTrackedKey } from "./download-hash.js";
 import { igdbClient } from "./igdb.js";
 import type { IGDBGame } from "./igdb.js";
 import { db } from "./db.js";
@@ -3390,8 +3390,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user!.id;
       const enabledDownloaders = await storage.getEnabledDownloaders();
       const rawTrackedKeys = await storage.getTrackedDownloadKeys();
-      // Normalise to lowercase so case differences in stored vs. live hashes never cause false "untracked" results
-      const trackedKeys = new Set(Array.from(rawTrackedKeys).map((k) => k.toLowerCase()));
+      // Normalise torrent hashes so case differences in stored vs. live hashes never cause
+      // false "untracked" results, while leaving case-sensitive Usenet ids untouched.
+      const trackedKeys = new Set(Array.from(rawTrackedKeys).map(normalizeTrackedKey));
 
       // Fetch downloads from all downloaders in parallel
       const allDownloads: Array<{
@@ -3409,13 +3410,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             const downloads = await DownloaderManager.getAllDownloads(downloader);
             for (const d of downloads) {
-              const key = `${downloader.id}:${d.id.toLowerCase()}`;
+              const key = `${downloader.id}:${normalizeDownloadHash(d.id)}`;
               if (!trackedKeys.has(key)) {
                 allDownloads.push({
                   downloaderId: downloader.id,
                   downloaderName: downloader.name,
                   downloadId: d.id,
-                  downloadHash: d.id.toLowerCase(),
+                  downloadHash: normalizeDownloadHash(d.id),
                   downloadTitle: d.name,
                   status: d.status,
                   downloadType: d.downloadType ?? "torrent",
@@ -3515,7 +3516,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Prevent duplicate: reject if this download is already linked to any game
       const trackedKeys = await storage.getTrackedDownloadKeys();
-      if (trackedKeys.has(`${downloaderId}:${downloadHash.toLowerCase()}`)) {
+      if (trackedKeys.has(`${downloaderId}:${normalizeDownloadHash(downloadHash)}`)) {
         return res.status(409).json({ error: "This download is already linked to a game" });
       }
 
@@ -3599,7 +3600,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         insertGameDownloadSchema.parse({
           gameId: resolvedGameId!,
           downloaderId,
-          downloadHash: downloadHash.toLowerCase(),
+          downloadHash: normalizeDownloadHash(downloadHash),
           downloadTitle,
           downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
           status: downloadStatus,
@@ -3651,7 +3652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const igdbIdToGameId = new Map<number, string>();
 
     for (const item of parsedItems) {
-      const key = `${item.downloaderId}:${item.downloadHash.toLowerCase()}`;
+      const key = `${item.downloaderId}:${normalizeDownloadHash(item.downloadHash)}`;
       if (trackedKeys.has(key)) {
         taskItemsToInsert.push({
           taskId: task.id,
@@ -3765,7 +3766,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           insertGameDownloadSchema.parse({
             gameId: resolvedGameId,
             downloaderId: item.downloaderId,
-            downloadHash: item.downloadHash.toLowerCase(),
+            downloadHash: normalizeDownloadHash(item.downloadHash),
             downloadTitle: item.downloadTitle,
             downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
             status: downloadStatus,

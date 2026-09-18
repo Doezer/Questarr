@@ -17,13 +17,6 @@ export function isSensitivePath(rawPath: string): boolean {
   return SENSITIVE_PATH_REGEX.test(resolved);
 }
 
-function isWithinAnyRoot(resolvedCandidate: string, resolvedRoots: string[]): boolean {
-  return resolvedRoots.some((root) => {
-    const relative = path.relative(root, resolvedCandidate);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-  });
-}
-
 // Roots come from configuration, not request input, so resolving symlinks in them
 // carries no taint for CodeQL's path-injection analysis; a shared helper is fine here.
 async function canonicalizeRoot(resolvedRoot: string): Promise<string> {
@@ -47,11 +40,30 @@ export async function assertWithinRoots(
 ): Promise<void> {
   if (roots.length === 0) return;
 
-  // Cheap pathname-only pass first: reject an obviously out-of-root path before ever
-  // touching the filesystem to resolve symlinks for it.
   const resolvedCandidate = path.resolve(candidatePath);
   const resolvedRoots = roots.map((root) => path.resolve(root));
-  if (!isWithinAnyRoot(resolvedCandidate, resolvedRoots)) {
+
+  // Written as plain loops with the containment check inline — not delegated to a
+  // helper, and not via Array#some with an arrow callback — so the check sits
+  // directly in this function's own control flow, immediately gating each
+  // filesystem call below. CodeQL's path-injection sanitizer recognition is
+  // intraprocedural: a guard's startsWith()/isAbsolute() checks only count as
+  // sanitizing a sink when they appear in the same function scope as that sink,
+  // not inside a separate callback (e.g. an arrow passed to .some()) or a
+  // separate helper function, even when that helper is called immediately
+  // beforehand.
+
+  // Cheap pathname-only pass first: reject an obviously out-of-root path before ever
+  // touching the filesystem to resolve symlinks for it.
+  let withinResolvedRoots = false;
+  for (const root of resolvedRoots) {
+    const relative = path.relative(root, resolvedCandidate);
+    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+      withinResolvedRoots = true;
+      break;
+    }
+  }
+  if (!withinResolvedRoots) {
     throw new Error(errorMessage);
   }
 
@@ -62,11 +74,6 @@ export async function assertWithinRoots(
   // download still in flight, being polled for existence — falls back to the
   // already-resolved pathname; there's nothing to canonicalize until it exists, and
   // callers checking existence need that check to run regardless.
-  //
-  // Kept inline (rather than delegated to a shared helper) so the realpath call sits
-  // in the same function as the containment check that gates it: CodeQL's
-  // path-injection sanitizer recognition doesn't credit a guard performed in a caller
-  // as sanitizing a filesystem call in a separate callee.
   let canonicalCandidate: string;
   try {
     canonicalCandidate = await fs.realpath(resolvedCandidate);
@@ -75,7 +82,16 @@ export async function assertWithinRoots(
   }
 
   const canonicalRoots = await Promise.all(resolvedRoots.map(canonicalizeRoot));
-  if (!isWithinAnyRoot(canonicalCandidate, canonicalRoots)) {
+
+  let withinCanonicalRoots = false;
+  for (const root of canonicalRoots) {
+    const relative = path.relative(root, canonicalCandidate);
+    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+      withinCanonicalRoots = true;
+      break;
+    }
+  }
+  if (!withinCanonicalRoots) {
     throw new Error(errorMessage);
   }
 }

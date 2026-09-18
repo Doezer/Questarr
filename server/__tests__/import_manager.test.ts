@@ -40,6 +40,7 @@ describe("ImportManager", () => {
 
   const pathService = {
     translatePath: vi.fn(),
+    getConfiguredRoots: vi.fn().mockResolvedValue([]),
   };
 
   const platformService = {

@@ -43,29 +43,35 @@ export async function assertWithinRoots(
   const resolvedCandidate = path.resolve(candidatePath);
   const resolvedRoots = roots.map((root) => path.resolve(root));
 
-  // Written as plain loops with the containment check inline — not delegated to a
-  // helper, and not via Array#some with an arrow callback — so the check sits
-  // directly in this function's own control flow, immediately gating each
-  // filesystem call below. CodeQL's path-injection sanitizer recognition is
-  // intraprocedural: a guard's startsWith()/isAbsolute() checks only count as
-  // sanitizing a sink when they appear in the same function scope as that sink,
-  // not inside a separate callback (e.g. an arrow passed to .some()) or a
-  // separate helper function, even when that helper is called immediately
-  // beforehand.
-
   // Cheap pathname-only pass first: reject an obviously out-of-root path before ever
-  // touching the filesystem to resolve symlinks for it.
-  let withinResolvedRoots = false;
+  // touching the filesystem to resolve symlinks for it. Track which root matched and
+  // the checked relative segment, rather than just a boolean: CodeQL's path-injection
+  // sanitizer treats path.relative(root, x).startsWith("..") as clearing the taint on
+  // that *relative* expression specifically, not on x itself, so a later filesystem
+  // call needs to be built from the checked relative segment (see below) rather than
+  // from resolvedCandidate directly for the sanitizer to be recognized.
+  let matchedRoot: string | undefined;
+  let matchedRelative = "";
   for (const root of resolvedRoots) {
     const relative = path.relative(root, resolvedCandidate);
     if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
-      withinResolvedRoots = true;
+      matchedRoot = root;
+      matchedRelative = relative;
       break;
     }
   }
-  if (!withinResolvedRoots) {
+  if (matchedRoot === undefined) {
     throw new Error(errorMessage);
   }
+
+  // Rebuild the candidate from the matched root plus the already-checked relative
+  // segment instead of reusing resolvedCandidate. It denotes the same path when
+  // candidatePath is under matchedRoot (which it is, having just passed the check
+  // above), but composing it from parts the sanitizer has verified keeps the value
+  // handed to fs.realpath below tied to that verified data instead of to the
+  // original, unchecked candidate string.
+  const verifiedCandidate =
+    matchedRelative === "" ? matchedRoot : path.join(matchedRoot, matchedRelative);
 
   // The pathname passed containment, but path.resolve() doesn't follow symlinks — a
   // symlink sitting inside an allowed root could still point outside it. Canonicalize
@@ -76,9 +82,9 @@ export async function assertWithinRoots(
   // callers checking existence need that check to run regardless.
   let canonicalCandidate: string;
   try {
-    canonicalCandidate = await fs.realpath(resolvedCandidate);
+    canonicalCandidate = await fs.realpath(verifiedCandidate);
   } catch {
-    canonicalCandidate = resolvedCandidate;
+    canonicalCandidate = verifiedCandidate;
   }
 
   const canonicalRoots = await Promise.all(resolvedRoots.map(canonicalizeRoot));

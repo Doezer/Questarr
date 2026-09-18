@@ -142,6 +142,19 @@ async function main() {
     process.exit(1);
   }
 
+  // Describe the target by host and database name only. The connection string
+  // carries credentials, so it is never logged -- not even masked: a password
+  // containing "@" or "/" defeats naive masking, and credentials can also arrive
+  // as query parameters. This mirrors server/db/connect-postgres.ts.
+  let target: string;
+  try {
+    const parsed = new URL(databaseUrl);
+    target = `${parsed.host}${parsed.pathname}`;
+  } catch {
+    console.error("DATABASE_URL is not a valid connection URL.");
+    process.exit(1);
+  }
+
   const sqliteClient = new Database(sqlitePath, { readonly: true });
   const src = drizzleSqlite(sqliteClient, { schema: sqliteSchema });
 
@@ -152,12 +165,12 @@ async function main() {
   try {
     await dst.execute(sql`SELECT 1`);
   } catch (err) {
-    console.error(`Cannot connect to Postgres: ${(err as Error).message}`);
+    console.error(`Cannot connect to Postgres at ${target}: ${(err as Error).message}`);
     process.exit(1);
   }
 
   console.log(`Source: ${sqlitePath}`);
-  console.log(`Target: ${databaseUrl.replace(/:[^:@/]*@/, ":****@")}\n`);
+  console.log(`Target: ${target}\n`);
 
   // Refuse to merge into a database that already holds data: primary key
   // collisions would half-succeed and leave a mess.

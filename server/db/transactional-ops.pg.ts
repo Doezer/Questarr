@@ -4,6 +4,12 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { db as appDb } from "../db.js";
 import * as pgSchema from "../../shared/schema.pg.js";
 import { encryptCredentialSync } from "../credential-crypto.js";
+import {
+  validateIndexerInput,
+  buildIndexerUpdate,
+  buildNewIndexer,
+  formatSyncFailure,
+} from "./transactional-ops.shared.js";
 import type {
   ApiKeyPublic,
   Game,
@@ -93,59 +99,29 @@ export async function syncIndexers(
 
     for (const idx of indexersToSync) {
       try {
-        if (!idx.name || !idx.url || !idx.apiKey) {
+        const invalid = validateIndexerInput(idx);
+        if (invalid) {
           results.failed++;
-          results.errors.push(`Skipping ${idx.name || "unknown"} - missing required fields`);
+          results.errors.push(invalid);
           continue;
         }
 
-        const existing = existingMap.get(idx.url);
-        const encryptedApiKey = encryptCredentialSync(idx.apiKey, encryptionKey);
+        const existing = existingMap.get(idx.url as string);
+        const encryptedApiKey = encryptCredentialSync(idx.apiKey as string, encryptionKey);
 
         if (existing) {
-          // Explicitly set allowed fields for update to prevent mass assignment
           await tx
             .update(indexers)
-            .set({
-              name: idx.name,
-              url: idx.url,
-              apiKey: encryptedApiKey,
-              protocol: idx.protocol,
-              enabled: idx.enabled,
-              priority: idx.priority,
-              categories: idx.categories,
-              rssEnabled: idx.rssEnabled,
-              autoSearchEnabled: idx.autoSearchEnabled,
-              updatedAt: new Date(),
-            })
+            .set(buildIndexerUpdate(idx, encryptedApiKey))
             .where(eq(indexers.id, existing.id));
           results.updated++;
         } else {
-          const id = randomUUID();
-          // Default values for missing optional fields
-          const newIndexer = {
-            id,
-            name: idx.name,
-            url: idx.url,
-            apiKey: encryptedApiKey,
-            protocol: idx.protocol ?? "torznab",
-            enabled: idx.enabled ?? true,
-            priority: idx.priority ?? 1,
-            categories: idx.categories ?? [],
-            rssEnabled: idx.rssEnabled ?? true,
-            autoSearchEnabled: idx.autoSearchEnabled ?? true,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
-
-          await tx.insert(indexers).values(newIndexer);
+          await tx.insert(indexers).values(buildNewIndexer(idx, encryptedApiKey, randomUUID()));
           results.added++;
         }
       } catch (error) {
         results.failed++;
-        results.errors.push(
-          `Failed to sync ${idx.name}: ${error instanceof Error ? error.message : "Unknown error"}`
-        );
+        results.errors.push(formatSyncFailure(idx, error));
       }
     }
   });

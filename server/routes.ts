@@ -3515,7 +3515,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Prevent duplicate: reject if this download is already linked to any game
-      const trackedKeys = await storage.getTrackedDownloadKeys();
+      const trackedKeys = new Set(
+        Array.from(await storage.getTrackedDownloadKeys()).map(normalizeTrackedKey)
+      );
       if (trackedKeys.has(`${downloaderId}:${normalizeDownloadHash(downloadHash)}`)) {
         return res.status(409).json({ error: "This download is already linked to a game" });
       }
@@ -3645,7 +3647,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       status: "in_progress",
     });
 
-    const trackedKeys = await storage.getTrackedDownloadKeys();
+    const trackedKeys = new Set(
+      Array.from(await storage.getTrackedDownloadKeys()).map(normalizeTrackedKey)
+    );
     let addedCount = 0;
     let failedCount = 0;
     const taskItemsToInsert: InsertImportTaskItem[] = [];

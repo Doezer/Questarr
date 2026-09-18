@@ -2681,6 +2681,24 @@ describe("API Routes - Extended Coverage", () => {
       expect(res.status).toBe(409);
       expect(storage.addGameDownload).not.toHaveBeenCalled();
     });
+
+    it("rejects a claim as a duplicate when a legacy tracked torrent hash differs only by case", async () => {
+      const hashUpper = "A".repeat(40);
+      const hashLower = "a".repeat(40);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set([`dl-1:${hashUpper}`]));
+
+      const res = await request(app).post("/api/downloads/claim").send({
+        downloaderId: "dl-1",
+        downloadHash: hashLower,
+        downloadTitle: "My Game",
+        currentStatus: "downloading",
+        category: "main",
+        gameId: "game-1",
+      });
+
+      expect(res.status).toBe(409);
+      expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
   });
 
   describe("POST /api/downloads/claim-batch", () => {
@@ -2880,9 +2898,23 @@ describe("API Routes - Extended Coverage", () => {
       expect(storage.addGameDownload).not.toHaveBeenCalled();
     });
 
+    it("skips as a duplicate when a legacy tracked torrent hash differs only by case", async () => {
+      const hashUpper = "A".repeat(40);
+      const hashLower = "a".repeat(40);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set([`dl-1:${hashUpper}`]));
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [{ ...validItem, downloadHash: hashLower }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.skippedCount).toBe(1);
+      expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
+
     it("does not skip a differently-cased Usenet id as a false duplicate", async () => {
       vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
-        new Set(["dl-1:SABnzbd_nzo_other"])
+        new Set(["dl-1:SABnzbd_nzo_aBcDeF"])
       );
       mockSabnzbdClaimTarget();
 

@@ -118,6 +118,35 @@ function makeRootFolder(overrides: Partial<RootFolder> = {}): RootFolder {
   };
 }
 
+// Fixtures shared by the mixed-case Usenet id regression tests (claim, claim-batch, scan)
+const USENET_MIXED_CASE_ID = "SABnzbd_nzo_AbCdEf";
+
+function mockSabnzbdClaimTarget() {
+  vi.mocked(storage.getGame).mockResolvedValue({
+    id: "game-1",
+    userId: "user-1",
+    status: "wanted",
+  } as any);
+  vi.mocked(storage.getDownloader).mockResolvedValue({
+    id: "dl-1",
+    type: "sabnzbd",
+  } as any);
+}
+
+function mockSabnzbdScanDownload(id: string) {
+  vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+    { id: "dl-1", name: "My SABnzbd" } as unknown as Downloader,
+  ]);
+  vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+    {
+      id,
+      name: "My.Game.Title",
+      status: "downloading",
+      downloadType: "usenet",
+    } as never,
+  ]);
+}
+
 describe("API Routes - Extended Coverage", () => {
   let app: express.Express;
 
@@ -1881,42 +1910,22 @@ describe("API Routes - Extended Coverage", () => {
   // ─── Scan for unlinked downloads ───
   describe("GET /api/downloads/scan", () => {
     it("returns a mixed-case Usenet id verbatim instead of lowercasing it", async () => {
-      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
-        { id: "dl-1", name: "My SABnzbd" } as unknown as Downloader,
-      ]);
+      mockSabnzbdScanDownload(USENET_MIXED_CASE_ID);
       vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
-      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
-        {
-          id: "SABnzbd_nzo_AbCdEf",
-          name: "My.Game.Title",
-          status: "downloading",
-          downloadType: "usenet",
-        } as never,
-      ]);
 
       const response = await request(app).get("/api/downloads/scan");
 
       expect(response.status).toBe(200);
       const download = response.body.groups[0].downloads[0];
-      expect(download.downloadId).toBe("SABnzbd_nzo_AbCdEf");
-      expect(download.downloadHash).toBe("SABnzbd_nzo_AbCdEf");
+      expect(download.downloadId).toBe(USENET_MIXED_CASE_ID);
+      expect(download.downloadHash).toBe(USENET_MIXED_CASE_ID);
     });
 
     it("excludes a mixed-case Usenet id from the scan when it is already tracked with that exact casing", async () => {
-      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
-        { id: "dl-1", name: "My SABnzbd" } as unknown as Downloader,
-      ]);
+      mockSabnzbdScanDownload(USENET_MIXED_CASE_ID);
       vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
-        new Set(["dl-1:SABnzbd_nzo_AbCdEf"])
+        new Set([`dl-1:${USENET_MIXED_CASE_ID}`])
       );
-      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
-        {
-          id: "SABnzbd_nzo_AbCdEf",
-          name: "My.Game.Title",
-          status: "downloading",
-          downloadType: "usenet",
-        } as never,
-      ]);
 
       const response = await request(app).get("/api/downloads/scan");
 
@@ -2637,20 +2646,12 @@ describe("API Routes - Extended Coverage", () => {
 
     it("persists a mixed-case Usenet id verbatim instead of lowercasing it", async () => {
       vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
-      vi.mocked(storage.getGame).mockResolvedValue({
-        id: "game-1",
-        userId: "user-1",
-        status: "wanted",
-      } as any);
-      vi.mocked(storage.getDownloader).mockResolvedValue({
-        id: "dl-1",
-        type: "sabnzbd",
-      } as any);
+      mockSabnzbdClaimTarget();
       vi.mocked(storage.addGameDownload).mockResolvedValue(undefined as any);
 
       const res = await request(app).post("/api/downloads/claim").send({
         downloaderId: "dl-1",
-        downloadHash: "SABnzbd_nzo_AbCdEf",
+        downloadHash: USENET_MIXED_CASE_ID,
         downloadTitle: "My Game",
         currentStatus: "downloading",
         category: "main",
@@ -2659,18 +2660,18 @@ describe("API Routes - Extended Coverage", () => {
 
       expect(res.status).toBe(200);
       expect(storage.addGameDownload).toHaveBeenCalledWith(
-        expect.objectContaining({ downloadHash: "SABnzbd_nzo_AbCdEf" })
+        expect.objectContaining({ downloadHash: USENET_MIXED_CASE_ID })
       );
     });
 
     it("rejects a claim as a duplicate when the mixed-case Usenet id is already tracked", async () => {
       vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
-        new Set(["dl-1:SABnzbd_nzo_AbCdEf"])
+        new Set([`dl-1:${USENET_MIXED_CASE_ID}`])
       );
 
       const res = await request(app).post("/api/downloads/claim").send({
         downloaderId: "dl-1",
-        downloadHash: "SABnzbd_nzo_AbCdEf",
+        downloadHash: USENET_MIXED_CASE_ID,
         downloadTitle: "My Game",
         currentStatus: "downloading",
         category: "main",
@@ -2852,35 +2853,27 @@ describe("API Routes - Extended Coverage", () => {
     });
 
     it("persists a mixed-case Usenet id verbatim instead of lowercasing it", async () => {
-      vi.mocked(storage.getGame).mockResolvedValue({
-        id: "game-1",
-        userId: "user-1",
-        status: "wanted",
-      } as any);
-      vi.mocked(storage.getDownloader).mockResolvedValue({
-        id: "dl-1",
-        type: "sabnzbd",
-      } as any);
+      mockSabnzbdClaimTarget();
 
       const res = await request(app)
         .post("/api/downloads/claim-batch")
-        .send({ items: [{ ...validItem, downloadHash: "SABnzbd_nzo_AbCdEf" }] });
+        .send({ items: [{ ...validItem, downloadHash: USENET_MIXED_CASE_ID }] });
 
       expect(res.status).toBe(200);
       expect(res.body.addedCount).toBe(1);
       expect(storage.addGameDownload).toHaveBeenCalledWith(
-        expect.objectContaining({ downloadHash: "SABnzbd_nzo_AbCdEf" })
+        expect.objectContaining({ downloadHash: USENET_MIXED_CASE_ID })
       );
     });
 
     it("skips a mixed-case Usenet id only when the tracked key matches exactly", async () => {
       vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
-        new Set(["dl-1:SABnzbd_nzo_AbCdEf"])
+        new Set([`dl-1:${USENET_MIXED_CASE_ID}`])
       );
 
       const res = await request(app)
         .post("/api/downloads/claim-batch")
-        .send({ items: [{ ...validItem, downloadHash: "SABnzbd_nzo_AbCdEf" }] });
+        .send({ items: [{ ...validItem, downloadHash: USENET_MIXED_CASE_ID }] });
 
       expect(res.status).toBe(200);
       expect(res.body.skippedCount).toBe(1);
@@ -2891,24 +2884,16 @@ describe("API Routes - Extended Coverage", () => {
       vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
         new Set(["dl-1:SABnzbd_nzo_other"])
       );
-      vi.mocked(storage.getGame).mockResolvedValue({
-        id: "game-1",
-        userId: "user-1",
-        status: "wanted",
-      } as any);
-      vi.mocked(storage.getDownloader).mockResolvedValue({
-        id: "dl-1",
-        type: "sabnzbd",
-      } as any);
+      mockSabnzbdClaimTarget();
 
       const res = await request(app)
         .post("/api/downloads/claim-batch")
-        .send({ items: [{ ...validItem, downloadHash: "SABnzbd_nzo_AbCdEf" }] });
+        .send({ items: [{ ...validItem, downloadHash: USENET_MIXED_CASE_ID }] });
 
       expect(res.status).toBe(200);
       expect(res.body.addedCount).toBe(1);
       expect(storage.addGameDownload).toHaveBeenCalledWith(
-        expect.objectContaining({ downloadHash: "SABnzbd_nzo_AbCdEf" })
+        expect.objectContaining({ downloadHash: USENET_MIXED_CASE_ID })
       );
     });
   });

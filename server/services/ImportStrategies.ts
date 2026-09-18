@@ -376,7 +376,7 @@ export class PCImportStrategy implements ImportStrategy {
       throw new Error("Refusing to process a sensitive system path");
     }
 
-    assertWithinRoots(
+    await assertWithinRoots(
       sourcePath,
       this.sourceRoots,
       "Refusing to process a path outside the configured downloader roots"
@@ -430,7 +430,7 @@ export class PCImportStrategy implements ImportStrategy {
     // Same containment check as planImport, applied here too since executeImport is a
     // second, independent entry point: a confirmImport call can supply review.originalPath
     // directly, without ever going through planImport first.
-    assertWithinRoots(
+    await assertWithinRoots(
       review.originalPath,
       this.sourceRoots,
       "Refusing to process a path outside the configured downloader roots"

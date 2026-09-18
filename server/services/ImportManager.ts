@@ -176,7 +176,7 @@ export class ImportManager {
       throw new Error("Refusing to process a sensitive system path");
     }
 
-    assertWithinRoots(
+    await assertWithinRoots(
       sourcePath,
       await this.pathService.getConfiguredRoots(),
       "Refusing to process a path outside the configured downloader roots"
@@ -441,6 +441,14 @@ export class ImportManager {
     const empty = { files: [], hasArchive: false, totalCount: 0 };
     if (isSensitivePath(sourcePath)) return empty;
     try {
+      // Rejecting here (rather than only inside planImport/executeImport later) stops
+      // an out-of-root path from having its directory contents disclosed through this
+      // preview listing before the import flow ever gets to reject it.
+      await assertWithinRoots(
+        sourcePath,
+        await this.pathService.getConfiguredRoots(),
+        "Refusing to process a path outside the configured downloader roots"
+      );
       const resolved = path.resolve(sourcePath);
       const stats = await fs.stat(resolved);
       let allNames: string[];
@@ -706,6 +714,15 @@ export class ImportManager {
       const localPath = resolved.localPath;
       const downloaderName = resolved.downloaderName;
 
+      // Before even probing for existence: verifyLocalPath's fs.pathExists() call
+      // below would otherwise leak whether an out-of-root path exists on disk to
+      // an import flow that should never have been allowed to look at it at all.
+      await assertWithinRoots(
+        localPath,
+        await this.pathService.getConfiguredRoots(),
+        "Refusing to process a path outside the configured downloader roots"
+      );
+
       logger.debug({ localPath }, "[ImportManager] Checking path accessibility");
       if (
         !(await this.verifyLocalPath(downloadId, localPath, {
@@ -913,6 +930,14 @@ export class ImportManager {
         "Source path could not be resolved — the download may no longer be tracked by the download client. Please specify the source path manually."
       );
     }
+
+    // Before the existence probe below: overridePlan.originalPath can come from a
+    // manually-typed path in the review UI, not just a translated downloader path.
+    await assertWithinRoots(
+      resolvedOriginalPath,
+      await this.pathService.getConfiguredRoots(),
+      "Refusing to process a path outside the configured downloader roots"
+    );
 
     if (!(await fs.pathExists(resolvedOriginalPath))) {
       throw new Error(`Source path not found: ${resolvedOriginalPath}`);

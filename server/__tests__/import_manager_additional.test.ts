@@ -627,6 +627,10 @@ describe("ImportManager - processImport archive cleanup", () => {
     vi.clearAllMocks();
     fsMock.pathExists.mockResolvedValue(true);
     fsMock.remove.mockResolvedValue(undefined);
+    // vi.clearAllMocks() doesn't reset a mockResolvedValue set by an earlier test/block
+    // (only vi.resetAllMocks() does) — an earlier block's directory-stat override would
+    // otherwise leak into these single-file-source tests. Pin the default explicitly.
+    fsMock.stat.mockResolvedValue({ isDirectory: () => false });
   });
 
   it("removes extracted directory after successful import when autoUnpack is enabled", async () => {
@@ -671,7 +675,10 @@ describe("ImportManager - processImport archive cleanup", () => {
     const manager = makeManager(storage, { pathService, archiveService });
     await manager.processImport("dl-1", "/remote/path");
 
-    expect(fsMock.remove).toHaveBeenCalledWith("/local/Game.zip_extracted");
+    // copy mode relocates the raw archive into the library first (Game.zip's basename,
+    // under the planned destination), extracts it in place there, then removes that
+    // now-redundant copy — not a downloader-side "_extracted" directory.
+    expect(fsMock.remove).toHaveBeenCalledWith("/games/PC/Archive Game/Game.zip");
 
     planSpy.mockRestore();
     execSpy.mockRestore();
@@ -730,6 +737,9 @@ describe("ImportManager - confirmImport path resolution failures", () => {
     fsMock.pathExists.mockResolvedValue(true);
     fsMock.remove.mockResolvedValue(undefined);
     downloadersMock.getDownloadDetails.mockResolvedValue(null);
+    // See the same note in the "processImport archive cleanup" describe block above —
+    // vi.clearAllMocks() doesn't reset a mockResolvedValue left by an earlier block.
+    fsMock.stat.mockResolvedValue({ isDirectory: () => false });
   });
 
   it("throws when source path cannot be resolved (no downloader, empty originalPath)", async () => {
@@ -773,7 +783,12 @@ describe("ImportManager - confirmImport path resolution failures", () => {
     ).rejects.toThrow("Proposed path is required for import validation");
   });
 
-  it("removes extracted archive in finally block when executeImport throws", async () => {
+  it("leaves the raw archive stranded in the library and notifies when extraction fails after a move", async () => {
+    // move/copy relocate the raw archive into the library first, then extract it in
+    // place there. If that extraction fails, the archive is deliberately left where it
+    // landed rather than cleaned up — there's no retry-import path to recover it, so
+    // deleting it here would just destroy the user's only remaining copy. An
+    // in-app notification is raised instead so the failure isn't silent.
     const storage = makeStorage();
     storage.getGameDownload.mockResolvedValue({ id: "dl-1", gameId: "g1", downloaderId: "d1" });
     storage.getGame.mockResolvedValue({
@@ -787,12 +802,8 @@ describe("ImportManager - confirmImport path resolution failures", () => {
 
     const archiveService = {
       isArchive: vi.fn().mockReturnValue(true),
-      extract: vi.fn().mockResolvedValue(["/downloads/game.zip_extracted/game.exe"]),
+      extract: vi.fn().mockRejectedValue(new Error("disk full")),
     };
-
-    const execSpy = vi
-      .spyOn(PCImportStrategy.prototype, "executeImport")
-      .mockRejectedValue(new Error("disk full"));
 
     const manager = makeManager(storage, { archiveService });
 
@@ -802,17 +813,32 @@ describe("ImportManager - confirmImport path resolution failures", () => {
         originalPath: "/downloads/game.zip",
         proposedPath: "/safe/root/PC/My Game",
         needsReview: false,
+        transferMode: "move",
         unpack: true,
       })
     ).rejects.toThrow("disk full");
 
-    expect(fsMock.remove).toHaveBeenCalledWith("/downloads/game.zip_extracted");
+    // The archive is copied into the library (never moved directly) so a mid-family
+    // failure can't split a multi-volume set across source and destination; the
+    // source is only removed after the copy succeeds, which it does here — the
+    // failure below is extract()'s, not the relocation's.
+    expect(fsMock.copy).toHaveBeenCalledWith(
+      "/downloads/game.zip",
+      "/safe/root/PC/My Game/game.zip",
+      { overwrite: true }
+    );
+    expect(fsMock.remove).toHaveBeenCalledWith("/downloads/game.zip");
+    expect(fsMock.remove).not.toHaveBeenCalledWith("/safe/root/PC/My Game/game.zip");
+    expect(storage.addNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "error",
+        title: "Import extraction failed",
+      })
+    );
     expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
       "dl-1",
       "manual_review_required",
       "disk full"
     );
-
-    execSpy.mockRestore();
   });
 });

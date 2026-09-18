@@ -830,7 +830,7 @@ describe("ImportStrategies", () => {
       ).resolves.toMatchObject({ originalPath: source });
     });
 
-    it("executeImport refuses review.originalPath outside every configured root, even without going through planImport first", async () => {
+    it("executeImport refuses an out-of-root originalPath without planImport first", async () => {
       // Regression test: confirmImport can supply review.originalPath directly, so
       // the containment check has to be enforced here too, independently of planImport.
       const root = tempDir();

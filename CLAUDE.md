@@ -141,7 +141,7 @@ Notable game fields added: `steamAppId`, `hidden` (boolean), `userRating` (0.5�
 
 ## UI Changes
 
-Any PR that touches `client/src/**` must include a screenshot (or short recording) of the change actually running, in the PR description — not just passing unit tests. Use the `run` skill to launch `npm run dev:test`, drive the page with a headless browser, and capture the screenshot before opening or updating the PR. Type checking and test suites verify code correctness, not visual/behavioral correctness — a screenshot is the only way to confirm the UI actually looks and works as intended.
+Any PR that touches `client/src/**` must include visual evidence (a screenshot or short recording) of the change actually running, in the PR description — not just passing unit tests. Use the `run` skill to launch `npm run dev:test`, drive the page with a headless browser, and capture the screenshot or recording before opening or updating the PR. Type checking and test suites verify code correctness, not visual/behavioral correctness — visual evidence is the only way to confirm the UI actually looks and works as intended.
 
 ## Environment Variables
 

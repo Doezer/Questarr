@@ -142,14 +142,13 @@ async function main() {
     process.exit(1);
   }
 
-  // Describe the target by host and database name only. The connection string
-  // carries credentials, so it is never logged -- not even masked: a password
-  // containing "@" or "/" defeats naive masking, and credentials can also arrive
-  // as query parameters. This mirrors server/db/connect-postgres.ts.
-  let target: string;
+  // Validate the connection string without keeping anything derived from it.
+  // Nothing parsed out of DATABASE_URL is logged, not even the host: it carries
+  // credentials, naive masking breaks on a password containing "@" or "/", and
+  // credentials can also arrive as query parameters. The driver's own error
+  // names the host it tried, which is all the diagnostics this needs.
   try {
-    const parsed = new URL(databaseUrl);
-    target = `${parsed.host}${parsed.pathname}`;
+    void new URL(databaseUrl);
   } catch {
     console.error("DATABASE_URL is not a valid connection URL.");
     process.exit(1);
@@ -161,16 +160,18 @@ async function main() {
   const pool = new pg.Pool({ connectionString: databaseUrl });
   const dst = drizzlePg(pool, { schema: pgSchema });
 
-  // Fail early and clearly rather than part-way through the copy.
+  // Fail early and clearly rather than part-way through the copy. Queried
+  // through the pool rather than Drizzle so the failure surfaces as the pg
+  // driver's own message ("connect ECONNREFUSED <host>:<port>") instead of
+  // Drizzle's wrapper, which hides which server was unreachable.
   try {
-    await dst.execute(sql`SELECT 1`);
+    await pool.query("SELECT 1");
   } catch (err) {
-    console.error(`Cannot connect to Postgres at ${target}: ${(err as Error).message}`);
+    console.error(`Cannot connect to Postgres: ${(err as Error).message}`);
     process.exit(1);
   }
 
-  console.log(`Source: ${sqlitePath}`);
-  console.log(`Target: ${target}\n`);
+  console.log(`Source: ${sqlitePath}\n`);
 
   // Refuse to merge into a database that already holds data: primary key
   // collisions would half-succeed and leave a mess.

@@ -1,6 +1,43 @@
 import { describe, expect, it } from "vitest";
 
-import { insertApiKeySchema, insertDownloaderSchema, insertIndexerSchema } from "@shared/schema";
+import {
+  insertApiKeySchema,
+  insertDownloaderSchema,
+  insertIndexerSchema,
+  updateUserSettingsSchema,
+} from "@shared/schema";
+
+describe("updateUserSettingsSchema array fields", () => {
+  const nonArrays: Array<[string, unknown]> = [
+    ["string", "oops"],
+    ["number", 42],
+    ["object", { a: 1 }],
+    ["mixed array", ["ok", 5]],
+  ];
+
+  it.each(nonArrays)("rejects a %s for importPlatformIds", (_label, value) => {
+    const result = updateUserSettingsSchema.safeParse({ importPlatformIds: value });
+    expect(result.success).toBe(false);
+    expect(result.error?.flatten().fieldErrors).toMatchObject({
+      importPlatformIds: ["importPlatformIds must be an array of numbers"],
+    });
+  });
+
+  it("accepts an array of platform ids", () => {
+    const result = updateUserSettingsSchema.safeParse({ importPlatformIds: [130, 6] });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects string ids for the numeric importPlatformIds field", () => {
+    const result = updateUserSettingsSchema.safeParse({ importPlatformIds: ["130"] });
+    expect(result.success).toBe(false);
+  });
+
+  it("still requires a valid transferMode", () => {
+    const result = updateUserSettingsSchema.safeParse({ transferMode: "teleport" });
+    expect(result.success).toBe(false);
+  });
+});
 
 describe("insertIndexerSchema", () => {
   it("requires non-empty name, url, and apiKey", () => {

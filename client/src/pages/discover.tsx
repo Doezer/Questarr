@@ -3,8 +3,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Settings2, AlertCircle } from "lucide-react";
 import GameCarouselSection from "@/components/GameCarouselSection";
-import { type Game, type Config } from "@shared/schema";
-import { type GameStatus } from "@/components/StatusBadge";
+import { visibleIgdbPlatforms } from "@shared/platforms";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import { mapGameToInsertGame } from "@/lib/utils";
@@ -25,6 +24,8 @@ import RssFeedList from "@/components/RssFeedList";
 import RssSettings from "@/components/RssSettings";
 import { Rss } from "lucide-react";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
+import { type Game, type Config, type UserSettings } from "@shared/schema";
+import { type GameStatus } from "@/components/StatusBadge";
 
 const EMPTY_GAMES: Game[] = [];
 
@@ -99,6 +100,10 @@ export default function DiscoverPage() {
 
   const { data: config } = useQuery<Config>({
     queryKey: ["/api/config"],
+  });
+
+  const { data: userSettings } = useQuery<UserSettings>({
+    queryKey: ["/api/settings"],
   });
 
   // Fetch local games to filter hidden ones
@@ -230,6 +235,28 @@ export default function DiscoverPage() {
   }, [platformsError, toast]);
 
   // Track game mutation (for Discovery games)
+
+  // The Platforms setting narrows this dropdown the same way it governs the
+  // Library and download-dialog selectors. Kept above the IGDB-not-configured
+  // early return so hook order stays stable.
+  const allPlatforms = useMemo<Platform[]>(
+    () => (platforms.length > 0 ? platforms : DEFAULT_PLATFORMS),
+    [platforms]
+  );
+  const displayPlatforms = useMemo<Platform[]>(() => {
+    const visible = visibleIgdbPlatforms(allPlatforms, userSettings?.importPlatformIds);
+    return visible.length > 0 ? visible : allPlatforms;
+  }, [allPlatforms, userSettings?.importPlatformIds]);
+
+  // `selectedPlatform` defaults to "PC", which the Platforms setting may not
+  // include. Snap it to a listed platform so the dropdown and the carousel
+  // below it never disagree about which platform is being browsed.
+  useEffect(() => {
+    if (config && !config.igdb.configured) return;
+    if (displayPlatforms.length === 0) return;
+    if (displayPlatforms.some((p) => p.name === selectedPlatform)) return;
+    setSelectedPlatform(displayPlatforms[0].name);
+  }, [config, displayPlatforms, selectedPlatform]);
 
   const trackGameMutation = useMutation({
     mutationFn: async (game: Game) => {
@@ -463,8 +490,9 @@ export default function DiscoverPage() {
   }, [debouncedGenre, genres, filterGames]);
 
   const fetchGamesByPlatform = useCallback(async (): Promise<Game[]> => {
-    // Validate selectedPlatform against known platforms before making API call
-    const validPlatforms: Platform[] = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
+    // Validate selectedPlatform against the platforms the Platforms setting
+    // leaves visible, so a stale selection cannot fetch an excluded platform.
+    const validPlatforms: Platform[] = displayPlatforms;
     const isValidPlatform = validPlatforms.some((p: Platform) => p.name === debouncedPlatform);
     if (!isValidPlatform) {
       // This case should ideally not be hit if UI is synced with state
@@ -477,7 +505,7 @@ export default function DiscoverPage() {
     );
     const games = await response.json();
     return filterGames(games);
-  }, [debouncedPlatform, platforms, filterGames]);
+  }, [debouncedPlatform, displayPlatforms, filterGames]);
 
   if (config && !config.igdb.configured) {
     return (
@@ -497,7 +525,6 @@ export default function DiscoverPage() {
   }
 
   const displayGenres: Genre[] = genres.length > 0 ? genres : DEFAULT_GENRES;
-  const displayPlatforms: Platform[] = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
 
   return (
     <div className="h-full w-full overflow-x-hidden overflow-y-auto" data-testid="discover-page">

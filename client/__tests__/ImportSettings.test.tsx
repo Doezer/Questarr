@@ -45,6 +45,7 @@ function mockFetch({
     { id: 2, name: "PlayStation 5" },
   ],
   appConfig = { igdb: { configured: true } },
+  settings = {},
   hardlink = {
     generic: { targetRoot: "/data/library", supportedForAll: true, checkedSources: [] },
   },
@@ -52,12 +53,14 @@ function mockFetch({
   config?: ImportConfig | undefined;
   platforms?: unknown[];
   appConfig?: unknown;
+  settings?: Record<string, unknown>;
   hardlink?: unknown;
 } = {}) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
     const u = getRequestUrl(url);
     if (u.includes("/api/imports/config")) return createJsonResponse(config);
     if (u.includes("/api/igdb/platforms")) return createJsonResponse(platforms);
+    if (u.includes("/api/settings")) return createJsonResponse(settings);
     if (u.includes("/api/imports/hardlink/check")) return createJsonResponse(hardlink);
     if (u.includes("/api/config")) return createJsonResponse(appConfig);
     return createJsonResponse({});
@@ -125,66 +128,6 @@ describe("ImportSettings", () => {
     });
   });
 
-  it("filters platforms by search text", async () => {
-    renderComponent();
-    await screen.findByText("PC (Microsoft Windows)");
-
-    fireEvent.change(screen.getByPlaceholderText("Search platforms..."), {
-      target: { value: "playstation" },
-    });
-
-    expect(screen.queryByText("PC (Microsoft Windows)")).not.toBeInTheDocument();
-    expect(screen.getByText("PlayStation 5")).toBeInTheDocument();
-  });
-
-  it("shows a no-match message when the search filters out all platforms", async () => {
-    renderComponent();
-    await screen.findByText("PC (Microsoft Windows)");
-
-    fireEvent.change(screen.getByPlaceholderText("Search platforms..."), {
-      target: { value: "nonexistent-platform" },
-    });
-
-    expect(screen.getByText("No platforms match your search.")).toBeInTheDocument();
-  });
-
-  it("toggles a platform filter checkbox", async () => {
-    renderComponent();
-    await screen.findByText("PC (Microsoft Windows)");
-
-    const checkbox = screen.getByLabelText("PC (Microsoft Windows)");
-    fireEvent.click(checkbox);
-    expect(checkbox).toBeChecked();
-  });
-
-  it("shows an error state and retry button when platforms fail to load", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
-      const u = getRequestUrl(url);
-      if (u.includes("/api/igdb/platforms")) {
-        return { ok: false, json: async () => ({}) } as Response;
-      }
-      if (u.includes("/api/imports/config")) return createJsonResponse(baseConfig);
-      if (u.includes("/api/imports/hardlink/check")) {
-        return createJsonResponse({
-          generic: { targetRoot: "/data/library", supportedForAll: true, checkedSources: [] },
-        });
-      }
-      return createJsonResponse({});
-    });
-
-    renderComponent();
-    expect(await screen.findByText("Could not load platform list from IGDB.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
-  });
-
-  it("shows an IGDB-not-configured message when there are no platforms and IGDB is unconfigured", async () => {
-    mockFetch({ platforms: [], appConfig: { igdb: { configured: false } } });
-    renderComponent();
-    expect(
-      await screen.findByText("IGDB is not configured yet — platform filters unavailable.")
-    ).toBeInTheDocument();
-  });
-
   it("switches to the help tab and renders guidance content", async () => {
     renderComponent();
     await screen.findByText("Enable Post-Processing");
@@ -250,5 +193,33 @@ describe("ImportSettings", () => {
       screen.queryByText(/If your download client runs on a different machine/)
     ).not.toBeInTheDocument();
     expect(container.querySelector(".pointer-events-none")).toBeInTheDocument();
+  });
+
+  it("reports an active platform restriction instead of claiming all are eligible", async () => {
+    // The helper returns every platform for an empty selection, so a summary
+    // derived from label count would call this active selection unrestricted.
+    mockFetch({ settings: { importPlatformIds: [2] } });
+    renderComponent();
+
+    expect(await screen.findByText("Eligible: PlayStation 5")).toBeInTheDocument();
+    expect(screen.queryByText("All platforms are currently eligible.")).not.toBeInTheDocument();
+  });
+
+  it("does not list every platform as eligible when nothing is selected", async () => {
+    mockFetch({ settings: { importPlatformIds: [] } });
+    renderComponent();
+
+    expect(await screen.findByText("All platforms are currently eligible.")).toBeInTheDocument();
+    expect(screen.queryByText(/^Eligible: /)).not.toBeInTheDocument();
+  });
+
+  it("distinguishes an active restriction whose names are unavailable", async () => {
+    // Id 999 is a valid restriction that IGDB does not report, so there is no
+    // label to show — this must not read as "all platforms eligible".
+    mockFetch({ settings: { importPlatformIds: [999] } });
+    renderComponent();
+
+    expect(await screen.findByText("Eligible platform names unavailable.")).toBeInTheDocument();
+    expect(screen.queryByText("All platforms are currently eligible.")).not.toBeInTheDocument();
   });
 });

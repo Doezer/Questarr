@@ -85,7 +85,9 @@ import {
   parseJsonStringArray,
   matchesPlatformFilter,
   normalizeTitle,
+  type CanonicalPlatform,
 } from "@shared/title-utils";
+import { canonicalPlatformsForIgdbIds, matchesSelectedIgdbPlatform } from "@shared/platforms";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
 
 interface DownloadItem {
@@ -306,7 +308,16 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       }
     }
     if (userSettings?.preferredPlatform && !platformPreselectedRef.current) {
-      setSelectedPlatforms([userSettings.preferredPlatform]);
+      // The preferred platform must also be allowed by the Platforms setting;
+      // otherwise preselecting it would hide every release and show a warning
+      // that blames the wrong filter.
+      const allowed = canonicalPlatformsForIgdbIds(userSettings?.importPlatformIds);
+      const preferredAllowed =
+        allowed.length === 0 ||
+        allowed.includes(userSettings.preferredPlatform as CanonicalPlatform);
+      if (preferredAllowed) {
+        setSelectedPlatforms([userSettings.preferredPlatform]);
+      }
       platformPreselectedRef.current = true;
     }
   }, [
@@ -314,6 +325,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     userSettings?.filterByPreferredGroups,
     userSettings?.preferredReleaseGroups,
     userSettings?.preferredPlatform,
+    userSettings?.importPlatformIds,
   ]);
 
   // Initialize search query only when the dialog opens or game changes — not on settings refetch.
@@ -430,10 +442,14 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     if (metas.some((meta) => !meta.platform)) {
       platforms.add("PC");
     }
+    // The Platforms setting narrows this dropdown the same way it narrows the
+    // Library and Discover selectors.
+    const allowed = new Set<string>(canonicalPlatformsForIgdbIds(userSettings?.importPlatformIds));
     return Array.from(platforms)
+      .filter((p) => allowed.size === 0 || allowed.has(p))
       .sort((a, b) => a.localeCompare(b))
       .map((p) => ({ label: p, value: p }));
-  }, [itemsMetadata]);
+  }, [itemsMetadata, userSettings?.importPlatformIds]);
 
   const itemPubDateTimestamps = useMemo(() => {
     if (!searchResults?.items) return new Map<string, number>();
@@ -463,8 +479,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
         .filter((t) => selectedGroups.length === 0 || (t.group && selectedGroups.includes(t.group)))
         .filter((t) => {
-          if (selectedPlatforms.length === 0) return true;
           const platform = itemsMetadata.get(t.title)?.platform;
+          // Platforms setting first: releases outside the user's platforms are
+          // never offered, regardless of the in-dialog selection below.
+          if (!matchesSelectedIgdbPlatform(platform, userSettings?.importPlatformIds)) return false;
+          if (selectedPlatforms.length === 0) return true;
           return selectedPlatforms.some((sp) => matchesPlatformFilter(platform, sp));
         })
         .sort((a, b) => {
@@ -509,6 +528,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     selectedPlatforms,
     itemPubDateTimestamps,
     indexerPriorityMap,
+    userSettings?.importPlatformIds,
   ]);
 
   const downloadMutation = useMutation({
@@ -940,6 +960,17 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                   .filter(
                     (t) =>
                       selectedGroups.length === 0 || (t.group && selectedGroups.includes(t.group))
+                  )
+                  // Apply the Platforms setting here too, so this baseline reflects
+                  // only the in-dialog platform selection. Otherwise a release
+                  // hidden by the Platforms setting would make the warning below
+                  // claim the preferred-platform filter is at fault, and clearing
+                  // that filter would still show nothing.
+                  .filter((t) =>
+                    matchesSelectedIgdbPlatform(
+                      itemsMetadata.get(t.title)?.platform,
+                      userSettings?.importPlatformIds
+                    )
                   ).length
               );
             },

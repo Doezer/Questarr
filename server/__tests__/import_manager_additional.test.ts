@@ -22,7 +22,11 @@ vi.mock("../downloaders.js", () => ({ DownloaderManager: downloadersMock }));
 const isSensitivePathMock = vi.hoisted(() =>
   vi.fn<(path: string) => boolean>().mockReturnValue(false)
 );
-vi.mock("../path-security.js", () => ({ isSensitivePath: isSensitivePathMock }));
+const assertWithinRootsMock = vi.hoisted(() => vi.fn());
+vi.mock("../path-security.js", () => ({
+  isSensitivePath: isSensitivePathMock,
+  assertWithinRoots: assertWithinRootsMock,
+}));
 
 import { ImportManager } from "../services/ImportManager.js";
 import { PCImportStrategy } from "../services/ImportStrategies.js";
@@ -48,15 +52,19 @@ function makeStorage() {
 function makeManager(
   storage: ReturnType<typeof makeStorage>,
   overrides: {
-    pathService?: { translatePath: ReturnType<typeof vi.fn> };
+    pathService?: {
+      translatePath: ReturnType<typeof vi.fn>;
+      getConfiguredRoots?: ReturnType<typeof vi.fn>;
+    };
     archiveService?: {
       isArchive: ReturnType<typeof vi.fn>;
       extract: ReturnType<typeof vi.fn>;
     };
   } = {}
 ) {
-  const pathService = overrides.pathService ?? {
-    translatePath: vi.fn().mockResolvedValue("/local/file.iso"),
+  const pathService = {
+    getConfiguredRoots: vi.fn().mockResolvedValue([]),
+    ...(overrides.pathService ?? { translatePath: vi.fn().mockResolvedValue("/local/file.iso") }),
   };
   const platformService = { getSourcePlatform: vi.fn() };
   const archiveService = overrides.archiveService ?? {
@@ -487,6 +495,26 @@ describe("ImportManager - readSourceFiles (via planConfirmImport)", () => {
     expect(fsMock.readdir).not.toHaveBeenCalled();
 
     planSpy.mockRestore();
+  });
+
+  it("returns empty file listing for a source outside configured roots without touching the filesystem", async () => {
+    // Regression test: readSourceFiles used to stat/readdir the source directly, so an
+    // out-of-root path had its directory contents disclosed through this preview
+    // listing even though the later import itself would go on to reject it.
+    assertWithinRootsMock.mockRejectedValue(
+      new Error("Refusing to process a path outside the configured downloader roots")
+    );
+
+    const manager = makeManager(makeBaseStorage());
+    const result = await manager.planConfirmImport("dl-1", "/etc/outside-root");
+
+    expect(result.files).toEqual([]);
+    expect(result.hasArchive).toBe(false);
+    expect(result.totalCount).toBe(0);
+    expect(fsMock.stat).not.toHaveBeenCalled();
+    expect(fsMock.readdir).not.toHaveBeenCalled();
+
+    assertWithinRootsMock.mockReset();
   });
 });
 

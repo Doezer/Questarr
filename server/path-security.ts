@@ -1,3 +1,4 @@
+import fs from "fs-extra";
 import path from "node:path";
 
 const SENSITIVE_PATH_PREFIXES = ["/proc", "/sys", "/dev", "/run/secrets", "/etc", "/root"];
@@ -14,4 +15,89 @@ const SENSITIVE_PATH_REGEX = new RegExp(
 export function isSensitivePath(rawPath: string): boolean {
   const resolved = path.resolve(rawPath).replaceAll("\\", "/");
   return SENSITIVE_PATH_REGEX.test(resolved);
+}
+
+// Roots come from configuration, not request input, so resolving symlinks in them
+// carries no taint for CodeQL's path-injection analysis; a shared helper is fine here.
+async function canonicalizeRoot(resolvedRoot: string): Promise<string> {
+  try {
+    return await fs.realpath(resolvedRoot);
+  } catch {
+    return resolvedRoot;
+  }
+}
+
+/**
+ * Throws unless candidatePath resolves inside one of the given roots. An empty
+ * roots list means no restriction is configured — callers pass [] deliberately in
+ * that case (rather than skipping the call) to keep this the single place the
+ * containment logic lives.
+ */
+export async function assertWithinRoots(
+  candidatePath: string,
+  roots: string[],
+  errorMessage: string
+): Promise<void> {
+  if (roots.length === 0) return;
+
+  const resolvedCandidate = path.resolve(candidatePath);
+  const resolvedRoots = roots.map((root) => path.resolve(root));
+
+  // Cheap pathname-only pass first: reject an obviously out-of-root path before ever
+  // touching the filesystem to resolve symlinks for it. Track which root matched and
+  // the checked relative segment, rather than just a boolean: CodeQL's path-injection
+  // sanitizer treats path.relative(root, x).startsWith("..") as clearing the taint on
+  // that *relative* expression specifically, not on x itself, so a later filesystem
+  // call needs to be built from the checked relative segment (see below) rather than
+  // from resolvedCandidate directly for the sanitizer to be recognized.
+  let matchedRoot: string | undefined;
+  let matchedRelative = "";
+  for (const root of resolvedRoots) {
+    const relative = path.relative(root, resolvedCandidate);
+    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+      matchedRoot = root;
+      matchedRelative = relative;
+      break;
+    }
+  }
+  if (matchedRoot === undefined) {
+    throw new Error(errorMessage);
+  }
+
+  // Rebuild the candidate from the matched root plus the already-checked relative
+  // segment instead of reusing resolvedCandidate. It denotes the same path when
+  // candidatePath is under matchedRoot (which it is, having just passed the check
+  // above), but composing it from parts the sanitizer has verified keeps the value
+  // handed to fs.realpath below tied to that verified data instead of to the
+  // original, unchecked candidate string.
+  const verifiedCandidate =
+    matchedRelative === "" ? matchedRoot : path.join(matchedRoot, matchedRelative);
+
+  // The pathname passed containment, but path.resolve() doesn't follow symlinks — a
+  // symlink sitting inside an allowed root could still point outside it. Canonicalize
+  // and check again to catch that. realpath requires the whole path (including the
+  // final component) to already exist, so a path that doesn't exist yet — e.g. a
+  // download still in flight, being polled for existence — falls back to the
+  // already-resolved pathname; there's nothing to canonicalize until it exists, and
+  // callers checking existence need that check to run regardless.
+  let canonicalCandidate: string;
+  try {
+    canonicalCandidate = await fs.realpath(verifiedCandidate);
+  } catch {
+    canonicalCandidate = verifiedCandidate;
+  }
+
+  const canonicalRoots = await Promise.all(resolvedRoots.map(canonicalizeRoot));
+
+  let withinCanonicalRoots = false;
+  for (const root of canonicalRoots) {
+    const relative = path.relative(root, canonicalCandidate);
+    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+      withinCanonicalRoots = true;
+      break;
+    }
+  }
+  if (!withinCanonicalRoots) {
+    throw new Error(errorMessage);
+  }
 }

@@ -36,6 +36,27 @@ describe("PathMappingService", () => {
     await expect(service.removeMapping("m1")).resolves.toBe(true);
   });
 
+  it("getConfiguredRoots returns deduplicated, resolved local paths", async () => {
+    storage.getPathMappings.mockResolvedValue([
+      { id: "a", remotePath: "/downloads", localPath: "/data/downloads", remoteHost: null },
+      { id: "b", remotePath: "/other", localPath: "/data/downloads", remoteHost: "nas.local" },
+      { id: "c", remotePath: "/incoming", localPath: "/data/incoming", remoteHost: null },
+    ]);
+
+    const service = new PathMappingService(storage as never);
+    const roots = await service.getConfiguredRoots();
+
+    expect(roots).toEqual(["/data/downloads", "/data/incoming"]);
+  });
+
+  it("getConfiguredRoots returns an empty list when no mappings are configured", async () => {
+    storage.getPathMappings.mockResolvedValue([]);
+
+    const service = new PathMappingService(storage as never);
+
+    await expect(service.getConfiguredRoots()).resolves.toEqual([]);
+  });
+
   it("translates path using longest prefix match", async () => {
     storage.getPathMappings.mockResolvedValue([
       {

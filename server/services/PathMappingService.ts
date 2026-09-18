@@ -10,6 +10,16 @@ export class PathMappingService {
     return this.storage.getPathMappings();
   }
 
+  // The set of local filesystem roots a translated download path is allowed to live
+  // under. translatePath() already confines its own output to one of these (or passes
+  // the remote path through unchanged when none are configured — there's no local root
+  // to restrict to in that case, so callers should treat an empty result as "no
+  // restriction possible," matching that same trust model rather than fighting it.
+  async getConfiguredRoots(): Promise<string[]> {
+    const mappings = await this.storage.getPathMappings();
+    return [...new Set(mappings.map((m) => path.resolve(m.localPath)))];
+  }
+
   async addMapping(mapping: InsertPathMapping): Promise<PathMapping> {
     return this.storage.addPathMapping(mapping);
   }

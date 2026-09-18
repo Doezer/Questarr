@@ -52,7 +52,10 @@ function makeStorage() {
   };
 }
 
-const pathService = { translatePath: vi.fn(async (p: string) => p) };
+const pathService = {
+  translatePath: vi.fn(async (p: string) => p),
+  getConfiguredRoots: vi.fn().mockResolvedValue([]),
+};
 const platformService = {};
 
 function createManager(
@@ -254,6 +257,31 @@ describe("ImportManager archive extraction (library-side)", () => {
     );
 
     copySpy.mockRestore();
+  });
+
+  it("refuses to import a source path outside the configured downloader roots", async () => {
+    const sourceDir = path.join(downloadsRoot, "Game-Release");
+    await fs.ensureDir(sourceDir);
+    await fs.writeFile(path.join(sourceDir, "game.zip"), "zip-bytes");
+
+    const { archiveService } = makeArchiveService({});
+    // A configured root that doesn't cover downloadsRoot — as if the admin mapped
+    // the downloader to a different directory than the one this source actually
+    // lives under.
+    pathService.getConfiguredRoots.mockResolvedValueOnce([path.join(libraryRoot, "unrelated")]);
+
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, { transferMode: "move", libraryRoot });
+
+    await manager.processImport("dl-1", sourceDir);
+
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+      "dl-1",
+      "manual_review_required",
+      expect.stringContaining("Refusing to process a path outside the configured downloader roots")
+    );
+    // Nothing was read or transferred out of the rejected source.
+    expect(await fs.pathExists(sourceDir)).toBe(true);
   });
 
   it("move mode: picks the primary .rar volume over .rNN continuations as the extraction entry point", async () => {

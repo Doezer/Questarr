@@ -20,7 +20,7 @@ import { parseReleaseMetadata } from "../../shared/title-utils.js";
 import { GAME_LINK_REQUIRED_STATUS } from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
-import { isSensitivePath } from "../path-security.js";
+import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { notifyUser } from "../socket.js";
 
 const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
@@ -176,6 +176,12 @@ export class ImportManager {
       throw new Error("Refusing to process a sensitive system path");
     }
 
+    await assertWithinRoots(
+      sourcePath,
+      await this.pathService.getConfiguredRoots(),
+      "Refusing to process a path outside the configured downloader roots"
+    );
+
     const stats = await fs.stat(sourcePath);
 
     if (!stats.isDirectory()) {
@@ -245,7 +251,7 @@ export class ImportManager {
     password: string | undefined,
     sortExtras: boolean
   ): Promise<ImportResult> {
-    const strategy = new PCImportStrategy();
+    const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
 
     if (!resolution || resolution.alreadyExtracted) {
       return strategy.executeImport(plan, transferMode, resolution?.excludePaths);
@@ -435,6 +441,14 @@ export class ImportManager {
     const empty = { files: [], hasArchive: false, totalCount: 0 };
     if (isSensitivePath(sourcePath)) return empty;
     try {
+      // Rejecting here (rather than only inside planImport/executeImport later) stops
+      // an out-of-root path from having its directory contents disclosed through this
+      // preview listing before the import flow ever gets to reject it.
+      await assertWithinRoots(
+        sourcePath,
+        await this.pathService.getConfiguredRoots(),
+        "Refusing to process a path outside the configured downloader roots"
+      );
       const resolved = path.resolve(sourcePath);
       const stats = await fs.stat(resolved);
       let allNames: string[];
@@ -700,6 +714,15 @@ export class ImportManager {
       const localPath = resolved.localPath;
       const downloaderName = resolved.downloaderName;
 
+      // Before even probing for existence: verifyLocalPath's fs.pathExists() call
+      // below would otherwise leak whether an out-of-root path exists on disk to
+      // an import flow that should never have been allowed to look at it at all.
+      await assertWithinRoots(
+        localPath,
+        await this.pathService.getConfiguredRoots(),
+        "Refusing to process a path outside the configured downloader roots"
+      );
+
       logger.debug({ localPath }, "[ImportManager] Checking path accessibility");
       if (
         !(await this.verifyLocalPath(downloadId, localPath, {
@@ -715,7 +738,7 @@ export class ImportManager {
       const archiveResolution = config.autoUnpack ? await this.resolveArchive(localPath) : null;
       const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
 
-      const strategy = new PCImportStrategy();
+      const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
       const libraryRoot = config.libraryRoot || "/data";
 
       if (
@@ -842,7 +865,7 @@ export class ImportManager {
     if (resolvedOriginalPath) {
       const { files, hasArchive, totalCount } = await this.readSourceFiles(resolvedOriginalPath);
       try {
-        const strategy = new PCImportStrategy();
+        const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
         const plan = await strategy.planImport(
           resolvedOriginalPath,
           game,
@@ -908,6 +931,14 @@ export class ImportManager {
       );
     }
 
+    // Before the existence probe below: overridePlan.originalPath can come from a
+    // manually-typed path in the review UI, not just a translated downloader path.
+    await assertWithinRoots(
+      resolvedOriginalPath,
+      await this.pathService.getConfiguredRoots(),
+      "Refusing to process a path outside the configured downloader roots"
+    );
+
     if (!(await fs.pathExists(resolvedOriginalPath))) {
       throw new Error(`Source path not found: ${resolvedOriginalPath}`);
     }
@@ -961,7 +992,7 @@ export class ImportManager {
       proposedPath,
     };
 
-    const strategy = new PCImportStrategy();
+    const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
     if (config.sortExtras && !needsExtraction) {
       const categorizedPlan = await strategy.planImport(
         resolvedOriginalPath,

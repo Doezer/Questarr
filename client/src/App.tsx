@@ -15,8 +15,8 @@ import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
 import { routerBase } from "@/lib/app-path";
 import { routePaths } from "@/lib/routes";
-import { GHOST_THEME_KEY } from "@/lib/ghost-mode";
-import { WIN2K_THEME_KEY } from "@/lib/win2k-mode";
+import { applyThemeClass, migrateLegacyTheme } from "@/lib/theme-mode";
+import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
 // ⚡ Bolt: Code splitting with React.lazy
 // This reduces the initial bundle size by loading pages only when needed.
@@ -152,17 +152,12 @@ function AppShell() {
 
   useKonamiCode(() => navigate(routePaths.play));
 
-  // Re-apply the cosmetic Ghost Mode accent (if the player unlocked and enabled it) on load.
-  useEffect(() => {
-    const enabled = localStorage.getItem(GHOST_THEME_KEY) === "true";
-    document.documentElement.classList.toggle("theme-ghost", enabled);
-  }, []);
-
-  // Re-apply the cosmetic Windows 2000 skin (if enabled) on load. useLayoutEffect (rather than
-  // useEffect) so the class is applied before paint, avoiding a flash of the default theme.
+  // Apply the selected theme on load. useLayoutEffect (rather than useEffect) so the class
+  // is applied before paint, avoiding a flash of the default theme.
   useLayoutEffect(() => {
-    const enabled = localStorage.getItem(WIN2K_THEME_KEY) === "true";
-    document.documentElement.classList.toggle("theme-win2k", enabled);
+    const ghostUnlocked = localStorage.getItem(GHOST_UNLOCK_KEY) === "true";
+    const theme = migrateLegacyTheme(ghostUnlocked);
+    applyThemeClass(theme);
   }, []);
 
   // Custom sidebar width for the application

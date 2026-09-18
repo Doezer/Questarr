@@ -17,17 +17,25 @@ export function isSensitivePath(rawPath: string): boolean {
   return SENSITIVE_PATH_REGEX.test(resolved);
 }
 
+function isWithinAnyRoot(resolvedCandidate: string, resolvedRoots: string[]): boolean {
+  return resolvedRoots.some((root) => {
+    const relative = path.relative(root, resolvedCandidate);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  });
+}
+
 // Resolves symlinks via realpath so a symlink sitting inside a configured root
 // can't point somewhere outside it and slip past a pathname-only check. realpath
 // requires the whole path (including the final component) to already exist, so a
 // path that doesn't exist yet — e.g. a download still in flight, being polled for
-// existence — falls back to a plain resolve(); there's nothing to canonicalize until
-// it exists, and callers checking existence need that check to run regardless.
-async function canonicalize(rawPath: string): Promise<string> {
+// existence — falls back to the already-resolved pathname; there's nothing to
+// canonicalize until it exists, and callers checking existence need that check to
+// run regardless.
+async function canonicalize(resolvedPath: string): Promise<string> {
   try {
-    return await fs.realpath(rawPath);
+    return await fs.realpath(resolvedPath);
   } catch {
-    return path.resolve(rawPath);
+    return resolvedPath;
   }
 }
 
@@ -43,13 +51,21 @@ export async function assertWithinRoots(
   errorMessage: string
 ): Promise<void> {
   if (roots.length === 0) return;
-  const resolvedCandidate = await canonicalize(candidatePath);
-  const resolvedRoots = await Promise.all(roots.map(canonicalize));
-  const withinAnyRoot = resolvedRoots.some((root) => {
-    const relative = path.relative(root, resolvedCandidate);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-  });
-  if (!withinAnyRoot) {
+
+  // Cheap pathname-only pass first: reject an obviously out-of-root path before ever
+  // touching the filesystem to resolve symlinks for it.
+  const resolvedCandidate = path.resolve(candidatePath);
+  const resolvedRoots = roots.map((root) => path.resolve(root));
+  if (!isWithinAnyRoot(resolvedCandidate, resolvedRoots)) {
+    throw new Error(errorMessage);
+  }
+
+  // The pathname passed containment, but path.resolve() doesn't follow symlinks — a
+  // symlink sitting inside an allowed root could still point outside it. Canonicalize
+  // and check again to catch that.
+  const canonicalCandidate = await canonicalize(resolvedCandidate);
+  const canonicalRoots = await Promise.all(resolvedRoots.map(canonicalize));
+  if (!isWithinAnyRoot(canonicalCandidate, canonicalRoots)) {
     throw new Error(errorMessage);
   }
 }

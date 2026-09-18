@@ -71,5 +71,66 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // schema.pg.ts is a server-only runtime mirror. Importing it from the client
+    // would pull drizzle-orm/pg-core into the browser bundle for no reason.
+    files: ["client/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/schema.pg", "**/schema.pg.js"],
+              message:
+                "shared/schema.pg.ts is server-only. Import types and Zod schemas from @shared/schema.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Table VALUES must come from server/db/tables.ts so queries are built
+    // against the active dialect's tables. Types may still come from the
+    // canonical schema, which is why this bans names rather than the module.
+    files: ["server/**/*.ts"],
+    ignores: ["server/db/**", "server/__tests__/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "../shared/schema.js",
+              importNames: [
+                "apiKeys",
+                "downloaders",
+                "gameDownloads",
+                "gameFiles",
+                "games",
+                "importTaskItems",
+                "importTasks",
+                "indexers",
+                "notifications",
+                "pathMappings",
+                "platformMappings",
+                "releaseBlacklist",
+                "rootFolders",
+                "rssFeedItems",
+                "rssFeeds",
+                "systemConfig",
+                "userSettings",
+                "users",
+                "xrelNotifiedReleases",
+              ],
+              message:
+                "Import table values from ./db/tables.js so queries target the active dialect. Types and Zod schemas may still come from ../shared/schema.js.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   prettierConfig
 );

@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-vi.mock("../db.js", () => ({ pool: {}, db: {} }));
+vi.mock("../db.js", () => ({ dialect: "sqlite", pool: {}, db: {} }));
 vi.mock("better-sqlite3", () => ({
   default: vi.fn().mockImplementation(() => ({ pragma: vi.fn() })),
 }));
 vi.mock("../db", () => ({
+  dialect: "sqlite",
   pool: {},
   db: {
     select: vi.fn().mockReturnThis(),

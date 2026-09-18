@@ -187,6 +187,27 @@ export function createDbMock() {
   };
 }
 
+/**
+ * Module-level mock for `../db.js`.
+ *
+ * pingDatabase() delegates to the same `db.get` mock the readiness tests drive,
+ * so a test that makes `db.get` resolve or reject still controls whether the
+ * readiness probe reports healthy -- exactly as it did when the route called
+ * `db.get()` directly.
+ */
+export function createDbModuleMock() {
+  const db = createDbMock();
+  return {
+    // These suites exercise the SQLite path; server/db/tables.ts reads this.
+    dialect: "sqlite" as const,
+    db,
+    pool: {},
+    pingDatabase: async () => {
+      await db.get();
+    },
+  };
+}
+
 export function createLoggerMocks() {
   return {
     routesLogger: {

@@ -30,6 +30,22 @@ import {
   type ImportTaskType,
   type ImportTaskItemResult,
   type InsertImportTaskItem,
+  type PathMapping,
+  type InsertPathMapping,
+  type PlatformMapping,
+  type InsertPlatformMapping,
+  type ImportConfig,
+  importConfigSchema,
+  type GameFile,
+  type InsertGameFile,
+  type ApiKey,
+  type ApiKeyPublic,
+  GAME_LINK_REQUIRED_STATUS,
+  type RootFolder,
+  type InsertRootFolder,
+  type UpdateRootFolder,
+} from "../shared/schema.js";
+import {
   users,
   games,
   indexers,
@@ -45,34 +61,35 @@ import {
   platformMappings,
   importTasks,
   importTaskItems,
-  type PathMapping,
-  type InsertPathMapping,
-  type PlatformMapping,
-  type InsertPlatformMapping,
-  type ImportConfig,
-  importConfigSchema,
   releaseBlacklist,
-  type GameFile,
-  type InsertGameFile,
   gameFiles,
-  type ApiKey,
-  type ApiKeyPublic,
   apiKeys,
-  GAME_LINK_REQUIRED_STATUS,
-  type RootFolder,
-  type InsertRootFolder,
-  type UpdateRootFolder,
   rootFolders,
-} from "../shared/schema.js";
+} from "./db/tables.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { normalizeDownloadHash } from "./download-hash.js";
-import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
+import {
+  eq,
+  like,
+  or,
+  sql,
+  desc,
+  and,
+  not,
+  inArray,
+  count,
+  isNull,
+  isNotNull,
+  gte,
+  lt,
+} from "drizzle-orm";
+import { containsCI, distinctJoin, affectedRows } from "./sql-compat.js";
+import { transactionalOps } from "./db/transactional-ops.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import {
   encryptCredential,
   decryptCredential,
-  encryptCredentialSync,
   getCredentialsEncryptionKey,
 } from "./credential-crypto.js";
 
@@ -1794,27 +1811,7 @@ export class DatabaseStorage implements IStorage {
   async seedPlatformMappingsIfEmpty(
     mappings: InsertPlatformMapping[]
   ): Promise<{ seeded: boolean; count: number }> {
-    return db.transaction((tx) => {
-      const [existing] = tx
-        .select({ count: sql<number>`count(*)` })
-        .from(platformMappings)
-        .all();
-      if (existing.count > 0) {
-        return { seeded: false, count: existing.count };
-      }
-
-      for (const mapping of mappings) {
-        tx.insert(platformMappings)
-          .values({ ...mapping, id: randomUUID() })
-          .run();
-      }
-
-      const [seeded] = tx
-        .select({ count: sql<number>`count(*)` })
-        .from(platformMappings)
-        .all();
-      return { seeded: true, count: seeded.count };
-    });
+    return transactionalOps.seedPlatformMappingsIfEmpty(mappings);
   }
 
   async updatePlatformMapping(
@@ -1889,30 +1886,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async countUsers(): Promise<number> {
-    const [result] = await db.select({ count: sql<number>`count(*)` }).from(users);
+    const [result] = await db.select({ count: count() }).from(users);
     return result.count;
   }
 
   async registerSetupUser(insertUser: InsertUser): Promise<User> {
-    return db.transaction((tx) => {
-      const [result] = tx
-        .select({ count: sql<number>`count(*)` })
-        .from(users)
-        .all();
-
-      if (result.count > 0) {
-        throw new Error("Setup already completed");
-      }
-
-      // Manually generate UUID for SQLite
-      const id = randomUUID();
-      const [user] = tx
-        .insert(users)
-        .values({ ...insertUser, id, steamId64: null })
-        .returning()
-        .all();
-      return user;
-    });
+    return transactionalOps.registerSetupUser(insertUser);
   }
 
   // Game methods
@@ -1938,14 +1917,11 @@ export class DatabaseStorage implements IStorage {
           statuses && statuses.length > 0 ? inArray(games.status, statuses as any[]) : undefined
         )
       )
-      .orderBy(sql`${games.addedAt} DESC`);
+      .orderBy(desc(games.addedAt));
   }
 
   async getAllGames(): Promise<Game[]> {
-    return db
-      .select()
-      .from(games)
-      .orderBy(sql`${games.addedAt} DESC`);
+    return db.select().from(games).orderBy(desc(games.addedAt));
   }
 
   async getUserGamesByStatus(
@@ -1964,11 +1940,10 @@ export class DatabaseStorage implements IStorage {
           includeHidden ? undefined : eq(games.hidden, false)
         )
       )
-      .orderBy(sql`${games.addedAt} DESC`);
+      .orderBy(desc(games.addedAt));
   }
 
   async searchUserGames(userId: string, query: string, includeHidden = false): Promise<Game[]> {
-    const searchTerm = `%${query.toLowerCase()}%`;
     return db
       .select()
       .from(games)
@@ -1977,13 +1952,13 @@ export class DatabaseStorage implements IStorage {
           eq(games.userId, userId),
           includeHidden ? undefined : eq(games.hidden, false),
           or(
-            like(sql`lower(${games.title})`, searchTerm),
-            like(sql`lower(${games.genres})`, searchTerm),
-            like(sql`lower(${games.platforms})`, searchTerm)
+            containsCI(games.title, query),
+            containsCI(games.genres, query),
+            containsCI(games.platforms, query)
           )
         )
       )
-      .orderBy(sql`${games.addedAt} DESC`);
+      .orderBy(desc(games.addedAt));
   }
 
   async addGame(insertGame: InsertGame): Promise<Game> {
@@ -2087,7 +2062,7 @@ export class DatabaseStorage implements IStorage {
               searchResultsAvailable: true,
               // Only stamp the "became downloadable" time on the false→true transition,
               // so re-confirming availability on subsequent cron runs doesn't keep bumping it.
-              searchResultsAvailableAt: sql`CASE WHEN ${games.searchResultsAvailable} = 0 THEN ${Date.now()} ELSE ${games.searchResultsAvailableAt} END`,
+              searchResultsAvailableAt: sql`CASE WHEN ${eq(games.searchResultsAvailable, false)} THEN ${Date.now()} ELSE ${games.searchResultsAvailableAt} END`,
             }
           : {
               searchResultsAvailable: false,
@@ -2110,7 +2085,7 @@ export class DatabaseStorage implements IStorage {
         packsSearchResultsAvailable: availability.packs,
         searchResultsAvailable: nowAvailable,
         searchResultsAvailableAt: nowAvailable
-          ? sql`CASE WHEN ${games.searchResultsAvailable} = 0 THEN ${Date.now()} ELSE ${games.searchResultsAvailableAt} END`
+          ? sql`CASE WHEN ${eq(games.searchResultsAvailable, false)} THEN ${Date.now()} ELSE ${games.searchResultsAvailableAt} END`
           : games.searchResultsAvailableAt,
       })
       .where(eq(games.id, gameId));
@@ -2123,11 +2098,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void> {
-    db.transaction((tx) => {
-      for (const update of updates) {
-        tx.update(games).set(update.data).where(eq(games.id, update.id)).run();
-      }
-    });
+    return transactionalOps.updateGamesBatch(updates);
   }
 
   async removeGame(id: string): Promise<boolean> {
@@ -2136,11 +2107,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async assignOrphanGamesToUser(userId: string): Promise<number> {
-    const result = await db
-      .update(games)
-      .set({ userId })
-      .where(sql`${games.userId} IS NULL`)
-      .returning();
+    const result = await db.update(games).set({ userId }).where(isNull(games.userId)).returning();
     return result.length;
   }
 
@@ -2148,9 +2115,7 @@ export class DatabaseStorage implements IStorage {
     const wantedGames = await db
       .select()
       .from(games)
-      .where(
-        and(eq(games.status, "wanted"), eq(games.hidden, false), sql`${games.userId} IS NOT NULL`)
-      );
+      .where(and(eq(games.status, "wanted"), eq(games.hidden, false), isNotNull(games.userId)));
 
     const gamesByUser = new Map<string, Game[]>();
     for (const game of wantedGames) {
@@ -2221,82 +2186,10 @@ export class DatabaseStorage implements IStorage {
   async syncIndexers(
     indexersToSync: Partial<Indexer>[]
   ): Promise<{ added: number; updated: number; failed: number; errors: string[] }> {
-    const results = {
-      added: 0,
-      updated: 0,
-      failed: 0,
-      errors: [] as string[],
-    };
-
-    // Resolve the encryption key up front -- db.transaction()'s callback runs
-    // synchronously (better-sqlite3), so it can't await an async key lookup.
+    // Resolved here rather than inside the transaction: the SQLite transaction
+    // callback is synchronous and cannot await this lookup.
     const encryptionKey = await getCredentialsEncryptionKey();
-
-    db.transaction((tx) => {
-      // Fetch all existing indexers within the transaction to compare against
-      const existingIndexers = tx.select().from(indexers).all();
-      const existingMap = new Map(existingIndexers.map((i) => [i.url, i]));
-
-      for (const idx of indexersToSync) {
-        try {
-          if (!idx.name || !idx.url || !idx.apiKey) {
-            results.failed++;
-            results.errors.push(`Skipping ${idx.name || "unknown"} - missing required fields`);
-            continue;
-          }
-
-          const existing = existingMap.get(idx.url);
-          const encryptedApiKey = encryptCredentialSync(idx.apiKey, encryptionKey);
-
-          if (existing) {
-            // Explicitly set allowed fields for update to prevent mass assignment
-            tx.update(indexers)
-              .set({
-                name: idx.name,
-                url: idx.url,
-                apiKey: encryptedApiKey,
-                protocol: idx.protocol,
-                enabled: idx.enabled,
-                priority: idx.priority,
-                categories: idx.categories,
-                rssEnabled: idx.rssEnabled,
-                autoSearchEnabled: idx.autoSearchEnabled,
-                updatedAt: new Date(),
-              })
-              .where(eq(indexers.id, existing.id))
-              .run();
-            results.updated++;
-          } else {
-            const id = randomUUID();
-            // Default values for missing optional fields
-            const newIndexer = {
-              id,
-              name: idx.name,
-              url: idx.url,
-              apiKey: encryptedApiKey,
-              protocol: idx.protocol ?? "torznab",
-              enabled: idx.enabled ?? true,
-              priority: idx.priority ?? 1,
-              categories: idx.categories ?? [],
-              rssEnabled: idx.rssEnabled ?? true,
-              autoSearchEnabled: idx.autoSearchEnabled ?? true,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            };
-
-            tx.insert(indexers).values(newIndexer).run();
-            results.added++;
-          }
-        } catch (error) {
-          results.failed++;
-          results.errors.push(
-            `Failed to sync ${idx.name}: ${error instanceof Error ? error.message : "Unknown error"}`
-          );
-        }
-      }
-    });
-
-    return results;
+    return transactionalOps.syncIndexers(indexersToSync, encryptionKey);
   }
 
   // Downloader methods
@@ -2599,7 +2492,7 @@ export class DatabaseStorage implements IStorage {
     const rows = await db
       .select({
         gameId: gameDownloads.gameId,
-        count: sql<number>`count(*)`,
+        count: count(),
         topStatus: sql<string>`
           CASE
             WHEN sum(CASE WHEN ${gameDownloads.status} = 'failed' THEN 1 ELSE 0 END) > 0 THEN 'failed'
@@ -2608,14 +2501,17 @@ export class DatabaseStorage implements IStorage {
             ELSE 'completed'
           END
         `,
-        downloadTypes: sql<string>`group_concat(DISTINCT ${gameDownloads.downloadType})`,
+        downloadTypes: distinctJoin(gameDownloads.downloadType),
+        // lower() is required, not cosmetic: SQLite's LIKE is case-insensitive
+        // for ASCII but Postgres's is not, so an uppercased "Update" in a
+        // release title would match on one dialect and not the other.
         hasUpdateDownload: sql<number>`max(CASE
-          WHEN ${gameDownloads.downloadTitle} LIKE '%update%'
-            OR ${gameDownloads.downloadTitle} LIKE '%patch%'
-            OR ${gameDownloads.downloadTitle} LIKE '%hotfix%'
-            OR ${gameDownloads.downloadTitle} LIKE '%crackfix%'
-            OR ${gameDownloads.downloadTitle} LIKE '%fix%'
-          THEN 1 ELSE 0 END)`,
+          WHEN lower(${gameDownloads.downloadTitle}) LIKE '%update%'
+            OR lower(${gameDownloads.downloadTitle}) LIKE '%patch%'
+            OR lower(${gameDownloads.downloadTitle}) LIKE '%hotfix%'
+            OR lower(${gameDownloads.downloadTitle}) LIKE '%crackfix%'
+            OR lower(${gameDownloads.downloadTitle}) LIKE '%fix%'
+          THEN 1 ELSE 0 END)`.mapWith(Number),
       })
       .from(gameDownloads)
       .innerJoin(games, eq(gameDownloads.gameId, games.id))
@@ -2647,14 +2543,15 @@ export class DatabaseStorage implements IStorage {
   async getDashboardStatus(userId: string): Promise<DashboardStatus> {
     const [gameCounts] = await db
       .select({
-        totalGames: sql<number>`count(*)`,
-        pendingWishlist: sql<number>`sum(CASE WHEN ${games.status} = 'wanted' THEN 1 ELSE 0 END)`,
+        totalGames: count(),
+        pendingWishlist:
+          sql<number>`sum(CASE WHEN ${games.status} = 'wanted' THEN 1 ELSE 0 END)`.mapWith(Number),
       })
       .from(games)
       .where(and(eq(games.userId, userId), eq(games.hidden, false)));
 
     const [activeDownloadsResult] = await db
-      .select({ count: sql<number>`count(*)` })
+      .select({ count: count() })
       .from(gameDownloads)
       .innerJoin(games, eq(gameDownloads.gameId, games.id))
       .where(
@@ -2667,7 +2564,7 @@ export class DatabaseStorage implements IStorage {
 
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const [recentImportsCountResult] = await db
-      .select({ count: sql<number>`count(*)` })
+      .select({ count: count() })
       .from(gameDownloads)
       .innerJoin(games, eq(gameDownloads.gameId, games.id))
       .where(
@@ -2675,7 +2572,7 @@ export class DatabaseStorage implements IStorage {
           eq(games.userId, userId),
           eq(games.hidden, false),
           eq(gameDownloads.status, "completed"),
-          sql`${gameDownloads.completedAt} >= ${sevenDaysAgo.getTime()}`
+          gte(gameDownloads.completedAt, sevenDaysAgo)
         )
       );
 
@@ -2692,7 +2589,7 @@ export class DatabaseStorage implements IStorage {
           eq(games.userId, userId),
           eq(games.hidden, false),
           eq(gameDownloads.status, "completed"),
-          sql`${gameDownloads.completedAt} >= ${sevenDaysAgo.getTime()}`
+          gte(gameDownloads.completedAt, sevenDaysAgo)
         )
       )
       .orderBy(desc(gameDownloads.completedAt))
@@ -2725,7 +2622,7 @@ export class DatabaseStorage implements IStorage {
 
   async getUnreadNotificationsCount(userId: string): Promise<number> {
     const [result] = await db
-      .select({ count: sql<number>`count(*)` })
+      .select({ count: count() })
       .from(notifications)
       .where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
     return result.count;
@@ -2968,7 +2865,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(releaseBlacklist)
       .where(and(eq(releaseBlacklist.id, id), eq(releaseBlacklist.gameId, gameId)));
-    return result.changes > 0;
+    return affectedRows(result) > 0;
   }
 
   async getReleaseBlacklistSet(gameId: string): Promise<Set<string>> {
@@ -3014,12 +2911,12 @@ export class DatabaseStorage implements IStorage {
 
   async removeGameFile(id: string): Promise<boolean> {
     const result = await db.delete(gameFiles).where(eq(gameFiles.id, id));
-    return (result.changes ?? 0) > 0;
+    return affectedRows(result) > 0;
   }
 
   async removeGameFilesByGameId(gameId: string): Promise<number> {
     const result = await db.delete(gameFiles).where(eq(gameFiles.gameId, gameId));
-    return result.changes ?? 0;
+    return affectedRows(result);
   }
 
   // Import task history methods
@@ -3111,9 +3008,12 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(importTasks)
       .where(
-        and(not(eq(importTasks.status, "in_progress")), sql`${importTasks.createdAt} < ${cutoffMs}`)
+        and(
+          not(eq(importTasks.status, "in_progress")),
+          lt(importTasks.createdAt, new Date(cutoffMs))
+        )
       );
-    return result.changes;
+    return affectedRows(result);
   }
 
   // RootFolder methods
@@ -3174,7 +3074,7 @@ export class DatabaseStorage implements IStorage {
 
   async removeRootFolder(id: string): Promise<boolean> {
     const result = await db.delete(rootFolders).where(eq(rootFolders.id, id));
-    return (result.changes ?? 0) > 0;
+    return affectedRows(result) > 0;
   }
 
   // Integration API key methods
@@ -3197,34 +3097,7 @@ export class DatabaseStorage implements IStorage {
     key: { userId: string; name: string; keyHash: string; prefix: string },
     maxKeys: number
   ): Promise<ApiKeyPublic> {
-    // Counting and inserting inside one transaction closes the race two
-    // concurrent requests would otherwise have around the cap: without it,
-    // both could read the same under-limit count before either insert lands.
-    return db.transaction((tx) => {
-      const [{ count }] = tx
-        .select({ count: sql<number>`count(*)` })
-        .from(apiKeys)
-        .where(eq(apiKeys.userId, key.userId))
-        .all();
-
-      if (count >= maxKeys) {
-        throw new Error("API key limit reached");
-      }
-
-      const [created] = tx
-        .insert(apiKeys)
-        .values({ ...key, id: randomUUID() })
-        .returning({
-          id: apiKeys.id,
-          userId: apiKeys.userId,
-          name: apiKeys.name,
-          prefix: apiKeys.prefix,
-          createdAt: apiKeys.createdAt,
-          lastUsedAt: apiKeys.lastUsedAt,
-        })
-        .all();
-      return created;
-    });
+    return transactionalOps.addApiKey(key, maxKeys);
   }
 
   async getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined> {
@@ -3240,7 +3113,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(apiKeys)
       .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)));
-    return result.changes > 0;
+    return affectedRows(result) > 0;
   }
 }
 

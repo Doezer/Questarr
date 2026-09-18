@@ -33,6 +33,7 @@ vi.mock("../ssrf.js", () => ({
 
 // Mock DB
 vi.mock("../db.js", () => ({
+  dialect: "sqlite",
   pool: {},
   db: {},
 }));

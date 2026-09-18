@@ -11,7 +11,15 @@ const sqlite = new Database(":memory:");
 sqlite.pragma("foreign_keys = OFF");
 const db = drizzle(sqlite, { schema });
 
-vi.mock("../db.js", () => ({ db, pool: sqlite }));
+vi.mock("../db.js", () => ({
+  dialect: "sqlite",
+  db,
+  pool: sqlite,
+  // Mirrors the real pingDatabase(): a genuine round-trip to the DB under test.
+  pingDatabase: async () => {
+    sqlite.prepare("SELECT 1").get();
+  },
+}));
 
 vi.mock("../logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },

@@ -22,7 +22,11 @@ vi.mock("../downloaders.js", () => ({ DownloaderManager: downloadersMock }));
 const isSensitivePathMock = vi.hoisted(() =>
   vi.fn<(path: string) => boolean>().mockReturnValue(false)
 );
-vi.mock("../path-security.js", () => ({ isSensitivePath: isSensitivePathMock }));
+const assertWithinRootsMock = vi.hoisted(() => vi.fn());
+vi.mock("../path-security.js", () => ({
+  isSensitivePath: isSensitivePathMock,
+  assertWithinRoots: assertWithinRootsMock,
+}));
 
 import { ImportManager } from "../services/ImportManager.js";
 import { PCImportStrategy } from "../services/ImportStrategies.js";
@@ -48,15 +52,19 @@ function makeStorage() {
 function makeManager(
   storage: ReturnType<typeof makeStorage>,
   overrides: {
-    pathService?: { translatePath: ReturnType<typeof vi.fn> };
+    pathService?: {
+      translatePath: ReturnType<typeof vi.fn>;
+      getConfiguredRoots?: ReturnType<typeof vi.fn>;
+    };
     archiveService?: {
       isArchive: ReturnType<typeof vi.fn>;
       extract: ReturnType<typeof vi.fn>;
     };
   } = {}
 ) {
-  const pathService = overrides.pathService ?? {
-    translatePath: vi.fn().mockResolvedValue("/local/file.iso"),
+  const pathService = {
+    getConfiguredRoots: vi.fn().mockResolvedValue([]),
+    ...(overrides.pathService ?? { translatePath: vi.fn().mockResolvedValue("/local/file.iso") }),
   };
   const platformService = { getSourcePlatform: vi.fn() };
   const archiveService = overrides.archiveService ?? {

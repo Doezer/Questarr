@@ -3,7 +3,7 @@ import { categorizeDownload, type DownloadCategory } from "../../shared/download
 import fs from "fs-extra";
 import path from "node:path";
 import { logger } from "../logger.js";
-import { isSensitivePath } from "../path-security.js";
+import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 export type TransferMode = "copy" | "move" | "hardlink" | "symlink";
 
 export function sanitizeFsName(name: string | null | undefined): string {
@@ -356,6 +356,14 @@ export async function reorganizeBySortExtras(destDir: string): Promise<void> {
 }
 
 export class PCImportStrategy implements ImportStrategy {
+  // Local filesystem roots a source path is allowed to live under, derived from
+  // configured path mappings (see PathMappingService.getConfiguredRoots). Left empty
+  // by default: with no mappings configured, translatePath() already passes remote
+  // paths through unchanged and trusts the local filesystem wholesale, so there is no
+  // meaningful root set to restrict against — the checks below are a no-op in that
+  // case rather than fighting that existing trust model.
+  constructor(private readonly sourceRoots: string[] = []) {}
+
   async planImport(
     sourcePath: string,
     game: Game,
@@ -367,6 +375,12 @@ export class PCImportStrategy implements ImportStrategy {
     if (isSensitivePath(sourcePath)) {
       throw new Error("Refusing to process a sensitive system path");
     }
+
+    assertWithinRoots(
+      sourcePath,
+      this.sourceRoots,
+      "Refusing to process a path outside the configured downloader roots"
+    );
 
     const stats = await fs.stat(sourcePath);
     const cleanTitle = sanitizeFsName(game.title);
@@ -412,6 +426,15 @@ export class PCImportStrategy implements ImportStrategy {
     if (isSensitivePath(review.originalPath) || isSensitivePath(review.proposedPath)) {
       throw new Error("Refusing to process a sensitive system path");
     }
+
+    // Same containment check as planImport, applied here too since executeImport is a
+    // second, independent entry point: a confirmImport call can supply review.originalPath
+    // directly, without ever going through planImport first.
+    assertWithinRoots(
+      review.originalPath,
+      this.sourceRoots,
+      "Refusing to process a path outside the configured downloader roots"
+    );
 
     if (review.fileCategories && review.fileCategories.length > 0) {
       const filesPlaced: string[] = [];

@@ -655,6 +655,87 @@ describe("ImportStrategies", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Source-root containment — configured downloader roots
+  // ---------------------------------------------------------------------------
+
+  describe("source-root containment", () => {
+    it("planImport allows a source under a configured root", async () => {
+      const root = tempDir();
+      const downloadsRoot = path.join(root, "downloads");
+      const source = path.join(downloadsRoot, "game.exe");
+      await fs.ensureDir(downloadsRoot);
+      await fs.writeFile(source, "exe-bytes");
+
+      const strategy = new PCImportStrategy([downloadsRoot]);
+      await expect(
+        strategy.planImport(
+          source,
+          makeGame({ title: "My Game" }),
+          path.join(root, "library"),
+          makeImportConfig()
+        )
+      ).resolves.toMatchObject({ originalPath: source });
+    });
+
+    it("planImport refuses a source outside every configured root", async () => {
+      const root = tempDir();
+      const downloadsRoot = path.join(root, "downloads");
+      const outsideDir = path.join(root, "elsewhere");
+      const source = path.join(outsideDir, "game.exe");
+      await fs.ensureDir(outsideDir);
+      await fs.writeFile(source, "exe-bytes");
+
+      const strategy = new PCImportStrategy([downloadsRoot]);
+      await expect(
+        strategy.planImport(
+          source,
+          makeGame({ title: "My Game" }),
+          path.join(root, "library"),
+          makeImportConfig()
+        )
+      ).rejects.toThrow("Refusing to process a path outside the configured downloader roots");
+    });
+
+    it("planImport applies no restriction when no roots are configured", async () => {
+      const root = tempDir();
+      const source = path.join(root, "anywhere", "game.exe");
+      await fs.ensureDir(path.dirname(source));
+      await fs.writeFile(source, "exe-bytes");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.planImport(
+          source,
+          makeGame({ title: "My Game" }),
+          path.join(root, "library"),
+          makeImportConfig()
+        )
+      ).resolves.toMatchObject({ originalPath: source });
+    });
+
+    it("executeImport refuses review.originalPath outside every configured root, even without going through planImport first", async () => {
+      // Regression test: confirmImport can supply review.originalPath directly, so
+      // the containment check has to be enforced here too, independently of planImport.
+      const root = tempDir();
+      const downloadsRoot = path.join(root, "downloads");
+      const destination = path.join(root, "library", "PC", "My Game");
+
+      const strategy = new PCImportStrategy([downloadsRoot]);
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: path.join(root, "elsewhere", "game.exe"),
+            proposedPath: destination,
+            strategy: "pc",
+          },
+          "copy"
+        )
+      ).rejects.toThrow("Refusing to process a path outside the configured downloader roots");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // reorganizeBySortExtras() — post-extraction categorization pass
   // ---------------------------------------------------------------------------
 

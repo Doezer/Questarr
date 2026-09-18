@@ -20,7 +20,7 @@ import { parseReleaseMetadata } from "../../shared/title-utils.js";
 import { GAME_LINK_REQUIRED_STATUS } from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
-import { isSensitivePath } from "../path-security.js";
+import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { notifyUser } from "../socket.js";
 
 const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
@@ -176,6 +176,12 @@ export class ImportManager {
       throw new Error("Refusing to process a sensitive system path");
     }
 
+    assertWithinRoots(
+      sourcePath,
+      await this.pathService.getConfiguredRoots(),
+      "Refusing to process a path outside the configured downloader roots"
+    );
+
     const stats = await fs.stat(sourcePath);
 
     if (!stats.isDirectory()) {
@@ -245,7 +251,7 @@ export class ImportManager {
     password: string | undefined,
     sortExtras: boolean
   ): Promise<ImportResult> {
-    const strategy = new PCImportStrategy();
+    const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
 
     if (!resolution || resolution.alreadyExtracted) {
       return strategy.executeImport(plan, transferMode, resolution?.excludePaths);
@@ -715,7 +721,7 @@ export class ImportManager {
       const archiveResolution = config.autoUnpack ? await this.resolveArchive(localPath) : null;
       const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
 
-      const strategy = new PCImportStrategy();
+      const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
       const libraryRoot = config.libraryRoot || "/data";
 
       if (
@@ -842,7 +848,7 @@ export class ImportManager {
     if (resolvedOriginalPath) {
       const { files, hasArchive, totalCount } = await this.readSourceFiles(resolvedOriginalPath);
       try {
-        const strategy = new PCImportStrategy();
+        const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
         const plan = await strategy.planImport(
           resolvedOriginalPath,
           game,
@@ -961,7 +967,7 @@ export class ImportManager {
       proposedPath,
     };
 
-    const strategy = new PCImportStrategy();
+    const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
     if (config.sortExtras && !needsExtraction) {
       const categorizedPlan = await strategy.planImport(
         resolvedOriginalPath,

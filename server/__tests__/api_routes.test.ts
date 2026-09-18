@@ -3439,4 +3439,27 @@ describe("QUESTARR_BASE_PATH subdirectory mounting", () => {
     const response = await request(httpServer).post("/api/settings/apprise/test").send();
     expect(response.status).toBe(404);
   });
+
+  // Regression test for #925: IGDB search 404'd under a configured base path
+  // because a client call site bypassed the shared apiFetch()/withBasePath()
+  // wrapper. The server-side mounting below was never the problem -- it wraps
+  // every route registered on `app`, IGDB search included -- but nothing
+  // previously asserted that explicitly for this endpoint.
+  it("serves /api/igdb/search under the configured base path", async () => {
+    mockConfig.server.basePath = "/Questarr";
+
+    const prefixedApp = express();
+    prefixedApp.use(express.json());
+    const httpServer = await registerRoutes(prefixedApp);
+
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "Zelda" },
+    ] as unknown as IGDBGame[]);
+
+    const prefixed = await request(httpServer).get("/Questarr/api/igdb/search?q=Zelda");
+    expect(prefixed.status).toBe(200);
+
+    const unprefixed = await request(httpServer).get("/api/igdb/search?q=Zelda");
+    expect(unprefixed.status).toBe(404);
+  });
 });

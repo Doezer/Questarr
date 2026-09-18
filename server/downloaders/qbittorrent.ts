@@ -9,8 +9,9 @@ import { downloadersLogger } from "../logger.js";
 import { randomUUID } from "node:crypto";
 import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
-import type { DownloadRequest, DownloaderClient } from "./types.js";
+import type { DownloadRequest, DownloadResult, DownloaderClient } from "./types.js";
 import {
+  assertCredentialsAllowed,
   fetchWithMagnetDetection,
   extractHashFromUrl,
   fixNzbUrlEncoding,
@@ -83,9 +84,7 @@ export class QBittorrentClient implements DownloaderClient {
     );
   }
 
-  async addDownload(
-    request: DownloadRequest
-  ): Promise<{ success: boolean; id?: string; message: string }> {
+  async addDownload(request: DownloadRequest): Promise<DownloadResult> {
     try {
       if (!request.url) {
         return {
@@ -353,9 +352,12 @@ export class QBittorrentClient implements DownloaderClient {
               }
 
               if (!shouldFallbackToUpload) {
+                // For async adds where the hash isn't immediately known, return
+                // the correlationTag so the route can create the game_downloads
+                // tracking record upfront. The cron later resolves the real hash.
                 return {
                   success: true,
-                  ...(resolvedHash ? { id: resolvedHash } : {}),
+                  ...(resolvedHash ? { id: resolvedHash } : { correlationTag }),
                   message: isPending
                     ? "Download queued in qBittorrent"
                     : "Download added successfully",
@@ -854,6 +856,33 @@ export class QBittorrentClient implements DownloaderClient {
     }
   }
 
+  /**
+   * Find a torrent by its correlation tag. Used to resolve the real hash
+   * for async adds where the hash wasn't known when the tracking record
+   * was created (the correlation tag was used as a temporary downloadHash).
+   * Returns the torrent hash, or null if not found.
+   */
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    // Transport/auth/API failures propagate so callers can skip the cycle
+    // instead of mistaking a broken lookup for "torrent not visible yet".
+    await this.authenticate();
+    const response = await this.makeRequest(
+      "GET",
+      `/api/v2/torrents/info?tag=${encodeURIComponent(tag)}`
+    );
+    const torrents = (await response.json()) as QBittorrentTorrent[];
+    const match = torrents?.[0];
+    if (match?.hash) {
+      downloadersLogger.info(
+        { tag, hash: match.hash, name: match.name },
+        "Resolved async qBittorrent add: correlation tag → hash"
+      );
+      return match.hash;
+    }
+    // Successful lookup with no matching torrent: the add hasn't landed yet.
+    return null;
+  }
+
   async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
     try {
       await this.authenticate();
@@ -1286,6 +1315,13 @@ export class QBittorrentClient implements DownloaderClient {
     return (await response.text()).trim();
   }
 
+  /**
+   * Authenticates with qBittorrent and stores its session cookie when one is returned.
+   *
+   * @param force - Whether to authenticate again when a session cookie already exists.
+   * @throws If the transport policy forbids the configured credentials, or the login
+   * request itself fails.
+   */
   private async authenticate(force = false): Promise<void> {
     if (this.cookie && !force) {
       return; // Already authenticated
@@ -1296,6 +1332,8 @@ export class QBittorrentClient implements DownloaderClient {
       this.cookie = null;
       return;
     }
+
+    assertCredentialsAllowed(this.downloader, "qBittorrent");
 
     const url = this.getBaseUrl() + "/api/v2/auth/login";
 

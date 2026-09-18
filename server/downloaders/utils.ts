@@ -1,10 +1,47 @@
 import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import { isDownloaderDebugLoggingEnabled } from "./debug-logging.js";
-import type { DownloadFile } from "@shared/schema.js";
+import type { Downloader, DownloadFile } from "@shared/schema.js";
 
 export const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+
+/**
+ * Returns whether the downloader's configured transport policy permits credentials.
+ * SSL connections are permitted by default; plaintext connections require the
+ * explicit insecure-LAN opt-in.
+ */
+export function downloaderAllowsCredentials(
+  downloader: Pick<Downloader, "useSsl" | "allowInsecureLan">
+): boolean {
+  return downloader.useSsl === true || downloader.allowInsecureLan === true;
+}
+
+/**
+ * Throws when the downloader's transport policy forbids sending credentials --
+ * every client's guard before it puts a password, API key, or Basic Auth header
+ * on the wire needs the exact same check and refusal message, so it lives here
+ * once instead of being hand-copied (and drifting) across each client.
+ *
+ * @param clientName - Downloader display name, e.g. "qBittorrent", used in the error.
+ * @param credentialKind - What's being withheld, e.g. "password" or "API key".
+ */
+export function assertCredentialsAllowed(
+  downloader: Pick<Downloader, "useSsl" | "allowInsecureLan">,
+  clientName: string,
+  credentialKind = "credentials"
+): void {
+  if (downloaderAllowsCredentials(downloader)) return;
+  throw new Error(
+    `${clientName}: refusing to send ${credentialKind} over unencrypted HTTP. ` +
+      "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."
+  );
+}
+
+/** Builds an HTTP Basic `Authorization` header value from a username and password. */
+export function buildBasicAuthHeader(username: string, password: string): string {
+  return `Basic ${Buffer.from(`${username}:${password}`, "utf-8").toString("base64")}`;
+}
 
 // Prowlarr (and some Newznab/Torznab indexers) wrap external download URLs in a proxy
 // URL whose `link` query parameter is a standard base64 value that can contain `+`.
@@ -350,4 +387,9 @@ export function buildRemoteImportPath(downloadDir: string, relativePath: string)
     return normalizedDir;
   }
   return `${normalizedDir}/${normalizedRelative}`;
+}
+
+// Shared no-op for downloaders that don't support tag-based torrent lookup.
+export async function findTorrentByTagNull(_tag: string): Promise<string | null> {
+  return null;
 }

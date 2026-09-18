@@ -12,6 +12,9 @@
  *
  * Column NAMES, nullability and defaults are not visible to these type-level
  * checks; shared/__tests__/schema-parity.test.ts covers that at runtime.
+ *
+ * The assertions are exported purely to satisfy noUnusedLocals: each one exists
+ * to be checked by the compiler, never to be referenced.
  */
 import type * as sqliteSchema from "./schema.js";
 import type * as pgSchema from "./schema.pg.js";
@@ -26,141 +29,141 @@ type Equal<A, B> =
 
 type Expect<T extends true> = T;
 
-type _SelectUsers = Expect<
+export type _SelectUsers = Expect<
   Equal<typeof sqliteSchema.users.$inferSelect, typeof pgSchema.users.$inferSelect>
 >;
-type _InsertUsers = Expect<
+export type _InsertUsers = Expect<
   Equal<typeof sqliteSchema.users.$inferInsert, typeof pgSchema.users.$inferInsert>
 >;
-type _SelectPathMappings = Expect<
+export type _SelectPathMappings = Expect<
   Equal<typeof sqliteSchema.pathMappings.$inferSelect, typeof pgSchema.pathMappings.$inferSelect>
 >;
-type _InsertPathMappings = Expect<
+export type _InsertPathMappings = Expect<
   Equal<typeof sqliteSchema.pathMappings.$inferInsert, typeof pgSchema.pathMappings.$inferInsert>
 >;
-type _SelectPlatformMappings = Expect<
+export type _SelectPlatformMappings = Expect<
   Equal<
     typeof sqliteSchema.platformMappings.$inferSelect,
     typeof pgSchema.platformMappings.$inferSelect
   >
 >;
-type _InsertPlatformMappings = Expect<
+export type _InsertPlatformMappings = Expect<
   Equal<
     typeof sqliteSchema.platformMappings.$inferInsert,
     typeof pgSchema.platformMappings.$inferInsert
   >
 >;
-type _SelectUserSettings = Expect<
+export type _SelectUserSettings = Expect<
   Equal<typeof sqliteSchema.userSettings.$inferSelect, typeof pgSchema.userSettings.$inferSelect>
 >;
-type _InsertUserSettings = Expect<
+export type _InsertUserSettings = Expect<
   Equal<typeof sqliteSchema.userSettings.$inferInsert, typeof pgSchema.userSettings.$inferInsert>
 >;
-type _SelectSystemConfig = Expect<
+export type _SelectSystemConfig = Expect<
   Equal<typeof sqliteSchema.systemConfig.$inferSelect, typeof pgSchema.systemConfig.$inferSelect>
 >;
-type _InsertSystemConfig = Expect<
+export type _InsertSystemConfig = Expect<
   Equal<typeof sqliteSchema.systemConfig.$inferInsert, typeof pgSchema.systemConfig.$inferInsert>
 >;
-type _SelectGames = Expect<
+export type _SelectGames = Expect<
   Equal<typeof sqliteSchema.games.$inferSelect, typeof pgSchema.games.$inferSelect>
 >;
-type _InsertGames = Expect<
+export type _InsertGames = Expect<
   Equal<typeof sqliteSchema.games.$inferInsert, typeof pgSchema.games.$inferInsert>
 >;
-type _SelectIndexers = Expect<
+export type _SelectIndexers = Expect<
   Equal<typeof sqliteSchema.indexers.$inferSelect, typeof pgSchema.indexers.$inferSelect>
 >;
-type _InsertIndexers = Expect<
+export type _InsertIndexers = Expect<
   Equal<typeof sqliteSchema.indexers.$inferInsert, typeof pgSchema.indexers.$inferInsert>
 >;
-type _SelectDownloaders = Expect<
+export type _SelectDownloaders = Expect<
   Equal<typeof sqliteSchema.downloaders.$inferSelect, typeof pgSchema.downloaders.$inferSelect>
 >;
-type _InsertDownloaders = Expect<
+export type _InsertDownloaders = Expect<
   Equal<typeof sqliteSchema.downloaders.$inferInsert, typeof pgSchema.downloaders.$inferInsert>
 >;
-type _SelectGameDownloads = Expect<
+export type _SelectGameDownloads = Expect<
   Equal<typeof sqliteSchema.gameDownloads.$inferSelect, typeof pgSchema.gameDownloads.$inferSelect>
 >;
-type _InsertGameDownloads = Expect<
+export type _InsertGameDownloads = Expect<
   Equal<typeof sqliteSchema.gameDownloads.$inferInsert, typeof pgSchema.gameDownloads.$inferInsert>
 >;
-type _SelectXrelNotifiedReleases = Expect<
+export type _SelectXrelNotifiedReleases = Expect<
   Equal<
     typeof sqliteSchema.xrelNotifiedReleases.$inferSelect,
     typeof pgSchema.xrelNotifiedReleases.$inferSelect
   >
 >;
-type _InsertXrelNotifiedReleases = Expect<
+export type _InsertXrelNotifiedReleases = Expect<
   Equal<
     typeof sqliteSchema.xrelNotifiedReleases.$inferInsert,
     typeof pgSchema.xrelNotifiedReleases.$inferInsert
   >
 >;
-type _SelectReleaseBlacklist = Expect<
+export type _SelectReleaseBlacklist = Expect<
   Equal<
     typeof sqliteSchema.releaseBlacklist.$inferSelect,
     typeof pgSchema.releaseBlacklist.$inferSelect
   >
 >;
-type _InsertReleaseBlacklist = Expect<
+export type _InsertReleaseBlacklist = Expect<
   Equal<
     typeof sqliteSchema.releaseBlacklist.$inferInsert,
     typeof pgSchema.releaseBlacklist.$inferInsert
   >
 >;
-type _SelectNotifications = Expect<
+export type _SelectNotifications = Expect<
   Equal<typeof sqliteSchema.notifications.$inferSelect, typeof pgSchema.notifications.$inferSelect>
 >;
-type _InsertNotifications = Expect<
+export type _InsertNotifications = Expect<
   Equal<typeof sqliteSchema.notifications.$inferInsert, typeof pgSchema.notifications.$inferInsert>
 >;
-type _SelectRssFeeds = Expect<
+export type _SelectRssFeeds = Expect<
   Equal<typeof sqliteSchema.rssFeeds.$inferSelect, typeof pgSchema.rssFeeds.$inferSelect>
 >;
-type _InsertRssFeeds = Expect<
+export type _InsertRssFeeds = Expect<
   Equal<typeof sqliteSchema.rssFeeds.$inferInsert, typeof pgSchema.rssFeeds.$inferInsert>
 >;
-type _SelectRssFeedItems = Expect<
+export type _SelectRssFeedItems = Expect<
   Equal<typeof sqliteSchema.rssFeedItems.$inferSelect, typeof pgSchema.rssFeedItems.$inferSelect>
 >;
-type _InsertRssFeedItems = Expect<
+export type _InsertRssFeedItems = Expect<
   Equal<typeof sqliteSchema.rssFeedItems.$inferInsert, typeof pgSchema.rssFeedItems.$inferInsert>
 >;
-type _SelectImportTasks = Expect<
+export type _SelectImportTasks = Expect<
   Equal<typeof sqliteSchema.importTasks.$inferSelect, typeof pgSchema.importTasks.$inferSelect>
 >;
-type _InsertImportTasks = Expect<
+export type _InsertImportTasks = Expect<
   Equal<typeof sqliteSchema.importTasks.$inferInsert, typeof pgSchema.importTasks.$inferInsert>
 >;
-type _SelectImportTaskItems = Expect<
+export type _SelectImportTaskItems = Expect<
   Equal<
     typeof sqliteSchema.importTaskItems.$inferSelect,
     typeof pgSchema.importTaskItems.$inferSelect
   >
 >;
-type _InsertImportTaskItems = Expect<
+export type _InsertImportTaskItems = Expect<
   Equal<
     typeof sqliteSchema.importTaskItems.$inferInsert,
     typeof pgSchema.importTaskItems.$inferInsert
   >
 >;
-type _SelectGameFiles = Expect<
+export type _SelectGameFiles = Expect<
   Equal<typeof sqliteSchema.gameFiles.$inferSelect, typeof pgSchema.gameFiles.$inferSelect>
 >;
-type _InsertGameFiles = Expect<
+export type _InsertGameFiles = Expect<
   Equal<typeof sqliteSchema.gameFiles.$inferInsert, typeof pgSchema.gameFiles.$inferInsert>
 >;
-type _SelectRootFolders = Expect<
+export type _SelectRootFolders = Expect<
   Equal<typeof sqliteSchema.rootFolders.$inferSelect, typeof pgSchema.rootFolders.$inferSelect>
 >;
-type _InsertRootFolders = Expect<
+export type _InsertRootFolders = Expect<
   Equal<typeof sqliteSchema.rootFolders.$inferInsert, typeof pgSchema.rootFolders.$inferInsert>
 >;
-type _SelectApiKeys = Expect<
+export type _SelectApiKeys = Expect<
   Equal<typeof sqliteSchema.apiKeys.$inferSelect, typeof pgSchema.apiKeys.$inferSelect>
 >;
-type _InsertApiKeys = Expect<
+export type _InsertApiKeys = Expect<
   Equal<typeof sqliteSchema.apiKeys.$inferInsert, typeof pgSchema.apiKeys.$inferInsert>
 >;

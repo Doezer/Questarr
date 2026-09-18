@@ -1,4 +1,5 @@
 import { storage } from "./storage.js";
+import { normalizeDownloadHash } from "./download-hash.js";
 import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
@@ -38,6 +39,12 @@ const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 // downloads as owned during the brief SABnzbd queue→history transition window.
 const downloadMissCount = new Map<string, number>();
 const DOWNLOAD_MISS_THRESHOLD = 3;
+
+// Track consecutive unresolved tag-resolution attempts per download
+// so an async qBittorrent add that never resolves doesn't stay
+// "downloading" forever.
+const downloadTagMissCount = new Map<string, number>();
+const ASYNC_TAG_RESOLVE_THRESHOLD = 3;
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interval gates actual sync)
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
@@ -538,6 +545,11 @@ export async function checkDownloadStatus() {
       downloadMissCount.delete(key);
     }
   });
+  downloadTagMissCount.forEach((_, key) => {
+    if (!activeDownloadIds.has(key)) {
+      downloadTagMissCount.delete(key);
+    }
+  });
 
   // Group by downloader
   const downloadsByDownloader = new Map<string, typeof downloadingDownloads>();
@@ -566,6 +578,109 @@ export async function checkDownloadStatus() {
       );
 
       for (const download of downloads) {
+        // Defensive: getDownloadingGameDownloads excludes terminal failed rows,
+        // but a status written after that query ran could still surface one here.
+        // Skip it rather than restarting a new miss cycle. The guard also covers
+        // MemStorage, whose filter is narrower (status === "downloading").
+        if (download.status === "failed" && download.downloadHash.startsWith("questarr-add-")) {
+          continue;
+        }
+        // For async qBittorrent adds, the tracking record may have been created
+        // with the correlation tag as a temporary downloadHash (the real hash
+        // wasn't known upfront). Resolve it now so we can match the torrent.
+        if (download.downloadHash.startsWith("questarr-add-")) {
+          const originalTag = download.downloadHash;
+          let resolvedHash: string | null;
+          try {
+            resolvedHash = await DownloaderManager.findDownloadByTag(downloader, originalTag);
+          } catch (error) {
+            // Auth/transport/API failure — the torrent's visibility is unknown.
+            // Skip this cycle without incrementing the miss counter, otherwise
+            // a client outage would falsely mark the download failed.
+            igdbLogger.warn(
+              { error, downloadId: download.id, tag: originalTag },
+              "Correlation tag lookup failed — skipping this cycle"
+            );
+            continue;
+          }
+          if (resolvedHash) {
+            const outcome = await storage.updateGameDownloadHash(download.id, resolvedHash);
+            // The tag is done with this row either way, so drop any accumulated
+            // misses now instead of leaving the entry resident until the row hits
+            // a terminal state.
+            downloadTagMissCount.delete(download.id);
+            if (outcome === "merged") {
+              // The tag row was dropped because a real-hash row already tracks
+              // this torrent (claim race). The stale object is gone, so stop
+              // here rather than updating ownership or importing a dead id.
+              igdbLogger.info(
+                { downloadId: download.id, tag: originalTag, resolvedHash },
+                "Correlation tag row merged into existing real-hash row — skipping"
+              );
+              continue;
+            }
+            // Normalize to match what storage just persisted, so the in-memory
+            // row doesn't diverge from the DB for the rest of this tick.
+            download.downloadHash = normalizeDownloadHash(resolvedHash);
+            igdbLogger.info(
+              { downloadId: download.id, tag: originalTag, resolvedHash },
+              "Resolved async qBittorrent hash for tracked download"
+            );
+          } else {
+            // Torrent hasn't appeared yet. Bound the retry so an add
+            // that the client silently dropped can't stay "downloading"
+            // forever.
+            const tagMisses = (downloadTagMissCount.get(download.id) ?? 0) + 1;
+            downloadTagMissCount.set(download.id, tagMisses);
+            if (tagMisses >= ASYNC_TAG_RESOLVE_THRESHOLD) {
+              downloadTagMissCount.delete(download.id);
+              await storage.updateGameDownloadStatus(
+                download.id,
+                "failed",
+                "The download client never registered this download."
+              );
+              notifyUser("downloadUpdate", download.gameId);
+              // Mirror the normal error path: reset the game to "wanted"
+              // only when no sibling download for the same game is still
+              // actively downloading.
+              const siblings = await storage.getDownloadsByGameId(download.gameId);
+              const activeStatuses = new Set([
+                "downloading",
+                "paused",
+                "unpacking",
+                "completed_pending_import",
+              ]);
+              const hasActiveSibling = siblings.some(
+                (s) => s.id !== download.id && activeStatuses.has(s.status)
+              );
+              if (!hasActiveSibling) {
+                const failedGame = await storage.getGame(download.gameId);
+                if (failedGame && failedGame.status !== "wanted") {
+                  await storage.updateGameStatus(download.gameId, { status: "wanted" });
+                  igdbLogger.debug(
+                    { gameId: download.gameId, oldStatus: failedGame.status, newStatus: "wanted" },
+                    "Reset game status after async tag resolution failure"
+                  );
+                }
+              }
+              igdbLogger.warn(
+                {
+                  downloadId: download.id,
+                  tag: originalTag,
+                  threshold: ASYNC_TAG_RESOLVE_THRESHOLD,
+                },
+                "Async qBittorrent tag resolution exceeded threshold — marking as failed"
+              );
+              continue;
+            }
+            igdbLogger.debug(
+              { downloadId: download.id, tag: originalTag, tagMisses },
+              "Async qBittorrent download not yet visible — skipping"
+            );
+            continue;
+          }
+        }
+
         // Skip rows whose import is already in flight — the earlier tick's
         // processImport() is still extracting (large archives take minutes).
         // Re-invoking here would start a second extraction into the same
@@ -586,10 +701,25 @@ export async function checkDownloadStatus() {
         // from the queue. Fall back to a direct per-item check so history items
         // are found before declaring the download missing.
         if (!remoteDownload) {
-          const individualStatus = await DownloaderManager.getDownloadStatus(
-            downloader,
-            download.downloadHash
-          );
+          let individualStatus: Awaited<ReturnType<typeof DownloaderManager.getDownloadStatus>>;
+          try {
+            // throwOnError so a transient fetch failure surfaces here distinctly
+            // from a confirmed "not found" (a clean null) -- otherwise an
+            // outage would look identical to genuine absence and could
+            // eventually trip the miss-threshold fallback below, wrongly
+            // marking an active download as failed.
+            individualStatus = await DownloaderManager.getDownloadStatus(
+              downloader,
+              download.downloadHash,
+              { throwOnError: true }
+            );
+          } catch (error) {
+            igdbLogger.warn(
+              { error, downloadId: download.id, downloadHash: download.downloadHash },
+              "Individual download status lookup failed — skipping this cycle without counting a miss"
+            );
+            continue;
+          }
           if (individualStatus) {
             remoteDownload = individualStatus;
           }
@@ -662,6 +792,21 @@ export async function checkDownloadStatus() {
                   { downloadId: download.id, downloadHash: download.downloadHash, downloaderId },
                   "Download completed but no remote path was available for import"
                 );
+                try {
+                  const notification = await storage.addNotification({
+                    type: "warning",
+                    title: "Import needs attention",
+                    message: `"${gameTitle}" finished downloading but the file path could not be resolved from the download client. Check Settings → Path Mappings or trigger the import manually.`,
+                    link: "/downloads",
+                    userId: game?.userId ?? undefined,
+                  });
+                  notifyUser("notification", notification);
+                } catch (notifErr) {
+                  igdbLogger.error(
+                    { notifErr, downloadId: download.id },
+                    "Failed to create path-unavailable notification"
+                  );
+                }
               }
             } else {
               // Update DB - mark as completed
@@ -834,13 +979,18 @@ export async function checkDownloadStatus() {
             continue;
           }
 
-          // Threshold reached — proceed with assumption of completion.
+          // Threshold reached. A download disappearing from the downloader (queue and
+          // history) is far more consistent with a failure that a cleanup script or the
+          // user removed (e.g. SABnzbd repair failure, torrent client "remove on error")
+          // than with a genuinely completed download vanishing — completed jobs normally
+          // stay in history/queue until explicitly cleared. Treat it as failed rather than
+          // assuming success, so the game isn't silently marked "owned" with nothing
+          // actually downloaded.
           downloadMissCount.delete(download.id);
 
           // Fetch game info for better logging and notification
           const game = await storage.getGame(download.gameId);
           const gameTitle = game ? game.title : download.downloadTitle;
-          const missedImportConfig = await storage.getImportConfig(game?.userId ?? undefined);
 
           igdbLogger.warn(
             {
@@ -850,64 +1000,65 @@ export async function checkDownloadStatus() {
               gameTitle,
               downloadHash: download.downloadHash,
             },
-            "Download not found in downloader - assuming completion. " +
-              "This could indicate the download was manually removed."
+            "Download not found in downloader - marking as failed. " +
+              "This could indicate the download failed and was removed by the downloader " +
+              "or a cleanup script, or was manually removed."
           );
 
           const missedSettings = await storage.getUserSettings(game?.userId ?? "");
           const missedPrefs = resolvePrefs(missedSettings);
 
-          if (missedImportConfig.enablePostProcessing) {
-            // We no longer have a download-client reference to resolve the source
-            // path from, so the import pipeline can't run automatically. Flag it
-            // for manual review instead of silently marking the game "owned" with
-            // nothing actually imported into the library.
-            await storage.updateGameDownloadStatus(download.id, "manual_review_required", null);
-            notifyUser("downloadUpdate", download.gameId);
+          // If a sibling download for the same game is still actively in progress, leave
+          // the game status as-is to avoid a false regression. Mirrors the active-status
+          // set used for the analogous async tag-resolution failure path above.
+          const siblings = await storage.getDownloadsByGameId(download.gameId);
+          const activeStatuses = new Set([
+            "downloading",
+            "paused",
+            "unpacking",
+            "completed_pending_import",
+          ]);
+          const hasActiveSibling = siblings.some(
+            (s) => s.id !== download.id && activeStatuses.has(s.status)
+          );
+          const willResetGame = !hasActiveSibling && !!game && game.status !== "wanted";
 
-            igdbLogger.warn(
-              { gameId: download.gameId, downloadId: download.id, gameTitle },
-              "Download not found in downloader — post-processing is enabled but the source " +
-                "path can no longer be resolved. Flagged for manual import review."
-            );
+          const missedErrorMessage = willResetGame
+            ? "Download disappeared from the downloader before completing. It may have " +
+              'failed and been automatically removed; the game was reset to "wanted" so ' +
+              "it can be re-searched. If it actually finished, you may need to import it manually."
+            : "Download disappeared from the downloader before completing. It may have " +
+              "failed and been automatically removed. If it actually finished, you may need " +
+              "to import it manually.";
 
-            if (missedPrefs.downloadCompleted.inApp) {
-              const notification = await storage.addNotification({
-                type: "warning",
-                title: "Import Requires Manual Review",
-                message: `"${gameTitle}" finished downloading but disappeared from the download client before it could be imported. Please review it manually under Downloads.`,
-                link: "/",
-                userId: game?.userId ?? undefined,
-              });
-              notifyUser("notification", notification);
-              if (missedPrefs.downloadCompleted.apprise) appriseClient.send(notification);
-            }
-          } else {
-            // Mark download as completed (assumption)
-            await storage.updateGameDownloadStatus(download.id, "completed", null);
+          await storage.updateGameDownloadStatus(download.id, "failed", missedErrorMessage);
+          notifyUser("downloadUpdate", download.gameId);
 
-            // Update game status to owned (assumption)
-            await storage.updateGameStatus(download.gameId, { status: "owned" });
-            notifyUser("downloadUpdate", download.gameId);
-
-            // Send notification to user about this automatic status change
-            if (missedPrefs.downloadCompleted.inApp) {
-              const notification = await storage.addNotification({
-                type: "info",
-                title: "Download Status Changed",
-                message: `Download for "${gameTitle}" was not found in the downloader and has been marked as completed. If this was removed due to an error, you may need to re-download it.`,
-                link: "/",
-                userId: game?.userId ?? undefined,
-              });
-              notifyUser("notification", notification);
-              if (missedPrefs.downloadCompleted.apprise) appriseClient.send(notification);
-            }
-
-            igdbLogger.info(
-              { gameId: download.gameId, gameTitle },
-              "Automatically updated game status to 'owned' after download not found in downloader"
-            );
+          if (willResetGame) {
+            await storage.updateGameStatus(download.gameId, { status: "wanted" });
           }
+
+          if (missedPrefs.downloadFailed.inApp || missedPrefs.downloadFailed.apprise) {
+            const notification = await storage.addNotification({
+              type: "error",
+              title: "Download Failed",
+              message: `Download for "${gameTitle}" disappeared from the download client before completing and has been marked as failed. If it actually finished, you may need to import it manually.`,
+              link: `modal:game:${download.gameId}`,
+              userId: game?.userId ?? undefined,
+            });
+            if (missedPrefs.downloadFailed.inApp) notifyUser("notification", notification);
+            if (missedPrefs.downloadFailed.apprise) appriseClient.send(notification);
+          }
+
+          igdbLogger.info(
+            { gameId: download.gameId, gameTitle, resetGameToWanted: willResetGame },
+            willResetGame
+              ? "Marked download as failed and reset game status to 'wanted' after it " +
+                  "disappeared from the downloader"
+              : "Marked download as failed after it disappeared from the downloader " +
+                  "(game status left unchanged — an active sibling download or an " +
+                  "already-non-owned status)"
+          );
         }
       }
     } catch (error) {

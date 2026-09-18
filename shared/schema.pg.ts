@@ -181,6 +181,12 @@ export const indexers = pgTable("indexers", {
   categories: jsonb("categories").$type<string[]>().default([]),
   rssEnabled: boolean("rss_enabled").notNull().default(true),
   autoSearchEnabled: boolean("auto_search_enabled").notNull().default(true),
+  // Opt-in per-indexer bypass allowing API keys to be sent over plain HTTP.
+  // Off by default: API keys must not travel in clear text unless the user
+  // explicitly acknowledges the risk (e.g. an indexer on a trusted LAN that
+  // does not support TLS). When this flag is false and the indexer URL uses
+  // HTTP, API keys are omitted from every outbound request.
+  allowInsecureLan: boolean("allow_insecure_lan").notNull().default(false),
   createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
   updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
 });
@@ -198,6 +204,12 @@ export const downloaders = pgTable("downloaders", {
   // silently fall back to an insecure connection unless the user explicitly
   // trusts this downloader's self-signed certificate.
   allowSelfSignedCertificate: boolean("allow_self_signed_certificate").notNull().default(false),
+  // Opt-in per-downloader bypass allowing credentials to be sent over plain
+  // HTTP. Off by default: passwords and API keys must not travel in clear text
+  // unless the user explicitly acknowledges the risk (e.g. a download client on
+  // a trusted LAN that does not support TLS). Requires `useSsl` to be false
+  // (otherwise the connection is already encrypted and this flag is irrelevant).
+  allowInsecureLan: boolean("allow_insecure_lan").notNull().default(false),
   username: text("username"),
   password: text("password"),
   enabled: boolean("enabled").notNull().default(true),

@@ -9,9 +9,11 @@ import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
+  assertCredentialsAllowed,
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 import { z } from "zod";
 
@@ -118,8 +120,18 @@ export class DelugeClient implements DownloaderClient {
     return `${base}/json`;
   }
 
+  /**
+   * Authenticates with the Deluge Web UI unless a session cookie is already present.
+   *
+   * @throws When a configured password is not permitted by the transport policy or
+   * Deluge rejects the login.
+   */
   private async authenticate(): Promise<void> {
     if (this.cookie) return;
+
+    if (this.downloader.password) {
+      assertCredentialsAllowed(this.downloader, "Deluge", "password");
+    }
 
     const password = this.downloader.password || "";
     const response = await this.makeRequest("auth.login", [password]);
@@ -678,6 +690,10 @@ export class DelugeClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Error getting free space from Deluge");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 
   /** Maps a Deluge torrent payload to Questarr's normalized download status. */

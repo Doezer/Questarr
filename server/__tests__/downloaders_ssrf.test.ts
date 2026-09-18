@@ -48,6 +48,8 @@ describe("Downloader SSRF Protection", () => {
     removeCompleted: false,
     postImportCategory: null,
     settings: null,
+    allowSelfSignedCertificate: false,
+    allowInsecureLan: true,
   };
 
   beforeEach(() => {

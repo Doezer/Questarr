@@ -216,6 +216,12 @@ export const indexers = sqliteTable("indexers", {
   categories: text("categories", { mode: "json" }).$type<string[]>().default([]),
   rssEnabled: integer("rss_enabled", { mode: "boolean" }).notNull().default(true),
   autoSearchEnabled: integer("auto_search_enabled", { mode: "boolean" }).notNull().default(true),
+  // Opt-in per-indexer bypass allowing API keys to be sent over plain HTTP.
+  // Off by default: API keys must not travel in clear text unless the user
+  // explicitly acknowledges the risk (e.g. an indexer on a trusted LAN that
+  // does not support TLS). When this flag is false and the indexer URL uses
+  // HTTP, API keys are omitted from every outbound request.
+  allowInsecureLan: integer("allow_insecure_lan", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -239,6 +245,12 @@ export const downloaders = sqliteTable("downloaders", {
   allowSelfSignedCertificate: integer("allow_self_signed_certificate", { mode: "boolean" })
     .notNull()
     .default(false),
+  // Opt-in per-downloader bypass allowing credentials to be sent over plain
+  // HTTP. Off by default: passwords and API keys must not travel in clear text
+  // unless the user explicitly acknowledges the risk (e.g. a download client on
+  // a trusted LAN that does not support TLS). Requires `useSsl` to be false
+  // (otherwise the connection is already encrypted and this flag is irrelevant).
+  allowInsecureLan: integer("allow_insecure_lan", { mode: "boolean" }).notNull().default(false),
   username: text("username"),
   password: text("password"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
@@ -361,7 +373,14 @@ export const insertGameSchema = createInsertSchema(games, {
   completedAt: true,
 });
 
-export const GAME_STATUSES = ["wanted", "owned", "shelved", "completed", "downloading"] as const;
+export const GAME_STATUSES = [
+  "wanted",
+  "owned",
+  "playing",
+  "shelved",
+  "completed",
+  "downloading",
+] as const;
 export type GameStatus = (typeof GAME_STATUSES)[number];
 
 export const updateGameStatusSchema = z.object({
@@ -520,6 +539,9 @@ export const updateUserSettingsSchema = createInsertSchema(userSettings)
     updatedAt: true,
   })
   .partial()
+  .extend({
+    igdbRateLimitPerSecond: z.number().int().min(1).max(4).optional(),
+  })
   .superRefine(validateUserSettingsEnums);
 
 // Shared password policy: minimum length plus a mix of letters and digits,

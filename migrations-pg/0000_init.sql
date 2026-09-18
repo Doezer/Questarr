@@ -17,6 +17,7 @@ CREATE TABLE "downloaders" (
 	"use_ssl" boolean DEFAULT false,
 	"url_path" text,
 	"allow_self_signed_certificate" boolean DEFAULT false NOT NULL,
+	"allow_insecure_lan" boolean DEFAULT false NOT NULL,
 	"username" text,
 	"password" text,
 	"enabled" boolean DEFAULT true NOT NULL,
@@ -133,6 +134,7 @@ CREATE TABLE "indexers" (
 	"categories" jsonb DEFAULT '[]'::jsonb,
 	"rss_enabled" boolean DEFAULT true NOT NULL,
 	"auto_search_enabled" boolean DEFAULT true NOT NULL,
+	"allow_insecure_lan" boolean DEFAULT false NOT NULL,
 	"created_at" bigint DEFAULT (EXTRACT(EPOCH FROM now()) * 1000)::bigint,
 	"updated_at" bigint DEFAULT (EXTRACT(EPOCH FROM now()) * 1000)::bigint
 );

@@ -1,5 +1,5 @@
 {
-  "id": "061db552-dee1-4d25-94f3-bcf9bfea6ab1",
+  "id": "b78f3d25-3f82-4fbb-830c-80915cf2a502",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -150,6 +150,13 @@
         },
         "allow_self_signed_certificate": {
           "name": "allow_self_signed_certificate",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "allow_insecure_lan": {
+          "name": "allow_insecure_lan",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
@@ -993,6 +1000,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": true
+        },
+        "allow_insecure_lan": {
+          "name": "allow_insecure_lan",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "created_at": {
           "name": "created_at",

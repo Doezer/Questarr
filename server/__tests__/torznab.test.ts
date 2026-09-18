@@ -31,6 +31,7 @@ function makeIndexer(overrides: Partial<Indexer> = {}): Indexer {
     categories: [],
     rssEnabled: true,
     autoSearchEnabled: true,
+    allowInsecureLan: false,
     createdAt: new Date("2024-01-01T00:00:00.000Z"),
     updatedAt: new Date("2024-01-01T00:00:00.000Z"),
     ...overrides,
@@ -81,7 +82,11 @@ describe("TorznabClient — download link rewriting", () => {
   /** Search a Prowlarr-backed indexer that returns `enclosure`, and parse the rewritten link. */
   async function searchProwlarrLink(indexerUrl: string, enclosure: string): Promise<URL> {
     mockFetchResponse(makeTorznabXml(enclosure));
-    const indexer = makeIndexer({ url: indexerUrl, apiKey: "prowlarr-api-key" });
+    const indexer = makeIndexer({
+      url: indexerUrl,
+      apiKey: "prowlarr-api-key",
+      allowInsecureLan: true,
+    });
 
     const result = await client.searchGames(indexer, { query: "game" });
 
@@ -175,6 +180,7 @@ describe("TorznabClient — download link rewriting", () => {
     const prowlarrIndexer = makeIndexer({
       url: "http://localhost:9696/5/api",
       apiKey: "prowlarr-api-key",
+      allowInsecureLan: true,
     });
     const prowlarrProxyUrlFromAlias =
       "http://127.0.0.1:9696/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTE%3D&apikey=prowlarr-api-key";
@@ -189,6 +195,25 @@ describe("TorznabClient — download link rewriting", () => {
     expect(rewritten.searchParams.get("link")).toBe(
       "aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTE="
     );
+  });
+
+  it("removes API key from existing HTTP Prowlarr proxy URL when policy disallows it", async () => {
+    const httpProxyIndexer = makeIndexer({
+      url: "http://localhost:9696/5/api",
+      apiKey: "prowlarr-api-key",
+      allowInsecureLan: false,
+    });
+    const prowlarrProxyUrlWithKey =
+      "http://127.0.0.1:9696/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbS8%3D&apikey=prowlarr-api-key";
+    mockFetchResponse(makeTorznabXml(prowlarrProxyUrlWithKey));
+
+    const result = await client.searchGames(httpProxyIndexer, { query: "game" });
+
+    const rewritten = new URL(result.items[0].link);
+    expect(rewritten.hostname).toBe("localhost");
+    expect(rewritten.pathname).toBe("/5/download");
+    expect(rewritten.searchParams.get("apikey")).toBeNull();
+    expect(rewritten.searchParams.get("link")).toBe("aHR0cHM6Ly9leGFtcGxlLmNvbS8=");
   });
 
   // Prowlarr builds its download links from the address the request arrived on, so its
@@ -280,6 +305,7 @@ describe("TorznabClient — download link rewriting", () => {
     const prowlarrIndexer = makeIndexer({
       url: "http://localhost:9696/5/api",
       apiKey: "prowlarr-api-key",
+      allowInsecureLan: true,
     });
     const fakeProxyFromExternalHost =
       "https://tracker.example/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbQ%3D%3D";
@@ -302,6 +328,7 @@ describe("TorznabClient — download link rewriting", () => {
     const prowlarrIndexer = makeIndexer({
       url: "http://localhost:9696/prowlarr/5/api",
       apiKey: "prowlarr-api-key",
+      allowInsecureLan: true,
     });
     const prowlarrProxyUrlFromAlias =
       "http://127.0.0.1:9696/prowlarr/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTI%3D&apikey=prowlarr-api-key";
@@ -355,7 +382,7 @@ describe("TorznabClient — download link rewriting", () => {
     mockIsSafeUrl.mockResolvedValue(true);
     mockFetchResponse(makeCapsXml("2.4.0", "My Torznab"));
 
-    await client.logVersionInfo(makeIndexer());
+    await client.logVersionInfo(makeIndexer({ allowInsecureLan: true }));
 
     expect(mockIsSafeUrl).toHaveBeenCalledWith(
       "http://indexer.example.com/api/?t=caps&apikey=testkey"
@@ -382,7 +409,9 @@ describe("TorznabClient — download link rewriting", () => {
     mockIsSafeUrl.mockResolvedValue(true);
     mockFetchResponse(makeCapsXml("2.4.0", "My Torznab"));
 
-    await client.logVersionInfo(makeIndexer({ url: "http://indexer.example.com/5" }));
+    await client.logVersionInfo(
+      makeIndexer({ url: "http://indexer.example.com/5", allowInsecureLan: true })
+    );
 
     expect(mockIsSafeUrl).toHaveBeenCalledWith(
       "http://indexer.example.com/5/api/?t=caps&apikey=testkey"
@@ -591,6 +620,81 @@ describe("TorznabClient — getCategories", () => {
       expect(mockSafeFetch).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe("TorznabClient — HTTP API-key policy", () => {
+  let client: InstanceType<typeof TorznabClient>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    client = new TorznabClient();
+    mockIsSafeUrl.mockResolvedValue(true);
+    mockFetchResponse(
+      `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel><title>Test</title></channel>
+</rss>`
+    );
+  });
+
+  it.each([
+    [
+      "omits the API key from a search request to an HTTP indexer without allowInsecureLan",
+      { url: "http://indexer.example.com/api", allowInsecureLan: false },
+      false,
+    ],
+    [
+      "includes the API key in a search request to an HTTP indexer with allowInsecureLan",
+      { url: "http://indexer.example.com/api", allowInsecureLan: true },
+      true,
+    ],
+    [
+      "includes the API key in a search request to an HTTPS indexer",
+      { url: "https://indexer.example.com/api", allowInsecureLan: false },
+      true,
+    ],
+  ] as const)("%s", async (_name, overrides, expectApiKey) => {
+    const indexer = makeIndexer(overrides);
+
+    await client.searchGames(indexer, { query: "game" }).catch(() => {});
+
+    const [url] = mockSafeFetch.mock.calls[0] as [string];
+    if (expectApiKey) {
+      expect(new URL(url).searchParams.get("apikey")).toBe("testkey");
+    } else {
+      expect(new URL(url).searchParams.has("apikey")).toBe(false);
+    }
+  });
+
+  it.each([
+    [
+      "omits the API key from a Prowlarr proxy URL when the indexer URL is HTTP without allowInsecureLan",
+      "http://prowlarr:9696/5/api",
+      false,
+    ],
+    [
+      "includes the API key in a Prowlarr proxy URL when the indexer URL is HTTPS",
+      "https://prowlarr:9696/5/api",
+      true,
+    ],
+  ] as const)("%s", async (_name, indexerUrl, expectApiKey) => {
+    const rawExternalUrl = "https://tracker.example/torrents/download/42.torrent";
+    mockFetchResponse(makeTorznabXml(rawExternalUrl));
+    const indexer = makeIndexer({
+      url: indexerUrl,
+      apiKey: "prowlarr-key",
+      allowInsecureLan: false,
+    });
+
+    const result = await client.searchGames(indexer, { query: "game" });
+
+    const link = new URL(result.items[0].link);
+    if (expectApiKey) {
+      expect(link.searchParams.get("apikey")).toBe("prowlarr-key");
+    } else {
+      expect(link.searchParams.has("apikey")).toBe(false);
     }
   });
 });

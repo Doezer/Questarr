@@ -54,6 +54,8 @@ const createDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
     removeCompleted: false,
     postImportCategory: null,
     settings: null,
+    allowSelfSignedCertificate: false,
+    allowInsecureLan: true,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -219,7 +221,7 @@ describe("sabnzbd remaining regression coverage", () => {
     await expect(client.testConnection()).resolves.toEqual({
       success: false,
       message:
-        "Failed to connect to SABnzbd at http://sab.local/api?apikey=%5Bredacted%5D&mode=version&output=json: HTTP 500: Broken - No error details",
+        "Failed to connect to SABnzbd at http://sab.local: HTTP 500: Broken - No error details",
     });
 
     safeFetchMock.mockResolvedValueOnce({
@@ -355,7 +357,7 @@ describe("sabnzbd remaining regression coverage", () => {
     expect(fetchWithFallbackSpy).not.toHaveBeenCalled();
   });
 
-  it("requires HTTPS on every hop (rejecting an insecure redirect) only when a password is sent", async () => {
+  it("requires HTTPS on every hop (rejecting an insecure redirect) whenever a credential travels with the request", async () => {
     safeFetchMock.mockImplementation(async (_url: string, options: RequestInit = {}) => {
       if (options.method !== "POST") {
         return {
@@ -380,12 +382,26 @@ describe("sabnzbd remaining regression coverage", () => {
     ) as [string, RequestInit & { requireHttps?: boolean }];
     expect(postOptionsWithPassword.requireHttps).toBe(true);
 
+    // No password this time, but the downloader is still configured for TLS, so the
+    // request URL still carries the API key -- a downgrade redirect must still be
+    // rejected to keep that credential from leaking too.
     safeFetchMock.mockClear();
     await client.addDownload({ url: "http://indexer.local/plain.nzb", title: "Plain NZB" });
-    const [, postOptionsWithoutPassword] = safeFetchMock.mock.calls.find(
+    const [, postOptionsWithApiKeyOnly] = safeFetchMock.mock.calls.find(
       ([, options]) => (options as RequestInit)?.method === "POST"
     ) as [string, RequestInit & { requireHttps?: boolean }];
-    expect(postOptionsWithoutPassword.requireHttps).toBe(false);
+    expect(postOptionsWithApiKeyOnly.requireHttps).toBe(true);
+
+    // Neither a password nor an API key travels with this request (no username
+    // configured, and the connection isn't TLS), so there's nothing to protect
+    // from a downgrade redirect.
+    safeFetchMock.mockClear();
+    const plainClient = new SABnzbdClient(createDownloader({ useSsl: false, username: null }));
+    await plainClient.addDownload({ url: "http://indexer.local/plain.nzb", title: "Plain NZB" });
+    const [, postOptionsWithoutCredentials] = safeFetchMock.mock.calls.find(
+      ([, options]) => (options as RequestInit)?.method === "POST"
+    ) as [string, RequestInit & { requireHttps?: boolean }];
+    expect(postOptionsWithoutCredentials.requireHttps).toBe(false);
   });
 
   it("does not downgrade to the insecure self-signed-cert fallback when a password is sent", async () => {
@@ -581,10 +597,16 @@ describe("sabnzbd remaining regression coverage", () => {
           },
         ])
       )
+      // Fully exhausted: archive=false/true × useFilter=true/false, all empty.
       .mockResolvedValueOnce(historyResponse([]))
       .mockResolvedValueOnce(historyResponse([]))
       .mockResolvedValueOnce(historyResponse([]))
-      .mockRejectedValueOnce(new Error("history broke"));
+      .mockResolvedValueOnce(historyResponse([]))
+      // A request failure on one combo doesn't abort the remaining ones.
+      .mockRejectedValueOnce(new Error("history broke"))
+      .mockResolvedValueOnce(historyResponse([]))
+      .mockResolvedValueOnce(historyResponse([]))
+      .mockResolvedValueOnce(historyResponse([]));
 
     await expect(privateClient.getFromHistory("completed")).resolves.toMatchObject({
       status: "completed",
@@ -615,6 +637,92 @@ describe("sabnzbd remaining regression coverage", () => {
 
     fetchWithFallbackSpy.mockRejectedValueOnce(new Error("space boom"));
     await expect(client.getFreeSpace()).resolves.toBe(0);
+  });
+
+  it("finds a job that has aged out of active history by retrying with archive=1", async () => {
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+      getFromHistory(id: string): Promise<unknown>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    // SABnzbd auto-archives jobs past its history retention limit; the archived
+    // bucket is only searched when `archive=1` is explicitly requested, so the
+    // first two (non-archived) attempts come back empty before the archived
+    // bucket turns up the job.
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(historyResponse([])) // archive=false, nzo_ids filter
+      .mockResolvedValueOnce(historyResponse([])) // archive=false, full scan
+      .mockResolvedValueOnce(
+        historyResponse([
+          {
+            nzo_id: "archived-job",
+            name: "Archived NZB",
+            status: "Failed",
+            fail_message: "not enough repair blocks",
+            path: "/downloads/archived-job",
+            size: "1 GB",
+            bytes: 1024,
+            category: "games",
+          },
+        ])
+      ); // archive=true, nzo_ids filter — found here
+
+    await expect(privateClient.getFromHistory("archived-job")).resolves.toMatchObject({
+      status: "error",
+      repairStatus: "failed",
+      error: "not enough repair blocks",
+    });
+
+    const requestedUrls = fetchWithFallbackSpy.mock.calls.map(([url]) => new URL(url as string));
+    expect(requestedUrls[0].searchParams.get("archive")).toBeNull();
+    expect(requestedUrls[1].searchParams.get("archive")).toBeNull();
+    expect(requestedUrls[2].searchParams.get("archive")).toBe("1");
+    expect(requestedUrls[2].searchParams.get("nzo_ids")).toBe("archived-job");
+  });
+
+  it("finds a non-archived job the nzo_ids filter misses by falling back to a large unfiltered page", async () => {
+    // Real-world case: SABnzbd's `nzo_ids` filter can come back empty for a job
+    // that's genuinely present (non-archived) in history, and an unfiltered
+    // request without an explicit `limit` is silently capped at the user's
+    // configured history_limit -- so a job older than that cap is missed too.
+    // The fallback must ask for a large page explicitly.
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+      getFromHistory(id: string): Promise<unknown>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(historyResponse([])) // archive=false, nzo_ids filter -- misses despite the job existing
+      .mockResolvedValueOnce(
+        historyResponse([
+          {
+            nzo_id: "SABnzbd_nzo_drs3t8_e",
+            name: "Kingdoms.of.Amalur.Reckoning.Legend.of.Dead.Kel.DLC-SKIDROW",
+            status: "Failed",
+            fail_message: "Repair failed, not enough repair blocks (15 short)",
+            path: "/downloads/incomplete/Kingdoms.of.Amalur.Reckoning.Legend.of.Dead.Kel.DLC-SKIDROW",
+            size: "972.9 MB",
+            bytes: 1020178128,
+            category: "games",
+          },
+        ])
+      ); // archive=false, full scan with explicit limit -- found here
+
+    await expect(privateClient.getFromHistory("SABnzbd_nzo_drs3t8_e")).resolves.toMatchObject({
+      status: "error",
+      repairStatus: "failed",
+      error: "Repair failed, not enough repair blocks (15 short)",
+    });
+
+    const requestedUrls = fetchWithFallbackSpy.mock.calls.map(([url]) => new URL(url as string));
+    expect(requestedUrls[0].searchParams.get("nzo_ids")).toBe("SABnzbd_nzo_drs3t8_e");
+    expect(requestedUrls[0].searchParams.get("limit")).toBeNull();
+    expect(requestedUrls[1].searchParams.get("nzo_ids")).toBeNull();
+    expect(requestedUrls[1].searchParams.get("limit")).toBe("1000");
   });
 
   it("derives downloadDir from storage for both folder and single-file history entries", async () => {
@@ -737,5 +845,57 @@ describe("sabnzbd remaining regression coverage", () => {
     await expect(client.getDownloadDetails("job-windows")).resolves.toMatchObject({
       downloadDir: "C:\\downloads\\complete\\Aethus.v1.036-ElAmigos",
     });
+  });
+
+  it("swallows errors into null by default but rethrows when throwOnError is requested", async () => {
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    // Default behavior (no options) is unchanged: swallow to null.
+    fetchWithFallbackSpy.mockRejectedValueOnce(new Error("queue unreachable"));
+    await expect(client.getDownloadStatus("some-id")).resolves.toBeNull();
+
+    // With throwOnError, a failure fetching the queue itself rethrows.
+    fetchWithFallbackSpy.mockRejectedValueOnce(new Error("queue unreachable"));
+    await expect(client.getDownloadStatus("some-id", { throwOnError: true })).rejects.toThrow(
+      "queue unreachable"
+    );
+  });
+
+  it("rethrows from the history fallback with throwOnError only when every attempt failed to get a response", async () => {
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+      getFromHistory(id: string, options?: { throwOnError?: boolean }): Promise<unknown>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    // Not in queue, and every one of the 4 history attempts (archive x
+    // useFilter) throws -- we never got a clean response from SABnzbd at
+    // all, so this must be surfaced as an error, not a false "not found".
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(queueResponse([]))
+      .mockRejectedValueOnce(new Error("history unreachable"))
+      .mockRejectedValueOnce(new Error("history unreachable"))
+      .mockRejectedValueOnce(new Error("history unreachable"))
+      .mockRejectedValueOnce(new Error("history unreachable"));
+
+    await expect(
+      client.getDownloadStatus("unreachable-id", { throwOnError: true })
+    ).rejects.toThrow("history unreachable");
+
+    // But if at least one attempt got a clean (even empty) response, that's
+    // a confirmed "not found" -- still resolves to null even with throwOnError.
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(historyResponse([]))
+      .mockResolvedValueOnce(historyResponse([]))
+      .mockResolvedValueOnce(historyResponse([]))
+      .mockResolvedValueOnce(historyResponse([]));
+    await expect(
+      privateClient.getFromHistory("confirmed-missing", { throwOnError: true })
+    ).resolves.toBeNull();
   });
 });

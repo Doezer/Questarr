@@ -2,6 +2,7 @@ import rateLimit from "express-rate-limit";
 import { body, param, query, validationResult } from "express-validator";
 import type { Request, Response, NextFunction } from "express";
 import { TORRENT_DOWNLOADER_TYPES, USENET_DOWNLOADER_TYPES } from "../shared/downloader-types.js";
+import { GAME_STATUSES } from "../shared/schema.js";
 import { storage } from "./storage.js";
 import { expressLogger } from "./logger.js";
 import { reportServerError } from "./error-telemetry.js";
@@ -74,7 +75,7 @@ export const validateRequest = (req: Request, res: Response, next: NextFunction)
       details,
     });
   }
-  next();
+  return next();
 };
 
 // Sanitization rules for game search queries
@@ -141,10 +142,7 @@ export const sanitizeIgdbId = [
 
 // Sanitization rules for game status updates
 export const sanitizeGameStatus = [
-  body("status")
-    .trim()
-    .isIn(["wanted", "owned", "shelved", "completed", "downloading"])
-    .withMessage("Invalid status value"),
+  body("status").trim().isIn(GAME_STATUSES).withMessage("Invalid status value"),
 ];
 
 // Sanitization rules for adding games
@@ -501,10 +499,7 @@ export const sanitizeIndexerSearchQuery = [
 
 // Sanitization rules for the game-status route param
 export const sanitizeGameStatusParam = [
-  param("status")
-    .trim()
-    .isIn(["wanted", "owned", "shelved", "completed", "downloading"])
-    .withMessage("Invalid status value"),
+  param("status").trim().isIn(GAME_STATUSES).withMessage("Invalid status value"),
 ];
 
 // Sanitization rules for the Quick Add (match-and-add) title

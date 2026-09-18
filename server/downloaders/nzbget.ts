@@ -4,7 +4,13 @@ import { downloadersLogger } from "../logger.js";
 import { XMLParser } from "fast-xml-parser";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fixNzbUrlEncoding, logDownloaderDebugResponse } from "./utils.js";
+import {
+  assertCredentialsAllowed,
+  buildBasicAuthHeader,
+  fixNzbUrlEncoding,
+  logDownloaderDebugResponse,
+  findTorrentByTagNull,
+} from "./utils.js";
 
 interface NZBGetListResult {
   NZBID: number;
@@ -160,6 +166,14 @@ export class NZBGetClient implements DownloaderClient {
     return String(Object.values(rec)[0]);
   }
 
+  /**
+   * Sends an NZBGet XML-RPC request, adding Basic authentication when configured.
+   *
+   * @param requireHttps - Whether redirects must remain on HTTPS, used for requests
+   * whose payload contains an archive password.
+   * @throws If the transport policy forbids the configured credentials, the HTTP
+   * call fails, or NZBGet's response is itself an XML-RPC fault.
+   */
   private async makeXMLRPCRequest(
     method: string,
     params: unknown[] = [],
@@ -187,11 +201,11 @@ export class NZBGetClient implements DownloaderClient {
     };
 
     if (this.downloader.username && this.downloader.password) {
-      const auth = Buffer.from(
-        `${this.downloader.username}:${this.downloader.password}`,
-        "utf-8"
-      ).toString("base64");
-      headers["Authorization"] = `Basic ${auth}`;
+      assertCredentialsAllowed(this.downloader, "NZBGet");
+      headers["Authorization"] = buildBasicAuthHeader(
+        this.downloader.username,
+        this.downloader.password
+      );
     }
 
     // PPParameters (the trailing "append" param) can carry secrets we hand NZBGet's
@@ -586,5 +600,9 @@ export class NZBGetClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Failed to get NZBGet free space");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 }

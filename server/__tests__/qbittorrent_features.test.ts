@@ -37,6 +37,7 @@ describe("QBittorrentClient - Advanced Features", () => {
       url: "http://localhost:8080",
       port: null,
       useSsl: false,
+      allowInsecureLan: true,
       urlPath: null,
       username: "admin",
       password: "password",
@@ -78,6 +79,16 @@ describe("QBittorrentClient - Advanced Features", () => {
     const record = headers as Record<string, string>;
     return record[name] ?? record[name.toLowerCase()] ?? null;
   };
+
+  // Shared fixture for the getFreeSpace tests below, which otherwise all
+  // create an identical downloader.
+  const freeSpaceTestDownloader = createTestDownloader({
+    port: 8080,
+    urlPath: "",
+    downloadPath: "/downloads",
+    category: null,
+    label: null,
+  });
 
   it("should handle adding download from http URL (non-magnet) and resolve hash", async () => {
     vi.useFakeTimers();
@@ -261,28 +272,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should return free space using app/free_space when supported", async () => {
-    const testDownloader: Downloader = {
-      id: "qbittorrent-id",
-      name: "QBittorrent",
-      type: "qbittorrent",
-      url: "http://localhost:8080",
-      enabled: true,
-      priority: 1,
-      username: "admin",
-      password: "password",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      port: 8080,
-      useSsl: false,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-      addStopped: false,
-      removeCompleted: false,
-      postImportCategory: null,
-      settings: null,
-    };
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,
@@ -316,28 +306,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should fall back when app/free_space returns null free_space_on_disk", async () => {
-    const testDownloader: Downloader = {
-      id: "qbittorrent-id",
-      name: "QBittorrent",
-      type: "qbittorrent",
-      url: "http://localhost:8080",
-      enabled: true,
-      priority: 1,
-      username: "admin",
-      password: "password",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      port: 8080,
-      useSsl: false,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-      addStopped: false,
-      removeCompleted: false,
-      postImportCategory: null,
-      settings: null,
-    };
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,
@@ -378,28 +347,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should fall back when preferences fails but sync/maindata succeeds", async () => {
-    const testDownloader: Downloader = {
-      id: "qbittorrent-id",
-      name: "QBittorrent",
-      type: "qbittorrent",
-      url: "http://localhost:8080",
-      enabled: true,
-      priority: 1,
-      username: "admin",
-      password: "password",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      port: 8080,
-      useSsl: false,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-      addStopped: false,
-      removeCompleted: false,
-      postImportCategory: null,
-      settings: null,
-    };
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,
@@ -438,28 +386,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should fall back to transfer/info when app/free_space and sync/maindata fail", async () => {
-    const testDownloader: Downloader = {
-      id: "qbittorrent-id",
-      name: "QBittorrent",
-      type: "qbittorrent",
-      url: "http://localhost:8080",
-      enabled: true,
-      priority: 1,
-      username: "admin",
-      password: "password",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      port: 8080,
-      useSsl: false,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-      addStopped: false,
-      removeCompleted: false,
-      postImportCategory: null,
-      settings: null,
-    };
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,
@@ -511,28 +438,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should return 0 when all free space endpoints fail", async () => {
-    const testDownloader: Downloader = {
-      id: "qbittorrent-id",
-      name: "QBittorrent",
-      type: "qbittorrent",
-      url: "http://localhost:8080",
-      enabled: true,
-      priority: 1,
-      username: "admin",
-      password: "password",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      port: 8080,
-      useSsl: false,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-      addStopped: false,
-      removeCompleted: false,
-      postImportCategory: null,
-      settings: null,
-    };
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,
@@ -572,28 +478,7 @@ describe("QBittorrentClient - Advanced Features", () => {
   });
 
   it("should fall back when sync/maindata is ok but free space is missing/invalid", async () => {
-    const testDownloader: Downloader = {
-      id: "qbittorrent-id",
-      name: "QBittorrent",
-      type: "qbittorrent",
-      url: "http://localhost:8080",
-      enabled: true,
-      priority: 1,
-      username: "admin",
-      password: "password",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      port: 8080,
-      useSsl: false,
-      urlPath: "",
-      downloadPath: "/downloads",
-      category: null,
-      label: null,
-      addStopped: false,
-      removeCompleted: false,
-      postImportCategory: null,
-      settings: null,
-    };
+    const testDownloader = freeSpaceTestDownloader;
 
     const loginResponse = {
       ok: true,

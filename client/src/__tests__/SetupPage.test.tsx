@@ -76,7 +76,7 @@ describe("SetupPage", () => {
 
   it("submits form successfully without IGDB fields when IGDB is already configured", async () => {
     // Mock config as configured
-    mockApiRequest.mockImplementation((method, url) => {
+    mockApiRequest.mockImplementation((_method, url) => {
       if (url === "/api/auth/status") {
         return Promise.resolve({
           json: async () => ({ igdb: { configured: true } }),
@@ -121,7 +121,7 @@ describe("SetupPage", () => {
 
   it("requires IGDB fields when IGDB is NOT configured", async () => {
     // Mock config as NOT configured
-    mockApiRequest.mockImplementation((method, url) => {
+    mockApiRequest.mockImplementation((_method, url) => {
       if (url === "/api/auth/status") {
         return Promise.resolve({
           json: async () => ({ igdb: { configured: false } }),
@@ -179,7 +179,7 @@ describe("SetupPage", () => {
     // Once setup is complete, /api/auth/status omits the igdb field entirely
     // (see server/routes.ts) -- a direct navigation to /setup racing ahead of
     // AuthProvider's own redirect must not crash this page while it renders.
-    mockApiRequest.mockImplementation((method, url) => {
+    mockApiRequest.mockImplementation((_method, url) => {
       if (url === "/api/auth/status") {
         return Promise.resolve({
           json: async () => ({ hasUsers: true }),

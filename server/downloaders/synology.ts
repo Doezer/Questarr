@@ -9,9 +9,11 @@ import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
+  assertCredentialsAllowed,
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 
 interface SynologyApiDescriptor {
@@ -312,6 +314,12 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     this.getTaskApiDescriptor();
   }
 
+  /**
+   * Authenticates with Synology Download Station and stores the returned session ID.
+   *
+   * @param force - Whether to authenticate again when a session is already active.
+   * @throws When credentials are missing, forbidden by the transport policy, or rejected.
+   */
   private async authenticate(force = false): Promise<void> {
     if (this.sessionId && !force) {
       return;
@@ -320,6 +328,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     if (!this.downloader.username || !this.downloader.password) {
       throw new Error("Synology Download Station requires a username and password");
     }
+
+    assertCredentialsAllowed(this.downloader, "Synology");
 
     await this.ensureApiInfo();
 
@@ -1165,5 +1175,9 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Failed to get Synology free space");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 }

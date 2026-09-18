@@ -49,6 +49,7 @@ function createMockDownloader(overrides: Partial<Downloader> = {}): Downloader {
     // This suite exercises the insecure-retry path itself, so the fixture opts in by
     // default; tests proving the opt-out behavior override this explicitly.
     allowSelfSignedCertificate: true,
+    allowInsecureLan: false,
     ...overrides,
   };
 }

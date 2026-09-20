@@ -106,6 +106,27 @@ describe("assertWithinRoots", () => {
       ).resolves.toBeUndefined();
     });
 
+    it("allows a not-yet-existing path under a configured root that is itself a symlink", async () => {
+      // Regression test: when the configured root is itself a symlink, realpath(root)
+      // resolves to its real target. If a not-yet-existing candidate under it fell back
+      // to the fully lexical path (the symlink, not its target), that lexical path would
+      // never match the resolved root computed for the second containment check, and a
+      // legitimately pending download would be wrongly rejected.
+      const root = tempDir();
+      const realRoot = path.join(root, "real-downloads");
+      await fs.ensureDir(realRoot);
+      const symlinkRoot = path.join(root, "downloads-link");
+      await fs.symlink(realRoot, symlinkRoot);
+
+      await expect(
+        assertWithinRoots(
+          path.join(symlinkRoot, "not-here-yet.zip"),
+          [symlinkRoot],
+          "outside roots"
+        )
+      ).resolves.toBeUndefined();
+    });
+
     it("falls back to pathname-only containment for a path that doesn't exist yet", async () => {
       // realpath requires every path segment, including the final one, to exist —
       // a download still being polled for existence has to fall back to a plain

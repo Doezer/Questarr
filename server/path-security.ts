@@ -75,16 +75,25 @@ export async function assertWithinRoots(
 
   // The pathname passed containment, but path.resolve() doesn't follow symlinks — a
   // symlink sitting inside an allowed root could still point outside it. Canonicalize
-  // and check again to catch that. realpath requires the whole path (including the
-  // final component) to already exist, so a path that doesn't exist yet — e.g. a
-  // download still in flight, being polled for existence — falls back to the
-  // already-resolved pathname; there's nothing to canonicalize until it exists, and
-  // callers checking existence need that check to run regardless.
+  // and check again to catch that.
   let canonicalCandidate: string;
   try {
     canonicalCandidate = await fs.realpath(verifiedCandidate);
   } catch {
-    canonicalCandidate = verifiedCandidate;
+    // realpath requires the whole path (including the final component) to already
+    // exist. A path that doesn't exist yet — e.g. a download still in flight, being
+    // polled for existence — can't be canonicalized itself, but falling back to the
+    // fully lexical verifiedCandidate would break containment when matchedRoot is
+    // itself a symlink: canonicalRoots below resolves it to its real target, while
+    // this fallback would stay on the symlink path, so the two would never match and
+    // a legitimately pending path would be wrongly rejected. Canonicalize just the
+    // root instead — it does exist — and re-append the already-checked relative
+    // segment lexically.
+    const canonicalMatchedRoot = await canonicalizeRoot(matchedRoot);
+    canonicalCandidate =
+      matchedRelative === ""
+        ? canonicalMatchedRoot
+        : path.join(canonicalMatchedRoot, matchedRelative);
   }
 
   const canonicalRoots = await Promise.all(resolvedRoots.map(canonicalizeRoot));

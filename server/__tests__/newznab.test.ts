@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { newznabClient } from "../newznab.js";
-import { DEFAULT_GAME_CATEGORIES } from "../indexer-caps.js";
+import { DEFAULT_GAME_CATEGORIES, resolveSearchCategories } from "../indexer-caps.js";
 import { routesLogger } from "../logger.js";
 
 vi.mock("../ssrf.js", () => ({
@@ -152,6 +152,34 @@ describe("NewznabClient", () => {
         "HTTP 500: Server Error"
       );
     });
+
+    it.each([
+      ["no request or configured categories", undefined, []],
+      ["request categories only", ["2000"], []],
+      ["configured categories matching the game defaults", undefined, ["4000", "1000"]],
+      ["configured categories mixing game and non-game IDs", undefined, ["4000", "8000"]],
+      ["configured categories entirely outside the game ranges", undefined, ["8000"]],
+      ["request categories overriding configured ones", ["2000"], ["4000", "1000"]],
+    ] as const)(
+      "sends the `cat` param resolved by resolveSearchCategories: %s",
+      async (_label, requested, configured) => {
+        (isSafeUrl as Mock).mockResolvedValue(true);
+        (safeFetch as Mock).mockResolvedValue({
+          ok: true,
+          text: async () => mockSearchXml,
+        });
+        const indexer = { ...mockIndexer, categories: [...configured] };
+
+        await newznabClient.search(indexer, {
+          query: "test",
+          category: requested ? [...requested] : undefined,
+        });
+
+        const [url] = (safeFetch as Mock).mock.calls[0] as [string];
+        const expected = resolveSearchCategories(requested, configured).join(",");
+        expect(new URL(url).searchParams.get("cat")).toBe(expected);
+      }
+    );
   });
 
   describe("getCategories", () => {

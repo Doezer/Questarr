@@ -453,6 +453,14 @@ export class PCImportStrategy implements ImportStrategy {
           throw new Error(`Duplicate import destination: ${resolvedDestination}`);
         }
         destinations.add(resolvedDestination);
+
+        // Guard against a categorized destination colliding with a file already sitting
+        // there — e.g. content an extraction step just wrote into review.proposedPath —
+        // the same protection transferDirectoryPerFile already has for its own loose-file
+        // transfers, so transferSingleFile's unconditional overwrite can't silently replace it.
+        if (await fs.pathExists(destinationFile)) {
+          throw new Error(`Destination already exists, refusing to overwrite: ${destinationFile}`);
+        }
       }
 
       for (const { entry, sourceFile, destinationFile } of plannedTransfers) {

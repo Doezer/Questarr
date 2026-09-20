@@ -328,6 +328,35 @@ describe("ImportStrategies", () => {
       expect(await fs.pathExists(path.join(destination, "dlc", "Game DLC Pack.nsp"))).toBe(false);
     });
 
+    it("rejects a categorized destination that already exists (e.g. content extraction just wrote)", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "game-folder");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(sourceDir);
+      await fs.writeFile(path.join(sourceDir, "readme.nfo"), "loose file");
+      // Simulate an extraction step having already written a same-named file straight
+      // into the destination before this categorized transfer runs.
+      await fs.ensureDir(path.join(destination, "extra"));
+      await fs.writeFile(path.join(destination, "extra", "readme.nfo"), "extracted");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: destination,
+            strategy: "pc",
+            fileCategories: [{ name: "readme.nfo", category: "extra" }],
+          },
+          "copy"
+        )
+      ).rejects.toThrow("Destination already exists, refusing to overwrite");
+      expect(await fs.readFile(path.join(destination, "extra", "readme.nfo"), "utf8")).toBe(
+        "extracted"
+      );
+    });
+
     it("reports the requested batch mode even when a single file falls back", async () => {
       const root = tempDir();
       const sourceDir = path.join(root, "downloads", "game-folder");

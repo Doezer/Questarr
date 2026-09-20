@@ -279,6 +279,53 @@ function SourceBadge({ source }: { source: string | null | undefined }) {
   );
 }
 
+function CrackStatusContent({
+  isLoading,
+  isError,
+  crackTypes,
+  testId,
+}: {
+  isLoading: boolean;
+  isError: boolean;
+  crackTypes: ("cracked" | "hypervisor")[] | undefined;
+  testId: string;
+}) {
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Checking xREL…</p>;
+  }
+  if (isError) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid={testId}>
+        Couldn't check crack status
+      </p>
+    );
+  }
+  if (!crackTypes || crackTypes.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid={testId}>
+        No known crack yet
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid={testId}>
+      {crackTypes.includes("cracked") && (
+        <Badge variant="secondary" className="text-xs">
+          Cracked
+        </Badge>
+      )}
+      {crackTypes.includes("hypervisor") && (
+        <Badge
+          variant="outline"
+          className="text-xs border-amber-500 text-amber-500 dark:text-amber-400"
+        >
+          Hypervisor Bypass
+        </Badge>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 /** Click target for a half-star or full-star position within StarRatingInput. */
@@ -1185,42 +1232,12 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                     <ShieldCheck className="w-4 h-4" />
                     Crack Status
                   </h3>
-                  {xrelStatusLoading ? (
-                    <p className="text-sm text-muted-foreground">Checking xREL…</p>
-                  ) : xrelStatusError ? (
-                    <p
-                      className="text-sm text-muted-foreground"
-                      data-testid={`text-crack-status-${game.id}`}
-                    >
-                      Couldn't check crack status
-                    </p>
-                  ) : !xrelStatus || xrelStatus.crackTypes.length === 0 ? (
-                    <p
-                      className="text-sm text-muted-foreground"
-                      data-testid={`text-crack-status-${game.id}`}
-                    >
-                      No known crack yet
-                    </p>
-                  ) : (
-                    <div
-                      className="flex flex-wrap items-center gap-x-2 gap-y-1"
-                      data-testid={`text-crack-status-${game.id}`}
-                    >
-                      {xrelStatus.crackTypes.includes("cracked") && (
-                        <Badge variant="secondary" className="text-xs">
-                          Cracked
-                        </Badge>
-                      )}
-                      {xrelStatus.crackTypes.includes("hypervisor") && (
-                        <Badge
-                          variant="outline"
-                          className="text-xs border-amber-500 text-amber-500 dark:text-amber-400"
-                        >
-                          Hypervisor Bypass
-                        </Badge>
-                      )}
-                    </div>
-                  )}
+                  <CrackStatusContent
+                    isLoading={xrelStatusLoading}
+                    isError={xrelStatusError}
+                    crackTypes={xrelStatus?.crackTypes}
+                    testId={`text-crack-status-${game.id}`}
+                  />
                 </div>
               )}
 

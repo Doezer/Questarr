@@ -19,5 +19,5 @@ importTasksRouter.get("/:id", async (req, res) => {
     return res.status(404).json({ error: "Task not found" });
   }
   const items = await storage.getImportTaskItems(task.id);
-  res.json({ ...task, items });
+  return res.json({ ...task, items });
 });

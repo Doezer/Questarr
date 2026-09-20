@@ -4,6 +4,10 @@
 
 Please include a summary of the change and which issue is fixed. Please also include relevant motivation and context. List any dependencies that are required for this change.
 
+## Screenshots
+
+For any UI change (`client/src/**`), include a screenshot or short recording of it running. Not required for backend-only changes.
+
 ## Type of change
 
 - [ ] Bug fix (non-breaking change which fixes an issue)
@@ -20,3 +24,4 @@ Please include a summary of the change and which issue is fixed. Please also inc
 - [ ] If this PR adds a new actor/integration, external interface, or security-relevant change, I have updated docs/ARCHITECTURE.md, docs/API.md, and/or docs/SECURITY_ASSESSMENT.md accordingly
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] New and existing unit tests pass locally with my changes
+- [ ] For UI changes, I have included a screenshot or recording of it running

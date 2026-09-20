@@ -118,6 +118,35 @@ function makeRootFolder(overrides: Partial<RootFolder> = {}): RootFolder {
   };
 }
 
+// Fixtures shared by the mixed-case Usenet id regression tests (claim, claim-batch, scan)
+const USENET_MIXED_CASE_ID = "SABnzbd_nzo_AbCdEf";
+
+function mockSabnzbdClaimTarget() {
+  vi.mocked(storage.getGame).mockResolvedValue({
+    id: "game-1",
+    userId: "user-1",
+    status: "wanted",
+  } as any);
+  vi.mocked(storage.getDownloader).mockResolvedValue({
+    id: "dl-1",
+    type: "sabnzbd",
+  } as any);
+}
+
+function mockSabnzbdScanDownload(id: string) {
+  vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+    { id: "dl-1", name: "My SABnzbd" } as unknown as Downloader,
+  ]);
+  vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+    {
+      id,
+      name: "My.Game.Title",
+      status: "downloading",
+      downloadType: "usenet",
+    } as never,
+  ]);
+}
+
 describe("API Routes - Extended Coverage", () => {
   let app: express.Express;
 
@@ -878,6 +907,51 @@ describe("API Routes - Extended Coverage", () => {
         .send({ notes: 12345 });
       expect(response.status).toBe(400);
       expect(response.body.error).toBe("Invalid notes data");
+    });
+  });
+
+  describe("PATCH /api/games/:id/target-platform", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("updates a complete IGDB target pair", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+      } as unknown as Game);
+      vi.mocked(storage.updateGame).mockResolvedValue({
+        id: gameId,
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/target-platform`)
+        .send({ targetPlatformId: 8, targetPlatformName: "PlayStation 2" });
+
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGame)).toHaveBeenCalledWith(gameId, {
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+      });
+    });
+
+    it("rejects an incomplete target pair", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/target-platform`)
+        .send({ targetPlatformId: 8, targetPlatformName: null });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid target platform data");
+    });
+
+    it("rejects a mismatched complete target pair before storage", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/target-platform`)
+        .send({ targetPlatformId: 8, targetPlatformName: "PlayStation 5" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid target platform data");
+      expect(vi.mocked(storage.updateGame)).not.toHaveBeenCalled();
     });
   });
 
@@ -1878,6 +1952,56 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  // ─── Scan for unlinked downloads ───
+  describe("GET /api/downloads/scan", () => {
+    it("returns a mixed-case Usenet id verbatim instead of lowercasing it", async () => {
+      mockSabnzbdScanDownload(USENET_MIXED_CASE_ID);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+
+      const response = await request(app).get("/api/downloads/scan");
+
+      expect(response.status).toBe(200);
+      const download = response.body.groups[0].downloads[0];
+      expect(download.downloadId).toBe(USENET_MIXED_CASE_ID);
+      expect(download.downloadHash).toBe(USENET_MIXED_CASE_ID);
+    });
+
+    it("excludes a mixed-case Usenet id from the scan when it is already tracked with that exact casing", async () => {
+      mockSabnzbdScanDownload(USENET_MIXED_CASE_ID);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
+        new Set([`dl-1:${USENET_MIXED_CASE_ID}`])
+      );
+
+      const response = await request(app).get("/api/downloads/scan");
+
+      expect(response.status).toBe(200);
+      expect(response.body.groups).toHaveLength(0);
+    });
+
+    it("still normalizes torrent hash casing for the tracked-key comparison", async () => {
+      const hashLower = "a".repeat(40);
+      const hashUpper = "A".repeat(40);
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My rTorrent" } as unknown as Downloader,
+      ]);
+      // Stored key uses lowercase; live client returns uppercase
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set([`dl-1:${hashLower}`]));
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        {
+          id: hashUpper,
+          name: "My.Game.Title",
+          status: "downloading",
+          downloadType: "torrent",
+        } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads/scan");
+
+      expect(response.status).toBe(200);
+      expect(response.body.groups).toHaveLength(0);
+    });
+  });
+
   // ─── Notification routes ───
   describe("Notification routes", () => {
     describe("GET /api/notifications", () => {
@@ -2564,6 +2688,62 @@ describe("API Routes - Extended Coverage", () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("Invalid request");
     });
+
+    it("persists a mixed-case Usenet id verbatim instead of lowercasing it", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+      mockSabnzbdClaimTarget();
+      vi.mocked(storage.addGameDownload).mockResolvedValue(undefined as any);
+
+      const res = await request(app).post("/api/downloads/claim").send({
+        downloaderId: "dl-1",
+        downloadHash: USENET_MIXED_CASE_ID,
+        downloadTitle: "My Game",
+        currentStatus: "downloading",
+        category: "main",
+        gameId: "game-1",
+      });
+
+      expect(res.status).toBe(200);
+      expect(storage.addGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ downloadHash: USENET_MIXED_CASE_ID })
+      );
+    });
+
+    it("rejects a claim as a duplicate when the mixed-case Usenet id is already tracked", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
+        new Set([`dl-1:${USENET_MIXED_CASE_ID}`])
+      );
+
+      const res = await request(app).post("/api/downloads/claim").send({
+        downloaderId: "dl-1",
+        downloadHash: USENET_MIXED_CASE_ID,
+        downloadTitle: "My Game",
+        currentStatus: "downloading",
+        category: "main",
+        gameId: "game-1",
+      });
+
+      expect(res.status).toBe(409);
+      expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
+
+    it("rejects a claim as a duplicate when a legacy tracked torrent hash differs only by case", async () => {
+      const hashUpper = "A".repeat(40);
+      const hashLower = "a".repeat(40);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set([`dl-1:${hashUpper}`]));
+
+      const res = await request(app).post("/api/downloads/claim").send({
+        downloaderId: "dl-1",
+        downloadHash: hashLower,
+        downloadTitle: "My Game",
+        currentStatus: "downloading",
+        category: "main",
+        gameId: "game-1",
+      });
+
+      expect(res.status).toBe(409);
+      expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
   });
 
   describe("POST /api/downloads/claim-batch", () => {
@@ -2733,6 +2913,65 @@ describe("API Routes - Extended Coverage", () => {
         .send({ items: [{ ...validItem, currentStatus: "completed" }] });
 
       expect(storage.updateGameStatus).toHaveBeenCalledWith("game-1", { status: "owned" });
+    });
+
+    it("persists a mixed-case Usenet id verbatim instead of lowercasing it", async () => {
+      mockSabnzbdClaimTarget();
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [{ ...validItem, downloadHash: USENET_MIXED_CASE_ID }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.addedCount).toBe(1);
+      expect(storage.addGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ downloadHash: USENET_MIXED_CASE_ID })
+      );
+    });
+
+    it("skips a mixed-case Usenet id only when the tracked key matches exactly", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
+        new Set([`dl-1:${USENET_MIXED_CASE_ID}`])
+      );
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [{ ...validItem, downloadHash: USENET_MIXED_CASE_ID }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.skippedCount).toBe(1);
+      expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
+
+    it("skips as a duplicate when a legacy tracked torrent hash differs only by case", async () => {
+      const hashUpper = "A".repeat(40);
+      const hashLower = "a".repeat(40);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set([`dl-1:${hashUpper}`]));
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [{ ...validItem, downloadHash: hashLower }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.skippedCount).toBe(1);
+      expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
+
+    it("does not skip a differently-cased Usenet id as a false duplicate", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
+        new Set(["dl-1:SABnzbd_nzo_aBcDeF"])
+      );
+      mockSabnzbdClaimTarget();
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [{ ...validItem, downloadHash: USENET_MIXED_CASE_ID }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.addedCount).toBe(1);
+      expect(storage.addGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ downloadHash: USENET_MIXED_CASE_ID })
+      );
     });
   });
 
@@ -3438,5 +3677,28 @@ describe("QUESTARR_BASE_PATH subdirectory mounting", () => {
 
     const response = await request(httpServer).post("/api/settings/apprise/test").send();
     expect(response.status).toBe(404);
+  });
+
+  // Regression test for #925: IGDB search 404'd under a configured base path
+  // because a client call site bypassed the shared apiFetch()/withBasePath()
+  // wrapper. The server-side mounting below was never the problem -- it wraps
+  // every route registered on `app`, IGDB search included -- but nothing
+  // previously asserted that explicitly for this endpoint.
+  it("serves /api/igdb/search under the configured base path", async () => {
+    mockConfig.server.basePath = "/Questarr";
+
+    const prefixedApp = express();
+    prefixedApp.use(express.json());
+    const httpServer = await registerRoutes(prefixedApp);
+
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "Zelda" },
+    ] as unknown as IGDBGame[]);
+
+    const prefixed = await request(httpServer).get("/Questarr/api/igdb/search?q=Zelda");
+    expect(prefixed.status).toBe(200);
+
+    const unprefixed = await request(httpServer).get("/api/igdb/search?q=Zelda");
+    expect(unprefixed.status).toBe(404);
   });
 });

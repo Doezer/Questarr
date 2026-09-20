@@ -40,7 +40,7 @@ ENV UMASK=022
 # with strict HTTPS enforcement, see below), and Python + Apprise for local CLI
 # notifications.
 RUN apk add --no-cache 7zip curl gcompat py3-pip python3 shadow su-exec && \
-    python3 -m pip install --no-cache-dir --break-system-packages apprise==1.9.4
+    python3 -m pip install --no-cache-dir --break-system-packages --only-binary :all: apprise==1.9.4
 
 # Fetch RARLAB's official unrar binary for RAR extraction (legacy and RAR5, including
 # multi-volume sets). Alpine dropped its own `unrar` package because RARLAB's license

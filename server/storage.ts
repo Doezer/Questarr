@@ -542,6 +542,8 @@ export class MemStorage implements IStorage {
       releaseDate: insertGame.releaseDate || null,
       rating: insertGame.rating || null,
       platforms: insertGame.platforms || null,
+      targetPlatformId: insertGame.targetPlatformId ?? null,
+      targetPlatformName: insertGame.targetPlatformName ?? null,
       genres: insertGame.genres || null,
       themes: insertGame.themes || null,
       publishers: insertGame.publishers || null,
@@ -737,6 +739,7 @@ export class MemStorage implements IStorage {
       categories: insertIndexer.categories ?? [],
       rssEnabled: insertIndexer.rssEnabled ?? true,
       autoSearchEnabled: insertIndexer.autoSearchEnabled ?? true,
+      allowInsecureLan: insertIndexer.allowInsecureLan ?? false,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -812,6 +815,7 @@ export class MemStorage implements IStorage {
             categories: idx.categories ?? [],
             rssEnabled: idx.rssEnabled ?? true,
             autoSearchEnabled: idx.autoSearchEnabled ?? true,
+            allowInsecureLan: idx.allowInsecureLan ?? false,
             createdAt: new Date(),
             updatedAt: new Date(),
           };
@@ -866,6 +870,7 @@ export class MemStorage implements IStorage {
       postImportCategory: insertDownloader.postImportCategory ?? null,
       settings: insertDownloader.settings ?? null,
       allowSelfSignedCertificate: insertDownloader.allowSelfSignedCertificate ?? false,
+      allowInsecureLan: insertDownloader.allowInsecureLan ?? false,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -1994,6 +1999,8 @@ export class DatabaseStorage implements IStorage {
       releaseDate: insertGame.releaseDate ?? null,
       rating: insertGame.rating ?? null,
       platforms: insertGame.platforms ?? null,
+      targetPlatformId: insertGame.targetPlatformId ?? null,
+      targetPlatformName: insertGame.targetPlatformName ?? null,
       genres: insertGame.genres ?? null,
       themes: insertGame.themes ?? null,
       publishers: insertGame.publishers ?? null,
@@ -2128,7 +2135,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async removeGame(id: string): Promise<boolean> {
-    const _result = await db.delete(games).where(eq(games.id, id));
+    await db.delete(games).where(eq(games.id, id));
     return true;
   }
 

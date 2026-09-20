@@ -88,7 +88,7 @@ export class ImportManager {
   constructor(
     private readonly storage: IStorage,
     private readonly pathService: PathMappingService,
-    private readonly _platformService: PlatformMappingService,
+    _platformService: PlatformMappingService,
     private readonly archiveService: ArchiveService
   ) {}
 

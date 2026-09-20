@@ -416,6 +416,7 @@ export default function DownloadersPage() {
       postImportCategory: "",
       settings: "",
       allowSelfSignedCertificate: false,
+      allowInsecureLan: false,
     },
   });
 
@@ -447,6 +448,7 @@ export default function DownloadersPage() {
       postImportCategory: downloader.postImportCategory ?? "",
       settings: downloader.settings ?? "",
       allowSelfSignedCertificate: downloader.allowSelfSignedCertificate ?? false,
+      allowInsecureLan: downloader.allowInsecureLan ?? false,
     });
     setIsDialogOpen(true);
   };
@@ -471,6 +473,7 @@ export default function DownloadersPage() {
       postImportCategory: "",
       settings: "",
       allowSelfSignedCertificate: false,
+      allowInsecureLan: false,
     });
     setIsDialogOpen(true);
   };
@@ -841,6 +844,12 @@ export default function DownloadersPage() {
                               ) {
                                 form.setValue("port", nextDefaultPort);
                               }
+
+                              // Enabling SSL makes the insecure-LAN opt-in irrelevant — clear it
+                              // so it can't carry a stale true into a saved record.
+                              if (nextUseSsl) {
+                                form.setValue("allowInsecureLan", false);
+                              }
                             }}
                             data-testid="checkbox-downloader-usessl"
                           />
@@ -867,6 +876,33 @@ export default function DownloadersPage() {
                               checked={!!field.value}
                               onCheckedChange={(checked) => field.onChange(!!checked)}
                               data-testid="checkbox-downloader-allow-self-signed-certificate"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                  {!form.watch("useSsl") && (
+                    <FormField
+                      control={form.control}
+                      name="allowInsecureLan"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border border-amber-600/50 bg-amber-950/20 p-2">
+                          <div className="space-y-0">
+                            <FormLabel className="text-sm text-amber-400">
+                              Allow insecure LAN
+                            </FormLabel>
+                            <FormDescription className="text-xs">
+                              Permits sending passwords and API keys over plain HTTP. Only enable
+                              this if the downloader is on a trusted LAN without TLS support and you
+                              accept the risk of credentials being intercepted.
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={!!field.value}
+                              onCheckedChange={(checked) => field.onChange(!!checked)}
+                              data-testid="checkbox-downloader-allow-insecure-lan"
                             />
                           </FormControl>
                         </FormItem>

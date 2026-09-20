@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   EyeOff,
   Filter,
+  Gamepad2,
   LayoutGrid,
   Library as LibraryIcon,
   Plus,
@@ -273,6 +274,14 @@ export default function Library() {
               </span>
               <span className="opacity-30">·</span>
               <span className="flex items-center gap-1">
+                <Gamepad2 className="h-3 w-3" />
+                <span className="font-medium text-foreground">
+                  {stableLibStats.statusBreakdown.playing}
+                </span>{" "}
+                playing
+              </span>
+              <span className="opacity-30">·</span>
+              <span className="flex items-center gap-1">
                 <Archive className="h-3 w-3" />
                 <span className="font-medium text-foreground">
                   {stableLibStats.statusBreakdown.shelved}
@@ -466,6 +475,7 @@ export default function Library() {
                       <SelectItem value="all">All</SelectItem>
                       <SelectItem value="wanted">Wanted</SelectItem>
                       <SelectItem value="owned">Owned</SelectItem>
+                      <SelectItem value="playing">Playing</SelectItem>
                       <SelectItem value="shelved">Shelved</SelectItem>
                       <SelectItem value="completed">Completed</SelectItem>
                       <SelectItem value="downloading">Downloading</SelectItem>

@@ -39,21 +39,41 @@ export const DEFAULT_GAME_CATEGORIES: readonly IndexerCapsCategory[] = Object.fr
 export const CAPS_DISCOVERY_TIMEOUT_MS = 15000;
 
 /**
+ * Returns whether outbound requests may include the indexer's API key.
+ * HTTPS URLs are permitted by default; other schemes require the explicit
+ * insecure-LAN opt-in. Malformed URLs are always rejected.
+ */
+export function indexerAllowsApiKey(indexer: Pick<Indexer, "url" | "allowInsecureLan">): boolean {
+  try {
+    const { protocol } = new URL(indexer.url);
+    if (protocol === "https:") return true;
+    return protocol === "http:" && indexer.allowInsecureLan === true;
+  } catch {
+    // Malformed URL — don't send the key
+    return false;
+  }
+}
+
+/**
  * Build a list of reasonable candidate caps URLs to try in order. Indexers
  * vary in whether their stored base URL already includes the /api path
  * segment, so try both the normalized (`buildApiUrl`) form and the raw
- * stored URL as-is before giving up.
+ * stored URL as-is before giving up. Candidates include the API key only when
+ * the indexer's transport policy permits it.
  */
 export function buildCapsUrlCandidates(
-  indexer: Pick<Indexer, "url" | "apiKey">,
+  indexer: Pick<Indexer, "url" | "apiKey" | "allowInsecureLan">,
   buildApiUrl: (indexerUrl: string) => URL
 ): URL[] {
   const candidates: URL[] = [];
   const seen = new Set<string>();
+  const sendKey = indexerAllowsApiKey(indexer);
 
   const add = (url: URL) => {
     url.searchParams.set("t", "caps");
-    url.searchParams.set("apikey", indexer.apiKey);
+    if (sendKey) {
+      url.searchParams.set("apikey", indexer.apiKey);
+    }
     const key = url.toString();
     if (!seen.has(key)) {
       candidates.push(url);
@@ -112,9 +132,11 @@ export async function discoverCapsCategories<T>(options: {
       break;
     }
     try {
-      const response = await safeFetch(url.toString(), {
+      const urlStr = url.toString();
+      const response = await safeFetch(urlStr, {
         headers: options.fetchHeaders,
         signal: AbortSignal.timeout(remainingMs),
+        requireHttps: urlStr.startsWith("https:"),
       });
 
       if (!response.ok) {

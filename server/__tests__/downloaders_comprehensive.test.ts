@@ -28,6 +28,25 @@ function mockNzbFetch(content = "nzb content") {
   });
 }
 
+// Shared field defaults for the per-client downloader fixtures below, which
+// otherwise repeat the same dozen null/false fields under each client's id/type/url.
+const downloaderFieldDefaults = {
+  port: null,
+  useSsl: null,
+  urlPath: null,
+  username: null,
+  password: null,
+  downloadPath: null,
+  category: null,
+  label: null,
+  addStopped: null,
+  removeCompleted: null,
+  postImportCategory: null,
+  settings: null,
+  allowSelfSignedCertificate: false,
+  allowInsecureLan: true,
+} as const;
+
 describe("Downloader Comprehensive Tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -37,6 +56,7 @@ describe("Downloader Comprehensive Tests", () => {
   // ==================== Transmission Tests ====================
   describe("TransmissionClient", () => {
     const downloader: Downloader = {
+      ...downloaderFieldDefaults,
       id: "transmission",
       name: "Transmission",
       type: "transmission",
@@ -45,18 +65,6 @@ describe("Downloader Comprehensive Tests", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
-      port: null,
-      useSsl: null,
-      urlPath: null,
-      username: null,
-      password: null,
-      downloadPath: null,
-      category: null,
-      label: null,
-      addStopped: null,
-      removeCompleted: null,
-      postImportCategory: null,
-      settings: null,
     };
 
     const sessionResponse = {
@@ -170,6 +178,7 @@ describe("Downloader Comprehensive Tests", () => {
   // ==================== rTorrent Tests ====================
   describe("RTorrentClient", () => {
     const downloader: Downloader = {
+      ...downloaderFieldDefaults,
       id: "rtorrent",
       name: "rTorrent",
       type: "rtorrent",
@@ -178,18 +187,6 @@ describe("Downloader Comprehensive Tests", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
-      port: null,
-      useSsl: null,
-      urlPath: null,
-      username: null,
-      password: null,
-      downloadPath: null,
-      category: null,
-      label: null,
-      addStopped: null,
-      removeCompleted: null,
-      postImportCategory: null,
-      settings: null,
     };
 
     const xmlResponseSuccess = `
@@ -232,6 +229,7 @@ describe("Downloader Comprehensive Tests", () => {
   // ==================== qBittorrent Tests ====================
   describe("QBittorrentClient", () => {
     const downloader: Downloader = {
+      ...downloaderFieldDefaults,
       id: "qbittorrent",
       name: "qBittorrent",
       type: "qbittorrent",
@@ -242,16 +240,6 @@ describe("Downloader Comprehensive Tests", () => {
       password: "password",
       createdAt: new Date(),
       updatedAt: new Date(),
-      port: null,
-      useSsl: null,
-      urlPath: null,
-      downloadPath: null,
-      category: null,
-      label: null,
-      addStopped: null,
-      removeCompleted: null,
-      postImportCategory: null,
-      settings: null,
     };
 
     const loginResponse = {
@@ -338,6 +326,7 @@ describe("Downloader Comprehensive Tests", () => {
   // ==================== SABnzbd Tests ====================
   describe("SABnzbdClient", () => {
     const downloader: Downloader = {
+      ...downloaderFieldDefaults,
       id: "sabnzbd",
       name: "SABnzbd",
       type: "sabnzbd",
@@ -346,18 +335,6 @@ describe("Downloader Comprehensive Tests", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
-      port: null,
-      useSsl: null,
-      urlPath: null,
-      username: null,
-      password: null,
-      downloadPath: null,
-      category: null,
-      label: null,
-      addStopped: null,
-      removeCompleted: null,
-      postImportCategory: null,
-      settings: null,
     };
 
     const emptyQueueResponse = {
@@ -629,6 +606,7 @@ describe("Downloader Comprehensive Tests", () => {
   // ==================== NZBGet Tests ====================
   describe("NZBGetClient", () => {
     const downloader: Downloader = {
+      ...downloaderFieldDefaults,
       id: "nzbget",
       name: "NZBGet",
       type: "nzbget",
@@ -639,16 +617,6 @@ describe("Downloader Comprehensive Tests", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
-      port: null,
-      useSsl: null,
-      urlPath: null,
-      downloadPath: null,
-      category: null,
-      label: null,
-      addStopped: null,
-      removeCompleted: null,
-      postImportCategory: null,
-      settings: null,
     };
 
     it("should add NZB successfully", async () => {
@@ -754,6 +722,8 @@ describe("Downloader Comprehensive Tests", () => {
         removeCompleted: null,
         postImportCategory: null,
         settings: null,
+        allowSelfSignedCertificate: false,
+        allowInsecureLan: true,
       };
 
       const qbittorrent: Downloader = {
@@ -777,6 +747,8 @@ describe("Downloader Comprehensive Tests", () => {
         removeCompleted: null,
         postImportCategory: null,
         settings: null,
+        allowSelfSignedCertificate: false,
+        allowInsecureLan: true,
       };
 
       fetchMock

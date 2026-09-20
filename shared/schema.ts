@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { resolveTargetPlatform } from "./title-utils.js";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -169,6 +170,8 @@ export const games = sqliteTable("games", {
   releaseDate: text("release_date"),
   rating: real("rating"),
   platforms: text("platforms", { mode: "json" }).$type<string[]>(),
+  targetPlatformId: integer("target_platform_id"),
+  targetPlatformName: text("target_platform_name"),
   genres: text("genres", { mode: "json" }).$type<string[]>(),
   themes: text("themes", { mode: "json" }).$type<string[]>(),
   publishers: text("publishers", { mode: "json" }).$type<string[]>(),
@@ -216,6 +219,12 @@ export const indexers = sqliteTable("indexers", {
   categories: text("categories", { mode: "json" }).$type<string[]>().default([]),
   rssEnabled: integer("rss_enabled", { mode: "boolean" }).notNull().default(true),
   autoSearchEnabled: integer("auto_search_enabled", { mode: "boolean" }).notNull().default(true),
+  // Opt-in per-indexer bypass allowing API keys to be sent over plain HTTP.
+  // Off by default: API keys must not travel in clear text unless the user
+  // explicitly acknowledges the risk (e.g. an indexer on a trusted LAN that
+  // does not support TLS). When this flag is false and the indexer URL uses
+  // HTTP, API keys are omitted from every outbound request.
+  allowInsecureLan: integer("allow_insecure_lan", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -239,6 +248,12 @@ export const downloaders = sqliteTable("downloaders", {
   allowSelfSignedCertificate: integer("allow_self_signed_certificate", { mode: "boolean" })
     .notNull()
     .default(false),
+  // Opt-in per-downloader bypass allowing credentials to be sent over plain
+  // HTTP. Off by default: passwords and API keys must not travel in clear text
+  // unless the user explicitly acknowledges the risk (e.g. a download client on
+  // a trusted LAN that does not support TLS). Requires `useSsl` to be false
+  // (otherwise the connection is already encrypted and this flag is irrelevant).
+  allowInsecureLan: integer("allow_insecure_lan", { mode: "boolean" }).notNull().default(false),
   username: text("username"),
   password: text("password"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
@@ -335,6 +350,8 @@ export const insertUserSchema = createInsertSchema(users).pick({
 });
 
 export const insertGameSchema = createInsertSchema(games, {
+  targetPlatformId: (schema) => schema.int().positive().nullable().optional(),
+  targetPlatformName: (schema) => schema.trim().min(1).max(100).nullable().optional(),
   status: (schema) =>
     schema
       .nullable()
@@ -355,13 +372,67 @@ export const insertGameSchema = createInsertSchema(games, {
       .nullable()
       .optional()
       .transform((val) => val ?? false),
-}).omit({
-  id: true,
-  addedAt: true,
-  completedAt: true,
-});
+})
+  .omit({
+    id: true,
+    addedAt: true,
+    completedAt: true,
+  })
+  .superRefine((game, ctx) => {
+    const hasTargetId = game.targetPlatformId != null;
+    const hasTargetName = game.targetPlatformName != null;
+    if (hasTargetId !== hasTargetName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [hasTargetId ? "targetPlatformName" : "targetPlatformId"],
+        message: "Target platform ID and name must be provided together",
+      });
+    } else if (
+      hasTargetId &&
+      !resolveTargetPlatform(game.targetPlatformId, game.targetPlatformName)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetPlatformName"],
+        message: "Target platform ID and name must match a supported platform",
+      });
+    }
+  });
 
-export const GAME_STATUSES = ["wanted", "owned", "shelved", "completed", "downloading"] as const;
+export const updateGameTargetPlatformSchema = z
+  .object({
+    targetPlatformId: z.number().int().positive().nullable(),
+    targetPlatformName: z.string().trim().min(1).max(100).nullable(),
+  })
+  .superRefine((target, ctx) => {
+    const hasTargetId = target.targetPlatformId != null;
+    const hasTargetName = target.targetPlatformName != null;
+    if (hasTargetId !== hasTargetName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [hasTargetId ? "targetPlatformName" : "targetPlatformId"],
+        message: "Target platform ID and name must be provided together",
+      });
+    } else if (
+      hasTargetId &&
+      !resolveTargetPlatform(target.targetPlatformId, target.targetPlatformName)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetPlatformName"],
+        message: "Target platform ID and name must match a supported platform",
+      });
+    }
+  });
+
+export const GAME_STATUSES = [
+  "wanted",
+  "owned",
+  "playing",
+  "shelved",
+  "completed",
+  "downloading",
+] as const;
 export type GameStatus = (typeof GAME_STATUSES)[number];
 
 export const updateGameStatusSchema = z.object({

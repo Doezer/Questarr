@@ -1,5 +1,9 @@
 import { type Indexer } from "@shared/schema";
-import { DEFAULT_GAME_CATEGORIES, discoverCapsCategories } from "./indexer-caps.js";
+import {
+  DEFAULT_GAME_CATEGORIES,
+  discoverCapsCategories,
+  indexerAllowsApiKey,
+} from "./indexer-caps.js";
 import { torznabLogger } from "./logger.js";
 import { isPrivateNetworkAddress, isSafeUrl, safeFetch } from "./ssrf.js";
 import { XMLParser } from "fast-xml-parser";
@@ -108,11 +112,16 @@ export class TorznabClient {
     );
 
     try {
+      const originUrl = new URL(searchUrl);
+      const sendsApiKey = indexerAllowsApiKey(indexer);
+      const requireHttps = sendsApiKey && originUrl.protocol === "https:";
+
       const response = await safeFetch(searchUrl, {
         headers: {
           "User-Agent": "Questarr/1.0",
         },
         signal: AbortSignal.timeout(30000),
+        requireHttps,
       });
 
       if (!response.ok) {
@@ -260,14 +269,17 @@ export class TorznabClient {
   }
 
   /**
-   * Build the search URL for a Torznab indexer
+   * Builds a Torznab search URL, omitting the API key when the indexer's transport
+   * policy forbids sending it.
    */
   private buildSearchUrl(indexer: Indexer, params: TorznabSearchParams): string {
     const url = this.buildApiUrl(indexer.url);
 
     // Set common Torznab parameters
     url.searchParams.set("t", "search");
-    url.searchParams.set("apikey", indexer.apiKey);
+    if (indexerAllowsApiKey(indexer)) {
+      url.searchParams.set("apikey", indexer.apiKey);
+    }
 
     if (params.query) {
       url.searchParams.set("q", params.query);
@@ -310,10 +322,19 @@ export class TorznabClient {
     return url.toString();
   }
 
+  /**
+   * Reads server identity fields from a Torznab caps response, omitting the API key
+   * when the indexer's transport policy forbids sending it.
+   *
+   * @throws When URL validation or the caps request fails.
+   */
   private async fetchServerInfo(indexer: Indexer): Promise<TorznabServerInfo> {
     const url = this.buildApiUrl(indexer.url);
     url.searchParams.set("t", "caps");
-    url.searchParams.set("apikey", indexer.apiKey);
+    const sendsApiKey = indexerAllowsApiKey(indexer);
+    if (sendsApiKey) {
+      url.searchParams.set("apikey", indexer.apiKey);
+    }
 
     if (!(await isSafeUrl(url.toString()))) {
       throw new Error(`Unsafe URL detected: ${url.toString()}`);
@@ -322,6 +343,7 @@ export class TorznabClient {
     const response = await safeFetch(url.toString(), {
       headers: { "User-Agent": "Questarr/1.0" },
       signal: AbortSignal.timeout(30000),
+      requireHttps: sendsApiKey && url.protocol === "https:",
     });
 
     if (!response.ok) {
@@ -387,7 +409,8 @@ export class TorznabClient {
   }
 
   /**
-   * Parse individual Torznab item
+   * Normalizes one Torznab item and rewrites download links to the configured indexer.
+   * Generated Prowlarr proxy URLs include the API key only when transport policy permits it.
    */
   // XML parsing requires any due to dynamic structure
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -443,6 +466,9 @@ export class TorznabClient {
                 // Prowlarr already returned a proxy URL. Avoid double-wrapping when only
                 // the host form differs (localhost vs 127.0.0.1, a Docker service name vs
                 // the container IP it resolves to) by doing a host rewrite only.
+                if (!indexerAllowsApiKey(indexer)) {
+                  linkUrl.searchParams.delete("apikey");
+                }
                 linkUrl.protocol = indexerUrlObj.protocol;
                 linkUrl.host = indexerUrlObj.host;
                 // Assigning `host` without a port leaves the previous port in place, which
@@ -457,7 +483,9 @@ export class TorznabClient {
                   "link",
                   Buffer.from(torznabItem.link).toString("base64")
                 );
-                prowlarrUrl.searchParams.set("apikey", indexer.apiKey);
+                if (indexerAllowsApiKey(indexer)) {
+                  prowlarrUrl.searchParams.set("apikey", indexer.apiKey);
+                }
                 torznabItem.link = prowlarrUrl.toString();
               }
             } else {

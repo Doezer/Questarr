@@ -170,8 +170,10 @@ the only module importing the Drizzle `db` client for application data.
 `server/socket.ts` exposes a single `notifyUser(type, payload)` function
 (`server/socket.ts:42-46`) that calls `io.emit(type, payload)` — a broadcast
 to every connected socket, with no per-user rooms (a `TODO` in `cron.ts`
-notes this should be scoped to per-user rooms once multi-user socket auth is
-wired up — see `server/cron.ts:534,583`). Two event types are emitted today:
+flags this — see `server/cron.ts:534,583`). This is consistent with §9:
+Questarr's supported deployment is one trusted operator per instance, so a
+cross-account broadcast is not a hardened boundary today and isn't being
+prioritized as one. Two event types are emitted today:
 
 - `"notification"` — emitted from both `cron.ts` (game updates, download
   completion, auto-search results, xREL matches) and `routes.ts`; consumed by
@@ -231,3 +233,47 @@ default 24) tracked via `userSettings.lastSteamSync`.
 See [`docs/THREAT_MODEL.md`](THREAT_MODEL.md) for a more detailed attack-surface
 analysis of these trust boundaries (per-integration trust table, high-risk
 data flows, and the unauthenticated-route inventory).
+
+## 9. Multi-user status
+
+**Questarr is not, and is not planned to become, a multi-user application
+for the foreseeable future.** The supported deployment is one trusted
+operator per instance (see [`docs/PRD.md`](PRD.md) §6 Non-Goals and §8
+Technical Constraints, and [`../GOAL-product.md`](../GOAL-product.md)).
+
+The schema and auth layer nonetheless have partial multi-account
+_plumbing_, which predates this decision and should not be read as a
+roadmap signal: a `users` table exists, `authenticateToken` resolves a
+per-request `req.user.id` from a JWT, and personal-library tables
+(`games`, `user_settings`, `notifications`, `import_tasks`, `api_keys`,
+`release_blacklist`) carry a `userId` column. Instance-wide config and
+shared runtime state — `indexers`, `downloaders`, `root_folders`,
+`rss_feeds`, `game_downloads` — deliberately carry **no** `userId`, since
+they represent one server's shared configuration, not per-account data.
+
+Because of this, account isolation is inconsistent by design, not a defect
+to eliminate wholesale:
+
+- Some code paths do scope by `userId` (e.g. `resolveOwnedGame` in
+  `routes.ts`, and the igdbId-reuse checks before reusing an existing game
+  record), because getting those specific paths right also happens to be
+  good practice regardless of user count.
+- Others intentionally don't: `notifyUser()` broadcasts Socket.io events to
+  every connected client (§6); `library-scanner.ts`'s scan state
+  (`getAllUnmatched`, `getAllScanProgress`) is global, matching `root_folders`
+  being global; download clients and indexers are shared instance
+  configuration, not per-user.
+- The trust model is flat with no RBAC/admin split (see
+  [`docs/THREAT_MODEL.md`](THREAT_MODEL.md) §8, "Flat, single-tier trust
+  model" — accepted risk).
+
+**For review purposes:** a finding that one authenticated account can read
+or influence another account's data on the same instance is not, by
+itself, a release-blocking vulnerability under this deployment model —
+Questarr has exactly one intended operator per instance. It's still fine
+to close such a gap opportunistically when already touching that code
+(consistency and defense-in-depth have value even here), but it should not
+be treated as urgent, and should not be used to justify widening a PR's
+scope. If the multi-user goalposts ever move, that will be a deliberate,
+separately-scoped product decision — not something to infer from the
+partial `userId` scoping already present in the schema.

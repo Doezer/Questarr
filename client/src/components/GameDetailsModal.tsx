@@ -586,7 +586,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     refetchInterval: 5000,
   });
 
-  const { data: xrelStatus, isLoading: xrelStatusLoading } = useQuery<XrelGameStatus>({
+  const {
+    data: xrelStatus,
+    isLoading: xrelStatusLoading,
+    isError: xrelStatusError,
+  } = useQuery<XrelGameStatus>({
     queryKey: [`/api/games/${game?.id}/xrel-status`],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/games/${game!.id}/xrel-status`);
@@ -1183,6 +1187,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   </h3>
                   {xrelStatusLoading ? (
                     <p className="text-sm text-muted-foreground">Checking xREL…</p>
+                  ) : xrelStatusError ? (
+                    <p
+                      className="text-sm text-muted-foreground"
+                      data-testid={`text-crack-status-${game.id}`}
+                    >
+                      Couldn't check crack status
+                    </p>
                   ) : !xrelStatus || xrelStatus.crackTypes.length === 0 ? (
                     <p
                       className="text-sm text-muted-foreground"

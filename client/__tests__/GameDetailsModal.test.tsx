@@ -248,6 +248,20 @@ describe("GameDetailsModal", () => {
         expect(await screen.findByText(badgeText)).toBeInTheDocument();
       }
     });
+
+    it("shows an error state instead of 'No known crack yet' when the request fails", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/xrel-status")) {
+          return Promise.resolve({ ok: false, status: 500, json: vi.fn().mockResolvedValue({}) });
+        }
+        return makeFetchMock()(url);
+      });
+
+      renderComponent();
+
+      expect(await screen.findByText("Couldn't check crack status")).toBeInTheDocument();
+      expect(screen.queryByText("No known crack yet")).not.toBeInTheDocument();
+    });
   });
 
   it("renders genres and platforms", () => {

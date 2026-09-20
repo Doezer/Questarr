@@ -455,6 +455,18 @@ export class PCImportStrategy implements ImportStrategy {
         destinations.add(resolvedDestination);
       }
 
+      // The check above only catches planned destinations colliding with each other.
+      // For this transfer mode (unpackViaLinkedExtraction), destination can already
+      // hold files an archive extracted straight into it before this runs, and
+      // transferSingleFile's unconditional overwrite would otherwise silently replace
+      // an extracted file with an unrelated loose one of the same name — the same
+      // failure mode transferDirectoryPerFile guards against above.
+      for (const { destinationFile } of plannedTransfers) {
+        if (await fs.pathExists(destinationFile)) {
+          throw new Error(`Destination already exists, refusing to overwrite: ${destinationFile}`);
+        }
+      }
+
       for (const { entry, sourceFile, destinationFile } of plannedTransfers) {
         const entryMode = await transferSingleFile(sourceFile, destinationFile, transferMode);
         filesPlaced.push(destinationFile);

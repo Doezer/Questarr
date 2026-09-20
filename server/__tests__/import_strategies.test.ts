@@ -598,6 +598,40 @@ describe("ImportStrategies", () => {
       expect(result.filesPlaced).toEqual([path.join(destination, "update", "Game Update v1.nsp")]);
       expect(await fs.pathExists(path.join(destination, "game.zip"))).toBe(false);
     });
+
+    it("refuses to overwrite a destination file that already exists in the categorized (fileCategories) branch too", async () => {
+      // Same regression as the transferDirectoryPerFile version above, but for the
+      // categorized branch: unpackViaLinkedExtraction extracts an archive straight into
+      // destination before calling executeImport for the remaining loose files, so a
+      // categorized entry sharing a name with something extraction just produced needs
+      // the same guard — the duplicate-destination check above only compares planned
+      // entries against each other, not against what's already on disk.
+      const { sourceDir, destination, excludePaths } = await makeExcludeFixture({
+        "game.rom": "loose-rom-bytes",
+      });
+      await fs.ensureDir(destination);
+      await fs.writeFile(path.join(destination, "game.rom"), "extracted-rom-bytes");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: destination,
+            strategy: "pc",
+            fileCategories: [{ name: "game.rom", category: "main" }],
+          },
+          "copy",
+          excludePaths
+        )
+      ).rejects.toThrow("Destination already exists, refusing to overwrite");
+
+      // The pre-existing (extracted) file survives untouched.
+      expect(await fs.readFile(path.join(destination, "game.rom"), "utf8")).toBe(
+        "extracted-rom-bytes"
+      );
+    });
   });
 
   // ---------------------------------------------------------------------------

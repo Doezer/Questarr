@@ -33,4 +33,16 @@ export interface XrelReleaseListItem extends XrelReleaseIdentity {
   // flag-only nukes -- see deriveNukeReason in server/xrel.ts). Only ever
   // set for scene releases -- xREL's p2p releases don't carry nuke metadata.
   nukeReason?: string;
+  // "hypervisor" vs "cracked" -- see deriveCrackType() below.
+  crackType: "hypervisor" | "cracked";
+}
+
+/**
+ * xREL doesn't expose a structured "crack method" field -- groups that bypass
+ * DRM via a hypervisor (e.g. Denuvo VM bypass) instead of a traditional crack
+ * flag it directly in the release dirname (e.g. "Game.Name.HYPERVISOR-EMPRESS").
+ * Fall back to "cracked" for everything else.
+ */
+export function deriveCrackType(dirname: string): "hypervisor" | "cracked" {
+  return /\bhypervisor\b/i.test(dirname) ? "hypervisor" : "cracked";
 }

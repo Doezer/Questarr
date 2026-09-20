@@ -72,6 +72,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Pencil,
+  ShieldCheck,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -89,6 +90,7 @@ import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { type Game, type GameDownload, type ScannedGameFile } from "@shared/schema";
 import { resolveTargetPlatform } from "@shared/title-utils";
+import { type XrelReleaseListItem } from "@shared/xrel-types";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
@@ -122,6 +124,9 @@ interface IgdbPlatformOption {
   id: number;
   name: string;
 }
+
+type XrelGameStatus =
+  { status: "none" } | { status: "hypervisor" | "cracked"; release: XrelReleaseListItem };
 
 interface NexusMod {
   mod_id: number;
@@ -579,6 +584,16 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
     enabled: open && !!game?.id && !isDiscoveryId(game.id),
     refetchInterval: 5000,
+  });
+
+  const { data: xrelStatus, isLoading: xrelStatusLoading } = useQuery<XrelGameStatus>({
+    queryKey: [`/api/games/${game?.id}/xrel-status`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/games/${game!.id}/xrel-status`);
+      return res.json();
+    },
+    enabled: open && !!game?.id && !isDiscoveryId(game.id),
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: nexusGameData, isError: nexusDomainError } = useQuery<{
@@ -1155,6 +1170,69 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                     >
                       {isSummaryExpanded ? "Show less" : "Read more"}
                     </Button>
+                  )}
+                </div>
+              )}
+
+              {/* Crack status (sourced from xREL) */}
+              {!isDiscoveryId(game.id) && (
+                <div>
+                  <h3 className="font-semibold mb-2 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4" />
+                    Crack Status
+                  </h3>
+                  {xrelStatusLoading ? (
+                    <p className="text-sm text-muted-foreground">Checking xREL…</p>
+                  ) : !xrelStatus || xrelStatus.status === "none" ? (
+                    <p
+                      className="text-sm text-muted-foreground"
+                      data-testid={`text-crack-status-${game.id}`}
+                    >
+                      No known crack yet
+                    </p>
+                  ) : (
+                    <div
+                      className="flex flex-wrap items-center gap-x-2 gap-y-1"
+                      data-testid={`text-crack-status-${game.id}`}
+                    >
+                      <Badge
+                        variant={xrelStatus.status === "hypervisor" ? "outline" : "secondary"}
+                        className={cn(
+                          "text-xs",
+                          xrelStatus.status === "hypervisor" &&
+                            "border-amber-500 text-amber-500 dark:text-amber-400"
+                        )}
+                      >
+                        {xrelStatus.status === "hypervisor" ? "Hypervisor Bypass" : "Cracked"}
+                      </Badge>
+                      {xrelStatus.release.group_name && (
+                        <span className="text-sm text-muted-foreground">
+                          by {xrelStatus.release.group_name}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        ({new Date(xrelStatus.release.time * 1000).toLocaleDateString()})
+                      </span>
+                      {xrelStatus.release.nukeReason && (
+                        <Badge
+                          variant="destructive"
+                          className="text-[10px] h-4 px-1.5"
+                          title={`Nuked: ${xrelStatus.release.nukeReason}`}
+                        >
+                          Nuked
+                        </Badge>
+                      )}
+                      <a
+                        href={safeUrl(xrelStatus.release.link_href)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline inline-flex items-center gap-0.5 text-xs"
+                        aria-label={`View ${xrelStatus.release.dirname} on xREL`}
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        View on xREL
+                      </a>
+                    </div>
                   )}
                 </div>
               )}

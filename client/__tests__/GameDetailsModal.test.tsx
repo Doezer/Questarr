@@ -116,6 +116,9 @@ vi.mock("lucide-react", () => ({
     <div data-testid="icon-chevron-right" {...props} />
   ),
   Pencil: (props: Record<string, unknown>) => <div data-testid="icon-pencil" {...props} />,
+  ShieldCheck: (props: Record<string, unknown>) => (
+    <div data-testid="icon-shield-check" {...props} />
+  ),
 }));
 
 vi.mock("react-icons/fa", () => ({
@@ -184,6 +187,7 @@ global.fetch = vi.fn();
 function makeFetchMock(overrides: Record<string, unknown> = {}) {
   const defaults: Record<string, unknown> = {
     "/api/nexusmods/game-domain": { configured: false, domain: null },
+    "/xrel-status": { status: "none" },
   };
   const routes = { ...defaults, ...overrides };
 
@@ -221,6 +225,61 @@ describe("GameDetailsModal", () => {
     expect(screen.getByTestId("text-rating-1")).toHaveTextContent("8.5/10");
     expect(screen.getByTestId("text-release-date-1")).toHaveTextContent("2023");
     expect(screen.getByTestId("img-cover-1")).toBeInTheDocument();
+  });
+
+  describe("Crack Status", () => {
+    it("shows 'No known crack yet' when xREL has no matching release", async () => {
+      renderComponent();
+      expect(await screen.findByText("No known crack yet")).toBeInTheDocument();
+    });
+
+    it("shows a Cracked badge and group name for a cracked release", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({
+          "/xrel-status": {
+            status: "cracked",
+            release: {
+              id: "1",
+              dirname: "Test.Game-SKIDROW",
+              link_href: "/release/1.html",
+              time: 1700000000,
+              group_name: "SKIDROW",
+              source: "scene",
+              crackType: "cracked",
+            },
+          },
+        })
+      );
+
+      renderComponent();
+
+      expect(await screen.findByText("Cracked")).toBeInTheDocument();
+      expect(screen.getByText("by SKIDROW")).toBeInTheDocument();
+    });
+
+    it("shows a Hypervisor Bypass badge for a hypervisor-tagged release", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({
+          "/xrel-status": {
+            status: "hypervisor",
+            release: {
+              id: "2",
+              dirname: "Test.Game.HYPERVISOR-EMPRESS",
+              link_href: "/release/2.html",
+              time: 1700000001,
+              group_name: "EMPRESS",
+              source: "scene",
+              crackType: "hypervisor",
+            },
+          },
+        })
+      );
+
+      renderComponent();
+
+      expect(await screen.findByText("Hypervisor Bypass")).toBeInTheDocument();
+      expect(screen.getByText("by EMPRESS")).toBeInTheDocument();
+    });
   });
 
   it("renders genres and platforms", () => {

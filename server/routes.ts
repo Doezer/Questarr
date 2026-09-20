@@ -4615,6 +4615,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Latest known xREL release (crack status/group) for a specific game in the
+  // user's collection. Returns { status: "none" } when xREL has no matching
+  // release yet.
+  app.get(
+    "/api/games/:id/xrel-status",
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const userId = req.user!.id;
+        const game = await resolveOwnedGame(req.params.id, userId, res);
+        if (!game) return;
+
+        const baseUrl =
+          (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+          process.env.XREL_API_BASE ||
+          DEFAULT_XREL_BASE;
+
+        const results = await xrelClient.searchReleases(game.title, {
+          scene: true,
+          p2p: true,
+          limit: 25,
+          baseUrl,
+        });
+
+        // Results are already sorted newest-first (see mergeAndFilterGameReleases).
+        const latest = results.find(
+          (r) =>
+            xrelClient.releaseMatchesGame(r.dirname, game.title) ||
+            (r.ext_info?.title && xrelClient.titleMatches(r.ext_info.title, game.title))
+        );
+
+        if (!latest) {
+          return res.json({ status: "none" });
+        }
+
+        return res.json({ status: latest.crackType, release: latest });
+      } catch (error) {
+        return next(error);
+      }
+    }
+  );
+
   // Match and add game from name (Quick Add). Shares its search/filter/dedupe
   // logic with the integration API's POST /api/integration/games/request
   // (server/game-quick-add.ts) so the two entry points can't drift apart.

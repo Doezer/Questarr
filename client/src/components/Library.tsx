@@ -17,7 +17,8 @@ import {
   Settings2,
   X,
 } from "lucide-react";
-import { type Game } from "@shared/schema";
+import { type Game, type UserSettings } from "@shared/schema";
+import { isPlatformNameSelected, selectedPlatformNames } from "@shared/platforms";
 import { type GameStatus } from "./StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
@@ -116,6 +117,15 @@ export default function Library() {
     errorMessage: "Failed to update game visibility",
   });
 
+  // The platforms the user selected in Settings → Platforms. Only these appear
+  // in the filter dropdown; games on other platforms stay in the library.
+  const { data: userSettings } = useQuery<UserSettings>({
+    queryKey: ["/api/settings"],
+  });
+  const { data: igdbPlatforms = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["/api/igdb/platforms"],
+  });
+
   // ⚡ Bolt: Consolidate multiple array traversals into a single pass to
   // optimize render performance and reduce unnecessary allocations.
   const { uniqueGenres, uniquePlatforms } = useMemo(() => {
@@ -140,6 +150,30 @@ export default function Library() {
       uniquePlatforms: Array.from(platformSet).sort((a, b) => a.localeCompare(b)),
     };
   }, [games]);
+
+  const visiblePlatforms = useMemo(() => {
+    // The platform setting stores IGDB ids, while `games.platforms` holds IGDB
+    // names, so translate once via the platform list both surfaces share.
+    const allowed = selectedPlatformNames(igdbPlatforms, userSettings?.importPlatformIds);
+    const filtered = uniquePlatforms.filter((platform) =>
+      isPlatformNameSelected(platform, allowed, userSettings?.importPlatformIds)
+    );
+    // An empty `allowed` means one of two things: while the IGDB platform list
+    // is still loading (or errored) every name is filtered out and the dropdown
+    // would blank, so fall back to the unfiltered list. Once the list is present
+    // an empty `filtered` is a genuine zero-overlap selection — return it, or
+    // the dropdown would offer platforms the user did not select.
+    return igdbPlatforms.length === 0 ? uniquePlatforms : filtered;
+  }, [uniquePlatforms, igdbPlatforms, userSettings?.importPlatformIds]);
+
+  // The Platforms setting can drop the platform currently being filtered on.
+  // Reset to "all" so a stale value cannot filter the grid invisibly (it would
+  // leave an active-filter pill with no matching dropdown option).
+  useEffect(() => {
+    if (platformFilter === "all") return;
+    if (visiblePlatforms.includes(platformFilter)) return;
+    setPlatformFilter("all");
+  }, [visiblePlatforms, platformFilter]);
 
   const filteredGames = useMemo(() => {
     const filtered = games.filter((game) => {
@@ -506,7 +540,7 @@ export default function Library() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Platforms</SelectItem>
-                      {uniquePlatforms.map((platform) => (
+                      {visiblePlatforms.map((platform) => (
                         <SelectItem key={platform} value={platform}>
                           {platform}
                         </SelectItem>

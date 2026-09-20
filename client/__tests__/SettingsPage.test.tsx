@@ -213,6 +213,21 @@ describe("SettingsPage", () => {
     expect(screen.getByTestId("preferred-release-groups")).toBeInTheDocument();
   });
 
+  it("switches to the Platforms tab and renders the platform picker", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Platforms" }));
+
+    expect(
+      await screen.findByText("Choose the platforms you use.", { exact: false })
+    ).toBeInTheDocument();
+  });
+
   it("switches to the Integrations tab and saves a Steam ID", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     render(

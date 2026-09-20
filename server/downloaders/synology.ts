@@ -12,6 +12,7 @@ import {
   assertCredentialsAllowed,
   fetchWithMagnetDetection,
   extractHashFromUrl,
+  isHttpsUrl,
   logDownloaderDebugResponse,
   findTorrentByTagNull,
 } from "./utils.js";
@@ -254,6 +255,10 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       throw new Error("Unsafe URL blocked");
     }
 
+    // Synology's login carries the password (and every later call the session `_sid`)
+    // as a query parameter -- require the resolved URL to stay HTTPS through any
+    // redirect whenever it started out HTTPS, so a compromised or MITM'd NAS can't
+    // bounce the credential to a plaintext hop.
     const response = await safeFetch(url, {
       ...init,
       headers: {
@@ -261,6 +266,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
         ...(init.headers ?? {}),
       },
       signal: init.signal ?? AbortSignal.timeout(30000),
+      requireHttps: isHttpsUrl(url),
     });
 
     await logDownloaderDebugResponse("Synology", init.method ?? "GET", url, response);
@@ -329,7 +335,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       throw new Error("Synology Download Station requires a username and password");
     }
 
-    assertCredentialsAllowed(this.downloader, "Synology");
+    const { origin } = this.getBaseUrlParts();
+    assertCredentialsAllowed(this.downloader, origin, "Synology");
 
     await this.ensureApiInfo();
 

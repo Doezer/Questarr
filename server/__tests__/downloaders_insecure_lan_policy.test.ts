@@ -4,10 +4,14 @@
  * Policy summary:
  *  - Credentials must not be sent over plain HTTP unless the user explicitly
  *    opts in via allowInsecureLan.
- *  - HTTPS (useSsl=true) always permits credentials regardless of allowInsecureLan.
- *  - HTTP with allowInsecureLan=true permits credentials.
- *  - HTTP with allowInsecureLan=false (default) must throw before any credential
- *    is included in a network request.
+ *  - The decision is based on the *actual scheme of the resolved request URL*,
+ *    not the downloader's `useSsl` config flag -- a downloader configured
+ *    `useSsl: true` whose `url` field still literally starts with `http://`
+ *    must still be denied, since that's what actually goes out on the wire.
+ *  - An HTTPS resolved URL always permits credentials regardless of allowInsecureLan.
+ *  - An HTTP resolved URL with allowInsecureLan=true permits credentials.
+ *  - An HTTP resolved URL with allowInsecureLan=false (default) must throw before
+ *    any credential is included in a network request.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -48,38 +52,46 @@ const makeDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
 // ─── downloaderAllowsCredentials unit tests ──────────────────────────────────
 
 describe("downloaderAllowsCredentials", () => {
-  it("returns true when useSsl=true regardless of allowInsecureLan", () => {
+  it("returns true when the resolved URL is https regardless of allowInsecureLan", () => {
     expect(
-      downloaderAllowsCredentials(makeDownloader({ useSsl: true, allowInsecureLan: false }))
+      downloaderAllowsCredentials(makeDownloader({ allowInsecureLan: false }), "https://host")
     ).toBe(true);
     expect(
-      downloaderAllowsCredentials(makeDownloader({ useSsl: true, allowInsecureLan: true }))
+      downloaderAllowsCredentials(makeDownloader({ allowInsecureLan: true }), "https://host")
     ).toBe(true);
   });
 
-  it("returns false when useSsl=false and allowInsecureLan=false", () => {
+  it("returns false when the resolved URL is http and allowInsecureLan=false", () => {
     expect(
-      downloaderAllowsCredentials(makeDownloader({ useSsl: false, allowInsecureLan: false }))
+      downloaderAllowsCredentials(makeDownloader({ allowInsecureLan: false }), "http://host")
     ).toBe(false);
   });
 
-  it("returns true when useSsl=false and allowInsecureLan=true", () => {
+  it("returns true when the resolved URL is http and allowInsecureLan=true", () => {
     expect(
-      downloaderAllowsCredentials(makeDownloader({ useSsl: false, allowInsecureLan: true }))
+      downloaderAllowsCredentials(makeDownloader({ allowInsecureLan: true }), "http://host")
     ).toBe(true);
   });
 
-  it("treats null/undefined useSsl as falsy", () => {
+  it("treats a malformed resolved URL as not HTTPS", () => {
     expect(
-      downloaderAllowsCredentials(
-        makeDownloader({ useSsl: null as unknown as boolean, allowInsecureLan: false })
-      )
+      downloaderAllowsCredentials(makeDownloader({ allowInsecureLan: false }), "not a url")
     ).toBe(false);
     expect(
-      downloaderAllowsCredentials(
-        makeDownloader({ useSsl: null as unknown as boolean, allowInsecureLan: true })
-      )
+      downloaderAllowsCredentials(makeDownloader({ allowInsecureLan: true }), "not a url")
     ).toBe(true);
+  });
+
+  it("ignores useSsl=true when the resolved URL still literally starts with http:// (the core bug)", () => {
+    // A downloader can be configured useSsl: true while its `url` field is still
+    // literally http:// -- each client's base-URL builder keeps whatever scheme is
+    // literally present, so the guard must key off the resolved URL, not the flag.
+    expect(
+      downloaderAllowsCredentials(
+        makeDownloader({ useSsl: true, allowInsecureLan: false }),
+        "http://host"
+      )
+    ).toBe(false);
   });
 });
 
@@ -273,6 +285,84 @@ describe("Deluge HTTP credential policy (allow)", () => {
     // With no password, should proceed (empty string password with allowInsecureLan=false
     // is allowed because the guard only fires when password is truthy)
     await expect(client.testConnection()).resolves.not.toThrow();
+  });
+
+  it("sends the password when HTTP and allowInsecureLan=true", async () => {
+    const jsonResponse = (result: unknown) => ({
+      ok: true,
+      headers: { get: () => null },
+      json: async () => ({ result, error: null, id: 1 }),
+      text: async () => JSON.stringify({ result, error: null, id: 1 }),
+    });
+
+    // auth.login -> web.connected -> daemon.get_version
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(true))
+      .mockResolvedValueOnce(jsonResponse(true))
+      .mockResolvedValueOnce(jsonResponse("2.1.1"));
+
+    const client = new DelugeClient(
+      makeDownloader({ type: "deluge", allowInsecureLan: true, password: "secret" })
+    );
+    const result = await client.testConnection();
+
+    expect(result.success).toBe(true);
+    // The first request is auth.login, carrying the password in its JSON-RPC body.
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(options.body as string).params).toEqual(["secret"]);
+  });
+});
+
+describe("qBittorrent HTTP credential policy (allow)", () => {
+  it("sends the password when HTTP and allowInsecureLan=true", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { getSetCookie: () => [], get: () => null },
+        text: async () => "Ok.",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: () => null },
+        text: async () => "v4.3.9",
+      });
+
+    const client = new QBittorrentClient(
+      makeDownloader({
+        type: "qbittorrent",
+        allowInsecureLan: true,
+        username: "admin",
+        password: "adminadmin",
+      })
+    );
+    const result = await client.testConnection();
+
+    expect(result.success).toBe(true);
+    // The first request is the login, carrying username/password as form data.
+    const [, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(options.body as string).toContain("password=adminadmin");
+  });
+});
+
+// Regression test for the bug this guard was fixed to close: a downloader configured
+// useSsl: true (which permitted credentials unconditionally under the old
+// flag-only check) whose `url` field still literally starts with http:// -- each
+// client's base-URL builder keeps whatever scheme is literally present in `url`, so
+// the real request still goes out in cleartext. The guard must key off the resolved
+// request URL's actual scheme, not the useSsl flag, and reject this case.
+describe("useSsl=true with a literal http:// url is rejected (resolved-URL regression)", () => {
+  it.each([
+    ["Deluge", (d: Downloader) => new DelugeClient(d), { type: "deluge" }],
+    ["qBittorrent", (d: Downloader) => new QBittorrentClient(d), { type: "qbittorrent" }],
+    ["Transmission", (d: Downloader) => new TransmissionClient(d), { type: "transmission" }],
+  ] as const)("%s", async (_name, makeClient, overrides) => {
+    const client = makeClient(
+      makeDownloader({ ...overrides, useSsl: true, url: "http://localhost:9091" })
+    );
+    const result = await client.testConnection();
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/refusing to send .* over unencrypted HTTP/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

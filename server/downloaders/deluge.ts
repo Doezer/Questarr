@@ -12,6 +12,7 @@ import {
   assertCredentialsAllowed,
   fetchWithMagnetDetection,
   extractHashFromUrl,
+  isHttpsUrl,
   logDownloaderDebugResponse,
   findTorrentByTagNull,
 } from "./utils.js";
@@ -130,7 +131,7 @@ export class DelugeClient implements DownloaderClient {
     if (this.cookie) return;
 
     if (this.downloader.password) {
-      assertCredentialsAllowed(this.downloader, "Deluge", "password");
+      assertCredentialsAllowed(this.downloader, this.getRpcUrl(), "Deluge", "password");
     }
 
     const password = this.downloader.password || "";
@@ -788,11 +789,16 @@ export class DelugeClient implements DownloaderClient {
       headers["Cookie"] = this.cookie;
     }
 
+    // Every Deluge RPC call after login replays the session cookie (or carries the
+    // password itself, for auth.login), so require the resolved URL to stay HTTPS
+    // through any redirect whenever it started out HTTPS -- a compromised or MITM'd
+    // Deluge could otherwise bounce the credential-bearing request to a plaintext hop.
     const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30000),
+      requireHttps: isHttpsUrl(url),
     });
 
     await logDownloaderDebugResponse("Deluge", method, url, response);

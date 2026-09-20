@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Indexer } from "@shared/schema";
-import { DEFAULT_GAME_CATEGORIES } from "../indexer-caps.js";
+import { DEFAULT_GAME_CATEGORIES, resolveSearchCategories } from "../indexer-caps.js";
 
 vi.mock("../db.js", () => ({ pool: {}, db: {} }));
 vi.mock("../logger.js", () => ({
@@ -460,6 +460,45 @@ describe("TorznabClient — searchGames error wrapping", () => {
       cause: networkError,
     });
   });
+});
+
+describe("TorznabClient — search category resolution", () => {
+  let client: InstanceType<typeof TorznabClient>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    client = new TorznabClient();
+    mockIsSafeUrl.mockResolvedValue(true);
+    mockFetchResponse(
+      `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel><title>Test</title></channel>
+</rss>`
+    );
+  });
+
+  it.each([
+    ["no request or configured categories", undefined, []],
+    ["request categories only", ["2000"], []],
+    ["configured categories matching the game defaults", undefined, ["4000", "1000"]],
+    ["configured categories mixing game and non-game IDs", undefined, ["4000", "8000"]],
+    ["configured categories entirely outside the game ranges", undefined, ["8000"]],
+    ["request categories overriding configured ones", ["2000"], ["4000", "1000"]],
+  ] as const)(
+    "sends the `cat` param resolved by resolveSearchCategories: %s",
+    async (_label, requested, configured) => {
+      const indexer = makeIndexer({ categories: [...configured] });
+
+      await client.searchGames(indexer, {
+        query: "game",
+        category: requested ? [...requested] : undefined,
+      });
+
+      const [url] = mockSafeFetch.mock.calls[0] as [string];
+      const expected = resolveSearchCategories(requested, configured).join(",");
+      expect(new URL(url).searchParams.get("cat")).toBe(expected);
+    }
+  );
 });
 
 describe("TorznabClient — testConnection", () => {

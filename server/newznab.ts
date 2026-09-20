@@ -4,6 +4,7 @@ import {
   DEFAULT_GAME_CATEGORIES,
   discoverCapsCategories,
   indexerAllowsApiKey,
+  resolveSearchCategories,
 } from "./indexer-caps.js";
 import { routesLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
@@ -124,35 +125,10 @@ class NewznabClient {
       url.searchParams.set("t", "search"); // Newznab search function
       url.searchParams.set("q", params.query);
 
-      if (params.category && params.category.length > 0) {
-        url.searchParams.set("cat", params.category.join(","));
-      } else {
-        // Default to game categories
-        const configuredCategories = indexer.categories || [];
-
-        if (configuredCategories.length > 0) {
-          // If categories are configured, use only the game-related ones
-          // 40xx: PC Games, 10xx: Console Games
-          const gameCategories = configuredCategories.filter(
-            (cat) =>
-              cat.startsWith("40") ||
-              cat.startsWith("10") ||
-              cat.toLowerCase().includes("game") ||
-              cat.toLowerCase().includes("pc")
-          );
-          if (gameCategories.length > 0) {
-            url.searchParams.set("cat", gameCategories.join(","));
-          } else {
-            // If configured categories exist but none match games, use them anyway
-            // (user might know what they are doing, e.g. custom category ID)
-            url.searchParams.set("cat", configuredCategories.join(","));
-          }
-        } else {
-          // If NO categories are configured, default to standard Game categories
-          // 4000: PC Games, 1000: Console Games
-          url.searchParams.set("cat", "4000,1000");
-        }
-      }
+      url.searchParams.set(
+        "cat",
+        resolveSearchCategories(params.category, indexer.categories).join(",")
+      );
 
       if (params.limit) {
         url.searchParams.set("limit", params.limit.toString());

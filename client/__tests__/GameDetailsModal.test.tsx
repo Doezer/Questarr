@@ -31,6 +31,47 @@ vi.mock("../src/components/GameDownloadDialog", () => ({
     open ? <div data-testid="game-download-dialog">Download Dialog</div> : null,
 }));
 
+vi.mock("@/components/ui/select", () => {
+  const SelectTrigger = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
+  const Select = ({
+    value,
+    onValueChange,
+    disabled,
+    children,
+  }: {
+    value: string;
+    onValueChange: (value: string) => void;
+    disabled?: boolean;
+    children: React.ReactNode;
+  }) => {
+    let id: string | undefined;
+    React.Children.forEach(children, (child) => {
+      if (React.isValidElement(child) && child.type === SelectTrigger) {
+        id = (child.props as { id?: string }).id;
+      }
+    });
+    return (
+      <select
+        id={id}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onValueChange(event.target.value)}
+      >
+        {children}
+      </select>
+    );
+  };
+  return {
+    Select,
+    SelectTrigger,
+    SelectValue: () => null,
+    SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+      <option value={value}>{children}</option>
+    ),
+  };
+});
+
 vi.mock("lucide-react", () => ({
   Calendar: (props: Record<string, unknown>) => <div data-testid="icon-calendar" {...props} />,
   Star: (props: Record<string, unknown>) => <div data-testid="icon-star" {...props} />,
@@ -188,6 +229,46 @@ describe("GameDetailsModal", () => {
     expect(screen.getByTestId("badge-genre-adventure")).toBeInTheDocument();
     expect(screen.getByTestId("badge-platform-pc")).toBeInTheDocument();
     expect(screen.getByTestId("badge-platform-ps5")).toBeInTheDocument();
+  });
+
+  it("updates and clears the automatic download target", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({
+        "/api/igdb/platforms": [
+          { id: 8, name: "PlayStation 2" },
+          { id: 48, name: "PlayStation 4" },
+        ],
+      })
+    );
+    renderComponent();
+
+    const targetSelect = await screen.findByLabelText("Automatic download target");
+    await screen.findByRole("option", { name: "PlayStation 2" });
+    fireEvent.change(targetSelect, { target: { value: "8" } });
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/games/1/target-platform",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({
+            targetPlatformId: 8,
+            targetPlatformName: "PlayStation 2",
+          }),
+        })
+      );
+    });
+
+    fireEvent.change(targetSelect, { target: { value: "default" } });
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/games/1/target-platform",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ targetPlatformId: null, targetPlatformName: null }),
+        })
+      );
+    });
   });
 
   it("renders screenshots in Media tab", () => {

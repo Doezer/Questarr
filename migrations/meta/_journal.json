@@ -253,6 +253,13 @@
       "when": 1757808001000,
       "tag": "0034_downloader_allow_insecure_lan",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1789622720302,
+      "tag": "0035_add-target-platform-columns",
+      "breakpoints": true
     }
   ]
 }

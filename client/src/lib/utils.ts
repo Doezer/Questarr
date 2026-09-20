@@ -63,6 +63,8 @@ export function mapGameToInsertGame(game: Game): InsertGame {
     releaseDate: game.releaseDate || null,
     rating: game.rating,
     platforms: game.platforms,
+    targetPlatformId: game.targetPlatformId,
+    targetPlatformName: game.targetPlatformName,
     genres: game.genres,
     themes: game.themes,
     screenshots: game.screenshots,

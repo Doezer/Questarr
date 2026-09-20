@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -19,6 +19,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -81,11 +88,23 @@ import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { type Game, type GameDownload, type ScannedGameFile } from "@shared/schema";
+import { resolveTargetPlatform } from "@shared/title-utils";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
 
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
+
+/** Derives the target-platform Select value, falling back to "default" for malformed or unsupported saved pairs. */
+function getTargetPlatformSelectValue(
+  target:
+    { targetPlatformId?: number | null; targetPlatformName?: string | null } | null | undefined
+): string {
+  if (target?.targetPlatformId == null) return "default";
+  return resolveTargetPlatform(target.targetPlatformId, target.targetPlatformName)
+    ? String(target.targetPlatformId)
+    : "default";
+}
 
 interface GameDetailsModalProps {
   game: Game | null;
@@ -98,6 +117,11 @@ type GameDownloadWithDownloader = GameDownload & { downloaderName: string | null
 type FileDeletionResult =
   | { deleted: true; path: string | null }
   | { deleted: false; reason: "outside-library-root" | "delete-failed"; path: string };
+
+interface IgdbPlatformOption {
+  id: number;
+  name: string;
+}
 
 interface NexusMod {
   mod_id: number;
@@ -356,6 +380,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [notesValue, setNotesValue] = useState<string>("");
+  const [targetPlatformValue, setTargetPlatformValue] = useState("default");
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   // Tracks the live notesValue so the async save's onSuccess (below) can tell
   // whether the user kept typing after blur, instead of seeing the stale
@@ -409,6 +434,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   useEffect(() => {
     setIsSummaryExpanded(false);
     setNotesValue(game?.notes ?? "");
+    setTargetPlatformValue(getTargetPlatformSelectValue(game));
     setIsEditingNotes(false);
     queuedNotesSaveRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -422,6 +448,17 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     if (isMobile && isEditingNotesRef.current) return;
     setNotesValue(game?.notes ?? "");
   }, [game?.notes, isMobile]);
+
+  // Keep targetPlatformValue in sync with the server value for the same game
+  // (e.g. after the target-platform mutation's invalidateQueries refetch lands).
+  useEffect(() => {
+    setTargetPlatformValue(
+      getTargetPlatformSelectValue({
+        targetPlatformId: game?.targetPlatformId,
+        targetPlatformName: game?.targetPlatformName,
+      })
+    );
+  }, [game?.targetPlatformId, game?.targetPlatformName]);
 
   useEffect(() => {
     setSelectedScreenshotIndex(null);
@@ -508,6 +545,29 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       socket.off("downloadUpdate", handler);
     };
   }, [open, game?.id, queryClient]);
+
+  const { data: targetPlatformOptions = [] } = useQuery<IgdbPlatformOption[]>({
+    queryKey: ["/api/igdb/platforms"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/igdb/platforms");
+      return res.json();
+    },
+    enabled: open && !!game?.id && !isDiscoveryId(game.id),
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  const supportedTargetPlatformOptions = useMemo(() => {
+    const options = targetPlatformOptions.filter(({ id, name }) => resolveTargetPlatform(id, name));
+    if (
+      game?.targetPlatformId &&
+      game.targetPlatformName &&
+      resolveTargetPlatform(game.targetPlatformId, game.targetPlatformName) &&
+      !options.some(({ id }) => id === game.targetPlatformId)
+    ) {
+      return [{ id: game.targetPlatformId, name: game.targetPlatformName }, ...options];
+    }
+    return options;
+  }, [targetPlatformOptions, game?.targetPlatformId, game?.targetPlatformName]);
 
   const { data: gameDownloads = [], isLoading: downloadsLoading } = useQuery<
     GameDownloadWithDownloader[]
@@ -613,6 +673,36 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       toast({ description: "Failed to save your rating", variant: "destructive" });
     },
   });
+
+  const targetPlatformMutation = useMutation({
+    mutationFn: async (target: {
+      targetPlatformId: number | null;
+      targetPlatformName: string | null;
+    }) => {
+      await apiRequest("PATCH", `/api/games/${game?.id}/target-platform`, target);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      toast({ description: "Download target updated" });
+    },
+    onError: () => {
+      setTargetPlatformValue(getTargetPlatformSelectValue(game));
+      toast({ description: "Failed to update download target", variant: "destructive" });
+    },
+  });
+
+  const handleTargetPlatformChange = useCallback(
+    (value: string) => {
+      setTargetPlatformValue(value);
+      const selected = supportedTargetPlatformOptions.find(({ id }) => String(id) === value);
+      targetPlatformMutation.mutate(
+        selected
+          ? { targetPlatformId: selected.id, targetPlatformName: selected.name }
+          : { targetPlatformId: null, targetPlatformName: null }
+      );
+    },
+    [supportedTargetPlatformOptions, targetPlatformMutation]
+  );
 
   const notesMutation = useMutation({
     mutationFn: async ({ gameId, notes }: { gameId: string; notes: string | null }) => {
@@ -1144,6 +1234,41 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       maxVisible={8}
                       getTestId={(p) => `badge-platform-${p.toLowerCase().replace(/\s+/g, "-")}`}
                     />
+                  </div>
+                )}
+                {!isDiscoveryId(game.id) && (
+                  <div>
+                    <label
+                      htmlFor="target-platform"
+                      className="font-semibold mb-2 flex items-center gap-2"
+                    >
+                      <Gamepad2 className="w-4 h-4" />
+                      Automatic download target
+                    </label>
+                    <Select
+                      value={targetPlatformValue}
+                      disabled={targetPlatformMutation.isPending}
+                      onValueChange={handleTargetPlatformChange}
+                    >
+                      <SelectTrigger
+                        id="target-platform"
+                        aria-label="Automatic download target"
+                        className="w-full max-w-sm"
+                      >
+                        <SelectValue placeholder="Use account default" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Use account default</SelectItem>
+                        {supportedTargetPlatformOptions.map((platform) => (
+                          <SelectItem key={platform.id} value={String(platform.id)}>
+                            {platform.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Overrides the account platform for automatic release matching.
+                    </p>
                   </div>
                 )}
               </div>

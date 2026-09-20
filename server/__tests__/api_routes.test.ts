@@ -319,6 +319,20 @@ describe("API Routes - Extended Coverage", () => {
         expect(storage.registerSetupUser).not.toHaveBeenCalled();
       });
 
+      it("should reject a full but malformed IGDB credential pair without creating the user", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+
+        const res = await request(app).post("/api/auth/setup").send({
+          username: "admin",
+          password: "password123",
+          igdbClientId: "not-a-real-id",
+          igdbClientSecret: "not-a-real-secret",
+        });
+
+        expect(res.status).toBe(400);
+        expect(storage.registerSetupUser).not.toHaveBeenCalled();
+      });
+
       it("should handle duplicative setup race condition", async () => {
         vi.mocked(storage.countUsers).mockResolvedValue(0);
         vi.mocked(storage.registerSetupUser).mockRejectedValue(
@@ -329,6 +343,63 @@ describe("API Routes - Extended Coverage", () => {
           .post("/api/auth/setup")
           .send({ username: "admin", password: "password123" });
         expect(res.status).toBe(403);
+      });
+    });
+
+    describe("POST /api/auth/setup/test-igdb", () => {
+      const VALID_CLIENT_ID = "newigdbclientid1234567890ab";
+      const VALID_CLIENT_SECRET = "newigdbclientsecret1234567890";
+
+      it("should return 403 once setup is already complete", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(1);
+        const res = await request(app)
+          .post("/api/auth/setup/test-igdb")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(res.status).toBe(403);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should return 400 when a field is missing", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+        const res = await request(app)
+          .post("/api/auth/setup/test-igdb")
+          .send({ clientId: VALID_CLIENT_ID });
+        expect(res.status).toBe(400);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should return 400 when the credential format looks invalid", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+        const res = await request(app)
+          .post("/api/auth/setup/test-igdb")
+          .send({ clientId: "not-a-real-id", clientSecret: "not-a-real-secret" });
+        expect(res.status).toBe(400);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should return the test result when setup is still open", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+        vi.mocked(igdbClient.testCredentials).mockResolvedValue({
+          success: false,
+          error: "Invalid Client ID or Client Secret.",
+        });
+        const res = await request(app)
+          .post("/api/auth/setup/test-igdb")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(res.status).toBe(400);
+        expect(res.body).toEqual({
+          success: false,
+          error: "Invalid Client ID or Client Secret.",
+        });
+      });
+
+      it("should return 500 when testCredentials throws unexpectedly", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+        vi.mocked(igdbClient.testCredentials).mockRejectedValue(new Error("boom"));
+        const res = await request(app)
+          .post("/api/auth/setup/test-igdb")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(res.status).toBe(500);
       });
     });
 
@@ -2173,6 +2244,82 @@ describe("API Routes - Extended Coverage", () => {
         // Should NOT save the masked value
         expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientId", VALID_CLIENT_ID);
         expect(storage.setSystemConfig).not.toHaveBeenCalledWith("igdb.clientSecret", "********");
+      });
+    });
+
+    describe("POST /api/settings/igdb/test", () => {
+      const VALID_CLIENT_ID = "newigdbclientid1234567890ab";
+      const VALID_CLIENT_SECRET = "newigdbclientsecret1234567890";
+
+      it("should return success when the credentials are valid", async () => {
+        vi.mocked(igdbClient.testCredentials).mockResolvedValue({ success: true });
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+        expect(igdbClient.testCredentials).toHaveBeenCalledWith(
+          VALID_CLIENT_ID,
+          VALID_CLIENT_SECRET
+        );
+      });
+
+      it("should return 400 with the server's error when credentials are rejected", async () => {
+        vi.mocked(igdbClient.testCredentials).mockResolvedValue({
+          success: false,
+          error: "Invalid Client ID or Client Secret.",
+        });
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid Client ID or Client Secret.");
+      });
+
+      it("should return 400 when clientId is missing", async () => {
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientSecret: VALID_CLIENT_SECRET });
+        expect(response.status).toBe(400);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should return 400 when the credential format looks invalid", async () => {
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: "not-a-real-id", clientSecret: "not-a-real-secret" });
+        expect(response.status).toBe(400);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should test against the stored secret when clientSecret is the masked placeholder", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue(VALID_CLIENT_SECRET);
+        vi.mocked(igdbClient.testCredentials).mockResolvedValue({ success: true });
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: "********" });
+        expect(response.status).toBe(200);
+        expect(igdbClient.testCredentials).toHaveBeenCalledWith(
+          VALID_CLIENT_ID,
+          VALID_CLIENT_SECRET
+        );
+      });
+
+      it("should return 400 when the placeholder is sent but no secret is stored", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue(undefined);
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: "********" });
+        expect(response.status).toBe(400);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should return 500 when testCredentials throws unexpectedly", async () => {
+        vi.mocked(igdbClient.testCredentials).mockRejectedValue(new Error("boom"));
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(response.status).toBe(500);
       });
     });
   });

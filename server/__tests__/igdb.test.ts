@@ -1050,4 +1050,60 @@ describe("IGDBClient - testCredentials", () => {
 
     expect(result).toEqual({ success: true });
   });
+
+  it("reports a network error when Twitch is unreachable", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("some-id", "some-secret");
+
+    expect(result).toEqual({
+      success: false,
+      error: "Could not reach Twitch — check your network connection.",
+    });
+  });
+
+  it("reports Twitch's status for an unexpected non-400/403 error", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500 } as Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("some-id", "some-secret");
+
+    expect(result).toEqual({
+      success: false,
+      error: "Twitch returned an unexpected error (status 500).",
+    });
+  });
+
+  it("reports a network error when IGDB is unreachable", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: "tok", expires_in: 3600 }),
+    } as Response);
+    fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("good-id", "good-secret");
+
+    expect(result).toEqual({
+      success: false,
+      error: "Could not reach IGDB — check your network connection.",
+    });
+  });
+
+  it("reports IGDB's status when the game query is rejected", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: "tok", expires_in: 3600 }),
+    } as Response);
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 429 } as Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("good-id", "good-secret");
+
+    expect(result).toEqual({
+      success: false,
+      error: "IGDB rejected the request (status 429).",
+    });
+  });
 });

@@ -348,6 +348,9 @@ class IGDBClient {
           client_secret: clientSecret,
           grant_type: "client_credentials",
         }).toString(),
+        // Pins the redirect chain to HTTPS/same-origin so a redirect can't downgrade the
+        // request or forward the client secret to a different host.
+        requireHttps: true,
       });
     } catch (error) {
       igdbLogger.warn({ error }, "IGDB credential test: network error reaching Twitch");
@@ -376,6 +379,7 @@ class IGDBClient {
           Authorization: `Bearer ${tokenData.access_token}`,
         },
         body: "fields id; limit 1;",
+        requireHttps: true,
       });
     } catch (error) {
       igdbLogger.warn({ error }, "IGDB credential test: network error reaching IGDB");
@@ -462,6 +466,7 @@ class IGDBClient {
         client_secret: clientSecret,
         grant_type: "client_credentials",
       }).toString(),
+      requireHttps: true,
     });
 
     if (!response.ok) {

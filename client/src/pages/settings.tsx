@@ -831,18 +831,22 @@ export default function SettingsPage() {
   // firing its own fixed-text toast, which would show a stale/misleading combination now that
   // one click can trigger either, both, or neither.
   const handleSaveIgdb = async () => {
-    const isAlreadyConfigured = igdbSettings?.configured === true;
+    // Omitting the secret and keeping the existing one is only safe when that existing secret
+    // actually lives in the DB (source === "database"): the server pairs a DB clientId with a
+    // DB secret, so if the current credentials are env-sourced there's no DB secret to pair a
+    // new clientId with, and a clientId-only update would silently do nothing.
+    const hasDbSecretToPairWith = igdbSettings?.source === "database";
     const originalClientId = igdbSettings?.clientId ?? "";
     const trimmedClientId = igdbClientId.trim();
     const trimmedClientSecret = igdbClientSecret.trim();
     const bothCredentialsProvided = !!(trimmedClientId && trimmedClientSecret);
     const hasCredentialChange = trimmedClientId !== originalClientId || !!trimmedClientSecret;
     const shouldSaveCredentials =
-      bothCredentialsProvided || (isAlreadyConfigured && hasCredentialChange);
-    const attemptingIncompleteCredentials =
-      !isAlreadyConfigured &&
-      !!(trimmedClientId || trimmedClientSecret) &&
-      !bothCredentialsProvided;
+      bothCredentialsProvided || (hasDbSecretToPairWith && hasCredentialChange);
+    // Only an actual attempted change that can't be saved counts as "incomplete" -- an
+    // env-sourced clientId sitting unchanged in the field (prefilled on load) must not block
+    // an unrelated rate-limit-only save.
+    const attemptingIncompleteCredentials = hasCredentialChange && !shouldSaveCredentials;
 
     if (attemptingIncompleteCredentials) {
       toast({
@@ -1898,10 +1902,10 @@ export default function SettingsPage() {
                     className="gap-2"
                   >
                     {updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      <span role="status" className="flex items-center gap-2">
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
-                      </>
+                      </span>
                     ) : (
                       <>
                         <Key className="h-4 w-4" />

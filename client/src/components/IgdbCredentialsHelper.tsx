@@ -172,10 +172,10 @@ export function IgdbTestConnectionButton({
         className="gap-2"
       >
         {state === "testing" ? (
-          <>
+          <span role="status" className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
             Testing...
-          </>
+          </span>
         ) : (
           "Test connection"
         )}

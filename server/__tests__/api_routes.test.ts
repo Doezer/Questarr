@@ -333,6 +333,20 @@ describe("API Routes - Extended Coverage", () => {
         expect(storage.registerSetupUser).not.toHaveBeenCalled();
       });
 
+      it("should reject non-string IGDB credential values without creating the user", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+
+        const res = await request(app).post("/api/auth/setup").send({
+          username: "admin",
+          password: "password123",
+          igdbClientId: 123456,
+          igdbClientSecret: 654321,
+        });
+
+        expect(res.status).toBe(400);
+        expect(storage.registerSetupUser).not.toHaveBeenCalled();
+      });
+
       it("should handle duplicative setup race condition", async () => {
         vi.mocked(storage.countUsers).mockResolvedValue(0);
         vi.mocked(storage.registerSetupUser).mockRejectedValue(
@@ -2233,6 +2247,19 @@ describe("API Routes - Extended Coverage", () => {
           .post("/api/settings/igdb")
           .send({ clientId: VALID_CLIENT_ID, clientSecret: 123456 });
         expect(response.status).toBe(400);
+      });
+
+      it("should require the secret for a clientId-only update when no DB secret exists yet (env-only configured)", async () => {
+        // appConfig.igdb.isConfigured is true in this test's mock, simulating an env-configured
+        // instance; storage.getSystemConfig defaults to undefined, i.e. no DB secret yet. A
+        // clientId-only update here must not silently save a DB clientId with no DB secret to
+        // pair it with (getCredentials() only uses DB creds when both are present together).
+        vi.mocked(storage.getSystemConfig).mockResolvedValue(undefined);
+        const response = await request(app)
+          .post("/api/settings/igdb")
+          .send({ clientId: VALID_CLIENT_ID });
+        expect(response.status).toBe(400);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
       });
 
       it("should handle masked secret update", async () => {

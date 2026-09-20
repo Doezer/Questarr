@@ -760,8 +760,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Validate IGDB credential format before creating the user account: rejecting it after
       // the account exists would leave the caller stuck (setup can't be re-run once a user
-      // exists), so a bad format -- or an incomplete pair, which saveIgdbCredentialsIfProvided
-      // would otherwise silently discard below -- must fail fast, before anything is persisted.
+      // exists), so a bad format -- an incomplete pair, or a non-string value, all of which
+      // saveIgdbCredentialsIfProvided would otherwise silently discard below -- must fail fast,
+      // before anything is persisted.
+      const igdbClientIdSupplied = igdbClientId !== undefined && igdbClientId !== null;
+      const igdbClientSecretSupplied = igdbClientSecret !== undefined && igdbClientSecret !== null;
+      if (
+        (igdbClientIdSupplied && typeof igdbClientId !== "string") ||
+        (igdbClientSecretSupplied && typeof igdbClientSecret !== "string")
+      ) {
+        return res.status(400).json({ error: "IGDB Client ID and Client Secret must be strings" });
+      }
+
       const trimmedIgdbClientId = typeof igdbClientId === "string" ? igdbClientId.trim() : "";
       const trimmedIgdbClientSecret =
         typeof igdbClientSecret === "string" ? igdbClientSecret.trim() : "";
@@ -4263,14 +4273,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Client Secret must be a string" });
       }
 
-      // Check if already configured (in DB or Env)
+      // Whether it's safe to omit clientSecret and keep the existing one: only when a DB
+      // secret already exists to pair with the (possibly updated) DB clientId. An
+      // env-only-configured instance has no DB secret to pair with, so saving just a new
+      // clientId here would leave a DB clientId with no DB secret -- getCredentials() only
+      // uses DB creds when BOTH are present together, so it would silently fall back to the
+      // full env pair (including the old env clientId), making this update a silent no-op.
       const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
-      const isConfigured = !!dbSecret || appConfig.igdb.isConfigured;
+      const canOmitSecret = !!dbSecret;
 
       const isMaskedValue = isUnchangedSentinel(clientSecret);
       const hasNewSecret = !!clientSecret && !isMaskedValue;
 
-      if (!isConfigured && !hasNewSecret) {
+      if (!canOmitSecret && !hasNewSecret) {
         return res.status(400).json({ error: "Client Secret is required" });
       }
 

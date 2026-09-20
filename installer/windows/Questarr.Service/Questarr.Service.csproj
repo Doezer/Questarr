@@ -6,6 +6,7 @@
     <AssemblyName>Questarr.Service</AssemblyName>
     <RootNamespace>Questarr.Service</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>

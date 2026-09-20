@@ -6,15 +6,29 @@ import type { Downloader, DownloadFile } from "@shared/schema.js";
 export const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 
+/** Returns whether a URL's scheme is literally `https:`. Any parse failure is treated as not HTTPS. */
+export function isHttpsUrl(url: string): boolean {
+  try {
+    return new URL(url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Returns whether the downloader's configured transport policy permits credentials.
- * SSL connections are permitted by default; plaintext connections require the
- * explicit insecure-LAN opt-in.
+ * Returns whether the downloader's transport policy permits credentials, based on the
+ * *actual scheme of the resolved request URL* -- not the downloader's `useSsl` config
+ * flag in isolation. A downloader can be configured `useSsl: true` while its `url`
+ * field still literally starts with `http://` (each client's base-URL builder keeps
+ * whatever scheme is literally present), which would leak credentials in cleartext if
+ * only the flag were trusted. HTTPS requests are permitted by default; anything else
+ * requires the explicit insecure-LAN opt-in.
  */
 export function downloaderAllowsCredentials(
-  downloader: Pick<Downloader, "useSsl" | "allowInsecureLan">
+  downloader: Pick<Downloader, "allowInsecureLan">,
+  resolvedUrl: string
 ): boolean {
-  return downloader.useSsl === true || downloader.allowInsecureLan === true;
+  return isHttpsUrl(resolvedUrl) || downloader.allowInsecureLan === true;
 }
 
 /**
@@ -23,15 +37,19 @@ export function downloaderAllowsCredentials(
  * on the wire needs the exact same check and refusal message, so it lives here
  * once instead of being hand-copied (and drifting) across each client.
  *
+ * @param resolvedUrl - The actual URL the credential-bearing request will be sent
+ * to, exactly as built by the client's base-URL/request-URL builder. The decision
+ * is based on this URL's real scheme, not the downloader's `useSsl` flag.
  * @param clientName - Downloader display name, e.g. "qBittorrent", used in the error.
  * @param credentialKind - What's being withheld, e.g. "password" or "API key".
  */
 export function assertCredentialsAllowed(
-  downloader: Pick<Downloader, "useSsl" | "allowInsecureLan">,
+  downloader: Pick<Downloader, "allowInsecureLan">,
+  resolvedUrl: string,
   clientName: string,
   credentialKind = "credentials"
 ): void {
-  if (downloaderAllowsCredentials(downloader)) return;
+  if (downloaderAllowsCredentials(downloader, resolvedUrl)) return;
   throw new Error(
     `${clientName}: refusing to send ${credentialKind} over unencrypted HTTP. ` +
       "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."

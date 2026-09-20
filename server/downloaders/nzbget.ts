@@ -201,7 +201,7 @@ export class NZBGetClient implements DownloaderClient {
     };
 
     if (this.downloader.username && this.downloader.password) {
-      assertCredentialsAllowed(this.downloader, "NZBGet");
+      assertCredentialsAllowed(this.downloader, url, "NZBGet");
       headers["Authorization"] = buildBasicAuthHeader(
         this.downloader.username,
         this.downloader.password

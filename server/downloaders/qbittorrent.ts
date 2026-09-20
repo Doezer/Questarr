@@ -15,6 +15,7 @@ import {
   fetchWithMagnetDetection,
   extractHashFromUrl,
   fixNzbUrlEncoding,
+  isHttpsUrl,
   logDownloaderDebugResponse,
 } from "./utils.js";
 
@@ -1333,9 +1334,9 @@ export class QBittorrentClient implements DownloaderClient {
       return;
     }
 
-    assertCredentialsAllowed(this.downloader, "qBittorrent");
-
     const url = this.getBaseUrl() + "/api/v2/auth/login";
+
+    assertCredentialsAllowed(this.downloader, url, "qBittorrent");
 
     downloadersLogger.debug(
       { url, username: this.downloader.username, force },
@@ -1355,6 +1356,9 @@ export class QBittorrentClient implements DownloaderClient {
         },
         body: formData.toString(),
         signal: AbortSignal.timeout(30000),
+        // The login request body carries the plaintext password -- once the guard above
+        // has permitted an HTTPS connection, don't let a redirect downgrade it mid-flight.
+        requireHttps: isHttpsUrl(url),
       });
       await logDownloaderDebugResponse("qBittorrent", "POST", url, response);
 
@@ -1498,11 +1502,14 @@ export class QBittorrentClient implements DownloaderClient {
       "Making qBittorrent request"
     );
 
+    // Once authenticated, every request replays the session cookie -- require the
+    // resolved URL to stay HTTPS through any redirect whenever it started out HTTPS.
     let response = await safeFetch(url, {
       method,
       headers,
       body: requestBody,
       signal: AbortSignal.timeout(30000),
+      requireHttps: isHttpsUrl(url),
     });
     await logDownloaderDebugResponse("qBittorrent", method, url, response);
 
@@ -1523,6 +1530,7 @@ export class QBittorrentClient implements DownloaderClient {
         headers: retryHeaders,
         body: requestBody,
         signal: AbortSignal.timeout(30000),
+        requireHttps: isHttpsUrl(url),
       });
       await logDownloaderDebugResponse("qBittorrent", method, url, response);
 

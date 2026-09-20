@@ -13,6 +13,7 @@ import {
   fetchWithMagnetDetection,
   assertCredentialsAllowed,
   buildBasicAuthHeader,
+  isHttpsUrl,
   logDownloaderDebugResponse,
   findTorrentByTagNull,
 } from "./utils.js";
@@ -709,18 +710,22 @@ export class TransmissionClient implements DownloaderClient {
     }
 
     if (this.downloader.username && this.downloader.password) {
-      assertCredentialsAllowed(this.downloader, "Transmission");
+      assertCredentialsAllowed(this.downloader, baseUrl, "Transmission");
       headers["Authorization"] = buildBasicAuthHeader(
         this.downloader.username,
         this.downloader.password
       );
     }
 
+    // When Basic Auth is configured, this request carries it -- require the resolved
+    // URL to stay HTTPS through any redirect whenever it started out HTTPS, so a
+    // compromised or MITM'd Transmission can't bounce the credential to a plaintext hop.
     const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30000),
+      requireHttps: isHttpsUrl(url),
     });
     await logDownloaderDebugResponse("Transmission", method, url, response);
 
@@ -739,6 +744,7 @@ export class TransmissionClient implements DownloaderClient {
           headers,
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(30000),
+          requireHttps: isHttpsUrl(url),
         });
         await logDownloaderDebugResponse("Transmission", method, url, retryResponse);
 

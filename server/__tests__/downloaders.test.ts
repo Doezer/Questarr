@@ -73,7 +73,7 @@ function createMockDownloader(
     postImportCategory: null,
     settings: null,
     allowSelfSignedCertificate: false,
-    allowInsecureLan: true,
+    allowInsecureLan: false,
     ...overrides,
   };
 }
@@ -99,6 +99,9 @@ describe("TransmissionClient", () => {
     url: "http://transmission:9091",
     port: 9091,
     urlPath: "/transmission/rpc",
+    // These tests exercise the Basic-Auth-header path over plain HTTP; the
+    // insecure-LAN opt-in acknowledges that intentionally.
+    allowInsecureLan: true,
   });
 
   beforeEach(() => {
@@ -351,6 +354,9 @@ describe("RTorrentClient", () => {
     url: "http://rtorrent:8080",
     port: 8080,
     urlPath: "/RPC2",
+    // These tests exercise the Basic-Auth-header path over plain HTTP; the
+    // insecure-LAN opt-in acknowledges that intentionally.
+    allowInsecureLan: true,
   });
 
   beforeEach(() => {
@@ -481,6 +487,9 @@ describe("QBittorrentClient", () => {
     port: 8080,
     username: "admin",
     password: "adminadmin",
+    // These tests exercise the cookie-auth login path over plain HTTP; the
+    // insecure-LAN opt-in acknowledges that intentionally.
+    allowInsecureLan: true,
   });
 
   beforeEach(() => {
@@ -622,6 +631,9 @@ describe("SynologyDownloadStationClient", () => {
     username: "vincent",
     password: "secret",
     downloadPath: "video/downloads",
+    // These tests exercise the session-login path over plain HTTP; the
+    // insecure-LAN opt-in acknowledges that intentionally.
+    allowInsecureLan: true,
   });
 
   beforeEach(() => {

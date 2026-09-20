@@ -7,6 +7,7 @@ import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
   assertCredentialsAllowed,
   fixNzbUrlEncoding,
+  isHttpsUrl,
   logDownloaderDebugResponse,
   stripTrailingPathSeparators,
   findTorrentByTagNull,
@@ -137,7 +138,7 @@ export class SABnzbdClient implements DownloaderClient {
 
     const url = new URL(`${baseUrl}${apiPath}`);
     if (this.downloader.username) {
-      assertCredentialsAllowed(this.downloader, "SABnzbd", "API key");
+      assertCredentialsAllowed(this.downloader, baseUrl, "SABnzbd", "API key");
       url.searchParams.set("apikey", this.downloader.username);
     }
     url.searchParams.set("mode", mode);
@@ -175,7 +176,7 @@ export class SABnzbdClient implements DownloaderClient {
       return await safeFetch(url, {
         ...options,
         allowPrivate: true,
-        requireHttps: !allowInsecureFallback || this.downloader.useSsl === true,
+        requireHttps: !allowInsecureFallback || isHttpsUrl(url),
       });
     } catch (error) {
       const isSslError =

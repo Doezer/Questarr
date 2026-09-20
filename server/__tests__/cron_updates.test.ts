@@ -3,6 +3,7 @@ import { checkGameUpdates } from "../cron.js";
 import { storage } from "../storage.js";
 import { igdbClient } from "../igdb.js";
 import type { Game } from "../../shared/schema.js";
+import type { TimeToBeat } from "../igdb.js";
 
 // Mock dependencies
 vi.mock("../storage.js", () => ({
@@ -18,7 +19,7 @@ vi.mock("../storage.js", () => ({
 vi.mock("../igdb.js", () => ({
   igdbClient: {
     getGamesByIds: vi.fn(),
-    getTimeToBeats: vi.fn().mockResolvedValue(new Map()),
+    getTimeToBeats: vi.fn().mockResolvedValue(new Map<number, TimeToBeat>()),
   },
   IGDB_EARLY_ACCESS_STATUS: 4,
 }));

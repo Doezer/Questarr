@@ -1530,7 +1530,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 </div>
               </div>
 
-              {(game.timeToBeatHastily || game.timeToBeatNormally || game.timeToBeatCompletely) && (
+              {[game.timeToBeatHastily, game.timeToBeatNormally, game.timeToBeatCompletely].some(
+                (value) => value != null
+              ) && (
                 <div data-testid="section-time-to-beat">
                   <h3 className="font-semibold mb-3 flex items-center gap-2">
                     <Clock className="w-4 h-4" />
@@ -1542,7 +1544,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       { label: "Normally", value: game.timeToBeatNormally },
                       { label: "Completely", value: game.timeToBeatCompletely },
                     ]
-                      .filter((entry): entry is { label: string; value: number } => !!entry.value)
+                      .filter(
+                        (entry): entry is { label: string; value: number } => entry.value != null
+                      )
                       .map((entry) => (
                         <div key={entry.label} className="flex items-center gap-3">
                           <div className="w-14 h-14 rounded-xl flex items-center justify-center text-sm font-bold bg-muted">

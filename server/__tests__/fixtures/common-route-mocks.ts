@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import type { Request, Response, NextFunction } from "express";
 import type { User } from "../../../shared/schema.js";
+import type { TimeToBeat } from "../../igdb.js";
 
 /**
  * Shared mock factories for tests that boot the full app via `registerRoutes()`
@@ -155,7 +156,7 @@ export function createIgdbMock() {
     getPlatforms: vi.fn().mockResolvedValue([]),
     getGameById: vi.fn(),
     getGamesByIds: vi.fn().mockResolvedValue([]),
-    getTimeToBeats: vi.fn().mockResolvedValue(new Map()),
+    getTimeToBeats: vi.fn().mockResolvedValue(new Map<number, TimeToBeat>()),
     batchSearchGames: vi.fn().mockResolvedValue(new Map()),
   };
 }

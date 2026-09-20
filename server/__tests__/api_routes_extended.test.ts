@@ -482,35 +482,27 @@ describe("API Routes - Additional Coverage", () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
       const mockGame = { id: gameId, userId: "user-1", title: "Test Game" };
 
-      it("returns status: none when xREL has no matching release", async () => {
+      it("returns an empty crackTypes list when xREL has no matching release", async () => {
         vi.mocked(storage.getGame).mockResolvedValue(mockGame as never);
         vi.mocked(xrelClient.searchReleases).mockResolvedValue([]);
         const res = await request(app).get(`/api/games/${gameId}/xrel-status`);
         expect(res.status).toBe(200);
-        expect(res.body).toEqual({ status: "none" });
+        expect(res.body).toEqual({ crackTypes: [] });
       });
 
       it.each([
-        {
-          crackType: "cracked" as const,
-          dirname: "Test.Game-GROUP",
-          groupName: "GROUP",
-        },
-        {
-          crackType: "hypervisor" as const,
-          dirname: "Test.Game.HYPERVISOR-EMPRESS",
-          groupName: "EMPRESS",
-        },
+        { crackType: "cracked" as const, dirname: "Test.Game-GROUP" },
+        { crackType: "hypervisor" as const, dirname: "Test.Game.HYPERVISOR-EMPRESS" },
       ])(
-        "returns the latest matching $crackType release",
-        async ({ crackType, dirname, groupName }) => {
+        "returns [$crackType] when only a $crackType release matches",
+        async ({ crackType, dirname }) => {
           vi.mocked(storage.getGame).mockResolvedValue(mockGame as never);
           const release = {
             id: "1",
             dirname,
             link_href: "/release/1.html",
             time: 1700000000,
-            group_name: groupName,
+            group_name: "GROUP",
             source: "scene",
             crackType,
           };
@@ -518,9 +510,39 @@ describe("API Routes - Additional Coverage", () => {
           vi.mocked(xrelClient.releaseMatchesGame).mockReturnValue(true);
           const res = await request(app).get(`/api/games/${gameId}/xrel-status`);
           expect(res.status).toBe(200);
-          expect(res.body).toEqual({ status: crackType, release });
+          expect(res.body).toEqual({ crackTypes: [crackType] });
         }
       );
+
+      it("returns both crackTypes when the game has both a cracked and a hypervisor release", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as never);
+        const crackedRelease = {
+          id: "1",
+          dirname: "Test.Game-GROUP",
+          link_href: "/release/1.html",
+          time: 1700000000,
+          group_name: "GROUP",
+          source: "scene",
+          crackType: "cracked",
+        };
+        const hypervisorRelease = {
+          id: "2",
+          dirname: "Test.Game.HYPERVISOR-EMPRESS",
+          link_href: "/release/2.html",
+          time: 1700000001,
+          group_name: "EMPRESS",
+          source: "scene",
+          crackType: "hypervisor",
+        };
+        vi.mocked(xrelClient.searchReleases).mockResolvedValue([
+          hypervisorRelease,
+          crackedRelease,
+        ] as never);
+        vi.mocked(xrelClient.releaseMatchesGame).mockReturnValue(true);
+        const res = await request(app).get(`/api/games/${gameId}/xrel-status`);
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ crackTypes: ["cracked", "hypervisor"] });
+      });
 
       it("returns 403 when game belongs to another user", async () => {
         vi.mocked(storage.getGame).mockResolvedValue({

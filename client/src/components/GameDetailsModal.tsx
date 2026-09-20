@@ -90,7 +90,6 @@ import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { type Game, type GameDownload, type ScannedGameFile } from "@shared/schema";
 import { resolveTargetPlatform } from "@shared/title-utils";
-import { type XrelReleaseListItem } from "@shared/xrel-types";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
@@ -125,8 +124,9 @@ interface IgdbPlatformOption {
   name: string;
 }
 
-type XrelGameStatus =
-  { status: "none" } | { status: "hypervisor" | "cracked"; release: XrelReleaseListItem };
+interface XrelGameStatus {
+  crackTypes: ("cracked" | "hypervisor")[];
+}
 
 interface NexusMod {
   mod_id: number;
@@ -1183,7 +1183,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   </h3>
                   {xrelStatusLoading ? (
                     <p className="text-sm text-muted-foreground">Checking xREL…</p>
-                  ) : !xrelStatus || xrelStatus.status === "none" ? (
+                  ) : !xrelStatus || xrelStatus.crackTypes.length === 0 ? (
                     <p
                       className="text-sm text-muted-foreground"
                       data-testid={`text-crack-status-${game.id}`}
@@ -1195,43 +1195,19 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       className="flex flex-wrap items-center gap-x-2 gap-y-1"
                       data-testid={`text-crack-status-${game.id}`}
                     >
-                      <Badge
-                        variant={xrelStatus.status === "hypervisor" ? "outline" : "secondary"}
-                        className={cn(
-                          "text-xs",
-                          xrelStatus.status === "hypervisor" &&
-                            "border-amber-500 text-amber-500 dark:text-amber-400"
-                        )}
-                      >
-                        {xrelStatus.status === "hypervisor" ? "Hypervisor Bypass" : "Cracked"}
-                      </Badge>
-                      {xrelStatus.release.group_name && (
-                        <span className="text-sm text-muted-foreground">
-                          by {xrelStatus.release.group_name}
-                        </span>
-                      )}
-                      <span className="text-xs text-muted-foreground">
-                        ({new Date(xrelStatus.release.time * 1000).toLocaleDateString()})
-                      </span>
-                      {xrelStatus.release.nukeReason && (
-                        <Badge
-                          variant="destructive"
-                          className="text-[10px] h-4 px-1.5"
-                          title={`Nuked: ${xrelStatus.release.nukeReason}`}
-                        >
-                          Nuked
+                      {xrelStatus.crackTypes.includes("cracked") && (
+                        <Badge variant="secondary" className="text-xs">
+                          Cracked
                         </Badge>
                       )}
-                      <a
-                        href={safeUrl(xrelStatus.release.link_href)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline inline-flex items-center gap-0.5 text-xs"
-                        aria-label={`View ${xrelStatus.release.dirname} on xREL`}
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                        View on xREL
-                      </a>
+                      {xrelStatus.crackTypes.includes("hypervisor") && (
+                        <Badge
+                          variant="outline"
+                          className="text-xs border-amber-500 text-amber-500 dark:text-amber-400"
+                        >
+                          Hypervisor Bypass
+                        </Badge>
+                      )}
                     </div>
                   )}
                 </div>

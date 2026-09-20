@@ -187,7 +187,7 @@ global.fetch = vi.fn();
 function makeFetchMock(overrides: Record<string, unknown> = {}) {
   const defaults: Record<string, unknown> = {
     "/api/nexusmods/game-domain": { configured: false, domain: null },
-    "/xrel-status": { status: "none" },
+    "/xrel-status": { crackTypes: [] },
   };
   const routes = { ...defaults, ...overrides };
 
@@ -234,44 +234,20 @@ describe("GameDetailsModal", () => {
     });
 
     it.each([
-      {
-        crackType: "cracked",
-        badgeText: "Cracked",
-        groupName: "SKIDROW",
-        dirname: "Test.Game-SKIDROW",
-      },
-      {
-        crackType: "hypervisor",
-        badgeText: "Hypervisor Bypass",
-        groupName: "EMPRESS",
-        dirname: "Test.Game.HYPERVISOR-EMPRESS",
-      },
-    ])(
-      "shows a $badgeText badge and group name for a $crackType release",
-      async ({ crackType, badgeText, groupName, dirname }) => {
-        (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
-          makeFetchMock({
-            "/xrel-status": {
-              status: crackType,
-              release: {
-                id: "1",
-                dirname,
-                link_href: "/release/1.html",
-                time: 1700000000,
-                group_name: groupName,
-                source: "scene",
-                crackType,
-              },
-            },
-          })
-        );
+      { crackTypes: ["cracked"], badgeTexts: ["Cracked"] },
+      { crackTypes: ["hypervisor"], badgeTexts: ["Hypervisor Bypass"] },
+      { crackTypes: ["cracked", "hypervisor"], badgeTexts: ["Cracked", "Hypervisor Bypass"] },
+    ])("shows badges for crackTypes $crackTypes", async ({ crackTypes, badgeTexts }) => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({ "/xrel-status": { crackTypes } })
+      );
 
-        renderComponent();
+      renderComponent();
 
+      for (const badgeText of badgeTexts) {
         expect(await screen.findByText(badgeText)).toBeInTheDocument();
-        expect(screen.getByText(`by ${groupName}`)).toBeInTheDocument();
       }
-    );
+    });
   });
 
   it("renders genres and platforms", () => {

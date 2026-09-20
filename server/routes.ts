@@ -4615,9 +4615,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Latest known xREL release (crack status/group) for a specific game in the
-  // user's collection. Returns { status: "none" } when xREL has no matching
-  // release yet.
+  // Known xREL crack status for a specific game in the user's collection --
+  // which crack types (cracked, hypervisor bypass) have a matching release,
+  // regardless of when. crackTypes is empty when xREL has no match yet.
   app.get(
     "/api/games/:id/xrel-status",
     sanitizeGameId,
@@ -4641,18 +4641,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           baseUrl,
         });
 
-        // Results are already sorted newest-first (see mergeAndFilterGameReleases).
-        const latest = results.find(
+        const matches = results.filter(
           (r) =>
             xrelClient.releaseMatchesGame(r.dirname, game.title) ||
             (r.ext_info?.title && xrelClient.titleMatches(r.ext_info.title, game.title))
         );
 
-        if (!latest) {
-          return res.json({ status: "none" });
-        }
+        const crackTypes = (["cracked", "hypervisor"] as const).filter((type) =>
+          matches.some((r) => r.crackType === type)
+        );
 
-        return res.json({ status: latest.crackType, release: latest });
+        return res.json({ crackTypes });
       } catch (error) {
         return next(error);
       }

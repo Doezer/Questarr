@@ -4624,6 +4624,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
+        res.set("Cache-Control", "no-store");
         const userId = req.user!.id;
         const game = await resolveOwnedGame(req.params.id, userId, res);
         if (!game) return;

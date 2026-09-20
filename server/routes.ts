@@ -211,6 +211,7 @@ import {
 } from "../shared/title-utils.js";
 import { categorizeDownload, type DownloadCategory } from "../shared/download-categorizer.js";
 import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
+import type { XrelGameStatus } from "../shared/xrel-types.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
@@ -4651,7 +4652,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           matches.some((r) => r.crackType === type)
         );
 
-        return res.json({ crackTypes });
+        const response: XrelGameStatus = { crackTypes };
+        return res.json(response);
       } catch (error) {
         return next(error);
       }

@@ -46,3 +46,9 @@ export interface XrelReleaseListItem extends XrelReleaseIdentity {
 export function deriveCrackType(dirname: string): "hypervisor" | "cracked" {
   return /\bhypervisor\b/i.test(dirname) ? "hypervisor" : "cracked";
 }
+
+// Response contract for GET /api/games/:id/xrel-status (server/routes.ts),
+// consumed by the game detail page's Crack Status section.
+export interface XrelGameStatus {
+  crackTypes: ("cracked" | "hypervisor")[];
+}

@@ -90,6 +90,7 @@ import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { type Game, type GameDownload, type ScannedGameFile } from "@shared/schema";
 import { resolveTargetPlatform } from "@shared/title-utils";
+import { type XrelGameStatus } from "@shared/xrel-types";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
@@ -122,10 +123,6 @@ type FileDeletionResult =
 interface IgdbPlatformOption {
   id: number;
   name: string;
-}
-
-interface XrelGameStatus {
-  crackTypes: ("cracked" | "hypervisor")[];
 }
 
 interface NexusMod {
@@ -279,17 +276,14 @@ function SourceBadge({ source }: { source: string | null | undefined }) {
   );
 }
 
-function CrackStatusContent({
-  isLoading,
-  isError,
-  crackTypes,
-  testId,
-}: {
+interface CrackStatusContentProps {
   isLoading: boolean;
   isError: boolean;
   crackTypes: ("cracked" | "hypervisor")[] | undefined;
   testId: string;
-}) {
+}
+
+function CrackStatusContent({ isLoading, isError, crackTypes, testId }: CrackStatusContentProps) {
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Checking xREL…</p>;
   }

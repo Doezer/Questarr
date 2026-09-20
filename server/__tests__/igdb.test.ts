@@ -427,17 +427,16 @@ describe("IGDBClient - Batch Operations", () => {
     fetchMock = vi.mocked(safeFetch);
   });
 
-  it("should batch steam app ID lookups correctly", async () => {
-    // Mock auth
-    const authResponse = {
-      ok: true,
-      json: async () => ({
-        access_token: "test-token",
-        expires_in: 3600,
-        token_type: "bearer",
-      }),
-    };
+  const authResponse = {
+    ok: true,
+    json: async () => ({
+      access_token: "test-token",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
+  };
 
+  it("should batch steam app ID lookups correctly", async () => {
     const successResponse1 = {
       ok: true,
       json: async () => [
@@ -476,26 +475,6 @@ describe("IGDBClient - Batch Operations", () => {
     // 1 Auth call + 2 API calls (150 / 100 = 2 chunks)
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
-});
-
-describe("IGDBClient - getTimeToBeats", () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
-
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    vi.resetModules();
-    const { safeFetch } = await import("../ssrf.js");
-    fetchMock = vi.mocked(safeFetch);
-  });
-
-  const authResponse = {
-    ok: true,
-    json: async () => ({
-      access_token: "test-token",
-      expires_in: 3600,
-      token_type: "bearer",
-    }),
-  };
 
   it("converts seconds to hours and keys results by game_id", async () => {
     const successResponse = {

@@ -478,6 +478,91 @@ describe("IGDBClient - Batch Operations", () => {
   });
 });
 
+describe("IGDBClient - getTimeToBeats", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    const { safeFetch } = await import("../ssrf.js");
+    fetchMock = vi.mocked(safeFetch);
+  });
+
+  const authResponse = {
+    ok: true,
+    json: async () => ({
+      access_token: "test-token",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
+  };
+
+  it("converts seconds to hours and keys results by game_id", async () => {
+    const successResponse = {
+      ok: true,
+      json: async () => [
+        { game_id: 100, hastily: 18000, normally: 36000, completely: 72000 }, // 5h / 10h / 20h
+      ],
+    };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.getTimeToBeats([100]);
+
+    expect(result.get(100)).toEqual({ hastily: 5, normally: 10, completely: 20 });
+  });
+
+  it("leaves an id absent from the map when IGDB has no submissions for it", async () => {
+    const successResponse = { ok: true, json: async () => [] };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.getTimeToBeats([999]);
+
+    expect(result.has(999)).toBe(false);
+    expect(result.size).toBe(0);
+  });
+
+  it("does not throw when the endpoint request fails, just returns an empty map for that chunk", async () => {
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+    });
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.getTimeToBeats([100]);
+
+    expect(result.size).toBe(0);
+  });
+
+  it("chunks ids in groups of 100", async () => {
+    const successResponse1 = {
+      ok: true,
+      json: async () => [{ game_id: 1, hastily: 3600 }],
+    };
+    const successResponse2 = {
+      ok: true,
+      json: async () => [{ game_id: 101, normally: 7200 }],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(successResponse1)
+      .mockResolvedValueOnce(successResponse2);
+
+    const { igdbClient } = await import("../igdb.js");
+    const ids = Array.from({ length: 150 }, (_, i) => i + 1);
+    const result = await igdbClient.getTimeToBeats(ids);
+
+    expect(result.get(1)).toEqual({ hastily: 1, normally: undefined, completely: undefined });
+    expect(result.get(101)).toEqual({ hastily: undefined, normally: 2, completely: undefined });
+    // 1 auth call + 2 chunk calls
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("IGDBClient - canonicalizeVersionedGames (edition/version dedup)", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 

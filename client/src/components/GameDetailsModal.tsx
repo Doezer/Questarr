@@ -42,6 +42,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Calendar,
+  Clock,
   Star,
   Monitor,
   Gamepad2,
@@ -1528,6 +1529,36 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   <StarRatingInput value={currentUserRating} onChange={handleUserRatingChange} />
                 </div>
               </div>
+
+              {(game.timeToBeatHastily || game.timeToBeatNormally || game.timeToBeatCompletely) && (
+                <div data-testid="section-time-to-beat">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    Time to Beat
+                  </h3>
+                  <div className="flex flex-wrap gap-4">
+                    {[
+                      { label: "Hastily", value: game.timeToBeatHastily },
+                      { label: "Normally", value: game.timeToBeatNormally },
+                      { label: "Completely", value: game.timeToBeatCompletely },
+                    ]
+                      .filter((entry): entry is { label: string; value: number } => !!entry.value)
+                      .map((entry) => (
+                        <div key={entry.label} className="flex items-center gap-3">
+                          <div className="w-14 h-14 rounded-xl flex items-center justify-center text-sm font-bold bg-muted">
+                            {entry.value % 1 === 0 ? entry.value : entry.value.toFixed(1)}h
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium">{entry.label}</div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Estimated hours (IGDB)
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
 
               <div>
                 {/* IGDB website links */}

@@ -182,6 +182,9 @@ export const games = sqliteTable("games", {
     Array<{ category: number; url: string }>
   >(),
   aggregatedRating: real("aggregated_rating"),
+  timeToBeatHastily: real("time_to_beat_hastily"),
+  timeToBeatNormally: real("time_to_beat_normally"),
+  timeToBeatCompletely: real("time_to_beat_completely"),
   status: text("status").notNull().default("wanted"), // Enum validation handled by Zod
   originalReleaseDate: text("original_release_date"),
   releaseStatus: text("release_status").default("upcoming"), // Enum validation handled by Zod

@@ -2579,6 +2579,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const formattedGame = igdbClient.formatGameData(igdbGame);
+        const timeToBeat = (await igdbClient.getTimeToBeats([igdbId])).get(igdbId);
+        if (timeToBeat) {
+          formattedGame.timeToBeatHastily = timeToBeat.hastily ?? null;
+          formattedGame.timeToBeatNormally = timeToBeat.normally ?? null;
+          formattedGame.timeToBeatCompletely = timeToBeat.completely ?? null;
+        }
         res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
         const filterFlags = await getContentFilterFlags(req.user!.id);
         if (

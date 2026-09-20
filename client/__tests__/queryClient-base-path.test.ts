@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { apiFetch } from "../src/lib/queryClient";
+import { apiFetch } from "@/lib/queryClient";
 
 // Regression coverage for #925: CodeRabbit correctly flagged that the
 // server-side base-path mounting test (server/__tests__/api_routes.test.ts)
@@ -23,6 +23,7 @@ describe("apiFetch under a configured base path", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("prefixes /api/igdb/search with the configured base path", async () => {

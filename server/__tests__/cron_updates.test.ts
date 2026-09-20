@@ -3,6 +3,7 @@ import { checkGameUpdates } from "../cron.js";
 import { storage } from "../storage.js";
 import { igdbClient } from "../igdb.js";
 import type { Game } from "../../shared/schema.js";
+import type { TimeToBeat } from "../igdb.js";
 
 // Mock dependencies
 vi.mock("../storage.js", () => ({
@@ -18,6 +19,7 @@ vi.mock("../storage.js", () => ({
 vi.mock("../igdb.js", () => ({
   igdbClient: {
     getGamesByIds: vi.fn(),
+    getTimeToBeats: vi.fn().mockResolvedValue(new Map<number, TimeToBeat>()),
   },
   IGDB_EARLY_ACCESS_STATUS: 4,
 }));
@@ -130,6 +132,61 @@ describe("checkGameUpdates", () => {
 
     expect(notificationCalls.length).toBe(1);
     expect(notificationCalls[0][0]).toHaveLength(2); // 1 for release, 1 for delayed
+  });
+
+  it("should merge time-to-beat fields when IGDB returns new data", async () => {
+    const mockGames: Partial<Game>[] = [
+      {
+        id: "game-1",
+        title: "Game 1",
+        igdbId: 1001,
+        releaseDate: null as never,
+        originalReleaseDate: null as never,
+        timeToBeatHastily: null,
+        timeToBeatNormally: null,
+        timeToBeatCompletely: null,
+      },
+      {
+        id: "game-2",
+        title: "Game 2",
+        igdbId: 1002,
+        releaseDate: null as never,
+        originalReleaseDate: null as never,
+        earlyAccess: false,
+        // Already up to date -- should not trigger a time-to-beat update.
+        timeToBeatHastily: 5,
+        timeToBeatNormally: 10,
+        timeToBeatCompletely: 20,
+      },
+    ];
+    vi.mocked(storage.getAllGames).mockResolvedValue(mockGames as Game[]);
+    vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
+      { id: 1001, first_release_date: undefined },
+      { id: 1002, first_release_date: undefined },
+    ] as never);
+    vi.mocked(igdbClient.getTimeToBeats).mockResolvedValue(
+      new Map([
+        [1001, { hastily: 5, normally: 10, completely: 20 }],
+        [1002, { hastily: 5, normally: 10, completely: 20 }],
+      ]) as never
+    );
+
+    await checkGameUpdates();
+
+    const batchCalls = vi.mocked(storage.updateGamesBatch).mock.calls;
+    expect(batchCalls.length).toBe(1);
+
+    const updates = batchCalls[0][0];
+    const game1Update = updates.find((u) => u.id === "game-1");
+    const game2Update = updates.find((u) => u.id === "game-2");
+
+    expect(game1Update?.data).toMatchObject({
+      timeToBeatHastily: 5,
+      timeToBeatNormally: 10,
+      timeToBeatCompletely: 20,
+    });
+    // game-2 already matched the fetched values, so it shouldn't be queued at all.
+    expect(game2Update).toBeUndefined();
   });
 
   it("should initialize originalReleaseDate if missing", async () => {

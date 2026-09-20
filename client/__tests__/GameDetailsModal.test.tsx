@@ -925,6 +925,35 @@ describe("GameDetailsModal", () => {
     });
   });
 
+  describe("Time to Beat", () => {
+    it("renders a zero-hour estimate instead of hiding it as falsy", () => {
+      renderComponent({
+        ...mockGame,
+        timeToBeatHastily: 0,
+        timeToBeatNormally: 10,
+        timeToBeatCompletely: null,
+      } as unknown as import("@shared/schema").Game);
+      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+
+      const section = screen.getByTestId("section-time-to-beat");
+      expect(section).toHaveTextContent("Hastily");
+      expect(section).toHaveTextContent("Normally");
+      expect(section).not.toHaveTextContent("Completely");
+    });
+
+    it("does not render the section when all estimates are null", () => {
+      renderComponent({
+        ...mockGame,
+        timeToBeatHastily: null,
+        timeToBeatNormally: null,
+        timeToBeatCompletely: null,
+      } as unknown as import("@shared/schema").Game);
+      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+
+      expect(screen.queryByTestId("section-time-to-beat")).not.toBeInTheDocument();
+    });
+  });
+
   describe("null game handling", () => {
     it("renders a placeholder Dialog instead of null when game is null", () => {
       const onOpenChange = vi.fn();

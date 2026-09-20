@@ -338,10 +338,17 @@ class IGDBClient {
   ): Promise<{ success: true } | { success: false; error: string }> {
     let tokenResponse: Response;
     try {
-      tokenResponse = await safeFetch(
-        `https://id.twitch.tv/oauth2/token?client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}&grant_type=client_credentials`,
-        { method: "POST" }
-      );
+      // Credentials go in the request body, not the URL: query strings are commonly retained
+      // in server/proxy/monitoring logs, which would otherwise leak the client secret.
+      tokenResponse = await safeFetch("https://id.twitch.tv/oauth2/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          grant_type: "client_credentials",
+        }).toString(),
+      });
     } catch (error) {
       igdbLogger.warn({ error }, "IGDB credential test: network error reaching Twitch");
       return { success: false, error: "Could not reach Twitch — check your network connection." };
@@ -445,12 +452,17 @@ class IGDBClient {
       throw new Error("IGDB credentials not configured");
     }
 
-    const response = await safeFetch(
-      `https://id.twitch.tv/oauth2/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`,
-      {
-        method: "POST",
-      }
-    );
+    // Credentials go in the request body, not the URL: query strings are commonly retained in
+    // server/proxy/monitoring logs, which would otherwise leak the client secret.
+    const response = await safeFetch("https://id.twitch.tv/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "client_credentials",
+      }).toString(),
+    });
 
     if (!response.ok) {
       throw new Error(`IGDB authentication failed: ${response.status}`);

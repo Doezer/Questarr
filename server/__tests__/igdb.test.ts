@@ -999,3 +999,55 @@ describe("IGDBClient - formatGameData metadata fields", () => {
     expect(results[0].websites).toBeUndefined();
   });
 });
+
+describe("IGDBClient - testCredentials", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    const { safeFetch } = await import("../ssrf.js");
+    fetchMock = vi.mocked(safeFetch);
+  });
+
+  it("sends the client secret in the request body, not the URL", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: "tok", expires_in: 3600 }),
+    } as Response);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [],
+    } as Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    await igdbClient.testCredentials("some-client-id", "super-secret-value");
+
+    const [tokenUrl, tokenOptions] = fetchMock.mock.calls[0];
+    expect(tokenUrl).toBe("https://id.twitch.tv/oauth2/token");
+    expect(tokenUrl).not.toContain("super-secret-value");
+    expect(String(tokenOptions.body)).toContain("client_secret=super-secret-value");
+  });
+
+  it("reports invalid credentials on a Twitch 400/403 response", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 400 } as Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("bad-id", "bad-secret");
+
+    expect(result).toEqual({ success: false, error: "Invalid Client ID or Client Secret." });
+  });
+
+  it("reports success when both the Twitch and IGDB calls succeed", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: "tok", expires_in: 3600 }),
+    } as Response);
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [] } as Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("good-id", "good-secret");
+
+    expect(result).toEqual({ success: true });
+  });
+});

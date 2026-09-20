@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Copy, Check, HelpCircle, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -55,21 +55,30 @@ export function IgdbHelpPopover() {
             </li>
             <li>Register a new application (name it &apos;Questarr&apos;)</li>
             <li>
-              Set Redirect URI to <code className="bg-muted px-1">{IGDB_REDIRECT_URI}</code>{" "}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5 align-middle"
-                onClick={handleCopy}
-                aria-label="Copy redirect URI"
-              >
-                {copied ? (
-                  <Check className="h-3 w-3 text-emerald-500" />
-                ) : (
-                  <Copy className="h-3 w-3 text-muted-foreground" />
-                )}
-              </Button>
+              Set Redirect URI to:
+              <div className="mt-1 flex items-center gap-1.5 rounded border bg-muted/50 p-1 pl-2">
+                <code className="flex-1 text-foreground">{IGDB_REDIRECT_URI}</code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-xs"
+                  onClick={handleCopy}
+                  aria-label="Copy redirect URI"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-3 w-3 text-emerald-500" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3 w-3" />
+                      Copy
+                    </>
+                  )}
+                </Button>
+              </div>
             </li>
             <li>Select &apos;Application Integration&apos; as category</li>
             <li>
@@ -112,7 +121,18 @@ export function IgdbTestConnectionButton({
   const [state, setState] = useState<"idle" | "testing" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Guards against two races: an in-flight request resolving after the user has already edited
+  // a field (its result would otherwise overwrite the newer, untested input), and the result
+  // display outliving the credentials it was actually testing.
+  const requestIdRef = useRef(0);
+  useEffect(() => {
+    requestIdRef.current += 1;
+    setState("idle");
+    setErrorMessage(null);
+  }, [clientId, clientSecret]);
+
   const handleTest = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     setState("testing");
     setErrorMessage(null);
     try {
@@ -121,6 +141,7 @@ export function IgdbTestConnectionButton({
       // not through a resolved response — a 400 here is an expected, valid test outcome.
       const res = await apiRequest("POST", testEndpoint, { clientId, clientSecret });
       const result: TestResult = await res.json();
+      if (requestId !== requestIdRef.current) return;
       if (result.success) {
         setState("success");
       } else {
@@ -128,6 +149,7 @@ export function IgdbTestConnectionButton({
         setErrorMessage(result.error);
       }
     } catch (error) {
+      if (requestId !== requestIdRef.current) return;
       setState("error");
       setErrorMessage(
         error instanceof ApiError
@@ -151,7 +173,7 @@ export function IgdbTestConnectionButton({
       >
         {state === "testing" ? (
           <>
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
             Testing...
           </>
         ) : (

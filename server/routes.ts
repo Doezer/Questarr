@@ -760,16 +760,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Validate IGDB credential format before creating the user account: rejecting it after
       // the account exists would leave the caller stuck (setup can't be re-run once a user
-      // exists), so a bad format must fail fast, before anything is persisted.
-      if (
-        typeof igdbClientId === "string" &&
-        typeof igdbClientSecret === "string" &&
-        igdbClientId.trim() &&
-        igdbClientSecret.trim()
-      ) {
+      // exists), so a bad format -- or an incomplete pair, which saveIgdbCredentialsIfProvided
+      // would otherwise silently discard below -- must fail fast, before anything is persisted.
+      const trimmedIgdbClientId = typeof igdbClientId === "string" ? igdbClientId.trim() : "";
+      const trimmedIgdbClientSecret =
+        typeof igdbClientSecret === "string" ? igdbClientSecret.trim() : "";
+      const hasIgdbClientId = trimmedIgdbClientId.length > 0;
+      const hasIgdbClientSecret = trimmedIgdbClientSecret.length > 0;
+
+      if (hasIgdbClientId !== hasIgdbClientSecret) {
+        return res
+          .status(400)
+          .json({ error: "Both IGDB Client ID and Client Secret are required together" });
+      }
+
+      if (hasIgdbClientId && hasIgdbClientSecret) {
         const formatError = validateIgdbCredentialFormat(
-          igdbClientId.trim(),
-          igdbClientSecret.trim()
+          trimmedIgdbClientId,
+          trimmedIgdbClientSecret
         );
         if (formatError) {
           return res.status(400).json(formatError);
@@ -4248,8 +4256,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { clientId, clientSecret } = req.body;
 
-      if (!clientId) {
+      if (typeof clientId !== "string" || !clientId.trim()) {
         return res.status(400).json({ error: "Client ID is required" });
+      }
+      if (clientSecret !== undefined && typeof clientSecret !== "string") {
+        return res.status(400).json({ error: "Client Secret must be a string" });
       }
 
       // Check if already configured (in DB or Env)
@@ -4257,7 +4268,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isConfigured = !!dbSecret || appConfig.igdb.isConfigured;
 
       const isMaskedValue = isUnchangedSentinel(clientSecret);
-      const hasNewSecret = clientSecret && !isMaskedValue;
+      const hasNewSecret = !!clientSecret && !isMaskedValue;
 
       if (!isConfigured && !hasNewSecret) {
         return res.status(400).json({ error: "Client Secret is required" });

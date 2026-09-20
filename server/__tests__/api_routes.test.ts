@@ -305,6 +305,20 @@ describe("API Routes - Extended Coverage", () => {
         expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientSecret", igdbClientSecret);
       });
 
+      it("should reject a partial IGDB credential pair without creating the user", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+
+        const res = await request(app).post("/api/auth/setup").send({
+          username: "admin",
+          password: "password123",
+          igdbClientId: "setupigdbclientid1234567890ab",
+          // igdbClientSecret omitted
+        });
+
+        expect(res.status).toBe(400);
+        expect(storage.registerSetupUser).not.toHaveBeenCalled();
+      });
+
       it("should handle duplicative setup race condition", async () => {
         vi.mocked(storage.countUsers).mockResolvedValue(0);
         vi.mocked(storage.registerSetupUser).mockRejectedValue(
@@ -2133,6 +2147,20 @@ describe("API Routes - Extended Coverage", () => {
         const response = await request(app)
           .post("/api/settings/igdb")
           .send({ clientId: "not-a-real-id", clientSecret: "not-a-real-secret" });
+        expect(response.status).toBe(400);
+      });
+
+      it("should return 400 (not 500) when clientId is a non-string value", async () => {
+        const response = await request(app)
+          .post("/api/settings/igdb")
+          .send({ clientId: 123456, clientSecret: VALID_CLIENT_SECRET });
+        expect(response.status).toBe(400);
+      });
+
+      it("should return 400 (not 500) when clientSecret is a non-string value", async () => {
+        const response = await request(app)
+          .post("/api/settings/igdb")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: 123456 });
         expect(response.status).toBe(400);
       });
 

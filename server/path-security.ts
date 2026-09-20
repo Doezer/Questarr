@@ -43,70 +43,44 @@ export async function assertWithinRoots(
   const resolvedCandidate = path.resolve(candidatePath);
   const resolvedRoots = roots.map((root) => path.resolve(root));
 
-  // Cheap pathname-only pass first: reject an obviously out-of-root path before ever
-  // touching the filesystem to resolve symlinks for it. Track which root matched and
-  // the checked relative segment, rather than just a boolean: CodeQL's path-injection
-  // sanitizer treats path.relative(root, x).startsWith("..") as clearing the taint on
-  // that *relative* expression specifically, not on x itself, so a later filesystem
-  // call needs to be built from the checked relative segment (see below) rather than
-  // from resolvedCandidate directly for the sanitizer to be recognized.
-  let matchedRoot: string | undefined;
-  let matchedRelative = "";
+  // The realpath canonicalization and final containment check are nested directly
+  // inside the branch where a root's pathname check passes, rather than recording a
+  // match and continuing after the loop. CodeQL's path-injection sanitizer for the
+  // path.relative(root, x) + !startsWith("..") + !isAbsolute() shape only extends its
+  // "x is safe here" guarantee to code it can prove is dominated by that guarded
+  // branch; code reached after breaking out of a loop doesn't qualify, so fs.realpath
+  // needs to sit inside the same if as the check that clears it.
   for (const root of resolvedRoots) {
     const relative = path.relative(root, resolvedCandidate);
-    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
-      matchedRoot = root;
-      matchedRelative = relative;
-      break;
+    if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+      // path.resolve() doesn't follow symlinks, so a symlink sitting inside this root
+      // could still point outside it — canonicalize and check containment again to
+      // catch that.
+      let canonicalCandidate: string;
+      try {
+        canonicalCandidate = await fs.realpath(resolvedCandidate);
+      } catch {
+        // realpath requires the whole path (including the final component) to
+        // already exist. A path that doesn't exist yet — e.g. a download still in
+        // flight, being polled for existence — can't be canonicalized itself.
+        // Canonicalize just the root instead (it does exist) and re-append the
+        // already-checked relative segment, rather than falling back to the fully
+        // lexical resolvedCandidate: that would break containment when `root` is
+        // itself a symlink, since the canonical-roots check below resolves it to
+        // its real target.
+        const canonicalRoot = await canonicalizeRoot(root);
+        canonicalCandidate = relative === "" ? canonicalRoot : path.join(canonicalRoot, relative);
+      }
+
+      const canonicalRoots = await Promise.all(resolvedRoots.map(canonicalizeRoot));
+      for (const canonicalRoot of canonicalRoots) {
+        const canonicalRelative = path.relative(canonicalRoot, canonicalCandidate);
+        if (!canonicalRelative.startsWith("..") && !path.isAbsolute(canonicalRelative)) {
+          return;
+        }
+      }
+      throw new Error(errorMessage);
     }
   }
-  if (matchedRoot === undefined) {
-    throw new Error(errorMessage);
-  }
-
-  // Rebuild the candidate from the matched root plus the already-checked relative
-  // segment instead of reusing resolvedCandidate. It denotes the same path when
-  // candidatePath is under matchedRoot (which it is, having just passed the check
-  // above), but composing it from parts the sanitizer has verified keeps the value
-  // handed to fs.realpath below tied to that verified data instead of to the
-  // original, unchecked candidate string.
-  const verifiedCandidate =
-    matchedRelative === "" ? matchedRoot : path.join(matchedRoot, matchedRelative);
-
-  // The pathname passed containment, but path.resolve() doesn't follow symlinks — a
-  // symlink sitting inside an allowed root could still point outside it. Canonicalize
-  // and check again to catch that.
-  let canonicalCandidate: string;
-  try {
-    canonicalCandidate = await fs.realpath(verifiedCandidate);
-  } catch {
-    // realpath requires the whole path (including the final component) to already
-    // exist. A path that doesn't exist yet — e.g. a download still in flight, being
-    // polled for existence — can't be canonicalized itself, but falling back to the
-    // fully lexical verifiedCandidate would break containment when matchedRoot is
-    // itself a symlink: canonicalRoots below resolves it to its real target, while
-    // this fallback would stay on the symlink path, so the two would never match and
-    // a legitimately pending path would be wrongly rejected. Canonicalize just the
-    // root instead — it does exist — and re-append the already-checked relative
-    // segment lexically.
-    const canonicalMatchedRoot = await canonicalizeRoot(matchedRoot);
-    canonicalCandidate =
-      matchedRelative === ""
-        ? canonicalMatchedRoot
-        : path.join(canonicalMatchedRoot, matchedRelative);
-  }
-
-  const canonicalRoots = await Promise.all(resolvedRoots.map(canonicalizeRoot));
-
-  let withinCanonicalRoots = false;
-  for (const root of canonicalRoots) {
-    const relative = path.relative(root, canonicalCandidate);
-    if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
-      withinCanonicalRoots = true;
-      break;
-    }
-  }
-  if (!withinCanonicalRoots) {
-    throw new Error(errorMessage);
-  }
+  throw new Error(errorMessage);
 }

@@ -111,6 +111,15 @@ export default function SettingsPage() {
     getCurrentTheme(ghostUnlocked)
   );
 
+  // Normalize the stored theme: useLocalStorageState returns whatever is in localStorage
+  // once THEME_KEY exists, without validating it against THEMES or the Ghost unlock state.
+  // A corrupted value, or one set directly (e.g. via devtools), would otherwise reach
+  // applyThemeClass() and either throw (unknown theme) or bypass the Ghost unlock.
+  const effectiveTheme: Theme =
+    THEMES.includes(selectedTheme) && (selectedTheme !== "ghost" || ghostUnlocked)
+      ? selectedTheme
+      : "default";
+
   // Migrate legacy theme keys once on mount. Not done inline in the useLocalStorageState
   // initializer above, since that runs during render and migration has localStorage
   // side effects (React may render a component without committing it).
@@ -119,10 +128,17 @@ export default function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Persist the normalized value so a corrected theme sticks for later loads.
+  useEffect(() => {
+    if (effectiveTheme !== selectedTheme) {
+      setSelectedTheme(effectiveTheme);
+    }
+  }, [effectiveTheme, selectedTheme, setSelectedTheme]);
+
   // Apply theme class on mount and when theme changes
   useEffect(() => {
-    applyThemeClass(selectedTheme);
-  }, [selectedTheme]);
+    applyThemeClass(effectiveTheme);
+  }, [effectiveTheme]);
 
   const handleThemeChange = (theme: Theme) => {
     setTheme(theme, ghostUnlocked);
@@ -1073,7 +1089,7 @@ export default function SettingsPage() {
                       Select Theme
                     </Label>
                     <Select
-                      value={selectedTheme}
+                      value={effectiveTheme}
                       onValueChange={(value) => handleThemeChange(value as Theme)}
                     >
                       <SelectTrigger id="theme-select" className="w-full sm:w-64">

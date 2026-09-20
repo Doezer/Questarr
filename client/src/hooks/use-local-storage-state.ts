@@ -13,7 +13,12 @@ export function useLocalStorageState<T extends string | number | boolean>(
 ): [Widen<T>, Dispatch<SetStateAction<Widen<T>>>] {
   type W = Widen<T>;
   const [value, setValue] = useState<W>(() => {
-    const stored = localStorage.getItem(key);
+    let stored: string | null;
+    try {
+      stored = localStorage.getItem(key);
+    } catch {
+      return defaultValue as W;
+    }
     if (stored === null) return defaultValue as W;
 
     // Deserialize based on the type of the default value
@@ -26,7 +31,12 @@ export function useLocalStorageState<T extends string | number | boolean>(
   });
 
   useEffect(() => {
-    localStorage.setItem(key, String(value));
+    try {
+      localStorage.setItem(key, String(value));
+    } catch {
+      // Storage unavailable (quota exceeded, private browsing, disabled) — keep the
+      // selected value in memory for this session instead of throwing.
+    }
   }, [key, value]);
 
   return [value, setValue];

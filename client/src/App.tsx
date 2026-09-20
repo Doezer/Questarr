@@ -155,7 +155,13 @@ function AppShell() {
   // Apply the selected theme on load. useLayoutEffect (rather than useEffect) so the class
   // is applied before paint, avoiding a flash of the default theme.
   useLayoutEffect(() => {
-    const ghostUnlocked = localStorage.getItem(GHOST_UNLOCK_KEY) === "true";
+    let ghostUnlocked = false;
+    try {
+      ghostUnlocked = localStorage.getItem(GHOST_UNLOCK_KEY) === "true";
+    } catch {
+      // Storage unavailable (quota exceeded, private browsing, disabled) — fall back to
+      // the default (locked) state rather than aborting theme startup.
+    }
     const theme = migrateLegacyTheme(ghostUnlocked);
     applyThemeClass(theme);
   }, []);

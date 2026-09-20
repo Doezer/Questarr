@@ -1588,13 +1588,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ error: "Game not found" });
         }
 
-        res.json(updatedGame);
+        return res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
           return respondWithZodError(res, error, "Invalid target platform data");
         }
         routesLogger.error({ error }, "error updating game target platform");
-        res.status(500).json({ error: "Failed to update target platform" });
+        return res.status(500).json({ error: "Failed to update target platform" });
       }
     }
   );

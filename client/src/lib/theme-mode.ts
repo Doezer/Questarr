@@ -40,20 +40,51 @@ export const GHOST_UNLOCK_KEY = "questarr-ghost-unlocked";
 export const GHOST_THEME_KEY = "questarr-ghost-theme-enabled";
 export const WIN2K_THEME_KEY = "questarr-win2k-theme-enabled";
 
+/** Reads a localStorage key, returning null if storage is unavailable or throws. */
+function safeGetItem(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/** Writes a localStorage key, silently no-op'ing if storage is unavailable or throws. */
+function safeSetItem(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage unavailable (quota exceeded, private browsing, disabled) — the selected
+    // theme still applies for this session, it just won't persist across reloads.
+  }
+}
+
+/** Removes a localStorage key, silently no-op'ing if storage is unavailable or throws. */
+function safeRemoveItem(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Nothing to do — if storage is unavailable there's nothing to clean up anyway.
+  }
+}
+
 /**
  * Migrate from legacy theme keys to new unified theme key.
  * Returns the current theme based on legacy keys or the new key.
  */
 export function getCurrentTheme(ghostUnlocked: boolean): Theme {
   // Check if new theme key exists
-  const savedTheme = localStorage.getItem(THEME_KEY);
+  const savedTheme = safeGetItem(THEME_KEY);
   if (savedTheme && THEMES.includes(savedTheme as Theme)) {
-    return savedTheme as Theme;
+    const theme = savedTheme as Theme;
+    // A locked Ghost theme can end up here if it was set directly (e.g. via devtools)
+    // rather than through setTheme(), which already guards against this.
+    return theme === "ghost" && !ghostUnlocked ? "default" : theme;
   }
 
   // Migrate from legacy keys
-  const ghostEnabled = localStorage.getItem(GHOST_THEME_KEY) === "true";
-  const win2kEnabled = localStorage.getItem(WIN2K_THEME_KEY) === "true";
+  const ghostEnabled = safeGetItem(GHOST_THEME_KEY) === "true";
+  const win2kEnabled = safeGetItem(WIN2K_THEME_KEY) === "true";
 
   if (ghostEnabled && ghostUnlocked) {
     return "ghost";
@@ -72,9 +103,9 @@ export function getCurrentTheme(ghostUnlocked: boolean): Theme {
  */
 export function migrateLegacyTheme(ghostUnlocked: boolean): Theme {
   const theme = getCurrentTheme(ghostUnlocked);
-  localStorage.setItem(THEME_KEY, theme);
-  localStorage.removeItem(GHOST_THEME_KEY);
-  localStorage.removeItem(WIN2K_THEME_KEY);
+  safeSetItem(THEME_KEY, theme);
+  safeRemoveItem(GHOST_THEME_KEY);
+  safeRemoveItem(WIN2K_THEME_KEY);
   return theme;
 }
 
@@ -107,11 +138,11 @@ export function setTheme(theme: Theme, ghostUnlocked: boolean): void {
   }
 
   // Set new theme key
-  localStorage.setItem(THEME_KEY, theme);
+  safeSetItem(THEME_KEY, theme);
 
   applyThemeClass(theme);
 
   // Clean up legacy keys
-  localStorage.removeItem(GHOST_THEME_KEY);
-  localStorage.removeItem(WIN2K_THEME_KEY);
+  safeRemoveItem(GHOST_THEME_KEY);
+  safeRemoveItem(WIN2K_THEME_KEY);
 }

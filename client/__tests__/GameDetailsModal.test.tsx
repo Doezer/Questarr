@@ -233,53 +233,45 @@ describe("GameDetailsModal", () => {
       expect(await screen.findByText("No known crack yet")).toBeInTheDocument();
     });
 
-    it("shows a Cracked badge and group name for a cracked release", async () => {
-      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
-        makeFetchMock({
-          "/xrel-status": {
-            status: "cracked",
-            release: {
-              id: "1",
-              dirname: "Test.Game-SKIDROW",
-              link_href: "/release/1.html",
-              time: 1700000000,
-              group_name: "SKIDROW",
-              source: "scene",
-              crackType: "cracked",
+    it.each([
+      {
+        crackType: "cracked",
+        badgeText: "Cracked",
+        groupName: "SKIDROW",
+        dirname: "Test.Game-SKIDROW",
+      },
+      {
+        crackType: "hypervisor",
+        badgeText: "Hypervisor Bypass",
+        groupName: "EMPRESS",
+        dirname: "Test.Game.HYPERVISOR-EMPRESS",
+      },
+    ])(
+      "shows a $badgeText badge and group name for a $crackType release",
+      async ({ crackType, badgeText, groupName, dirname }) => {
+        (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+          makeFetchMock({
+            "/xrel-status": {
+              status: crackType,
+              release: {
+                id: "1",
+                dirname,
+                link_href: "/release/1.html",
+                time: 1700000000,
+                group_name: groupName,
+                source: "scene",
+                crackType,
+              },
             },
-          },
-        })
-      );
+          })
+        );
 
-      renderComponent();
+        renderComponent();
 
-      expect(await screen.findByText("Cracked")).toBeInTheDocument();
-      expect(screen.getByText("by SKIDROW")).toBeInTheDocument();
-    });
-
-    it("shows a Hypervisor Bypass badge for a hypervisor-tagged release", async () => {
-      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
-        makeFetchMock({
-          "/xrel-status": {
-            status: "hypervisor",
-            release: {
-              id: "2",
-              dirname: "Test.Game.HYPERVISOR-EMPRESS",
-              link_href: "/release/2.html",
-              time: 1700000001,
-              group_name: "EMPRESS",
-              source: "scene",
-              crackType: "hypervisor",
-            },
-          },
-        })
-      );
-
-      renderComponent();
-
-      expect(await screen.findByText("Hypervisor Bypass")).toBeInTheDocument();
-      expect(screen.getByText("by EMPRESS")).toBeInTheDocument();
-    });
+        expect(await screen.findByText(badgeText)).toBeInTheDocument();
+        expect(screen.getByText(`by ${groupName}`)).toBeInTheDocument();
+      }
+    );
   });
 
   it("renders genres and platforms", () => {

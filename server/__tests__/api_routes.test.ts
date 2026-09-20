@@ -291,16 +291,18 @@ describe("API Routes - Extended Coverage", () => {
           username: "admin",
         } as any);
 
+        const igdbClientId = "setupigdbclientid1234567890ab";
+        const igdbClientSecret = "setupigdbclientsecret1234567890";
         const res = await request(app).post("/api/auth/setup").send({
           username: "admin",
           password: "password123",
-          igdbClientId: "igdb-id",
-          igdbClientSecret: "igdb-secret",
+          igdbClientId,
+          igdbClientSecret,
         });
 
         expect(res.status).toBe(200);
-        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientId", "igdb-id");
-        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientSecret", "igdb-secret");
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientId", igdbClientId);
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientSecret", igdbClientSecret);
       });
 
       it("should handle duplicative setup race condition", async () => {
@@ -2108,11 +2110,16 @@ describe("API Routes - Extended Coverage", () => {
     });
 
     describe("POST /api/settings/igdb", () => {
+      // Twitch Client IDs/Secrets are 20-40 char alphanumeric tokens; the endpoint now rejects
+      // anything shorter/punctuated before it ever touches storage, so fixtures must look real.
+      const VALID_CLIENT_ID = "newigdbclientid1234567890ab";
+      const VALID_CLIENT_SECRET = "newigdbclientsecret1234567890";
+
       it("should update IGDB credentials", async () => {
         vi.mocked(storage.getSystemConfig).mockResolvedValue("existing-secret");
         const response = await request(app)
           .post("/api/settings/igdb")
-          .send({ clientId: "new-id", clientSecret: "new-secret" });
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
         expect(response.status).toBe(200);
         expect(response.body.success).toBe(true);
       });
@@ -2122,14 +2129,21 @@ describe("API Routes - Extended Coverage", () => {
         expect(response.status).toBe(400);
       });
 
+      it("should return 400 when the credential format looks invalid", async () => {
+        const response = await request(app)
+          .post("/api/settings/igdb")
+          .send({ clientId: "not-a-real-id", clientSecret: "not-a-real-secret" });
+        expect(response.status).toBe(400);
+      });
+
       it("should handle masked secret update", async () => {
         vi.mocked(storage.getSystemConfig).mockResolvedValue("existing-secret");
         const response = await request(app)
           .post("/api/settings/igdb")
-          .send({ clientId: "my-id", clientSecret: "********" });
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: "********" });
         expect(response.status).toBe(200);
         // Should NOT save the masked value
-        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientId", "my-id");
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientId", VALID_CLIENT_ID);
         expect(storage.setSystemConfig).not.toHaveBeenCalledWith("igdb.clientSecret", "********");
       });
     });

@@ -326,6 +326,65 @@ class IGDBClient {
     return canonical;
   }
 
+  /**
+   * Verifies a Client ID/Secret pair against Twitch/IGDB directly, without touching the
+   * singleton's cached token or the stored/env credentials. Used by the "Test connection"
+   * button in settings and the setup wizard, so a typo or expired secret is caught before
+   * saving rather than surfacing later as a failed game search.
+   */
+  async testCredentials(
+    clientId: string,
+    clientSecret: string
+  ): Promise<{ success: true } | { success: false; error: string }> {
+    let tokenResponse: Response;
+    try {
+      tokenResponse = await safeFetch(
+        `https://id.twitch.tv/oauth2/token?client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}&grant_type=client_credentials`,
+        { method: "POST" }
+      );
+    } catch (error) {
+      igdbLogger.warn({ error }, "IGDB credential test: network error reaching Twitch");
+      return { success: false, error: "Could not reach Twitch — check your network connection." };
+    }
+
+    if (!tokenResponse.ok) {
+      if (tokenResponse.status === 400 || tokenResponse.status === 403) {
+        return { success: false, error: "Invalid Client ID or Client Secret." };
+      }
+      return {
+        success: false,
+        error: `Twitch returned an unexpected error (status ${tokenResponse.status}).`,
+      };
+    }
+
+    const tokenData: IGDBAuthResponse = await tokenResponse.json();
+
+    let igdbResponse: Response;
+    try {
+      igdbResponse = await safeFetch("https://api.igdb.com/v4/games", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Client-ID": clientId,
+          Authorization: `Bearer ${tokenData.access_token}`,
+        },
+        body: "fields id; limit 1;",
+      });
+    } catch (error) {
+      igdbLogger.warn({ error }, "IGDB credential test: network error reaching IGDB");
+      return { success: false, error: "Could not reach IGDB — check your network connection." };
+    }
+
+    if (!igdbResponse.ok) {
+      return {
+        success: false,
+        error: `IGDB rejected the request (status ${igdbResponse.status}).`,
+      };
+    }
+
+    return { success: true };
+  }
+
   private async getCredentials(): Promise<{
     clientId: string | undefined;
     clientSecret: string | undefined;

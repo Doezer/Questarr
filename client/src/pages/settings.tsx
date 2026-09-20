@@ -10,7 +10,6 @@ import {
   Gauge,
   Eye,
   EyeOff,
-  HelpCircle,
   Newspaper,
   Lock,
   Calendar,
@@ -43,7 +42,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { ApiKeysCard } from "@/components/ApiKeysCard";
@@ -67,6 +65,7 @@ import {
 } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
 import ImportSettings from "@/components/ImportSettings";
+import { IgdbHelpPopover, IgdbTestConnectionButton } from "@/components/IgdbCredentialsHelper";
 
 interface CertInfo {
   subject: string;
@@ -1739,44 +1738,7 @@ export default function SettingsPage() {
                   <div className="flex items-center space-x-3">
                     <Key className="h-5 w-5 text-muted-foreground" />
                     <CardTitle className="text-lg">IGDB API</CardTitle>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full">
-                          <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                          <span className="sr-only">How to get credentials</span>
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-80">
-                        <div className="space-y-2 text-sm">
-                          <h4 className="font-bold">How to get IGDB credentials:</h4>
-                          <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                            <li>
-                              Go to the{" "}
-                              <a
-                                href="https://dev.twitch.tv/console"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-primary underline"
-                              >
-                                Twitch Developer Portal
-                              </a>
-                            </li>
-                            <li>Register a new application (name it 'Questarr')</li>
-                            <li>
-                              Set Redirect URI to{" "}
-                              <code className="bg-muted px-1">http://localhost</code>
-                            </li>
-                            <li>Select 'Application Integration' as category</li>
-                            <li>
-                              Copy the <strong>Client ID</strong>
-                            </li>
-                            <li>
-                              Click 'New Secret' to get your <strong>Client Secret</strong>
-                            </li>
-                          </ol>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+                    <IgdbHelpPopover />
                   </div>
                 </div>
                 <CardDescription>Twitch/IGDB API integration for game metadata.</CardDescription>
@@ -1846,6 +1808,12 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 </div>
+
+                <IgdbTestConnectionButton
+                  clientId={igdbClientId}
+                  clientSecret={igdbClientSecret || (config?.igdb.configured ? "********" : "")}
+                  testEndpoint="/api/settings/igdb/test"
+                />
 
                 <div className="flex justify-end pt-4 border-t">
                   <Button

@@ -116,6 +116,9 @@ vi.mock("lucide-react", () => ({
     <div data-testid="icon-chevron-right" {...props} />
   ),
   Pencil: (props: Record<string, unknown>) => <div data-testid="icon-pencil" {...props} />,
+  ShieldCheck: (props: Record<string, unknown>) => (
+    <div data-testid="icon-shield-check" {...props} />
+  ),
 }));
 
 vi.mock("react-icons/fa", () => ({
@@ -184,6 +187,7 @@ global.fetch = vi.fn();
 function makeFetchMock(overrides: Record<string, unknown> = {}) {
   const defaults: Record<string, unknown> = {
     "/api/nexusmods/game-domain": { configured: false, domain: null },
+    "/xrel-status": { crackTypes: [] },
   };
   const routes = { ...defaults, ...overrides };
 
@@ -221,6 +225,43 @@ describe("GameDetailsModal", () => {
     expect(screen.getByTestId("text-rating-1")).toHaveTextContent("8.5/10");
     expect(screen.getByTestId("text-release-date-1")).toHaveTextContent("2023");
     expect(screen.getByTestId("img-cover-1")).toBeInTheDocument();
+  });
+
+  describe("Crack Status", () => {
+    it("shows 'No known crack yet' when xREL has no matching release", async () => {
+      renderComponent();
+      expect(await screen.findByText("No known crack yet")).toBeInTheDocument();
+    });
+
+    it.each([
+      { crackTypes: ["cracked"], badgeTexts: ["Cracked"] },
+      { crackTypes: ["hypervisor"], badgeTexts: ["Hypervisor Bypass"] },
+      { crackTypes: ["cracked", "hypervisor"], badgeTexts: ["Cracked", "Hypervisor Bypass"] },
+    ])("shows badges for crackTypes $crackTypes", async ({ crackTypes, badgeTexts }) => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({ "/xrel-status": { crackTypes } })
+      );
+
+      renderComponent();
+
+      for (const badgeText of badgeTexts) {
+        expect(await screen.findByText(badgeText)).toBeInTheDocument();
+      }
+    });
+
+    it("shows an error state instead of 'No known crack yet' when the request fails", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/xrel-status")) {
+          return Promise.resolve({ ok: false, status: 500, json: vi.fn().mockResolvedValue({}) });
+        }
+        return makeFetchMock()(url);
+      });
+
+      renderComponent();
+
+      expect(await screen.findByText("Couldn't check crack status")).toBeInTheDocument();
+      expect(screen.queryByText("No known crack yet")).not.toBeInTheDocument();
+    });
   });
 
   it("renders genres and platforms", () => {

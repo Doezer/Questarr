@@ -73,6 +73,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Pencil,
+  ShieldCheck,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -90,6 +91,7 @@ import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { type Game, type GameDownload, type ScannedGameFile } from "@shared/schema";
 import { resolveTargetPlatform } from "@shared/title-utils";
+import { type XrelGameStatus } from "@shared/xrel-types";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
@@ -272,6 +274,50 @@ function SourceBadge({ source }: { source: string | null | undefined }) {
       <UserRound className="w-3 h-3" />
       <span className="hidden sm:inline">Added Manually</span>
     </Badge>
+  );
+}
+
+interface CrackStatusContentProps {
+  isLoading: boolean;
+  isError: boolean;
+  crackTypes: ("cracked" | "hypervisor")[] | undefined;
+  testId: string;
+}
+
+function CrackStatusContent({ isLoading, isError, crackTypes, testId }: CrackStatusContentProps) {
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Checking xREL…</p>;
+  }
+  if (isError) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid={testId}>
+        Couldn't check crack status
+      </p>
+    );
+  }
+  if (!crackTypes || crackTypes.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid={testId}>
+        No known crack yet
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid={testId}>
+      {crackTypes.includes("cracked") && (
+        <Badge variant="secondary" className="text-xs">
+          Cracked
+        </Badge>
+      )}
+      {crackTypes.includes("hypervisor") && (
+        <Badge
+          variant="outline"
+          className="text-xs border-amber-500 text-amber-500 dark:text-amber-400"
+        >
+          Hypervisor Bypass
+        </Badge>
+      )}
+    </div>
   );
 }
 
@@ -580,6 +626,20 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
     enabled: open && !!game?.id && !isDiscoveryId(game.id),
     refetchInterval: 5000,
+  });
+
+  const {
+    data: xrelStatus,
+    isLoading: xrelStatusLoading,
+    isError: xrelStatusError,
+  } = useQuery<XrelGameStatus>({
+    queryKey: [`/api/games/${game?.id}/xrel-status`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/games/${game!.id}/xrel-status`);
+      return res.json();
+    },
+    enabled: open && !!game?.id && !isDiscoveryId(game.id),
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: nexusGameData, isError: nexusDomainError } = useQuery<{
@@ -1157,6 +1217,22 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       {isSummaryExpanded ? "Show less" : "Read more"}
                     </Button>
                   )}
+                </div>
+              )}
+
+              {/* Crack status (sourced from xREL) */}
+              {!isDiscoveryId(game.id) && (
+                <div>
+                  <h3 className="font-semibold mb-2 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4" />
+                    Crack Status
+                  </h3>
+                  <CrackStatusContent
+                    isLoading={xrelStatusLoading}
+                    isError={xrelStatusError}
+                    crackTypes={xrelStatus?.crackTypes}
+                    testId={`text-crack-status-${game.id}`}
+                  />
                 </div>
               )}
 

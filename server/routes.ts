@@ -211,6 +211,7 @@ import {
 } from "../shared/title-utils.js";
 import { categorizeDownload, type DownloadCategory } from "../shared/download-categorizer.js";
 import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
+import type { XrelGameStatus } from "../shared/xrel-types.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
@@ -4620,6 +4621,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return next(error);
     }
   });
+
+  // Known xREL crack status for a specific game in the user's collection --
+  // which crack types (cracked, hypervisor bypass) have a matching release,
+  // regardless of when. crackTypes is empty when xREL has no match yet.
+  app.get(
+    "/api/games/:id/xrel-status",
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        res.set("Cache-Control", "no-store");
+        const userId = req.user!.id;
+        const game = await resolveOwnedGame(req.params.id, userId, res);
+        if (!game) return;
+
+        const baseUrl =
+          (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+          process.env.XREL_API_BASE ||
+          DEFAULT_XREL_BASE;
+
+        const results = await xrelClient.searchReleases(game.title, {
+          scene: true,
+          p2p: true,
+          limit: 25,
+          baseUrl,
+        });
+
+        const matches = results.filter(
+          (r) =>
+            xrelClient.releaseMatchesGame(r.dirname, game.title) ||
+            (r.ext_info?.title && xrelClient.titleMatches(r.ext_info.title, game.title))
+        );
+
+        const crackTypes = (["cracked", "hypervisor"] as const).filter((type) =>
+          matches.some((r) => r.crackType === type)
+        );
+
+        const response: XrelGameStatus = { crackTypes };
+        return res.json(response);
+      } catch (error) {
+        return next(error);
+      }
+    }
+  );
 
   // Match and add game from name (Quick Add). Shares its search/filter/dedupe
   // logic with the integration API's POST /api/integration/games/request

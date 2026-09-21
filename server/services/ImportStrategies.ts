@@ -60,8 +60,36 @@ export interface ImportStrategy {
   ): Promise<ImportResult>;
 }
 
-async function ensureParentDir(filePath: string): Promise<void> {
-  await fs.ensureDir(path.dirname(filePath));
+// Walks from root down to filePath's parent one segment at a time, using lstat (which
+// reports a symlink's own type rather than following it) rather than fs.ensureDir's
+// plain mkdir -p semantics. An archive can extract a symlinked directory into a
+// transfer's destination root before this runs; fs.ensureDir would silently follow
+// that symlink for any later loose-file transfer sharing its name, writing outside
+// root. Refusing to proceed through anything that isn't a genuine directory closes
+// that path, whether the symlink is planted at root's immediate child or several
+// segments down.
+async function ensureParentDir(filePath: string, root: string): Promise<void> {
+  const resolvedRoot = path.resolve(root);
+  const parentDir = path.dirname(path.resolve(filePath));
+  const relativeToRoot = path.relative(resolvedRoot, parentDir);
+  const segments =
+    relativeToRoot === "" || relativeToRoot === "." ? [] : relativeToRoot.split(path.sep);
+
+  let current = resolvedRoot;
+  await fs.ensureDir(current);
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    let stats;
+    try {
+      stats = await fs.lstat(current);
+    } catch {
+      await fs.mkdir(current);
+      continue;
+    }
+    if (!stats.isDirectory()) {
+      throw new Error(`Refusing to transfer through a non-directory or symlinked path: ${current}`);
+    }
+  }
 }
 
 async function walkRelative(rootPath: string): Promise<string[]> {
@@ -168,9 +196,10 @@ async function transferDirectoryHardlink(
 async function transferSingleFile(
   source: string,
   destination: string,
-  mode: TransferMode
+  mode: TransferMode,
+  root: string
 ): Promise<TransferMode> {
-  await ensureParentDir(destination);
+  await ensureParentDir(destination, root);
 
   if (mode === "move") {
     await fs.move(source, destination, { overwrite: true });
@@ -224,7 +253,7 @@ async function transferDirectoryPerFile(
   let transferredAny = false;
 
   for (const { srcFile, destFile } of plannedTransfers) {
-    const entryMode = await transferSingleFile(srcFile, destFile, mode);
+    const entryMode = await transferSingleFile(srcFile, destFile, mode, destination);
     if (mode === "hardlink" && entryMode === "copy") usedCopyFallback = true;
     transferredAny = true;
   }
@@ -269,7 +298,7 @@ async function transferFile(
     return transferDirectoryHardlink(source, destination);
   }
 
-  return transferSingleFile(source, destination, mode);
+  return transferSingleFile(source, destination, mode, path.dirname(destination));
 }
 
 export async function gatherFiles(rootPath: string): Promise<string[]> {
@@ -468,7 +497,12 @@ export class PCImportStrategy implements ImportStrategy {
       }
 
       for (const { entry, sourceFile, destinationFile } of plannedTransfers) {
-        const entryMode = await transferSingleFile(sourceFile, destinationFile, transferMode);
+        const entryMode = await transferSingleFile(
+          sourceFile,
+          destinationFile,
+          transferMode,
+          review.proposedPath
+        );
         filesPlaced.push(destinationFile);
         if (entryMode !== transferMode) {
           conflictsResolved.push(`${entry.name} (mode fallback: ${entryMode})`);

@@ -632,6 +632,39 @@ describe("ImportStrategies", () => {
         "extracted-rom-bytes"
       );
     });
+
+    it("refuses to transfer through a symlinked destination ancestor from a planted archive entry", async () => {
+      // Regression test: unpackViaLinkedExtraction extracts an archive into destination
+      // before this runs. A malicious archive entry could plant a symlinked directory
+      // there — if the source also has a loose file nested under that same name,
+      // ensureParentDir's old fs.ensureDir(path.dirname(...)) would follow the symlink
+      // and write the file outside destination entirely.
+      const { sourceDir, destination, excludePaths } = await makeExcludeFixture({});
+      await fs.ensureDir(path.join(sourceDir, "subfolder"));
+      await fs.writeFile(path.join(sourceDir, "subfolder", "game.rom"), "loose-rom-bytes");
+
+      const outsideDir = tempDir();
+      await fs.ensureDir(outsideDir);
+      await fs.ensureDir(destination);
+      await fs.symlink(outsideDir, path.join(destination, "subfolder"));
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: destination,
+            strategy: "pc",
+          },
+          "copy",
+          excludePaths
+        )
+      ).rejects.toThrow("Refusing to transfer through a non-directory or symlinked path");
+
+      // Nothing was written through the symlink into the outside directory.
+      expect(await fs.pathExists(path.join(outsideDir, "game.rom"))).toBe(false);
+    });
   });
 
   // ---------------------------------------------------------------------------

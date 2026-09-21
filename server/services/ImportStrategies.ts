@@ -181,10 +181,35 @@ async function hardlinkTree(source: string, destination: string): Promise<void> 
   }
 }
 
+function isPathContainedIn(candidate: string, root: string): boolean {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === "" ||
+    (relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative))
+  );
+}
+
 async function transferDirectoryHardlink(
   source: string,
   destination: string
 ): Promise<TransferMode> {
+  // withHardlinkFallback removes destination before linking — if destination is an
+  // ancestor of source, that removal deletes source (and anything else already under
+  // destination) before the hardlink is even attempted. And if destination is nested
+  // inside source, hardlinkTree's own ensureDir(destination) plus its walk of source
+  // would recurse into the very directory it just created. Reject both directions
+  // before going anywhere near the filesystem.
+  const resolvedSource = path.resolve(source);
+  const resolvedDestination = path.resolve(destination);
+  if (
+    isPathContainedIn(resolvedDestination, resolvedSource) ||
+    isPathContainedIn(resolvedSource, resolvedDestination)
+  ) {
+    throw new Error(
+      `Source and destination directories must not overlap for a hardlink transfer: ${source} -> ${destination}`
+    );
+  }
+
   return withHardlinkFallback(
     source,
     destination,

@@ -147,6 +147,56 @@ describe("ImportStrategies", () => {
       expect(pakDest.dev).toBe(pakSource.dev);
     });
 
+    it("refuses a directory hardlink when the destination is nested inside the source", async () => {
+      // Regression test: withHardlinkFallback removes an existing destination before
+      // linking. If destination were inside source, that removal would delete source
+      // (and anything else under it) before the hardlink was even attempted.
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "game-folder");
+      const destination = path.join(sourceDir, "nested", "game-folder");
+      await fs.ensureDir(sourceDir);
+      await fs.writeFile(path.join(sourceDir, "game.exe"), "exe-bytes");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: destination,
+            strategy: "pc",
+          },
+          "hardlink"
+        )
+      ).rejects.toThrow("must not overlap for a hardlink transfer");
+
+      // Source survives untouched.
+      expect(await fs.pathExists(path.join(sourceDir, "game.exe"))).toBe(true);
+    });
+
+    it("refuses a directory hardlink when the source is nested inside the destination", async () => {
+      // Regression test: hardlinkTree's own ensureDir(destination) plus its walk of
+      // source would otherwise recurse into the very directory it just created.
+      const root = tempDir();
+      const destination = path.join(root, "library", "PC", "My Game");
+      const sourceDir = path.join(destination, "nested", "game-folder");
+      await fs.ensureDir(sourceDir);
+      await fs.writeFile(path.join(sourceDir, "game.exe"), "exe-bytes");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: destination,
+            strategy: "pc",
+          },
+          "hardlink"
+        )
+      ).rejects.toThrow("must not overlap for a hardlink transfer");
+    });
+
     it("sorts detected add-on files while preserving main and existing category paths", async () => {
       const root = tempDir();
       const sourceDir = path.join(root, "downloads", "game-folder");

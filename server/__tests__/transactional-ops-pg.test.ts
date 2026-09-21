@@ -54,13 +54,18 @@ describe("Postgres transactional ops", () => {
     expect(urls).not.toContain("http://bad");
   });
 
-  it("addApiKey serializes concurrent callers so neither can slip past the cap", async () => {
+  it("addApiKey enforces the cap across back-to-back calls for the same user", async () => {
+    // PGlite is a single connection, so these two calls can never actually
+    // race the way two pooled connections against a real Postgres server
+    // would -- the driver serializes them regardless of the `.for("update")`
+    // lock in addApiKey. This test still passes if that lock is removed, so
+    // it only guards the cap-enforcement outcome, not the READ COMMITTED race
+    // the lock exists to close. Covered by the "No real-Postgres CI job" gap
+    // in this PR's description; a service-container job is the way to give
+    // this real teeth.
     const user = await storage().registerSetupUser({ username: "alice", passwordHash: "h" });
     const maxKeys = 1;
 
-    // Two calls for the same user, started together: without locking the
-    // user's row first, both could read count=0 under READ COMMITTED and both
-    // insert, leaving 2 keys against a cap of 1.
     const results = await Promise.allSettled([
       storage().addApiKey({ userId: user.id, name: "k1", keyHash: "h1", prefix: "p1" }, maxKeys),
       storage().addApiKey({ userId: user.id, name: "k2", keyHash: "h2", prefix: "p2" }, maxKeys),

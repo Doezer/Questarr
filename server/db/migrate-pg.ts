@@ -58,8 +58,11 @@ export async function runPgMigrations(): Promise<void> {
     await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
     await migrate(db as unknown as NodePgDatabase, { migrationsFolder: "migrations-pg" });
   } finally {
-    await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
-    client.release?.();
+    try {
+      await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_KEY]);
+    } finally {
+      client.release?.();
+    }
   }
 
   logger.info("Postgres migrations completed successfully");

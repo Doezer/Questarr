@@ -201,6 +201,16 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
         status: "downloading",
       } as never);
 
+      // Both calls start with the same shape (select current, select existing,
+      // then update) and neither hash exists yet, so both "existing" checks
+      // come back empty before either update runs -- the update is what
+      // actually races, not the pre-check. Confirmed by reverting the
+      // isUniqueConflict fix locally: the loser's update throws instead of
+      // resolving to "merged", reproducibly across repeated runs on both
+      // dialects. The `every fulfilled` assertion below is what that failure
+      // trips; if a future change makes one call win the race via the
+      // pre-check instead, this still passes -- the invariant that matters is
+      // no thrown error and no duplicated row, not which internal path wins.
       const realHash = "abcdef0123456789abcdef0123456789abcdef01";
       const results = await Promise.allSettled([
         storage().updateGameDownloadHash(tagA!.id, realHash),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getTableColumns, getTableName, type Table } from "drizzle-orm";
+import { getTableColumns, getTableName, SQL, type Table } from "drizzle-orm";
 import * as sqliteSchema from "../schema.js";
 import * as pgSchema from "../schema.pg.js";
 
@@ -100,11 +100,25 @@ describe("SQLite/Postgres schema parity", () => {
     });
 
     it("agrees on nullability, defaults and primary keys per column", () => {
+      // A SQL-expression default (e.g. "now" as epoch milliseconds) is spelled
+      // differently per dialect by design -- see shared/schema.pg.ts -- so only
+      // "both have a computed default" is compared, not the exact SQL text.
+      // A literal default (true/false/0/"manual"/[]) is compared for real: that
+      // kind of drift is exactly what hasDefault alone can't see.
+      const normalizeDefault = (value: unknown) =>
+        value instanceof SQL ? "<sql-expression>" : value;
+
       const describeCols = (t: Table) =>
         Object.fromEntries(
           Object.entries(getTableColumns(t)).map(([key, c]) => [
             key,
-            { name: c.name, notNull: c.notNull, hasDefault: c.hasDefault, primary: c.primary },
+            {
+              name: c.name,
+              notNull: c.notNull,
+              hasDefault: c.hasDefault,
+              primary: c.primary,
+              default: normalizeDefault(c.default),
+            },
           ])
         );
       expect(describeCols(pgTable)).toEqual(describeCols(sqliteTable));

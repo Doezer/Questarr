@@ -12,10 +12,17 @@ export type TestDialect = "sqlite" | "pglite";
 export function activeTestDialects(): TestDialect[] {
   const raw = process.env.TEST_DIALECTS;
   if (!raw) return ["sqlite", "pglite"];
-  return raw
-    .split(",")
-    .map((d) => d.trim())
-    .filter((d): d is TestDialect => d === "sqlite" || d === "pglite");
+  const requested = raw.split(",").map((d) => d.trim());
+  const invalid = requested.filter((d) => d !== "sqlite" && d !== "pglite");
+  if (invalid.length > 0) {
+    // Filtering unsupported values out silently is how a typo turns into an
+    // empty list, which makes describe.each([]) skip the whole parity suite
+    // without a single test failing to say why.
+    throw new Error(
+      `Unknown TEST_DIALECTS value(s): ${invalid.join(", ")}. Valid values: sqlite, pglite.`
+    );
+  }
+  return requested as TestDialect[];
 }
 
 export interface TestDb {

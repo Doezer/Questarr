@@ -102,7 +102,27 @@ export async function copyAllTables(
   options: { batchSize?: number; onProgress?: (table: string, rows: number) => void } = {}
 ): Promise<MigrateResult> {
   const batchSize = options.batchSize ?? 500;
+  // main() validates its own --batch-size flag, but this function is exported
+  // and called directly by tests, so a bad value must not reach the loop
+  // below: 0 never advances `i` and hangs forever, and a non-integer or
+  // negative value is just as broken.
+  if (!Number.isInteger(batchSize) || batchSize < 1) {
+    throw new Error(`batchSize must be a positive integer, got: ${batchSize}`);
+  }
   const counts: MigrateResult["counts"] = {};
+
+  // Snapshot how many rows each table already holds before writing anything.
+  // With --force the target isn't empty, so "did every row land" has to be
+  // checked against this baseline plus what we're about to copy -- comparing
+  // against the source count alone would report a false mismatch on every
+  // table that already had rows.
+  const baseline: Record<string, number> = {};
+  for (const name of TABLE_ORDER) {
+    const [row] = await dst
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(pgSchema[name as TableName]);
+    baseline[name] = row.n;
+  }
 
   for (const name of TABLE_ORDER) {
     const rows = await src.select().from(sqliteSchema[name as TableName]);
@@ -122,7 +142,7 @@ export async function copyAllTables(
       .select({ n: sql<number>`count(*)`.mapWith(Number) })
       .from(pgSchema[name as TableName]);
     counts[name].verified = row.n;
-    if (row.n !== counts[name].read) mismatched.push(name);
+    if (row.n !== baseline[name] + counts[name].read) mismatched.push(name);
   }
 
   return { counts, mismatched };

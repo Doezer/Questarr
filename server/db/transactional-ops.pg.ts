@@ -109,14 +109,25 @@ export async function syncIndexers(
         const existing = existingMap.get(idx.url as string);
         const encryptedApiKey = encryptCredentialSync(idx.apiKey as string, encryptionKey);
 
+        // A failed statement aborts the whole Postgres transaction until
+        // rollback, unlike SQLite. Each item runs in its own savepoint so one
+        // bad indexer can't discard every item already processed in this batch.
+        await tx.transaction(async (savepoint) => {
+          if (existing) {
+            await savepoint
+              .update(indexers)
+              .set(buildIndexerUpdate(idx, encryptedApiKey))
+              .where(eq(indexers.id, existing.id));
+          } else {
+            await savepoint
+              .insert(indexers)
+              .values(buildNewIndexer(idx, encryptedApiKey, randomUUID()));
+          }
+        });
+
         if (existing) {
-          await tx
-            .update(indexers)
-            .set(buildIndexerUpdate(idx, encryptedApiKey))
-            .where(eq(indexers.id, existing.id));
           results.updated++;
         } else {
-          await tx.insert(indexers).values(buildNewIndexer(idx, encryptedApiKey, randomUUID()));
           results.added++;
         }
       } catch (error) {
@@ -133,10 +144,14 @@ export async function addApiKey(
   key: { userId: string; name: string; keyHash: string; prefix: string },
   maxKeys: number
 ): Promise<ApiKeyPublic> {
-  // Counting and inserting inside one transaction closes the race two
-  // concurrent requests would otherwise have around the cap: without it,
-  // both could read the same under-limit count before either insert lands.
+  // Counting and inserting inside one transaction is not enough on its own:
+  // Postgres' default READ COMMITTED isolation lets two concurrent calls for
+  // the same user both read the same under-limit count before either insert
+  // lands. Locking the user's row first serializes concurrent callers so the
+  // second one re-reads a count that already includes the first's insert.
   return db.transaction(async (tx) => {
+    await tx.select().from(users).where(eq(users.id, key.userId)).for("update");
+
     const [{ count: existingKeys }] = await tx
       .select({ count: count() })
       .from(apiKeys)

@@ -100,9 +100,9 @@ export default tseslint.config(
       "no-restricted-imports": [
         "error",
         {
-          paths: [
+          patterns: [
             {
-              name: "../shared/schema.js",
+              group: ["**/shared/schema.js", "@shared/schema"],
               importNames: [
                 "apiKeys",
                 "downloaders",

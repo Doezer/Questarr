@@ -26,10 +26,14 @@ import { dialect } from "./db.js";
  * SQLite stores, so a substring match behaves identically on both.
  */
 export function containsCI(column: AnyColumn, term: string): SQL {
-  const pattern = `%${term.toLowerCase()}%`;
+  // `%` and `_` are LIKE/ILIKE metacharacters and `\` is the escape character
+  // below, so a term containing any of them must have that character escaped
+  // or it would match more (or less) than its literal text.
+  const escaped = term.toLowerCase().replace(/[\\%_]/g, "\\$&");
+  const pattern = `%${escaped}%`;
   return dialect === "postgres"
-    ? sql`${column}::text ILIKE ${pattern}`
-    : sql`lower(${column}) LIKE ${pattern}`;
+    ? sql`${column}::text ILIKE ${pattern} ESCAPE '\\'`
+    : sql`lower(${column}) LIKE ${pattern} ESCAPE '\\'`;
 }
 
 /**

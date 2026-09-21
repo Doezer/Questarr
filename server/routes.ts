@@ -142,6 +142,7 @@ async function getIgdbConfigStatus(): Promise<IgdbConfigStatus> {
 export const PUBLIC_API_ROUTES = new Set<string>([
   "GET /auth/status", // setup-wizard / login-page bootstrap check, runs pre-login
   "POST /auth/setup", // creates the first user; there is no user/token yet
+  "POST /auth/setup/test-igdb", // "Test connection" button on the setup wizard, runs pre-login
   "POST /auth/login", // issues the token; obviously can't require one
   "GET /health", // liveness probe (docker/compose healthcheck, DAST workflow)
   "GET /ready", // readiness probe (db/IGDB connectivity), no sensitive data
@@ -280,6 +281,27 @@ function isValidDiscordWebhook(value: string): boolean {
   }
 }
 
+// Twitch Client IDs/Secrets are alphanumeric tokens (currently 30 characters); the range is
+// intentionally loose so a length tweak on Twitch's side doesn't start rejecting valid values,
+// while still catching obvious mistakes (pasted whitespace, truncated copy, stray punctuation).
+const IGDB_CREDENTIAL_FORMAT = /^[A-Za-z0-9]{20,40}$/;
+
+/** Cheap client-id/secret shape check, so an obvious typo is rejected before any network call. */
+function validateIgdbCredentialFormat(
+  clientId: string,
+  clientSecret: string
+): { error: string } | null {
+  if (!IGDB_CREDENTIAL_FORMAT.test(clientId)) {
+    return { error: "Client ID doesn't look valid — check for extra spaces or a partial copy." };
+  }
+  if (!IGDB_CREDENTIAL_FORMAT.test(clientSecret)) {
+    return {
+      error: "Client Secret doesn't look valid — check for extra spaces or a partial copy.",
+    };
+  }
+  return null;
+}
+
 /**
  * Masks an indexer's API key before exposing its configuration.
  *
@@ -389,19 +411,27 @@ export function validateSetupCredentials(
 async function saveIgdbCredentialsIfProvided(
   igdbClientId: unknown,
   igdbClientSecret: unknown
-): Promise<void> {
+): Promise<{ error: string } | null> {
   if (
     typeof igdbClientId !== "string" ||
     typeof igdbClientSecret !== "string" ||
     igdbClientId.trim().length === 0 ||
     igdbClientSecret.trim().length === 0
   ) {
-    return;
+    return null;
   }
 
-  await storage.setSystemConfig("igdb.clientId", igdbClientId.trim());
-  await storage.setSystemConfig("igdb.clientSecret", igdbClientSecret.trim());
+  const trimmedClientId = igdbClientId.trim();
+  const trimmedClientSecret = igdbClientSecret.trim();
+  const formatError = validateIgdbCredentialFormat(trimmedClientId, trimmedClientSecret);
+  if (formatError) {
+    return formatError;
+  }
+
+  await storage.setSystemConfig("igdb.clientId", trimmedClientId);
+  await storage.setSystemConfig("igdb.clientSecret", trimmedClientSecret);
   routesLogger.info("IGDB credentials saved during setup");
+  return null;
 }
 
 // Helper function for aggregated indexer search
@@ -729,6 +759,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { username: trimmedUsername, password: trimmedPassword } = validated;
 
+      // Validate IGDB credential format before creating the user account: rejecting it after
+      // the account exists would leave the caller stuck (setup can't be re-run once a user
+      // exists), so a bad format -- an incomplete pair, or a non-string value, all of which
+      // saveIgdbCredentialsIfProvided would otherwise silently discard below -- must fail fast,
+      // before anything is persisted.
+      const igdbClientIdSupplied = igdbClientId !== undefined && igdbClientId !== null;
+      const igdbClientSecretSupplied = igdbClientSecret !== undefined && igdbClientSecret !== null;
+      if (
+        (igdbClientIdSupplied && typeof igdbClientId !== "string") ||
+        (igdbClientSecretSupplied && typeof igdbClientSecret !== "string")
+      ) {
+        return res.status(400).json({ error: "IGDB Client ID and Client Secret must be strings" });
+      }
+
+      const trimmedIgdbClientId = typeof igdbClientId === "string" ? igdbClientId.trim() : "";
+      const trimmedIgdbClientSecret =
+        typeof igdbClientSecret === "string" ? igdbClientSecret.trim() : "";
+      const hasIgdbClientId = trimmedIgdbClientId.length > 0;
+      const hasIgdbClientSecret = trimmedIgdbClientSecret.length > 0;
+
+      if (hasIgdbClientId !== hasIgdbClientSecret) {
+        return res
+          .status(400)
+          .json({ error: "Both IGDB Client ID and Client Secret are required together" });
+      }
+
+      if (hasIgdbClientId && hasIgdbClientSecret) {
+        const formatError = validateIgdbCredentialFormat(
+          trimmedIgdbClientId,
+          trimmedIgdbClientSecret
+        );
+        if (formatError) {
+          return res.status(400).json(formatError);
+        }
+      }
+
       // Create first user
       // Create first user atomically
       const passwordHash = await hashPassword(trimmedPassword);
@@ -745,7 +811,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const token = await generateToken(user);
 
-      // Save IGDB creds if provided
+      // Save IGDB creds if provided (format already validated above).
       await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
@@ -764,6 +830,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "Setup failed"
       );
       return res.status(500).json({ error: "Setup failed. Please try again." });
+    }
+  });
+
+  // "Test connection" button on the setup wizard. Public (no user/token exists yet), but only
+  // does anything before setup completes, so it can't become a standing unauthenticated
+  // Twitch-credential probe once the instance is in normal use.
+  app.post("/api/auth/setup/test-igdb", authRateLimiter, async (req, res) => {
+    try {
+      const userCount = await storage.countUsers();
+      if (userCount > 0) {
+        return res.status(403).json({ success: false, error: "Setup already completed" });
+      }
+
+      const { clientId, clientSecret } = req.body;
+      if (typeof clientId !== "string" || typeof clientSecret !== "string") {
+        return res
+          .status(400)
+          .json({ success: false, error: "Client ID and Client Secret are required" });
+      }
+
+      const trimmedClientId = clientId.trim();
+      const trimmedClientSecret = clientSecret.trim();
+      const formatError = validateIgdbCredentialFormat(trimmedClientId, trimmedClientSecret);
+      if (formatError) {
+        return res.status(400).json({ success: false, ...formatError });
+      }
+
+      const result = await igdbClient.testCredentials(trimmedClientId, trimmedClientSecret);
+      return res.status(result.success ? 200 : 400).json(result);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to test IGDB credentials during setup");
+      return res.status(500).json({ success: false, error: "Failed to test IGDB credentials" });
     }
   });
 
@@ -4175,22 +4273,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { clientId, clientSecret } = req.body;
 
-      if (!clientId) {
+      if (typeof clientId !== "string" || !clientId.trim()) {
         return res.status(400).json({ error: "Client ID is required" });
       }
+      if (clientSecret !== undefined && typeof clientSecret !== "string") {
+        return res.status(400).json({ error: "Client Secret must be a string" });
+      }
 
-      // Check if already configured (in DB or Env)
+      // Whether it's safe to omit clientSecret and keep the existing one: only when a DB
+      // secret already exists to pair with the (possibly updated) DB clientId. An
+      // env-only-configured instance has no DB secret to pair with, so saving just a new
+      // clientId here would leave a DB clientId with no DB secret -- getCredentials() only
+      // uses DB creds when BOTH are present together, so it would silently fall back to the
+      // full env pair (including the old env clientId), making this update a silent no-op.
       const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
-      const isConfigured = !!dbSecret || appConfig.igdb.isConfigured;
+      const canOmitSecret = !!dbSecret;
 
       const isMaskedValue = isUnchangedSentinel(clientSecret);
-      const hasNewSecret = clientSecret && !isMaskedValue;
+      const hasNewSecret = !!clientSecret && !isMaskedValue;
 
-      if (!isConfigured && !hasNewSecret) {
+      if (!canOmitSecret && !hasNewSecret) {
         return res.status(400).json({ error: "Client Secret is required" });
       }
 
-      await storage.setSystemConfig("igdb.clientId", clientId.trim());
+      const trimmedClientId = clientId.trim();
+      const formatError = validateIgdbCredentialFormat(
+        trimmedClientId,
+        hasNewSecret ? clientSecret.trim() : "x".repeat(30) // skip re-checking an unchanged stored secret
+      );
+      if (formatError) {
+        return res.status(400).json(formatError);
+      }
+
+      await storage.setSystemConfig("igdb.clientId", trimmedClientId);
 
       if (hasNewSecret) {
         await storage.setSystemConfig("igdb.clientSecret", clientSecret.trim());
@@ -4201,6 +4316,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to update IGDB credentials");
       return res.status(500).json({ error: "Failed to update IGDB credentials" });
+    }
+  });
+
+  // Verifies a Client ID/Secret pair against Twitch/IGDB before the user saves it, so a typo
+  // or expired secret is caught immediately instead of surfacing later as a failed search.
+  // clientSecret may be the masked placeholder, meaning "use the already-saved secret".
+  app.post("/api/settings/igdb/test", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { clientId, clientSecret } = req.body;
+
+      if (typeof clientId !== "string" || !clientId.trim()) {
+        return res.status(400).json({ success: false, error: "Client ID is required" });
+      }
+
+      let secretToTest: string;
+      if (isUnchangedSentinel(clientSecret)) {
+        const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
+        secretToTest = dbSecret ?? appConfig.igdb.clientSecret ?? "";
+        if (!secretToTest) {
+          return res.status(400).json({ success: false, error: "Client Secret is required" });
+        }
+      } else if (typeof clientSecret === "string" && clientSecret.trim()) {
+        secretToTest = clientSecret.trim();
+      } else {
+        return res.status(400).json({ success: false, error: "Client Secret is required" });
+      }
+
+      const trimmedClientId = clientId.trim();
+      const formatError = validateIgdbCredentialFormat(trimmedClientId, secretToTest);
+      if (formatError) {
+        return res.status(400).json({ success: false, ...formatError });
+      }
+
+      const result = await igdbClient.testCredentials(trimmedClientId, secretToTest);
+      return res.status(result.success ? 200 : 400).json(result);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to test IGDB credentials");
+      return res.status(500).json({ success: false, error: "Failed to test IGDB credentials" });
     }
   });
 

@@ -7,10 +7,8 @@ import {
   Search,
   Download,
   AlertCircle,
-  Gauge,
   Eye,
   EyeOff,
-  HelpCircle,
   Newspaper,
   Lock,
   Calendar,
@@ -43,7 +41,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { ApiKeysCard } from "@/components/ApiKeysCard";
@@ -67,6 +64,7 @@ import {
 } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
 import ImportSettings from "@/components/ImportSettings";
+import { IgdbHelpPopover, IgdbTestConnectionButton } from "@/components/IgdbCredentialsHelper";
 
 interface CertInfo {
   subject: string;
@@ -660,10 +658,14 @@ export default function SettingsPage() {
       return { data: await res.json(), successMessage };
     },
     onSuccess: (data) => {
-      toast({
-        title: "Settings Updated",
-        description: data.successMessage,
-      });
+      // Empty successMessage means the caller (the unified IGDB save button) shows its own
+      // combined toast instead, describing exactly which parts were actually saved.
+      if (data.successMessage) {
+        toast({
+          title: "Settings Updated",
+          description: data.successMessage,
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
     },
     onError: (error: Error) => {
@@ -694,10 +696,8 @@ export default function SettingsPage() {
       return res.json();
     },
     onSuccess: () => {
-      toast({
-        title: "IGDB Updated",
-        description: "Your IGDB credentials have been saved.",
-      });
+      // The unified IGDB save button (handleSaveIgdb) shows its own combined toast describing
+      // exactly which parts were saved, instead of this mutation announcing on its own.
       queryClient.invalidateQueries({ queryKey: ["/api/config"] });
       queryClient.invalidateQueries({ queryKey: ["/api/settings/igdb"] });
     },
@@ -795,15 +795,6 @@ export default function SettingsPage() {
     });
   };
 
-  const handleSaveAdvanced = () => {
-    updateAdvancedSettingsMutation.mutate({
-      updates: {
-        igdbRateLimitPerSecond,
-      },
-      successMessage: "IGDB rate limit has been saved.",
-    });
-  };
-
   const saveXrelMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("PATCH", "/api/settings/xrel", {
@@ -834,12 +825,30 @@ export default function SettingsPage() {
     saveXrelMutation.mutate();
   };
 
-  const handleSaveIgdb = () => {
-    const isAlreadyConfigured = igdbSettings?.configured === true;
-    const bothCredentialsProvided = !!(igdbClientId && igdbClientSecret);
-    const partialUpdateAllowed = isAlreadyConfigured && !!(igdbClientId || igdbClientSecret);
-    const canSave = bothCredentialsProvided || partialUpdateAllowed;
-    if (!canSave) {
+  // Single save button covers both the credentials fields and the rate limit below them. Both
+  // parts only run when they actually changed (comparing against the last-loaded values), and
+  // the summary toast below is built from what actually got saved -- rather than each mutation
+  // firing its own fixed-text toast, which would show a stale/misleading combination now that
+  // one click can trigger either, both, or neither.
+  const handleSaveIgdb = async () => {
+    // Omitting the secret and keeping the existing one is only safe when that existing secret
+    // actually lives in the DB (source === "database"): the server pairs a DB clientId with a
+    // DB secret, so if the current credentials are env-sourced there's no DB secret to pair a
+    // new clientId with, and a clientId-only update would silently do nothing.
+    const hasDbSecretToPairWith = igdbSettings?.source === "database";
+    const originalClientId = igdbSettings?.clientId ?? "";
+    const trimmedClientId = igdbClientId.trim();
+    const trimmedClientSecret = igdbClientSecret.trim();
+    const bothCredentialsProvided = !!(trimmedClientId && trimmedClientSecret);
+    const hasCredentialChange = trimmedClientId !== originalClientId || !!trimmedClientSecret;
+    const shouldSaveCredentials =
+      bothCredentialsProvided || (hasDbSecretToPairWith && hasCredentialChange);
+    // Only an actual attempted change that can't be saved counts as "incomplete" -- an
+    // env-sourced clientId sitting unchanged in the field (prefilled on load) must not block
+    // an unrelated rate-limit-only save.
+    const attemptingIncompleteCredentials = hasCredentialChange && !shouldSaveCredentials;
+
+    if (attemptingIncompleteCredentials) {
       toast({
         title: "Missing Credentials",
         description: "Please provide both Client ID and Client Secret.",
@@ -847,7 +856,41 @@ export default function SettingsPage() {
       });
       return;
     }
-    updateIgdbMutation.mutate();
+
+    const originalRateLimit = userSettings?.igdbRateLimitPerSecond ?? 3;
+    const shouldSaveRateLimit = igdbRateLimitPerSecond !== originalRateLimit;
+
+    if (!shouldSaveCredentials && !shouldSaveRateLimit) {
+      return;
+    }
+
+    const results = await Promise.allSettled([
+      shouldSaveCredentials ? updateIgdbMutation.mutateAsync() : Promise.resolve(undefined),
+      shouldSaveRateLimit
+        ? updateAdvancedSettingsMutation.mutateAsync({
+            updates: { igdbRateLimitPerSecond },
+            successMessage: "",
+          })
+        : Promise.resolve(undefined),
+    ]);
+
+    const credentialsSaved = shouldSaveCredentials && results[0].status === "fulfilled";
+    const rateLimitSaved = shouldSaveRateLimit && results[1].status === "fulfilled";
+
+    // A failed part already showed its own error toast via the mutation's onError; only
+    // announce what actually succeeded, and stay silent if everything attempted failed.
+    let description: string | null = null;
+    if (credentialsSaved && rateLimitSaved) {
+      description = "Your IGDB credentials and rate limit have been saved.";
+    } else if (credentialsSaved) {
+      description = "Your IGDB credentials have been saved.";
+    } else if (rateLimitSaved) {
+      description = "Your IGDB rate limit has been saved.";
+    }
+
+    if (description) {
+      toast({ title: "IGDB Settings Updated", description });
+    }
   };
 
   const updateSteamIdMutation = useMutation({
@@ -1739,44 +1782,7 @@ export default function SettingsPage() {
                   <div className="flex items-center space-x-3">
                     <Key className="h-5 w-5 text-muted-foreground" />
                     <CardTitle className="text-lg">IGDB API</CardTitle>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full">
-                          <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                          <span className="sr-only">How to get credentials</span>
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-80">
-                        <div className="space-y-2 text-sm">
-                          <h4 className="font-bold">How to get IGDB credentials:</h4>
-                          <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                            <li>
-                              Go to the{" "}
-                              <a
-                                href="https://dev.twitch.tv/console"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-primary underline"
-                              >
-                                Twitch Developer Portal
-                              </a>
-                            </li>
-                            <li>Register a new application (name it 'Questarr')</li>
-                            <li>
-                              Set Redirect URI to{" "}
-                              <code className="bg-muted px-1">http://localhost</code>
-                            </li>
-                            <li>Select 'Application Integration' as category</li>
-                            <li>
-                              Copy the <strong>Client ID</strong>
-                            </li>
-                            <li>
-                              Click 'New Secret' to get your <strong>Client Secret</strong>
-                            </li>
-                          </ol>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+                    <IgdbHelpPopover />
                   </div>
                 </div>
                 <CardDescription>Twitch/IGDB API integration for game metadata.</CardDescription>
@@ -1847,25 +1853,11 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="flex justify-end pt-4 border-t">
-                  <Button
-                    onClick={handleSaveIgdb}
-                    disabled={updateIgdbMutation.isPending}
-                    className="gap-2"
-                  >
-                    {updateIgdbMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Key className="h-4 w-4" />
-                        Save Credentials
-                      </>
-                    )}
-                  </Button>
-                </div>
+                <IgdbTestConnectionButton
+                  clientId={igdbClientId}
+                  clientSecret={igdbClientSecret || (config?.igdb.configured ? "********" : "")}
+                  testEndpoint="/api/settings/igdb/test"
+                />
 
                 {/* Rate limit (formerly a standalone "Advanced" card) */}
                 <div className="space-y-3 pt-4 border-t">
@@ -1899,26 +1891,28 @@ export default function SettingsPage() {
                       ⚠️ Setting too high may result in API blacklisting.
                     </p>
                   </div>
-                  <div className="flex justify-end">
-                    <Button
-                      onClick={handleSaveAdvanced}
-                      disabled={updateAdvancedSettingsMutation.isPending}
-                      variant="outline"
-                      className="gap-2"
-                    >
-                      {updateAdvancedSettingsMutation.isPending ? (
-                        <>
-                          <RefreshCw className="h-4 w-4 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Gauge className="h-4 w-4" />
-                          Save Rate Limit
-                        </>
-                      )}
-                    </Button>
-                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t">
+                  <Button
+                    onClick={handleSaveIgdb}
+                    disabled={
+                      updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending
+                    }
+                    className="gap-2"
+                  >
+                    {updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending ? (
+                      <span role="status" className="flex items-center gap-2">
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                        Saving...
+                      </span>
+                    ) : (
+                      <>
+                        <Key className="h-4 w-4" />
+                        Save
+                      </>
+                    )}
+                  </Button>
                 </div>
               </CardContent>
             </Card>

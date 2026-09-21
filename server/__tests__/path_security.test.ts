@@ -55,6 +55,22 @@ describe("assertWithinRoots", () => {
     ).rejects.toThrow("outside roots");
   });
 
+  it("allows a filename that merely starts with '..' without being a traversal", async () => {
+    // Regression test: a naive relative.startsWith("..") check rejects any file whose
+    // own name happens to start with two dots, since path.relative() for a direct
+    // child returns just that basename — "..game.exe" both starts with ".." and isn't
+    // a traversal sequence, since it doesn't have a path separator after the dots.
+    await expect(
+      assertWithinRoots("/data/downloads/..game.exe", ["/data/downloads"], "outside roots")
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects a path that resolves to exactly the parent of the configured root", async () => {
+    await expect(assertWithinRoots("/data", ["/data/downloads"], "outside roots")).rejects.toThrow(
+      "outside roots"
+    );
+  });
+
   describe("with real paths on disk (realpath resolution)", () => {
     const cleanup: string[] = [];
 

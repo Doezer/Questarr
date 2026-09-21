@@ -20,10 +20,10 @@ import {
   FormMessage,
   FormDescription,
 } from "@/components/ui/form";
-import { Lock, User, ShieldCheck, Gamepad2, HelpCircle, Info, ExternalLink } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Lock, User, ShieldCheck, Gamepad2, Info, ExternalLink } from "lucide-react";
 import { withBasePath } from "@/lib/app-path";
 import { passwordPolicySchema } from "@shared/schema";
+import { IgdbHelpPopover, IgdbTestConnectionButton } from "@/components/IgdbCredentialsHelper";
 
 type SetupForm = {
   username: string;
@@ -38,10 +38,15 @@ export default function SetupPage() {
   const { toast } = useToast();
   // const [_, setLocation] = useLocation();
 
-  const { data: config, isLoading: isLoadingConfig } = useQuery({
-    queryKey: ["config"],
-    queryFn: () => apiRequest("GET", "/api/config").then((res) => res.json()),
+  // GET /api/config requires authentication, which doesn't exist yet during
+  // setup, so the IGDB-configured status is read from the unauthenticated
+  // GET /api/auth/status endpoint instead (shares the query cache with
+  // AuthProvider's own status check).
+  const { data: statusData, isLoading: isLoadingConfig } = useQuery({
+    queryKey: ["/api/auth/status"],
+    queryFn: () => apiRequest("GET", "/api/auth/status").then((res) => res.json()),
   });
+  const config = statusData;
 
   const setupSchema = useMemo(() => {
     const isIgdbConfigured = config?.igdb?.configured;
@@ -85,8 +90,9 @@ export default function SetupPage() {
       });
       return res.json();
     },
-    onSuccess: async (data) => {
-      localStorage.setItem("token", data.token);
+    onSuccess: async () => {
+      // The server has already set the httpOnly auth cookie; nothing to
+      // store client-side (see server/security.ts's setAuthCookies).
       await checkSetup();
       toast({ title: "Setup complete! Welcome." });
       // Force reload to pick up auth state or navigate
@@ -205,7 +211,7 @@ export default function SetupPage() {
                 )}
               />
 
-              {config && !config.igdb.configured && (
+              {config && !config.igdb?.configured && (
                 <>
                   <div className="border-t my-4 pt-4">
                     <div className="flex items-center gap-2 mb-2">
@@ -213,44 +219,7 @@ export default function SetupPage() {
                         <Gamepad2 className="h-4 w-4" />
                         IGDB Configuration
                       </h3>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full">
-                            <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                            <span className="sr-only">How to get credentials</span>
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-80">
-                          <div className="space-y-2 text-sm">
-                            <h4 className="font-bold">How to get IGDB credentials:</h4>
-                            <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                              <li>
-                                Go to the{" "}
-                                <a
-                                  href="https://dev.twitch.tv/console"
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-primary underline"
-                                >
-                                  Twitch Developer Portal
-                                </a>
-                              </li>
-                              <li>Register a new application (name it 'Questarr')</li>
-                              <li>
-                                Set Redirect URI to{" "}
-                                <code className="bg-muted px-1">http://localhost</code>
-                              </li>
-                              <li>Select 'Application Integration' as category</li>
-                              <li>
-                                Copy the <strong>Client ID</strong>
-                              </li>
-                              <li>
-                                Click 'New Secret' to get your <strong>Client Secret</strong>
-                              </li>
-                            </ol>
-                          </div>
-                        </PopoverContent>
-                      </Popover>
+                      <IgdbHelpPopover />
                     </div>
                     <p className="text-sm text-muted-foreground mb-4">
                       IGDB credentials are required to discover and import games.
@@ -281,18 +250,14 @@ export default function SetupPage() {
                           <Input type="password" placeholder="IGDB Client Secret" {...field} />
                         </FormControl>
                         <FormMessage />
-                        <FormDescription>
-                          <a
-                            href="https://api-docs.igdb.com/#account-creation"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="underline"
-                          >
-                            How to get IGDB credentials
-                          </a>
-                        </FormDescription>
                       </FormItem>
                     )}
+                  />
+
+                  <IgdbTestConnectionButton
+                    clientId={form.watch("igdbClientId") ?? ""}
+                    clientSecret={form.watch("igdbClientSecret") ?? ""}
+                    testEndpoint="/api/auth/setup/test-igdb"
                   />
                 </>
               )}

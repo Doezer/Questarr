@@ -1,6 +1,84 @@
 import { describe, expect, it } from "vitest";
 
-import { insertDownloaderSchema, insertIndexerSchema } from "@shared/schema";
+import {
+  insertApiKeySchema,
+  insertDownloaderSchema,
+  insertGameSchema,
+  insertIndexerSchema,
+  updateGameTargetPlatformSchema,
+} from "@shared/schema";
+
+describe("insertGameSchema", () => {
+  it("accepts a complete target platform pair", () => {
+    expect(
+      insertGameSchema.safeParse({
+        title: "God of War",
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+      }).success
+    ).toBe(true);
+  });
+
+  it.each([{ targetPlatformId: 8 }, { targetPlatformName: "PlayStation 2" }])(
+    "rejects partial target platform data",
+    (target) => {
+      const result = insertGameSchema.safeParse({ title: "God of War", ...target });
+      expect(result.success).toBe(false);
+      expect(result.error?.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: "Target platform ID and name must be provided together",
+          }),
+        ])
+      );
+    }
+  );
+
+  it("rejects a mismatched complete target platform pair", () => {
+    const result = insertGameSchema.safeParse({
+      title: "God of War",
+      targetPlatformId: 8,
+      targetPlatformName: "PlayStation 5",
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: "Target platform ID and name must match a supported platform",
+        }),
+      ])
+    );
+  });
+});
+
+describe("updateGameTargetPlatformSchema", () => {
+  it("allows an existing game to return to the account default", () => {
+    expect(
+      updateGameTargetPlatformSchema.parse({
+        targetPlatformId: null,
+        targetPlatformName: null,
+      })
+    ).toEqual({ targetPlatformId: null, targetPlatformName: null });
+  });
+
+  it("rejects malformed target-platform updates", () => {
+    expect(
+      updateGameTargetPlatformSchema.safeParse({
+        targetPlatformId: 8,
+        targetPlatformName: null,
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects mismatched target-platform updates", () => {
+    expect(
+      updateGameTargetPlatformSchema.safeParse({
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 5",
+      }).success
+    ).toBe(false);
+  });
+});
 
 describe("insertIndexerSchema", () => {
   it("requires non-empty name, url, and apiKey", () => {
@@ -73,5 +151,47 @@ describe("insertDownloaderSchema", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+});
+
+describe("insertApiKeySchema", () => {
+  it("trims the name and rejects a blank one", () => {
+    const result = insertApiKeySchema.safeParse({
+      userId: "user-1",
+      name: "  ",
+      keyHash: "hash",
+      prefix: "qsr_abc12345",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.flatten().fieldErrors).toMatchObject({
+      name: ["Name is required"],
+    });
+  });
+
+  it("rejects a name longer than 100 characters", () => {
+    const result = insertApiKeySchema.safeParse({
+      userId: "user-1",
+      name: "a".repeat(101),
+      keyHash: "hash",
+      prefix: "qsr_abc12345",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.flatten().fieldErrors).toMatchObject({
+      name: ["Name is too long"],
+    });
+  });
+
+  it("accepts a trimmed, reasonably-sized name", () => {
+    const result = insertApiKeySchema.safeParse({
+      userId: "user-1",
+      name: "  Playnite on the living room PC  ",
+      keyHash: "hash",
+      prefix: "qsr_abc12345",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.name).toBe("Playnite on the living room PC");
   });
 });

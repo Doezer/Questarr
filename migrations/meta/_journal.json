@@ -211,6 +211,62 @@
       "when": 1787149265934,
       "tag": "0028_cooing_lord_tyger",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1787216415149,
+      "tag": "0029_mysterious_nick_fury",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1788446008916,
+      "tag": "0030_spicy_captain_flint",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1788462667167,
+      "tag": "0031_nasty_green_goblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1788941321979,
+      "tag": "0032_gorgeous_sandman",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1757808000000,
+      "tag": "0033_indexer_allow_insecure_lan",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1757808001000,
+      "tag": "0034_downloader_allow_insecure_lan",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1789622720302,
+      "tag": "0035_add-target-platform-columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1789924116306,
+      "tag": "0036_gray_mimic",
+      "breakpoints": true
     }
   ]
 }

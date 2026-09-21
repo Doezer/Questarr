@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mocks ---
@@ -26,6 +27,7 @@ const mockGetGame = vi.fn();
 const mockAddNotification = vi.fn();
 const mockGetUserSettings = vi.fn();
 const mockGetImportConfig = vi.fn();
+const mockGetDownloadsByGameId = vi.fn();
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -37,6 +39,7 @@ vi.mock("../storage.js", () => ({
     addNotification: mockAddNotification,
     getUserSettings: mockGetUserSettings,
     getImportConfig: mockGetImportConfig,
+    getDownloadsByGameId: mockGetDownloadsByGameId,
   },
 }));
 
@@ -80,8 +83,10 @@ vi.mock("../xrel.js", () => ({
   DEFAULT_XREL_BASE: "http://example.com",
 }));
 
+const mockAppriseSend = vi.fn();
+
 vi.mock("../apprise.js", () => ({
-  appriseClient: { send: vi.fn() },
+  appriseClient: { send: mockAppriseSend },
 }));
 
 const { checkDownloadStatus } = await import("../cron.js");
@@ -137,6 +142,7 @@ describe("Cron - checkDownloadStatus", () => {
     mockUpdateGameStatus.mockResolvedValue(undefined);
     mockGetDownloadDetails.mockResolvedValue(null);
     mockProcessImport.mockResolvedValue(undefined);
+    mockGetDownloadsByGameId.mockResolvedValue([baseDownload]);
   });
 
   it("should find a download via the bulk map when it is in the queue", async () => {
@@ -193,7 +199,9 @@ describe("Cron - checkDownloadStatus", () => {
 
     await checkDownloadStatus();
 
-    expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
+    expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash, {
+      throwOnError: true,
+    });
     expect(mockGetDownloadDetails).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
     expect(mockProcessImport).toHaveBeenCalledWith(
       baseDownload.id,
@@ -205,7 +213,7 @@ describe("Cron - checkDownloadStatus", () => {
     });
   });
 
-  it("should mark as completed via error path when both bulk and individual checks return null", async () => {
+  it("should mark as failed and reset the game to wanted when both bulk and individual checks return null", async () => {
     mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
     mockGetDownloader.mockResolvedValue(baseDownloader);
 
@@ -213,22 +221,53 @@ describe("Cron - checkDownloadStatus", () => {
     mockGetAllDownloads.mockResolvedValue([]);
     mockGetDownloadStatus.mockResolvedValue(null);
 
-    // DOWNLOAD_MISS_THRESHOLD = 3: must miss 3 consecutive times before completing
+    // DOWNLOAD_MISS_THRESHOLD = 3: must miss 3 consecutive times before acting
     await checkDownloadStatus();
     await checkDownloadStatus();
     await checkDownloadStatus();
 
-    expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
-    // Falls through to the "missing" path after threshold is reached
-    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed", null);
-    expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
+    expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash, {
+      throwOnError: true,
+    });
+    // Falls through to the "missing" path after threshold is reached — never assume success.
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      baseDownload.id,
+      "failed",
+      expect.any(String)
+    );
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalledWith(baseDownload.id, "completed");
+    expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "wanted" });
+    expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
     expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", baseDownload.gameId);
   });
 
-  it("should flag a missing download for manual review instead of skipping import when post-processing is enabled", async () => {
+  it("should skip a cycle without counting a miss when the individual status lookup throws", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+
+    mockGetAllDownloads.mockResolvedValue([]);
+    // Simulate a transient downloader outage on every check -- this must
+    // never be treated the same as a confirmed "not found".
+    mockGetDownloadStatus.mockRejectedValue(new Error("downloader unreachable"));
+
+    // Run past the miss threshold; a real "not found" would trip it by now.
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
+    expect(mockUpdateGameStatus).not.toHaveBeenCalled();
+  });
+
+  it("should not reset the game to wanted when a sibling download is still actively downloading", async () => {
     mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
     mockGetDownloader.mockResolvedValue(baseDownloader);
     mockGetImportConfig.mockResolvedValue({ enablePostProcessing: true });
+    mockGetDownloadsByGameId.mockResolvedValue([
+      baseDownload,
+      { ...baseDownload, id: "dlrecord-2", status: "downloading" },
+    ]);
 
     // Both bulk and individual checks return nothing
     mockGetAllDownloads.mockResolvedValue([]);
@@ -242,8 +281,8 @@ describe("Cron - checkDownloadStatus", () => {
     // Never silently marked completed/owned — files were never actually imported.
     expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
       baseDownload.id,
-      "manual_review_required",
-      null
+      "failed",
+      expect.any(String)
     );
     expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalledWith(
       baseDownload.id,
@@ -251,7 +290,56 @@ describe("Cron - checkDownloadStatus", () => {
       null
     );
     expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
+    expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, {
+      status: "wanted",
+    });
     expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", baseDownload.gameId);
+  });
+
+  it("should not reset the game to wanted when a sibling download is still unpacking", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetDownloadsByGameId.mockResolvedValue([
+      baseDownload,
+      { ...baseDownload, id: "dlrecord-3", status: "unpacking" },
+    ]);
+
+    mockGetAllDownloads.mockResolvedValue([]);
+    mockGetDownloadStatus.mockResolvedValue(null);
+
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      baseDownload.id,
+      "failed",
+      expect.any(String)
+    );
+    expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, {
+      status: "wanted",
+    });
+  });
+
+  it("should send an apprise-only failure notification without an in-app notification", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetUserSettings.mockResolvedValue({
+      notificationPreferences: JSON.stringify({
+        downloadFailed: { inApp: false, apprise: true },
+      }),
+    });
+
+    mockGetAllDownloads.mockResolvedValue([]);
+    mockGetDownloadStatus.mockResolvedValue(null);
+
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+
+    expect(mockAddNotification).toHaveBeenCalled();
+    expect(mockAppriseSend).toHaveBeenCalled();
+    expect(mockNotifyUser).not.toHaveBeenCalledWith("notification", expect.anything());
   });
 
   it("should not call getDownloadStatus when the bulk map already contains the download", async () => {
@@ -376,5 +464,53 @@ describe("Cron - checkDownloadStatus", () => {
     expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
     expect(mockGetDownloadDetails).not.toHaveBeenCalled();
     expect(mockProcessImport).not.toHaveBeenCalled();
+  });
+
+  // Reproduction test for the large-archive "extraction restarts" bug:
+  // when processImport() starts extracting a large .rar it sets the DB row to
+  // "unpacking" (ImportManager.ts). checkDownloadStatus() runs every 60s and
+  // picks the row back up ("unpacking" is not a terminal status), sees the
+  // remote download as completed, and calls processImport() AGAIN — starting a
+  // second extraction into the same _extracted directory and clobbering the
+  // first. That is the "file grows, then starts small again" symptom at ~60s.
+  it("should not re-trigger processImport for a download already unpacking", async () => {
+    const unpackingDownload = {
+      ...baseDownload,
+      status: "unpacking" as const,
+    };
+    mockGetDownloadingGameDownloads.mockResolvedValue([unpackingDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetImportConfig.mockResolvedValue({ enablePostProcessing: true });
+
+    // Remote client still reports the download as completed/available while
+    // the extraction (which can take minutes for large archives) is running.
+    mockGetAllDownloads.mockResolvedValue([
+      {
+        id: "SABnzbd_nzo_abc123",
+        name: "Test Game",
+        status: "completed",
+        progress: 100,
+        downloadType: "usenet",
+      },
+    ]);
+    mockGetDownloadDetails.mockResolvedValue({
+      id: "SABnzbd_nzo_abc123",
+      name: "Test Game",
+      status: "completed",
+      progress: 100,
+      downloadType: "usenet",
+      downloadDir: "/downloads/complete/Test Game",
+      files: [],
+      trackers: [],
+    });
+
+    await checkDownloadStatus();
+
+    // A row mid-import must be left alone — processImport for it is already
+    // running from the previous cron tick. Re-invoking it would extract into
+    // the same directory a second time and clobber the in-flight extraction.
+    expect(mockProcessImport).not.toHaveBeenCalled();
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
+    expect(mockUpdateGameStatus).not.toHaveBeenCalled();
   });
 });

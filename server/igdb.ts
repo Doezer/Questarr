@@ -16,7 +16,7 @@ export const IGDB_EARLY_ACCESS_STATUS = 4;
 
 // Shared field list for all IGDB game queries
 const IGDB_GAME_FIELDS =
-  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type";
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type";
 
 // IGDB theme name flagged as adult content (Erotic)
 const ADULT_THEME_NAMES = new Set(["Erotic"]);
@@ -89,6 +89,15 @@ export interface IGDBGame {
   }>;
   status?: number;
   game_type?: number;
+  // IGDB's "category" field on the game entity itself (distinct from
+  // download-categorizer's DownloadCategory): 0 = main game, 8 = remake,
+  // 9 = remaster, etc. Not used for filtering today, just carried through.
+  category?: number;
+  // Present when this game entity is an edition/version of another game
+  // (e.g. "Cyberpunk 2077: Ultimate Edition" -> version_parent points at
+  // "Cyberpunk 2077"). Used by canonicalizeVersionedGames to collapse
+  // editions into a single canonical search result.
+  version_parent?: { id: number; name?: string };
   expansions?: Array<{
     id: number;
     name: string;
@@ -96,6 +105,12 @@ export interface IGDBGame {
     first_release_date?: number;
     game_type?: number;
   }>;
+}
+
+export interface TimeToBeat {
+  hastily?: number;
+  normally?: number;
+  completely?: number;
 }
 
 interface SearchGamesOptions {
@@ -188,12 +203,50 @@ class IGDBClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private cache = new Map<string, CacheEntry<any>>();
 
-  private postProcessSearchResults(
+  private async postProcessSearchResults(
     results: IGDBGame[],
     limit: number,
     options: SearchGamesOptions = {}
-  ): IGDBGame[] {
-    const datedResults = results
+  ): Promise<IGDBGame[]> {
+    // Canonicalize (collapse edition/version entries into their base game)
+    // FIRST, before platformId/releaseYear filtering and date-based
+    // ordering. An edition's platform list or first_release_date can
+    // differ from its canonical parent's, so those filters/sort must be
+    // evaluated against the actual game being returned to the caller, not
+    // against the edition's own metadata. This is also why searchGames
+    // deliberately omits platformId/releaseYear from the upstream IGDB
+    // `where` clause: filtering upstream would let IGDB drop an edition
+    // whose own metadata doesn't match before it ever reaches this
+    // function, even when its canonical parent would. Truncation to
+    // `limit` happens only once, at the very end, after filtering and
+    // ordering are finalized.
+    const canonicalResults = await this.canonicalizeVersionedGames(results);
+
+    let yearRange: { start: number; end: number } | null = null;
+    if (options.releaseYear) {
+      yearRange = {
+        start: Math.floor(Date.UTC(options.releaseYear, 0, 1) / 1000),
+        end: Math.floor(Date.UTC(options.releaseYear + 1, 0, 1) / 1000),
+      };
+    }
+
+    const filteredResults = canonicalResults.filter((game) => {
+      if (options.platformId && !game.platforms?.some((p) => p.id === options.platformId)) {
+        return false;
+      }
+      if (yearRange) {
+        if (
+          typeof game.first_release_date !== "number" ||
+          game.first_release_date < yearRange.start ||
+          game.first_release_date >= yearRange.end
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    const datedResults = filteredResults
       .filter((game) => typeof game.first_release_date === "number")
       .sort((left, right) => (right.first_release_date ?? 0) - (left.first_release_date ?? 0));
 
@@ -201,11 +254,152 @@ class IGDBClient {
       return datedResults.slice(0, limit);
     }
 
-    const undatedResults = results.filter((game) => typeof game.first_release_date !== "number");
+    const undatedResults = filteredResults.filter(
+      (game) => typeof game.first_release_date !== "number"
+    );
     const orderedResults = options.undatedFirst
       ? [...undatedResults, ...datedResults]
       : [...datedResults, ...undatedResults];
+
     return orderedResults.slice(0, limit);
+  }
+
+  /**
+   * IGDB models editions ("Gold Edition", "Deluxe Edition", ...) as separate
+   * game entities linked to their base game via `version_parent`. Collapse
+   * every edition in `results` down to its canonical (base) game, batch
+   * fetching any canonical games not already present in `results`, then
+   * dedupe by canonical id (first occurrence wins, so `results`' existing
+   * order determines which edition's position each canonical game keeps).
+   *
+   * Does NOT filter, sort, or truncate to a limit -- callers apply
+   * platform/year filtering and date-based ordering against the
+   * canonicalized (parent) game metadata, then truncate to the requested
+   * limit themselves, since an edition's platform list or release date can
+   * differ from its canonical parent's.
+   *
+   * Never throws: if fetching parent games fails, this logs and falls back
+   * to the original (uncanonicalized) entries.
+   */
+  private async canonicalizeVersionedGames(results: IGDBGame[]): Promise<IGDBGame[]> {
+    const resultById = new Map(results.map((game) => [game.id, game] as const));
+    const parentIdsToFetch = Array.from(
+      new Set(
+        results
+          .map((game) => game.version_parent?.id)
+          .filter((id): id is number => id != null && !resultById.has(id))
+      )
+    );
+
+    let fetchedParentsById = new Map<number, IGDBGame>();
+    if (parentIdsToFetch.length > 0) {
+      try {
+        // getGamesByIds does its own internal chunking/rate-limit pacing and
+        // deliberately skips the shared per-request queue for that (see its
+        // `skipQueue: true` makeRequest calls) so its batches aren't
+        // serialized one-request-at-a-time like everything else. That's fine
+        // for a single call, but two concurrent searchGames() calls can each
+        // reach here at once and race on the shared lastRequestTime it reads
+        // to pace itself, so their batches can overlap and jointly exceed
+        // the configured rate limit. Route the whole call through the shared
+        // queue so at most one canonicalization parent-fetch (and no other
+        // queued IGDB request) runs at a time.
+        const parents = await this.queueRequest(() => this.getGamesByIds(parentIdsToFetch));
+        fetchedParentsById = new Map(parents.map((game) => [game.id, game] as const));
+      } catch (error) {
+        igdbLogger.warn(
+          { error, parentIdsToFetch },
+          "failed to fetch version_parent games for canonicalization; falling back to uncanonicalized results"
+        );
+        return results;
+      }
+    }
+
+    const seenCanonicalIds = new Set<number>();
+    const canonical: IGDBGame[] = [];
+    for (const game of results) {
+      const parentId = game.version_parent?.id;
+      const canonicalGame =
+        parentId != null
+          ? (resultById.get(parentId) ?? fetchedParentsById.get(parentId) ?? game)
+          : game;
+
+      if (seenCanonicalIds.has(canonicalGame.id)) continue;
+      seenCanonicalIds.add(canonicalGame.id);
+      canonical.push(canonicalGame);
+    }
+
+    return canonical;
+  }
+
+  /**
+   * Verifies a Client ID/Secret pair against Twitch/IGDB directly, without touching the
+   * singleton's cached token or the stored/env credentials. Used by the "Test connection"
+   * button in settings and the setup wizard, so a typo or expired secret is caught before
+   * saving rather than surfacing later as a failed game search.
+   */
+  async testCredentials(
+    clientId: string,
+    clientSecret: string
+  ): Promise<{ success: true } | { success: false; error: string }> {
+    let tokenResponse: Response;
+    try {
+      // Credentials go in the request body, not the URL: query strings are commonly retained
+      // in server/proxy/monitoring logs, which would otherwise leak the client secret.
+      tokenResponse = await safeFetch("https://id.twitch.tv/oauth2/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          grant_type: "client_credentials",
+        }).toString(),
+        // Pins the redirect chain to HTTPS/same-origin so a redirect can't downgrade the
+        // request or forward the client secret to a different host.
+        requireHttps: true,
+      });
+    } catch (error) {
+      igdbLogger.warn({ error }, "IGDB credential test: network error reaching Twitch");
+      return { success: false, error: "Could not reach Twitch — check your network connection." };
+    }
+
+    if (!tokenResponse.ok) {
+      if (tokenResponse.status === 400 || tokenResponse.status === 403) {
+        return { success: false, error: "Invalid Client ID or Client Secret." };
+      }
+      return {
+        success: false,
+        error: `Twitch returned an unexpected error (status ${tokenResponse.status}).`,
+      };
+    }
+
+    const tokenData: IGDBAuthResponse = await tokenResponse.json();
+
+    let igdbResponse: Response;
+    try {
+      igdbResponse = await safeFetch("https://api.igdb.com/v4/games", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Client-ID": clientId,
+          Authorization: `Bearer ${tokenData.access_token}`,
+        },
+        body: "fields id; limit 1;",
+        requireHttps: true,
+      });
+    } catch (error) {
+      igdbLogger.warn({ error }, "IGDB credential test: network error reaching IGDB");
+      return { success: false, error: "Could not reach IGDB — check your network connection." };
+    }
+
+    if (!igdbResponse.ok) {
+      return {
+        success: false,
+        error: `IGDB rejected the request (status ${igdbResponse.status}).`,
+      };
+    }
+
+    return { success: true };
   }
 
   private async getCredentials(): Promise<{
@@ -268,12 +462,18 @@ class IGDBClient {
       throw new Error("IGDB credentials not configured");
     }
 
-    const response = await safeFetch(
-      `https://id.twitch.tv/oauth2/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`,
-      {
-        method: "POST",
-      }
-    );
+    // Credentials go in the request body, not the URL: query strings are commonly retained in
+    // server/proxy/monitoring logs, which would otherwise leak the client secret.
+    const response = await safeFetch("https://id.twitch.tv/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "client_credentials",
+      }).toString(),
+      requireHttps: true,
+    });
 
     if (!response.ok) {
       throw new Error(`IGDB authentication failed: ${response.status}`);
@@ -390,34 +590,48 @@ class IGDBClient {
 
     let attemptCount = 0;
 
-    const filters: string[] = [];
-    if (options.platformId) {
-      filters.push(`platforms = (${options.platformId})`);
-    }
-    if (options.releaseYear) {
-      const yearStart = Math.floor(Date.UTC(options.releaseYear, 0, 1) / 1000);
-      const nextYearStart = Math.floor(Date.UTC(options.releaseYear + 1, 0, 1) / 1000);
-      filters.push(`first_release_date >= ${yearStart}`);
-      filters.push(`first_release_date < ${nextYearStart}`);
-    }
-    const withFilters = (conditions: string[] = []) => {
-      const allConditions = [...conditions, ...filters];
-      return allConditions.length > 0 ? `where ${allConditions.join(" & ")}; ` : "";
-    };
+    // NOTE: platformId/releaseYear are intentionally NOT turned into `where`
+    // clauses here. An edition (e.g. "Game: Gold Edition") can carry its own
+    // platform list / first_release_date that differs from its canonical
+    // version_parent's -- if we filtered upstream, IGDB would exclude such
+    // editions from the response before canonicalizeVersionedGames ever gets
+    // a chance to resolve them to a parent that DOES match. Instead, the
+    // upstream query is left unfiltered on these fields and
+    // postProcessSearchResults applies platformId/releaseYear filtering
+    // locally, after canonicalization, against the resolved parent's
+    // metadata.
+    const withFilters = (conditions: string[] = []) =>
+      conditions.length > 0 ? `where ${conditions.join(" & ")}; ` : "";
+
+    // Request more raw results from IGDB than `limit` so there's enough
+    // headroom left after canonicalizeVersionedGames collapses editions down
+    // to their canonical parent (which can shrink the result count even for
+    // an unfiltered search) and, when platformId/releaseYear are set, after
+    // local filtering against the resolved parent's metadata. A local filter
+    // discards a much larger share of the raw rows than edition dedupe
+    // alone, so ask for more headroom when one is set. Still capped at
+    // MAX_LIMIT (IGDB's own relevance ranking keeps this tractable without
+    // needing an even larger multiplier).
+    const hasLocalFilter = options.platformId != null || options.releaseYear != null;
+    const headroomMultiplier = hasLocalFilter ? 5 : 2;
+    const requestLimit = Math.min(limit * headroomMultiplier, MAX_LIMIT);
+
+    const exactNameCondition = `name ~= "${sanitizedQuery}"`;
+    const partialNameCondition = `name ~ *"${sanitizedQuery}"*`;
 
     // Try multiple search approaches to maximize results
     const searchApproaches = [
       // Approach 1: Full text search without category filter
-      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters()}limit ${limit};`,
+      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters()}limit ${requestLimit};`,
 
       // Approach 2: Full text search with category filter
-      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters(["category = 0"])}limit ${limit};`,
+      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters(["category = 0"])}limit ${requestLimit};`,
 
       // Approach 3: Case-insensitive name matching without category
-      `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~= "${sanitizedQuery}"`])}limit ${limit};`,
+      `fields ${IGDB_GAME_FIELDS}; ${withFilters([exactNameCondition])}limit ${requestLimit};`,
 
       // Approach 4: Partial name matching without category
-      `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~ *"${sanitizedQuery}"*`])}sort rating desc; limit ${limit};`,
+      `fields ${IGDB_GAME_FIELDS}; ${withFilters([partialNameCondition])}sort rating desc; limit ${requestLimit};`,
     ];
 
     for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
@@ -443,7 +657,18 @@ class IGDBClient {
             { approach: i + 1, query: sanitizedQuery, resultCount: results.length },
             `search approach ${i + 1} found ${results.length} results`
           );
-          return this.postProcessSearchResults(results, limit, options);
+          // postProcessSearchResults can legitimately return an empty array
+          // even though the raw response wasn't empty -- canonicalization
+          // can collapse this approach's rows onto parents that don't match
+          // a platformId/releaseYear filter, or dedupe collapses everything
+          // onto ids already excluded. Only return here if there's something
+          // to show; otherwise fall through to the next search approach
+          // instead of returning an empty result out from under a query
+          // that a later, less-targeted approach might still satisfy.
+          const processedResults = await this.postProcessSearchResults(results, limit, options);
+          if (processedResults.length > 0) {
+            return processedResults;
+          }
         }
       } catch {
         igdbLogger.warn(
@@ -481,7 +706,8 @@ class IGDBClient {
           const sanitizedWord = sanitizeIgdbInput(word);
           if (!sanitizedWord) return [];
 
-          const wordQuery = `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~ *"${sanitizedWord}"*`])}sort rating desc; limit ${limit};`;
+          const wordCondition = `name ~ *"${sanitizedWord}"*`;
+          const wordQuery = `fields ${IGDB_GAME_FIELDS}; ${withFilters([wordCondition])}sort rating desc; limit ${requestLimit};`;
           // Cache word search results for 15 minutes
           return await this.makeRequest<IGDBGame[]>("games", wordQuery, 15 * 60 * 1000);
         } catch (error) {
@@ -514,7 +740,20 @@ class IGDBClient {
             index === self.findIndex((g) => g.id === game.id)
         );
 
-        return this.postProcessSearchResults(uniqueResults, limit, options);
+        // This fallback path sits outside the try/catch that wraps the
+        // primary search approaches above, so guard the post-processing
+        // call explicitly -- a rejection here must not escape as an
+        // unhandled crash; fall back to the uncanonicalized/unfiltered
+        // word-search results instead.
+        try {
+          return await this.postProcessSearchResults(uniqueResults, limit, options);
+        } catch (error) {
+          igdbLogger.warn(
+            { error, query: sanitizedQuery },
+            "post-processing failed for word search fallback results; returning uncanonicalized results"
+          );
+          return uniqueResults.slice(0, limit);
+        }
       }
     }
 
@@ -664,6 +903,47 @@ class IGDBClient {
       }
     }
     return idMap;
+  }
+
+  /**
+   * Fetch community-submitted completion-time estimates from IGDB's own
+   * `game_time_to_beats` endpoint (hastily/normally/completely, in hours).
+   * Coverage is best-effort: a game with no IGDB submissions is simply
+   * absent from the returned map, never a zero/placeholder entry.
+   */
+  async getTimeToBeats(igdbIds: number[]): Promise<Map<number, TimeToBeat>> {
+    const result = new Map<number, TimeToBeat>();
+    if (!(await this.ensureConfigured()) || igdbIds.length === 0) {
+      return result;
+    }
+
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < igdbIds.length; i += CHUNK_SIZE) {
+      const chunk = igdbIds.slice(i, i + CHUNK_SIZE);
+      const igdbQuery = `
+        fields game_id, hastily, normally, completely;
+        where game_id = (${chunk.join(",")});
+        limit ${chunk.length};
+      `;
+
+      try {
+        const rows = await this.makeRequest<
+          Array<{ game_id: number; hastily?: number; normally?: number; completely?: number }>
+        >("game_time_to_beats", igdbQuery, 24 * 60 * 60 * 1000);
+
+        for (const row of rows) {
+          result.set(row.game_id, {
+            hastily: row.hastily != null ? row.hastily / HOUR_IN_SECONDS : undefined,
+            normally: row.normally != null ? row.normally / HOUR_IN_SECONDS : undefined,
+            completely: row.completely != null ? row.completely / HOUR_IN_SECONDS : undefined,
+          });
+        }
+      } catch (error) {
+        igdbLogger.warn({ igdbIds: chunk, error }, "Failed to fetch a chunk of time-to-beat data");
+      }
+    }
+
+    return result;
   }
 
   async getGamesByIds(ids: number[]): Promise<IGDBGame[]> {
@@ -1112,6 +1392,7 @@ class IGDBClient {
       releaseDate: releaseDate ? releaseDate.toISOString().split("T")[0] : "",
       rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : null,
       platforms: igdbGame.platforms?.map((p) => p.name) || [],
+      platformOptions: igdbGame.platforms?.map(({ id, name }) => ({ id, name })) || [],
       genres: igdbGame.genres?.map((g) => g.name) || [],
       themes: igdbGame.themes?.map((t) => t.name) || [],
       isAdultContent: hasEroticTheme(igdbGame),

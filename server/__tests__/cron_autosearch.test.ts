@@ -89,7 +89,7 @@ vi.mock("../xrel.js", () => ({
 
 // Import the function under test
 // We need to use dynamic import or require because of the hoisting of vi.mock
-const { checkAutoSearch } = await import("../cron.js");
+const { checkAutoSearch, categorizeSearchItems } = await import("../cron.js");
 
 describe("Cron - checkAutoSearch", () => {
   const userId = "user-123";
@@ -776,6 +776,112 @@ describe("Cron - checkAutoSearch", () => {
         expect.objectContaining({ title: "Multiple Results Found" })
       );
     });
+
+    it("uses an explicit per-game target instead of a conflicting account preference", async () => {
+      const wantedGame = {
+        ...baseGame,
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+        status: "wanted" as const,
+        releaseStatus: "released" as const,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [wantedGame]]]));
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        preferredPlatform: "PS5",
+        autoDownloadEnabled: true,
+      });
+      mockGetEnabledDownloaders.mockResolvedValue([
+        { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true },
+      ]);
+      mockAddDownloadWithFallback.mockResolvedValue({
+        success: true,
+        id: "hash-ps2",
+        downloaderId: "dl-1",
+      });
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [
+          PS5_ITEM,
+          { ...PS5_ITEM, title: "Test Game PS2-GROUP", link: "https://example.com/ps2" },
+        ],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ url: "https://example.com/ps2" })
+      );
+    });
+
+    it("fails closed and clears availability for a malformed saved target pair", async () => {
+      const malformedGame = {
+        ...baseGame,
+        targetPlatformId: 8,
+        targetPlatformName: null,
+        status: "wanted" as const,
+        releaseStatus: "released" as const,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [malformedGame]]]));
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, preferredPlatform: "PS5" });
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [PS5_ITEM],
+        errors: [],
+        total: 1,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(malformedGame.id, false);
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+    });
+
+    it("filters owned-game updates using the explicit per-game target", async () => {
+      const ownedGame = {
+        ...baseGame,
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+        status: "owned" as const,
+        releaseStatus: "released" as const,
+        searchResultsAvailable: false,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      mockGetUserGames.mockResolvedValue([ownedGame]);
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        preferredPlatform: "PS5",
+        notifyUpdates: true,
+      });
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [
+          { ...PS5_ITEM, title: "Test Game Update v1.1 PS5-GROUP" },
+          {
+            ...PS5_ITEM,
+            title: "Test Game Update v1.1 PS2-GROUP",
+            link: "https://example.com/ps2-update",
+          },
+        ],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockUpdateGameSearchResultsByCategory).toHaveBeenCalledWith(ownedGame.id, {
+        updates: true,
+        packs: false,
+      });
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Game Updates Available",
+          message: "1 update(s) found for Test Game",
+        })
+      );
+    });
   });
 
   it("should not notify when all matched items are blacklisted", async () => {
@@ -1150,6 +1256,59 @@ describe("Cron - checkAutoSearch", () => {
       // Should not throw; defaults have minSeeders=0, so the item passes
       await expect(checkAutoSearch()).resolves.not.toThrow();
       expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
+    });
+
+    it("should sort by indexer priority (lower number = higher priority sorts first)", () => {
+      const itemFromLowPriorityIndexer = {
+        ...ITEM_LOW_SEEDERS,
+        title: "Test Game-LOWPRIO",
+        indexerId: "indexer-low",
+      };
+      const itemFromHighPriorityIndexer = {
+        ...ITEM_HIGH_SEEDERS,
+        title: "Test Game-HIGHPRIO",
+        indexerId: "indexer-high",
+      };
+      const indexerPriorityMap = new Map([
+        ["indexer-low", 5],
+        ["indexer-high", 1],
+      ]);
+
+      const result = categorizeSearchItems(
+        [itemFromLowPriorityIndexer, itemFromHighPriorityIndexer],
+        { minSeeders: 0, sortBy: "priority", visibleCategoriesSet: new Set(["main"]) },
+        indexerPriorityMap
+      );
+
+      expect(result.mainItems.map((item) => item.title)).toEqual([
+        "Test Game-HIGHPRIO",
+        "Test Game-LOWPRIO",
+      ]);
+    });
+
+    it("should treat unknown indexers as lowest priority when sorting by priority", () => {
+      const itemFromKnownIndexer = {
+        ...ITEM_LOW_SEEDERS,
+        title: "Test Game-KNOWN",
+        indexerId: "indexer-known",
+      };
+      const itemFromUnknownIndexer = {
+        ...ITEM_HIGH_SEEDERS,
+        title: "Test Game-UNKNOWN",
+        indexerId: "indexer-unknown",
+      };
+      const indexerPriorityMap = new Map([["indexer-known", 3]]);
+
+      const result = categorizeSearchItems(
+        [itemFromUnknownIndexer, itemFromKnownIndexer],
+        { minSeeders: 0, sortBy: "priority", visibleCategoriesSet: new Set(["main"]) },
+        indexerPriorityMap
+      );
+
+      expect(result.mainItems.map((item) => item.title)).toEqual([
+        "Test Game-KNOWN",
+        "Test Game-UNKNOWN",
+      ]);
     });
   });
 

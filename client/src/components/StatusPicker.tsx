@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const USER_SETTABLE_STATUSES: { id: GameStatus; label: string }[] = [
   { id: "wanted", label: "Wanted" },
   { id: "owned", label: "Owned" },
+  { id: "playing", label: "Playing" },
   { id: "shelved", label: "Shelved" },
   { id: "completed", label: "Completed" },
 ];

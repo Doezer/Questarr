@@ -180,12 +180,14 @@ describe("SendLogsDialog", () => {
     });
   });
 
-  it("shows a fallback toast when the Clipboard API is unavailable", async () => {
+  it("falls back to the legacy copy method when the Clipboard API is unavailable", async () => {
     sendLogsMock.mockResolvedValue({ ok: true, code: "QWER", issueNumber: 321 });
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: undefined,
     });
+    const execCommandMock = vi.fn().mockReturnValue(true);
+    Object.assign(document, { execCommand: execCommandMock });
 
     render(<SendLogsDialog open={true} onOpenChange={vi.fn()} logLines={["line 1"]} />);
 
@@ -194,10 +196,37 @@ describe("SendLogsDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Copy support code" }));
 
-    expect(toastMock).toHaveBeenCalledWith({
-      title: "Copy failed",
-      description: "Clipboard API not supported in this browser",
-      variant: "destructive",
+    await waitFor(() => {
+      expect(execCommandMock).toHaveBeenCalledWith("copy");
+      expect(toastMock).toHaveBeenCalledWith({
+        title: "Copied",
+        description: "Code QWER copied to clipboard",
+      });
+    });
+  });
+
+  it("shows a fallback toast when neither the Clipboard API nor the legacy copy method are available", async () => {
+    sendLogsMock.mockResolvedValue({ ok: true, code: "QWER", issueNumber: 321 });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+    const execCommandMock = vi.fn().mockReturnValue(false);
+    Object.assign(document, { execCommand: execCommandMock });
+
+    render(<SendLogsDialog open={true} onOpenChange={vi.fn()} logLines={["line 1"]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Send logs" }));
+    expect(await screen.findByText("Logs uploaded")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy support code" }));
+
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith({
+        title: "Copy failed",
+        description: "Clipboard access denied",
+        variant: "destructive",
+      });
     });
   });
 

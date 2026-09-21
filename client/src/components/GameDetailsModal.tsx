@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -20,6 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -35,6 +42,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Calendar,
+  Clock,
   Star,
   Monitor,
   Gamepad2,
@@ -61,8 +69,11 @@ import {
   Info,
   Image,
   Link,
+  File,
   ChevronLeft,
   ChevronRight,
+  Pencil,
+  ShieldCheck,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -78,12 +89,25 @@ import { getSocket } from "@/lib/socket";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { type Game, type GameDownload } from "@shared/schema";
+import { type Game, type GameDownload, type ScannedGameFile } from "@shared/schema";
+import { resolveTargetPlatform } from "@shared/title-utils";
+import { type XrelGameStatus } from "@shared/xrel-types";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
 
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
+
+/** Derives the target-platform Select value, falling back to "default" for malformed or unsupported saved pairs. */
+function getTargetPlatformSelectValue(
+  target:
+    { targetPlatformId?: number | null; targetPlatformName?: string | null } | null | undefined
+): string {
+  if (target?.targetPlatformId == null) return "default";
+  return resolveTargetPlatform(target.targetPlatformId, target.targetPlatformName)
+    ? String(target.targetPlatformId)
+    : "default";
+}
 
 interface GameDetailsModalProps {
   game: Game | null;
@@ -96,6 +120,11 @@ type GameDownloadWithDownloader = GameDownload & { downloaderName: string | null
 type FileDeletionResult =
   | { deleted: true; path: string | null }
   | { deleted: false; reason: "outside-library-root" | "delete-failed"; path: string };
+
+interface IgdbPlatformOption {
+  id: number;
+  name: string;
+}
 
 interface NexusMod {
   mod_id: number;
@@ -248,6 +277,50 @@ function SourceBadge({ source }: { source: string | null | undefined }) {
   );
 }
 
+interface CrackStatusContentProps {
+  isLoading: boolean;
+  isError: boolean;
+  crackTypes: ("cracked" | "hypervisor")[] | undefined;
+  testId: string;
+}
+
+function CrackStatusContent({ isLoading, isError, crackTypes, testId }: CrackStatusContentProps) {
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Checking xREL…</p>;
+  }
+  if (isError) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid={testId}>
+        Couldn't check crack status
+      </p>
+    );
+  }
+  if (!crackTypes || crackTypes.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid={testId}>
+        No known crack yet
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid={testId}>
+      {crackTypes.includes("cracked") && (
+        <Badge variant="secondary" className="text-xs">
+          Cracked
+        </Badge>
+      )}
+      {crackTypes.includes("hypervisor") && (
+        <Badge
+          variant="outline"
+          className="text-xs border-amber-500 text-amber-500 dark:text-amber-400"
+        >
+          Hypervisor Bypass
+        </Badge>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 /** Click target for a half-star or full-star position within StarRatingInput. */
@@ -354,9 +427,40 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [notesValue, setNotesValue] = useState<string>("");
+  const [targetPlatformValue, setTargetPlatformValue] = useState("default");
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  // Tracks the live notesValue so the async save's onSuccess (below) can tell
+  // whether the user kept typing after blur, instead of seeing the stale
+  // value it closed over.
+  const notesValueRef = useRef(notesValue);
+  useEffect(() => {
+    notesValueRef.current = notesValue;
+  }, [notesValue]);
+  // Tracks the live isEditingNotes so the server-sync effect (below) can
+  // check it without depending on it — depending on it directly would rerun
+  // the sync (using the still-stale pre-refetch game.notes) the instant a
+  // save flips isEditingNotes back to false, flashing the old value.
+  const isEditingNotesRef = useRef(isEditingNotes);
+  useEffect(() => {
+    isEditingNotesRef.current = isEditingNotes;
+  }, [isEditingNotes]);
+  // Serializes mobile note saves: only one PATCH is ever in flight. A save
+  // requested while one is pending is queued (overwriting any earlier queued
+  // value — only the latest draft matters) and fired once the in-flight one
+  // settles, so two overlapping requests can never complete out of order and
+  // let an older draft silently overwrite a newer one on the server. Each
+  // queued save also remembers which game it targets, so it's dropped
+  // instead of misfiring if the modal has since switched to another game.
+  const notesSaveInFlightRef = useRef(false);
+  const queuedNotesSaveRef = useRef<{ value: string | null; gameId: string } | null>(null);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removeFromClient, setRemoveFromClient] = useState(true);
   const [deleteFiles, setDeleteFiles] = useState(true);
+  const [activeTab, setActiveTab] = useState("overview");
+
+  useEffect(() => {
+    setActiveTab("overview");
+  }, [game?.id]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -366,13 +470,42 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       setIsSummaryExpanded(false);
       setSelectedScreenshotIndex(null);
       setDownloadOpen(false);
+      setIsEditingNotes(false);
+      queuedNotesSaveRef.current = null;
     }
   }, [open]);
 
+  // Full reset when switching to a different game — unconditional, since a
+  // new game.id means any in-progress notes draft belongs to a game we're
+  // no longer looking at.
   useEffect(() => {
     setIsSummaryExpanded(false);
     setNotesValue(game?.notes ?? "");
-  }, [game?.id, game?.notes]);
+    setTargetPlatformValue(getTargetPlatformSelectValue(game));
+    setIsEditingNotes(false);
+    queuedNotesSaveRef.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.id]);
+
+  // Keep notesValue in sync with the server for the *same* game — e.g. after
+  // the notes mutation's own invalidateQueries refetch lands. Skipped while
+  // actively editing on mobile so a background refetch can't stomp a draft
+  // the user hasn't blurred away from yet.
+  useEffect(() => {
+    if (isMobile && isEditingNotesRef.current) return;
+    setNotesValue(game?.notes ?? "");
+  }, [game?.notes, isMobile]);
+
+  // Keep targetPlatformValue in sync with the server value for the same game
+  // (e.g. after the target-platform mutation's invalidateQueries refetch lands).
+  useEffect(() => {
+    setTargetPlatformValue(
+      getTargetPlatformSelectValue({
+        targetPlatformId: game?.targetPlatformId,
+        targetPlatformName: game?.targetPlatformName,
+      })
+    );
+  }, [game?.targetPlatformId, game?.targetPlatformName]);
 
   useEffect(() => {
     setSelectedScreenshotIndex(null);
@@ -460,6 +593,29 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     };
   }, [open, game?.id, queryClient]);
 
+  const { data: targetPlatformOptions = [] } = useQuery<IgdbPlatformOption[]>({
+    queryKey: ["/api/igdb/platforms"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/igdb/platforms");
+      return res.json();
+    },
+    enabled: open && !!game?.id && !isDiscoveryId(game.id),
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  const supportedTargetPlatformOptions = useMemo(() => {
+    const options = targetPlatformOptions.filter(({ id, name }) => resolveTargetPlatform(id, name));
+    if (
+      game?.targetPlatformId &&
+      game.targetPlatformName &&
+      resolveTargetPlatform(game.targetPlatformId, game.targetPlatformName) &&
+      !options.some(({ id }) => id === game.targetPlatformId)
+    ) {
+      return [{ id: game.targetPlatformId, name: game.targetPlatformName }, ...options];
+    }
+    return options;
+  }, [targetPlatformOptions, game?.targetPlatformId, game?.targetPlatformName]);
+
   const { data: gameDownloads = [], isLoading: downloadsLoading } = useQuery<
     GameDownloadWithDownloader[]
   >({
@@ -470,6 +626,20 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
     enabled: open && !!game?.id && !isDiscoveryId(game.id),
     refetchInterval: 5000,
+  });
+
+  const {
+    data: xrelStatus,
+    isLoading: xrelStatusLoading,
+    isError: xrelStatusError,
+  } = useQuery<XrelGameStatus>({
+    queryKey: [`/api/games/${game?.id}/xrel-status`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/games/${game!.id}/xrel-status`);
+      return res.json();
+    },
+    enabled: open && !!game?.id && !isDiscoveryId(game.id),
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: nexusGameData, isError: nexusDomainError } = useQuery<{
@@ -565,9 +735,39 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
   });
 
+  const targetPlatformMutation = useMutation({
+    mutationFn: async (target: {
+      targetPlatformId: number | null;
+      targetPlatformName: string | null;
+    }) => {
+      await apiRequest("PATCH", `/api/games/${game?.id}/target-platform`, target);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      toast({ description: "Download target updated" });
+    },
+    onError: () => {
+      setTargetPlatformValue(getTargetPlatformSelectValue(game));
+      toast({ description: "Failed to update download target", variant: "destructive" });
+    },
+  });
+
+  const handleTargetPlatformChange = useCallback(
+    (value: string) => {
+      setTargetPlatformValue(value);
+      const selected = supportedTargetPlatformOptions.find(({ id }) => String(id) === value);
+      targetPlatformMutation.mutate(
+        selected
+          ? { targetPlatformId: selected.id, targetPlatformName: selected.name }
+          : { targetPlatformId: null, targetPlatformName: null }
+      );
+    },
+    [supportedTargetPlatformOptions, targetPlatformMutation]
+  );
+
   const notesMutation = useMutation({
-    mutationFn: async (notes: string | null) => {
-      await apiRequest("PATCH", `/api/games/${game?.id}/notes`, { notes });
+    mutationFn: async ({ gameId, notes }: { gameId: string; notes: string | null }) => {
+      await apiRequest("PATCH", `/api/games/${gameId}/notes`, { notes });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
@@ -576,6 +776,38 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       toast({ description: "Failed to save notes", variant: "destructive" });
     },
   });
+
+  // Fires a notes save for `gameId` (the current game by default), or queues
+  // it if one is already in flight (see the refs above) — never lets two
+  // PATCH requests race each other. The target game travels with the save
+  // itself, so a queued draft is dropped instead of misfiring against the
+  // wrong game if the modal switches games while a save is pending.
+  const saveNotes = (trimmed: string | null, gameId: string | undefined = game?.id) => {
+    if (!gameId) return;
+    if (notesSaveInFlightRef.current) {
+      queuedNotesSaveRef.current = { value: trimmed, gameId };
+      return;
+    }
+    notesSaveInFlightRef.current = true;
+    notesMutation.mutate(
+      { gameId, notes: trimmed },
+      {
+        onSuccess: () => {
+          if (isMobile && game?.id === gameId && notesValueRef.current.trim() === (trimmed ?? "")) {
+            setIsEditingNotes(false);
+          }
+        },
+        onSettled: () => {
+          notesSaveInFlightRef.current = false;
+          const queued = queuedNotesSaveRef.current;
+          queuedNotesSaveRef.current = null;
+          if (queued && queued.gameId === game?.id) {
+            saveNotes(queued.value, queued.gameId);
+          }
+        },
+      }
+    );
+  };
 
   const hiddenMutation = useHiddenMutation({
     hiddenSuccessMessage: "Game hidden from library",
@@ -609,6 +841,39 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     staleTime: 24 * 60 * 60 * 1000,
   });
 
+  const {
+    data: gameFiles = [],
+    isLoading: filesLoading,
+    isError: filesError,
+  } = useQuery<ScannedGameFile[]>({
+    queryKey: [`/api/games/${game?.id}/files`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/games/${game!.id}/files`);
+      const data = await res.json();
+      return data.files;
+    },
+    // The endpoint recursively scans the game's library folder, so only fetch it once the
+    // Files tab is actually opened rather than on every modal open.
+    enabled: open && activeTab === "files" && !!game?.id && !isDiscoveryId(game.id),
+  });
+
+  const groupedGameFiles = useMemo(() => {
+    const groups = new Map<string, typeof gameFiles>();
+    for (const file of gameFiles) {
+      const group = groups.get(file.category) ?? [];
+      group.push(file);
+      groups.set(file.category, group);
+    }
+    return groups;
+  }, [gameFiles]);
+
+  const categoryOrder = useMemo(() => {
+    const known = ["main", "dlc", "update", "extra", "packs"];
+    return [
+      ...known,
+      ...Array.from(groupedGameFiles.keys()).filter((category) => !known.includes(category)),
+    ];
+  }, [groupedGameFiles]);
   if (!game) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -735,21 +1000,53 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
         {/* Personal notes */}
         <div className="mt-3">
-          <Textarea
-            value={notesValue}
-            onChange={(e) => setNotesValue(e.target.value)}
-            onBlur={() => {
-              const trimmed = notesValue.trim() || null;
-              if (trimmed !== (game.notes ?? null)) {
-                notesMutation.mutate(trimmed);
-              }
-            }}
-            placeholder="Personal notes..."
-            className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
-            maxLength={10000}
-            aria-label="Personal notes for this game"
-            disabled={notesMutation.isPending}
-          />
+          {isMobile && !isEditingNotes ? (
+            // Mobile: notes start collapsed to a read-only preview so opening the sheet
+            // never lands focus on a text field and pops the on-screen keyboard.
+            // Tapping "Edit" is an explicit user gesture, so autofocus there is expected.
+            <div className="flex items-start justify-between gap-2">
+              <p className="flex-1 min-w-0 line-clamp-2 text-sm text-muted-foreground">
+                {notesValue.trim() || "No personal notes yet"}
+              </p>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 flex-shrink-0"
+                aria-label="Edit personal notes"
+                onClick={() => setIsEditingNotes(true)}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <Textarea
+              autoFocus={isMobile}
+              value={notesValue}
+              onChange={(e) => setNotesValue(e.target.value)}
+              onBlur={() => {
+                const trimmed = notesValue.trim() || null;
+                if (trimmed !== (game.notes ?? null)) {
+                  // saveNotes serializes this behind any already-in-flight
+                  // save, and its own onSuccess (above) only collapses the
+                  // mobile editor once the latest saved value matches what's
+                  // currently typed — a failed or superseded save leaves it
+                  // open instead of losing or misrepresenting the draft.
+                  saveNotes(trimmed);
+                } else if (isMobile) {
+                  setIsEditingNotes(false);
+                }
+              }}
+              placeholder="Personal notes..."
+              className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
+              maxLength={10000}
+              aria-label="Personal notes for this game"
+              // On mobile, keep the field editable through the save so the
+              // stale-save guard above is actually reachable — a disabled
+              // field would block the very typing it's meant to protect.
+              // Desktop keeps the pre-existing disable-while-saving behavior.
+              disabled={!isMobile && notesMutation.isPending}
+            />
+          )}
           {notesMutation.isPending && (
             <p className="text-xs text-muted-foreground mt-1">Saving...</p>
           )}
@@ -815,7 +1112,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       </DialogHeader>
 
       {/* ── Tabs ── */}
-      <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0 mt-4">
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="flex-1 flex flex-col min-h-0 mt-4"
+      >
         <TabsList className="flex-shrink-0 w-full justify-start overflow-x-auto">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -854,6 +1155,17 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             </TooltipTrigger>
             <TooltipContent className="sm:hidden">Media</TooltipContent>
           </Tooltip>
+          {!isDiscoveryId(game.id) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger value="files" aria-label="Files on disk" className="gap-1.5">
+                  <File className="h-3.5 w-3.5 sm:hidden" />
+                  <span className="hidden sm:inline">Files</span>
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent className="sm:hidden">Files</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <TabsTrigger value="links" aria-label="Links & Ratings" className="gap-1.5">
@@ -905,6 +1217,22 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       {isSummaryExpanded ? "Show less" : "Read more"}
                     </Button>
                   )}
+                </div>
+              )}
+
+              {/* Crack status (sourced from xREL) */}
+              {!isDiscoveryId(game.id) && (
+                <div>
+                  <h3 className="font-semibold mb-2 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4" />
+                    Crack Status
+                  </h3>
+                  <CrackStatusContent
+                    isLoading={xrelStatusLoading}
+                    isError={xrelStatusError}
+                    crackTypes={xrelStatus?.crackTypes}
+                    testId={`text-crack-status-${game.id}`}
+                  />
                 </div>
               )}
 
@@ -983,6 +1311,41 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       maxVisible={8}
                       getTestId={(p) => `badge-platform-${p.toLowerCase().replace(/\s+/g, "-")}`}
                     />
+                  </div>
+                )}
+                {!isDiscoveryId(game.id) && (
+                  <div>
+                    <label
+                      htmlFor="target-platform"
+                      className="font-semibold mb-2 flex items-center gap-2"
+                    >
+                      <Gamepad2 className="w-4 h-4" />
+                      Automatic download target
+                    </label>
+                    <Select
+                      value={targetPlatformValue}
+                      disabled={targetPlatformMutation.isPending}
+                      onValueChange={handleTargetPlatformChange}
+                    >
+                      <SelectTrigger
+                        id="target-platform"
+                        aria-label="Automatic download target"
+                        className="w-full max-w-sm"
+                      >
+                        <SelectValue placeholder="Use account default" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Use account default</SelectItem>
+                        {supportedTargetPlatformOptions.map((platform) => (
+                          <SelectItem key={platform.id} value={String(platform.id)}>
+                            {platform.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Overrides the account platform for automatic release matching.
+                    </p>
                   </div>
                 )}
               </div>
@@ -1113,6 +1476,82 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
           </ScrollArea>
         </TabsContent>
 
+        {/* ── Files tab ── */}
+        <TabsContent
+          value="files"
+          forceMount
+          className="flex-1 min-h-0 data-[state=inactive]:hidden"
+        >
+          <ScrollArea className="h-full">
+            <div className="pr-4 pb-2">
+              {filesLoading ? (
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                  Loading files…
+                </div>
+              ) : filesError ? (
+                <div className="flex items-center justify-center py-8 text-sm text-destructive">
+                  Failed to load files.
+                </div>
+              ) : gameFiles.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                  <HardDrive className="w-8 h-8 opacity-40" />
+                  <p className="text-sm">No files found on disk.</p>
+                </div>
+              ) : (
+                (() => {
+                  const groups = groupedGameFiles;
+                  const hasMultipleGroups = groups.size > 1;
+                  const categoryLabels: Record<string, string> = {
+                    main: "Main Game",
+                    dlc: "DLC & Expansions",
+                    update: "Updates & Patches",
+                    extra: "Extras",
+                    packs: "Packs/Addons",
+                  };
+
+                  if (!hasMultipleGroups) {
+                    return (
+                      <div className="space-y-2">
+                        {gameFiles.map((f) => (
+                          <div key={f.path} className="flex items-center gap-2 text-sm py-2">
+                            <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                            <span className="truncate">{f.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-4">
+                      {categoryOrder.map((cat) => {
+                        const catFiles = groups.get(cat);
+                        if (!catFiles || catFiles.length === 0) return null;
+                        return (
+                          <div key={cat}>
+                            <h4 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+                              {categoryLabels[cat] || cat}
+                            </h4>
+                            <div className="space-y-2">
+                              {catFiles.map((f) => (
+                                <div key={f.path} className="flex items-center gap-2 text-sm py-2">
+                                  <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                                  <span className="truncate">{f.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
         {/* ── Links & Ratings tab ── */}
         <TabsContent
           value="links"
@@ -1166,6 +1605,40 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   <StarRatingInput value={currentUserRating} onChange={handleUserRatingChange} />
                 </div>
               </div>
+
+              {[game.timeToBeatHastily, game.timeToBeatNormally, game.timeToBeatCompletely].some(
+                (value) => value != null
+              ) && (
+                <div data-testid="section-time-to-beat">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    Time to Beat
+                  </h3>
+                  <div className="flex flex-wrap gap-4">
+                    {[
+                      { label: "Hastily", value: game.timeToBeatHastily },
+                      { label: "Normally", value: game.timeToBeatNormally },
+                      { label: "Completely", value: game.timeToBeatCompletely },
+                    ]
+                      .filter(
+                        (entry): entry is { label: string; value: number } => entry.value != null
+                      )
+                      .map((entry) => (
+                        <div key={entry.label} className="flex items-center gap-3">
+                          <div className="w-14 h-14 rounded-xl flex items-center justify-center text-sm font-bold bg-muted">
+                            {entry.value % 1 === 0 ? entry.value : entry.value.toFixed(1)}h
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium">{entry.label}</div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Estimated hours (IGDB)
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
 
               <div>
                 {/* IGDB website links */}

@@ -137,4 +137,75 @@ describe("PendingImportsCard", () => {
     act(() => onOpenChange(false));
     expect(screen.queryByTestId("link-game-modal")).not.toBeInTheDocument();
   });
+
+  it("offers an Enter Password action and passes passwordRequired through for an encrypted archive", async () => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (getRequestUrl(url).includes("/api/imports/pending")) {
+        return createJsonResponse([
+          {
+            id: "dl-3",
+            gameTitle: "Encrypted Game",
+            downloadTitle: "Encrypted.Game.Release-GROUP",
+            status: "manual_review_required",
+            createdAt: new Date().toISOString(),
+            errorMessage:
+              "This archive is password-protected — a password is required to extract it.",
+            passwordRequired: true,
+          },
+        ]);
+      }
+      return createJsonResponse({});
+    });
+
+    renderCard();
+
+    expect(await screen.findByText("Encrypted Game")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Password required: This archive is password-protected — a password is required to extract it."
+      )
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Enter Password" }));
+
+    expect(screen.getByTestId("import-review-modal")).toBeInTheDocument();
+    expect(mockImportReviewModal).toHaveBeenCalledWith(
+      expect.objectContaining({ downloadId: "dl-3", open: true, passwordRequired: true })
+    );
+  });
+
+  it("collapses a multi-item queue by default and reveals items via the toggle", async () => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      if (getRequestUrl(url).includes("/api/imports/pending")) {
+        return createJsonResponse([
+          {
+            id: "dl-4",
+            gameTitle: "First Game",
+            downloadTitle: "First.Game.Release-GROUP",
+            status: "manual_review_required",
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: "dl-5",
+            gameTitle: "Second Game",
+            downloadTitle: "Second.Game.Release-GROUP",
+            status: "manual_review_required",
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
+      return createJsonResponse({});
+    });
+
+    renderCard();
+
+    expect(await screen.findByText("2 Pending Manual Imports")).toBeInTheDocument();
+    expect(screen.queryByText("First Game")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show pending imports" }));
+
+    expect(await screen.findByText("First Game")).toBeInTheDocument();
+    expect(screen.getByText("Second Game")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide pending imports" })).toBeInTheDocument();
+  });
 });

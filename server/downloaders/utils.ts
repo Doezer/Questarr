@@ -1,10 +1,65 @@
 import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import { isDownloaderDebugLoggingEnabled } from "./debug-logging.js";
-import type { DownloadFile } from "@shared/schema.js";
+import type { Downloader, DownloadFile } from "@shared/schema.js";
 
 export const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+
+/** Returns whether a URL's scheme is literally `https:`. Any parse failure is treated as not HTTPS. */
+export function isHttpsUrl(url: string): boolean {
+  try {
+    return new URL(url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns whether the downloader's transport policy permits credentials, based on the
+ * *actual scheme of the resolved request URL* -- not the downloader's `useSsl` config
+ * flag in isolation. A downloader can be configured `useSsl: true` while its `url`
+ * field still literally starts with `http://` (each client's base-URL builder keeps
+ * whatever scheme is literally present), which would leak credentials in cleartext if
+ * only the flag were trusted. HTTPS requests are permitted by default; anything else
+ * requires the explicit insecure-LAN opt-in.
+ */
+export function downloaderAllowsCredentials(
+  downloader: Pick<Downloader, "allowInsecureLan">,
+  resolvedUrl: string
+): boolean {
+  return isHttpsUrl(resolvedUrl) || downloader.allowInsecureLan === true;
+}
+
+/**
+ * Throws when the downloader's transport policy forbids sending credentials --
+ * every client's guard before it puts a password, API key, or Basic Auth header
+ * on the wire needs the exact same check and refusal message, so it lives here
+ * once instead of being hand-copied (and drifting) across each client.
+ *
+ * @param resolvedUrl - The actual URL the credential-bearing request will be sent
+ * to, exactly as built by the client's base-URL/request-URL builder. The decision
+ * is based on this URL's real scheme, not the downloader's `useSsl` flag.
+ * @param clientName - Downloader display name, e.g. "qBittorrent", used in the error.
+ * @param credentialKind - What's being withheld, e.g. "password" or "API key".
+ */
+export function assertCredentialsAllowed(
+  downloader: Pick<Downloader, "allowInsecureLan">,
+  resolvedUrl: string,
+  clientName: string,
+  credentialKind = "credentials"
+): void {
+  if (downloaderAllowsCredentials(downloader, resolvedUrl)) return;
+  throw new Error(
+    `${clientName}: refusing to send ${credentialKind} over unencrypted HTTP. ` +
+      "Enable SSL on the downloader or turn on 'Allow insecure LAN' to acknowledge the risk."
+  );
+}
+
+/** Builds an HTTP Basic `Authorization` header value from a username and password. */
+export function buildBasicAuthHeader(username: string, password: string): string {
+  return `Basic ${Buffer.from(`${username}:${password}`, "utf-8").toString("base64")}`;
+}
 
 // Prowlarr (and some Newznab/Torznab indexers) wrap external download URLs in a proxy
 // URL whose `link` query parameter is a standard base64 value that can contain `+`.
@@ -350,4 +405,9 @@ export function buildRemoteImportPath(downloadDir: string, relativePath: string)
     return normalizedDir;
   }
   return `${normalizedDir}/${normalizedRelative}`;
+}
+
+// Shared no-op for downloaders that don't support tag-based torrent lookup.
+export async function findTorrentByTagNull(_tag: string): Promise<string | null> {
+  return null;
 }

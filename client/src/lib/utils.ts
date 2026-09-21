@@ -63,6 +63,8 @@ export function mapGameToInsertGame(game: Game): InsertGame {
     releaseDate: game.releaseDate || null,
     rating: game.rating,
     platforms: game.platforms,
+    targetPlatformId: game.targetPlatformId,
+    targetPlatformName: game.targetPlatformName,
     genres: game.genres,
     themes: game.themes,
     screenshots: game.screenshots,
@@ -121,6 +123,47 @@ export function safeUrl(url: string, fallback = "#"): string {
     // Ignore invalid URLs
   }
   return fallback;
+}
+
+/**
+ * Copies text to the clipboard, falling back to the legacy `document.execCommand("copy")`
+ * approach when the async Clipboard API is unavailable (e.g. non-secure/plain-HTTP contexts,
+ * where `navigator.clipboard` is `undefined`).
+ *
+ * Resolves `true` on success, `false` if every copy method failed or is unsupported.
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to the legacy fallback below.
+    }
+  }
+
+  if (typeof document === "undefined") return false;
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  // Keep the textarea out of view and out of the tab/scroll flow.
+  textarea.style.position = "fixed";
+  textarea.style.top = "-9999px";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let succeeded: boolean;
+  try {
+    succeeded = document.execCommand("copy");
+  } catch {
+    succeeded = false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+
+  return succeeded;
 }
 
 /**

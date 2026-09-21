@@ -169,7 +169,14 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
     expect(results.map((game) => game.name)).toEqual(["Undated Game", "Newer Game", "Older Game"]);
   });
 
-  it("applies platform and release year filters before the IGDB result limit", async () => {
+  it("does not send platformId/releaseYear as an upstream IGDB `where` clause, and requests extra headroom for local filtering", async () => {
+    // platformId/releaseYear must NOT be baked into the upstream query: an
+    // edition's own platform list / first_release_date can differ from its
+    // canonical version_parent's, so if IGDB filtered upstream it could
+    // exclude an edition whose parent *would* match before canonicalization
+    // ever runs. Filtering happens locally instead, against the
+    // canonicalized (parent) metadata -- see the "canonicalization runs
+    // before filtering/sorting" describe block below.
     const authResponse = {
       ok: true,
       json: async () => ({
@@ -178,24 +185,52 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
         token_type: "bearer",
       }),
     };
+    const emptyResponse = { ok: true, json: async () => [] };
     const successResponse = {
       ok: true,
-      json: async () => [{ id: 1, name: "God of War", first_release_date: 1110844800 }],
+      json: async () => [
+        {
+          id: 1,
+          name: "God of War",
+          first_release_date: 1110844800,
+          // Must match the requested platformId (8) -- otherwise local
+          // post-filtering discards this row and search falls through to
+          // further approaches, which this test doesn't mock responses for.
+          platforms: [{ id: 8, name: "PlayStation 2" }],
+        },
+      ],
     };
 
-    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+    // Approach 1 (full-text search, no category filter) emits no `where`
+    // clause at all, so it can't exercise the platforms/first_release_date
+    // assertions below. Make it return empty so search falls through to
+    // approach 2, which does have a `where` clause (category = 0).
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(emptyResponse)
+      .mockResolvedValueOnce(successResponse);
 
     const { igdbClient } = await import("../igdb.js");
     await igdbClient.searchGames("God of War", 10, { platformId: 8, releaseYear: 2005 });
 
-    const gameRequest = fetchMock.mock.calls.find(
+    const gameRequests = fetchMock.mock.calls.filter(
       (call) => typeof call[0] === "string" && call[0].includes("api.igdb.com/v4/games")
     );
-    const body = String(gameRequest?.[1]?.body);
-    expect(body).toContain("platforms = (8)");
-    expect(body).toContain("first_release_date >= 1104537600");
-    expect(body).toContain("first_release_date < 1136073600");
-    expect(body.indexOf("platforms = (8)")).toBeLessThan(body.indexOf("limit 10"));
+    expect(gameRequests).toHaveLength(2);
+    const body = String(gameRequests[1]?.[1]?.body);
+    const whereClauseMatch = /where ([^;]*);/.exec(body);
+    // Confirm a `where` clause was actually emitted before asserting what it
+    // excludes -- otherwise a vacuous (null) match would make the two
+    // negative assertions below pass without checking anything.
+    expect(whereClauseMatch).not.toBeNull();
+    const whereClause = whereClauseMatch?.[1] ?? "";
+    expect(whereClause).not.toMatch(/platforms/);
+    expect(whereClause).not.toMatch(/first_release_date/);
+    // The upstream request asks for more than the caller's `limit` when a
+    // local platform/year filter is active (capped, here 10 * 5 = 50) so
+    // there's enough headroom left after that filter discards non-matching
+    // rows and edition->parent dedupe runs.
+    expect(body).toMatch(/limit 50;/);
   });
 
   it("should return empty array when all search approaches fail", async () => {
@@ -392,17 +427,16 @@ describe("IGDBClient - Batch Operations", () => {
     fetchMock = vi.mocked(safeFetch);
   });
 
-  it("should batch steam app ID lookups correctly", async () => {
-    // Mock auth
-    const authResponse = {
-      ok: true,
-      json: async () => ({
-        access_token: "test-token",
-        expires_in: 3600,
-        token_type: "bearer",
-      }),
-    };
+  const authResponse = {
+    ok: true,
+    json: async () => ({
+      access_token: "test-token",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
+  };
 
+  it("should batch steam app ID lookups correctly", async () => {
     const successResponse1 = {
       ok: true,
       json: async () => [
@@ -440,6 +474,473 @@ describe("IGDBClient - Batch Operations", () => {
     // Verify batches
     // 1 Auth call + 2 API calls (150 / 100 = 2 chunks)
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("converts seconds to hours and keys results by game_id", async () => {
+    const successResponse = {
+      ok: true,
+      json: async () => [
+        { game_id: 100, hastily: 18000, normally: 36000, completely: 72000 }, // 5h / 10h / 20h
+      ],
+    };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.getTimeToBeats([100]);
+
+    expect(result.get(100)).toEqual({ hastily: 5, normally: 10, completely: 20 });
+  });
+
+  it("leaves an id absent from the map when IGDB has no submissions for it", async () => {
+    const successResponse = { ok: true, json: async () => [] };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.getTimeToBeats([999]);
+
+    expect(result.has(999)).toBe(false);
+    expect(result.size).toBe(0);
+  });
+
+  it("does not throw when the endpoint request fails, just returns an empty map for that chunk", async () => {
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+    });
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.getTimeToBeats([100]);
+
+    expect(result.size).toBe(0);
+  });
+
+  it("chunks ids in groups of 100", async () => {
+    const successResponse1 = {
+      ok: true,
+      json: async () => [{ game_id: 1, hastily: 3600 }],
+    };
+    const successResponse2 = {
+      ok: true,
+      json: async () => [{ game_id: 101, normally: 7200 }],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(successResponse1)
+      .mockResolvedValueOnce(successResponse2);
+
+    const { igdbClient } = await import("../igdb.js");
+    const ids = Array.from({ length: 150 }, (_, i) => i + 1);
+    const result = await igdbClient.getTimeToBeats(ids);
+
+    expect(result.get(1)).toEqual({ hastily: 1, normally: undefined, completely: undefined });
+    expect(result.get(101)).toEqual({ hastily: undefined, normally: 2, completely: undefined });
+    // 1 auth call + 2 chunk calls
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("IGDBClient - canonicalizeVersionedGames (edition/version dedup)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    const { safeFetch } = await import("../ssrf.js");
+    fetchMock = vi.mocked(safeFetch);
+  });
+
+  const authResponse = {
+    ok: true,
+    json: async () => ({
+      access_token: "test-token",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
+  };
+
+  it("collapses editions sharing the same version_parent into a single canonical result", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 10,
+          name: "Cyberpunk 2077: Ultimate Edition",
+          first_release_date: 1704067200,
+          version_parent: { id: 100, name: "Cyberpunk 2077" },
+        },
+        {
+          id: 11,
+          name: "Cyberpunk 2077: Digital Deluxe",
+          first_release_date: 1609459200,
+          version_parent: { id: 100, name: "Cyberpunk 2077" },
+        },
+      ],
+    };
+    const parentResponse = {
+      ok: true,
+      json: async () => [{ id: 100, name: "Cyberpunk 2077", first_release_date: 1577836800 }],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Cyberpunk 2077", 20);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: 100, name: "Cyberpunk 2077" });
+    // auth + search + one batch fetch of the shared canonical parent
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does NOT merge similarly-named results that lack a version_parent (no name-similarity matching)", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        { id: 20, name: "Halo Infinite", first_release_date: 1704067200 },
+        { id: 21, name: "Halo Infinite: Campaign Edition", first_release_date: 1609459200 },
+      ],
+    };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(searchResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Halo Infinite", 20);
+
+    expect(results).toHaveLength(2);
+    expect(results.map((g) => g.id).sort()).toEqual([20, 21]);
+    // No version_parent on either result -- must not trigger a parent lookup fetch.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the original uncanonicalized entries if fetching the parent game fails", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 10,
+          name: "Some Game: Special Edition",
+          first_release_date: 1704067200,
+          version_parent: { id: 100, name: "Some Game" },
+        },
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockRejectedValueOnce(new Error("network down"));
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Some Game", 20);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe(10);
+    expect(results[0].name).toBe("Some Game: Special Edition");
+  });
+
+  it("does not fetch a parent that's already present among the raw results", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        { id: 100, name: "Some Game", first_release_date: 1577836800 },
+        {
+          id: 10,
+          name: "Some Game: Special Edition",
+          first_release_date: 1704067200,
+          version_parent: { id: 100, name: "Some Game" },
+        },
+      ],
+    };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(searchResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Some Game", 20);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe(100);
+    // No extra fetch for the parent -- it was already in the result set.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("IGDBClient - canonicalization runs before filtering/sorting (edition vs. parent metadata mismatch)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    const { safeFetch } = await import("../ssrf.js");
+    fetchMock = vi.mocked(safeFetch);
+  });
+
+  const authResponse = {
+    ok: true,
+    json: async () => ({
+      access_token: "test-token",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
+  };
+
+  it("filters out a canonicalized result whose parent platforms don't match platformId, even though the edition's did", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 10,
+          name: "Test Game: Deluxe Edition",
+          platforms: [{ id: 5, name: "PlayStation 5" }],
+          version_parent: { id: 100, name: "Test Game" },
+        },
+      ],
+    };
+    // Parent has a completely different platform list than the edition.
+    const parentResponse = {
+      ok: true,
+      json: async () => [
+        { id: 100, name: "Test Game", platforms: [{ id: 6, name: "PC (Microsoft Windows)" }] },
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game", 20, { platformId: 5 });
+
+    // The edition matched platformId 5, but the canonical parent it resolves
+    // to does not -- the parent's own metadata must govern the filter.
+    expect(results).toHaveLength(0);
+  });
+
+  it("continues to the next search approach when local post-processing filters the first approach down to nothing", async () => {
+    // Regression test: postProcessSearchResults can legitimately return an
+    // empty array even when the raw IGDB response for an approach wasn't
+    // empty (canonicalization + platformId filtering collapses this
+    // approach's only row onto a non-matching parent). searchGames must not
+    // treat that as "found nothing more to look for" and stop -- it should
+    // fall through to the next search approach instead.
+    const approach1Response = {
+      ok: true,
+      json: async () => [
+        {
+          id: 20,
+          name: "Test Game 6: Deluxe Edition",
+          platforms: [{ id: 5, name: "PlayStation 5" }],
+          version_parent: { id: 200, name: "Test Game 6" },
+        },
+      ],
+    };
+    // Parent doesn't match the requested platformId -- approach 1's single
+    // row gets filtered out entirely after canonicalization.
+    const parentResponse = {
+      ok: true,
+      json: async () => [
+        { id: 200, name: "Test Game 6", platforms: [{ id: 6, name: "PC (Microsoft Windows)" }] },
+      ],
+    };
+    // Approach 2 (category-filtered search) returns a different game that
+    // does match, with no version_parent -- no further canonicalization needed.
+    const approach2Response = {
+      ok: true,
+      json: async () => [
+        { id: 201, name: "Test Game 6 Sequel", platforms: [{ id: 5, name: "PlayStation 5" }] },
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(approach1Response)
+      .mockResolvedValueOnce(parentResponse)
+      .mockResolvedValueOnce(approach2Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 6", 20, { platformId: 5 });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: 201, name: "Test Game 6 Sequel" });
+  });
+
+  it("filters out a canonicalized result whose parent release year doesn't match releaseYear, even though the edition's did", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 11,
+          name: "Test Game 2: Game of the Year Edition",
+          first_release_date: 1577836800, // 2020-01-01
+          version_parent: { id: 101, name: "Test Game 2" },
+        },
+      ],
+    };
+    // Parent released in a different year than the edition.
+    const parentResponse = {
+      ok: true,
+      json: async () => [
+        { id: 101, name: "Test Game 2", first_release_date: 1420070400 }, // 2015-01-01
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 2", 20, { releaseYear: 2020 });
+
+    expect(results).toHaveLength(0);
+  });
+
+  it("excludes a canonicalized result with includeUndated:false when the parent is undated, even though the edition was dated", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 12,
+          name: "Test Game 3: Special Edition",
+          first_release_date: 1577836800,
+          version_parent: { id: 102, name: "Test Game 3" },
+        },
+      ],
+    };
+    // Parent has no release date at all.
+    const parentResponse = {
+      ok: true,
+      json: async () => [{ id: 102, name: "Test Game 3" }],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 3", 20, { includeUndated: false });
+
+    expect(results).toHaveLength(0);
+  });
+
+  it("sorts a canonicalized result by the parent's release date, not treated as undated just because the edition lacked one", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        { id: 200, name: "Already Released Game", first_release_date: 1577836800 }, // 2020-01-01
+        {
+          id: 13,
+          name: "Test Game 4: Ultimate Edition",
+          // The edition itself has no first_release_date.
+          version_parent: { id: 103, name: "Test Game 4" },
+        },
+      ],
+    };
+    // Parent has a real (later) release date.
+    const parentResponse = {
+      ok: true,
+      json: async () => [{ id: 103, name: "Test Game 4", first_release_date: 1704067200 }], // 2024-01-01
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 4", 20, {
+      includeUndated: true,
+      undatedFirst: true,
+    });
+
+    // The canonicalized parent is dated (2024), so it sorts by that date
+    // alongside the other dated result rather than being pulled to the
+    // front as "undated" just because the edition lacked a date.
+    expect(results.map((game) => game.name)).toEqual(["Test Game 4", "Already Released Game"]);
+  });
+
+  it("keeps a canonicalized result whose parent's platforms match platformId, even though the edition's own platforms did not", async () => {
+    // Regression test: platformId must not be sent as an upstream IGDB
+    // `where` clause. If it were, IGDB itself would drop this edition from
+    // the response (its own platform list doesn't include platformId)
+    // before canonicalizeVersionedGames ever gets a chance to resolve it to
+    // a parent that does match -- the edition would never reach local
+    // filtering at all. Here the mocked upstream response includes the
+    // edition regardless of its own platforms, simulating an unfiltered
+    // upstream query, and the parent (which DOES match) must survive.
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 14,
+          name: "Test Game 5: Gold Edition",
+          // Edition's own platform list does NOT include the requested platformId.
+          platforms: [{ id: 999, name: "Some Other Platform" }],
+          version_parent: { id: 104, name: "Test Game 5" },
+        },
+      ],
+    };
+    // Parent's platform list DOES include the requested platformId.
+    const parentResponse = {
+      ok: true,
+      json: async () => [
+        { id: 104, name: "Test Game 5", platforms: [{ id: 5, name: "PlayStation 5" }] },
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 5", 20, { platformId: 5 });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: 104, name: "Test Game 5" });
+  });
+
+  it("keeps a canonicalized result whose parent's release year matches releaseYear, even though the edition's own release date did not", async () => {
+    // Same regression as above, for releaseYear: the edition's own release
+    // date falls outside the requested year, but its canonical parent's
+    // falls inside it. The edition must still reach local filtering (i.e.
+    // releaseYear must not be sent as an upstream `where` clause either),
+    // and the parent must be returned.
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 15,
+          name: "Test Game 6: Anniversary Edition",
+          first_release_date: 1420070400, // 2015-01-01 -- outside the requested year
+          version_parent: { id: 105, name: "Test Game 6" },
+        },
+      ],
+    };
+    const parentResponse = {
+      ok: true,
+      json: async () => [
+        { id: 105, name: "Test Game 6", first_release_date: 1577836800 }, // 2020-01-01 -- matches
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 6", 20, { releaseYear: 2020 });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: 105, name: "Test Game 6" });
   });
 });
 
@@ -536,6 +1037,23 @@ describe("IGDBClient - formatGameData metadata fields", () => {
     expect(results[0].websites).toEqual(websites);
   });
 
+  it("preserves IGDB platform ids and names for target selection", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    const result = igdbClient.formatGameData({
+      id: 1,
+      name: "God of War",
+      platforms: [
+        { id: 8, name: "PlayStation 2" },
+        { id: 9, name: "PlayStation 3" },
+      ],
+    });
+
+    expect(result.platformOptions).toEqual([
+      { id: 8, name: "PlayStation 2" },
+      { id: 9, name: "PlayStation 3" },
+    ]);
+  });
+
   it("uses empty array for igdbWebsites when websites field is absent", async () => {
     mockAuthAndGame({ id: 1, name: "Test Game" });
 
@@ -543,5 +1061,113 @@ describe("IGDBClient - formatGameData metadata fields", () => {
     const results = await igdbClient.searchGames("Test Game", 1);
 
     expect(results[0].websites).toBeUndefined();
+  });
+});
+
+describe("IGDBClient - testCredentials", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    const { safeFetch } = await import("../ssrf.js");
+    fetchMock = vi.mocked(safeFetch);
+  });
+
+  it("sends the client secret in the request body, not the URL", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: "tok", expires_in: 3600 }),
+    } as Response);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [],
+    } as Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    await igdbClient.testCredentials("some-client-id", "super-secret-value");
+
+    const [tokenUrl, tokenOptions] = fetchMock.mock.calls[0];
+    expect(tokenUrl).toBe("https://id.twitch.tv/oauth2/token");
+    expect(tokenUrl).not.toContain("super-secret-value");
+    expect(String(tokenOptions.body)).toContain("client_secret=super-secret-value");
+  });
+
+  it("reports invalid credentials on a Twitch 400/403 response", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 400 } as Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("bad-id", "bad-secret");
+
+    expect(result).toEqual({ success: false, error: "Invalid Client ID or Client Secret." });
+  });
+
+  it("reports success when both the Twitch and IGDB calls succeed", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: "tok", expires_in: 3600 }),
+    } as Response);
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [] } as Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("good-id", "good-secret");
+
+    expect(result).toEqual({ success: true });
+  });
+
+  it("reports a network error when Twitch is unreachable", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("some-id", "some-secret");
+
+    expect(result).toEqual({
+      success: false,
+      error: "Could not reach Twitch — check your network connection.",
+    });
+  });
+
+  it("reports Twitch's status for an unexpected non-400/403 error", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500 } as Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("some-id", "some-secret");
+
+    expect(result).toEqual({
+      success: false,
+      error: "Twitch returned an unexpected error (status 500).",
+    });
+  });
+
+  it("reports a network error when IGDB is unreachable", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: "tok", expires_in: 3600 }),
+    } as Response);
+    fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("good-id", "good-secret");
+
+    expect(result).toEqual({
+      success: false,
+      error: "Could not reach IGDB — check your network connection.",
+    });
+  });
+
+  it("reports IGDB's status when the game query is rejected", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: "tok", expires_in: 3600 }),
+    } as Response);
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 429 } as Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.testCredentials("good-id", "good-secret");
+
+    expect(result).toEqual({
+      success: false,
+      error: "IGDB rejected the request (status 429).",
+    });
   });
 });

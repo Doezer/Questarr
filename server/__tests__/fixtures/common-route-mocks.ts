@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import type { Request, Response, NextFunction } from "express";
 import type { User } from "../../../shared/schema.js";
+import type { TimeToBeat } from "../../igdb.js";
 
 /**
  * Shared mock factories for tests that boot the full app via `registerRoutes()`
@@ -63,6 +64,7 @@ export function createStorageMock() {
     updateGameHidden: vi.fn(),
     updateGameUserRating: vi.fn(),
     updateGameNotes: vi.fn(),
+    updateGame: vi.fn(),
     updateGameSearchResultsAvailable: vi.fn().mockResolvedValue(undefined),
     updateUserPassword: vi.fn(),
     updateGamesBatch: vi.fn(),
@@ -89,6 +91,12 @@ export function createStorageMock() {
     addGameDownload: vi.fn(),
     getDownloadsByGameId: vi.fn().mockResolvedValue([]),
     getDownloadSummaryByGame: vi.fn().mockResolvedValue({}),
+    getDashboardStatus: vi.fn().mockResolvedValue({
+      totalGames: 0,
+      pendingWishlist: 0,
+      activeDownloads: 0,
+      recentImports: { count: 0, items: [] },
+    }),
     getTrackedDownloadKeys: vi.fn().mockResolvedValue(new Set()),
     getTrackedDownloadGameStatuses: vi.fn().mockResolvedValue(new Map()),
     getGameByIgdbId: vi.fn(),
@@ -109,6 +117,15 @@ export function createStorageMock() {
     removeReleaseBlacklist: vi.fn(),
     getReleaseBlacklistSet: vi.fn().mockResolvedValue(new Set()),
     getImportConfig: vi.fn(),
+    getAllRootFolders: vi.fn().mockResolvedValue([]),
+    getEnabledRootFolders: vi.fn().mockResolvedValue([]),
+    getRootFolder: vi.fn(),
+    getRootFolderByPath: vi.fn(),
+    addRootFolder: vi.fn(),
+    updateRootFolder: vi.fn(),
+    updateRootFolderHealth: vi.fn(),
+    touchRootFolderScanned: vi.fn(),
+    removeRootFolder: vi.fn(),
     getGameDownload: vi.fn(),
     getGameFiles: vi.fn().mockResolvedValue([]),
     getGameFile: vi.fn(),
@@ -117,6 +134,11 @@ export function createStorageMock() {
     addGameFilesBatch: vi.fn(),
     removeGameFile: vi.fn(),
     removeGameFilesByGameId: vi.fn(),
+    getApiKeys: vi.fn().mockResolvedValue([]),
+    addApiKey: vi.fn(),
+    getApiKeyByHash: vi.fn().mockResolvedValue(undefined),
+    touchApiKey: vi.fn().mockResolvedValue(undefined),
+    removeApiKey: vi.fn().mockResolvedValue(false),
   };
 }
 
@@ -134,7 +156,9 @@ export function createIgdbMock() {
     getPlatforms: vi.fn().mockResolvedValue([]),
     getGameById: vi.fn(),
     getGamesByIds: vi.fn().mockResolvedValue([]),
+    getTimeToBeats: vi.fn().mockResolvedValue(new Map<number, TimeToBeat>()),
     batchSearchGames: vi.fn().mockResolvedValue(new Map()),
+    testCredentials: vi.fn().mockResolvedValue({ success: true }),
   };
 }
 
@@ -142,7 +166,13 @@ export async function createAuthMock() {
   const actual = await vi.importActual<typeof import("../../auth.js")>("../../auth.js");
   return {
     ...actual,
-    authenticateToken: (req: Request, res: Response, next: NextFunction) => {
+    authenticateToken: (req: Request, _res: Response, next: NextFunction) => {
+      (req as Request).user = { id: "user-1", username: "testuser" } as unknown as User;
+      next();
+    },
+    // Mirrors authenticateToken so route suites using this mock can exercise
+    // the /api/integration surface without minting a real API key.
+    authenticateApiKeyOrToken: (req: Request, _res: Response, next: NextFunction) => {
       (req as Request).user = { id: "user-1", username: "testuser" } as unknown as User;
       next();
     },
@@ -172,6 +202,7 @@ export function createLoggerMocks() {
     },
     logger: {
       info: vi.fn(),
+      warn: vi.fn(),
       error: vi.fn(),
       child: vi.fn().mockReturnThis(),
     },
@@ -225,6 +256,8 @@ export function createXrelMock() {
     xrelClient: {
       getLatestGames: vi.fn().mockResolvedValue({ list: [], total: 0 }),
       searchReleases: vi.fn().mockResolvedValue([]),
+      titleMatches: vi.fn().mockReturnValue(false),
+      releaseMatchesGame: vi.fn().mockReturnValue(false),
     },
     DEFAULT_XREL_BASE: "https://api.xrel.to",
     ALLOWED_XREL_DOMAINS: ["api.xrel.to", "xrel-api.nfos.to"],

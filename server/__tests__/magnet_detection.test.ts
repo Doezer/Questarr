@@ -34,6 +34,7 @@ describe("Magnet Detection and Redirect Handling in QBittorrentClient", () => {
     updatedAt: new Date(),
     port: 8080,
     useSsl: false,
+    allowInsecureLan: true,
     urlPath: null,
     username: "admin",
     password: "password",

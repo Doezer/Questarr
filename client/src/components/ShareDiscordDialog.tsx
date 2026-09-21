@@ -26,7 +26,10 @@ interface ShareDiscordDialogProps {
 
 const STAT_OPTIONS = [
   { id: "overview" as const, label: "Overview (Total Games, Rating, Completion)" },
-  { id: "status" as const, label: "Status Breakdown (Wanted, Owned, Completed, Downloading)" },
+  {
+    id: "status" as const,
+    label: "Status Breakdown (Wanted, Owned, Playing, Completed, Downloading)",
+  },
   { id: "quickinfo" as const, label: "Quick Info (Top Genre, Platform, Publisher)" },
 ];
 
@@ -35,6 +38,7 @@ type StatId = "overview" | "status" | "quickinfo";
 const STATUS_COLORS: Record<string, string> = {
   Wanted: "#ef4444",
   Owned: "#3b82f6",
+  Playing: "#06b6d4",
   Completed: "#10b981",
   Downloading: "#8b5cf6",
 };
@@ -217,7 +221,9 @@ export default function ShareDiscordDialog({
                 >
                   Status Breakdown
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+                <div
+                  style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 8 }}
+                >
                   {[
                     {
                       label: "Wanted",
@@ -228,6 +234,11 @@ export default function ShareDiscordDialog({
                       label: "Owned",
                       value: stats.statusBreakdown.owned,
                       color: STATUS_COLORS.Owned,
+                    },
+                    {
+                      label: "Playing",
+                      value: stats.statusBreakdown.playing,
+                      color: STATUS_COLORS.Playing,
                     },
                     {
                       label: "Completed",

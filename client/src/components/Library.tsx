@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   EyeOff,
   Filter,
+  Gamepad2,
   LayoutGrid,
   Library as LibraryIcon,
   Plus,
@@ -43,6 +44,7 @@ import { setAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game
 import { useDownloadSummary } from "@/hooks/use-download-summary";
 import GameFilterPills from "./GameFilterPills";
 import PendingImportsCard from "./PendingImportsCard";
+import { LIBRARY_SORT_OPTIONS, sortLibraryGames, type LibrarySortOption } from "@/lib/game-sort";
 
 export default function Library() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -55,6 +57,10 @@ export default function Library() {
   const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
   const [minRating, setMinRating] = useState<number | null>(null);
   const [showUnratedOnly, setShowUnratedOnly] = useState(false);
+  const [sortBy, setSortBy] = useLocalStorageState<LibrarySortOption>(
+    "librarySortBy",
+    "added-desc"
+  );
 
   const clearAllFilters = useCallback(() => {
     setStatusFilter("all");
@@ -136,7 +142,7 @@ export default function Library() {
   }, [games]);
 
   const filteredGames = useMemo(() => {
-    return games.filter((game) => {
+    const filtered = games.filter((game) => {
       if (statusFilter !== "all" && game.status !== statusFilter) return false;
       if (genreFilter !== "all" && !game.genres?.includes(genreFilter)) return false;
       if (platformFilter !== "all" && !game.platforms?.includes(platformFilter)) return false;
@@ -147,6 +153,7 @@ export default function Library() {
         return false;
       return true;
     });
+    return sortLibraryGames(filtered, sortBy);
   }, [
     games,
     statusFilter,
@@ -157,6 +164,7 @@ export default function Library() {
     downloadSummaries,
     minRating,
     showUnratedOnly,
+    sortBy,
   ]);
 
   const activeFilters = useMemo(() => {
@@ -229,6 +237,11 @@ export default function Library() {
     [hiddenMutation]
   );
 
+  const handleSortChange = useCallback(
+    (value: string) => setSortBy(value as LibrarySortOption),
+    [setSortBy]
+  );
+
   return (
     <div className="h-full overflow-auto p-6" data-testid="layout-dashboard">
       <div className="space-y-3">
@@ -258,6 +271,14 @@ export default function Library() {
                   {stableLibStats.statusBreakdown.owned}
                 </span>{" "}
                 owned
+              </span>
+              <span className="opacity-30">·</span>
+              <span className="flex items-center gap-1">
+                <Gamepad2 className="h-3 w-3" />
+                <span className="font-medium text-foreground">
+                  {stableLibStats.statusBreakdown.playing}
+                </span>{" "}
+                playing
               </span>
               <span className="opacity-30">·</span>
               <span className="flex items-center gap-1">
@@ -307,6 +328,10 @@ export default function Library() {
               />
             </div>
           }
+          sortValue={sortBy}
+          onSortChange={handleSortChange}
+          sortOptions={LIBRARY_SORT_OPTIONS}
+          sortAriaLabel="Sort library games"
           viewControls={{
             viewMode,
             onViewModeChange: setViewMode,
@@ -450,6 +475,7 @@ export default function Library() {
                       <SelectItem value="all">All</SelectItem>
                       <SelectItem value="wanted">Wanted</SelectItem>
                       <SelectItem value="owned">Owned</SelectItem>
+                      <SelectItem value="playing">Playing</SelectItem>
                       <SelectItem value="shelved">Shelved</SelectItem>
                       <SelectItem value="completed">Completed</SelectItem>
                       <SelectItem value="downloading">Downloading</SelectItem>

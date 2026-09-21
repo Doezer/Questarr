@@ -9,9 +9,12 @@ import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
+  assertCredentialsAllowed,
   fetchWithMagnetDetection,
   extractHashFromUrl,
+  isHttpsUrl,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 import { z } from "zod";
 
@@ -118,8 +121,18 @@ export class DelugeClient implements DownloaderClient {
     return `${base}/json`;
   }
 
+  /**
+   * Authenticates with the Deluge Web UI unless a session cookie is already present.
+   *
+   * @throws When a configured password is not permitted by the transport policy or
+   * Deluge rejects the login.
+   */
   private async authenticate(): Promise<void> {
     if (this.cookie) return;
+
+    if (this.downloader.password) {
+      assertCredentialsAllowed(this.downloader, this.getRpcUrl(), "Deluge", "password");
+    }
 
     const password = this.downloader.password || "";
     const response = await this.makeRequest("auth.login", [password]);
@@ -680,9 +693,14 @@ export class DelugeClient implements DownloaderClient {
     }
   }
 
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
+  }
+
+  /** Maps a Deluge torrent payload to Questarr's normalized download status. */
   private mapDelugeStatus(hash: string, status: DelugeTorrentStatus): DownloadStatus {
     // Deluge states: Downloading, Seeding, Paused, Checking, Queued, Error, Allocating, Moving
-    let downloadStatus: DownloadStatus["status"] = "paused";
+    let downloadStatus: DownloadStatus["status"];
 
     switch (status.state) {
       case "Downloading":
@@ -771,11 +789,16 @@ export class DelugeClient implements DownloaderClient {
       headers["Cookie"] = this.cookie;
     }
 
+    // Every Deluge RPC call after login replays the session cookie (or carries the
+    // password itself, for auth.login), so require the resolved URL to stay HTTPS
+    // through any redirect whenever it started out HTTPS -- a compromised or MITM'd
+    // Deluge could otherwise bounce the credential-bearing request to a plaintext hop.
     const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30000),
+      requireHttps: isHttpsUrl(url),
     });
 
     await logDownloaderDebugResponse("Deluge", method, url, response);

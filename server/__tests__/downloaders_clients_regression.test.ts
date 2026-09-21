@@ -55,6 +55,8 @@ const createDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
     removeCompleted: false,
     postImportCategory: null,
     settings: null,
+    allowSelfSignedCertificate: false,
+    allowInsecureLan: true,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -783,184 +785,52 @@ describe("downloader client regression coverage", () => {
       "fetchWithFallback"
     );
 
-    fetchWithFallbackSpy
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          queue: {
-            slots: [
-              {
-                nzo_id: "sab-1",
-                filename: "Packed Game",
-                status: "Unpacking",
-                percentage: "100",
-                mb: "10",
-                mbleft: "0",
-                timeleft: "unknown",
-                cat: "games",
-                avg_age: "1",
-              },
-              {
-                nzo_id: "sab-2",
-                filename: "Done Game",
-                status: "Completed",
-                percentage: "100",
-                mb: "12",
-                mbleft: "0",
-                timeleft: "0:00:00",
-                cat: "games",
-                avg_age: "4.5",
-              },
-            ],
-            speed: "0",
-          },
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          queue: {
-            slots: [
-              {
-                nzo_id: "sab-1",
-                filename: "Packed Game",
-                status: "Unpacking",
-                percentage: "100",
-                mb: "10",
-                mbleft: "0",
-                timeleft: "unknown",
-                cat: "games",
-                avg_age: "1",
-              },
-            ],
-            speed: "0",
-          },
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          queue: {
-            slots: [
-              {
-                nzo_id: "sab-1",
-                filename: "Packed Game",
-                status: "Unpacking",
-                percentage: "100",
-                mb: "10",
-                mbleft: "0",
-                timeleft: "unknown",
-                cat: "games",
-                avg_age: "1",
-              },
-              {
-                nzo_id: "sab-2",
-                filename: "Done Game",
-                status: "Completed",
-                percentage: "100",
-                mb: "12",
-                mbleft: "0",
-                timeleft: "0:00:00",
-                cat: "games",
-                avg_age: "4.5",
-              },
-            ],
-            speed: "0",
-          },
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          queue: {
-            slots: [
-              {
-                nzo_id: "sab-1",
-                filename: "Packed Game",
-                status: "Unpacking",
-                percentage: "100",
-                mb: "10",
-                mbleft: "0",
-                timeleft: "unknown",
-                cat: "games",
-                avg_age: "1",
-              },
-            ],
-            speed: "0",
-          },
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          queue: {
-            slots: [
-              {
-                nzo_id: "sab-1",
-                filename: "Packed Game",
-                status: "Unpacking",
-                percentage: "100",
-                mb: "10",
-                mbleft: "0",
-                timeleft: "unknown",
-                cat: "games",
-                avg_age: "1",
-              },
-            ],
-            speed: "0",
-          },
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          queue: {
-            slots: [
-              {
-                nzo_id: "sab-1",
-                filename: "Packed Game",
-                status: "Unpacking",
-                percentage: "100",
-                mb: "10",
-                mbleft: "0",
-                timeleft: "unknown",
-                cat: "games",
-                avg_age: "1",
-              },
-            ],
-            speed: "0",
-          },
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          queue: {
-            slots: [
-              {
-                nzo_id: "sab-1",
-                filename: "Packed Game",
-                status: "Unpacking",
-                percentage: "100",
-                mb: "10",
-                mbleft: "0",
-                timeleft: "unknown",
-                cat: "games",
-                avg_age: "1",
-              },
-            ],
-            speed: "0",
-          },
-        }),
-      } as Response)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: false }) } as Response)
-      .mockRejectedValueOnce(new Error("resume boom"))
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: false }) } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ queue: { diskspace1: "NaN" } }),
-      } as Response)
-      .mockRejectedValueOnce(new Error("queue boom"));
+    const sab1Slot = {
+      nzo_id: "sab-1",
+      filename: "Packed Game",
+      status: "Unpacking",
+      percentage: "100",
+      mb: "10",
+      mbleft: "0",
+      timeleft: "unknown",
+      cat: "games",
+      avg_age: "1",
+    };
+    const sab2Slot = {
+      nzo_id: "sab-2",
+      filename: "Done Game",
+      status: "Completed",
+      percentage: "100",
+      mb: "12",
+      mbleft: "0",
+      timeleft: "0:00:00",
+      cat: "games",
+      avg_age: "4.5",
+    };
+    const sabQueueResponse = (slots: Array<Record<string, unknown>>) =>
+      ({ ok: true, json: async () => ({ queue: { slots, speed: "0" } }) }) as Response;
+    const sabStatusFalseResponse = { ok: true, json: async () => ({ status: false }) } as Response;
+
+    fetchWithFallbackSpy.mockResolvedValueOnce(sabQueueResponse([sab1Slot, sab2Slot])); // getDownloadStatus("sab-1") finds it directly
+    fetchWithFallbackSpy.mockResolvedValueOnce(sabQueueResponse([sab1Slot])); // getDownloadStatus("sab-2") queue check -- not present
+    // The SABnzbd history lookup for a job it can't find retries across both the
+    // active and archived buckets (jobs age out of active history into SABnzbd's
+    // archive), each with a filtered-then-full-scan fallback -- 4 fetches total.
+    // None of these responses carry a `history` key, so every attempt "misses".
+    for (let i = 0; i < 4; i++) {
+      fetchWithFallbackSpy.mockResolvedValueOnce(sabQueueResponse([sab1Slot, sab2Slot]));
+    }
+    fetchWithFallbackSpy.mockResolvedValueOnce(sabQueueResponse([sab1Slot])); // getDownloadDetails("sab-1") -> getDownloadStatus
+    fetchWithFallbackSpy.mockResolvedValueOnce(sabQueueResponse([sab1Slot])); // getAllDownloads() queue listing
+    fetchWithFallbackSpy.mockResolvedValueOnce(sabQueueResponse([sab1Slot])); // getAllDownloads() per-slot getDownloadStatus
+    fetchWithFallbackSpy.mockResolvedValueOnce(sabStatusFalseResponse); // pauseDownload
+    fetchWithFallbackSpy.mockResolvedValueOnce(sabStatusFalseResponse); // resumeDownload
+    fetchWithFallbackSpy.mockRejectedValueOnce(new Error("remove boom")); // removeDownload
+    fetchWithFallbackSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ queue: { diskspace1: "NaN" } }),
+    } as Response); // getFreeSpace
+    fetchWithFallbackSpy.mockRejectedValueOnce(new Error("queue boom")); // getAllDownloads() (again, queue listing fails)
 
     await expect(client.getDownloadStatus("sab-1")).resolves.toMatchObject({
       status: "unpacking",
@@ -1768,7 +1638,7 @@ describe("downloader client regression coverage", () => {
     await expect(client.testConnection()).resolves.toEqual({
       success: false,
       message:
-        "Failed to connect to SABnzbd at http://localhost:8080/api?apikey=api-key&mode=version&output=json: HTTP 500: Boom - server error",
+        "Failed to connect to SABnzbd at http://localhost:8080: HTTP 500: Boom - server error",
     });
 
     fetchWithFallbackSpy.mockRejectedValueOnce(new Error("connect boom"));

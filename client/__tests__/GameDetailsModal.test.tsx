@@ -3,7 +3,7 @@
  */
 import React from "react";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import GameDetailsModal from "../src/components/GameDetailsModal";
 import { Toaster } from "@/components/ui/toaster";
@@ -30,6 +30,47 @@ vi.mock("../src/components/GameDownloadDialog", () => ({
   default: ({ open }: { open: boolean }) =>
     open ? <div data-testid="game-download-dialog">Download Dialog</div> : null,
 }));
+
+vi.mock("@/components/ui/select", () => {
+  const SelectTrigger = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
+  const Select = ({
+    value,
+    onValueChange,
+    disabled,
+    children,
+  }: {
+    value: string;
+    onValueChange: (value: string) => void;
+    disabled?: boolean;
+    children: React.ReactNode;
+  }) => {
+    let id: string | undefined;
+    React.Children.forEach(children, (child) => {
+      if (React.isValidElement(child) && child.type === SelectTrigger) {
+        id = (child.props as { id?: string }).id;
+      }
+    });
+    return (
+      <select
+        id={id}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onValueChange(event.target.value)}
+      >
+        {children}
+      </select>
+    );
+  };
+  return {
+    Select,
+    SelectTrigger,
+    SelectValue: () => null,
+    SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+      <option value={value}>{children}</option>
+    ),
+  };
+});
 
 vi.mock("lucide-react", () => ({
   Calendar: (props: Record<string, unknown>) => <div data-testid="icon-calendar" {...props} />,
@@ -67,11 +108,16 @@ vi.mock("lucide-react", () => ({
   Info: (props: Record<string, unknown>) => <div data-testid="icon-info" {...props} />,
   Image: (props: Record<string, unknown>) => <div data-testid="icon-image" {...props} />,
   Link: (props: Record<string, unknown>) => <div data-testid="icon-link" {...props} />,
+  File: (props: Record<string, unknown>) => <div data-testid="icon-file" {...props} />,
   ChevronLeft: (props: Record<string, unknown>) => (
     <div data-testid="icon-chevron-left" {...props} />
   ),
   ChevronRight: (props: Record<string, unknown>) => (
     <div data-testid="icon-chevron-right" {...props} />
+  ),
+  Pencil: (props: Record<string, unknown>) => <div data-testid="icon-pencil" {...props} />,
+  ShieldCheck: (props: Record<string, unknown>) => (
+    <div data-testid="icon-shield-check" {...props} />
   ),
 }));
 
@@ -141,6 +187,7 @@ global.fetch = vi.fn();
 function makeFetchMock(overrides: Record<string, unknown> = {}) {
   const defaults: Record<string, unknown> = {
     "/api/nexusmods/game-domain": { configured: false, domain: null },
+    "/xrel-status": { crackTypes: [] },
   };
   const routes = { ...defaults, ...overrides };
 
@@ -180,12 +227,89 @@ describe("GameDetailsModal", () => {
     expect(screen.getByTestId("img-cover-1")).toBeInTheDocument();
   });
 
+  describe("Crack Status", () => {
+    it("shows 'No known crack yet' when xREL has no matching release", async () => {
+      renderComponent();
+      expect(await screen.findByText("No known crack yet")).toBeInTheDocument();
+    });
+
+    it.each([
+      { crackTypes: ["cracked"], badgeTexts: ["Cracked"] },
+      { crackTypes: ["hypervisor"], badgeTexts: ["Hypervisor Bypass"] },
+      { crackTypes: ["cracked", "hypervisor"], badgeTexts: ["Cracked", "Hypervisor Bypass"] },
+    ])("shows badges for crackTypes $crackTypes", async ({ crackTypes, badgeTexts }) => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({ "/xrel-status": { crackTypes } })
+      );
+
+      renderComponent();
+
+      for (const badgeText of badgeTexts) {
+        expect(await screen.findByText(badgeText)).toBeInTheDocument();
+      }
+    });
+
+    it("shows an error state instead of 'No known crack yet' when the request fails", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/xrel-status")) {
+          return Promise.resolve({ ok: false, status: 500, json: vi.fn().mockResolvedValue({}) });
+        }
+        return makeFetchMock()(url);
+      });
+
+      renderComponent();
+
+      expect(await screen.findByText("Couldn't check crack status")).toBeInTheDocument();
+      expect(screen.queryByText("No known crack yet")).not.toBeInTheDocument();
+    });
+  });
+
   it("renders genres and platforms", () => {
     renderComponent();
     expect(screen.getByTestId("badge-genre-action")).toBeInTheDocument();
     expect(screen.getByTestId("badge-genre-adventure")).toBeInTheDocument();
     expect(screen.getByTestId("badge-platform-pc")).toBeInTheDocument();
     expect(screen.getByTestId("badge-platform-ps5")).toBeInTheDocument();
+  });
+
+  it("updates and clears the automatic download target", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({
+        "/api/igdb/platforms": [
+          { id: 8, name: "PlayStation 2" },
+          { id: 48, name: "PlayStation 4" },
+        ],
+      })
+    );
+    renderComponent();
+
+    const targetSelect = await screen.findByLabelText("Automatic download target");
+    await screen.findByRole("option", { name: "PlayStation 2" });
+    fireEvent.change(targetSelect, { target: { value: "8" } });
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/games/1/target-platform",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({
+            targetPlatformId: 8,
+            targetPlatformName: "PlayStation 2",
+          }),
+        })
+      );
+    });
+
+    fireEvent.change(targetSelect, { target: { value: "default" } });
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/games/1/target-platform",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ targetPlatformId: null, targetPlatformName: null }),
+        })
+      );
+    });
   });
 
   it("renders screenshots in Media tab", () => {
@@ -241,11 +365,27 @@ describe("GameDetailsModal", () => {
     });
   });
 
-  it("opens the screenshot lightbox as a fullscreen sheet on mobile", async () => {
-    const originalInnerWidth = window.innerWidth;
-    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+  describe("on mobile viewport (375px)", () => {
+    let originalInnerWidth: number;
 
-    try {
+    beforeEach(() => {
+      originalInnerWidth = window.innerWidth;
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: 375,
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    });
+
+    it("opens the screenshot lightbox as a fullscreen sheet on mobile", async () => {
       renderComponent();
 
       fireEvent.click(screen.getByTestId("screenshot-0"));
@@ -254,13 +394,325 @@ describe("GameDetailsModal", () => {
       expect(lightboxImage).toHaveAttribute("src", "http://test.com/screen1.jpg");
       // The mobile lightbox renders as a fullscreen sheet, not the centered desktop dialog.
       expect(lightboxImage.closest(".bg-black\\/95")).toBeInTheDocument();
-    } finally {
-      Object.defineProperty(window, "innerWidth", {
-        writable: true,
-        configurable: true,
-        value: originalInnerWidth,
+    });
+
+    it("collapses personal notes on mobile until Edit is tapped, without stealing focus on open", async () => {
+      renderComponent();
+
+      await screen.findByRole("heading", { name: "Test Game" });
+
+      // No textarea should exist yet, so opening the sheet can't pop the keyboard.
+      expect(
+        screen.queryByRole("textbox", { name: /personal notes for this game/i })
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("No personal notes yet")).toBeInTheDocument();
+
+      const editButton = screen.getByRole("button", { name: /edit personal notes/i });
+      fireEvent.click(editButton);
+
+      // Tapping Edit is a deliberate gesture, so autofocus here is expected.
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+      expect(notes).toHaveFocus();
+
+      fireEvent.change(notes, { target: { value: "Great co-op game" } });
+      fireEvent.blur(notes);
+
+      // Blurring returns to the collapsed preview showing the saved text.
+      await waitFor(() => {
+        expect(screen.getByText("Great co-op game")).toBeInTheDocument();
       });
-    }
+      expect(
+        screen.queryByRole("textbox", { name: /personal notes for this game/i })
+      ).not.toBeInTheDocument();
+    });
+
+    it("shows the empty-state fallback for whitespace-only mobile notes", async () => {
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("button", { name: /edit personal notes/i }));
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+
+      fireEvent.change(notes, { target: { value: "   " } });
+      fireEvent.blur(notes);
+
+      // Whitespace-only input is normalized to null on save, so the preview
+      // should fall back to the empty-state text rather than rendering blank.
+      await waitFor(() => {
+        expect(screen.getByText("No personal notes yet")).toBeInTheDocument();
+      });
+    });
+
+    it("serializes mobile note saves so an older request can't overwrite a newer draft on the server", async () => {
+      const savedNotes: (string | null)[] = [];
+      let resolveFirstSave: () => void = () => {};
+      let resolveSecondSave: () => void = () => {};
+      const firstSave = new Promise<void>((resolve) => {
+        resolveFirstSave = resolve;
+      });
+      const secondSave = new Promise<void>((resolve) => {
+        resolveSecondSave = resolve;
+      });
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, init?: RequestInit) => {
+          if (typeof url === "string" && url.includes("/notes")) {
+            const body = init?.body
+              ? (JSON.parse(init.body as string).notes as string | null)
+              : null;
+            savedNotes.push(body);
+            const pending = savedNotes.length === 1 ? firstSave : secondSave;
+            return pending.then(() => ({ ok: true, json: vi.fn().mockResolvedValue({}) }));
+          }
+          return makeFetchMock()(url);
+        }
+      );
+
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("button", { name: /edit personal notes/i }));
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+
+      fireEvent.change(notes, { target: { value: "First draft" } });
+      fireEvent.blur(notes);
+      await waitFor(() => expect(savedNotes).toHaveLength(1));
+
+      // A second blur while the first save is still in flight must be queued
+      // behind it, not fired as an overlapping request that could resolve
+      // out of order and let the older draft win on the server.
+      fireEvent.change(notes, { target: { value: "Second, newer draft" } });
+      fireEvent.blur(notes);
+      expect(savedNotes).toHaveLength(1);
+
+      // Resolve the older, first-in-flight save before the newer one is even sent.
+      resolveFirstSave();
+      await waitFor(() => expect(savedNotes).toHaveLength(2));
+
+      resolveSecondSave();
+
+      await waitFor(() => {
+        expect(savedNotes).toEqual(["First draft", "Second, newer draft"]);
+      });
+    });
+
+    it("does not discard a newer draft if the user edits again while an earlier save is still in flight", async () => {
+      let resolveSave: () => void = () => {};
+      const pendingSave = new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      });
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/notes")) {
+          return pendingSave.then(() => ({ ok: true, json: vi.fn().mockResolvedValue({}) }));
+        }
+        return makeFetchMock()(url);
+      });
+
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("button", { name: /edit personal notes/i }));
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+
+      fireEvent.change(notes, { target: { value: "First draft" } });
+      fireEvent.blur(notes);
+
+      // Wait for the save to actually be in flight before asserting the field
+      // stays enabled through it — asserting right after blur, before React
+      // commits the pending state, would pass trivially without exercising
+      // the "during a save" case the comment below describes.
+      await screen.findByText("Saving...");
+
+      // The field must stay enabled on mobile during the save — otherwise a
+      // real browser would block the very typing this test exercises next.
+      expect(notes).not.toBeDisabled();
+
+      // The first save is still in flight; the user edits again before it resolves.
+      fireEvent.change(notes, { target: { value: "Second, newer draft" } });
+
+      resolveSave();
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringContaining(`/api/games/${mockGame.id}/notes`),
+          expect.objectContaining({ method: "PATCH" })
+        );
+      });
+
+      // The stale save's success shouldn't collapse the editor out from under
+      // the newer, still-unsaved draft.
+      expect(
+        await screen.findByRole("textbox", { name: /personal notes for this game/i })
+      ).toHaveValue("Second, newer draft");
+    });
+
+    it("keeps the mobile notes editor open with the draft when saving fails", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/notes")) {
+          return Promise.resolve({
+            ok: false,
+            status: 500,
+            statusText: "Internal Server Error",
+            text: vi.fn().mockResolvedValue("Server error"),
+          });
+        }
+        return makeFetchMock()(url);
+      });
+
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("button", { name: /edit personal notes/i }));
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+
+      fireEvent.change(notes, { target: { value: "Draft that fails to save" } });
+      fireEvent.blur(notes);
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringContaining(`/api/games/${mockGame.id}/notes`),
+          expect.objectContaining({ method: "PATCH" })
+        );
+      });
+
+      // The save failed, so the editor stays open with the unsaved draft instead
+      // of collapsing back to a preview that would look like it was persisted.
+      expect(
+        await screen.findByRole("textbox", { name: /personal notes for this game/i })
+      ).toHaveValue("Draft that fails to save");
+    });
+
+    it("does not let a background refetch of the same game overwrite an active mobile notes draft", async () => {
+      const gameWithNotes = {
+        ...mockGame,
+        notes: "Original note",
+      } as unknown as import("@shared/schema").Game;
+
+      const { rerender } = renderComponent(gameWithNotes);
+
+      fireEvent.click(screen.getByRole("button", { name: /edit personal notes/i }));
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+
+      fireEvent.change(notes, { target: { value: "Draft in progress" } });
+
+      // Simulate a background refetch of the same game (e.g. triggered by
+      // another save's invalidateQueries) landing while the user is mid-edit.
+      rerender(
+        <QueryClientProvider client={createQueryClient()}>
+          <GameDetailsModal
+            game={
+              {
+                ...gameWithNotes,
+                notes: "Changed elsewhere",
+              } as unknown as import("@shared/schema").Game
+            }
+            open={true}
+            onOpenChange={() => {}}
+          />
+          <Toaster />
+        </QueryClientProvider>
+      );
+
+      expect(screen.getByRole("textbox", { name: /personal notes for this game/i })).toHaveValue(
+        "Draft in progress"
+      );
+    });
+
+    it("drops a queued notes save instead of misfiring it against a different game", async () => {
+      let resolveSave: () => void = () => {};
+      const pendingSave = new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      });
+      const patchedGameIds: string[] = [];
+
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/notes")) {
+          const match = url.match(/\/api\/games\/([^/]+)\/notes/);
+          if (match) patchedGameIds.push(match[1]);
+          return pendingSave.then(() => ({ ok: true, json: vi.fn().mockResolvedValue({}) }));
+        }
+        return makeFetchMock()(url);
+      });
+
+      const gameA = {
+        ...mockGame,
+        id: "1",
+        notes: "A's note",
+      } as unknown as import("@shared/schema").Game;
+      const gameB = {
+        ...mockGame,
+        id: "2",
+        notes: "B's note",
+      } as unknown as import("@shared/schema").Game;
+
+      const { rerender } = renderComponent(gameA);
+
+      fireEvent.click(screen.getByRole("button", { name: /edit personal notes/i }));
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+
+      fireEvent.change(notes, { target: { value: "A's edited note" } });
+      fireEvent.blur(notes);
+      await waitFor(() => expect(patchedGameIds).toHaveLength(1));
+
+      // A second edit while game A's save is still in flight gets queued...
+      fireEvent.change(notes, { target: { value: "A's second edit" } });
+      fireEvent.blur(notes);
+
+      // ...but before it can fire, the modal switches to a different game entirely.
+      rerender(
+        <QueryClientProvider client={createQueryClient()}>
+          <GameDetailsModal game={gameB} open={true} onOpenChange={() => {}} />
+          <Toaster />
+        </QueryClientProvider>
+      );
+
+      resolveSave();
+
+      // The switch lands on game B's collapsed preview...
+      await waitFor(() => {
+        expect(screen.getByText("B's note")).toBeInTheDocument();
+      });
+      // ...and the queued draft for game A must never be sent, let alone
+      // against game B's id.
+      expect(patchedGameIds).toEqual(["1"]);
+    });
+  });
+
+  it("keeps personal notes directly editable on desktop", () => {
+    renderComponent();
+
+    expect(
+      screen.getByRole("textbox", { name: /personal notes for this game/i })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /edit personal notes/i })).not.toBeInTheDocument();
+  });
+
+  it("disables the notes textarea while saving on desktop", async () => {
+    let resolveSave: () => void = () => {};
+    const pendingSave = new Promise<void>((resolve) => {
+      resolveSave = resolve;
+    });
+
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/notes")) {
+        return pendingSave.then(() => ({ ok: true, json: vi.fn().mockResolvedValue({}) }));
+      }
+      return makeFetchMock()(url);
+    });
+
+    renderComponent();
+
+    const notes = screen.getByRole("textbox", { name: /personal notes for this game/i });
+    fireEvent.change(notes, { target: { value: "Desktop note" } });
+    fireEvent.blur(notes);
+
+    // Desktop keeps the pre-existing disable-while-saving behavior; only the
+    // mobile editor needed to stay writable for the stale-save guard.
+    await waitFor(() => {
+      expect(notes).toBeDisabled();
+    });
+
+    resolveSave();
+    await waitFor(() => {
+      expect(notes).not.toBeDisabled();
+    });
   });
 
   it("opens download dialog when download button is clicked", async () => {
@@ -514,6 +966,35 @@ describe("GameDetailsModal", () => {
     });
   });
 
+  describe("Time to Beat", () => {
+    it("renders a zero-hour estimate instead of hiding it as falsy", () => {
+      renderComponent({
+        ...mockGame,
+        timeToBeatHastily: 0,
+        timeToBeatNormally: 10,
+        timeToBeatCompletely: null,
+      } as unknown as import("@shared/schema").Game);
+      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+
+      const section = screen.getByTestId("section-time-to-beat");
+      expect(section).toHaveTextContent("Hastily");
+      expect(section).toHaveTextContent("Normally");
+      expect(section).not.toHaveTextContent("Completely");
+    });
+
+    it("does not render the section when all estimates are null", () => {
+      renderComponent({
+        ...mockGame,
+        timeToBeatHastily: null,
+        timeToBeatNormally: null,
+        timeToBeatCompletely: null,
+      } as unknown as import("@shared/schema").Game);
+      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+
+      expect(screen.queryByTestId("section-time-to-beat")).not.toBeInTheDocument();
+    });
+  });
+
   describe("null game handling", () => {
     it("renders a placeholder Dialog instead of null when game is null", () => {
       const onOpenChange = vi.fn();
@@ -677,6 +1158,100 @@ describe("GameDetailsModal", () => {
           screen.getByText("Aborted, cannot be completed - https://sabnzbd.org/not-complete")
         ).toBeInTheDocument();
       });
+    });
+  });
+
+  describe("Files tab", () => {
+    it("shows a loading state while files are being fetched", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        () => new Promise(() => {}) // never resolves
+      );
+      renderComponent();
+
+      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
+
+      expect(await screen.findByText(/loading files/i)).toBeInTheDocument();
+    });
+
+    it("shows an error state when the files request fails", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (url.includes("/api/games/1/files")) {
+          return Promise.resolve({ ok: false, status: 500, json: vi.fn().mockResolvedValue({}) });
+        }
+        return makeFetchMock()(url);
+      });
+      renderComponent();
+
+      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
+
+      expect(await screen.findByText(/failed to load files/i)).toBeInTheDocument();
+    });
+
+    it("shows an empty state when no files are found", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({ "/api/games/1/files": { files: [] } })
+      );
+      renderComponent();
+
+      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
+
+      expect(await screen.findByText(/no files found on disk/i)).toBeInTheDocument();
+    });
+
+    it("renders a flat list when files belong to a single category", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({
+          "/api/games/1/files": {
+            files: [
+              { name: "game.exe", path: "/games/game.exe", category: "main", size: 1024 },
+              { name: "readme.txt", path: "/games/readme.txt", category: "main", size: 512 },
+            ],
+          },
+        })
+      );
+      renderComponent();
+
+      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
+
+      expect(await screen.findByText("game.exe")).toBeInTheDocument();
+      expect(screen.getByText("readme.txt")).toBeInTheDocument();
+      expect(screen.queryByText("Main Game")).not.toBeInTheDocument();
+    });
+
+    it("groups files by category when files span multiple categories", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({
+          "/api/games/1/files": {
+            files: [
+              { name: "game.exe", path: "/games/game.exe", category: "main", size: 1024 },
+              {
+                name: "dlc1.pak",
+                path: "/games/dlc/dlc1.pak",
+                category: "dlc",
+                size: 2048,
+              },
+            ],
+          },
+        })
+      );
+      renderComponent();
+
+      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
+
+      expect(await screen.findByText("Main Game")).toBeInTheDocument();
+      expect(screen.getByText("DLC & Expansions")).toBeInTheDocument();
+      expect(screen.getByText("game.exe")).toBeInTheDocument();
+      expect(screen.getByText("dlc1.pak")).toBeInTheDocument();
+    });
+
+    it("does not show the Files tab for discovery games", () => {
+      const discoveryGame = {
+        ...mockGame,
+        id: "igdb-123",
+      } as unknown as import("@shared/schema").Game;
+      renderComponent(discoveryGame);
+
+      expect(screen.queryByRole("tab", { name: /files/i })).not.toBeInTheDocument();
     });
   });
 

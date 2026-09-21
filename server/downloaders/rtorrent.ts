@@ -11,9 +11,13 @@ import crypto from "crypto";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient, XMLValue } from "./types.js";
 import {
+  assertCredentialsAllowed,
+  buildBasicAuthHeader,
   fetchWithMagnetDetection,
   extractHashFromUrl,
+  isHttpsUrl,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 import { XMLParser } from "fast-xml-parser";
 
@@ -501,6 +505,10 @@ export class RTorrentClient implements DownloaderClient {
     }
   }
 
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
+  }
+
   private mapRTorrentStatus(torrent: unknown[]): DownloadStatus {
     // download is an array: [hash, name, state, complete, size, completed, down_rate, up_rate, ratio, peers_connected, peers_complete, message, custom1]
     const [
@@ -637,6 +645,13 @@ export class RTorrentClient implements DownloaderClient {
     return auth;
   }
 
+  /**
+   * Sends an XML-RPC request with configured authentication, retrying with Digest
+   * authentication when required.
+   *
+   * @throws If the transport policy forbids the configured credentials, the initial
+   * RPC call fails, or the Digest authentication retry fails.
+   */
   private async makeXMLRPCRequest(method: string, params: unknown[]): Promise<XMLValue> {
     // Build the complete URL with protocol, host, port, and path
     let baseUrl = this.downloader.url;
@@ -708,18 +723,22 @@ export class RTorrentClient implements DownloaderClient {
     };
 
     if (this.downloader.username && this.downloader.password) {
-      const auth = Buffer.from(
-        `${this.downloader.username}:${this.downloader.password}`,
-        "utf-8"
-      ).toString("base64");
-      headers["Authorization"] = `Basic ${auth}`;
+      assertCredentialsAllowed(this.downloader, url, "rTorrent");
+      headers["Authorization"] = buildBasicAuthHeader(
+        this.downloader.username,
+        this.downloader.password
+      );
     }
 
+    // When Basic Auth is configured, this request carries it -- require the resolved
+    // URL to stay HTTPS through any redirect whenever it started out HTTPS, so a
+    // compromised or MITM'd rTorrent can't bounce the credential to a plaintext hop.
     const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: xmlBody,
       signal: AbortSignal.timeout(30000),
+      requireHttps: isHttpsUrl(url),
     });
     await logDownloaderDebugResponse("rTorrent", method, url, response);
 
@@ -754,6 +773,7 @@ export class RTorrentClient implements DownloaderClient {
               headers,
               body: xmlBody,
               signal: AbortSignal.timeout(30000),
+              requireHttps: isHttpsUrl(url),
             });
             await logDownloaderDebugResponse("rTorrent", method, url, retryResponse);
 
@@ -781,7 +801,7 @@ export class RTorrentClient implements DownloaderClient {
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Unknown error";
             downloadersLogger.error({ error: errorMessage }, "Error processing Digest Auth");
-            throw new Error(`Digest Auth Error: ${errorMessage}`);
+            throw new Error(`Digest Auth Error: ${errorMessage}`, { cause: error });
           }
         }
 

@@ -1,13 +1,50 @@
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
+import { resolveArchivePassword } from "../../shared/archive-password.js";
 import { downloadersLogger } from "../logger.js";
 import https from "https";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
+  assertCredentialsAllowed,
   fixNzbUrlEncoding,
+  isHttpsUrl,
   logDownloaderDebugResponse,
   stripTrailingPathSeparators,
+  findTorrentByTagNull,
 } from "./utils.js";
+
+/**
+ * Strips the `apikey` query param from a SABnzbd request URL before it's
+ * passed to a logger -- getApiUrl() embeds the credential directly in the
+ * URL, so logging it unredacted would leak the API key into log output.
+ */
+function redactApiKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.searchParams.has("apikey")) {
+      parsed.searchParams.set("apikey", "[redacted]");
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Node TLS error codes that genuinely indicate a self-signed or otherwise
+ * untrusted certificate chain -- the specific failure modes
+ * allowSelfSignedCertificate exists to bypass. Deliberately excludes
+ * CERT_HAS_EXPIRED and any other certificate-related code: an expired
+ * certificate is a different, unrelated problem that this opt-in was never
+ * meant to paper over.
+ */
+const SELF_SIGNED_TLS_ERROR_CODES = new Set([
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_GET_ISSUER_CERT",
+]);
 
 interface SABnzbdQueue {
   slots: Array<{
@@ -83,6 +120,11 @@ export class SABnzbdClient implements DownloaderClient {
     }
   }
 
+  /**
+   * Builds a SABnzbd API URL, including the configured API key when permitted.
+   *
+   * @throws When an API key is configured but the transport policy forbids sending it.
+   */
   private getApiUrl(mode: string, params: Record<string, string> = {}): string {
     const baseUrl = this.getBaseUrl();
 
@@ -95,7 +137,10 @@ export class SABnzbdClient implements DownloaderClient {
     }
 
     const url = new URL(`${baseUrl}${apiPath}`);
-    url.searchParams.set("apikey", this.downloader.username || "");
+    if (this.downloader.username) {
+      assertCredentialsAllowed(this.downloader, baseUrl, "SABnzbd", "API key");
+      url.searchParams.set("apikey", this.downloader.username);
+    }
     url.searchParams.set("mode", mode);
     url.searchParams.set("output", "json");
 
@@ -106,28 +151,62 @@ export class SABnzbdClient implements DownloaderClient {
     return url.toString();
   }
 
-  private async fetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
-    const response = await this.doFetchWithFallback(url, options);
+  private async fetchWithFallback(
+    url: string,
+    options: RequestInit = {},
+    allowInsecureFallback = true
+  ): Promise<Response> {
+    const response = await this.doFetchWithFallback(url, options, allowInsecureFallback);
     await logDownloaderDebugResponse("sabnzbd", options.method ?? "GET", url, response);
     return response;
   }
 
-  private async doFetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
+  private async doFetchWithFallback(
+    url: string,
+    options: RequestInit = {},
+    allowInsecureFallback = true
+  ): Promise<Response> {
     try {
-      return await safeFetch(url, { ...options, allowPrivate: true });
+      // Refuse to follow a redirect to a non-HTTPS hop whenever this request carries
+      // a credential: either the archive password (allowInsecureFallback is false
+      // exactly then, see addDownload) or the API key that getApiUrl() embeds in
+      // every routine request once the connection is configured for TLS. Without
+      // this, a compromised or MITM'd SABnzbd could bounce a credential-bearing
+      // HTTPS request to a plaintext endpoint mid-flight.
+      return await safeFetch(url, {
+        ...options,
+        allowPrivate: true,
+        requireHttps: !allowInsecureFallback || isHttpsUrl(url),
+      });
     } catch (error) {
       const isSslError =
         error instanceof Error &&
-        (error.message.includes("self-signed") ||
-          error.message.includes("certificate") ||
-          (error.cause as { code: string })?.code === "DEPTH_ZERO_SELF_SIGNED_CERT" ||
-          (error.cause as { code: string })?.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
-          (error.cause as { code: string })?.code === "CERT_HAS_EXPIRED");
+        // Only Node's self-signed/untrusted-chain TLS error codes qualify for
+        // the insecure retry -- NOT a generic message.includes("certificate")
+        // (too broad) or CERT_HAS_EXPIRED (an expired cert is a different,
+        // unrelated failure that allowSelfSignedCertificate was never meant
+        // to bypass).
+        SELF_SIGNED_TLS_ERROR_CODES.has((error.cause as { code?: string })?.code ?? "");
 
-      if (isSslError) {
+      // The insecure fallback (rejectUnauthorized: false) accepts *any* certificate,
+      // including one presented by an attacker impersonating the configured host. That's
+      // an acceptable trade-off for routine status polling, but never for a request
+      // carrying the archive password -- callers pass allowInsecureFallback: false there
+      // so a cert failure surfaces as an error instead of silently downgrading transport
+      // security for a credential.
+      if (isSslError && allowInsecureFallback) {
+        const redactedUrl = redactApiKey(url);
+        if (!this.downloader.allowSelfSignedCertificate) {
+          downloadersLogger.warn(
+            { url: redactedUrl, downloaderId: this.downloader.id },
+            "SSL verification failed; not retrying insecurely because " +
+              "allowSelfSignedCertificate is disabled for this downloader"
+          );
+          throw error;
+        }
         downloadersLogger.debug(
-          { url },
-          "SSL verification failed, retrying with insecure connection"
+          { url: redactedUrl },
+          "SSL verification failed, retrying with insecure connection (allowSelfSignedCertificate enabled)"
         );
         return this.fetchInsecure(url, options);
       }
@@ -202,13 +281,11 @@ export class SABnzbdClient implements DownloaderClient {
       return { success: false, message: "Invalid SABnzbd response - missing version field" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      downloadersLogger.error(
-        { error, url: this.getApiUrl("version") },
-        "SABnzbd connection test failed"
-      );
+      const baseUrl = this.getBaseUrl();
+      downloadersLogger.error({ error, url: baseUrl }, "SABnzbd connection test failed");
       return {
         success: false,
-        message: `Failed to connect to SABnzbd at ${this.getApiUrl("version")}: ${errorMessage}`,
+        message: `Failed to connect to SABnzbd at ${baseUrl}: ${errorMessage}`,
       };
     }
   }
@@ -235,7 +312,7 @@ export class SABnzbdClient implements DownloaderClient {
 
   private async getVersionInfo(): Promise<Record<string, unknown>> {
     const url = this.getApiUrl("version");
-    downloadersLogger.debug({ url }, "Testing SABnzbd connection");
+    downloadersLogger.debug({ url: redactApiKey(url) }, "Testing SABnzbd connection");
     const response = await this.fetchWithFallback(url, { signal: AbortSignal.timeout(10000) });
 
     if (!response.ok) {
@@ -244,6 +321,34 @@ export class SABnzbdClient implements DownloaderClient {
     }
 
     return (await response.json()) as Record<string, unknown>;
+  }
+
+  private parseAddFileResponse(data: { status?: boolean; nzo_ids?: string[]; error?: string }): {
+    success: boolean;
+    id?: string;
+    message: string;
+  } {
+    if (data.status === true) {
+      if (data.nzo_ids && data.nzo_ids.length > 0) {
+        return { success: true, id: data.nzo_ids[0], message: "NZB added successfully" };
+      }
+      // Status true but no ID usually means duplicate in SABnzbd (or merged)
+      return { success: true, message: "NZB added successfully (likely duplicate or merged)" };
+    }
+
+    // Check for specific duplicate error
+    if (
+      data.error &&
+      typeof data.error === "string" &&
+      data.error.toLowerCase().includes("duplicate")
+    ) {
+      return { success: true, message: `NZB already exists: ${data.error}` };
+    }
+
+    return {
+      success: false,
+      message: data.error || "Failed to add NZB - SABnzbd returned success:false",
+    };
   }
 
   async addDownload(
@@ -263,31 +368,48 @@ export class SABnzbdClient implements DownloaderClient {
       }
       const nzbContent = await nzbResponse.arrayBuffer();
 
+      // Many usenet releases (e.g. G4U) ship as password-protected archives. SABnzbd
+      // can unpack them automatically if we hand it the extraction password up front —
+      // configured per-downloader since it's usually a fixed indexer/group convention.
+      const { password, error: passwordError } = resolveArchivePassword(
+        request.password,
+        this.downloader.settings,
+        this.getBaseUrl(),
+        "SABnzbd"
+      );
+      if (passwordError) {
+        return { success: false, message: passwordError };
+      }
+
       const url = this.getApiUrl("addfile", {
         nzbname: request.title,
         cat: request.category || "games",
         priority: (request.priority || 0).toString(),
+        ...(password ? { password } : {}),
       });
 
       // Build multipart body manually so fetchInsecure (self-signed HTTPS fallback)
       // can write it as a Buffer — FormData is not serialisable via req.write().
       const boundary = `questarr${Date.now().toString(16)}`;
       const safeName = request.title.replace(/["\\]/g, "_");
-      const nzbBuffer = Buffer.from(nzbContent);
       const multipartBody = Buffer.concat([
         Buffer.from(
           `--${boundary}\r\nContent-Disposition: form-data; name="name"; filename="${safeName}.nzb"\r\nContent-Type: application/x-nzb\r\n\r\n`
         ),
-        nzbBuffer,
+        Buffer.from(nzbContent),
         Buffer.from(`\r\n--${boundary}--\r\n`),
       ]);
 
-      const response = await this.fetchWithFallback(url, {
-        method: "POST",
-        body: multipartBody,
-        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
-        signal: AbortSignal.timeout(30000),
-      });
+      const response = await this.fetchWithFallback(
+        url,
+        {
+          method: "POST",
+          body: multipartBody,
+          headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+          signal: AbortSignal.timeout(30000),
+        },
+        !password
+      );
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "No error details");
@@ -295,39 +417,7 @@ export class SABnzbdClient implements DownloaderClient {
       }
 
       const data = await response.json();
-
-      if (data.status === true) {
-        if (data.nzo_ids && data.nzo_ids.length > 0) {
-          return {
-            success: true,
-            id: data.nzo_ids[0],
-            message: "NZB added successfully",
-          };
-        } else {
-          // Status true but no ID usually means duplicate in SABnzbd (or merged)
-          return {
-            success: true,
-            message: "NZB added successfully (likely duplicate or merged)",
-          };
-        }
-      }
-
-      // Check for specific duplicate error
-      if (
-        data.error &&
-        typeof data.error === "string" &&
-        data.error.toLowerCase().includes("duplicate")
-      ) {
-        return {
-          success: true,
-          message: `NZB already exists: ${data.error}`,
-        };
-      }
-
-      return {
-        success: false,
-        message: data.error || "Failed to add NZB - SABnzbd returned success:false",
-      };
+      return this.parseAddFileResponse(data);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return {
@@ -337,7 +427,10 @@ export class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
     try {
       const url = this.getApiUrl("queue");
       const response = await this.fetchWithFallback(url);
@@ -351,7 +444,7 @@ export class SABnzbdClient implements DownloaderClient {
           { id, queueSize: queue.slots.length },
           "SABnzbd: item not in queue, checking history"
         );
-        return await this.getFromHistory(id);
+        return await this.getFromHistory(id, options);
       }
 
       const progress = parseFloat(item.percentage) || 0;
@@ -418,104 +511,137 @@ export class SABnzbdClient implements DownloaderClient {
       };
     } catch (error) {
       downloadersLogger.error({ error }, "Failed to get SABnzbd status");
+      if (options?.throwOnError) throw error;
       return null;
     }
   }
 
-  private async getFromHistory(id: string): Promise<DownloadStatus | null> {
-    // Try with nzo_ids filter first (optimization). Some SABnzbd versions ignore
-    // this parameter and return all history, or return empty slots — in that case
-    // fall back to fetching the full history and searching locally.
-    for (const useFilter of [true, false]) {
-      try {
-        const params: Record<string, string> = useFilter ? { nzo_ids: id } : {};
-        const url = this.getApiUrl("history", params);
-        downloadersLogger.debug({ id, useFilter }, "SABnzbd: fetching history");
-        const response = await this.fetchWithFallback(url);
-        const data = await response.json();
-        const history: SABnzbdHistory = data.history;
+  // A large-but-bounded page size for the unfiltered history fallback below.
+  // SABnzbd's `mode=history` API silently caps an unfiltered request at the
+  // user's configured "history_limit" (commonly as low as 10-60) whenever
+  // `limit` is omitted or falsy -- it does NOT mean "unlimited". A job that's
+  // older than that cap is invisible to the fallback scan unless we ask for a
+  // page large enough to contain it.
+  private static readonly HISTORY_FALLBACK_LIMIT = "1000";
 
-        if (!history?.slots) {
-          downloadersLogger.debug({ id, useFilter }, "SABnzbd: history response missing slots");
-          return null;
-        }
+  // SABnzbd moves finished jobs out of its "active" history into a separate
+  // "archive" bucket once the configured history retention (job count/age) is
+  // exceeded -- see auto_history_purge() in SABnzbd's database layer. The
+  // `mode=history` API only ever searches one bucket per request (`archive IS
+  // NULL` vs `archive = 1`, selected by the `archive` param), so a job that has
+  // aged into the archive is completely invisible to a request that omits
+  // `archive=1` -- nzo_ids filtering does NOT search across both. Since we don't
+  // know ahead of time which bucket a given id is in, both are checked here, and
+  // each is also retried with a full unfiltered scan (in case `nzo_ids`
+  // filtering isn't supported, or simply doesn't match on this SABnzbd
+  // instance) using a large explicit `limit` so the job isn't missed just for
+  // being older than the default page.
+  private async fetchHistorySlot(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<SABnzbdHistory["slots"][number] | null> {
+    // Tracks whether ANY attempt actually reached SABnzbd and got a response
+    // (even an empty/non-matching one). If every single attempt threw --
+    // e.g. the downloader is unreachable -- a `null` return would look
+    // identical to "confirmed not in history", which is wrong: we simply
+    // couldn't check. In that case, callers that asked for `throwOnError`
+    // get the last error instead of a false "not found".
+    let sawCleanResponse = false;
+    let lastError: unknown;
 
-        const item = history.slots.find((slot) => slot.nzo_id === id);
-        downloadersLogger.debug(
-          { id, useFilter, slotCount: history.slots.length, found: !!item },
-          "SABnzbd: history result"
-        );
+    for (const archive of [false, true]) {
+      for (const useFilter of [true, false]) {
+        try {
+          const params: Record<string, string> = {
+            ...(useFilter ? { nzo_ids: id } : { limit: SABnzbdClient.HISTORY_FALLBACK_LIMIT }),
+            ...(archive ? { archive: "1" } : {}),
+          };
+          const url = this.getApiUrl("history", params);
+          downloadersLogger.debug({ id, useFilter, archive }, "SABnzbd: fetching history");
+          const response = await this.fetchWithFallback(url);
+          const data = await response.json();
+          sawCleanResponse = true;
+          const history: SABnzbdHistory = data.history;
 
-        if (!item) {
+          if (!history?.slots) {
+            downloadersLogger.debug(
+              { id, useFilter, archive },
+              "SABnzbd: history response missing slots"
+            );
+            if (useFilter) continue;
+            break;
+          }
+
+          const item = history.slots.find((slot) => slot.nzo_id === id);
+          downloadersLogger.debug(
+            { id, useFilter, archive, slotCount: history.slots.length, found: !!item },
+            "SABnzbd: history result"
+          );
+
+          if (item) return item;
           // If we used the nzo_ids filter and got no results, the filter may not be
-          // supported — retry with a full history scan.
+          // supported — retry with a full scan of this same archive bucket.
           if (useFilter) continue;
-          return null;
+          break;
+        } catch (error) {
+          lastError = error;
+          downloadersLogger.error(
+            { error, id, useFilter, archive },
+            "Failed to get SABnzbd history"
+          );
+          if (useFilter) continue;
+          break;
         }
-
-        let status: DownloadStatus["status"];
-        let repairStatus: DownloadStatus["repairStatus"];
-        let unpackStatus: DownloadStatus["unpackStatus"];
-
-        if (item.status === "Completed") {
-          status = "completed";
-          repairStatus = "good";
-          unpackStatus = "completed";
-        } else if (item.status === "Failed") {
-          status = "error";
-          repairStatus = "failed";
-        } else {
-          status = "paused";
-        }
-
-        return {
-          id: item.nzo_id,
-          name: item.name,
-          downloadType: "usenet",
-          status,
-          progress: status === "completed" ? 100 : 0,
-          size: item.bytes,
-          downloaded: item.bytes,
-          category: item.category,
-          error: status === "error" ? item.fail_message : undefined,
-          repairStatus,
-          unpackStatus,
-        };
-      } catch (error) {
-        downloadersLogger.error(
-          { error, id, useFilter: useFilter },
-          "Failed to get SABnzbd history"
-        );
-        // If the filtered request failed, retry with a full history scan
-        if (useFilter) continue;
-        return null;
       }
     }
-    /* v8 ignore next -- loop always returns or continues before reaching this fallback */
+
+    if (!sawCleanResponse && options?.throwOnError && lastError) {
+      throw lastError;
+    }
     return null;
   }
 
-  private async getHistoryDownloadDir(id: string): Promise<string | undefined> {
-    for (const useFilter of [true, false]) {
-      try {
-        const params: Record<string, string> = useFilter ? { nzo_ids: id } : {};
-        const url = this.getApiUrl("history", params);
-        const response = await this.fetchWithFallback(url);
-        const data = await response.json();
-        const history: SABnzbdHistory = data.history;
-        if (!history?.slots) return undefined;
-        const item = history.slots.find((slot) => slot.nzo_id === id);
-        if (!item) {
-          if (useFilter) continue;
-          return undefined;
-        }
-        return this.resolveHistoryDownloadDir(item);
-      } catch {
-        if (useFilter) continue;
-        return undefined;
-      }
+  private async getFromHistory(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
+    const item = await this.fetchHistorySlot(id, options);
+    if (!item) return null;
+
+    let status: DownloadStatus["status"];
+    let repairStatus: DownloadStatus["repairStatus"];
+    let unpackStatus: DownloadStatus["unpackStatus"];
+
+    if (item.status === "Completed") {
+      status = "completed";
+      repairStatus = "good";
+      unpackStatus = "completed";
+    } else if (item.status === "Failed") {
+      status = "error";
+      repairStatus = "failed";
+    } else {
+      status = "paused";
     }
-    return undefined;
+
+    return {
+      id: item.nzo_id,
+      name: item.name,
+      downloadType: "usenet",
+      status,
+      progress: status === "completed" ? 100 : 0,
+      size: item.bytes,
+      downloaded: item.bytes,
+      category: item.category,
+      error: status === "error" ? item.fail_message : undefined,
+      repairStatus,
+      unpackStatus,
+    };
+  }
+
+  private async getHistoryDownloadDir(id: string): Promise<string | undefined> {
+    const item = await this.fetchHistorySlot(id);
+    if (!item) return undefined;
+    return this.resolveHistoryDownloadDir(item);
   }
 
   private resolveHistoryDownloadDir(item: SABnzbdHistory["slots"][number]): string | undefined {
@@ -663,5 +789,9 @@ export class SABnzbdClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Failed to get SABnzbd free space");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 }

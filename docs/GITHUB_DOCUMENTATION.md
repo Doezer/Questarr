@@ -10,6 +10,7 @@ This file is the single entry point for GitHub-facing documentation in this repo
 - Changelog: [`docs/CHANGELOG.md`](./CHANGELOG.md)
 - Migration notes: [`docs/MIGRATION.md`](./MIGRATION.md), for migration from PostgreSQL to SQLite in v1.1
 - Reverse proxy / subdirectory deployment: [`docs/REVERSE_PROXY.md`](./REVERSE_PROXY.md), for serving Questarr from a path like `/Questarr` behind nginx/Traefik/Caddy
+- Proxmox VE deployment: [`docs/PROXMOX.md`](./PROXMOX.md), for deploying Questarr into a Proxmox LXC container without Docker
 - Security model and operations:
   - [`docs/THREAT_MODEL.md`](./THREAT_MODEL.md), for the attack surface analysis and security architecture
   - [`docs/SECURITY_ASSESSMENT.md`](./SECURITY_ASSESSMENT.md), security risk assessment.

@@ -22,10 +22,17 @@ import {
   createSocketMock,
 } from "./fixtures/common-route-mocks.js";
 import { registerRoutes, parseCategories } from "../routes.js";
+import { matchUnmatchedFolder } from "../library-scanner.js";
 import { storage } from "../storage.js";
 import { searchAllIndexers } from "../search.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
-import { type Game, type User, type Indexer, type Downloader } from "../../shared/schema.js";
+import {
+  type Game,
+  type User,
+  type Indexer,
+  type Downloader,
+  type RootFolder,
+} from "../../shared/schema.js";
 import { DownloaderManager } from "../downloaders.js";
 import { torznabClient } from "../torznab.js";
 import { newznabClient } from "../newznab.js";
@@ -55,6 +62,28 @@ vi.mock("../search.js", () => createSearchMock());
 vi.mock("fs-extra", () => ({
   default: { remove: vi.fn(), pathExists: vi.fn(), readdir: vi.fn() },
 }));
+// Real isWithinDeletableRootFolder (pure path logic, no fs access) is used by the
+// game-delete tests above; only probeRootFolder — which does real fs.stat/statfs —
+// needs stubbing so the root-folder create/update route tests below don't depend
+// on paths that actually exist on the test runner's filesystem.
+vi.mock("../root-folders.js", async () => {
+  const actual = await vi.importActual<typeof import("../root-folders.js")>("../root-folders.js");
+  return {
+    ...actual,
+    probeRootFolder: vi.fn().mockResolvedValue({
+      accessible: true,
+      diskFreeBytes: 1000,
+      diskTotalBytes: 2000,
+    }),
+  };
+});
+vi.mock("../library-scanner.js", () => ({
+  scanRootFolderById: vi.fn().mockResolvedValue(undefined),
+  scanAllEnabledRootFolders: vi.fn().mockResolvedValue(undefined),
+  getAllScanProgress: vi.fn().mockReturnValue([]),
+  getAllUnmatched: vi.fn().mockReturnValue([]),
+  matchUnmatchedFolder: vi.fn(),
+}));
 
 // Neutralize the IP-keyed rate limiters so cumulative requests across this large
 // test file don't trip a shared 30-req/min counter; keep all other exports
@@ -72,6 +101,51 @@ vi.mock("../middleware.js", async () => {
 vi.mock("../config.js", () => ({ config: mockConfig }));
 vi.mock("../config-loader.js", () => ({ configLoader: createConfigLoaderMock() }));
 vi.mock("../socket.js", () => createSocketMock());
+
+function makeRootFolder(overrides: Partial<RootFolder> = {}): RootFolder {
+  return {
+    id: "rf-1",
+    path: "/mnt/old-library",
+    name: null,
+    enabled: true,
+    allowDelete: false,
+    accessible: true,
+    diskFreeBytes: null,
+    diskTotalBytes: null,
+    lastScannedAt: null,
+    createdAt: new Date("2024-01-01T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+// Fixtures shared by the mixed-case Usenet id regression tests (claim, claim-batch, scan)
+const USENET_MIXED_CASE_ID = "SABnzbd_nzo_AbCdEf";
+
+function mockSabnzbdClaimTarget() {
+  vi.mocked(storage.getGame).mockResolvedValue({
+    id: "game-1",
+    userId: "user-1",
+    status: "wanted",
+  } as any);
+  vi.mocked(storage.getDownloader).mockResolvedValue({
+    id: "dl-1",
+    type: "sabnzbd",
+  } as any);
+}
+
+function mockSabnzbdScanDownload(id: string) {
+  vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+    { id: "dl-1", name: "My SABnzbd" } as unknown as Downloader,
+  ]);
+  vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+    {
+      id,
+      name: "My.Game.Title",
+      status: "downloading",
+      downloadType: "usenet",
+    } as never,
+  ]);
+}
 
 describe("API Routes - Extended Coverage", () => {
   let app: express.Express;
@@ -217,16 +291,60 @@ describe("API Routes - Extended Coverage", () => {
           username: "admin",
         } as any);
 
+        const igdbClientId = "setupigdbclientid1234567890ab";
+        const igdbClientSecret = "setupigdbclientsecret1234567890";
         const res = await request(app).post("/api/auth/setup").send({
           username: "admin",
           password: "password123",
-          igdbClientId: "igdb-id",
-          igdbClientSecret: "igdb-secret",
+          igdbClientId,
+          igdbClientSecret,
         });
 
         expect(res.status).toBe(200);
-        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientId", "igdb-id");
-        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientSecret", "igdb-secret");
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientId", igdbClientId);
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientSecret", igdbClientSecret);
+      });
+
+      it("should reject a partial IGDB credential pair without creating the user", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+
+        const res = await request(app).post("/api/auth/setup").send({
+          username: "admin",
+          password: "password123",
+          igdbClientId: "setupigdbclientid1234567890ab",
+          // igdbClientSecret omitted
+        });
+
+        expect(res.status).toBe(400);
+        expect(storage.registerSetupUser).not.toHaveBeenCalled();
+      });
+
+      it("should reject a full but malformed IGDB credential pair without creating the user", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+
+        const res = await request(app).post("/api/auth/setup").send({
+          username: "admin",
+          password: "password123",
+          igdbClientId: "not-a-real-id",
+          igdbClientSecret: "not-a-real-secret",
+        });
+
+        expect(res.status).toBe(400);
+        expect(storage.registerSetupUser).not.toHaveBeenCalled();
+      });
+
+      it("should reject non-string IGDB credential values without creating the user", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+
+        const res = await request(app).post("/api/auth/setup").send({
+          username: "admin",
+          password: "password123",
+          igdbClientId: 123456,
+          igdbClientSecret: 654321,
+        });
+
+        expect(res.status).toBe(400);
+        expect(storage.registerSetupUser).not.toHaveBeenCalled();
       });
 
       it("should handle duplicative setup race condition", async () => {
@@ -239,6 +357,63 @@ describe("API Routes - Extended Coverage", () => {
           .post("/api/auth/setup")
           .send({ username: "admin", password: "password123" });
         expect(res.status).toBe(403);
+      });
+    });
+
+    describe("POST /api/auth/setup/test-igdb", () => {
+      const VALID_CLIENT_ID = "newigdbclientid1234567890ab";
+      const VALID_CLIENT_SECRET = "newigdbclientsecret1234567890";
+
+      it("should return 403 once setup is already complete", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(1);
+        const res = await request(app)
+          .post("/api/auth/setup/test-igdb")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(res.status).toBe(403);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should return 400 when a field is missing", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+        const res = await request(app)
+          .post("/api/auth/setup/test-igdb")
+          .send({ clientId: VALID_CLIENT_ID });
+        expect(res.status).toBe(400);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should return 400 when the credential format looks invalid", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+        const res = await request(app)
+          .post("/api/auth/setup/test-igdb")
+          .send({ clientId: "not-a-real-id", clientSecret: "not-a-real-secret" });
+        expect(res.status).toBe(400);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should return the test result when setup is still open", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+        vi.mocked(igdbClient.testCredentials).mockResolvedValue({
+          success: false,
+          error: "Invalid Client ID or Client Secret.",
+        });
+        const res = await request(app)
+          .post("/api/auth/setup/test-igdb")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(res.status).toBe(400);
+        expect(res.body).toEqual({
+          success: false,
+          error: "Invalid Client ID or Client Secret.",
+        });
+      });
+
+      it("should return 500 when testCredentials throws unexpectedly", async () => {
+        vi.mocked(storage.countUsers).mockResolvedValue(0);
+        vi.mocked(igdbClient.testCredentials).mockRejectedValue(new Error("boom"));
+        const res = await request(app)
+          .post("/api/auth/setup/test-igdb")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(res.status).toBe(500);
       });
     });
 
@@ -434,6 +609,40 @@ describe("API Routes - Extended Coverage", () => {
       const res = await request(app).get("/api/ready");
       expect(res.status).toBe(503);
       expect(res.body.status).toBe("error");
+    });
+  });
+
+  // ─── Dashboard status ───
+  describe("GET /api/status", () => {
+    it("returns dashboard stats for the authenticated user with a no-store cache header", async () => {
+      const dashboardStatus = {
+        totalGames: 12,
+        pendingWishlist: 3,
+        activeDownloads: 2,
+        recentImports: {
+          count: 1,
+          items: [
+            { gameId: "game-1", title: "Some Game", completedAt: "2026-01-01T00:00:00.000Z" },
+          ],
+        },
+      };
+      vi.mocked(storage.getDashboardStatus).mockResolvedValue(dashboardStatus);
+
+      const res = await request(app).get("/api/status");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(dashboardStatus);
+      expect(res.headers["cache-control"]).toBe("no-store");
+      expect(storage.getDashboardStatus).toHaveBeenCalledWith("user-1");
+    });
+
+    it("returns 500 when the storage layer throws", async () => {
+      vi.mocked(storage.getDashboardStatus).mockRejectedValue(new Error("boom"));
+
+      const res = await request(app).get("/api/status");
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBeTruthy();
     });
   });
 
@@ -802,6 +1011,51 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  describe("PATCH /api/games/:id/target-platform", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("updates a complete IGDB target pair", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+      } as unknown as Game);
+      vi.mocked(storage.updateGame).mockResolvedValue({
+        id: gameId,
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/target-platform`)
+        .send({ targetPlatformId: 8, targetPlatformName: "PlayStation 2" });
+
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGame)).toHaveBeenCalledWith(gameId, {
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+      });
+    });
+
+    it("rejects an incomplete target pair", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/target-platform`)
+        .send({ targetPlatformId: 8, targetPlatformName: null });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid target platform data");
+    });
+
+    it("rejects a mismatched complete target pair before storage", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/target-platform`)
+        .send({ targetPlatformId: 8, targetPlatformName: "PlayStation 5" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid target platform data");
+      expect(vi.mocked(storage.updateGame)).not.toHaveBeenCalled();
+    });
+  });
+
   describe("DELETE /api/games/:id", () => {
     it("should remove game", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
@@ -865,6 +1119,61 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.body).toEqual({
         success: true,
         fileDeletion: { deleted: false, reason: "outside-library-root", path: "/etc/passwd" },
+      });
+      expect(fsExtra.remove).not.toHaveBeenCalled();
+    });
+
+    it("should delete library files outside the library root when their root folder has allowDelete on", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/mnt/old-library/MyGame",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+        makeRootFolder({ path: "/mnt/old-library", allowDelete: true }),
+      ]);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+      vi.mocked(fsExtra.remove).mockResolvedValue(undefined as never);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        fileDeletion: { deleted: true, path: "/mnt/old-library/MyGame" },
+      });
+      expect(fsExtra.remove).toHaveBeenCalledWith(path.resolve("/mnt/old-library/MyGame"));
+    });
+
+    it("should still skip deleting library files outside the library root when their root folder has allowDelete off", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/mnt/old-library/MyGame",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+        makeRootFolder({ path: "/mnt/old-library", allowDelete: false }),
+      ]);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        fileDeletion: {
+          deleted: false,
+          reason: "outside-library-root",
+          path: "/mnt/old-library/MyGame",
+        },
       });
       expect(fsExtra.remove).not.toHaveBeenCalled();
     });
@@ -1744,6 +2053,56 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  // ─── Scan for unlinked downloads ───
+  describe("GET /api/downloads/scan", () => {
+    it("returns a mixed-case Usenet id verbatim instead of lowercasing it", async () => {
+      mockSabnzbdScanDownload(USENET_MIXED_CASE_ID);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+
+      const response = await request(app).get("/api/downloads/scan");
+
+      expect(response.status).toBe(200);
+      const download = response.body.groups[0].downloads[0];
+      expect(download.downloadId).toBe(USENET_MIXED_CASE_ID);
+      expect(download.downloadHash).toBe(USENET_MIXED_CASE_ID);
+    });
+
+    it("excludes a mixed-case Usenet id from the scan when it is already tracked with that exact casing", async () => {
+      mockSabnzbdScanDownload(USENET_MIXED_CASE_ID);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
+        new Set([`dl-1:${USENET_MIXED_CASE_ID}`])
+      );
+
+      const response = await request(app).get("/api/downloads/scan");
+
+      expect(response.status).toBe(200);
+      expect(response.body.groups).toHaveLength(0);
+    });
+
+    it("still normalizes torrent hash casing for the tracked-key comparison", async () => {
+      const hashLower = "a".repeat(40);
+      const hashUpper = "A".repeat(40);
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My rTorrent" } as unknown as Downloader,
+      ]);
+      // Stored key uses lowercase; live client returns uppercase
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set([`dl-1:${hashLower}`]));
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        {
+          id: hashUpper,
+          name: "My.Game.Title",
+          status: "downloading",
+          downloadType: "torrent",
+        } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads/scan");
+
+      expect(response.status).toBe(200);
+      expect(response.body.groups).toHaveLength(0);
+    });
+  });
+
   // ─── Notification routes ───
   describe("Notification routes", () => {
     describe("GET /api/notifications", () => {
@@ -1850,11 +2209,16 @@ describe("API Routes - Extended Coverage", () => {
     });
 
     describe("POST /api/settings/igdb", () => {
+      // Twitch Client IDs/Secrets are 20-40 char alphanumeric tokens; the endpoint now rejects
+      // anything shorter/punctuated before it ever touches storage, so fixtures must look real.
+      const VALID_CLIENT_ID = "newigdbclientid1234567890ab";
+      const VALID_CLIENT_SECRET = "newigdbclientsecret1234567890";
+
       it("should update IGDB credentials", async () => {
         vi.mocked(storage.getSystemConfig).mockResolvedValue("existing-secret");
         const response = await request(app)
           .post("/api/settings/igdb")
-          .send({ clientId: "new-id", clientSecret: "new-secret" });
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
         expect(response.status).toBe(200);
         expect(response.body.success).toBe(true);
       });
@@ -1864,15 +2228,125 @@ describe("API Routes - Extended Coverage", () => {
         expect(response.status).toBe(400);
       });
 
+      it("should return 400 when the credential format looks invalid", async () => {
+        const response = await request(app)
+          .post("/api/settings/igdb")
+          .send({ clientId: "not-a-real-id", clientSecret: "not-a-real-secret" });
+        expect(response.status).toBe(400);
+      });
+
+      it("should return 400 (not 500) when clientId is a non-string value", async () => {
+        const response = await request(app)
+          .post("/api/settings/igdb")
+          .send({ clientId: 123456, clientSecret: VALID_CLIENT_SECRET });
+        expect(response.status).toBe(400);
+      });
+
+      it("should return 400 (not 500) when clientSecret is a non-string value", async () => {
+        const response = await request(app)
+          .post("/api/settings/igdb")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: 123456 });
+        expect(response.status).toBe(400);
+      });
+
+      it("should require the secret for a clientId-only update when no DB secret exists yet (env-only configured)", async () => {
+        // appConfig.igdb.isConfigured is true in this test's mock, simulating an env-configured
+        // instance; storage.getSystemConfig defaults to undefined, i.e. no DB secret yet. A
+        // clientId-only update here must not silently save a DB clientId with no DB secret to
+        // pair it with (getCredentials() only uses DB creds when both are present together).
+        vi.mocked(storage.getSystemConfig).mockResolvedValue(undefined);
+        const response = await request(app)
+          .post("/api/settings/igdb")
+          .send({ clientId: VALID_CLIENT_ID });
+        expect(response.status).toBe(400);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
       it("should handle masked secret update", async () => {
         vi.mocked(storage.getSystemConfig).mockResolvedValue("existing-secret");
         const response = await request(app)
           .post("/api/settings/igdb")
-          .send({ clientId: "my-id", clientSecret: "********" });
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: "********" });
         expect(response.status).toBe(200);
         // Should NOT save the masked value
-        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientId", "my-id");
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientId", VALID_CLIENT_ID);
         expect(storage.setSystemConfig).not.toHaveBeenCalledWith("igdb.clientSecret", "********");
+      });
+    });
+
+    describe("POST /api/settings/igdb/test", () => {
+      const VALID_CLIENT_ID = "newigdbclientid1234567890ab";
+      const VALID_CLIENT_SECRET = "newigdbclientsecret1234567890";
+
+      it("should return success when the credentials are valid", async () => {
+        vi.mocked(igdbClient.testCredentials).mockResolvedValue({ success: true });
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+        expect(igdbClient.testCredentials).toHaveBeenCalledWith(
+          VALID_CLIENT_ID,
+          VALID_CLIENT_SECRET
+        );
+      });
+
+      it("should return 400 with the server's error when credentials are rejected", async () => {
+        vi.mocked(igdbClient.testCredentials).mockResolvedValue({
+          success: false,
+          error: "Invalid Client ID or Client Secret.",
+        });
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid Client ID or Client Secret.");
+      });
+
+      it("should return 400 when clientId is missing", async () => {
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientSecret: VALID_CLIENT_SECRET });
+        expect(response.status).toBe(400);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should return 400 when the credential format looks invalid", async () => {
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: "not-a-real-id", clientSecret: "not-a-real-secret" });
+        expect(response.status).toBe(400);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should test against the stored secret when clientSecret is the masked placeholder", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue(VALID_CLIENT_SECRET);
+        vi.mocked(igdbClient.testCredentials).mockResolvedValue({ success: true });
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: "********" });
+        expect(response.status).toBe(200);
+        expect(igdbClient.testCredentials).toHaveBeenCalledWith(
+          VALID_CLIENT_ID,
+          VALID_CLIENT_SECRET
+        );
+      });
+
+      it("should return 400 when the placeholder is sent but no secret is stored", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue(undefined);
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: "********" });
+        expect(response.status).toBe(400);
+        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+      });
+
+      it("should return 500 when testCredentials throws unexpectedly", async () => {
+        vi.mocked(igdbClient.testCredentials).mockRejectedValue(new Error("boom"));
+        const response = await request(app)
+          .post("/api/settings/igdb/test")
+          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+        expect(response.status).toBe(500);
       });
     });
   });
@@ -1909,6 +2383,42 @@ describe("API Routes - Extended Coverage", () => {
         const response = await request(app)
           .patch("/api/settings")
           .send({ transferMode: "not-a-real-mode" });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid settings data");
+      });
+
+      it("should accept igdbRateLimitPerSecond at boundary value 1", async () => {
+        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as any);
+        vi.mocked(storage.updateUserSettings).mockResolvedValue({ id: "s-1" } as any);
+
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 1 });
+        expect(response.status).toBe(200);
+      });
+
+      it("should accept igdbRateLimitPerSecond at boundary value 4", async () => {
+        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as any);
+        vi.mocked(storage.updateUserSettings).mockResolvedValue({ id: "s-1" } as any);
+
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 4 });
+        expect(response.status).toBe(200);
+      });
+
+      it("should reject igdbRateLimitPerSecond below 1", async () => {
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 0 });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid settings data");
+      });
+
+      it("should reject igdbRateLimitPerSecond above 4", async () => {
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ igdbRateLimitPerSecond: 5 });
         expect(response.status).toBe(400);
         expect(response.body.error).toBe("Invalid settings data");
       });
@@ -2055,6 +2565,29 @@ describe("API Routes - Extended Coverage", () => {
           type: "synology",
           url: "https://example.com",
         })
+      );
+    });
+
+    it("should reject a non-boolean allowSelfSignedCertificate", async () => {
+      const response = await request(app).post("/api/downloaders/test").send({
+        type: "synology",
+        url: "https://example.com",
+        allowSelfSignedCertificate: "false",
+      });
+
+      expect(response.status).toBe(400);
+      expect(DownloaderManager.testDownloader).not.toHaveBeenCalled();
+    });
+
+    it("should accept an omitted allowSelfSignedCertificate and default it to false", async () => {
+      const response = await request(app).post("/api/downloaders/test").send({
+        type: "synology",
+        url: "https://example.com",
+      });
+
+      expect(response.status).toBe(200);
+      expect(DownloaderManager.testDownloader).toHaveBeenCalledWith(
+        expect.objectContaining({ allowSelfSignedCertificate: false })
       );
     });
   });
@@ -2371,6 +2904,62 @@ describe("API Routes - Extended Coverage", () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("Invalid request");
     });
+
+    it("persists a mixed-case Usenet id verbatim instead of lowercasing it", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+      mockSabnzbdClaimTarget();
+      vi.mocked(storage.addGameDownload).mockResolvedValue(undefined as any);
+
+      const res = await request(app).post("/api/downloads/claim").send({
+        downloaderId: "dl-1",
+        downloadHash: USENET_MIXED_CASE_ID,
+        downloadTitle: "My Game",
+        currentStatus: "downloading",
+        category: "main",
+        gameId: "game-1",
+      });
+
+      expect(res.status).toBe(200);
+      expect(storage.addGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ downloadHash: USENET_MIXED_CASE_ID })
+      );
+    });
+
+    it("rejects a claim as a duplicate when the mixed-case Usenet id is already tracked", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
+        new Set([`dl-1:${USENET_MIXED_CASE_ID}`])
+      );
+
+      const res = await request(app).post("/api/downloads/claim").send({
+        downloaderId: "dl-1",
+        downloadHash: USENET_MIXED_CASE_ID,
+        downloadTitle: "My Game",
+        currentStatus: "downloading",
+        category: "main",
+        gameId: "game-1",
+      });
+
+      expect(res.status).toBe(409);
+      expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
+
+    it("rejects a claim as a duplicate when a legacy tracked torrent hash differs only by case", async () => {
+      const hashUpper = "A".repeat(40);
+      const hashLower = "a".repeat(40);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set([`dl-1:${hashUpper}`]));
+
+      const res = await request(app).post("/api/downloads/claim").send({
+        downloaderId: "dl-1",
+        downloadHash: hashLower,
+        downloadTitle: "My Game",
+        currentStatus: "downloading",
+        category: "main",
+        gameId: "game-1",
+      });
+
+      expect(res.status).toBe(409);
+      expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
   });
 
   describe("POST /api/downloads/claim-batch", () => {
@@ -2540,6 +3129,65 @@ describe("API Routes - Extended Coverage", () => {
         .send({ items: [{ ...validItem, currentStatus: "completed" }] });
 
       expect(storage.updateGameStatus).toHaveBeenCalledWith("game-1", { status: "owned" });
+    });
+
+    it("persists a mixed-case Usenet id verbatim instead of lowercasing it", async () => {
+      mockSabnzbdClaimTarget();
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [{ ...validItem, downloadHash: USENET_MIXED_CASE_ID }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.addedCount).toBe(1);
+      expect(storage.addGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ downloadHash: USENET_MIXED_CASE_ID })
+      );
+    });
+
+    it("skips a mixed-case Usenet id only when the tracked key matches exactly", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
+        new Set([`dl-1:${USENET_MIXED_CASE_ID}`])
+      );
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [{ ...validItem, downloadHash: USENET_MIXED_CASE_ID }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.skippedCount).toBe(1);
+      expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
+
+    it("skips as a duplicate when a legacy tracked torrent hash differs only by case", async () => {
+      const hashUpper = "A".repeat(40);
+      const hashLower = "a".repeat(40);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set([`dl-1:${hashUpper}`]));
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [{ ...validItem, downloadHash: hashLower }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.skippedCount).toBe(1);
+      expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
+
+    it("does not skip a differently-cased Usenet id as a false duplicate", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
+        new Set(["dl-1:SABnzbd_nzo_aBcDeF"])
+      );
+      mockSabnzbdClaimTarget();
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [{ ...validItem, downloadHash: USENET_MIXED_CASE_ID }] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.addedCount).toBe(1);
+      expect(storage.addGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ downloadHash: USENET_MIXED_CASE_ID })
+      );
     });
   });
 
@@ -3109,6 +3757,90 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.body.error).toBe("CLI timed out");
     });
   });
+
+  describe("root folder routes", () => {
+    it("rejects a non-UUID :id on PATCH, DELETE, and health-check", async () => {
+      const patchRes = await request(app)
+        .patch("/api/root-folders/not-a-uuid")
+        .send({ enabled: false });
+      const deleteRes = await request(app).delete("/api/root-folders/not-a-uuid");
+      const healthRes = await request(app).post("/api/root-folders/not-a-uuid/health-check");
+
+      expect(patchRes.status).toBe(400);
+      expect(deleteRes.status).toBe(400);
+      expect(healthRes.status).toBe(400);
+      expect(storage.updateRootFolder).not.toHaveBeenCalled();
+      expect(storage.removeRootFolder).not.toHaveBeenCalled();
+      expect(storage.getRootFolder).not.toHaveBeenCalled();
+    });
+
+    it("canonicalizes the path before checking uniqueness on create", async () => {
+      vi.mocked(storage.getRootFolderByPath).mockResolvedValue(undefined);
+      vi.mocked(storage.addRootFolder).mockResolvedValue(makeRootFolder({ path: "/mnt/games" }));
+      vi.mocked(storage.updateRootFolderHealth).mockResolvedValue(
+        makeRootFolder({ path: "/mnt/games" })
+      );
+
+      await request(app).post("/api/root-folders").send({ path: "/mnt/other/../games/." });
+
+      expect(storage.getRootFolderByPath).toHaveBeenCalledWith(path.resolve("/mnt/games"));
+      expect(storage.addRootFolder).toHaveBeenCalledWith(
+        expect.objectContaining({ path: path.resolve("/mnt/games") })
+      );
+    });
+
+    it("canonicalizes the path before checking uniqueness on update", async () => {
+      const folderId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getRootFolderByPath).mockResolvedValue(undefined);
+      vi.mocked(storage.updateRootFolder).mockResolvedValue(makeRootFolder({ id: folderId }));
+      vi.mocked(storage.updateRootFolderHealth).mockResolvedValue(makeRootFolder({ id: folderId }));
+
+      await request(app)
+        .patch(`/api/root-folders/${folderId}`)
+        .send({ path: "/mnt/other/../games/." });
+
+      expect(storage.getRootFolderByPath).toHaveBeenCalledWith(path.resolve("/mnt/games"));
+      expect(storage.updateRootFolder).toHaveBeenCalledWith(
+        folderId,
+        expect.objectContaining({ path: path.resolve("/mnt/games") })
+      );
+    });
+  });
+
+  describe("POST /api/library/scan/unmatched/match", () => {
+    const validBody = { rootFolderId: "rf-1", folderName: "Some Game", igdbId: 42 };
+
+    it("returns 404 when matchUnmatchedFolder reports the root folder is gone", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(new Error("Root folder not found"));
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: "Root folder not found" });
+    });
+
+    it("returns 404 when matchUnmatchedFolder reports the unmatched entry is gone", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(
+        new Error("No matching unmatched entry for this root folder")
+      );
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: "No matching unmatched entry for this root folder" });
+    });
+
+    it("returns 500 for any other matchUnmatchedFolder failure", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(
+        new Error("Selected IGDB game not found in top candidates")
+      );
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: "Selected IGDB game not found in top candidates" });
+    });
+  });
 });
 
 describe("QUESTARR_BASE_PATH subdirectory mounting", () => {
@@ -3161,5 +3893,28 @@ describe("QUESTARR_BASE_PATH subdirectory mounting", () => {
 
     const response = await request(httpServer).post("/api/settings/apprise/test").send();
     expect(response.status).toBe(404);
+  });
+
+  // Regression test for #925: IGDB search 404'd under a configured base path
+  // because a client call site bypassed the shared apiFetch()/withBasePath()
+  // wrapper. The server-side mounting below was never the problem -- it wraps
+  // every route registered on `app`, IGDB search included -- but nothing
+  // previously asserted that explicitly for this endpoint.
+  it("serves /api/igdb/search under the configured base path", async () => {
+    mockConfig.server.basePath = "/Questarr";
+
+    const prefixedApp = express();
+    prefixedApp.use(express.json());
+    const httpServer = await registerRoutes(prefixedApp);
+
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "Zelda" },
+    ] as unknown as IGDBGame[]);
+
+    const prefixed = await request(httpServer).get("/Questarr/api/igdb/search?q=Zelda");
+    expect(prefixed.status).toBe(200);
+
+    const unprefixed = await request(httpServer).get("/api/igdb/search?q=Zelda");
+    expect(unprefixed.status).toBe(404);
   });
 });

@@ -24,6 +24,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recha
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import ShareDiscordDialog from "@/components/ShareDiscordDialog";
+import DiscordWebhookSettings from "@/components/DiscordWebhookSettings";
 
 export default function StatsPage() {
   const [shareOpen, setShareOpen] = useState(false);
@@ -51,6 +52,7 @@ export default function StatsPage() {
     return [
       { name: "Wanted", value: stats.statusBreakdown.wanted },
       { name: "Owned", value: stats.statusBreakdown.owned },
+      { name: "Playing", value: stats.statusBreakdown.playing },
       { name: "Completed", value: stats.statusBreakdown.completed },
       { name: "Downloading", value: stats.statusBreakdown.downloading },
     ].filter((item) => item.value > 0);
@@ -59,6 +61,7 @@ export default function StatsPage() {
   const chartColors = {
     Wanted: "#ef4444",
     Owned: "#3b82f6",
+    Playing: "#06b6d4",
     Completed: "#10b981",
     Downloading: "#8b5cf6",
   };
@@ -80,10 +83,13 @@ export default function StatsPage() {
             Detailed insights into your collection of {stats.totalGames} games.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
-          <Share2 className="w-4 h-4 mr-2" />
-          {discordConfig?.configured ? "Share to Discord" : "Share"}
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+            <Share2 className="w-4 h-4 mr-2" />
+            {discordConfig?.configured ? "Share to Discord" : "Share"}
+          </Button>
+          <DiscordWebhookSettings />
+        </div>
       </div>
 
       <ShareDiscordDialog
@@ -116,7 +122,7 @@ export default function StatsPage() {
         <StatsCard
           title="Completion Rate"
           value={`${stats.completionRate}%`}
-          subtitle="of owned games"
+          subtitle="of acquired games"
           icon={CheckCircle2}
         />
         <StatsCard

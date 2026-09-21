@@ -17,19 +17,27 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.2.0
+        with:
+          persist-credentials: false
 
       # secretlint requires Node >=22
       - name: Setup Node.js 26.x
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
-          cache: "npm"
+          # GitHub scopes the Actions cache per-branch (a pull_request run cannot write
+          # into the cache that push/main runs restore from), and every `npm ci` in this
+          # workflow runs with --ignore-scripts, so a compromised dependency cannot run
+          # install/postinstall code to tamper with the cache before it's saved. This repo
+          # has a single maintainer with push access, so cache-poisoning here is accepted
+          # as a low, non-actionable risk instead of splitting cache restore/save by trust.
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       # secretlint only lints files; it needs no native modules built, so lifecycle
       # scripts (arbitrary code from transitive deps) are skipped here.
@@ -44,18 +52,20 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.2.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js 26.x
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
-          cache: "npm"
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       # check-overrides only reads package.json manifests already unpacked into
       # node_modules; no native modules need building, so scripts are skipped.
@@ -72,18 +82,20 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.2.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js 26.x
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
-          cache: "npm"
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
@@ -112,7 +124,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
@@ -125,7 +137,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
-          cache: "npm"
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
@@ -140,14 +152,14 @@ jobs:
             --coverage.thresholds.branches=0 \
             --coverage.thresholds.functions=0 \
             --coverage.thresholds.lines=0 \
-            --reporter=blob
+            --reporter=blob --reporter=verbose
 
       - name: Upload blob report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: blob-report-${{ matrix.shard }}
-          path: .vitest-reports/*
+          path: .vitest/blob/*
           include-hidden-files: true
           retention-days: 1
 
@@ -157,7 +169,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
@@ -170,7 +182,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
-          cache: "npm"
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       # This job only merges previously-collected blob reports; it never executes
       # application code, so native module build scripts (e.g. better-sqlite3) aren't needed.
@@ -180,7 +192,7 @@ jobs:
       - name: Download blob reports
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          path: .vitest-reports
+          path: .vitest/blob
           pattern: blob-report-*
           merge-multiple: true
 
@@ -188,7 +200,7 @@ jobs:
         run: npx --no-install vitest run --merge-reports --coverage --reporter=junit --outputFile=test-report.junit.xml
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7.1.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
@@ -197,7 +209,7 @@ jobs:
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7.1.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           report_type: test_results
@@ -212,7 +224,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
@@ -225,7 +237,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node-version }}
-          cache: "npm"
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       # Lint/type-check/bundle never execute application code, so native module
       # build scripts (e.g. better-sqlite3) aren't needed here.
@@ -255,15 +267,18 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
           allowed-endpoints: >
             pypi.org:443
             files.pythonhosted.org:443
+            www.rarlab.com:443
 
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.2.0
+        with:
+          persist-credentials: false
 
       - name: Pre-pull BuildKit image
         run: |

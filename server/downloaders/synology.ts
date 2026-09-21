@@ -9,9 +9,12 @@ import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
+  assertCredentialsAllowed,
   fetchWithMagnetDetection,
   extractHashFromUrl,
+  isHttpsUrl,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 
 interface SynologyApiDescriptor {
@@ -252,6 +255,10 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       throw new Error("Unsafe URL blocked");
     }
 
+    // Synology's login carries the password (and every later call the session `_sid`)
+    // as a query parameter -- require the resolved URL to stay HTTPS through any
+    // redirect whenever it started out HTTPS, so a compromised or MITM'd NAS can't
+    // bounce the credential to a plaintext hop.
     const response = await safeFetch(url, {
       ...init,
       headers: {
@@ -259,6 +266,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
         ...(init.headers ?? {}),
       },
       signal: init.signal ?? AbortSignal.timeout(30000),
+      requireHttps: isHttpsUrl(url),
     });
 
     await logDownloaderDebugResponse("Synology", init.method ?? "GET", url, response);
@@ -312,6 +320,12 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     this.getTaskApiDescriptor();
   }
 
+  /**
+   * Authenticates with Synology Download Station and stores the returned session ID.
+   *
+   * @param force - Whether to authenticate again when a session is already active.
+   * @throws When credentials are missing, forbidden by the transport policy, or rejected.
+   */
   private async authenticate(force = false): Promise<void> {
     if (this.sessionId && !force) {
       return;
@@ -320,6 +334,9 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     if (!this.downloader.username || !this.downloader.password) {
       throw new Error("Synology Download Station requires a username and password");
     }
+
+    const { origin } = this.getBaseUrlParts();
+    assertCredentialsAllowed(this.downloader, origin, "Synology");
 
     await this.ensureApiInfo();
 
@@ -1165,5 +1182,9 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Failed to get Synology free space");
       return 0;
     }
+  }
+
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 }

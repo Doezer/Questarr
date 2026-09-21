@@ -79,6 +79,7 @@ vi.mock("../middleware.js", () => ({
   sanitizeIndexerData: [],
   sanitizeIndexerUpdateData: [],
   sanitizeDownloaderData: [],
+  sanitizeDownloaderTestData: [],
   sanitizeDownloaderUpdateData: [],
   sanitizeDownloaderDownloadData: [],
   sanitizeIndexerSearchQuery: [],
@@ -86,6 +87,11 @@ vi.mock("../middleware.js", () => ({
   sanitizeMatchAndAddTitle: [],
   sanitizeNexusModsGameDomainQuery: [],
   sanitizeNexusModsTrendingModsQuery: [],
+  sanitizeRootFolderData: [],
+  sanitizeRootFolderUpdateData: [],
+  sanitizeRootFolderId: [],
+  sanitizeLibraryScanData: [],
+  sanitizeUnmatchedMatchData: [],
 }));
 
 describe("RSS Routes", () => {

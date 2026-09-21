@@ -2,6 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
+import { normalizeDownloadHash, normalizeTrackedKey } from "./download-hash.js";
 import { igdbClient } from "./igdb.js";
 import type { IGDBGame } from "./igdb.js";
 import { db } from "./db.js";
@@ -13,6 +14,7 @@ import {
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
   updateGameNotesSchema,
+  updateGameTargetPlatformSchema,
   insertIndexerSchema,
   insertDownloaderSchema,
   insertNotificationSchema,
@@ -23,13 +25,18 @@ import {
   insertReleaseBlacklistSchema,
   insertGameFileSchema,
   claimDownloadRequestSchema,
+  insertRootFolderSchema,
+  updateRootFolderSchema,
   type Config,
   type Game,
   type Indexer,
   type Downloader,
   type InsertImportTaskItem,
+  type ScannedGameFile,
+  type GameFileCategory,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
+import { parseJsonObject } from "../shared/json-object-utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { rssService } from "./rss.js";
@@ -58,6 +65,7 @@ import {
   sanitizeIndexerData,
   sanitizeIndexerUpdateData,
   sanitizeDownloaderData,
+  sanitizeDownloaderTestData,
   sanitizeDownloaderUpdateData,
   sanitizeDownloaderDownloadData,
   sanitizeIndexerSearchQuery,
@@ -65,6 +73,11 @@ import {
   sanitizeMatchAndAddTitle,
   sanitizeNexusModsGameDomainQuery,
   sanitizeNexusModsTrendingModsQuery,
+  sanitizeRootFolderData,
+  sanitizeRootFolderUpdateData,
+  sanitizeRootFolderId,
+  sanitizeLibraryScanData,
+  sanitizeUnmatchedMatchData,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
@@ -76,7 +89,9 @@ import {
   generateToken,
   authenticateToken,
   optionalAuthenticateToken,
+  authenticateApiKeyOrToken,
 } from "./auth.js";
+import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import {
   appriseClient,
@@ -90,21 +105,96 @@ import fs from "fs";
 import fsExtra from "fs-extra";
 import { readLastLogLines } from "./log-file.js";
 
-const normalizeInitialReleaseStatus = <
-  T extends { releaseDate?: string | null; releaseStatus?: string | null },
->(
-  gameData: T
-): T => {
-  const releaseDate = gameData.releaseDate?.slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10);
-  if (releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(releaseDate) && releaseDate <= today) {
-    return { ...gameData, releaseStatus: "released" };
-  }
-  return gameData;
-};
-
 // Root directory for the file system browser; restrict browsing to this tree
 const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
+
+type IgdbConfigSource = "env" | "database" | undefined;
+
+interface IgdbConfigStatus {
+  configured: boolean;
+  source: IgdbConfigSource;
+}
+
+/**
+ * Whether IGDB credentials are configured (DB takes precedence over env vars),
+ * and which source they came from. Shared between the authenticated
+ * GET /api/config endpoint and the unauthenticated GET /api/auth/status
+ * endpoint (which needs just this boolean to drive the setup wizard, without
+ * exposing anything else config-related pre-login).
+ */
+async function getIgdbConfigStatus(): Promise<IgdbConfigStatus> {
+  const dbClientId = await storage.getSystemConfig("igdb.clientId");
+  const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
+
+  if (dbClientId && dbClientSecret) {
+    return { configured: true, source: "database" };
+  }
+  if (appConfig.igdb.isConfigured) {
+    return { configured: true, source: "env" };
+  }
+  return { configured: false, source: undefined };
+}
+
+// ── Default-deny API auth boundary ─────────────────────────────────────────
+// Every /api/* route requires authentication unless explicitly allowlisted
+// here. This is intentionally an allowlist (not a denylist of "routes that
+// need auth") so that a new route added without updating this list fails
+// safe -- it requires a token by default rather than accidentally becoming
+// public. Paths are relative to the "/api" mount point (no leading "/api").
+export const PUBLIC_API_ROUTES = new Set<string>([
+  "GET /auth/status", // setup-wizard / login-page bootstrap check, runs pre-login
+  "POST /auth/setup", // creates the first user; there is no user/token yet
+  "POST /auth/setup/test-igdb", // "Test connection" button on the setup wizard, runs pre-login
+  "POST /auth/login", // issues the token; obviously can't require one
+  "GET /health", // liveness probe (docker/compose healthcheck, DAST workflow)
+  "GET /ready", // readiness probe (db/IGDB connectivity), no sensitive data
+]);
+
+function isPublicApiRequest(req: Request): boolean {
+  if (req.method === "OPTIONS") return true;
+  return PUBLIC_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
+}
+
+/** Paths under the /api mount that accept an integration API key as well as a JWT. */
+function isIntegrationApiRequest(req: Request): boolean {
+  return req.path === "/integration" || req.path.startsWith("/integration/");
+}
+
+// Routes that must always run, even with a missing/expired/invalid token,
+// but should still pick up req.user/req.authSource when the token IS valid
+// (so e.g. csrfProtection still enforces the CSRF check for a cookie-backed
+// caller). Logout is the motivating case: JWTs are stateless, so the only
+// server-side effect is clearing the auth/CSRF cookies, and a user stuck
+// with an expired cookie must still be able to do that -- hard-rejecting
+// the request at the boundary would leave the stale cookies in the browser.
+const SOFT_AUTH_API_ROUTES = new Set<string>(["POST /auth/logout"]);
+
+function isSoftAuthApiRequest(req: Request): boolean {
+  return SOFT_AUTH_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
+}
+
+/**
+ * Default-deny gate for the entire /api surface: anything not explicitly
+ * allowlisted above requires a valid token. Mounted before any /api route is
+ * registered so it always runs first, regardless of whether an individual
+ * route handler also happens to apply authenticateToken itself.
+ */
+export function requireAuthenticationForApi(req: Request, res: Response, next: NextFunction) {
+  if (isPublicApiRequest(req)) {
+    return next();
+  }
+  // The integration surface is the one place that also accepts a long-lived
+  // API key, for machine clients (the Playnite extension, scripts) that cannot
+  // run the interactive login flow. Everything else — key management included —
+  // stays JWT-only, so a leaked key can never mint or revoke another one.
+  if (isIntegrationApiRequest(req)) {
+    return authenticateApiKeyOrToken(req, res, next);
+  }
+  if (isSoftAuthApiRequest(req)) {
+    return optionalAuthenticateToken(req, res, next);
+  }
+  authenticateToken(req, res, next);
+}
 
 // Configure multer for memory storage
 const upload = multer({
@@ -122,15 +212,33 @@ import {
   parseReleaseMetadata,
   matchesPlatformFilter,
 } from "../shared/title-utils.js";
-import { categorizeDownload } from "../shared/download-categorizer.js";
+import { categorizeDownload, type DownloadCategory } from "../shared/download-categorizer.js";
 import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
+import type { XrelGameStatus } from "../shared/xrel-types.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import {
+  getContentFilterFlags,
+  isContentFiltered,
+  excludeFilteredContent,
+} from "./content-filter.js";
+import { normalizeInitialReleaseStatus } from "./game-status.js";
+import { quickAddGameByTitle } from "./game-quick-add.js";
 import { importRouter } from "./routes/import.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
+import { probeRootFolder, isWithinDeletableRootFolder } from "./root-folders.js";
+import {
+  scanRootFolderById,
+  scanAllEnabledRootFolders,
+  getAllScanProgress,
+  getAllUnmatched,
+  matchUnmatchedFolder,
+} from "./library-scanner.js";
+import { integrationRouter } from "./routes/integration.js";
+import { apiKeysRouter } from "./routes/api-keys.js";
 
 // Cache-Control header values for IGDB discovery endpoints
 const CC_IGDB_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
@@ -175,14 +283,73 @@ function isValidDiscordWebhook(value: string): boolean {
   }
 }
 
+// Twitch Client IDs/Secrets are alphanumeric tokens (currently 30 characters); the range is
+// intentionally loose so a length tweak on Twitch's side doesn't start rejecting valid values,
+// while still catching obvious mistakes (pasted whitespace, truncated copy, stray punctuation).
+const IGDB_CREDENTIAL_FORMAT = /^[A-Za-z0-9]{20,40}$/;
+
+/** Cheap client-id/secret shape check, so an obvious typo is rejected before any network call. */
+function validateIgdbCredentialFormat(
+  clientId: string,
+  clientSecret: string
+): { error: string } | null {
+  if (!IGDB_CREDENTIAL_FORMAT.test(clientId)) {
+    return { error: "Client ID doesn't look valid — check for extra spaces or a partial copy." };
+  }
+  if (!IGDB_CREDENTIAL_FORMAT.test(clientSecret)) {
+    return {
+      error: "Client Secret doesn't look valid — check for extra spaces or a partial copy.",
+    };
+  }
+  return null;
+}
+
+/**
+ * Masks an indexer's API key before exposing its configuration.
+ *
+ * @param indexer - The indexer configuration to sanitize
+ * @returns The indexer with its API key replaced by a redaction placeholder when configured
+ */
 function maskIndexer(indexer: Indexer): Indexer {
   return indexer.apiKey ? { ...indexer, apiKey: REDACTED_PLACEHOLDER } : indexer;
 }
 
-function maskDownloader(downloader: Downloader): Downloader {
-  return downloader.password ? { ...downloader, password: REDACTED_PLACEHOLDER } : downloader;
+// The SABnzbd archive password lives inside the free-form `settings` JSON blob
+// (alongside qBittorrent's initialState etc.), so it needs its own mask/restore
+/**
+ * Masks the archive password in serialized downloader settings.
+ *
+ * @param settingsJson - The serialized downloader settings, or `null`
+ * @returns The settings with the archive password redacted, or the original value when no archive password is configured
+ */
+function maskDownloaderSettings(settingsJson: string | null): string | null {
+  const settings = parseJsonObject(settingsJson);
+  if (!settings.archivePassword) return settingsJson;
+  return JSON.stringify({ ...settings, archivePassword: REDACTED_PLACEHOLDER });
 }
 
+/**
+ * Masks sensitive credentials in a downloader configuration.
+ *
+ * @param downloader - The downloader configuration whose credentials should be masked
+ * @returns A downloader configuration with its password and archive password redacted
+ */
+function maskDownloader(downloader: Downloader): Downloader {
+  const masked = downloader.password
+    ? { ...downloader, password: REDACTED_PLACEHOLDER }
+    : downloader;
+  const maskedSettings = maskDownloaderSettings(masked.settings);
+  return maskedSettings !== masked.settings ? { ...masked, settings: maskedSettings } : masked;
+}
+
+/**
+ * Sends a bad-request response containing a message and Zod validation issues.
+ *
+ * @param res - The response used to send the error
+ * @param error - The Zod validation error containing issue details
+ * @param message - The error message included in the response
+ * @returns The configured response
+ */
 function respondWithZodError(res: Response, error: z.ZodError, message: string): Response {
   return res.status(400).json({ error: message, details: error.issues });
 }
@@ -246,19 +413,27 @@ export function validateSetupCredentials(
 async function saveIgdbCredentialsIfProvided(
   igdbClientId: unknown,
   igdbClientSecret: unknown
-): Promise<void> {
+): Promise<{ error: string } | null> {
   if (
     typeof igdbClientId !== "string" ||
     typeof igdbClientSecret !== "string" ||
     igdbClientId.trim().length === 0 ||
     igdbClientSecret.trim().length === 0
   ) {
-    return;
+    return null;
   }
 
-  await storage.setSystemConfig("igdb.clientId", igdbClientId.trim());
-  await storage.setSystemConfig("igdb.clientSecret", igdbClientSecret.trim());
+  const trimmedClientId = igdbClientId.trim();
+  const trimmedClientSecret = igdbClientSecret.trim();
+  const formatError = validateIgdbCredentialFormat(trimmedClientId, trimmedClientSecret);
+  if (formatError) {
+    return formatError;
+  }
+
+  await storage.setSystemConfig("igdb.clientId", trimmedClientId);
+  await storage.setSystemConfig("igdb.clientSecret", trimmedClientSecret);
   routesLogger.info("IGDB credentials saved during setup");
+  return null;
 }
 
 // Helper function for aggregated indexer search
@@ -320,7 +495,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       }
     }
 
-    res.json({
+    return res.json({
       items: filteredItems,
       total,
       offset,
@@ -329,7 +504,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
     });
   } catch (error) {
     console.error("Error searching indexers:", error);
-    res.status(500).json({ error: "Failed to search indexers" });
+    return res.status(500).json({ error: "Failed to search indexers" });
   }
 }
 
@@ -349,36 +524,6 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
   const limit = Math.min(Math.max(1, Number.parseInt(query.limit as string, 10) || 20), 100);
   const offset = Math.max(0, Number.parseInt(query.offset as string, 10) || 0);
   return { limit, offset };
-}
-
-interface ContentFilterFlags {
-  hideAdultContent: boolean;
-  hideAgeRestrictedContent: boolean;
-}
-
-/** The two content-filter signals are independent user settings: "Erotic" theme vs. ESRB AO/PEGI 18 age ratings. */
-async function getContentFilterFlags(userId: string): Promise<ContentFilterFlags> {
-  const settings = await storage.getUserSettings(userId);
-  return {
-    hideAdultContent: settings?.hideAdultContent ?? true,
-    hideAgeRestrictedContent: settings?.hideAgeRestrictedContent ?? true,
-  };
-}
-
-function isContentFiltered(
-  game: { isAdultContent?: boolean; isAgeRestricted?: boolean },
-  flags: ContentFilterFlags
-): boolean {
-  return (
-    (flags.hideAdultContent && game.isAdultContent === true) ||
-    (flags.hideAgeRestrictedContent && game.isAgeRestricted === true)
-  );
-}
-
-function excludeFilteredContent<T>(games: T[], flags: ContentFilterFlags): T[] {
-  return games.filter(
-    (g) => !isContentFiltered(g as { isAdultContent?: boolean; isAgeRestricted?: boolean }, flags)
-  );
 }
 
 /** Filters an already-fetched list of library games according to the user's content-filter preferences. */
@@ -458,14 +603,20 @@ function registerIgdbParamListRoute(
       );
 
       res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
-      res.json(formattedGames);
+      return res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, `error fetching games by ${errorLabel}`);
-      res.status(500).json({ error: `Failed to fetch games by ${errorLabel}` });
+      return res.status(500).json({ error: `Failed to fetch games by ${errorLabel}` });
     }
   });
 }
 
+/**
+ * Registers application middleware and API routes, then creates the HTTP server.
+ *
+ * @param app - The Express application to configure
+ * @returns The configured HTTP server
+ */
 export async function registerRoutes(app: Express): Promise<Server> {
   // 🛡️ Sentinel: Add security headers with Helmet
   // Configured to allow Vite/React (unsafe-inline/eval) in dev, and IGDB images everywhere
@@ -528,6 +679,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/robots.txt", (_req, res) => {
     res.type("text/plain").send("User-agent: *\nDisallow: /\n");
   });
+  // Default-deny auth boundary for the whole /api surface. Mounted before any
+  // /api route (including the routers below) is registered, so every /api/*
+  // request is required to authenticate unless explicitly allowlisted above.
+  app.use("/api", requireAuthenticationForApi);
+  // CSRF protection for cookie-authenticated requests. Must run after the
+  // auth boundary above so req.authSource is already populated.
+  app.use("/api", csrfProtection);
 
   // Use Steam Routes
   app.use(steamRoutes);
@@ -557,10 +715,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const lines = await readLastLogLines(logPath, limit);
 
-      res.json({ lines });
+      return res.json({ lines });
     } catch (error) {
       routesLogger.error({ error }, "Failed to read server log file");
-      res.status(500).json({ error: "Failed to read log file" });
+      return res.status(500).json({ error: "Failed to read log file" });
     }
   });
 
@@ -568,10 +726,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/auth/status", async (_req, res) => {
     try {
       const userCount = await storage.countUsers();
-      res.json({ hasUsers: userCount > 0 });
+      const hasUsers = userCount > 0;
+      // Also surface IGDB configured-status here (not just hasUsers) so the
+      // unauthenticated setup wizard can decide whether to ask for IGDB
+      // credentials without needing to call the authenticated /api/config
+      // endpoint pre-login. This route stays on the public allowlist even
+      // after setup completes (existing sessions re-check it), so once a
+      // user exists, omit the igdb field entirely rather than leaving IGDB
+      // configuration status queryable by any anonymous caller forever.
+      if (!hasUsers) {
+        const igdb = await getIgdbConfigStatus();
+        return res.json({ hasUsers, igdb });
+      }
+      return res.json({ hasUsers });
     } catch (error) {
       routesLogger.error({ error }, "Failed to check setup status");
-      res.status(500).json({ error: "Failed to check setup status" });
+      return res.status(500).json({ error: "Failed to check setup status" });
     }
   });
 
@@ -591,6 +761,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { username: trimmedUsername, password: trimmedPassword } = validated;
 
+      // Validate IGDB credential format before creating the user account: rejecting it after
+      // the account exists would leave the caller stuck (setup can't be re-run once a user
+      // exists), so a bad format -- an incomplete pair, or a non-string value, all of which
+      // saveIgdbCredentialsIfProvided would otherwise silently discard below -- must fail fast,
+      // before anything is persisted.
+      const igdbClientIdSupplied = igdbClientId !== undefined && igdbClientId !== null;
+      const igdbClientSecretSupplied = igdbClientSecret !== undefined && igdbClientSecret !== null;
+      if (
+        (igdbClientIdSupplied && typeof igdbClientId !== "string") ||
+        (igdbClientSecretSupplied && typeof igdbClientSecret !== "string")
+      ) {
+        return res.status(400).json({ error: "IGDB Client ID and Client Secret must be strings" });
+      }
+
+      const trimmedIgdbClientId = typeof igdbClientId === "string" ? igdbClientId.trim() : "";
+      const trimmedIgdbClientSecret =
+        typeof igdbClientSecret === "string" ? igdbClientSecret.trim() : "";
+      const hasIgdbClientId = trimmedIgdbClientId.length > 0;
+      const hasIgdbClientSecret = trimmedIgdbClientSecret.length > 0;
+
+      if (hasIgdbClientId !== hasIgdbClientSecret) {
+        return res
+          .status(400)
+          .json({ error: "Both IGDB Client ID and Client Secret are required together" });
+      }
+
+      if (hasIgdbClientId && hasIgdbClientSecret) {
+        const formatError = validateIgdbCredentialFormat(
+          trimmedIgdbClientId,
+          trimmedIgdbClientSecret
+        );
+        if (formatError) {
+          return res.status(400).json(formatError);
+        }
+      }
+
       // Create first user
       // Create first user atomically
       const passwordHash = await hashPassword(trimmedPassword);
@@ -607,11 +813,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const token = await generateToken(user);
 
-      // Save IGDB creds if provided
+      // Save IGDB creds if provided (format already validated above).
       await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
-      res.json({ token, user: { id: user.id, username: user.username } });
+      // Cookie-based auth is the primary mechanism for browser clients (see
+      // server/security.ts); the token is also still returned in the body
+      // for backward compatibility with any non-browser/bearer-only client.
+      setAuthCookies(req, res, token);
+      return res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
       routesLogger.error(
         {
@@ -621,7 +831,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         "Setup failed"
       );
-      res.status(500).json({ error: "Setup failed. Please try again." });
+      return res.status(500).json({ error: "Setup failed. Please try again." });
+    }
+  });
+
+  // "Test connection" button on the setup wizard. Public (no user/token exists yet), but only
+  // does anything before setup completes, so it can't become a standing unauthenticated
+  // Twitch-credential probe once the instance is in normal use.
+  app.post("/api/auth/setup/test-igdb", authRateLimiter, async (req, res) => {
+    try {
+      const userCount = await storage.countUsers();
+      if (userCount > 0) {
+        return res.status(403).json({ success: false, error: "Setup already completed" });
+      }
+
+      const { clientId, clientSecret } = req.body;
+      if (typeof clientId !== "string" || typeof clientSecret !== "string") {
+        return res
+          .status(400)
+          .json({ success: false, error: "Client ID and Client Secret are required" });
+      }
+
+      const trimmedClientId = clientId.trim();
+      const trimmedClientSecret = clientSecret.trim();
+      const formatError = validateIgdbCredentialFormat(trimmedClientId, trimmedClientSecret);
+      if (formatError) {
+        return res.status(400).json({ success: false, ...formatError });
+      }
+
+      const result = await igdbClient.testCredentials(trimmedClientId, trimmedClientSecret);
+      return res.status(result.success ? 200 : 400).json(result);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to test IGDB credentials during setup");
+      return res.status(500).json({ success: false, error: "Failed to test IGDB credentials" });
     }
   });
 
@@ -658,12 +900,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await storage.assignOrphanGamesToUser(user.id);
 
     const token = await generateToken(user);
-    res.json({ token, user: { id: user.id, username: user.username } });
+    // Cookie-based auth is the primary mechanism for browser clients (see
+    // server/security.ts); the token is also still returned in the body
+    // for backward compatibility with any non-browser/bearer-only client.
+    setAuthCookies(req, res, token);
+    return res.json({ token, user: { id: user.id, username: user.username } });
   });
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
     const user = req.user!;
     res.json({ id: user.id, username: user.username, steamId64: user.steamId64 });
+  });
+
+  // Logout must be idempotent: an expired/invalid/missing session cookie
+  // must still be cleared, otherwise the browser keeps a stale cookie
+  // forever. It's a SOFT_AUTH_API_ROUTES entry (see requireAuthenticationForApi
+  // above), which already ran optionalAuthenticateToken for this request --
+  // req.authSource is populated when a valid cookie is present, so
+  // csrfProtection (mounted before route registration) still enforces the
+  // CSRF check for cookie-authenticated callers. JWTs are stateless, so
+  // there's nothing to invalidate server-side beyond clearing the cookies.
+  app.post("/api/auth/logout", (req, res) => {
+    clearAuthCookies(req, res);
+    res.json({ success: true });
   });
 
   app.patch("/api/auth/password", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
@@ -685,18 +944,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateUserPassword(userId, newPasswordHash);
 
       routesLogger.info({ userId }, "User password updated");
-      res.json({ success: true, message: "Password updated successfully" });
+      return res.json({ success: true, message: "Password updated successfully" });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return respondWithZodError(res, error, "Invalid password data");
       }
       routesLogger.error({ error }, "Failed to update password");
-      res.status(500).json({ error: "Failed to update password" });
+      return res.status(500).json({ error: "Failed to update password" });
     }
   });
 
   // Health check endpoint
-  app.get("/api/health", async (req, res) => {
+  app.get("/api/health", async (_req, res) => {
     // 🛡️ Sentinel: Harden health check endpoint.
     // This liveness probe only confirms the server is responsive.
     // For readiness checks (e.g., database connectivity), use the /api/ready endpoint.
@@ -704,7 +963,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // SSL Settings - Get
-  app.get("/api/settings/ssl", authenticateToken, async (req, res) => {
+  app.get("/api/settings/ssl", authenticateToken, async (_req, res) => {
     try {
       const sslConfig = configLoader.getSslConfig();
 
@@ -808,10 +1067,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       routesLogger.info("SSL settings updated");
-      res.json({ success: true, message: "SSL settings updated. Restart required." });
+      return res.json({ success: true, message: "SSL settings updated. Restart required." });
     } catch (error) {
       routesLogger.error({ error }, "Failed to update SSL settings");
-      res.status(500).json({ error: "Failed to update SSL settings" });
+      return res.status(500).json({ error: "Failed to update SSL settings" });
     }
   });
 
@@ -820,7 +1079,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/settings/ssl/generate",
     authenticateToken,
     sensitiveEndpointLimiter,
-    async (req, res) => {
+    async (_req, res) => {
       try {
         const { generateSelfSignedCert } = await import("./ssl.js");
         const { certPath, keyPath } = await generateSelfSignedCert();
@@ -908,7 +1167,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         routesLogger.info("Uploaded SSL certificate and key");
-        res.json({
+        return res.json({
           success: true,
           message: "Certificate uploaded successfully",
           certPath,
@@ -916,7 +1175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       } catch (error) {
         routesLogger.error({ error }, "Failed to upload certificate");
-        res.status(500).json({ error: "Failed to upload certificate" });
+        return res.status(500).json({ error: "Failed to upload certificate" });
       }
     }
   );
@@ -1042,41 +1301,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
             : null;
         const currentRelativePath = path.relative(FILE_BROWSER_ROOT, currentPath);
 
-        res.json({
+        return res.json({
           path: currentRelativePath,
           parent,
           files,
         });
       } catch (error) {
         routesLogger.error({ error }, "Failed to list directory");
-        res.status(500).json({ error: "Failed to list directory" });
+        return res.status(500).json({ error: "Failed to list directory" });
       }
     }
   );
 
-  // Configuration endpoint - read-only access to key settings
-  app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
+  // Configuration endpoint - read-only access to key settings. Requires
+  // authentication (enforced by the default-deny API auth boundary below);
+  // the unauthenticated setup flow instead uses the `igdb` field on
+  // GET /api/auth/status, which exposes only the configured/source booleans.
+  app.get("/api/config", sensitiveEndpointLimiter, async (_req, res) => {
     try {
       // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
       // Only expose boolean flags indicating if services are configured, not
       // sensitive details like database URLs or partial API keys.
       // clientId is intentionally omitted here; use the authenticated
       // GET /api/settings/igdb endpoint to retrieve it.
-      let isConfigured = false;
-      let source: "env" | "database" | undefined;
-
-      // Check database first (takes precedence)
-      const dbClientId = await storage.getSystemConfig("igdb.clientId");
-      const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-
-      if (dbClientId && dbClientSecret) {
-        isConfigured = true;
-        source = "database";
-      } else if (appConfig.igdb.isConfigured) {
-        // Fallback to environment variables
-        isConfigured = true;
-        source = "env";
-      }
+      const { configured: isConfigured, source } = await getIgdbConfigStatus();
 
       const xrelApiBase =
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
@@ -1097,20 +1345,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Protect all API routes from here
-  app.use("/api", (req, res, next) => {
-    // Skip authentication for specific public endpoints that were already defined or need to be excluded
-    // Note: Auth routes are defined before this middleware, so they are already skipped.
-    // We explicitly skip health check if it matched /api/health (it was defined before, so express handles it first? Yes.)
-
-    // Just applying authenticateToken middleware
-    authenticateToken(req, res, next);
-  });
-
-  // Mount Feature Routers (explicitly protected)
-  app.use("/api/imports", authenticateToken, importRouter);
-  app.use("/api/import-tasks", authenticateToken, importTasksRouter);
-  app.use("/api/system", authenticateToken, systemRouter);
+  // Mount Feature Routers. No per-mount authenticateToken here: the
+  // default-deny boundary (requireAuthenticationForApi, mounted above
+  // before any /api route is registered) already authenticates every
+  // request to these paths -- none of them are in PUBLIC_API_ROUTES.
+  // Repeating the check here bought no additional protection (it re-runs
+  // the identical jwt.verify + storage.getUser after the same middleware
+  // already accepted the request) while doubling the per-request auth cost.
+  app.use("/api/imports", importRouter);
+  app.use("/api/import-tasks", importTasksRouter);
+  app.use("/api/system", systemRouter);
+  // Authenticated by the /api gate above (JWT or integration API key); same
+  // reasoning as the mounts above.
+  app.use("/api/integration", integrationRouter);
+  app.use("/api/api-keys", apiKeysRouter);
 
   // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {
@@ -1130,17 +1378,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ⚡ Bolt: Use batched sync method to handle all indexers in a single transaction
       const results = await storage.syncIndexers(indexers);
 
-      res.json({
+      return res.json({
         success: true,
         message: `Synced indexers from Prowlarr: ${results.added} added, ${results.updated} updated`,
         results,
       });
     } catch (error) {
-      next(error);
+      return next(error);
     }
   });
 
-  app.get("/api/ready", async (req, res) => {
+  app.get("/api/ready", async (_req, res) => {
     let isHealthy = true;
 
     // Check database connectivity
@@ -1164,6 +1412,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(200).json({ status: "ok" });
     } else {
       res.status(503).json({ status: "error" });
+    }
+  });
+
+  // Lightweight dashboard stats for external status widgets (Homepage, Homarr, Organizr, etc.)
+  app.get("/api/status", authenticateToken, async (req, res) => {
+    try {
+      const status = await storage.getDashboardStatus(req.user!.id);
+      // User-specific data: never let a shared/browser cache reuse this across accounts.
+      res.set("Cache-Control", "no-store");
+      res.json(status);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to get dashboard status");
+      res.status(500).json({ error: "Failed to get dashboard status" });
     }
   });
 
@@ -1245,10 +1506,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         let games = await storage.searchUserGames(userId, q, showHidden);
         games = await applyContentFilter(userId, games);
-        res.json(games);
+        return res.json(games);
       } catch (error) {
         routesLogger.error({ error }, "error searching games");
-        res.status(500).json({ error: "Failed to search games" });
+        return res.status(500).json({ error: "Failed to search games" });
       }
     }
   );
@@ -1280,14 +1541,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Avoid a misleading release notification for games already released at add time.
         const normalizedGameData = normalizeInitialReleaseStatus(gameData);
         const game = await storage.addGame(normalizedGameData);
-        res.status(201).json(game);
+        return res.status(201).json(game);
       } catch (error) {
         if (error instanceof z.ZodError) {
           routesLogger.warn({ errors: error.issues }, "validation error");
           return respondWithZodError(res, error, "Invalid game data");
         }
         routesLogger.error({ error }, "error adding game");
-        res.status(500).json({ error: "Failed to add game" });
+        return res.status(500).json({ error: "Failed to add game" });
       }
     }
   );
@@ -1312,13 +1573,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ error: "Game not found" });
         }
 
-        res.json(updatedGame);
+        return res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
           return respondWithZodError(res, error, "Invalid status data");
         }
         routesLogger.error({ error }, "error updating game status");
-        res.status(500).json({ error: "Failed to update game status" });
+        return res.status(500).json({ error: "Failed to update game status" });
       }
     }
   );
@@ -1342,13 +1603,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ error: "Game not found" });
         }
 
-        res.json(updatedGame);
+        return res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
           return respondWithZodError(res, error, "Invalid hidden data");
         }
         routesLogger.error({ error }, "error updating game visibility");
-        res.status(500).json({ error: "Failed to update game visibility" });
+        return res.status(500).json({ error: "Failed to update game visibility" });
       }
     }
   );
@@ -1370,13 +1631,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ error: "Game not found" });
         }
 
-        res.json(updatedGame);
+        return res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
           return respondWithZodError(res, error, "Invalid user rating data");
         }
         routesLogger.error({ error }, "error updating game user rating");
-        res.status(500).json({ error: "Failed to update user rating" });
+        return res.status(500).json({ error: "Failed to update user rating" });
       }
     }
   );
@@ -1398,13 +1659,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ error: "Game not found" });
         }
 
-        res.json(updatedGame);
+        return res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
           return respondWithZodError(res, error, "Invalid notes data");
         }
         routesLogger.error({ error }, "error updating game notes");
-        res.status(500).json({ error: "Failed to update notes" });
+        return res.status(500).json({ error: "Failed to update notes" });
+      }
+    }
+  );
+
+  // Update the per-game download target, or clear it to use the account default.
+  app.patch(
+    "/api/games/:id/target-platform",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const userId = req.user!.id;
+        const target = updateGameTargetPlatformSchema.parse(req.body);
+
+        if (!(await resolveOwnedGame(id, userId, res))) return;
+
+        const updatedGame = await storage.updateGame(id, target);
+        if (!updatedGame) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+
+        return res.json(updatedGame);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid target platform data");
+        }
+        routesLogger.error({ error }, "error updating game target platform");
+        return res.status(500).json({ error: "Failed to update target platform" });
       }
     }
   );
@@ -1565,6 +1856,253 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==========================================================================
+  // Root folders — extra directories scanned (read-only discovery) for games
+  // already on disk outside the configured library root, e.g. an older
+  // library or a secondary drive. Separate from the library root used by the
+  // download-import pipeline.
+  // ==========================================================================
+
+  app.get("/api/root-folders", authenticateToken, async (_req: Request, res: Response) => {
+    try {
+      const folders = await storage.getAllRootFolders();
+      res.json(folders);
+    } catch (error) {
+      routesLogger.error({ error }, "error listing root folders");
+      res.status(500).json({ error: "Failed to list root folders" });
+    }
+  });
+
+  app.post(
+    "/api/root-folders",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const data = insertRootFolderSchema.parse(req.body);
+        // Canonicalize before the uniqueness check and probe so equivalent
+        // paths (`/mnt/games`, `/mnt/games/.`, `/mnt/other/../games`) can't
+        // bypass the unique-path constraint and get scanned as duplicates.
+        // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- root folders are intentionally arbitrary admin-supplied absolute paths (same trust level as the existing libraryRoot/downloadPath config), not a filename joined onto a fixed destination directory to be escaped
+        data.path = path.resolve(data.path);
+
+        const existing = await storage.getRootFolderByPath(data.path);
+        if (existing) {
+          return res.status(409).json({ error: "A root folder with this path already exists" });
+        }
+
+        const probe = await probeRootFolder(data.path);
+        if (!probe.accessible) {
+          return res.status(400).json({
+            error: "Path is not accessible",
+            details: probe.error ?? "Path must exist and be a readable directory",
+          });
+        }
+
+        const folder = await storage.addRootFolder(data);
+        const withHealth = await storage.updateRootFolderHealth(folder.id, {
+          accessible: probe.accessible,
+          diskFreeBytes: probe.diskFreeBytes,
+          diskTotalBytes: probe.diskTotalBytes,
+        });
+
+        return res.status(201).json(withHealth ?? folder);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid root folder data");
+        }
+        routesLogger.error({ error }, "error creating root folder");
+        return res.status(500).json({ error: "Failed to create root folder" });
+      }
+    }
+  );
+
+  app.patch(
+    "/api/root-folders/:id",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
+    sanitizeRootFolderUpdateData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const updates = updateRootFolderSchema.parse(req.body);
+
+        if (updates.path) {
+          // Same canonicalization as the create route — resolve before the
+          // uniqueness check and probe so equivalent paths can't collide.
+          // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- same as the create route: an arbitrary admin-supplied absolute path, not a filename joined onto a fixed destination
+          updates.path = path.resolve(updates.path);
+          const clash = await storage.getRootFolderByPath(updates.path);
+          if (clash && clash.id !== req.params.id) {
+            return res.status(409).json({ error: "Another root folder already uses this path" });
+          }
+
+          // Re-probe on every path change so stale health from the old path
+          // is never carried over onto the new one.
+          const probe = await probeRootFolder(updates.path);
+          if (!probe.accessible) {
+            return res.status(400).json({
+              error: "Path is not accessible",
+              details: probe.error ?? "Path must exist and be a readable directory",
+            });
+          }
+          const folder = await storage.updateRootFolder(req.params.id, updates);
+          if (!folder) return res.status(404).json({ error: "Root folder not found" });
+          const withHealth = await storage.updateRootFolderHealth(folder.id, {
+            accessible: probe.accessible,
+            diskFreeBytes: probe.diskFreeBytes,
+            diskTotalBytes: probe.diskTotalBytes,
+          });
+          return res.json(withHealth ?? folder);
+        }
+
+        const folder = await storage.updateRootFolder(req.params.id, updates);
+        if (!folder) return res.status(404).json({ error: "Root folder not found" });
+        return res.json(folder);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid root folder data");
+        }
+        routesLogger.error({ error }, "error updating root folder");
+        return res.status(500).json({ error: "Failed to update root folder" });
+      }
+    }
+  );
+
+  app.delete(
+    "/api/root-folders/:id",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const success = await storage.removeRootFolder(req.params.id);
+        if (!success) return res.status(404).json({ error: "Root folder not found" });
+        return res.status(204).send();
+      } catch (error) {
+        routesLogger.error({ error }, "error deleting root folder");
+        return res.status(500).json({ error: "Failed to delete root folder" });
+      }
+    }
+  );
+
+  // Force-refresh accessibility + disk stats for one root folder.
+  app.post(
+    "/api/root-folders/:id/health-check",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const folder = await storage.getRootFolder(req.params.id);
+        if (!folder) return res.status(404).json({ error: "Root folder not found" });
+
+        const probe = await probeRootFolder(folder.path);
+        const updated = await storage.updateRootFolderHealth(folder.id, {
+          accessible: probe.accessible,
+          diskFreeBytes: probe.diskFreeBytes,
+          diskTotalBytes: probe.diskTotalBytes,
+        });
+        return res.json({ ...updated, error: probe.error ?? null });
+      } catch (error) {
+        routesLogger.error({ error }, "error running root folder health check");
+        return res.status(500).json({ error: "Failed to run health check" });
+      }
+    }
+  );
+
+  // ==========================================================================
+  // Library scanner — scans configured root folders for games not yet
+  // tracked in Questarr and matches them against IGDB.
+  // ==========================================================================
+
+  app.post(
+    "/api/library/scan",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeLibraryScanData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = req.user!.id;
+        const { rootFolderId } = (req.body ?? {}) as { rootFolderId?: string };
+        if (rootFolderId) {
+          const folder = await storage.getRootFolder(rootFolderId);
+          if (!folder) return res.status(404).json({ error: "Root folder not found" });
+          // Fire-and-forget; progress is available via GET /api/library/scan/status
+          scanRootFolderById(rootFolderId, userId).catch((err) =>
+            routesLogger.error({ err }, "scanRootFolderById crashed")
+          );
+          return res.status(202).json({ accepted: true, rootFolderId });
+        }
+        scanAllEnabledRootFolders(userId).catch((err) =>
+          routesLogger.error({ err }, "scanAllEnabledRootFolders crashed")
+        );
+        return res.status(202).json({ accepted: true, rootFolderId: null });
+      } catch (error) {
+        routesLogger.error({ error }, "error starting library scan");
+        return res.status(500).json({ error: "Failed to start library scan" });
+      }
+    }
+  );
+
+  app.get("/api/library/scan/status", authenticateToken, async (_req: Request, res: Response) => {
+    try {
+      res.json(getAllScanProgress());
+    } catch (error) {
+      routesLogger.error({ error }, "error reading scan status");
+      res.status(500).json({ error: "Failed to read scan status" });
+    }
+  });
+
+  app.get(
+    "/api/library/scan/unmatched",
+    authenticateToken,
+    async (_req: Request, res: Response) => {
+      try {
+        res.json(getAllUnmatched());
+      } catch (error) {
+        routesLogger.error({ error }, "error reading unmatched list");
+        res.status(500).json({ error: "Failed to read unmatched list" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/library/scan/unmatched/match",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeUnmatchedMatchData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { rootFolderId, folderName, igdbId } = req.body as {
+          rootFolderId: string;
+          folderName: string;
+          igdbId: number;
+        };
+        const result = await matchUnmatchedFolder(rootFolderId, folderName, igdbId, req.user!.id);
+        res.json(result);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        routesLogger.error({ error }, "error resolving unmatched folder");
+        // matchUnmatchedFolder throws these two plain-Error messages for the
+        // "client asked to match something that no longer exists" cases —
+        // report them as 404s rather than 500s; everything else (IGDB
+        // lookup failure, filesystem error) stays a 500.
+        const notFound =
+          msg === "Root folder not found" ||
+          msg === "No matching unmatched entry for this root folder";
+        res.status(notFound ? 404 : 500).json({ error: msg });
+      }
+    }
+  );
+
   // Remove game from collection
   type FileDeletionResult =
     | { deleted: true; path: string | null }
@@ -1593,8 +2131,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const resolvedTarget = path.resolve(game.libraryPath);
             const insideRoot =
               resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
+            // Games discovered by the root-folder scanner live outside the
+            // configured library root by design. Allow deleting their files
+            // too, but only when the user has explicitly opted that specific
+            // root folder in to deletion — discovery itself never does.
+            const canDelete = insideRoot || (await isWithinDeletableRootFolder(resolvedTarget));
 
-            if (insideRoot) {
+            if (canDelete) {
               try {
                 await fsExtra.remove(resolvedTarget);
                 fileDeletion = { deleted: true, path: game.libraryPath };
@@ -1627,10 +2170,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ error: "Game not found" });
         }
 
-        res.status(200).json({ success: true, fileDeletion });
+        return res.status(200).json({ success: true, fileDeletion });
       } catch (error) {
         routesLogger.error({ error }, "error removing game");
-        res.status(500).json({ error: "Failed to remove game" });
+        return res.status(500).json({ error: "Failed to remove game" });
       }
     }
   );
@@ -1695,10 +2238,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const entry = await storage.addReleaseBlacklist(parsed.data);
-        res.status(201).json(entry);
+        return res.status(201).json(entry);
       } catch (error) {
         routesLogger.error({ error }, "error adding to blacklist");
-        res.status(500).json({ error: "Failed to add to blacklist" });
+        return res.status(500).json({ error: "Failed to add to blacklist" });
       }
     }
   );
@@ -1736,10 +2279,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const deleted = await storage.removeReleaseBlacklist(id, gameId);
         if (!deleted) return res.status(404).json({ error: "Blacklist entry not found" });
-        res.status(204).send();
+        return res.status(204).send();
       } catch (error) {
         routesLogger.error({ error }, "error removing from blacklist");
-        res.status(500).json({ error: "Failed to remove from blacklist" });
+        return res.status(500).json({ error: "Failed to remove from blacklist" });
       }
     }
   );
@@ -1816,17 +2359,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.json({ files: [], truncated: false });
         }
 
-        const categoryDirs = new Set(["dlc", "update", "extra", "packs"]);
+        const categoryDirs = new Set<DownloadCategory>(["dlc", "update", "extra", "packs"]);
+        const isCategoryDirName = (name: string): name is DownloadCategory =>
+          categoryDirs.has(name as DownloadCategory);
         // "packs" is recognized as a category-inheriting folder name, but game_files only
         // persists the four categories the UI groups by ("main" | "dlc" | "update" | "extra").
         // Normalize it (and the same category from filename-based categorizeDownload
         // matches) to "extra" so scan results are always postable via POST /api/game-files.
-        const normalizeCategory = (category: string): string =>
+        const normalizeCategory = (category: DownloadCategory): GameFileCategory =>
           category === "packs" ? "extra" : category;
-        const files: Array<{ name: string; path: string; category: string; size: number }> = [];
+        const files: ScannedGameFile[] = [];
         let truncated = false;
         const deadline = Date.now() + SCAN_TIME_BUDGET_MS;
-        const walk = async (dir: string, inheritedCategory?: string): Promise<void> => {
+        const walk = async (dir: string, inheritedCategory?: DownloadCategory): Promise<void> => {
           if (truncated) return;
           const canonicalDir = await realpathOrNull(dir);
           if (!canonicalDir || !isContained(canonicalDir, libraryRoot)) return;
@@ -1846,9 +2391,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
             const fullPath = path.join(canonicalDir, entry.name);
             if (entry.isDirectory()) {
-              const nextCategory = categoryDirs.has(entry.name.toLowerCase())
-                ? entry.name.toLowerCase()
-                : inheritedCategory;
+              const lowerName = entry.name.toLowerCase();
+              const nextCategory = isCategoryDirName(lowerName) ? lowerName : inheritedCategory;
               await walk(fullPath, nextCategory);
               continue;
             }
@@ -1869,10 +2413,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         };
         await walk(scanRoot);
-        res.json({ files, truncated });
+        return res.json({ files, truncated });
       } catch (error) {
         routesLogger.error({ error }, "error scanning game files");
-        res.status(500).json({ error: "Failed to scan game files" });
+        return res.status(500).json({ error: "Failed to scan game files" });
       }
     }
   );
@@ -1936,10 +2480,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ error: "Download not found" });
         }
         const files = await storage.getGameFilesByDownload(downloadId);
-        res.json(files);
+        return res.json(files);
       } catch (error) {
         routesLogger.error({ error }, "error fetching game files by download");
-        res.status(500).json({ error: "Failed to fetch game files" });
+        return res.status(500).json({ error: "Failed to fetch game files" });
       }
     }
   );
@@ -1962,13 +2506,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         const gameFile = await storage.addGameFile(parsed);
-        res.status(201).json(gameFile);
+        return res.status(201).json(gameFile);
       } catch (error) {
         if (error instanceof z.ZodError) {
           return respondWithZodError(res, error, "Invalid game file data");
         }
         routesLogger.error({ error }, "error creating game file");
-        res.status(500).json({ error: "Failed to create game file" });
+        return res.status(500).json({ error: "Failed to create game file" });
       }
     }
   );
@@ -1991,10 +2535,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!deleted) {
           return res.status(404).json({ error: "Game file not found" });
         }
-        res.json({ success: true });
+        return res.json({ success: true });
       } catch (error) {
         routesLogger.error({ error }, "error deleting game file");
-        res.status(500).json({ error: "Failed to delete game file" });
+        return res.status(500).json({ error: "Failed to delete game file" });
       }
     }
   );
@@ -2034,10 +2578,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
 
         res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
-        res.json(formattedGames);
+        return res.json(formattedGames);
       } catch (error) {
         routesLogger.error({ error }, "error searching IGDB");
-        res.status(500).json({ error: "Failed to search games" });
+        return res.status(500).json({ error: "Failed to search games" });
       }
     }
   );
@@ -2104,7 +2648,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Get available genres (for UI dropdowns/filters)
-  app.get("/api/igdb/genres", igdbRateLimiter, async (req, res) => {
+  app.get("/api/igdb/genres", igdbRateLimiter, async (_req, res) => {
     try {
       const genres = await igdbClient.getGenres();
       res.set("Cache-Control", CC_IGDB_METADATA);
@@ -2116,7 +2660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get available platforms (for UI dropdowns/filters)
-  app.get("/api/igdb/platforms", igdbRateLimiter, async (req, res) => {
+  app.get("/api/igdb/platforms", igdbRateLimiter, async (_req, res) => {
     try {
       const platforms = await igdbClient.getPlatforms();
       res.set("Cache-Control", CC_IGDB_METADATA);
@@ -2148,6 +2692,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const formattedGame = igdbClient.formatGameData(igdbGame);
+        const timeToBeat = (await igdbClient.getTimeToBeats([igdbId])).get(igdbId);
+        if (timeToBeat) {
+          formattedGame.timeToBeatHastily = timeToBeat.hastily ?? null;
+          formattedGame.timeToBeatNormally = timeToBeat.normally ?? null;
+          formattedGame.timeToBeatCompletely = timeToBeat.completely ?? null;
+        }
         res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
         const filterFlags = await getContentFilterFlags(req.user!.id);
         if (
@@ -2158,10 +2708,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ) {
           return res.status(404).json({ error: "Game not found" });
         }
-        res.json(formattedGame);
+        return res.json(formattedGame);
       } catch (error) {
         routesLogger.error({ error }, "error fetching game details");
-        res.status(500).json({ error: "Failed to fetch game details" });
+        return res.status(500).json({ error: "Failed to fetch game details" });
       }
     }
   );
@@ -2169,7 +2719,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Indexer management routes
 
   // Get all indexers
-  app.get("/api/indexers", async (req, res) => {
+  app.get("/api/indexers", async (_req, res) => {
     try {
       const indexers = await storage.getAllIndexers();
       res.json(indexers.map(maskIndexer));
@@ -2180,7 +2730,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get enabled indexers only
-  app.get("/api/indexers/enabled", async (req, res) => {
+  app.get("/api/indexers/enabled", async (_req, res) => {
     try {
       const indexers = await storage.getEnabledIndexers();
       res.json(indexers.map(maskIndexer));
@@ -2207,10 +2757,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!indexer) {
         return res.status(404).json({ error: "Indexer not found" });
       }
-      res.json(maskIndexer(indexer));
+      return res.json(maskIndexer(indexer));
     } catch (error) {
       routesLogger.error({ error }, "error fetching indexer");
-      res.status(500).json({ error: "Failed to fetch indexer" });
+      return res.status(500).json({ error: "Failed to fetch indexer" });
     }
   });
 
@@ -2229,13 +2779,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const indexer = await storage.addIndexer(indexerData);
-        res.status(201).json(maskIndexer(indexer));
+        return res.status(201).json(maskIndexer(indexer));
       } catch (error) {
         if (error instanceof z.ZodError) {
           return respondWithZodError(res, error, "Invalid indexer data");
         }
         routesLogger.error({ error }, "error adding indexer");
-        res.status(500).json({ error: "Failed to add indexer" });
+        return res.status(500).json({ error: "Failed to add indexer" });
       }
     }
   );
@@ -2264,10 +2814,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!indexer) {
           return res.status(404).json({ error: "Indexer not found" });
         }
-        res.json(maskIndexer(indexer));
+        return res.json(maskIndexer(indexer));
       } catch (error) {
         routesLogger.error({ error }, "error updating indexer");
-        res.status(500).json({ error: "Failed to update indexer" });
+        return res.status(500).json({ error: "Failed to update indexer" });
       }
     }
   );
@@ -2280,10 +2830,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!success) {
         return res.status(404).json({ error: "Indexer not found" });
       }
-      res.status(204).send();
+      return res.status(204).send();
     } catch (error) {
       routesLogger.error({ error }, "error deleting indexer");
-      res.status(500).json({ error: "Failed to delete indexer" });
+      return res.status(500).json({ error: "Failed to delete indexer" });
     }
   });
 
@@ -2323,7 +2873,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  app.get("/api/downloaders", async (req, res) => {
+  app.get("/api/downloaders", async (_req, res) => {
     try {
       const downloaders = await storage.getAllDownloaders();
       res.json(downloaders.map(maskDownloader));
@@ -2334,7 +2884,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get enabled downloaders only
-  app.get("/api/downloaders/enabled", async (req, res) => {
+  app.get("/api/downloaders/enabled", async (_req, res) => {
     try {
       const downloaders = await storage.getEnabledDownloaders();
       res.json(downloaders.map(maskDownloader));
@@ -2345,7 +2895,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get free space for all enabled downloaders
-  app.get("/api/downloaders/storage", async (req, res) => {
+  app.get("/api/downloaders/storage", async (_req, res) => {
     try {
       // ⚡ Bolt: Check cache first
       if (storageCache.data && Date.now() < storageCache.expiry) {
@@ -2391,10 +2941,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       storageCache.data = storageInfo;
       storageCache.expiry = Date.now() + storageCache.ttl;
 
-      res.json(storageInfo);
+      return res.json(storageInfo);
     } catch (error) {
       routesLogger.error({ error }, "error getting all storage info");
-      res.status(500).json({ error: "Failed to get storage info" });
+      return res.status(500).json({ error: "Failed to get storage info" });
     }
   });
 
@@ -2406,10 +2956,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!downloader) {
         return res.status(404).json({ error: "Downloader not found" });
       }
-      res.json(maskDownloader(downloader));
+      return res.json(maskDownloader(downloader));
     } catch (error) {
       routesLogger.error({ error }, "error fetching downloader");
-      res.status(500).json({ error: "Failed to fetch downloader" });
+      return res.status(500).json({ error: "Failed to fetch downloader" });
     }
   });
 
@@ -2428,13 +2978,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const downloader = await storage.addDownloader(downloaderData);
-        res.status(201).json(maskDownloader(downloader));
+        return res.status(201).json(maskDownloader(downloader));
       } catch (error) {
         if (error instanceof z.ZodError) {
           return respondWithZodError(res, error, "Invalid downloader data");
         }
         routesLogger.error({ error }, "error adding downloader");
-        res.status(500).json({ error: "Failed to add downloader" });
+        return res.status(500).json({ error: "Failed to add downloader" });
       }
     }
   );
@@ -2459,14 +3009,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           delete updates.password;
         }
 
+        // Same masked-sentinel handling for the archive password nested inside
+        // `settings` -- restore the stored value instead of overwriting it with
+        // the redaction placeholder the UI echoes back unchanged.
+        if (typeof updates.settings === "string") {
+          const incomingSettings = parseJsonObject(updates.settings);
+          if (isUnchangedSentinel(incomingSettings.archivePassword)) {
+            const existing = await storage.getDownloader(id);
+            const existingPassword = parseJsonObject(existing?.settings).archivePassword;
+            if (existingPassword) {
+              incomingSettings.archivePassword = existingPassword;
+            } else {
+              delete incomingSettings.archivePassword;
+            }
+            updates.settings = JSON.stringify(incomingSettings);
+          }
+        }
+
         const downloader = await storage.updateDownloader(id, updates);
         if (!downloader) {
           return res.status(404).json({ error: "Downloader not found" });
         }
-        res.json(maskDownloader(downloader));
+        return res.json(maskDownloader(downloader));
       } catch (error) {
         routesLogger.error({ error }, "error updating downloader");
-        res.status(500).json({ error: "Failed to update downloader" });
+        return res.status(500).json({ error: "Failed to update downloader" });
       }
     }
   );
@@ -2479,10 +3046,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!success) {
         return res.status(404).json({ error: "Downloader not found" });
       }
-      res.status(204).send();
+      return res.status(204).send();
     } catch (error) {
       routesLogger.error({ error }, "error deleting downloader");
-      res.status(500).json({ error: "Failed to delete downloader" });
+      return res.status(500).json({ error: "Failed to delete downloader" });
     }
   });
 
@@ -2534,16 +3101,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         categories: categories || [],
         rssEnabled: rssEnabled ?? true,
         autoSearchEnabled: autoSearchEnabled ?? true,
+        allowInsecureLan: false,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
 
       const client = isUsenetProtocol(resolvedProtocol) ? newznabClient : torznabClient;
       const result = await client.testConnection(tempIndexer);
-      res.json(result);
+      return res.json(result);
     } catch (error) {
       routesLogger.error({ error }, "error testing indexer");
-      res.status(500).json({
+      return res.status(500).json({
         error: "Failed to test indexer connection",
       });
     }
@@ -2561,10 +3129,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const testClient = isUsenetProtocol(indexer.protocol) ? newznabClient : torznabClient;
       const result = await testClient.testConnection(indexer);
-      res.json(result);
+      return res.json(result);
     } catch (error) {
       routesLogger.error({ error }, "error testing indexer");
-      res.status(500).json({
+      return res.status(500).json({
         error: "Failed to test indexer connection",
       });
     }
@@ -2582,10 +3150,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const categoriesClient = isUsenetProtocol(indexer.protocol) ? newznabClient : torznabClient;
       const categories = await categoriesClient.getCategories(indexer);
-      res.json(categories);
+      return res.json(categories);
     } catch (error) {
       routesLogger.error({ error }, "error getting categories");
-      res.status(500).json({ error: "Failed to get categories" });
+      return res.status(500).json({ error: "Failed to get categories" });
     }
   });
 
@@ -2623,10 +3191,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           results = await torznabClient.searchGames(indexer, searchParams);
         }
-        res.json(results);
+        return res.json(results);
       } catch (error) {
         routesLogger.error({ error }, "error searching specific indexer");
-        res.status(500).json({ error: "Failed to search indexer" });
+        return res.status(500).json({ error: "Failed to search indexer" });
       }
     }
   );
@@ -2634,67 +3202,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Downloader integration routes
 
   // Test downloader connection with provided configuration (doesn't require saving first)
-  app.post("/api/downloaders/test", async (req, res) => {
-    try {
-      const {
-        type,
-        url,
-        port,
-        useSsl,
-        urlPath,
-        username,
-        password,
-        downloadPath,
-        category,
-        label,
-        addStopped,
-        removeCompleted,
-        postImportCategory,
-        settings,
-      } = req.body;
+  app.post(
+    "/api/downloaders/test",
+    sanitizeDownloaderTestData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const {
+          type,
+          url,
+          port,
+          useSsl,
+          urlPath,
+          username,
+          password,
+          downloadPath,
+          category,
+          label,
+          addStopped,
+          removeCompleted,
+          postImportCategory,
+          settings,
+          allowSelfSignedCertificate,
+        } = req.body;
 
-      if (!type || !url) {
-        return res.status(400).json({ error: "Type and URL are required" });
+        // Check for SSRF
+        if (!(await isSafeUrl(url))) {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
+        // Create a temporary downloader object for testing
+        const tempDownloader: Downloader = {
+          id: "test",
+          name: "Test Connection",
+          type,
+          url,
+          port: port || null,
+          useSsl: useSsl ?? false,
+          urlPath: urlPath || null,
+          username: username || null,
+          password: password || null,
+          enabled: true,
+          priority: 1,
+          downloadPath: downloadPath || null,
+          category: category || null,
+          label: label || "Questarr",
+          addStopped: addStopped ?? false,
+          removeCompleted: removeCompleted ?? false,
+          postImportCategory: postImportCategory || null,
+          settings: settings || null,
+          allowSelfSignedCertificate: allowSelfSignedCertificate ?? false,
+          allowInsecureLan: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const result = await DownloaderManager.testDownloader(tempDownloader);
+        return res.json(result);
+      } catch (error) {
+        routesLogger.error({ error }, "error testing downloader");
+        return res.status(500).json({
+          error: "Failed to test downloader connection",
+        });
       }
-
-      // Check for SSRF
-      if (!(await isSafeUrl(url))) {
-        return res.status(400).json({ error: "Invalid or unsafe URL" });
-      }
-
-      // Create a temporary downloader object for testing
-      const tempDownloader: Downloader = {
-        id: "test",
-        name: "Test Connection",
-        type,
-        url,
-        port: port || null,
-        useSsl: useSsl ?? false,
-        urlPath: urlPath || null,
-        username: username || null,
-        password: password || null,
-        enabled: true,
-        priority: 1,
-        downloadPath: downloadPath || null,
-        category: category || null,
-        label: label || "Questarr",
-        addStopped: addStopped ?? false,
-        removeCompleted: removeCompleted ?? false,
-        postImportCategory: postImportCategory || null,
-        settings: settings || null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const result = await DownloaderManager.testDownloader(tempDownloader);
-      res.json(result);
-    } catch (error) {
-      routesLogger.error({ error }, "error testing downloader");
-      res.status(500).json({
-        error: "Failed to test downloader connection",
-      });
     }
-  });
+  );
 
   // Test existing downloader connection by ID
   app.post("/api/downloaders/:id/test", async (req, res) => {
@@ -2707,10 +3279,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const result = await DownloaderManager.testDownloader(downloader);
-      res.json(result);
+      return res.json(result);
     } catch (error) {
       routesLogger.error({ error }, "error testing downloader");
-      res.status(500).json({
+      return res.status(500).json({
         error: "Failed to test downloader connection",
       });
     }
@@ -2725,7 +3297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
-        const { url, title, category, downloadPath, priority, downloadType } = req.body;
+        const { url, title, category, downloadPath, priority, downloadType, password } = req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -2747,12 +3319,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadPath,
           priority,
           downloadType,
+          password,
         });
 
-        res.json(result);
+        return res.json(result);
       } catch (error) {
         routesLogger.error({ error }, "error adding download");
-        res.status(500).json({
+        return res.status(500).json({
           error: "Failed to add download",
         });
       }
@@ -2770,10 +3343,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const downloads = await DownloaderManager.getAllDownloads(downloader);
-      res.json(downloads);
+      return res.json(downloads);
     } catch (error) {
       routesLogger.error({ error }, "error getting downloads");
-      res.status(500).json({ error: "Failed to get downloads" });
+      return res.status(500).json({ error: "Failed to get downloads" });
     }
   });
 
@@ -2792,10 +3365,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Download not found" });
       }
 
-      res.json(download);
+      return res.json(download);
     } catch (error) {
       routesLogger.error({ error }, "error getting download status");
-      res.status(500).json({ error: "Failed to get download status" });
+      return res.status(500).json({ error: "Failed to get download status" });
     }
   });
 
@@ -2814,10 +3387,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Download not found" });
       }
 
-      res.json(details);
+      return res.json(details);
     } catch (error) {
       console.error("Error getting download details:", error);
-      res.status(500).json({ error: "Failed to get download details" });
+      return res.status(500).json({ error: "Failed to get download details" });
     }
   });
 
@@ -2832,10 +3405,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const result = await DownloaderManager.pauseDownload(downloader, downloadId);
-      res.json(result);
+      return res.json(result);
     } catch (error) {
       routesLogger.error({ error }, "error pausing download");
-      res.status(500).json({
+      return res.status(500).json({
         error: "Failed to pause download",
       });
     }
@@ -2852,10 +3425,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const result = await DownloaderManager.resumeDownload(downloader, downloadId);
-      res.json(result);
+      return res.json(result);
     } catch (error) {
       routesLogger.error({ error }, "error resuming download");
-      res.status(500).json({
+      return res.status(500).json({
         error: "Failed to resume download",
       });
     }
@@ -2878,17 +3451,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deleteFiles === "true"
       );
 
-      res.json(result);
+      return res.json(result);
     } catch (error) {
       routesLogger.error({ error }, "error removing download");
-      res.status(500).json({
+      return res.status(500).json({
         error: "Failed to remove download",
       });
     }
   });
 
   // Get aggregated downloads from all enabled downloaders
-  app.get("/api/downloads", async (req, res) => {
+  app.get("/api/downloads", async (_req, res) => {
     try {
       const enabledDownloaders = await storage.getEnabledDownloaders();
       const [trackedKeys, gameStatuses] = await Promise.all([
@@ -2967,8 +3540,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user!.id;
       const enabledDownloaders = await storage.getEnabledDownloaders();
       const rawTrackedKeys = await storage.getTrackedDownloadKeys();
-      // Normalise to lowercase so case differences in stored vs. live hashes never cause false "untracked" results
-      const trackedKeys = new Set(Array.from(rawTrackedKeys).map((k) => k.toLowerCase()));
+      // Normalise torrent hashes so case differences in stored vs. live hashes never cause
+      // false "untracked" results, while leaving case-sensitive Usenet ids untouched.
+      const trackedKeys = new Set(Array.from(rawTrackedKeys).map(normalizeTrackedKey));
 
       // Fetch downloads from all downloaders in parallel
       const allDownloads: Array<{
@@ -2986,13 +3560,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             const downloads = await DownloaderManager.getAllDownloads(downloader);
             for (const d of downloads) {
-              const key = `${downloader.id}:${d.id.toLowerCase()}`;
+              const key = `${downloader.id}:${normalizeDownloadHash(d.id)}`;
               if (!trackedKeys.has(key)) {
                 allDownloads.push({
                   downloaderId: downloader.id,
                   downloaderName: downloader.name,
                   downloadId: d.id,
-                  downloadHash: d.id.toLowerCase(),
+                  downloadHash: normalizeDownloadHash(d.id),
                   downloadTitle: d.name,
                   status: d.status,
                   downloadType: d.downloadType ?? "torrent",
@@ -3091,8 +3665,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Prevent duplicate: reject if this download is already linked to any game
-      const trackedKeys = await storage.getTrackedDownloadKeys();
-      if (trackedKeys.has(`${downloaderId}:${downloadHash.toLowerCase()}`)) {
+      const trackedKeys = new Set(
+        Array.from(await storage.getTrackedDownloadKeys()).map(normalizeTrackedKey)
+      );
+      if (trackedKeys.has(`${downloaderId}:${normalizeDownloadHash(downloadHash)}`)) {
         return res.status(409).json({ error: "This download is already linked to a game" });
       }
 
@@ -3176,7 +3752,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         insertGameDownloadSchema.parse({
           gameId: resolvedGameId!,
           downloaderId,
-          downloadHash: downloadHash.toLowerCase(),
+          downloadHash: normalizeDownloadHash(downloadHash),
           downloadTitle,
           downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
           status: downloadStatus,
@@ -3186,10 +3762,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Clear stale "search results available" flag now that the game has a linked download
       await storage.updateGameSearchResultsAvailable(resolvedGameId, false);
 
-      res.json({ success: true, gameId: resolvedGameId });
+      return res.json({ success: true, gameId: resolvedGameId });
     } catch (error) {
       routesLogger.error({ error }, "error claiming download");
-      res.status(500).json({ error: "Failed to claim download" });
+      return res.status(500).json({ error: "Failed to claim download" });
     }
   });
 
@@ -3221,14 +3797,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       status: "in_progress",
     });
 
-    const trackedKeys = await storage.getTrackedDownloadKeys();
+    const trackedKeys = new Set(
+      Array.from(await storage.getTrackedDownloadKeys()).map(normalizeTrackedKey)
+    );
     let addedCount = 0;
     let failedCount = 0;
     const taskItemsToInsert: InsertImportTaskItem[] = [];
     const igdbIdToGameId = new Map<number, string>();
 
     for (const item of parsedItems) {
-      const key = `${item.downloaderId}:${item.downloadHash.toLowerCase()}`;
+      const key = `${item.downloaderId}:${normalizeDownloadHash(item.downloadHash)}`;
       if (trackedKeys.has(key)) {
         taskItemsToInsert.push({
           taskId: task.id,
@@ -3342,7 +3920,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           insertGameDownloadSchema.parse({
             gameId: resolvedGameId,
             downloaderId: item.downloaderId,
-            downloadHash: item.downloadHash.toLowerCase(),
+            downloadHash: normalizeDownloadHash(item.downloadHash),
             downloadTitle: item.downloadTitle,
             downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
             status: downloadStatus,
@@ -3386,7 +3964,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       status: finalStatus,
     });
 
-    res.json({ success: true, taskId: task.id, addedCount, failedCount, skippedCount });
+    return res.json({ success: true, taskId: task.id, addedCount, failedCount, skippedCount });
   });
 
   // Remove a linked download record from a game
@@ -3407,10 +3985,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!removed) {
           return res.status(404).json({ error: "Download record not found" });
         }
-        res.json({ success: true });
+        return res.json({ success: true });
       } catch (error) {
         routesLogger.error({ error }, "error removing game download");
-        res.status(500).json({ error: "Failed to remove download" });
+        return res.status(500).json({ error: "Failed to remove download" });
       }
     }
   );
@@ -3423,11 +4001,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { url, title, category, downloadPath, priority, gameId, downloadType } = req.body;
+        const { url, title, category, downloadPath, priority, gameId, downloadType, password } =
+          req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
         }
+
+        // gameId comes from the request body, so verify ownership before
+        // touching the downloader: otherwise a user who knows another user's
+        // game UUID could link a download to that game and flip its status.
+        if (gameId && !(await resolveOwnedGame(gameId, req.user!.id, res))) return;
 
         const enabledDownloaders = await storage.getEnabledDownloaders();
         if (enabledDownloaders.length === 0) {
@@ -3442,6 +4026,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadPath,
           priority,
           downloadType,
+          password,
         });
 
         if (result && result.success === false) {
@@ -3449,13 +4034,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json(result);
         }
 
-        // If gameId is provided, track this download and update game status
-        if (gameId && result.success && result.id && result.downloaderId) {
+        // If gameId is provided, track this download and update game status.
+        // For async qBittorrent adds (pending_count with no hash yet), the
+        // downloader returns a correlationTag we use as a temporary downloadHash
+        // so the tracking record exists upfront. The cron resolves the real hash.
+        const rawDownloadHash = result.id ?? result.correlationTag;
+        const downloadHash = rawDownloadHash
+          ? normalizeDownloadHash(rawDownloadHash)
+          : rawDownloadHash;
+        if (gameId && result.success && downloadHash && result.downloaderId) {
           try {
             await storage.addGameDownload({
               gameId,
               downloaderId: result.downloaderId,
-              downloadHash: result.id,
+              downloadHash,
               downloadTitle: title,
               status: "downloading",
               downloadType: downloadType || "torrent",
@@ -3469,10 +4061,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
 
-        res.json(result);
+        return res.json(result);
       } catch (error) {
         routesLogger.error({ error }, "error adding download");
-        res.status(500).json({
+        return res.status(500).json({
           error: "Failed to add download",
         });
       }
@@ -3502,8 +4094,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           chunk.map(async (download: { link: string; title: string; downloadType?: string }) => {
             try {
               if (!(await isSafeUrl(download.link))) {
-                console.warn(`Skipping unsafe URL in bundle: ${download.link}`);
-                return;
+                return console.warn(`Skipping unsafe URL in bundle: ${download.link}`);
               }
 
               const response = await safeFetch(download.link);
@@ -3526,9 +4117,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await archive.finalize();
+
+      return;
     } catch (error) {
       console.error("Error creating bundle:", error);
-      res.status(500).json({ error: "Failed to create bundle" });
+      return res.status(500).json({ error: "Failed to create bundle" });
     }
   });
 
@@ -3570,13 +4163,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       notifyUser("notification", notification);
       appriseClient.send(notification);
 
-      res.status(201).json(notification);
+      return res.status(201).json(notification);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return respondWithZodError(res, error, "Invalid notification data");
       }
       routesLogger.error({ error }, "error adding notification");
-      res.status(500).json({ error: "Failed to add notification" });
+      return res.status(500).json({ error: "Failed to add notification" });
     }
   });
 
@@ -3587,10 +4180,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!notification) {
         return res.status(404).json({ error: "Notification not found" });
       }
-      res.json(notification);
+      return res.json(notification);
     } catch (error) {
       routesLogger.error({ error }, "error marking notification as read");
-      res.status(500).json({ error: "Failed to mark notification as read" });
+      return res.status(500).json({ error: "Failed to mark notification as read" });
     }
   });
 
@@ -3634,7 +4227,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!report) {
         return res.status(404).json({ error: "This report is no longer available." });
       }
-      res.json({
+      return res.json({
         lineCount: report.lineCount,
         appVersion: report.appVersion,
         platform: report.platform,
@@ -3654,16 +4247,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!result.ok) {
           return res.status(422).json({ error: result.message });
         }
-        res.json({ code: result.code, issueNumber: result.issueNumber });
+        return res.json({ code: result.code, issueNumber: result.issueNumber });
       } catch (error) {
         routesLogger.error({ error }, "error sending pending telemetry report");
-        res.status(500).json({ error: "Failed to send diagnostic report" });
+        return res.status(500).json({ error: "Failed to send diagnostic report" });
       }
     }
   );
 
   // IGDB Configuration endpoint
-  app.get("/api/settings/igdb", sensitiveEndpointLimiter, async (req, res) => {
+  app.get("/api/settings/igdb", sensitiveEndpointLimiter, async (_req, res) => {
     try {
       const dbClientId = await storage.getSystemConfig("igdb.clientId");
       const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
@@ -3694,36 +4287,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { clientId, clientSecret } = req.body;
 
-      if (!clientId) {
+      if (typeof clientId !== "string" || !clientId.trim()) {
         return res.status(400).json({ error: "Client ID is required" });
       }
+      if (clientSecret !== undefined && typeof clientSecret !== "string") {
+        return res.status(400).json({ error: "Client Secret must be a string" });
+      }
 
-      // Check if already configured (in DB or Env)
+      // Whether it's safe to omit clientSecret and keep the existing one: only when a DB
+      // secret already exists to pair with the (possibly updated) DB clientId. An
+      // env-only-configured instance has no DB secret to pair with, so saving just a new
+      // clientId here would leave a DB clientId with no DB secret -- getCredentials() only
+      // uses DB creds when BOTH are present together, so it would silently fall back to the
+      // full env pair (including the old env clientId), making this update a silent no-op.
       const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
-      const isConfigured = !!dbSecret || appConfig.igdb.isConfigured;
+      const canOmitSecret = !!dbSecret;
 
       const isMaskedValue = isUnchangedSentinel(clientSecret);
-      const hasNewSecret = clientSecret && !isMaskedValue;
+      const hasNewSecret = !!clientSecret && !isMaskedValue;
 
-      if (!isConfigured && !hasNewSecret) {
+      if (!canOmitSecret && !hasNewSecret) {
         return res.status(400).json({ error: "Client Secret is required" });
       }
 
-      await storage.setSystemConfig("igdb.clientId", clientId.trim());
+      const trimmedClientId = clientId.trim();
+      const formatError = validateIgdbCredentialFormat(
+        trimmedClientId,
+        hasNewSecret ? clientSecret.trim() : "x".repeat(30) // skip re-checking an unchanged stored secret
+      );
+      if (formatError) {
+        return res.status(400).json(formatError);
+      }
+
+      await storage.setSystemConfig("igdb.clientId", trimmedClientId);
 
       if (hasNewSecret) {
         await storage.setSystemConfig("igdb.clientSecret", clientSecret.trim());
       }
 
       routesLogger.info("IGDB credentials updated via settings");
-      res.json({ success: true });
+      return res.json({ success: true });
     } catch (error) {
       routesLogger.error({ error }, "Failed to update IGDB credentials");
-      res.status(500).json({ error: "Failed to update IGDB credentials" });
+      return res.status(500).json({ error: "Failed to update IGDB credentials" });
     }
   });
 
-  app.get("/api/settings/discord", sensitiveEndpointLimiter, async (req, res) => {
+  // Verifies a Client ID/Secret pair against Twitch/IGDB before the user saves it, so a typo
+  // or expired secret is caught immediately instead of surfacing later as a failed search.
+  // clientSecret may be the masked placeholder, meaning "use the already-saved secret".
+  app.post("/api/settings/igdb/test", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { clientId, clientSecret } = req.body;
+
+      if (typeof clientId !== "string" || !clientId.trim()) {
+        return res.status(400).json({ success: false, error: "Client ID is required" });
+      }
+
+      let secretToTest: string;
+      if (isUnchangedSentinel(clientSecret)) {
+        const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
+        secretToTest = dbSecret ?? appConfig.igdb.clientSecret ?? "";
+        if (!secretToTest) {
+          return res.status(400).json({ success: false, error: "Client Secret is required" });
+        }
+      } else if (typeof clientSecret === "string" && clientSecret.trim()) {
+        secretToTest = clientSecret.trim();
+      } else {
+        return res.status(400).json({ success: false, error: "Client Secret is required" });
+      }
+
+      const trimmedClientId = clientId.trim();
+      const formatError = validateIgdbCredentialFormat(trimmedClientId, secretToTest);
+      if (formatError) {
+        return res.status(400).json({ success: false, ...formatError });
+      }
+
+      const result = await igdbClient.testCredentials(trimmedClientId, secretToTest);
+      return res.status(result.success ? 200 : 400).json(result);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to test IGDB credentials");
+      return res.status(500).json({ success: false, error: "Failed to test IGDB credentials" });
+    }
+  });
+
+  app.get("/api/settings/discord", sensitiveEndpointLimiter, async (_req, res) => {
     try {
       const webhookUrl = await storage.getSystemConfig("discord.webhookUrl");
       const isConfigured = !!(webhookUrl && webhookUrl.length > 0);
@@ -3750,10 +4398,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid Discord webhook URL" });
       }
       await storage.setSystemConfig("discord.webhookUrl", webhookUrl?.trim() ?? "");
-      res.json({ success: true });
+      return res.json({ success: true });
     } catch (error) {
       routesLogger.error({ error }, "Failed to update Discord settings");
-      res.status(500).json({ error: "Failed to update Discord settings" });
+      return res.status(500).json({ error: "Failed to update Discord settings" });
     }
   });
 
@@ -3835,10 +4483,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       appriseClient.configure(await readAppriseSettings(storage));
-      res.json({ success: true });
+      return res.json({ success: true });
     } catch (error) {
       routesLogger.error({ error }, "Failed to update Apprise settings");
-      res.status(500).json({ error: "Failed to update Apprise settings" });
+      return res.status(500).json({ error: "Failed to update Apprise settings" });
     }
   });
 
@@ -3896,13 +4544,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Settings not found" });
       }
 
-      res.json(settings);
+      return res.json(settings);
     } catch (error) {
       if (error instanceof z.ZodError) {
         routesLogger.error({ error: error.issues }, "validation error in settings update");
         return respondWithZodError(res, error, "Invalid settings data");
       }
-      next(error);
+      return next(error);
     }
   });
 
@@ -3969,7 +4617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         process.env.XREL_API_BASE ||
         DEFAULT_XREL_BASE;
       const settings = await storage.getUserSettings(userId);
-      res.json({
+      return res.json({
         success: true,
         xrel: { apiBase },
         settings: settings
@@ -3980,7 +4628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : undefined,
       });
     } catch (error) {
-      next(error);
+      return next(error);
     }
   });
 
@@ -4135,13 +4783,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
         process.env.XREL_API_BASE ||
         DEFAULT_XREL_BASE;
       const list = await xrelClient.searchReleases(q, { scene, p2p, limit, baseUrl });
-      res.json({ results: list });
+      return res.json({ results: list });
     } catch (error) {
-      next(error);
+      return next(error);
     }
   });
 
-  // Match and add game from name (Quick Add)
+  // Known xREL crack status for a specific game in the user's collection --
+  // which crack types (cracked, hypervisor bypass) have a matching release,
+  // regardless of when. crackTypes is empty when xREL has no match yet.
+  app.get(
+    "/api/games/:id/xrel-status",
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        res.set("Cache-Control", "no-store");
+        const userId = req.user!.id;
+        const game = await resolveOwnedGame(req.params.id, userId, res);
+        if (!game) return;
+
+        const baseUrl =
+          (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+          process.env.XREL_API_BASE ||
+          DEFAULT_XREL_BASE;
+
+        const results = await xrelClient.searchReleases(game.title, {
+          scene: true,
+          p2p: true,
+          limit: 25,
+          baseUrl,
+        });
+
+        const matches = results.filter(
+          (r) =>
+            xrelClient.releaseMatchesGame(r.dirname, game.title) ||
+            (r.ext_info?.title && xrelClient.titleMatches(r.ext_info.title, game.title))
+        );
+
+        const crackTypes = (["cracked", "hypervisor"] as const).filter((type) =>
+          matches.some((r) => r.crackType === type)
+        );
+
+        const response: XrelGameStatus = { crackTypes };
+        return res.json(response);
+      } catch (error) {
+        return next(error);
+      }
+    }
+  );
+
+  // Match and add game from name (Quick Add). Shares its search/filter/dedupe
+  // logic with the integration API's POST /api/integration/games/request
+  // (server/game-quick-add.ts) so the two entry points can't drift apart.
   app.post(
     "/api/games/match-and-add",
     sanitizeMatchAndAddTitle,
@@ -4153,71 +4847,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const userId = (req as any).user.id;
 
-        // 1. Search IGDB for the title
-        const igdbResults = await igdbClient.searchGames(title, 1);
-        if (igdbResults.length === 0) {
-          return res.status(404).json({ error: "No game found on IGDB for this title" });
+        const result = await quickAddGameByTitle(userId, title);
+
+        switch (result.outcome) {
+          case "not_found":
+            return res.status(404).json({ error: "No game found on IGDB for this title" });
+          case "duplicate":
+            return res.status(409).json({ error: "Game already in collection", game: result.game });
+          case "added":
+            routesLogger.info(
+              { userId, title: result.game.title, igdbId: result.game.igdbId },
+              "Game quick-added from matching"
+            );
+            return res.status(201).json(result.game);
         }
 
-        const match = igdbResults[0];
-        const formattedMatch = igdbClient.formatGameData(match);
-        const quickAddFilterFlags = await getContentFilterFlags(userId);
-        if (
-          isContentFiltered(
-            formattedMatch as { isAdultContent?: boolean; isAgeRestricted?: boolean },
-            quickAddFilterFlags
-          )
-        ) {
-          return res.status(404).json({ error: "Game not found" });
-        }
-
-        // 2. Add to library (similar to POST /api/games)
-        const gameData = insertGameSchema.parse({
-          userId,
-          title: formattedMatch.title,
-          igdbId: formattedMatch.igdbId,
-          status: "wanted", // Default status for quick add
-          platform: "PC", // Default platform, user can change later
-          platforms: formattedMatch.platforms,
-          genres: formattedMatch.genres,
-          themes: formattedMatch.themes,
-          isAdultContent: formattedMatch.isAdultContent,
-          isAgeRestricted: formattedMatch.isAgeRestricted,
-          coverUrl: formattedMatch.coverUrl,
-          releaseDate: formattedMatch.releaseDate,
-          summary: formattedMatch.summary,
-          publishers: formattedMatch.publishers,
-          developers: formattedMatch.developers,
-          screenshots: formattedMatch.screenshots,
-          rating: formattedMatch.rating,
-        });
-
-        // Check for existing
-        const userGames = await storage.getUserGames(userId, true);
-        const existingGame = userGames.find((g) =>
-          gameData.igdbId != null
-            ? g.igdbId === gameData.igdbId
-            : g.title.toLowerCase() === gameData.title.toLowerCase()
-        );
-
-        if (existingGame) {
-          return res.status(409).json({ error: "Game already in collection", game: existingGame });
-        }
-
-        const game = await storage.addGame(normalizeInitialReleaseStatus(gameData));
-        routesLogger.info(
-          { userId, title: game.title, igdbId: game.igdbId },
-          "Game quick-added from matching"
-        );
-        res.status(201).json(game);
+        return;
       } catch (error) {
-        next(error);
+        return next(error);
       }
     }
   );
 
   // RSS Feeds Routes
-  app.get("/api/rss/feeds", async (req, res) => {
+  app.get("/api/rss/feeds", async (_req, res) => {
     try {
       const feeds = await storage.getAllRssFeeds();
       res.json(feeds);
@@ -4240,7 +4893,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       rssService.refreshFeed(feed).catch((err) => {
         routesLogger.error({ error: err }, "Initial RSS feed refresh failed");
       });
-      res.status(201).json(feed);
+      return res.status(201).json(feed);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.issues });
@@ -4257,7 +4910,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: zodErr.errors || zodErr.issues });
       }
       routesLogger.error({ error }, "Failed to add RSS feed");
-      res.status(500).json({ error: "Failed to add RSS feed" });
+      return res.status(500).json({ error: "Failed to add RSS feed" });
     }
   });
 
@@ -4273,10 +4926,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!feed) {
         return res.status(404).json({ error: "Feed not found" });
       }
-      res.json(feed);
+      return res.json(feed);
     } catch (error) {
       routesLogger.error({ error }, "Failed to update RSS feed");
-      res.status(500).json({ error: "Failed to update RSS feed" });
+      return res.status(500).json({ error: "Failed to update RSS feed" });
     }
   });
 
@@ -4286,10 +4939,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!success) {
         return res.status(404).json({ error: "Feed not found" });
       }
-      res.status(204).send();
+      return res.status(204).send();
     } catch (error) {
       routesLogger.error({ error }, "Failed to delete RSS feed");
-      res.status(500).json({ error: "Failed to delete RSS feed" });
+      return res.status(500).json({ error: "Failed to delete RSS feed" });
     }
   });
 
@@ -4304,7 +4957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/rss/refresh", async (req, res) => {
+  app.post("/api/rss/refresh", async (_req, res) => {
     try {
       await rssService.refreshFeeds();
       res.json({ success: true });
@@ -4362,10 +5015,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(502).json({ error: "Failed to post to Discord" });
       }
 
-      res.json({ success: true });
+      return res.json({ success: true });
     } catch (error) {
       routesLogger.error({ error }, "Failed to share stats to Discord");
-      res.status(500).json({ error: "Failed to share stats to Discord" });
+      return res.status(500).json({ error: "Failed to share stats to Discord" });
     }
   });
 
@@ -4397,10 +5050,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.setSystemConfig("nexusmods.apiKey", apiKey.trim());
       nexusmodsClient.configure(apiKey.trim());
       routesLogger.info("NexusMods API key updated via settings");
-      res.json({ success: true });
+      return res.json({ success: true });
     } catch (error) {
       routesLogger.error({ error }, "Failed to update NexusMods settings");
-      res.status(500).json({ error: "Failed to update NexusMods settings" });
+      return res.status(500).json({ error: "Failed to update NexusMods settings" });
     }
   });
 
@@ -4417,10 +5070,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.json({ configured: false, domain: null });
         }
         const domain = await nexusmodsClient.findGameDomain(title);
-        res.json({ configured: true, domain });
+        return res.json({ configured: true, domain });
       } catch (error) {
         routesLogger.error({ error }, "Failed to look up NexusMods game domain");
-        res.status(500).json({ error: "Failed to look up NexusMods game domain" });
+        return res.status(500).json({ error: "Failed to look up NexusMods game domain" });
       }
     }
   );

@@ -30,7 +30,18 @@ export async function setupVite(app: Express, server: Server) {
         ...viteLogger,
         error: (msg, options) => {
           viteLogger.error(msg, options);
-          process.exit(1);
+          // Vite also routes browser console.error/warn calls and uncaught
+          // client-side exceptions through this same logger (see Vite's
+          // built-in forwardConsolePlugin) -- those are problems in the
+          // browser tab, not the dev server, and must not take the whole
+          // server down. Only exit for genuine server-side Vite errors.
+          const isForwardedClientMessage =
+            msg.includes("[console.") ||
+            msg.includes("[Unhandled error]") ||
+            msg.includes("[Unhandled rejection]");
+          if (!isForwardedClientMessage) {
+            process.exit(1);
+          }
         },
       },
       server: serverOptions,

@@ -16,12 +16,12 @@ your library in something you can query directly with `psql`.
 
 ## Choosing a backend
 
-| Variable            | Default     | Meaning                                                          |
-| ------------------- | ----------- | ---------------------------------------------------------------- |
-| `DB_DIALECT`        | `sqlite`    | `sqlite` or `postgres`                                           |
-| `SQLITE_DB_PATH`    | `sqlite.db` | SQLite file path. Ignored when `DB_DIALECT=postgres`.            |
-| `DATABASE_URL`      | —           | Postgres connection string. Required when `DB_DIALECT=postgres`. |
-| `DATABASE_POOL_MAX` | `10`        | Postgres connection pool size.                                   |
+| Variable            | Default     | Meaning                                                                                                                     |
+| ------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `DB_DIALECT`        | `sqlite`    | `sqlite` or `postgres`                                                                                                      |
+| `SQLITE_DB_PATH`    | `sqlite.db` | SQLite file path. Ignored when `DB_DIALECT=postgres`.                                                                       |
+| `DATABASE_URL`      | —           | Postgres connection string. Required when `DB_DIALECT=postgres`.                                                            |
+| `DATABASE_POOL_MAX` | `10`        | Postgres connection pool size. Minimum 2 — migrations hold one connection for the advisory lock and need a second to apply. |
 
 The backend is chosen by `DB_DIALECT` **only**. Setting `DATABASE_URL` on its own
 does not switch Questarr to Postgres — it logs a warning and stays on SQLite.

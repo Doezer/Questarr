@@ -168,5 +168,51 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       // Postgres `integer` tops out at 2147483647, so this column must be bigint.
       expect(big?.fileSize).toBe(9_663_676_416);
     });
+
+    it("resolves a concurrent claim-race unique conflict the same way on both dialects", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      const downloader = await storage().addDownloader({
+        name: "race-qb",
+        type: "qbittorrent",
+        url: "http://race",
+      } as never);
+
+      // Two stub rows racing to resolve to the same real hash: whichever
+      // update loses hits the unique index on (downloaderId, downloadHash).
+      // SQLite reports "UNIQUE constraint failed"; Postgres reports SQLSTATE
+      // 23505 with a different message, so the catch in updateGameDownloadHash
+      // must recognize both or the loser's error propagates instead of
+      // resolving to "merged".
+      const tagA = await storage().addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader!.id,
+        downloadType: "game",
+        downloadHash: "questarr-add-race-a",
+        downloadTitle: "Race Game A",
+        status: "downloading",
+      } as never);
+      const tagB = await storage().addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader!.id,
+        downloadType: "game",
+        downloadHash: "questarr-add-race-b",
+        downloadTitle: "Race Game B",
+        status: "downloading",
+      } as never);
+
+      const realHash = "abcdef0123456789abcdef0123456789abcdef01";
+      const results = await Promise.allSettled([
+        storage().updateGameDownloadHash(tagA!.id, realHash),
+        storage().updateGameDownloadHash(tagB!.id, realHash),
+      ]);
+
+      expect(results.every((r) => r.status === "fulfilled")).toBe(true);
+      const outcomes = results.map((r) => (r as PromiseFulfilledResult<string>).value).sort();
+      expect(outcomes).toEqual(["merged", "updated"]);
+
+      const keys = await storage().getTrackedDownloadKeys();
+      expect(keys.has(`${downloader!.id}:${realHash}`)).toBe(true);
+    });
   });
 });

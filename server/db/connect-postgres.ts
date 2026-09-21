@@ -25,10 +25,13 @@ export function connectPostgres(): DatabaseConnection {
   }
 
   const max = Number(process.env.DATABASE_POOL_MAX ?? 10);
-  if (!Number.isFinite(max) || max < 1) {
-    logger.error(
-      `DATABASE_POOL_MAX must be a positive number, got: ${process.env.DATABASE_POOL_MAX}`
-    );
+  // runPgMigrations() checks out one connection for the whole run to hold the
+  // migration advisory lock, then migrate() needs a second one from the same
+  // pool to apply migrations. A pool of 1 deadlocks startup silently: the lock
+  // holder never releases, migrate() waits forever for a connection that will
+  // never free up.
+  if (!Number.isFinite(max) || max < 2) {
+    logger.error(`DATABASE_POOL_MAX must be at least 2, got: ${process.env.DATABASE_POOL_MAX}`);
     process.exit(1);
   }
 

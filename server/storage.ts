@@ -2427,9 +2427,16 @@ export class DatabaseStorage implements IStorage {
       // between our check and update, violating the unique index on
       // (downloaderId, downloadHash). Re-check; if the conflict is the
       // expected claim race, drop the stale tag row instead of propagating.
+      // Drizzle wraps driver errors, so the Postgres code may sit on
+      // error.cause rather than error itself.
+      const pgCode =
+        (error as { code?: string; cause?: { code?: string } })?.code ??
+        (error as { cause?: { code?: string } })?.cause?.code;
       const isUniqueConflict =
         error instanceof Error &&
         (/UNIQUE constraint failed/i.test(error.message) ||
+          /duplicate key value violates unique constraint/i.test(error.message) ||
+          pgCode === "23505" ||
           (error as NodeJS.ErrnoException).code === "SQLITE_CONSTRAINT_UNIQUE" ||
           (error as NodeJS.ErrnoException).code === "SQLITE_CONSTRAINT");
       if (!isUniqueConflict) throw error;

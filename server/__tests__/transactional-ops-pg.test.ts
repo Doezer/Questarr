@@ -75,5 +75,6 @@ describe("Postgres transactional ops", () => {
     const rejected = results.filter((r) => r.status === "rejected");
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
+    expect(await storage().getApiKeys(user.id)).toHaveLength(1);
   });
 });

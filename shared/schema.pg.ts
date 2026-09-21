@@ -144,6 +144,8 @@ export const games = pgTable("games", {
   releaseDate: text("release_date"),
   rating: doublePrecision("rating"),
   platforms: jsonb("platforms").$type<string[]>(),
+  targetPlatformId: integer("target_platform_id"),
+  targetPlatformName: text("target_platform_name"),
   genres: jsonb("genres").$type<string[]>(),
   themes: jsonb("themes").$type<string[]>(),
   publishers: jsonb("publishers").$type<string[]>(),
@@ -152,6 +154,9 @@ export const games = pgTable("games", {
   source: text("source").default("manual"), // "manual" | "steam" | "api"
   igdbWebsites: jsonb("igdb_websites").$type<Array<{ category: number; url: string }>>(),
   aggregatedRating: doublePrecision("aggregated_rating"),
+  timeToBeatHastily: doublePrecision("time_to_beat_hastily"),
+  timeToBeatNormally: doublePrecision("time_to_beat_normally"),
+  timeToBeatCompletely: doublePrecision("time_to_beat_completely"),
   status: text("status").notNull().default("wanted"), // Enum validation handled by Zod
   originalReleaseDate: text("original_release_date"),
   releaseStatus: text("release_status").default("upcoming"), // Enum validation handled by Zod

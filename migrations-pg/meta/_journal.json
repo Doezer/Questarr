@@ -8,6 +8,13 @@
       "when": 1789709479319,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789989604095,
+      "tag": "0001_nappy_pet_avengers",
+      "breakpoints": true
     }
   ]
 }

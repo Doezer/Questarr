@@ -38,6 +38,31 @@ export const DEFAULT_GAME_CATEGORIES: readonly IndexerCapsCategory[] = Object.fr
 // search-adjacent code path hang too long before falling back to defaults.
 export const CAPS_DISCOVERY_TIMEOUT_MS = 15000;
 
+// Default search categories used when an indexer has no categories
+// configured at all. 4000: PC Games, 1000: Console Games.
+export const DEFAULT_SEARCH_CATEGORY_IDS = ["4000", "1000"] as const;
+
+/**
+ * Resolves which categories a search request should send as the `cat`
+ * parameter. Explicit per-request categories always win. Otherwise, an
+ * indexer's configured categories are sent as-is (including IDs outside the
+ * 40xx/10xx game ranges -- they were picked deliberately in the indexer's
+ * category picker). Only when nothing is configured does the standard game
+ * category default apply.
+ */
+export function resolveSearchCategories(
+  requested: readonly string[] | undefined,
+  configured: readonly string[] | null | undefined
+): string[] {
+  if (requested && requested.length > 0) {
+    return [...requested];
+  }
+  if (configured && configured.length > 0) {
+    return [...configured];
+  }
+  return [...DEFAULT_SEARCH_CATEGORY_IDS];
+}
+
 /**
  * Returns whether outbound requests may include the indexer's API key.
  * HTTPS URLs are permitted by default; other schemes require the explicit

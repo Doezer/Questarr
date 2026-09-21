@@ -89,6 +89,8 @@ describe("xREL Client", () => {
         sizeUnit: "MB",
         ext_info: mockResponse.results[0].ext_info,
         source: "scene",
+        nukeReason: undefined,
+        crackType: "cracked",
       });
     });
 

@@ -31,6 +31,47 @@ vi.mock("../src/components/GameDownloadDialog", () => ({
     open ? <div data-testid="game-download-dialog">Download Dialog</div> : null,
 }));
 
+vi.mock("@/components/ui/select", () => {
+  const SelectTrigger = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
+  const Select = ({
+    value,
+    onValueChange,
+    disabled,
+    children,
+  }: {
+    value: string;
+    onValueChange: (value: string) => void;
+    disabled?: boolean;
+    children: React.ReactNode;
+  }) => {
+    let id: string | undefined;
+    React.Children.forEach(children, (child) => {
+      if (React.isValidElement(child) && child.type === SelectTrigger) {
+        id = (child.props as { id?: string }).id;
+      }
+    });
+    return (
+      <select
+        id={id}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onValueChange(event.target.value)}
+      >
+        {children}
+      </select>
+    );
+  };
+  return {
+    Select,
+    SelectTrigger,
+    SelectValue: () => null,
+    SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+      <option value={value}>{children}</option>
+    ),
+  };
+});
+
 vi.mock("lucide-react", () => ({
   Calendar: (props: Record<string, unknown>) => <div data-testid="icon-calendar" {...props} />,
   Star: (props: Record<string, unknown>) => <div data-testid="icon-star" {...props} />,
@@ -75,6 +116,9 @@ vi.mock("lucide-react", () => ({
     <div data-testid="icon-chevron-right" {...props} />
   ),
   Pencil: (props: Record<string, unknown>) => <div data-testid="icon-pencil" {...props} />,
+  ShieldCheck: (props: Record<string, unknown>) => (
+    <div data-testid="icon-shield-check" {...props} />
+  ),
 }));
 
 vi.mock("react-icons/fa", () => ({
@@ -143,6 +187,7 @@ global.fetch = vi.fn();
 function makeFetchMock(overrides: Record<string, unknown> = {}) {
   const defaults: Record<string, unknown> = {
     "/api/nexusmods/game-domain": { configured: false, domain: null },
+    "/xrel-status": { crackTypes: [] },
   };
   const routes = { ...defaults, ...overrides };
 
@@ -182,12 +227,89 @@ describe("GameDetailsModal", () => {
     expect(screen.getByTestId("img-cover-1")).toBeInTheDocument();
   });
 
+  describe("Crack Status", () => {
+    it("shows 'No known crack yet' when xREL has no matching release", async () => {
+      renderComponent();
+      expect(await screen.findByText("No known crack yet")).toBeInTheDocument();
+    });
+
+    it.each([
+      { crackTypes: ["cracked"], badgeTexts: ["Cracked"] },
+      { crackTypes: ["hypervisor"], badgeTexts: ["Hypervisor Bypass"] },
+      { crackTypes: ["cracked", "hypervisor"], badgeTexts: ["Cracked", "Hypervisor Bypass"] },
+    ])("shows badges for crackTypes $crackTypes", async ({ crackTypes, badgeTexts }) => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({ "/xrel-status": { crackTypes } })
+      );
+
+      renderComponent();
+
+      for (const badgeText of badgeTexts) {
+        expect(await screen.findByText(badgeText)).toBeInTheDocument();
+      }
+    });
+
+    it("shows an error state instead of 'No known crack yet' when the request fails", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/xrel-status")) {
+          return Promise.resolve({ ok: false, status: 500, json: vi.fn().mockResolvedValue({}) });
+        }
+        return makeFetchMock()(url);
+      });
+
+      renderComponent();
+
+      expect(await screen.findByText("Couldn't check crack status")).toBeInTheDocument();
+      expect(screen.queryByText("No known crack yet")).not.toBeInTheDocument();
+    });
+  });
+
   it("renders genres and platforms", () => {
     renderComponent();
     expect(screen.getByTestId("badge-genre-action")).toBeInTheDocument();
     expect(screen.getByTestId("badge-genre-adventure")).toBeInTheDocument();
     expect(screen.getByTestId("badge-platform-pc")).toBeInTheDocument();
     expect(screen.getByTestId("badge-platform-ps5")).toBeInTheDocument();
+  });
+
+  it("updates and clears the automatic download target", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({
+        "/api/igdb/platforms": [
+          { id: 8, name: "PlayStation 2" },
+          { id: 48, name: "PlayStation 4" },
+        ],
+      })
+    );
+    renderComponent();
+
+    const targetSelect = await screen.findByLabelText("Automatic download target");
+    await screen.findByRole("option", { name: "PlayStation 2" });
+    fireEvent.change(targetSelect, { target: { value: "8" } });
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/games/1/target-platform",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({
+            targetPlatformId: 8,
+            targetPlatformName: "PlayStation 2",
+          }),
+        })
+      );
+    });
+
+    fireEvent.change(targetSelect, { target: { value: "default" } });
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/games/1/target-platform",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ targetPlatformId: null, targetPlatformName: null }),
+        })
+      );
+    });
   });
 
   it("renders screenshots in Media tab", () => {
@@ -841,6 +963,35 @@ describe("GameDetailsModal", () => {
       });
 
       expect(screen.queryByRole("tab", { name: /^mods$/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Time to Beat", () => {
+    it("renders a zero-hour estimate instead of hiding it as falsy", () => {
+      renderComponent({
+        ...mockGame,
+        timeToBeatHastily: 0,
+        timeToBeatNormally: 10,
+        timeToBeatCompletely: null,
+      } as unknown as import("@shared/schema").Game);
+      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+
+      const section = screen.getByTestId("section-time-to-beat");
+      expect(section).toHaveTextContent("Hastily");
+      expect(section).toHaveTextContent("Normally");
+      expect(section).not.toHaveTextContent("Completely");
+    });
+
+    it("does not render the section when all estimates are null", () => {
+      renderComponent({
+        ...mockGame,
+        timeToBeatHastily: null,
+        timeToBeatNormally: null,
+        timeToBeatCompletely: null,
+      } as unknown as import("@shared/schema").Game);
+      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+
+      expect(screen.queryByTestId("section-time-to-beat")).not.toBeInTheDocument();
     });
   });
 

@@ -14,3 +14,17 @@ const TORRENT_HASH_PATTERN = /^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$/;
 export function normalizeDownloadHash(downloadHash: string): string {
   return TORRENT_HASH_PATTERN.test(downloadHash) ? downloadHash.toLowerCase() : downloadHash;
 }
+
+// Tracked-download keys are `${downloaderId}:${downloadHash}`. downloaderId is a
+// UUID (never contains ':'), so the hash is everything after the first colon.
+// Normalizing only that part keeps case-sensitive Usenet ids intact while still
+// canonicalizing torrent hashes.
+export function normalizeTrackedKey(key: string): string {
+  const separatorIndex = key.indexOf(":");
+  if (separatorIndex === -1) {
+    return key;
+  }
+  const downloaderId = key.slice(0, separatorIndex);
+  const downloadHash = key.slice(separatorIndex + 1);
+  return `${downloaderId}:${normalizeDownloadHash(downloadHash)}`;
+}

@@ -44,3 +44,7 @@ rtk pip list            rtk pnpm install        rtk npm run <script>
 - `rtk proxy <cmd>` runs command without filtering but tracks usage
 
 <!-- /headroom:rtk-instructions -->
+
+## UI Changes
+
+Any PR that touches `client/src/**` must include visual evidence (a screenshot or short recording) of the change actually running, in the PR description — not just passing unit tests. Launch `npm run dev:test`, drive the page with a headless browser, and capture the screenshot or recording before opening or updating the PR. Type checking and test suites verify code correctness, not visual/behavioral correctness — visual evidence is the only way to confirm the UI actually looks and works as intended.

@@ -1,4 +1,5 @@
-import { titleMatches } from "../shared/title-utils.js";
+import { releaseMatchesGame, titleMatches } from "../shared/title-utils.js";
+import { deriveCrackType } from "../shared/xrel-types.js";
 import type {
   XrelExtInfo,
   XrelReleaseIdentity,
@@ -146,6 +147,7 @@ function mergeAndFilterGameReleases(
       ext_info: r.ext_info,
       source: "scene",
       nukeReason: deriveNukeReason(r),
+      crackType: deriveCrackType(r.dirname),
     });
   }
   for (const r of p2p) {
@@ -160,6 +162,7 @@ function mergeAndFilterGameReleases(
       sizeUnit: "MB",
       ext_info: r.ext_info,
       source: "p2p",
+      crackType: deriveCrackType(r.dirname),
     });
   }
   return out.sort((a, b) => b.time - a.time);
@@ -266,6 +269,7 @@ export async function getLatestReleases(
     ext_info: r.ext_info,
     source: "scene",
     nukeReason: deriveNukeReason(r),
+    crackType: deriveCrackType(r.dirname),
   }));
 
   return {
@@ -334,4 +338,5 @@ export const xrelClient = {
   getLatestReleases,
   getLatestGames,
   titleMatches,
+  releaseMatchesGame,
 };

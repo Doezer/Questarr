@@ -107,6 +107,12 @@ export interface IGDBGame {
   }>;
 }
 
+export interface TimeToBeat {
+  hastily?: number;
+  normally?: number;
+  completely?: number;
+}
+
 interface SearchGamesOptions {
   includeUndated?: boolean;
   undatedFirst?: boolean;
@@ -823,6 +829,47 @@ class IGDBClient {
     return idMap;
   }
 
+  /**
+   * Fetch community-submitted completion-time estimates from IGDB's own
+   * `game_time_to_beats` endpoint (hastily/normally/completely, in hours).
+   * Coverage is best-effort: a game with no IGDB submissions is simply
+   * absent from the returned map, never a zero/placeholder entry.
+   */
+  async getTimeToBeats(igdbIds: number[]): Promise<Map<number, TimeToBeat>> {
+    const result = new Map<number, TimeToBeat>();
+    if (!(await this.ensureConfigured()) || igdbIds.length === 0) {
+      return result;
+    }
+
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < igdbIds.length; i += CHUNK_SIZE) {
+      const chunk = igdbIds.slice(i, i + CHUNK_SIZE);
+      const igdbQuery = `
+        fields game_id, hastily, normally, completely;
+        where game_id = (${chunk.join(",")});
+        limit ${chunk.length};
+      `;
+
+      try {
+        const rows = await this.makeRequest<
+          Array<{ game_id: number; hastily?: number; normally?: number; completely?: number }>
+        >("game_time_to_beats", igdbQuery, 24 * 60 * 60 * 1000);
+
+        for (const row of rows) {
+          result.set(row.game_id, {
+            hastily: row.hastily != null ? row.hastily / HOUR_IN_SECONDS : undefined,
+            normally: row.normally != null ? row.normally / HOUR_IN_SECONDS : undefined,
+            completely: row.completely != null ? row.completely / HOUR_IN_SECONDS : undefined,
+          });
+        }
+      } catch (error) {
+        igdbLogger.warn({ igdbIds: chunk, error }, "Failed to fetch a chunk of time-to-beat data");
+      }
+    }
+
+    return result;
+  }
+
   async getGamesByIds(ids: number[]): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) return [];
     if (ids.length === 0) return [];
@@ -1269,6 +1316,7 @@ class IGDBClient {
       releaseDate: releaseDate ? releaseDate.toISOString().split("T")[0] : "",
       rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : null,
       platforms: igdbGame.platforms?.map((p) => p.name) || [],
+      platformOptions: igdbGame.platforms?.map(({ id, name }) => ({ id, name })) || [],
       genres: igdbGame.genres?.map((g) => g.name) || [],
       themes: igdbGame.themes?.map((t) => t.name) || [],
       isAdultContent: hasEroticTheme(igdbGame),

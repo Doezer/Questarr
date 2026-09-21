@@ -29,6 +29,7 @@ import {
   parseJsonStringArray,
   parseReleaseMetadata,
   matchesPlatformFilter,
+  resolveGamePlatformPreference,
 } from "../shared/title-utils.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
@@ -387,6 +388,11 @@ export async function checkGameUpdates() {
 
   const igdbGameMap = new Map(igdbGames.map((g) => [g.id, g]));
 
+  // Best-effort: a failed/empty fetch here just means no games get their
+  // time-to-beat fields refreshed this cycle, never a reason to abort the
+  // rest of checkGameUpdates.
+  const timeToBeatMap = await igdbClient.getTimeToBeats(igdbIds);
+
   const updatesMap = new Map<string, Partial<Game>>();
   const notificationsToSend: InsertNotification[] = [];
   const gameUpdatePrefsCache = new Map<string, NotificationPreferences>();
@@ -413,6 +419,27 @@ export async function checkGameUpdates() {
     const newEarlyAccess = igdbGame.status === IGDB_EARLY_ACCESS_STATUS;
     if (game.earlyAccess !== newEarlyAccess) {
       queueUpdate({ earlyAccess: newEarlyAccess });
+    }
+
+    // Refresh time-to-beat estimates regardless of release-date info; a
+    // game absent from timeToBeatMap has no IGDB submissions yet, so leave
+    // its existing (possibly null) values untouched rather than clearing them.
+    const timeToBeat = timeToBeatMap.get(game.igdbId!);
+    if (timeToBeat) {
+      const newHastily = timeToBeat.hastily ?? null;
+      const newNormally = timeToBeat.normally ?? null;
+      const newCompletely = timeToBeat.completely ?? null;
+      if (
+        game.timeToBeatHastily !== newHastily ||
+        game.timeToBeatNormally !== newNormally ||
+        game.timeToBeatCompletely !== newCompletely
+      ) {
+        queueUpdate({
+          timeToBeatHastily: newHastily,
+          timeToBeatNormally: newNormally,
+          timeToBeatCompletely: newCompletely,
+        });
+      }
     }
 
     if (!igdbGame.first_release_date) continue;
@@ -1154,9 +1181,10 @@ export async function checkAutoSearch() {
 
             // Apply platform filter first (strict), then preferred groups filter, then
             // de-duplicate releases that appear on multiple indexers (keep highest-priority indexer).
+            const effectivePlatform = resolveGamePlatformPreference(game, preferredPlatform);
             const platformFilteredMain = applyPreferredPlatformFilter(
               searchResult.mainItems,
-              preferredPlatform
+              effectivePlatform
             );
             const groupFilteredMain = applyPreferredGroupsFilter(
               platformFilteredMain,
@@ -1279,9 +1307,10 @@ export async function checkAutoSearch() {
             const wasUpdateAvailable = game.updateSearchResultsAvailable;
             const wasPacksAvailable = game.packsSearchResultsAvailable;
 
+            const effectivePlatform = resolveGamePlatformPreference(game, preferredPlatform);
             const platformFilteredUpdate = applyPreferredPlatformFilter(
               searchResult.updateItems,
-              preferredPlatform
+              effectivePlatform
             );
             const groupFilteredUpdate = applyPreferredGroupsFilter(
               platformFilteredUpdate,
@@ -1293,7 +1322,7 @@ export async function checkAutoSearch() {
             // Packs/add-ons are content for owned games, surfaced like updates.
             const platformFilteredPacks = applyPreferredPlatformFilter(
               searchResult.packsItems,
-              preferredPlatform
+              effectivePlatform
             );
             const groupFilteredPacks = applyPreferredGroupsFilter(
               platformFilteredPacks,

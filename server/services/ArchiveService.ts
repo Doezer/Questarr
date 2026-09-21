@@ -7,6 +7,15 @@ import { logger } from "../logger.js";
 type ArchiveTool = "7zip" | "unrar";
 type ExecFileResult = { stdout: string; stderr: string };
 
+export interface ArchiveEntry {
+  name: string;
+  size: number;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const EXEC_TIMEOUT_MS = 30 * 60_000;
 const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
 
@@ -150,6 +159,27 @@ function runUnrar(args: string[]): Promise<ExecFileResult> {
     );
   }
   return runTool(binary, args, "unrar");
+}
+
+// Parses `7z l -slt` output: a blank-line-delimited series of "Key = Value" blocks. The
+// first block describes the archive itself (no "Folder" field) and is skipped; each
+// following block describes one entry, with "Folder = +" marking a directory (excluded —
+// only leaf files are returned, matching listEntries' contract).
+function parseSevenZipSltListing(stdout: string): ArchiveEntry[] {
+  const entries: ArchiveEntry[] = [];
+  for (const block of stdout.split(/\r?\n\r?\n/)) {
+    const fields: Record<string, string> = {};
+    for (const line of block.split(/\r?\n/)) {
+      const separatorIndex = line.indexOf(" = ");
+      if (separatorIndex === -1) continue;
+      fields[line.slice(0, separatorIndex).trim()] = line.slice(separatorIndex + 3).trim();
+    }
+    if (!("Folder" in fields) || !fields.Path) continue;
+    if (fields.Folder === "+") continue;
+    const size = Number(fields.Size);
+    entries.push({ name: fields.Path, size: Number.isFinite(size) ? size : 0 });
+  }
+  return entries;
 }
 
 export class ArchiveService {
@@ -298,11 +328,34 @@ export class ArchiveService {
     // leaves behind an empty output directory.
     await this.testArchive(filePath, tool, password);
 
-    // Always start from an empty directory: a prior extraction attempt that was killed
-    // before its own cleanup ran (e.g. a container restart) can leave stale files behind at
-    // this same "<archive>_extracted" path, which would otherwise get reported alongside —
-    // or instead of — the files this run actually extracts.
-    await fs.emptyDir(outputDir);
+    // Always start from a clean output directory: a prior extraction attempt that was
+    // killed before its own cleanup ran (e.g. a container restart) can leave stale files
+    // behind at this same path, which would otherwise get reported alongside — or instead
+    // of — the files this run actually extracts. Can't unconditionally fs.emptyDir() it
+    // though: ImportManager's move/copy import modes relocate the raw archive into
+    // outputDir before calling extract() (extracting in place at the library
+    // destination), so wiping the directory here would delete the very file about to be
+    // read, and every extraction attempt would fail with a "file not found" from the
+    // archive tool. When the archive already lives in outputDir, clear everything else
+    // and leave it in place instead.
+    const resolvedFilePath = path.resolve(filePath);
+    const resolvedOutputDir = path.resolve(outputDir);
+    if (path.dirname(resolvedFilePath) === resolvedOutputDir) {
+      const entries = await fs.readdir(outputDir, { withFileTypes: true });
+      const archiveVolumes = new Set(
+        this.findVolumeSiblings(
+          resolvedFilePath,
+          entries.map((entry) => path.join(outputDir, entry.name))
+        ).map((entryPath) => path.resolve(entryPath))
+      );
+      await Promise.all(
+        entries
+          .filter((entry) => !archiveVolumes.has(path.resolve(outputDir, entry.name)))
+          .map((entry) => fs.remove(path.join(outputDir, entry.name)))
+      );
+    } else {
+      await fs.emptyDir(outputDir);
+    }
 
     let extractedFiles: string[];
     try {
@@ -328,7 +381,133 @@ export class ArchiveService {
   }
 
   isArchive(filePath: string): boolean {
-    const ext = path.extname(filePath).toLowerCase();
-    return [".zip", ".7z", ".rar", ".gz", ".tar", ".iso", ".bz2"].includes(ext);
+    const name = path.basename(filePath).toLowerCase();
+    const ext = path.extname(name);
+    if ([".zip", ".7z", ".rar", ".gz", ".tar", ".iso", ".bz2"].includes(ext)) return true;
+    // Numbered multi-volume continuations don't carry a recognized extname on their own
+    // (path.extname("game.7z.001") is ".001") but are still archives: classic RAR .rNN,
+    // 7-Zip/zip .NNN splits ("game.7z.001", "game.zip.002"), and a bare "game.001" with
+    // no format tag. Without this, a directory containing only numbered volumes (no
+    // plain .rar/.7z/.zip file) would never be recognized as containing an archive at
+    // all, and resolveArchive would import the volumes as loose files unextracted.
+    return /\.(r\d{2,3}|7z\.\d{3}|zip\.\d{3}|\d{3})$/i.test(name);
+  }
+
+  /**
+   * Lists an archive's file entries without extracting it. Directory entries
+   * are excluded — only leaf files are returned.
+   *
+   * Always shells out to 7-Zip, even for .rar (which extraction routes to
+   * unrar instead): 7-Zip's `-slt` mode has a stable, unambiguous
+   * block-per-entry format regardless of archive type, whereas unrar's own
+   * listing commands (`l`/`v`/`lb`) are column-aligned text tables whose
+   * exact layout isn't safe to assume across the unrar builds this may run
+   * against. 7-Zip has read-only support for RAR (including RAR5) built in,
+   * so this works without needing unrar at all for the listing case.
+   */
+  async listEntries(filePath: string): Promise<ArchiveEntry[]> {
+    logger.debug({ filePath }, "Listing archive contents");
+    const { stdout } = await runSevenZip(["l", "-slt", "-p-", "--", filePath]);
+    return parseSevenZipSltListing(stdout);
+  }
+
+  /**
+   * Checks whether every file inside the archive already exists as a loose
+   * file (same relative path and size) under baseDir — i.e. the archive has
+   * already been extracted alongside itself by something upstream (a
+   * download client's own post-processing, for example). Listing failures
+   * (unsupported/unreadable archive for 7-Zip's listing path) are treated as
+   * "can't tell" rather than propagated — this check is purely an
+   * optimization to skip redundant extraction, never load-bearing for
+   * correctness, so a failure here should fall through to a normal
+   * extraction rather than fail the import.
+   */
+  async isAlreadyExtracted(archivePath: string, baseDir: string): Promise<boolean> {
+    let entries: ArchiveEntry[];
+    try {
+      entries = await this.listEntries(archivePath);
+    } catch (err) {
+      logger.debug(
+        { err, archivePath },
+        "[ArchiveService] Could not list archive contents to check for a prior extraction — assuming not extracted"
+      );
+      return false;
+    }
+    if (entries.length === 0) return false;
+
+    const resolvedBaseDir = path.resolve(baseDir);
+    for (const entry of entries) {
+      const normalizedName = entry.name.split(/[/\\]+/).join(path.sep);
+      const candidatePath = path.resolve(baseDir, normalizedName);
+      // entry.name comes from the archive's own (attacker-controllable) listing, not from
+      // baseDir's contents — a crafted entry like "../elsewhere/file" would otherwise let
+      // an external file the archive doesn't actually contain satisfy the match below.
+      if (
+        candidatePath !== resolvedBaseDir &&
+        !candidatePath.startsWith(resolvedBaseDir + path.sep)
+      ) {
+        return false;
+      }
+      try {
+        const stats = await fs.stat(candidatePath);
+        if (stats.isDirectory() || stats.size !== entry.size) return false;
+      } catch {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Given a main archive path and the absolute paths of its siblings,
+   * returns the subset that belongs to the same archive: the main archive
+   * itself plus any split/multi-part volume companions (.r00, .part2.rar,
+   * .7z.002, etc).
+   */
+  findVolumeSiblings(archivePath: string, siblingPaths: string[]): string[] {
+    const resolvedArchive = path.resolve(archivePath);
+    const archiveBasename = path.basename(archivePath);
+
+    // A volume-suffix pattern (.partN.rar, .rNN, .7z.NNN, .zip.NNN, bare .NNN) has to be
+    // stripped as its own alternative before the plain single-extension fallback: the
+    // "main" archive passed in is often itself a numbered volume (e.g. 7-Zip splits
+    // produce "Game.7z.001"/"Game.7z.002" with no separate "Game.7z"), and stripping
+    // only a plain extension would leave the stem as "Game.7z.001", which then never
+    // matches sibling "Game.7z.002" (whose own stem, by the same logic, would be
+    // "Game.7z.002" — never equal). Matching the whole numbered-volume tail first
+    // reduces every volume to the same "Game" stem regardless of which one was passed in.
+    const stem = archiveBasename.replace(
+      /\.(part\d+\.rar|r\d{2,3}|7z\.\d{3}|zip\.\d{3}|\d{3}|rar|zip|7z|gz|tar|iso|bz2)$/i,
+      ""
+    );
+
+    // Which multi-volume naming scheme applies is determined by the selected archive's
+    // own suffix — these schemes are format-specific and never mixed within one release,
+    // so matching any numbered-suffix pattern regardless of family (as a single shared
+    // regex previously did) could pull in an unrelated archive's volumes that merely
+    // share a filename prefix, e.g. "Game.rar" incorrectly matching "Game.7z.001".
+    let volumeSuffix: string | null;
+    if (/\.part\d+\.rar$/i.test(archiveBasename)) {
+      volumeSuffix = "part\\d+\\.rar";
+    } else if (/\.(rar|r\d{2,3})$/i.test(archiveBasename)) {
+      volumeSuffix = "r\\d{2,3}";
+    } else if (/\.7z(\.\d{3})?$/i.test(archiveBasename)) {
+      volumeSuffix = "7z\\.\\d{3}";
+    } else if (/\.zip(\.\d{3})?$/i.test(archiveBasename)) {
+      volumeSuffix = "zip\\.\\d{3}";
+    } else if (/\.\d{3}$/.test(archiveBasename)) {
+      volumeSuffix = "\\d{3}";
+    } else {
+      volumeSuffix = null;
+    }
+    const volumePattern = volumeSuffix
+      ? new RegExp(`^${escapeRegExp(stem)}\\.(${volumeSuffix})$`, "i")
+      : null;
+
+    return siblingPaths.filter((siblingPath) => {
+      if (path.resolve(siblingPath) === resolvedArchive) return true;
+      return volumePattern ? volumePattern.test(path.basename(siblingPath)) : false;
+    });
   }
 }

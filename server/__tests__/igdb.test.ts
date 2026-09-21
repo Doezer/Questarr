@@ -427,17 +427,16 @@ describe("IGDBClient - Batch Operations", () => {
     fetchMock = vi.mocked(safeFetch);
   });
 
-  it("should batch steam app ID lookups correctly", async () => {
-    // Mock auth
-    const authResponse = {
-      ok: true,
-      json: async () => ({
-        access_token: "test-token",
-        expires_in: 3600,
-        token_type: "bearer",
-      }),
-    };
+  const authResponse = {
+    ok: true,
+    json: async () => ({
+      access_token: "test-token",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
+  };
 
+  it("should batch steam app ID lookups correctly", async () => {
     const successResponse1 = {
       ok: true,
       json: async () => [
@@ -474,6 +473,71 @@ describe("IGDBClient - Batch Operations", () => {
 
     // Verify batches
     // 1 Auth call + 2 API calls (150 / 100 = 2 chunks)
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("converts seconds to hours and keys results by game_id", async () => {
+    const successResponse = {
+      ok: true,
+      json: async () => [
+        { game_id: 100, hastily: 18000, normally: 36000, completely: 72000 }, // 5h / 10h / 20h
+      ],
+    };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.getTimeToBeats([100]);
+
+    expect(result.get(100)).toEqual({ hastily: 5, normally: 10, completely: 20 });
+  });
+
+  it("leaves an id absent from the map when IGDB has no submissions for it", async () => {
+    const successResponse = { ok: true, json: async () => [] };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.getTimeToBeats([999]);
+
+    expect(result.has(999)).toBe(false);
+    expect(result.size).toBe(0);
+  });
+
+  it("does not throw when the endpoint request fails, just returns an empty map for that chunk", async () => {
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+    });
+
+    const { igdbClient } = await import("../igdb.js");
+    const result = await igdbClient.getTimeToBeats([100]);
+
+    expect(result.size).toBe(0);
+  });
+
+  it("chunks ids in groups of 100", async () => {
+    const successResponse1 = {
+      ok: true,
+      json: async () => [{ game_id: 1, hastily: 3600 }],
+    };
+    const successResponse2 = {
+      ok: true,
+      json: async () => [{ game_id: 101, normally: 7200 }],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(successResponse1)
+      .mockResolvedValueOnce(successResponse2);
+
+    const { igdbClient } = await import("../igdb.js");
+    const ids = Array.from({ length: 150 }, (_, i) => i + 1);
+    const result = await igdbClient.getTimeToBeats(ids);
+
+    expect(result.get(1)).toEqual({ hastily: 1, normally: undefined, completely: undefined });
+    expect(result.get(101)).toEqual({ hastily: undefined, normally: 2, completely: undefined });
+    // 1 auth call + 2 chunk calls
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
@@ -971,6 +1035,23 @@ describe("IGDBClient - formatGameData metadata fields", () => {
     const results = await igdbClient.searchGames("Test Game", 1);
 
     expect(results[0].websites).toEqual(websites);
+  });
+
+  it("preserves IGDB platform ids and names for target selection", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    const result = igdbClient.formatGameData({
+      id: 1,
+      name: "God of War",
+      platforms: [
+        { id: 8, name: "PlayStation 2" },
+        { id: 9, name: "PlayStation 3" },
+      ],
+    });
+
+    expect(result.platformOptions).toEqual([
+      { id: 8, name: "PlayStation 2" },
+      { id: 9, name: "PlayStation 3" },
+    ]);
   });
 
   it("uses empty array for igdbWebsites when websites field is absent", async () => {

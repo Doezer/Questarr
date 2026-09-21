@@ -2,7 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
-import { normalizeDownloadHash } from "./download-hash.js";
+import { normalizeDownloadHash, normalizeTrackedKey } from "./download-hash.js";
 import { igdbClient } from "./igdb.js";
 import type { IGDBGame } from "./igdb.js";
 import { pingDatabase } from "./db.js";
@@ -13,6 +13,7 @@ import {
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
   updateGameNotesSchema,
+  updateGameTargetPlatformSchema,
   insertIndexerSchema,
   insertDownloaderSchema,
   insertNotificationSchema,
@@ -209,6 +210,7 @@ import {
 } from "../shared/title-utils.js";
 import { categorizeDownload, type DownloadCategory } from "../shared/download-categorizer.js";
 import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
+import type { XrelGameStatus } from "../shared/xrel-types.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
@@ -1567,6 +1569,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  // Update the per-game download target, or clear it to use the account default.
+  app.patch(
+    "/api/games/:id/target-platform",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const userId = req.user!.id;
+        const target = updateGameTargetPlatformSchema.parse(req.body);
+
+        if (!(await resolveOwnedGame(id, userId, res))) return;
+
+        const updatedGame = await storage.updateGame(id, target);
+        if (!updatedGame) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+
+        return res.json(updatedGame);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid target platform data");
+        }
+        routesLogger.error({ error }, "error updating game target platform");
+        return res.status(500).json({ error: "Failed to update target platform" });
+      }
+    }
+  );
+
   // Refresh metadata for all games
   app.post("/api/games/refresh-metadata", igdbRateLimiter, async (req, res) => {
     try {
@@ -2547,6 +2579,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const formattedGame = igdbClient.formatGameData(igdbGame);
+        const timeToBeat = (await igdbClient.getTimeToBeats([igdbId])).get(igdbId);
+        if (timeToBeat) {
+          formattedGame.timeToBeatHastily = timeToBeat.hastily ?? null;
+          formattedGame.timeToBeatNormally = timeToBeat.normally ?? null;
+          formattedGame.timeToBeatCompletely = timeToBeat.completely ?? null;
+        }
         res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
         const filterFlags = await getContentFilterFlags(req.user!.id);
         if (
@@ -3389,8 +3427,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user!.id;
       const enabledDownloaders = await storage.getEnabledDownloaders();
       const rawTrackedKeys = await storage.getTrackedDownloadKeys();
-      // Normalise to lowercase so case differences in stored vs. live hashes never cause false "untracked" results
-      const trackedKeys = new Set(Array.from(rawTrackedKeys).map((k) => k.toLowerCase()));
+      // Normalise torrent hashes so case differences in stored vs. live hashes never cause
+      // false "untracked" results, while leaving case-sensitive Usenet ids untouched.
+      const trackedKeys = new Set(Array.from(rawTrackedKeys).map(normalizeTrackedKey));
 
       // Fetch downloads from all downloaders in parallel
       const allDownloads: Array<{
@@ -3408,13 +3447,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           try {
             const downloads = await DownloaderManager.getAllDownloads(downloader);
             for (const d of downloads) {
-              const key = `${downloader.id}:${d.id.toLowerCase()}`;
+              const key = `${downloader.id}:${normalizeDownloadHash(d.id)}`;
               if (!trackedKeys.has(key)) {
                 allDownloads.push({
                   downloaderId: downloader.id,
                   downloaderName: downloader.name,
                   downloadId: d.id,
-                  downloadHash: d.id.toLowerCase(),
+                  downloadHash: normalizeDownloadHash(d.id),
                   downloadTitle: d.name,
                   status: d.status,
                   downloadType: d.downloadType ?? "torrent",
@@ -3513,8 +3552,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Prevent duplicate: reject if this download is already linked to any game
-      const trackedKeys = await storage.getTrackedDownloadKeys();
-      if (trackedKeys.has(`${downloaderId}:${downloadHash.toLowerCase()}`)) {
+      const trackedKeys = new Set(
+        Array.from(await storage.getTrackedDownloadKeys()).map(normalizeTrackedKey)
+      );
+      if (trackedKeys.has(`${downloaderId}:${normalizeDownloadHash(downloadHash)}`)) {
         return res.status(409).json({ error: "This download is already linked to a game" });
       }
 
@@ -3598,7 +3639,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         insertGameDownloadSchema.parse({
           gameId: resolvedGameId!,
           downloaderId,
-          downloadHash: downloadHash.toLowerCase(),
+          downloadHash: normalizeDownloadHash(downloadHash),
           downloadTitle,
           downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
           status: downloadStatus,
@@ -3643,14 +3684,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       status: "in_progress",
     });
 
-    const trackedKeys = await storage.getTrackedDownloadKeys();
+    const trackedKeys = new Set(
+      Array.from(await storage.getTrackedDownloadKeys()).map(normalizeTrackedKey)
+    );
     let addedCount = 0;
     let failedCount = 0;
     const taskItemsToInsert: InsertImportTaskItem[] = [];
     const igdbIdToGameId = new Map<number, string>();
 
     for (const item of parsedItems) {
-      const key = `${item.downloaderId}:${item.downloadHash.toLowerCase()}`;
+      const key = `${item.downloaderId}:${normalizeDownloadHash(item.downloadHash)}`;
       if (trackedKeys.has(key)) {
         taskItemsToInsert.push({
           taskId: task.id,
@@ -3764,7 +3807,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           insertGameDownloadSchema.parse({
             gameId: resolvedGameId,
             downloaderId: item.downloaderId,
-            downloadHash: item.downloadHash.toLowerCase(),
+            downloadHash: normalizeDownloadHash(item.downloadHash),
             downloadTitle: item.downloadTitle,
             downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
             status: downloadStatus,
@@ -4577,6 +4620,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return next(error);
     }
   });
+
+  // Known xREL crack status for a specific game in the user's collection --
+  // which crack types (cracked, hypervisor bypass) have a matching release,
+  // regardless of when. crackTypes is empty when xREL has no match yet.
+  app.get(
+    "/api/games/:id/xrel-status",
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        res.set("Cache-Control", "no-store");
+        const userId = req.user!.id;
+        const game = await resolveOwnedGame(req.params.id, userId, res);
+        if (!game) return;
+
+        const baseUrl =
+          (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+          process.env.XREL_API_BASE ||
+          DEFAULT_XREL_BASE;
+
+        const results = await xrelClient.searchReleases(game.title, {
+          scene: true,
+          p2p: true,
+          limit: 25,
+          baseUrl,
+        });
+
+        const matches = results.filter(
+          (r) =>
+            xrelClient.releaseMatchesGame(r.dirname, game.title) ||
+            (r.ext_info?.title && xrelClient.titleMatches(r.ext_info.title, game.title))
+        );
+
+        const crackTypes = (["cracked", "hypervisor"] as const).filter((type) =>
+          matches.some((r) => r.crackType === type)
+        );
+
+        const response: XrelGameStatus = { crackTypes };
+        return res.json(response);
+      } catch (error) {
+        return next(error);
+      }
+    }
+  );
 
   // Match and add game from name (Quick Add). Shares its search/filter/dedupe
   // logic with the integration API's POST /api/integration/games/request

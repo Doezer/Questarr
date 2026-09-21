@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -20,6 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -35,6 +42,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Calendar,
+  Clock,
   Star,
   Monitor,
   Gamepad2,
@@ -65,6 +73,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Pencil,
+  ShieldCheck,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -81,11 +90,24 @@ import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { type Game, type GameDownload, type ScannedGameFile } from "@shared/schema";
+import { resolveTargetPlatform } from "@shared/title-utils";
+import { type XrelGameStatus } from "@shared/xrel-types";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
 
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
+
+/** Derives the target-platform Select value, falling back to "default" for malformed or unsupported saved pairs. */
+function getTargetPlatformSelectValue(
+  target:
+    { targetPlatformId?: number | null; targetPlatformName?: string | null } | null | undefined
+): string {
+  if (target?.targetPlatformId == null) return "default";
+  return resolveTargetPlatform(target.targetPlatformId, target.targetPlatformName)
+    ? String(target.targetPlatformId)
+    : "default";
+}
 
 interface GameDetailsModalProps {
   game: Game | null;
@@ -98,6 +120,11 @@ type GameDownloadWithDownloader = GameDownload & { downloaderName: string | null
 type FileDeletionResult =
   | { deleted: true; path: string | null }
   | { deleted: false; reason: "outside-library-root" | "delete-failed"; path: string };
+
+interface IgdbPlatformOption {
+  id: number;
+  name: string;
+}
 
 interface NexusMod {
   mod_id: number;
@@ -250,6 +277,50 @@ function SourceBadge({ source }: { source: string | null | undefined }) {
   );
 }
 
+interface CrackStatusContentProps {
+  isLoading: boolean;
+  isError: boolean;
+  crackTypes: ("cracked" | "hypervisor")[] | undefined;
+  testId: string;
+}
+
+function CrackStatusContent({ isLoading, isError, crackTypes, testId }: CrackStatusContentProps) {
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Checking xREL…</p>;
+  }
+  if (isError) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid={testId}>
+        Couldn't check crack status
+      </p>
+    );
+  }
+  if (!crackTypes || crackTypes.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid={testId}>
+        No known crack yet
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid={testId}>
+      {crackTypes.includes("cracked") && (
+        <Badge variant="secondary" className="text-xs">
+          Cracked
+        </Badge>
+      )}
+      {crackTypes.includes("hypervisor") && (
+        <Badge
+          variant="outline"
+          className="text-xs border-amber-500 text-amber-500 dark:text-amber-400"
+        >
+          Hypervisor Bypass
+        </Badge>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 /** Click target for a half-star or full-star position within StarRatingInput. */
@@ -356,6 +427,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [notesValue, setNotesValue] = useState<string>("");
+  const [targetPlatformValue, setTargetPlatformValue] = useState("default");
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   // Tracks the live notesValue so the async save's onSuccess (below) can tell
   // whether the user kept typing after blur, instead of seeing the stale
@@ -409,6 +481,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   useEffect(() => {
     setIsSummaryExpanded(false);
     setNotesValue(game?.notes ?? "");
+    setTargetPlatformValue(getTargetPlatformSelectValue(game));
     setIsEditingNotes(false);
     queuedNotesSaveRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -422,6 +495,17 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     if (isMobile && isEditingNotesRef.current) return;
     setNotesValue(game?.notes ?? "");
   }, [game?.notes, isMobile]);
+
+  // Keep targetPlatformValue in sync with the server value for the same game
+  // (e.g. after the target-platform mutation's invalidateQueries refetch lands).
+  useEffect(() => {
+    setTargetPlatformValue(
+      getTargetPlatformSelectValue({
+        targetPlatformId: game?.targetPlatformId,
+        targetPlatformName: game?.targetPlatformName,
+      })
+    );
+  }, [game?.targetPlatformId, game?.targetPlatformName]);
 
   useEffect(() => {
     setSelectedScreenshotIndex(null);
@@ -509,6 +593,29 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     };
   }, [open, game?.id, queryClient]);
 
+  const { data: targetPlatformOptions = [] } = useQuery<IgdbPlatformOption[]>({
+    queryKey: ["/api/igdb/platforms"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/igdb/platforms");
+      return res.json();
+    },
+    enabled: open && !!game?.id && !isDiscoveryId(game.id),
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  const supportedTargetPlatformOptions = useMemo(() => {
+    const options = targetPlatformOptions.filter(({ id, name }) => resolveTargetPlatform(id, name));
+    if (
+      game?.targetPlatformId &&
+      game.targetPlatformName &&
+      resolveTargetPlatform(game.targetPlatformId, game.targetPlatformName) &&
+      !options.some(({ id }) => id === game.targetPlatformId)
+    ) {
+      return [{ id: game.targetPlatformId, name: game.targetPlatformName }, ...options];
+    }
+    return options;
+  }, [targetPlatformOptions, game?.targetPlatformId, game?.targetPlatformName]);
+
   const { data: gameDownloads = [], isLoading: downloadsLoading } = useQuery<
     GameDownloadWithDownloader[]
   >({
@@ -519,6 +626,20 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
     enabled: open && !!game?.id && !isDiscoveryId(game.id),
     refetchInterval: 5000,
+  });
+
+  const {
+    data: xrelStatus,
+    isLoading: xrelStatusLoading,
+    isError: xrelStatusError,
+  } = useQuery<XrelGameStatus>({
+    queryKey: [`/api/games/${game?.id}/xrel-status`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/games/${game!.id}/xrel-status`);
+      return res.json();
+    },
+    enabled: open && !!game?.id && !isDiscoveryId(game.id),
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: nexusGameData, isError: nexusDomainError } = useQuery<{
@@ -613,6 +734,36 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       toast({ description: "Failed to save your rating", variant: "destructive" });
     },
   });
+
+  const targetPlatformMutation = useMutation({
+    mutationFn: async (target: {
+      targetPlatformId: number | null;
+      targetPlatformName: string | null;
+    }) => {
+      await apiRequest("PATCH", `/api/games/${game?.id}/target-platform`, target);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      toast({ description: "Download target updated" });
+    },
+    onError: () => {
+      setTargetPlatformValue(getTargetPlatformSelectValue(game));
+      toast({ description: "Failed to update download target", variant: "destructive" });
+    },
+  });
+
+  const handleTargetPlatformChange = useCallback(
+    (value: string) => {
+      setTargetPlatformValue(value);
+      const selected = supportedTargetPlatformOptions.find(({ id }) => String(id) === value);
+      targetPlatformMutation.mutate(
+        selected
+          ? { targetPlatformId: selected.id, targetPlatformName: selected.name }
+          : { targetPlatformId: null, targetPlatformName: null }
+      );
+    },
+    [supportedTargetPlatformOptions, targetPlatformMutation]
+  );
 
   const notesMutation = useMutation({
     mutationFn: async ({ gameId, notes }: { gameId: string; notes: string | null }) => {
@@ -1069,6 +1220,22 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 </div>
               )}
 
+              {/* Crack status (sourced from xREL) */}
+              {!isDiscoveryId(game.id) && (
+                <div>
+                  <h3 className="font-semibold mb-2 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4" />
+                    Crack Status
+                  </h3>
+                  <CrackStatusContent
+                    isLoading={xrelStatusLoading}
+                    isError={xrelStatusError}
+                    crackTypes={xrelStatus?.crackTypes}
+                    testId={`text-crack-status-${game.id}`}
+                  />
+                </div>
+              )}
+
               {/* Metadata grid */}
               <div className="grid grid-cols-2 gap-4">
                 {game.rating && (
@@ -1144,6 +1311,41 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       maxVisible={8}
                       getTestId={(p) => `badge-platform-${p.toLowerCase().replace(/\s+/g, "-")}`}
                     />
+                  </div>
+                )}
+                {!isDiscoveryId(game.id) && (
+                  <div>
+                    <label
+                      htmlFor="target-platform"
+                      className="font-semibold mb-2 flex items-center gap-2"
+                    >
+                      <Gamepad2 className="w-4 h-4" />
+                      Automatic download target
+                    </label>
+                    <Select
+                      value={targetPlatformValue}
+                      disabled={targetPlatformMutation.isPending}
+                      onValueChange={handleTargetPlatformChange}
+                    >
+                      <SelectTrigger
+                        id="target-platform"
+                        aria-label="Automatic download target"
+                        className="w-full max-w-sm"
+                      >
+                        <SelectValue placeholder="Use account default" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Use account default</SelectItem>
+                        {supportedTargetPlatformOptions.map((platform) => (
+                          <SelectItem key={platform.id} value={String(platform.id)}>
+                            {platform.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Overrides the account platform for automatic release matching.
+                    </p>
                   </div>
                 )}
               </div>
@@ -1403,6 +1605,40 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   <StarRatingInput value={currentUserRating} onChange={handleUserRatingChange} />
                 </div>
               </div>
+
+              {[game.timeToBeatHastily, game.timeToBeatNormally, game.timeToBeatCompletely].some(
+                (value) => value != null
+              ) && (
+                <div data-testid="section-time-to-beat">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    Time to Beat
+                  </h3>
+                  <div className="flex flex-wrap gap-4">
+                    {[
+                      { label: "Hastily", value: game.timeToBeatHastily },
+                      { label: "Normally", value: game.timeToBeatNormally },
+                      { label: "Completely", value: game.timeToBeatCompletely },
+                    ]
+                      .filter(
+                        (entry): entry is { label: string; value: number } => entry.value != null
+                      )
+                      .map((entry) => (
+                        <div key={entry.label} className="flex items-center gap-3">
+                          <div className="w-14 h-14 rounded-xl flex items-center justify-center text-sm font-bold bg-muted">
+                            {entry.value % 1 === 0 ? entry.value : entry.value.toFixed(1)}h
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium">{entry.label}</div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Estimated hours (IGDB)
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
 
               <div>
                 {/* IGDB website links */}

@@ -93,6 +93,13 @@ import {
 import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import {
+  typesafeClient,
+  TYPESAFE_URL_CONFIG_KEY,
+  TYPESAFE_KEY_CONFIG_KEY,
+  TYPESAFE_MODEL_CONFIG_KEY,
+} from "./typesafe.js";
+import { encryptCredential } from "./credential-crypto.js";
+import {
   appriseClient,
   isAppriseConfigured,
   normalizeAppriseMode,
@@ -202,7 +209,7 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
 });
-import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
+import { searchAllIndexers, filterBlacklistedReleases, enrichWithAiAnalysis } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
 import {
   normalizeTitle,
@@ -494,8 +501,10 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       }
     }
 
+    const enrichedItems = await enrichWithAiAnalysis(filteredItems);
+
     return res.json({
-      items: filteredItems,
+      items: enrichedItems,
       total,
       offset,
       ...(blacklistedCount > 0 ? { blacklistedCount } : {}),
@@ -523,6 +532,22 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
   const limit = Math.min(Math.max(1, Number.parseInt(query.limit as string, 10) || 20), 100);
   const offset = Math.max(0, Number.parseInt(query.offset as string, 10) || 0);
   return { limit, offset };
+}
+
+/**
+ * Resolves the encrypted TypeSafe API key to persist for a settings update: encrypts a
+ * newly supplied key, or reuses the already-stored encrypted key when none is supplied
+ * (e.g. the user is only changing the URL or model). Returns null when no key was
+ * supplied and none is stored yet -- the caller should treat that as "key required".
+ */
+async function resolveTypesafeApiKey(
+  trimmedNewKey: string
+): Promise<{ trimmedNewKey: string; encryptedKey: string } | null> {
+  if (trimmedNewKey) {
+    return { trimmedNewKey, encryptedKey: (await encryptCredential(trimmedNewKey)) ?? "" };
+  }
+  const storedEncryptedKey = await storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY);
+  return storedEncryptedKey ? { trimmedNewKey: "", encryptedKey: storedEncryptedKey } : null;
 }
 
 /** Filters an already-fetched list of library games according to the user's content-filter preferences. */
@@ -5041,6 +5066,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to update NexusMods settings");
       return res.status(500).json({ error: "Failed to update NexusMods settings" });
+    }
+  });
+
+  // ── TypeSafe (Jev) AI settings ────────────────────────────────────────────────
+
+  app.get("/api/settings/typesafe", sensitiveEndpointLimiter, async (_req, res) => {
+    try {
+      const [dbUrl, dbKey, dbModel] = await Promise.all([
+        storage.getSystemConfig(TYPESAFE_URL_CONFIG_KEY),
+        storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY),
+        storage.getSystemConfig(TYPESAFE_MODEL_CONFIG_KEY),
+      ]);
+      const configured = !!(dbKey && dbKey.length > 0);
+      res.json({
+        configured,
+        apiUrl: dbUrl && dbUrl.length > 0 ? dbUrl : undefined,
+        model: dbModel && dbModel.length > 0 ? dbModel : undefined,
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch TypeSafe settings");
+      res.status(500).json({ error: "Failed to fetch TypeSafe settings" });
+    }
+  });
+
+  app.post("/api/settings/typesafe", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { apiUrl, apiKey, model } = req.body as {
+        apiUrl?: unknown;
+        apiKey?: unknown;
+        model?: unknown;
+      };
+      // apiKey is optional on an update: omitting it (e.g. to change only the URL or model)
+      // reuses the already-stored encrypted key rather than forcing it to be re-entered.
+      if (apiKey !== undefined && typeof apiKey !== "string") {
+        return res.status(400).json({ error: "Invalid API key" });
+      }
+      if (apiUrl !== undefined && typeof apiUrl !== "string") {
+        return res.status(400).json({ error: "Invalid API URL" });
+      }
+      if (model !== undefined && typeof model !== "string") {
+        return res.status(400).json({ error: "Invalid model" });
+      }
+
+      const trimmedUrl = apiUrl?.trim() ?? "";
+      if (trimmedUrl) {
+        // TypeSafeClient always calls safeFetch with requireHttps -- reject anything that
+        // would fail that check at save time rather than let every analysis call fail later.
+        let parsed: URL;
+        try {
+          parsed = new URL(trimmedUrl);
+        } catch {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+        if (parsed.protocol !== "https:" || !(await isSafeUrl(trimmedUrl))) {
+          return res.status(400).json({ error: "API URL must be a safe HTTPS URL" });
+        }
+      }
+
+      const resolvedKey = await resolveTypesafeApiKey(apiKey?.trim() ?? "");
+      if (!resolvedKey) {
+        return res.status(400).json({ error: "API key is required" });
+      }
+
+      const trimmedModel = model?.trim() ?? "";
+      await storage.setSystemConfigBatch([
+        { key: TYPESAFE_URL_CONFIG_KEY, value: trimmedUrl },
+        { key: TYPESAFE_KEY_CONFIG_KEY, value: resolvedKey.encryptedKey },
+        { key: TYPESAFE_MODEL_CONFIG_KEY, value: trimmedModel },
+      ]);
+      if (resolvedKey.trimmedNewKey) {
+        typesafeClient.configure(
+          trimmedUrl || null,
+          resolvedKey.trimmedNewKey,
+          trimmedModel || null
+        );
+      } else {
+        // Reusing the stored key -- invalidate the in-memory cache so the next call reloads
+        // and decrypts it (and picks up the new URL/model) from storage instead of retaining
+        // stale values from before this save.
+        typesafeClient.invalidate();
+      }
+      routesLogger.info("TypeSafe API settings updated");
+      return res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update TypeSafe settings");
+      return res.status(500).json({ error: "Failed to update TypeSafe settings" });
+    }
+  });
+
+  app.delete("/api/settings/typesafe", sensitiveEndpointLimiter, async (_req, res) => {
+    try {
+      await storage.setSystemConfigBatch([
+        { key: TYPESAFE_URL_CONFIG_KEY, value: "" },
+        { key: TYPESAFE_KEY_CONFIG_KEY, value: "" },
+        { key: TYPESAFE_MODEL_CONFIG_KEY, value: "" },
+      ]);
+      typesafeClient.configure(null, null, null);
+      routesLogger.info("TypeSafe API settings cleared");
+      return res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to clear TypeSafe settings");
+      return res.status(500).json({ error: "Failed to clear TypeSafe settings" });
     }
   });
 

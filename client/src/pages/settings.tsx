@@ -261,6 +261,7 @@ export default function SettingsPage() {
   const [showNexusApiKey, setShowNexusApiKey] = useState(false);
   const [typesafeApiUrl, setTypesafeApiUrl] = useState("");
   const [typesafeApiKey, setTypesafeApiKey] = useState("");
+  const [typesafeModel, setTypesafeModel] = useState("");
   const [showTypesafeApiKey, setShowTypesafeApiKey] = useState(false);
 
   // Sync with fetched settings. Guarded by settingsLoadedRef so a background
@@ -489,13 +490,14 @@ export default function SettingsPage() {
   const { data: typesafeSettings } = useQuery<{
     configured: boolean;
     apiUrl?: string;
+    model?: string;
   }>({
     queryKey: ["/api/settings/typesafe"],
     queryFn: () => apiRequest("GET", "/api/settings/typesafe").then((r) => r.json()),
   });
 
   const updateTypesafeMutation = useMutation({
-    mutationFn: async (data: { apiUrl: string; apiKey: string }) => {
+    mutationFn: async (data: { apiUrl: string; apiKey: string; model: string }) => {
       const res = await apiRequest("POST", "/api/settings/typesafe", data);
       return res.json();
     },
@@ -518,6 +520,7 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/settings/typesafe"] });
       setTypesafeApiUrl("");
       setTypesafeApiKey("");
+      setTypesafeModel("");
       toast({ title: "TypeSafe integration disabled" });
     },
     onError: () => {
@@ -530,6 +533,7 @@ export default function SettingsPage() {
     updateTypesafeMutation.mutate({
       apiUrl: typesafeApiUrl.trim(),
       apiKey: typesafeApiKey.trim(),
+      model: typesafeModel.trim(),
     });
   };
 
@@ -537,7 +541,10 @@ export default function SettingsPage() {
     if (typesafeSettings?.apiUrl) {
       setTypesafeApiUrl(typesafeSettings.apiUrl);
     }
-  }, [typesafeSettings?.apiUrl]);
+    if (typesafeSettings?.model) {
+      setTypesafeModel(typesafeSettings.model);
+    }
+  }, [typesafeSettings?.apiUrl, typesafeSettings?.model]);
 
   const [certInfo, setCertInfo] = useState<CertInfo | null>(null); // State for cert info
   const [isCertBrowserOpen, setIsCertBrowserOpen] = useState(false);
@@ -1900,6 +1907,22 @@ export default function SettingsPage() {
                       </Button>
                     )}
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="typesafe-model">Model</Label>
+                  <Input
+                    id="typesafe-model"
+                    type="text"
+                    placeholder="jev-latest"
+                    value={typesafeModel}
+                    onChange={(e) => setTypesafeModel(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave blank for TypeSafe&apos;s default model. Routing through OpenRouter? Set
+                    the API URL to{" "}
+                    <code className="text-[10px]">https://openrouter.ai/api/alpha/decisions</code>{" "}
+                    and the model to <code className="text-[10px]">typesafe/jev-1.13</code>.
+                  </p>
                 </div>
                 <div className="flex justify-end gap-2 pt-2 border-t">
                   {typesafeSettings?.configured && (

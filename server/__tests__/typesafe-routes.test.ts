@@ -46,6 +46,7 @@ vi.mock("../typesafe.js", () => ({
   },
   TYPESAFE_URL_CONFIG_KEY: "typesafe.apiUrl",
   TYPESAFE_KEY_CONFIG_KEY: "typesafe.apiKey",
+  TYPESAFE_MODEL_CONFIG_KEY: "typesafe.model",
 }));
 
 vi.mock("../credential-crypto.js", () => ({
@@ -114,11 +115,44 @@ describe("TypeSafe Settings Routes", () => {
       expect(storageMock.setSystemConfigBatch).toHaveBeenCalledWith([
         { key: "typesafe.apiUrl", value: "https://api.typesafe.ai/v1/systemone" },
         { key: "typesafe.apiKey", value: "enc:v1:my-key" },
+        { key: "typesafe.model", value: "" },
       ]);
       expect(typesafeMock.configure).toHaveBeenCalledWith(
         "https://api.typesafe.ai/v1/systemone",
-        "my-key"
+        "my-key",
+        null
       );
+    });
+
+    it("saves the model alongside the URL and key", async () => {
+      const storageMock = await getStorageMock();
+      const typesafeMock = await getTypesafeMock();
+      vi.mocked(storageMock.setSystemConfigBatch).mockResolvedValue(undefined);
+
+      const res = await request(app).post("/api/settings/typesafe").send({
+        apiUrl: "https://openrouter.ai/api/alpha/decisions",
+        apiKey: "my-key",
+        model: "typesafe/jev-1.13",
+      });
+
+      expect(res.status).toBe(200);
+      expect(storageMock.setSystemConfigBatch).toHaveBeenCalledWith([
+        { key: "typesafe.apiUrl", value: "https://openrouter.ai/api/alpha/decisions" },
+        { key: "typesafe.apiKey", value: "enc:v1:my-key" },
+        { key: "typesafe.model", value: "typesafe/jev-1.13" },
+      ]);
+      expect(typesafeMock.configure).toHaveBeenCalledWith(
+        "https://openrouter.ai/api/alpha/decisions",
+        "my-key",
+        "typesafe/jev-1.13"
+      );
+    });
+
+    it("returns 400 when model is not a string", async () => {
+      const res = await request(app)
+        .post("/api/settings/typesafe")
+        .send({ apiKey: "my-key", model: 12345 });
+      expect(res.status).toBe(400);
     });
 
     it("returns 400 when API key is empty", async () => {
@@ -178,6 +212,7 @@ describe("TypeSafe Settings Routes", () => {
       expect(storageMock.setSystemConfigBatch).toHaveBeenCalledWith([
         { key: "typesafe.apiUrl", value: "" },
         { key: "typesafe.apiKey", value: "enc:v1:my-key" },
+        { key: "typesafe.model", value: "" },
       ]);
     });
   });
@@ -195,8 +230,9 @@ describe("TypeSafe Settings Routes", () => {
       expect(storageMock.setSystemConfigBatch).toHaveBeenCalledWith([
         { key: "typesafe.apiUrl", value: "" },
         { key: "typesafe.apiKey", value: "" },
+        { key: "typesafe.model", value: "" },
       ]);
-      expect(typesafeMock.configure).toHaveBeenCalledWith(null, null);
+      expect(typesafeMock.configure).toHaveBeenCalledWith(null, null, null);
     });
   });
 });

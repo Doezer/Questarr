@@ -8,10 +8,14 @@ export type { ReleaseType };
 const typesafeLogger = logger.child({ module: "typesafe" });
 
 const DEFAULT_API_URL = "https://api.typesafe.ai/v1/systemone";
+// TypeSafe's own default model. A user routing through a proxy (e.g. OpenRouter's
+// `typesafe/jev-1.13`) needs a different identifier here, so this is configurable too.
+const DEFAULT_MODEL = "jev-latest";
 const REQUEST_TIMEOUT_MS = 8000;
 
 export const TYPESAFE_URL_CONFIG_KEY = "typesafe.apiUrl";
 export const TYPESAFE_KEY_CONFIG_KEY = "typesafe.apiKey";
+export const TYPESAFE_MODEL_CONFIG_KEY = "typesafe.model";
 
 export interface ReleaseAnalysis {
   releaseType: ReleaseType | null;
@@ -57,6 +61,7 @@ function formatBytes(bytes: number): string {
 class TypeSafeClient {
   private apiUrl: string | null = null;
   private apiKey: string | null = null;
+  private model: string = DEFAULT_MODEL;
   private loaded = false;
 
   /**
@@ -65,11 +70,13 @@ class TypeSafeClient {
    * pointed at TypeSafe's default endpoint -- otherwise isConfigured() would incorrectly
    * report false until the next restart re-triggers ensureLoaded()'s own fallback.
    */
-  configure(apiUrl: string | null, apiKey: string | null): void {
+  configure(apiUrl: string | null, apiKey: string | null, model?: string | null): void {
     const trimmedKey = apiKey && apiKey.trim().length > 0 ? apiKey.trim() : null;
     const trimmedUrl = apiUrl && apiUrl.trim().length > 0 ? apiUrl.trim() : null;
+    const trimmedModel = model && model.trim().length > 0 ? model.trim() : null;
     this.apiKey = trimmedKey;
     this.apiUrl = trimmedUrl ?? (trimmedKey ? DEFAULT_API_URL : null);
+    this.model = trimmedModel ?? DEFAULT_MODEL;
     this.loaded = true;
   }
 
@@ -81,9 +88,10 @@ class TypeSafeClient {
   /** Lazily loads credentials from system_config on first use (they're stored encrypted). */
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
-    const [storedUrl, storedKey] = await Promise.all([
+    const [storedUrl, storedKey, storedModel] = await Promise.all([
       storage.getSystemConfig(TYPESAFE_URL_CONFIG_KEY),
       storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY),
+      storage.getSystemConfig(TYPESAFE_MODEL_CONFIG_KEY),
     ]);
     // Imported lazily (rather than at module scope) so pulling in typesafe.ts doesn't
     // force server/db.ts to initialize in call sites/tests that never actually invoke
@@ -93,6 +101,7 @@ class TypeSafeClient {
       : null;
     this.apiUrl = storedUrl && storedUrl.trim().length > 0 ? storedUrl.trim() : DEFAULT_API_URL;
     this.apiKey = apiKey && apiKey.trim().length > 0 ? apiKey.trim() : null;
+    this.model = storedModel && storedModel.trim().length > 0 ? storedModel.trim() : DEFAULT_MODEL;
     this.loaded = true;
   }
 
@@ -124,7 +133,7 @@ class TypeSafeClient {
 
     const body = {
       state: stateLines.join("\n"),
-      model: "jev-latest",
+      model: this.model,
       questions: {
         releaseType: {
           type: "choice",

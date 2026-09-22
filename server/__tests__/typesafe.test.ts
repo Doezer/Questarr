@@ -91,7 +91,23 @@ describe("TypeSafeClient", () => {
       const client = await getClient();
       await client.isConfigured();
       await client.isConfigured();
-      expect(mockGetSystemConfig).toHaveBeenCalledTimes(2); // url + key, once each
+      expect(mockGetSystemConfig).toHaveBeenCalledTimes(3); // url + key + model, once each
+    });
+
+    it("lazily loads a custom model from storage", async () => {
+      mockGetSystemConfig.mockImplementation(async (key: string) => {
+        if (key === "typesafe.apiUrl") return "https://openrouter.ai/api/alpha/decisions";
+        if (key === "typesafe.apiKey") return "enc:v1:abc";
+        if (key === "typesafe.model") return "typesafe/jev-1.13";
+        return undefined;
+      });
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({ model: "typesafe/jev-1.13", answers: {} }) as unknown as Response
+      );
+      const client = await getClient();
+      await client.analyzeRelease({ releaseName: "Some.Game" });
+      const body = JSON.parse(mockSafeFetch.mock.calls[0][1]?.body as string);
+      expect(body.model).toBe("typesafe/jev-1.13");
     });
   });
 
@@ -102,7 +118,7 @@ describe("TypeSafeClient", () => {
       await client.isConfigured();
       client.invalidate();
       await client.isConfigured();
-      expect(mockGetSystemConfig).toHaveBeenCalledTimes(4);
+      expect(mockGetSystemConfig).toHaveBeenCalledTimes(6);
     });
   });
 
@@ -150,8 +166,37 @@ describe("TypeSafeClient", () => {
       const body = JSON.parse(options?.body as string);
       expect(body.state).toContain("Some.Game-FLT");
       expect(body.state).toContain("PC");
+      expect(body.model).toBe("jev-latest");
       expect(body.questions.releaseType.type).toBe("choice");
       expect(body.questions.sizeIsPlausible.type).toBe("noul");
+    });
+
+    it("uses a custom model when configure() is given one (e.g. for OpenRouter)", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({ model: "typesafe/jev-1.13", answers: {} }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://openrouter.ai/api/alpha/decisions", "or-key", "typesafe/jev-1.13");
+
+      await client.analyzeRelease({ releaseName: "Some.Game" });
+
+      const [url, options] = mockSafeFetch.mock.calls[0];
+      expect(url).toBe("https://openrouter.ai/api/alpha/decisions");
+      const body = JSON.parse(options?.body as string);
+      expect(body.model).toBe("typesafe/jev-1.13");
+    });
+
+    it("falls back to the default model when configure() is given a blank one", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({ model: "jev-latest", answers: {} }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key", "   ");
+
+      await client.analyzeRelease({ releaseName: "Some.Game" });
+
+      const body = JSON.parse(mockSafeFetch.mock.calls[0][1]?.body as string);
+      expect(body.model).toBe("jev-latest");
     });
 
     it("returns null and discards an unrecognized release type value", async () => {

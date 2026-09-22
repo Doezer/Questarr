@@ -91,7 +91,12 @@ import {
 } from "./auth.js";
 import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
-import { typesafeClient, TYPESAFE_URL_CONFIG_KEY, TYPESAFE_KEY_CONFIG_KEY } from "./typesafe.js";
+import {
+  typesafeClient,
+  TYPESAFE_URL_CONFIG_KEY,
+  TYPESAFE_KEY_CONFIG_KEY,
+  TYPESAFE_MODEL_CONFIG_KEY,
+} from "./typesafe.js";
 import { encryptCredential } from "./credential-crypto.js";
 import {
   appriseClient,
@@ -5051,14 +5056,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/settings/typesafe", sensitiveEndpointLimiter, async (_req, res) => {
     try {
-      const [dbUrl, dbKey] = await Promise.all([
+      const [dbUrl, dbKey, dbModel] = await Promise.all([
         storage.getSystemConfig(TYPESAFE_URL_CONFIG_KEY),
         storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY),
+        storage.getSystemConfig(TYPESAFE_MODEL_CONFIG_KEY),
       ]);
       const configured = !!(dbKey && dbKey.length > 0);
       res.json({
         configured,
         apiUrl: dbUrl && dbUrl.length > 0 ? dbUrl : undefined,
+        model: dbModel && dbModel.length > 0 ? dbModel : undefined,
       });
     } catch (error) {
       routesLogger.error({ error }, "Failed to fetch TypeSafe settings");
@@ -5068,12 +5075,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/settings/typesafe", sensitiveEndpointLimiter, async (req, res) => {
     try {
-      const { apiUrl, apiKey } = req.body as { apiUrl?: unknown; apiKey?: unknown };
+      const { apiUrl, apiKey, model } = req.body as {
+        apiUrl?: unknown;
+        apiKey?: unknown;
+        model?: unknown;
+      };
       if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
         return res.status(400).json({ error: "API key is required" });
       }
       if (apiUrl !== undefined && typeof apiUrl !== "string") {
         return res.status(400).json({ error: "Invalid API URL" });
+      }
+      if (model !== undefined && typeof model !== "string") {
+        return res.status(400).json({ error: "Invalid model" });
       }
 
       const trimmedUrl = apiUrl?.trim() ?? "";
@@ -5092,12 +5106,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const trimmedKey = apiKey.trim();
+      const trimmedModel = model?.trim() ?? "";
       const encryptedKey = await encryptCredential(trimmedKey);
       await storage.setSystemConfigBatch([
         { key: TYPESAFE_URL_CONFIG_KEY, value: trimmedUrl },
         { key: TYPESAFE_KEY_CONFIG_KEY, value: encryptedKey ?? "" },
+        { key: TYPESAFE_MODEL_CONFIG_KEY, value: trimmedModel },
       ]);
-      typesafeClient.configure(trimmedUrl || null, trimmedKey);
+      typesafeClient.configure(trimmedUrl || null, trimmedKey, trimmedModel || null);
       routesLogger.info("TypeSafe API settings updated");
       return res.json({ success: true });
     } catch (error) {
@@ -5111,8 +5127,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.setSystemConfigBatch([
         { key: TYPESAFE_URL_CONFIG_KEY, value: "" },
         { key: TYPESAFE_KEY_CONFIG_KEY, value: "" },
+        { key: TYPESAFE_MODEL_CONFIG_KEY, value: "" },
       ]);
-      typesafeClient.configure(null, null);
+      typesafeClient.configure(null, null, null);
       routesLogger.info("TypeSafe API settings cleared");
       return res.json({ success: true });
     } catch (error) {

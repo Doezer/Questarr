@@ -533,6 +533,22 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
   return { limit, offset };
 }
 
+/**
+ * Resolves the encrypted TypeSafe API key to persist for a settings update: encrypts a
+ * newly supplied key, or reuses the already-stored encrypted key when none is supplied
+ * (e.g. the user is only changing the URL or model). Returns null when no key was
+ * supplied and none is stored yet -- the caller should treat that as "key required".
+ */
+async function resolveTypesafeApiKey(
+  trimmedNewKey: string
+): Promise<{ trimmedNewKey: string; encryptedKey: string } | null> {
+  if (trimmedNewKey) {
+    return { trimmedNewKey, encryptedKey: (await encryptCredential(trimmedNewKey)) ?? "" };
+  }
+  const storedEncryptedKey = await storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY);
+  return storedEncryptedKey ? { trimmedNewKey: "", encryptedKey: storedEncryptedKey } : null;
+}
+
 /** Filters an already-fetched list of library games according to the user's content-filter preferences. */
 async function applyContentFilter<T>(userId: string, games: T[]): Promise<T[]> {
   const flags = await getContentFilterFlags(userId);
@@ -5107,25 +5123,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const trimmedNewKey = apiKey?.trim() ?? "";
-      let storedEncryptedKey: string | undefined;
-      if (!trimmedNewKey) {
-        storedEncryptedKey = await storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY);
-        if (!storedEncryptedKey) {
-          return res.status(400).json({ error: "API key is required" });
-        }
+      const resolvedKey = await resolveTypesafeApiKey(apiKey?.trim() ?? "");
+      if (!resolvedKey) {
+        return res.status(400).json({ error: "API key is required" });
       }
+
       const trimmedModel = model?.trim() ?? "";
-      const encryptedKey = trimmedNewKey
-        ? await encryptCredential(trimmedNewKey)
-        : storedEncryptedKey;
       await storage.setSystemConfigBatch([
         { key: TYPESAFE_URL_CONFIG_KEY, value: trimmedUrl },
-        { key: TYPESAFE_KEY_CONFIG_KEY, value: encryptedKey ?? "" },
+        { key: TYPESAFE_KEY_CONFIG_KEY, value: resolvedKey.encryptedKey },
         { key: TYPESAFE_MODEL_CONFIG_KEY, value: trimmedModel },
       ]);
-      if (trimmedNewKey) {
-        typesafeClient.configure(trimmedUrl || null, trimmedNewKey, trimmedModel || null);
+      if (resolvedKey.trimmedNewKey) {
+        typesafeClient.configure(
+          trimmedUrl || null,
+          resolvedKey.trimmedNewKey,
+          trimmedModel || null
+        );
       } else {
         // Reusing the stored key -- invalidate the in-memory cache so the next call reloads
         // and decrypts it (and picks up the new URL/model) from storage instead of retaining

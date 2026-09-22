@@ -6,7 +6,16 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatBytes, formatAge, isUsenetItem, getDownloadTypeColor } from "@/lib/downloads-utils";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
 import { cleanReleaseName } from "@shared/title-utils";
-import { Search, Download, Newspaper, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import {
+  Search,
+  Download,
+  Newspaper,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
+  Sparkles,
+  AlertTriangle,
+} from "lucide-react";
 import type { Game } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,6 +69,10 @@ interface DownloadItem {
   age?: number;
   poster?: string;
   group?: string;
+  aiReleaseType?:
+    "full_game" | "dlc" | "update" | "repack" | "crack_only" | "demo" | "soundtrack" | "other";
+  aiReleaseTypeConfidence?: number;
+  aiLegitimacyScore?: number;
 }
 
 interface SearchResult {
@@ -95,6 +108,20 @@ function formatDate(dateString: string): string {
 }
 
 const PAGE_SIZE = 50;
+
+const AI_RELEASE_TYPE_LABELS: Record<NonNullable<DownloadItem["aiReleaseType"]>, string> = {
+  full_game: "Full Game",
+  dlc: "DLC",
+  update: "Update",
+  repack: "Repack",
+  crack_only: "Crack Only",
+  demo: "Demo",
+  soundtrack: "Soundtrack",
+  other: "Other",
+};
+
+// Below this threshold, AI-flag the file size as suspiciously small for the release.
+const AI_LEGITIMACY_WARNING_THRESHOLD = 0.5;
 
 /**
  * Provides a search interface for finding releases across configured indexers, matching results to library games, filtering by release date, and starting downloads.
@@ -575,6 +602,44 @@ export default function SearchPage() {
                               </>
                             )}
                           </Badge>
+                          {download.aiReleaseType && download.aiReleaseType !== "full_game" && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="secondary"
+                                  className="text-xs flex-shrink-0 gap-1"
+                                  data-testid={`badge-ai-release-type-${index}`}
+                                >
+                                  <Sparkles className="h-3 w-3" />
+                                  {AI_RELEASE_TYPE_LABELS[download.aiReleaseType]}
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                AI classification
+                                {download.aiReleaseTypeConfidence !== undefined &&
+                                  ` (${Math.round(download.aiReleaseTypeConfidence * 100)}% confidence)`}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          {download.aiLegitimacyScore !== undefined &&
+                            download.aiLegitimacyScore < AI_LEGITIMACY_WARNING_THRESHOLD && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="destructive"
+                                    className="text-xs flex-shrink-0 gap-1"
+                                    data-testid={`badge-ai-legitimacy-warning-${index}`}
+                                  >
+                                    <AlertTriangle className="h-3 w-3" />
+                                    Check size
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  AI flagged this file size as unusual for this type of release (
+                                  {Math.round(download.aiLegitimacyScore * 100)}% plausible)
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <span>{formatDate(download.pubDate)}</span>

@@ -22,6 +22,7 @@ import {
   Ghost,
   Monitor,
   Radio,
+  Sparkles,
 } from "lucide-react";
 import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -258,6 +259,9 @@ export default function SettingsPage() {
   const [xrelApiBase, setXrelApiBase] = useState("");
   const [nexusApiKey, setNexusApiKey] = useState("");
   const [showNexusApiKey, setShowNexusApiKey] = useState(false);
+  const [typesafeApiUrl, setTypesafeApiUrl] = useState("");
+  const [typesafeApiKey, setTypesafeApiKey] = useState("");
+  const [showTypesafeApiKey, setShowTypesafeApiKey] = useState(false);
 
   // Sync with fetched settings. Guarded by settingsLoadedRef so a background
   // refetch (e.g. after saving one section) doesn't clobber unsaved edits the
@@ -481,6 +485,59 @@ export default function SettingsPage() {
     if (!nexusApiKey.trim()) return;
     updateNexusMutation.mutate(nexusApiKey.trim());
   };
+
+  const { data: typesafeSettings } = useQuery<{
+    configured: boolean;
+    apiUrl?: string;
+  }>({
+    queryKey: ["/api/settings/typesafe"],
+    queryFn: () => apiRequest("GET", "/api/settings/typesafe").then((r) => r.json()),
+  });
+
+  const updateTypesafeMutation = useMutation({
+    mutationFn: async (data: { apiUrl: string; apiKey: string }) => {
+      const res = await apiRequest("POST", "/api/settings/typesafe", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/typesafe"] });
+      setTypesafeApiKey("");
+      toast({ title: "TypeSafe settings saved" });
+    },
+    onError: () => {
+      toast({ title: "Failed to save TypeSafe settings", variant: "destructive" });
+    },
+  });
+
+  const clearTypesafeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", "/api/settings/typesafe");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/typesafe"] });
+      setTypesafeApiUrl("");
+      setTypesafeApiKey("");
+      toast({ title: "TypeSafe integration disabled" });
+    },
+    onError: () => {
+      toast({ title: "Failed to disable TypeSafe integration", variant: "destructive" });
+    },
+  });
+
+  const handleSaveTypesafe = () => {
+    if (!typesafeApiKey.trim()) return;
+    updateTypesafeMutation.mutate({
+      apiUrl: typesafeApiUrl.trim(),
+      apiKey: typesafeApiKey.trim(),
+    });
+  };
+
+  useEffect(() => {
+    if (typesafeSettings?.apiUrl) {
+      setTypesafeApiUrl(typesafeSettings.apiUrl);
+    }
+  }, [typesafeSettings?.apiUrl]);
 
   const [certInfo, setCertInfo] = useState<CertInfo | null>(null); // State for cert info
   const [isCertBrowserOpen, setIsCertBrowserOpen] = useState(false);
@@ -1760,6 +1817,108 @@ export default function SettingsPage() {
                     className="gap-2"
                   >
                     {updateNexusMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Key className="h-4 w-4" />
+                        Save API Key
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* TypeSafe (Jev) AI Card */}
+            <Card id="typesafe-config">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <Sparkles className="h-5 w-5 text-blue-500" />
+                    <CardTitle className="text-lg">AI Release Analysis (TypeSafe)</CardTitle>
+                  </div>
+                  {typesafeSettings?.configured ? (
+                    <Badge variant="default">Enabled</Badge>
+                  ) : (
+                    <Badge variant="outline">Not Configured</Badge>
+                  )}
+                </div>
+                <CardDescription>
+                  Optional. Uses TypeSafe&apos;s Jev model to classify release types (full game,
+                  DLC, update, repack...) and flag suspiciously small files in search results.
+                  Entirely optional and off by default &mdash; Questarr works normally without it.
+                  Bring your own API key and endpoint (TypeSafe, OpenRouter, a self-hosted proxy,
+                  etc.).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="typesafe-api-url">API URL</Label>
+                  <Input
+                    id="typesafe-api-url"
+                    type="text"
+                    placeholder="https://api.typesafe.ai/v1/systemone"
+                    value={typesafeApiUrl}
+                    onChange={(e) => setTypesafeApiUrl(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave blank to use TypeSafe&apos;s default endpoint.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="typesafe-api-key">API Key</Label>
+                  <div className="relative">
+                    <Input
+                      id="typesafe-api-key"
+                      type={showTypesafeApiKey ? "text" : "password"}
+                      placeholder={
+                        typesafeSettings?.configured
+                          ? "Enter a new key to override the current one"
+                          : "Enter your API key"
+                      }
+                      value={typesafeApiKey}
+                      onChange={(e) => setTypesafeApiKey(e.target.value)}
+                      className="pr-10"
+                    />
+                    {typesafeApiKey && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        onClick={() => setShowTypesafeApiKey(!showTypesafeApiKey)}
+                        aria-label={showTypesafeApiKey ? "Hide API key" : "Show API key"}
+                      >
+                        {showTypesafeApiKey ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  {typesafeSettings?.configured && (
+                    <Button
+                      variant="outline"
+                      onClick={() => clearTypesafeMutation.mutate()}
+                      disabled={clearTypesafeMutation.isPending}
+                      className="gap-2"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Disable
+                    </Button>
+                  )}
+                  <Button
+                    onClick={handleSaveTypesafe}
+                    disabled={updateTypesafeMutation.isPending || !typesafeApiKey.trim()}
+                    className="gap-2"
+                  >
+                    {updateTypesafeMutation.isPending ? (
                       <>
                         <RefreshCw className="h-4 w-4 animate-spin" />
                         Saving...

@@ -91,6 +91,8 @@ import {
 } from "./auth.js";
 import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
+import { typesafeClient, TYPESAFE_URL_CONFIG_KEY, TYPESAFE_KEY_CONFIG_KEY } from "./typesafe.js";
+import { encryptCredential } from "./credential-crypto.js";
 import {
   appriseClient,
   isAppriseConfigured,
@@ -201,7 +203,7 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
 });
-import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
+import { searchAllIndexers, filterBlacklistedReleases, enrichWithAiAnalysis } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
 import {
   normalizeTitle,
@@ -493,8 +495,10 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       }
     }
 
+    const enrichedItems = await enrichWithAiAnalysis(filteredItems);
+
     return res.json({
-      items: filteredItems,
+      items: enrichedItems,
       total,
       offset,
       ...(blacklistedCount > 0 ? { blacklistedCount } : {}),
@@ -5040,6 +5044,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to update NexusMods settings");
       return res.status(500).json({ error: "Failed to update NexusMods settings" });
+    }
+  });
+
+  // ── TypeSafe (Jev) AI settings ────────────────────────────────────────────────
+
+  app.get("/api/settings/typesafe", sensitiveEndpointLimiter, async (_req, res) => {
+    try {
+      const [dbUrl, dbKey] = await Promise.all([
+        storage.getSystemConfig(TYPESAFE_URL_CONFIG_KEY),
+        storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY),
+      ]);
+      const configured = !!(dbKey && dbKey.length > 0);
+      res.json({
+        configured,
+        apiUrl: dbUrl && dbUrl.length > 0 ? dbUrl : undefined,
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch TypeSafe settings");
+      res.status(500).json({ error: "Failed to fetch TypeSafe settings" });
+    }
+  });
+
+  app.post("/api/settings/typesafe", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { apiUrl, apiKey } = req.body as { apiUrl?: string; apiKey?: string };
+      if (!apiKey || apiKey.trim().length === 0) {
+        return res.status(400).json({ error: "API key is required" });
+      }
+      if (apiUrl && !(await isSafeUrl(apiUrl))) {
+        return res.status(400).json({ error: "Invalid or unsafe URL" });
+      }
+      const encryptedKey = await encryptCredential(apiKey.trim());
+      await Promise.all([
+        storage.setSystemConfig(TYPESAFE_URL_CONFIG_KEY, apiUrl?.trim() || ""),
+        storage.setSystemConfig(TYPESAFE_KEY_CONFIG_KEY, encryptedKey ?? ""),
+      ]);
+      typesafeClient.configure(apiUrl?.trim() || null, apiKey.trim());
+      routesLogger.info("TypeSafe API settings updated");
+      return res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update TypeSafe settings");
+      return res.status(500).json({ error: "Failed to update TypeSafe settings" });
+    }
+  });
+
+  app.delete("/api/settings/typesafe", sensitiveEndpointLimiter, async (_req, res) => {
+    try {
+      await Promise.all([
+        storage.setSystemConfig(TYPESAFE_URL_CONFIG_KEY, ""),
+        storage.setSystemConfig(TYPESAFE_KEY_CONFIG_KEY, ""),
+      ]);
+      typesafeClient.configure(null, null);
+      routesLogger.info("TypeSafe API settings cleared");
+      return res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to clear TypeSafe settings");
+      return res.status(500).json({ error: "Failed to clear TypeSafe settings" });
     }
   });
 

@@ -305,6 +305,8 @@ export function createSearchMock() {
     searchAllIndexers: vi.fn().mockResolvedValue({ items: [], total: 0, errors: [] }),
     filterBlacklistedReleases: (items: { title: string }[], blacklisted: Set<string>) =>
       blacklisted.size > 0 ? items.filter((item) => !blacklisted.has(item.title)) : items,
+    // No-op by default: TypeSafe AI enrichment is unconfigured/off in tests.
+    enrichWithAiAnalysis: vi.fn().mockImplementation((items: unknown[]) => Promise.resolve(items)),
   };
 }
 

@@ -1093,7 +1093,9 @@ export default function SettingsPage() {
                       onValueChange={(value) => handleThemeChange(value as Theme)}
                     >
                       <SelectTrigger id="theme-select" className="w-full sm:w-64">
-                        <SelectValue placeholder="Select a theme" />
+                        <SelectValue placeholder="Select a theme">
+                          {THEME_CONFIGS[effectiveTheme].name}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {THEMES.map((theme) => {

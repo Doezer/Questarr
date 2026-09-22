@@ -19,7 +19,6 @@ import {
   Ban,
   Trash2,
   Bell,
-  Ghost,
   Monitor,
   Radio,
 } from "lucide-react";
@@ -47,8 +46,17 @@ import { ApiKeysCard } from "@/components/ApiKeysCard";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
-import { GHOST_THEME_KEY, GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
-import { WIN2K_THEME_KEY } from "@/lib/win2k-mode";
+import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
+import {
+  THEMES,
+  THEME_CONFIGS,
+  THEME_KEY,
+  type Theme,
+  getCurrentTheme,
+  migrateLegacyTheme,
+  applyThemeClass,
+  setTheme,
+} from "@/lib/theme-mode";
 import PasswordSettings from "@/components/PasswordSettings";
 import {
   downloadRulesSchema,
@@ -96,15 +104,44 @@ export default function SettingsPage() {
   const queryClient = useQueryClient();
 
   const [ghostUnlocked] = useLocalStorageState(GHOST_UNLOCK_KEY, false);
-  const [ghostThemeEnabled, setGhostThemeEnabled] = useLocalStorageState(GHOST_THEME_KEY, false);
-  useEffect(() => {
-    document.documentElement.classList.toggle("theme-ghost", ghostThemeEnabled);
-  }, [ghostThemeEnabled]);
+  const [selectedTheme, setSelectedTheme] = useLocalStorageState<Theme>(
+    THEME_KEY,
+    getCurrentTheme(ghostUnlocked)
+  );
 
-  const [win2kThemeEnabled, setWin2kThemeEnabled] = useLocalStorageState(WIN2K_THEME_KEY, false);
+  // Normalize the stored theme: useLocalStorageState returns whatever is in localStorage
+  // once THEME_KEY exists, without validating it against THEMES or the Ghost unlock state.
+  // A corrupted value, or one set directly (e.g. via devtools), would otherwise reach
+  // applyThemeClass() and either throw (unknown theme) or bypass the Ghost unlock.
+  const effectiveTheme: Theme =
+    THEMES.includes(selectedTheme) && (selectedTheme !== "ghost" || ghostUnlocked)
+      ? selectedTheme
+      : "default";
+
+  // Migrate legacy theme keys once on mount. Not done inline in the useLocalStorageState
+  // initializer above, since that runs during render and migration has localStorage
+  // side effects (React may render a component without committing it).
   useEffect(() => {
-    document.documentElement.classList.toggle("theme-win2k", win2kThemeEnabled);
-  }, [win2kThemeEnabled]);
+    migrateLegacyTheme(ghostUnlocked);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist the normalized value so a corrected theme sticks for later loads.
+  useEffect(() => {
+    if (effectiveTheme !== selectedTheme) {
+      setSelectedTheme(effectiveTheme);
+    }
+  }, [effectiveTheme, selectedTheme, setSelectedTheme]);
+
+  // Apply theme class on mount and when theme changes
+  useEffect(() => {
+    applyThemeClass(effectiveTheme);
+  }, [effectiveTheme]);
+
+  const handleThemeChange = (theme: Theme) => {
+    setTheme(theme, ghostUnlocked);
+    setSelectedTheme(theme);
+  };
 
   const {
     data: config,
@@ -1080,63 +1117,51 @@ export default function SettingsPage() {
           </div>
 
           <TabsContent value="appearance" className="space-y-6">
-            {ghostUnlocked && (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center space-x-3">
-                    <Ghost className="h-5 w-5 text-emerald-400" />
-                    <CardTitle className="text-lg">Ghost Mode</CardTitle>
-                  </div>
-                  <CardDescription>
-                    A cosmetic accent color, unlocked by hacking the terminal in Ghost the Terminal.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="ghost-theme" className="text-sm font-medium">
-                        Enable Ghost Mode accent
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Purely cosmetic &mdash; swaps the accent color, nothing else changes
-                      </p>
-                    </div>
-                    <Switch
-                      id="ghost-theme"
-                      checked={ghostThemeEnabled}
-                      onCheckedChange={setGhostThemeEnabled}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
             <Card>
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Monitor className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Windows 2000 Mode</CardTitle>
+                  <CardTitle className="text-lg">Theme</CardTitle>
                 </div>
-                <CardDescription>
-                  A cosmetic retro skin &mdash; navy title bars, silver beveled buttons, square
-                  corners, and Tahoma type
-                </CardDescription>
+                <CardDescription>Select the visual theme for Questarr</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="win2k-theme" className="text-sm font-medium">
-                      Enable Windows 2000 skin
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="theme-select" className="text-sm font-medium">
+                      Select Theme
                     </Label>
+                    <Select
+                      value={effectiveTheme}
+                      onValueChange={(value) => handleThemeChange(value as Theme)}
+                    >
+                      <SelectTrigger id="theme-select" className="w-full sm:w-64">
+                        <SelectValue placeholder="Select a theme">
+                          {THEME_CONFIGS[effectiveTheme].name}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {THEMES.map((theme) => {
+                          const config = THEME_CONFIGS[theme];
+                          // Only show Ghost if unlocked
+                          if (theme === "ghost" && !ghostUnlocked) return null;
+                          return (
+                            <SelectItem key={theme} value={theme}>
+                              <div className="flex flex-col">
+                                <span className="font-medium">{config.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {config.description}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
                     <p className="text-xs text-muted-foreground">
-                      Purely cosmetic &mdash; nothing else changes
+                      Purely cosmetic &mdash; changes the visual appearance, nothing else changes
                     </p>
                   </div>
-                  <Switch
-                    id="win2k-theme"
-                    checked={win2kThemeEnabled}
-                    onCheckedChange={setWin2kThemeEnabled}
-                  />
                 </div>
               </CardContent>
             </Card>

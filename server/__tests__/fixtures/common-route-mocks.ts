@@ -55,6 +55,7 @@ export function createStorageMock() {
     countUsers: vi.fn().mockResolvedValue(1),
     registerSetupUser: vi.fn(),
     setSystemConfig: vi.fn(),
+    setSystemConfigBatch: vi.fn(),
     getSystemConfig: vi.fn(),
     assignOrphanGamesToUser: vi.fn(),
     getUserSettings: vi.fn().mockResolvedValue({}),
@@ -305,6 +306,8 @@ export function createSearchMock() {
     searchAllIndexers: vi.fn().mockResolvedValue({ items: [], total: 0, errors: [] }),
     filterBlacklistedReleases: (items: { title: string }[], blacklisted: Set<string>) =>
       blacklisted.size > 0 ? items.filter((item) => !blacklisted.has(item.title)) : items,
+    // No-op by default: TypeSafe AI enrichment is unconfigured/off in tests.
+    enrichWithAiAnalysis: vi.fn().mockImplementation((items: unknown[]) => Promise.resolve(items)),
   };
 }
 
@@ -326,4 +329,23 @@ export function createSocketMock() {
   return {
     notifyUser: vi.fn(),
   };
+}
+
+/** For client-only unit tests (not full-app route suites): a bare `logger.child(...)` mock. */
+export function createChildLoggerMock() {
+  return {
+    logger: {
+      child: vi.fn().mockReturnValue({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      }),
+    },
+  };
+}
+
+/** For client-only unit tests that only need to stub `safeFetch` (not the full ssrf module). */
+export function createSafeFetchOnlyMock() {
+  return { safeFetch: vi.fn() };
 }

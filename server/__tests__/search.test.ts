@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Indexer } from "@shared/schema";
+import type { SearchItem } from "../search.js";
 
 // Mock dependencies
 vi.mock("../db.js", () => ({
@@ -25,10 +26,19 @@ vi.mock("../newznab.js", () => ({
   },
 }));
 
-const { searchAllIndexers, filterBlacklistedReleases } = await import("../search.js");
+vi.mock("../typesafe.js", () => ({
+  typesafeClient: {
+    isConfigured: vi.fn().mockResolvedValue(false),
+    analyzeRelease: vi.fn(),
+  },
+}));
+
+const { searchAllIndexers, filterBlacklistedReleases, enrichWithAiAnalysis } =
+  await import("../search.js");
 const { storage } = await import("../storage.js");
 const { torznabClient } = await import("../torznab.js");
 const { newznabClient } = await import("../newznab.js");
+const { typesafeClient } = await import("../typesafe.js");
 
 const makeTorznabIndexer = (overrides: Partial<Indexer> = {}): Indexer => ({
   id: "torznab-1",
@@ -628,5 +638,105 @@ describe("filterBlacklistedReleases", () => {
     const items = [makeItem("Game-GROUP")];
     const result = filterBlacklistedReleases(items, new Set());
     expect(result).toBe(items);
+  });
+});
+
+describe("enrichWithAiAnalysis", () => {
+  const makeItem = (title: string, overrides: Partial<SearchItem> = {}): SearchItem => ({
+    title,
+    link: "http://example.com",
+    pubDate: "2024-01-01T00:00:00Z",
+    indexerId: "idx-1",
+    indexerName: "Indexer",
+    category: [],
+    guid: title,
+    downloadType: "torrent",
+    size: 5_000_000,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns items unchanged when TypeSafe is not configured", async () => {
+    vi.mocked(typesafeClient.isConfigured).mockResolvedValue(false);
+    const items = [makeItem("Game-GROUP")];
+
+    const result = await enrichWithAiAnalysis(items);
+
+    expect(result).toBe(items);
+    expect(typesafeClient.analyzeRelease).not.toHaveBeenCalled();
+  });
+
+  it("returns unmodified items when isConfigured() rejects (broken storage/decryption)", async () => {
+    vi.mocked(typesafeClient.isConfigured).mockRejectedValue(new Error("storage unavailable"));
+    const items = [makeItem("Game-GROUP")];
+
+    const result = await enrichWithAiAnalysis(items);
+
+    expect(result).toEqual(items);
+  });
+
+  it("leaves an item unchanged when its analyzeRelease call rejects", async () => {
+    vi.mocked(typesafeClient.isConfigured).mockResolvedValue(true);
+    vi.mocked(typesafeClient.analyzeRelease).mockRejectedValue(new Error("network error"));
+    const items = [makeItem("Game-GROUP")];
+
+    const result = await enrichWithAiAnalysis(items);
+
+    expect(result[0]).toEqual(items[0]);
+  });
+
+  it("returns an empty array unchanged without calling isConfigured", async () => {
+    const result = await enrichWithAiAnalysis([]);
+    expect(result).toEqual([]);
+    expect(typesafeClient.isConfigured).not.toHaveBeenCalled();
+  });
+
+  it("merges AI analysis fields onto matching items when configured", async () => {
+    vi.mocked(typesafeClient.isConfigured).mockResolvedValue(true);
+    vi.mocked(typesafeClient.analyzeRelease).mockResolvedValue({
+      releaseType: "dlc",
+      releaseTypeConfidence: 0.8,
+      legitimacyScore: 0.3,
+    });
+    const items = [makeItem("Game-GROUP")];
+
+    const result = await enrichWithAiAnalysis(items);
+
+    expect(result[0]).toMatchObject({
+      title: "Game-GROUP",
+      aiReleaseType: "dlc",
+      aiReleaseTypeConfidence: 0.8,
+      aiLegitimacyScore: 0.3,
+    });
+  });
+
+  it("leaves an item unchanged when its analysis call returns null", async () => {
+    vi.mocked(typesafeClient.isConfigured).mockResolvedValue(true);
+    vi.mocked(typesafeClient.analyzeRelease).mockResolvedValue(null);
+    const items = [makeItem("Game-GROUP")];
+
+    const result = await enrichWithAiAnalysis(items);
+
+    expect(result[0]).toEqual(items[0]);
+  });
+
+  it("only analyzes the top 15 items, leaving the rest untouched", async () => {
+    vi.mocked(typesafeClient.isConfigured).mockResolvedValue(true);
+    vi.mocked(typesafeClient.analyzeRelease).mockResolvedValue({
+      releaseType: "full_game",
+      releaseTypeConfidence: 0.99,
+      legitimacyScore: 0.95,
+    });
+    const items = Array.from({ length: 20 }, (_, i) => makeItem(`Game-${i}`));
+
+    const result = await enrichWithAiAnalysis(items);
+
+    expect(typesafeClient.analyzeRelease).toHaveBeenCalledTimes(15);
+    expect(result[14].aiReleaseType).toBe("full_game");
+    expect(result[15].aiReleaseType).toBeUndefined();
+    expect(result[19].aiReleaseType).toBeUndefined();
   });
 });

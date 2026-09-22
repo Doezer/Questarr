@@ -80,6 +80,7 @@ import {
   groupDownloadsByCategory,
   type DownloadCategory,
 } from "@shared/download-categorizer";
+import type { ReleaseType } from "@shared/typesafe-types";
 import {
   parseReleaseMetadata,
   parseJsonStringArray,
@@ -110,6 +111,8 @@ interface DownloadItem {
   files?: number;
   poster?: string;
   group?: string;
+  aiReleaseType?: ReleaseType;
+  aiReleaseTypeConfidence?: number;
 }
 
 interface SearchResult {

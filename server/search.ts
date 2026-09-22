@@ -3,6 +3,11 @@ import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { searchLogger } from "./logger.js";
 import { parseReleaseMetadata } from "../shared/title-utils.js";
+import { typesafeClient, type ReleaseType } from "./typesafe.js";
+
+// Cap how many top results get AI-enriched per search so an optional, user-supplied
+// TypeSafe key never turns a single search into dozens of outbound API calls.
+const AI_ENRICHMENT_MAX_ITEMS = 15;
 
 export interface SearchItem {
   title: string;
@@ -26,6 +31,11 @@ export interface SearchItem {
   poster?: string;
   group?: string;
   comments?: string;
+  // Optional AI-assisted enrichment via TypeSafe's Jev model (BYOK, best-effort).
+  // Absent entirely when TypeSafe isn't configured or the call failed/timed out.
+  aiReleaseType?: ReleaseType;
+  aiReleaseTypeConfidence?: number;
+  aiLegitimacyScore?: number;
 }
 
 export interface AggregatedSearchOptions {
@@ -218,4 +228,56 @@ export function filterBlacklistedReleases(
   blacklisted: Set<string>
 ): SearchItem[] {
   return blacklisted.size > 0 ? items.filter((item) => !blacklisted.has(item.title)) : items;
+}
+
+/**
+ * Best-effort AI enrichment of search results via TypeSafe's Jev model: classifies each
+ * release's type and flags whether its file size looks plausible. No-op when the user
+ * hasn't configured a TypeSafe key/URL. Only the top `AI_ENRICHMENT_MAX_ITEMS` items are
+ * analyzed to bound the number of outbound API calls per search; items beyond that (and
+ * any whose call fails) are returned unchanged.
+ */
+export async function enrichWithAiAnalysis(items: SearchItem[]): Promise<SearchItem[]> {
+  if (items.length === 0) {
+    return items;
+  }
+
+  // Defensive: a broken TypeSafe config (unreachable storage, decrypt failure) must never
+  // turn an otherwise-successful search into a 500 -- fall back to the unmodified results.
+  try {
+    if (!(await typesafeClient.isConfigured())) {
+      return items;
+    }
+
+    const toAnalyze = items.slice(0, AI_ENRICHMENT_MAX_ITEMS);
+    const analyses = await Promise.all(
+      toAnalyze.map((item) =>
+        typesafeClient
+          .analyzeRelease({
+            releaseName: item.title,
+            sizeBytes: item.size,
+            platform: parseReleaseMetadata(item.title).platform,
+          })
+          .catch(() => null)
+      )
+    );
+
+    return items.map((item, index) => {
+      const analysis = index < analyses.length ? analyses[index] : null;
+      if (!analysis) return item;
+      return {
+        ...item,
+        ...(analysis.releaseType ? { aiReleaseType: analysis.releaseType } : {}),
+        ...(analysis.releaseTypeConfidence !== null
+          ? { aiReleaseTypeConfidence: analysis.releaseTypeConfidence }
+          : {}),
+        ...(analysis.legitimacyScore !== null
+          ? { aiLegitimacyScore: analysis.legitimacyScore }
+          : {}),
+      };
+    });
+  } catch (error) {
+    searchLogger.warn({ error }, "AI enrichment failed, returning unmodified search results");
+    return items;
+  }
 }

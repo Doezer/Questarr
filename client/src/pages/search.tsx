@@ -6,7 +6,6 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatBytes, formatAge, isUsenetItem, getDownloadTypeColor } from "@/lib/downloads-utils";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
 import { cleanReleaseName } from "@shared/title-utils";
-import type { ReleaseType } from "@shared/typesafe-types";
 import {
   Search,
   Download,
@@ -14,7 +13,6 @@ import {
   ChevronDown,
   ChevronUp,
   Trash2,
-  Sparkles,
   AlertTriangle,
 } from "lucide-react";
 import type { Game } from "@shared/schema";
@@ -70,8 +68,6 @@ interface DownloadItem {
   age?: number;
   poster?: string;
   group?: string;
-  aiReleaseType?: ReleaseType;
-  aiReleaseTypeConfidence?: number;
   aiLegitimacyScore?: number;
 }
 
@@ -108,17 +104,6 @@ function formatDate(dateString: string): string {
 }
 
 const PAGE_SIZE = 50;
-
-const AI_RELEASE_TYPE_LABELS: Record<NonNullable<DownloadItem["aiReleaseType"]>, string> = {
-  full_game: "Full Game",
-  dlc: "DLC",
-  update: "Update",
-  repack: "Repack",
-  crack_only: "Crack Only",
-  demo: "Demo",
-  soundtrack: "Soundtrack",
-  other: "Other",
-};
 
 // Below this threshold, AI-flag the file size as suspiciously small for the release.
 const AI_LEGITIMACY_WARNING_THRESHOLD = 0.5;
@@ -602,25 +587,6 @@ export default function SearchPage() {
                               </>
                             )}
                           </Badge>
-                          {download.aiReleaseType && download.aiReleaseType !== "full_game" && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge
-                                  variant="secondary"
-                                  className="text-xs flex-shrink-0 gap-1"
-                                  data-testid={`badge-ai-release-type-${index}`}
-                                >
-                                  <Sparkles className="h-3 w-3" />
-                                  {AI_RELEASE_TYPE_LABELS[download.aiReleaseType]}
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                AI classification
-                                {download.aiReleaseTypeConfidence !== undefined &&
-                                  ` (${Math.round(download.aiReleaseTypeConfidence * 100)}% confidence)`}
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
                           {download.aiLegitimacyScore !== undefined &&
                             download.aiLegitimacyScore < AI_LEGITIMACY_WARNING_THRESHOLD && (
                               <Tooltip>

@@ -2,10 +2,26 @@
  * Download Categorization Utility
  *
  * Categorizes game downloads (torrents/NZBs) into main game, updates, DLC, and extras
- * based on common naming patterns in titles.
+ * based on common naming patterns in titles. When an AI release-type classification
+ * (see shared/typesafe-types.ts) is available and more confident than the regex-based
+ * guess, it's used instead.
  */
 
+import type { ReleaseType } from "./typesafe-types.js";
+
 export type DownloadCategory = "main" | "update" | "dlc" | "extra" | "packs";
+
+// Maps the AI's release-type classification onto the categories this app displays.
+// "other" has no reliable mapping, so it's left out -- the regex-based guess wins.
+const AI_RELEASE_TYPE_TO_CATEGORY: Partial<Record<ReleaseType, DownloadCategory>> = {
+  full_game: "main",
+  repack: "main",
+  dlc: "dlc",
+  update: "update",
+  demo: "extra",
+  soundtrack: "extra",
+  crack_only: "extra",
+};
 
 export interface CategorizedDownload {
   category: DownloadCategory;
@@ -38,10 +54,7 @@ const EXTRA_PATTERNS = [
   /\bdigital content\b/i,
 ];
 
-/**
- * Categorizes a download based on its title
- */
-export function categorizeDownload(title: string): CategorizedDownload {
+function categorizeByTitle(title: string): CategorizedDownload {
   const category: DownloadCategory = "main";
   let confidence = 0.5; // Default confidence for main game
 
@@ -82,11 +95,39 @@ export function categorizeDownload(title: string): CategorizedDownload {
 }
 
 /**
+ * Categorizes a download based on its title, and its AI release-type classification
+ * when one is available (see server/typesafe.ts) and more confident than the
+ * regex-based guess from the title alone.
+ */
+export function categorizeDownload(
+  title: string,
+  aiReleaseType?: ReleaseType | null,
+  aiReleaseTypeConfidence?: number | null
+): CategorizedDownload {
+  const byTitle = categorizeByTitle(title);
+
+  const aiCategory = aiReleaseType ? AI_RELEASE_TYPE_TO_CATEGORY[aiReleaseType] : undefined;
+  if (
+    aiCategory &&
+    aiReleaseTypeConfidence != null &&
+    aiReleaseTypeConfidence > byTitle.confidence
+  ) {
+    return { category: aiCategory, confidence: aiReleaseTypeConfidence };
+  }
+
+  return byTitle;
+}
+
+/**
  * Groups downloads by category
  */
-export function groupDownloadsByCategory<T extends { title: string }>(
-  downloads: T[]
-): Record<DownloadCategory, T[]> {
+export function groupDownloadsByCategory<
+  T extends {
+    title: string;
+    aiReleaseType?: ReleaseType | null;
+    aiReleaseTypeConfidence?: number | null;
+  },
+>(downloads: T[]): Record<DownloadCategory, T[]> {
   const groups: Record<DownloadCategory, T[]> = {
     main: [],
     update: [],
@@ -96,7 +137,11 @@ export function groupDownloadsByCategory<T extends { title: string }>(
   };
 
   downloads.forEach((download) => {
-    const { category } = categorizeDownload(download.title);
+    const { category } = categorizeDownload(
+      download.title,
+      download.aiReleaseType,
+      download.aiReleaseTypeConfidence
+    );
     groups[category].push(download);
   });
 

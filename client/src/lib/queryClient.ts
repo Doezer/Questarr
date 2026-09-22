@@ -112,12 +112,13 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined
 ): Promise<Response> {
-  const headers: Record<string, string> = data ? { "Content-Type": "application/json" } : {};
+  const hasBody = data !== undefined;
+  const headers: Record<string, string> = hasBody ? { "Content-Type": "application/json" } : {};
 
   const res = await apiFetch(url, {
     method,
     headers,
-    ...(data ? { body: JSON.stringify(data) } : {}),
+    ...(hasBody ? { body: JSON.stringify(data) } : {}),
   });
 
   await throwIfResNotOk(res);

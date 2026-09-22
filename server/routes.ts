@@ -5080,8 +5080,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         apiKey?: unknown;
         model?: unknown;
       };
-      if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
-        return res.status(400).json({ error: "API key is required" });
+      // apiKey is optional on an update: omitting it (e.g. to change only the URL or model)
+      // reuses the already-stored encrypted key rather than forcing it to be re-entered.
+      if (apiKey !== undefined && typeof apiKey !== "string") {
+        return res.status(400).json({ error: "Invalid API key" });
       }
       if (apiUrl !== undefined && typeof apiUrl !== "string") {
         return res.status(400).json({ error: "Invalid API URL" });
@@ -5105,15 +5107,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const trimmedKey = apiKey.trim();
+      const trimmedNewKey = apiKey?.trim() ?? "";
+      let storedEncryptedKey: string | undefined;
+      if (!trimmedNewKey) {
+        storedEncryptedKey = await storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY);
+        if (!storedEncryptedKey) {
+          return res.status(400).json({ error: "API key is required" });
+        }
+      }
       const trimmedModel = model?.trim() ?? "";
-      const encryptedKey = await encryptCredential(trimmedKey);
+      const encryptedKey = trimmedNewKey
+        ? await encryptCredential(trimmedNewKey)
+        : storedEncryptedKey;
       await storage.setSystemConfigBatch([
         { key: TYPESAFE_URL_CONFIG_KEY, value: trimmedUrl },
         { key: TYPESAFE_KEY_CONFIG_KEY, value: encryptedKey ?? "" },
         { key: TYPESAFE_MODEL_CONFIG_KEY, value: trimmedModel },
       ]);
-      typesafeClient.configure(trimmedUrl || null, trimmedKey, trimmedModel || null);
+      if (trimmedNewKey) {
+        typesafeClient.configure(trimmedUrl || null, trimmedNewKey, trimmedModel || null);
+      } else {
+        // Reusing the stored key -- invalidate the in-memory cache so the next call reloads
+        // and decrypts it (and picks up the new URL/model) from storage instead of retaining
+        // stale values from before this save.
+        typesafeClient.invalidate();
+      }
       routesLogger.info("TypeSafe API settings updated");
       return res.json({ success: true });
     } catch (error) {

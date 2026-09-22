@@ -497,7 +497,7 @@ export default function SettingsPage() {
   });
 
   const updateTypesafeMutation = useMutation({
-    mutationFn: async (data: { apiUrl: string; apiKey: string; model: string }) => {
+    mutationFn: async (data: { apiUrl: string; apiKey?: string; model: string }) => {
       const res = await apiRequest("POST", "/api/settings/typesafe", data);
       return res.json();
     },
@@ -529,10 +529,13 @@ export default function SettingsPage() {
   });
 
   const handleSaveTypesafe = () => {
-    if (!typesafeApiKey.trim()) return;
+    const trimmedKey = typesafeApiKey.trim();
+    // A key is only required the first time; once configured, saving with the field left
+    // blank reuses the stored key (e.g. to change just the URL or model).
+    if (!trimmedKey && !typesafeSettings?.configured) return;
     updateTypesafeMutation.mutate({
       apiUrl: typesafeApiUrl.trim(),
-      apiKey: typesafeApiKey.trim(),
+      ...(trimmedKey ? { apiKey: trimmedKey } : {}),
       model: typesafeModel.trim(),
     });
   };
@@ -1938,7 +1941,10 @@ export default function SettingsPage() {
                   )}
                   <Button
                     onClick={handleSaveTypesafe}
-                    disabled={updateTypesafeMutation.isPending || !typesafeApiKey.trim()}
+                    disabled={
+                      updateTypesafeMutation.isPending ||
+                      (!typesafeApiKey.trim() && !typesafeSettings?.configured)
+                    }
                     className="gap-2"
                   >
                     {updateTypesafeMutation.isPending ? (

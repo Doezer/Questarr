@@ -42,6 +42,7 @@ vi.mock("../typesafe.js", () => ({
   typesafeClient: {
     isConfigured: vi.fn().mockResolvedValue(false),
     configure: vi.fn(),
+    invalidate: vi.fn(),
     analyzeRelease: vi.fn().mockResolvedValue(null),
   },
   TYPESAFE_URL_CONFIG_KEY: "typesafe.apiUrl",
@@ -155,14 +156,57 @@ describe("TypeSafe Settings Routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("returns 400 when API key is empty", async () => {
+    it("returns 400 when API key is empty and none is stored yet", async () => {
+      const storageMock = await getStorageMock();
+      vi.mocked(storageMock.getSystemConfig).mockResolvedValue(undefined);
       const res = await request(app).post("/api/settings/typesafe").send({ apiKey: "" });
       expect(res.status).toBe(400);
     });
 
-    it("returns 400 when API key is missing", async () => {
+    it("returns 400 when API key is missing and none is stored yet", async () => {
+      const storageMock = await getStorageMock();
+      vi.mocked(storageMock.getSystemConfig).mockResolvedValue(undefined);
       const res = await request(app).post("/api/settings/typesafe").send({});
       expect(res.status).toBe(400);
+    });
+
+    it("reuses the stored key and invalidates the client when apiKey is omitted on an update", async () => {
+      const storageMock = await getStorageMock();
+      const typesafeMock = await getTypesafeMock();
+      vi.mocked(storageMock.getSystemConfig).mockResolvedValue("enc:v1:existing-key");
+      vi.mocked(storageMock.setSystemConfigBatch).mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post("/api/settings/typesafe")
+        .send({ model: "typesafe/jev-1.13" });
+
+      expect(res.status).toBe(200);
+      expect(storageMock.setSystemConfigBatch).toHaveBeenCalledWith([
+        { key: "typesafe.apiUrl", value: "" },
+        { key: "typesafe.apiKey", value: "enc:v1:existing-key" },
+        { key: "typesafe.model", value: "typesafe/jev-1.13" },
+      ]);
+      expect(typesafeMock.configure).not.toHaveBeenCalled();
+      expect(typesafeMock.invalidate).toHaveBeenCalled();
+    });
+
+    it("reuses the stored key when apiKey is an empty string on an update", async () => {
+      const storageMock = await getStorageMock();
+      const typesafeMock = await getTypesafeMock();
+      vi.mocked(storageMock.getSystemConfig).mockResolvedValue("enc:v1:existing-key");
+      vi.mocked(storageMock.setSystemConfigBatch).mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post("/api/settings/typesafe")
+        .send({ apiKey: "", apiUrl: "https://api.typesafe.ai/v1/systemone" });
+
+      expect(res.status).toBe(200);
+      expect(storageMock.setSystemConfigBatch).toHaveBeenCalledWith([
+        { key: "typesafe.apiUrl", value: "https://api.typesafe.ai/v1/systemone" },
+        { key: "typesafe.apiKey", value: "enc:v1:existing-key" },
+        { key: "typesafe.model", value: "" },
+      ]);
+      expect(typesafeMock.invalidate).toHaveBeenCalled();
     });
 
     it("returns 400 when API key is not a string", async () => {

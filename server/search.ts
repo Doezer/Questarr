@@ -238,31 +238,46 @@ export function filterBlacklistedReleases(
  * any whose call fails) are returned unchanged.
  */
 export async function enrichWithAiAnalysis(items: SearchItem[]): Promise<SearchItem[]> {
-  if (items.length === 0 || !(await typesafeClient.isConfigured())) {
+  if (items.length === 0) {
     return items;
   }
 
-  const toAnalyze = items.slice(0, AI_ENRICHMENT_MAX_ITEMS);
-  const analyses = await Promise.all(
-    toAnalyze.map((item) =>
-      typesafeClient.analyzeRelease({
-        releaseName: item.title,
-        sizeBytes: item.size,
-        platform: parseReleaseMetadata(item.title).platform,
-      })
-    )
-  );
+  // Defensive: a broken TypeSafe config (unreachable storage, decrypt failure) must never
+  // turn an otherwise-successful search into a 500 -- fall back to the unmodified results.
+  try {
+    if (!(await typesafeClient.isConfigured())) {
+      return items;
+    }
 
-  return items.map((item, index) => {
-    const analysis = index < analyses.length ? analyses[index] : null;
-    if (!analysis) return item;
-    return {
-      ...item,
-      ...(analysis.releaseType ? { aiReleaseType: analysis.releaseType } : {}),
-      ...(analysis.releaseTypeConfidence !== null
-        ? { aiReleaseTypeConfidence: analysis.releaseTypeConfidence }
-        : {}),
-      ...(analysis.legitimacyScore !== null ? { aiLegitimacyScore: analysis.legitimacyScore } : {}),
-    };
-  });
+    const toAnalyze = items.slice(0, AI_ENRICHMENT_MAX_ITEMS);
+    const analyses = await Promise.all(
+      toAnalyze.map((item) =>
+        typesafeClient
+          .analyzeRelease({
+            releaseName: item.title,
+            sizeBytes: item.size,
+            platform: parseReleaseMetadata(item.title).platform,
+          })
+          .catch(() => null)
+      )
+    );
+
+    return items.map((item, index) => {
+      const analysis = index < analyses.length ? analyses[index] : null;
+      if (!analysis) return item;
+      return {
+        ...item,
+        ...(analysis.releaseType ? { aiReleaseType: analysis.releaseType } : {}),
+        ...(analysis.releaseTypeConfidence !== null
+          ? { aiReleaseTypeConfidence: analysis.releaseTypeConfidence }
+          : {}),
+        ...(analysis.legitimacyScore !== null
+          ? { aiLegitimacyScore: analysis.legitimacyScore }
+          : {}),
+      };
+    });
+  } catch (error) {
+    searchLogger.warn({ error }, "AI enrichment failed, returning unmodified search results");
+    return items;
+  }
 }

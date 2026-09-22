@@ -669,6 +669,25 @@ describe("enrichWithAiAnalysis", () => {
     expect(typesafeClient.analyzeRelease).not.toHaveBeenCalled();
   });
 
+  it("returns unmodified items when isConfigured() rejects (broken storage/decryption)", async () => {
+    vi.mocked(typesafeClient.isConfigured).mockRejectedValue(new Error("storage unavailable"));
+    const items = [makeItem("Game-GROUP")];
+
+    const result = await enrichWithAiAnalysis(items);
+
+    expect(result).toEqual(items);
+  });
+
+  it("leaves an item unchanged when its analyzeRelease call rejects", async () => {
+    vi.mocked(typesafeClient.isConfigured).mockResolvedValue(true);
+    vi.mocked(typesafeClient.analyzeRelease).mockRejectedValue(new Error("network error"));
+    const items = [makeItem("Game-GROUP")];
+
+    const result = await enrichWithAiAnalysis(items);
+
+    expect(result[0]).toEqual(items[0]);
+  });
+
   it("returns an empty array unchanged without calling isConfigured", async () => {
     const result = await enrichWithAiAnalysis([]);
     expect(result).toEqual([]);

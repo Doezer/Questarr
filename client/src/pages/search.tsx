@@ -6,6 +6,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatBytes, formatAge, isUsenetItem, getDownloadTypeColor } from "@/lib/downloads-utils";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
 import { cleanReleaseName } from "@shared/title-utils";
+import type { ReleaseType } from "@shared/typesafe-types";
 import {
   Search,
   Download,
@@ -69,8 +70,7 @@ interface DownloadItem {
   age?: number;
   poster?: string;
   group?: string;
-  aiReleaseType?:
-    "full_game" | "dlc" | "update" | "repack" | "crack_only" | "demo" | "soundtrack" | "other";
+  aiReleaseType?: ReleaseType;
   aiReleaseTypeConfidence?: number;
   aiLegitimacyScore?: number;
 }

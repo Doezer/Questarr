@@ -1,6 +1,9 @@
 import { logger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
 import { storage } from "./storage.js";
+import { RELEASE_TYPES, type ReleaseType } from "../shared/typesafe-types.js";
+
+export type { ReleaseType };
 
 const typesafeLogger = logger.child({ module: "typesafe" });
 
@@ -9,19 +12,6 @@ const REQUEST_TIMEOUT_MS = 8000;
 
 export const TYPESAFE_URL_CONFIG_KEY = "typesafe.apiUrl";
 export const TYPESAFE_KEY_CONFIG_KEY = "typesafe.apiKey";
-
-const RELEASE_TYPES = [
-  "full_game",
-  "dlc",
-  "update",
-  "repack",
-  "crack_only",
-  "demo",
-  "soundtrack",
-  "other",
-] as const;
-
-export type ReleaseType = (typeof RELEASE_TYPES)[number];
 
 export interface ReleaseAnalysis {
   releaseType: ReleaseType | null;
@@ -40,6 +30,13 @@ interface SystemOneAnswer {
 interface SystemOneResponse {
   model: string;
   answers: Record<string, SystemOneAnswer>;
+}
+
+/** Guards against a malformed/out-of-spec API response producing NaN% or negative confidence in the UI. */
+function toUnitInterval(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+    ? value
+    : null;
 }
 
 function formatBytes(bytes: number): string {
@@ -62,10 +59,17 @@ class TypeSafeClient {
   private apiKey: string | null = null;
   private loaded = false;
 
-  /** Set credentials directly (used by the settings route right after a save). */
+  /**
+   * Set credentials directly (used by the settings route right after a save). Mirrors
+   * ensureLoaded()'s fallback: a blank URL with a real key still means "configured",
+   * pointed at TypeSafe's default endpoint -- otherwise isConfigured() would incorrectly
+   * report false until the next restart re-triggers ensureLoaded()'s own fallback.
+   */
   configure(apiUrl: string | null, apiKey: string | null): void {
-    this.apiUrl = apiUrl && apiUrl.trim().length > 0 ? apiUrl.trim() : null;
-    this.apiKey = apiKey && apiKey.trim().length > 0 ? apiKey.trim() : null;
+    const trimmedKey = apiKey && apiKey.trim().length > 0 ? apiKey.trim() : null;
+    const trimmedUrl = apiUrl && apiUrl.trim().length > 0 ? apiUrl.trim() : null;
+    this.apiKey = trimmedKey;
+    this.apiUrl = trimmedUrl ?? (trimmedKey ? DEFAULT_API_URL : null);
     this.loaded = true;
   }
 
@@ -175,8 +179,8 @@ class TypeSafeClient {
 
       return {
         releaseType,
-        releaseTypeConfidence: releaseTypeAnswer?.confidence ?? null,
-        legitimacyScore: legitimacyAnswer?.noul ?? null,
+        releaseTypeConfidence: toUnitInterval(releaseTypeAnswer?.confidence),
+        legitimacyScore: toUnitInterval(legitimacyAnswer?.noul),
       };
     } catch (error) {
       typesafeLogger.warn({ error }, "TypeSafe API call failed, skipping AI enrichment");

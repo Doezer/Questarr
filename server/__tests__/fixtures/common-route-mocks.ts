@@ -55,6 +55,7 @@ export function createStorageMock() {
     countUsers: vi.fn().mockResolvedValue(1),
     registerSetupUser: vi.fn(),
     setSystemConfig: vi.fn(),
+    setSystemConfigBatch: vi.fn(),
     getSystemConfig: vi.fn(),
     assignOrphanGamesToUser: vi.fn(),
     getUserSettings: vi.fn().mockResolvedValue({}),

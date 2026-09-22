@@ -61,6 +61,13 @@ describe("TypeSafeClient", () => {
       expect(await client.isConfigured()).toBe(false);
     });
 
+    it("falls back to the default endpoint when configure() is called with a key but no URL", async () => {
+      const client = await getClient();
+      client.configure(null, "my-key");
+      expect(await client.isConfigured()).toBe(true);
+      expect(mockSafeFetch).not.toHaveBeenCalled(); // sanity: no network call needed to check this
+    });
+
     it("lazily loads and decrypts credentials from storage on first use", async () => {
       mockGetSystemConfig.mockImplementation(async (key: string) => {
         if (key === "typesafe.apiUrl") return "https://custom.example.com/v1/systemone";
@@ -180,6 +187,56 @@ describe("TypeSafeClient", () => {
 
       const result = await client.analyzeRelease({ releaseName: "Some.Game" });
       expect(result).toBeNull();
+    });
+
+    it("calls the default endpoint when configured with only a key", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({ model: "jev-1.0.0", answers: {} }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure(null, "my-key");
+
+      await client.analyzeRelease({ releaseName: "Some.Game" });
+
+      expect(mockSafeFetch).toHaveBeenCalledWith(
+        "https://api.typesafe.ai/v1/systemone",
+        expect.anything()
+      );
+    });
+
+    it("discards a confidence/noul value outside the 0-1 range", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          model: "jev-1.0.0",
+          answers: {
+            releaseType: { type: "choice", choice: "dlc", confidence: 1.5 },
+            sizeIsPlausible: { type: "noul", noul: -0.2 },
+          },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      const result = await client.analyzeRelease({ releaseName: "Some.Game" });
+      expect(result?.releaseType).toBe("dlc");
+      expect(result?.releaseTypeConfidence).toBeNull();
+      expect(result?.legitimacyScore).toBeNull();
+    });
+
+    it("discards a non-numeric confidence/noul value", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          model: "jev-1.0.0",
+          answers: {
+            releaseType: { type: "choice", choice: "dlc", confidence: Number.NaN },
+          },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      const result = await client.analyzeRelease({ releaseName: "Some.Game" });
+      expect(result?.releaseTypeConfidence).toBeNull();
     });
   });
 });

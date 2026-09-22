@@ -5068,19 +5068,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/settings/typesafe", sensitiveEndpointLimiter, async (req, res) => {
     try {
-      const { apiUrl, apiKey } = req.body as { apiUrl?: string; apiKey?: string };
-      if (!apiKey || apiKey.trim().length === 0) {
+      const { apiUrl, apiKey } = req.body as { apiUrl?: unknown; apiKey?: unknown };
+      if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
         return res.status(400).json({ error: "API key is required" });
       }
-      if (apiUrl && !(await isSafeUrl(apiUrl))) {
-        return res.status(400).json({ error: "Invalid or unsafe URL" });
+      if (apiUrl !== undefined && typeof apiUrl !== "string") {
+        return res.status(400).json({ error: "Invalid API URL" });
       }
-      const encryptedKey = await encryptCredential(apiKey.trim());
-      await Promise.all([
-        storage.setSystemConfig(TYPESAFE_URL_CONFIG_KEY, apiUrl?.trim() || ""),
-        storage.setSystemConfig(TYPESAFE_KEY_CONFIG_KEY, encryptedKey ?? ""),
+
+      const trimmedUrl = apiUrl?.trim() ?? "";
+      if (trimmedUrl) {
+        // TypeSafeClient always calls safeFetch with requireHttps -- reject anything that
+        // would fail that check at save time rather than let every analysis call fail later.
+        let parsed: URL;
+        try {
+          parsed = new URL(trimmedUrl);
+        } catch {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+        if (parsed.protocol !== "https:" || !(await isSafeUrl(trimmedUrl))) {
+          return res.status(400).json({ error: "API URL must be a safe HTTPS URL" });
+        }
+      }
+
+      const trimmedKey = apiKey.trim();
+      const encryptedKey = await encryptCredential(trimmedKey);
+      await storage.setSystemConfigBatch([
+        { key: TYPESAFE_URL_CONFIG_KEY, value: trimmedUrl },
+        { key: TYPESAFE_KEY_CONFIG_KEY, value: encryptedKey ?? "" },
       ]);
-      typesafeClient.configure(apiUrl?.trim() || null, apiKey.trim());
+      typesafeClient.configure(trimmedUrl || null, trimmedKey);
       routesLogger.info("TypeSafe API settings updated");
       return res.json({ success: true });
     } catch (error) {
@@ -5091,9 +5108,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/settings/typesafe", sensitiveEndpointLimiter, async (_req, res) => {
     try {
-      await Promise.all([
-        storage.setSystemConfig(TYPESAFE_URL_CONFIG_KEY, ""),
-        storage.setSystemConfig(TYPESAFE_KEY_CONFIG_KEY, ""),
+      await storage.setSystemConfigBatch([
+        { key: TYPESAFE_URL_CONFIG_KEY, value: "" },
+        { key: TYPESAFE_KEY_CONFIG_KEY, value: "" },
       ]);
       typesafeClient.configure(null, null);
       routesLogger.info("TypeSafe API settings cleared");

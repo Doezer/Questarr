@@ -165,6 +165,8 @@ export interface IStorage {
   // System Config methods
   getSystemConfig(key: string): Promise<string | undefined>;
   setSystemConfig(key: string, value: string): Promise<void>;
+  /** Writes several system_config entries atomically -- use for related keys (e.g. a URL + its API key) that must never be observed half-updated. */
+  setSystemConfigBatch(entries: { key: string; value: string }[]): Promise<void>;
 
   // User methods
   getUser(id: string): Promise<User | undefined>;
@@ -422,6 +424,12 @@ export class MemStorage implements IStorage {
 
   async setSystemConfig(key: string, value: string): Promise<void> {
     this.systemConfig.set(key, value);
+  }
+
+  async setSystemConfigBatch(entries: { key: string; value: string }[]): Promise<void> {
+    for (const { key, value } of entries) {
+      this.systemConfig.set(key, value);
+    }
   }
 
   // User methods
@@ -1736,6 +1744,20 @@ export class DatabaseStorage implements IStorage {
         target: systemConfig.key,
         set: { value, updatedAt: new Date() },
       });
+  }
+
+  async setSystemConfigBatch(entries: { key: string; value: string }[]): Promise<void> {
+    db.transaction((tx) => {
+      for (const { key, value } of entries) {
+        tx.insert(systemConfig)
+          .values({ key, value })
+          .onConflictDoUpdate({
+            target: systemConfig.key,
+            set: { value, updatedAt: new Date() },
+          })
+          .run();
+      }
+    });
   }
 
   // Path Mapping methods

@@ -1920,7 +1920,7 @@ export default function SettingsPage() {
                   >
                     {updateTypesafeMutation.isPending ? (
                       <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
                       </>
                     ) : (

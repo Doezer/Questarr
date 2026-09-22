@@ -100,10 +100,10 @@ describe("TypeSafe Settings Routes", () => {
   });
 
   describe("POST /api/settings/typesafe", () => {
-    it("saves the API key (encrypted) and URL, then configures the client", async () => {
+    it("saves the API key (encrypted) and URL atomically, then configures the client", async () => {
       const storageMock = await getStorageMock();
       const typesafeMock = await getTypesafeMock();
-      vi.mocked(storageMock.setSystemConfig).mockResolvedValue(undefined);
+      vi.mocked(storageMock.setSystemConfigBatch).mockResolvedValue(undefined);
 
       const res = await request(app)
         .post("/api/settings/typesafe")
@@ -111,11 +111,10 @@ describe("TypeSafe Settings Routes", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(storageMock.setSystemConfig).toHaveBeenCalledWith(
-        "typesafe.apiUrl",
-        "https://api.typesafe.ai/v1/systemone"
-      );
-      expect(storageMock.setSystemConfig).toHaveBeenCalledWith("typesafe.apiKey", "enc:v1:my-key");
+      expect(storageMock.setSystemConfigBatch).toHaveBeenCalledWith([
+        { key: "typesafe.apiUrl", value: "https://api.typesafe.ai/v1/systemone" },
+        { key: "typesafe.apiKey", value: "enc:v1:my-key" },
+      ]);
       expect(typesafeMock.configure).toHaveBeenCalledWith(
         "https://api.typesafe.ai/v1/systemone",
         "my-key"
@@ -132,40 +131,71 @@ describe("TypeSafe Settings Routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("returns 400 when the API URL is unsafe", async () => {
+    it("returns 400 when API key is not a string", async () => {
+      const res = await request(app).post("/api/settings/typesafe").send({ apiKey: 12345 });
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when API URL is not a string", async () => {
+      const res = await request(app)
+        .post("/api/settings/typesafe")
+        .send({ apiUrl: 12345, apiKey: "my-key" });
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when the API URL is plain HTTP", async () => {
+      const res = await request(app)
+        .post("/api/settings/typesafe")
+        .send({ apiUrl: "http://api.typesafe.ai/v1/systemone", apiKey: "my-key" });
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when the API URL is malformed", async () => {
+      const res = await request(app)
+        .post("/api/settings/typesafe")
+        .send({ apiUrl: "not a url", apiKey: "my-key" });
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when the API URL fails the SSRF safety check", async () => {
       const { isSafeUrl } = await import("../ssrf.js");
       vi.mocked(isSafeUrl).mockResolvedValueOnce(false);
 
       const res = await request(app)
         .post("/api/settings/typesafe")
-        .send({ apiUrl: "http://169.254.169.254/", apiKey: "my-key" });
+        .send({ apiUrl: "https://169.254.169.254/", apiKey: "my-key" });
 
       expect(res.status).toBe(400);
     });
 
     it("saves without a URL (falls back to the client's default)", async () => {
       const storageMock = await getStorageMock();
-      vi.mocked(storageMock.setSystemConfig).mockResolvedValue(undefined);
+      vi.mocked(storageMock.setSystemConfigBatch).mockResolvedValue(undefined);
 
       const res = await request(app).post("/api/settings/typesafe").send({ apiKey: "my-key" });
 
       expect(res.status).toBe(200);
-      expect(storageMock.setSystemConfig).toHaveBeenCalledWith("typesafe.apiUrl", "");
+      expect(storageMock.setSystemConfigBatch).toHaveBeenCalledWith([
+        { key: "typesafe.apiUrl", value: "" },
+        { key: "typesafe.apiKey", value: "enc:v1:my-key" },
+      ]);
     });
   });
 
   describe("DELETE /api/settings/typesafe", () => {
-    it("clears stored config and de-configures the client", async () => {
+    it("clears stored config atomically and de-configures the client", async () => {
       const storageMock = await getStorageMock();
       const typesafeMock = await getTypesafeMock();
-      vi.mocked(storageMock.setSystemConfig).mockResolvedValue(undefined);
+      vi.mocked(storageMock.setSystemConfigBatch).mockResolvedValue(undefined);
 
       const res = await request(app).delete("/api/settings/typesafe");
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(storageMock.setSystemConfig).toHaveBeenCalledWith("typesafe.apiUrl", "");
-      expect(storageMock.setSystemConfig).toHaveBeenCalledWith("typesafe.apiKey", "");
+      expect(storageMock.setSystemConfigBatch).toHaveBeenCalledWith([
+        { key: "typesafe.apiUrl", value: "" },
+        { key: "typesafe.apiKey", value: "" },
+      ]);
       expect(typesafeMock.configure).toHaveBeenCalledWith(null, null);
     });
   });

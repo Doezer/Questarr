@@ -144,7 +144,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 type ReleaseMetadataBadgesProps = Readonly<{
   metadata: ReleaseMetadata;
   isUsenet: boolean;
-  downloadVolumeFactor?: number;
+  downloadVolumeFactor?: number | undefined;
   className?: string;
 }>;
 

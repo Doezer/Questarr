@@ -714,7 +714,7 @@ export interface DashboardStatus {
 export interface Config {
   igdb: {
     configured: boolean;
-    source?: "env" | "database";
+    source?: "env" | "database" | undefined;
     clientId?: string;
   };
   xrel?: {
@@ -738,11 +738,11 @@ export interface DownloadTracker {
   url: string;
   tier: number;
   status: "working" | "updating" | "error" | "inactive";
-  seeders?: number;
-  leechers?: number;
-  lastAnnounce?: string;
-  nextAnnounce?: string;
-  error?: string;
+  seeders?: number | undefined;
+  leechers?: number | undefined;
+  lastAnnounce?: string | undefined;
+  nextAnnounce?: string | undefined;
+  error?: string | undefined;
 }
 
 export interface DownloadStatus {
@@ -761,40 +761,40 @@ export interface DownloadStatus {
     | "manual_review_required"
     | "imported";
   progress: number; // 0-100
-  downloadSpeed?: number; // bytes per second
-  uploadSpeed?: number; // bytes per second (torrents only)
-  eta?: number; // seconds
-  size?: number; // total bytes
-  downloaded?: number; // bytes downloaded
+  downloadSpeed?: number | undefined; // bytes per second
+  uploadSpeed?: number | undefined; // bytes per second (torrents only)
+  eta?: number | undefined; // seconds
+  size?: number | undefined; // total bytes
+  downloaded?: number | undefined; // bytes downloaded
   // Protocol-specific fields
-  seeders?: number;
-  leechers?: number;
-  ratio?: number;
+  seeders?: number | undefined;
+  leechers?: number | undefined;
+  ratio?: number | undefined;
   // Usenet-specific fields
-  repairStatus?: "good" | "repairing" | "failed"; // Par2 repair status
-  unpackStatus?: "unpacking" | "completed" | "failed"; // Extract/unpack status
-  age?: number; // Age in days
+  repairStatus?: "good" | "repairing" | "failed" | undefined; // Par2 repair status
+  unpackStatus?: "unpacking" | "completed" | "failed" | undefined; // Extract/unpack status
+  age?: number | undefined; // Age in days
   // Common fields
-  error?: string;
-  category?: string;
+  error?: string | undefined;
+  category?: string | undefined;
   // Questarr tracking fields
   trackedByQuestarr?: boolean; // True if the download was initiated through Questarr
   downloaderCategory?: string; // The category configured on the downloader (for display purposes)
 }
 
 export interface DownloadDetails extends DownloadStatus {
-  hash?: string;
-  addedDate?: string;
-  completedDate?: string;
-  downloadDir?: string;
-  comment?: string;
-  creator?: string;
+  hash?: string | undefined;
+  addedDate?: string | undefined;
+  completedDate?: string | undefined;
+  downloadDir?: string | undefined;
+  comment?: string | undefined;
+  creator?: string | undefined;
   files: DownloadFile[];
   filesSupport?: "supported" | "unsupported";
   filesSupportReason?: string;
   trackers: DownloadTracker[];
-  totalPeers?: number;
-  connectedPeers?: number;
+  totalPeers?: number | undefined;
+  connectedPeers?: number | undefined;
 }
 
 export interface SearchResultItem {

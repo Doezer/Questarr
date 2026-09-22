@@ -62,8 +62,8 @@ interface DelugeTorrentStatus {
 
 interface DelugeJSONRPCResponse {
   result?: unknown;
-  error?: { message?: string; code?: number } | null;
-  id?: number;
+  error?: { message?: string | undefined; code?: number | undefined } | null | undefined;
+  id?: number | undefined;
 }
 
 /**
@@ -420,7 +420,10 @@ export class DelugeClient implements DownloaderClient {
     }
   }
 
-  private async findRecentlyAddedDownload(): Promise<{ hash: string; name?: string } | null> {
+  private async findRecentlyAddedDownload(): Promise<{
+    hash: string;
+    name?: string | undefined;
+  } | null> {
     try {
       await new Promise((resolve) => setTimeout(resolve, 1000));
 

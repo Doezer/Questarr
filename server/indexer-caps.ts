@@ -159,7 +159,7 @@ export async function discoverCapsCategories<T>(options: {
     try {
       const urlStr = url.toString();
       const response = await safeFetch(urlStr, {
-        headers: options.fetchHeaders,
+        ...(options.fetchHeaders !== undefined ? { headers: options.fetchHeaders } : {}),
         signal: AbortSignal.timeout(remainingMs),
         requireHttps: urlStr.startsWith("https:"),
       });

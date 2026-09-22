@@ -101,7 +101,12 @@ const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 /** Derives the target-platform Select value, falling back to "default" for malformed or unsupported saved pairs. */
 function getTargetPlatformSelectValue(
   target:
-    { targetPlatformId?: number | null; targetPlatformName?: string | null } | null | undefined
+    | {
+        targetPlatformId?: number | null | undefined;
+        targetPlatformName?: string | null | undefined;
+      }
+    | null
+    | undefined
 ): string {
   if (target?.targetPlatformId == null) return "default";
   return resolveTargetPlatform(target.targetPlatformId, target.targetPlatformName)

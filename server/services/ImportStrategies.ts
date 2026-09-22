@@ -22,12 +22,12 @@ export interface ImportResult {
 
 export interface ImportReview {
   needsReview: boolean;
-  reviewReason?: string;
+  reviewReason?: string | undefined;
   originalPath: string;
   proposedPath: string;
   strategy: "pc";
   ignoredExtensions?: string[];
-  fileCategories?: FileCategoryEntry[];
+  fileCategories?: FileCategoryEntry[] | undefined;
   importResult?: ImportResult;
 }
 

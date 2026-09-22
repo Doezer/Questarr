@@ -110,7 +110,10 @@ export default function PageToolbar({
           {hasSort && (
             <div className="flex flex-1 items-center gap-1.5 md:flex-initial">
               <span className="text-xs text-muted-foreground hidden sm:inline">Sort</span>
-              <Select value={sortValue} onValueChange={onSortChange}>
+              <Select
+                {...(sortValue !== undefined ? { value: sortValue } : {})}
+                {...(onSortChange !== undefined ? { onValueChange: onSortChange } : {})}
+              >
                 <SelectTrigger
                   className="h-8 w-full text-sm md:w-[160px]"
                   aria-label={sortAriaLabel}

@@ -21,7 +21,7 @@ interface ShareDiscordDialogProps {
   onOpenChange: (open: boolean) => void;
   stats: LibraryStats;
   date?: Date;
-  discordConfigured?: boolean;
+  discordConfigured?: boolean | undefined;
 }
 
 const STAT_OPTIONS = [

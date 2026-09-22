@@ -69,6 +69,7 @@ import { db } from "./db.js";
 import { normalizeDownloadHash } from "./download-hash.js";
 import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { categorizeDownload } from "../shared/download-categorizer.js";
+import { stripUndefined } from "./object-utils.js";
 import {
   encryptCredential,
   decryptCredential,
@@ -756,7 +757,7 @@ export class MemStorage implements IStorage {
 
     const updatedIndexer: Indexer = {
       ...indexer,
-      ...updates,
+      ...stripUndefined(updates),
       updatedAt: new Date(),
     };
 
@@ -890,7 +891,7 @@ export class MemStorage implements IStorage {
 
     const updatedDownloader: Downloader = {
       ...downloader,
-      ...updates,
+      ...stripUndefined(updates),
       updatedAt: new Date(),
     };
 
@@ -1287,7 +1288,7 @@ export class MemStorage implements IStorage {
   ): Promise<RssFeedItem | undefined> {
     const item = this.rssFeedItems.get(id);
     if (!item) return undefined;
-    const updatedItem = { ...item, ...updates };
+    const updatedItem = { ...item, ...stripUndefined(updates) };
     this.rssFeedItems.set(id, updatedItem);
     return updatedItem;
   }
@@ -1351,7 +1352,7 @@ export class MemStorage implements IStorage {
 
     const updated: UserSettings = {
       ...existing,
-      ...updates,
+      ...stripUndefined(updates),
       updatedAt: new Date(),
     };
     this.userSettings.set(existing.id, updated);
@@ -1650,7 +1651,7 @@ export class MemStorage implements IStorage {
   async updateRootFolder(id: string, updates: UpdateRootFolder): Promise<RootFolder | undefined> {
     const existing = this.rootFolders.get(id);
     if (!existing) return undefined;
-    const updated: RootFolder = { ...existing, ...updates };
+    const updated: RootFolder = { ...existing, ...stripUndefined(updates) };
     this.rootFolders.set(id, updated);
     return updated;
   }

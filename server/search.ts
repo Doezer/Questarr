@@ -30,7 +30,7 @@ export interface SearchItem {
 
 export interface AggregatedSearchOptions {
   query: string;
-  category?: string[];
+  category?: string[] | undefined;
   limit?: number;
   offset?: number;
 }

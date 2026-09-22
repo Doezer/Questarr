@@ -102,7 +102,7 @@ export function apiFetch(url: string, init: RequestInit = {}): Promise<Response>
 
   return fetch(withBasePath(url), {
     ...init,
-    headers,
+    ...(headers !== undefined ? { headers } : {}),
     credentials: init.credentials ?? "include",
   });
 }
@@ -117,7 +117,7 @@ export async function apiRequest(
   const res = await apiFetch(url, {
     method,
     headers,
-    body: data ? JSON.stringify(data) : undefined,
+    ...(data ? { body: JSON.stringify(data) } : {}),
   });
 
   await throwIfResNotOk(res);

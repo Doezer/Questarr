@@ -165,11 +165,11 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
 
 export interface ReleaseMetadata {
   gameTitle: string;
-  version?: string;
-  languages?: string[];
-  group?: string;
-  platform?: string;
-  drm?: string;
+  version?: string | undefined;
+  languages?: string[] | undefined;
+  group?: string | undefined;
+  platform?: string | undefined;
+  drm?: string | undefined;
   isScene: boolean;
 }
 

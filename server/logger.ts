@@ -75,7 +75,7 @@ export const logger = pino(
   {
     level: process.env.LOG_LEVEL || DEFAULT_LOG_LEVEL,
     timestamp: pino.stdTimeFunctions.isoTime,
-    base: undefined,
+    base: null,
     formatters: {
       // Redact secret-shaped fields (api keys, tokens, passwords, Bearer
       // headers, ...) out of every structured log object before it's

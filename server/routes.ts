@@ -2,6 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
+import { stripUndefined } from "./object-utils.js";
 import { normalizeDownloadHash, normalizeTrackedKey } from "./download-hash.js";
 import { igdbClient } from "./igdb.js";
 import type { IGDBGame } from "./igdb.js";
@@ -1753,7 +1754,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     .array(z.object({ url: z.string(), category: z.number() }))
                     .catch([])
                     .parse(updatedData.igdbWebsites),
-                  aggregatedRating: updatedData.aggregatedRating as number | undefined,
+                  aggregatedRating: (updatedData.aggregatedRating as number | undefined) ?? null,
                 },
               });
             }
@@ -4908,7 +4909,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid or unsafe URL" });
       }
 
-      const feed = await storage.updateRssFeed(req.params.id, updates);
+      const feed = await storage.updateRssFeed(req.params.id, stripUndefined(updates));
       if (!feed) {
         return res.status(404).json({ error: "Feed not found" });
       }

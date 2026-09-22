@@ -329,3 +329,22 @@ export function createSocketMock() {
     notifyUser: vi.fn(),
   };
 }
+
+/** For client-only unit tests (not full-app route suites): a bare `logger.child(...)` mock. */
+export function createChildLoggerMock() {
+  return {
+    logger: {
+      child: vi.fn().mockReturnValue({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      }),
+    },
+  };
+}
+
+/** For client-only unit tests that only need to stub `safeFetch` (not the full ssrf module). */
+export function createSafeFetchOnlyMock() {
+  return { safeFetch: vi.fn() };
+}

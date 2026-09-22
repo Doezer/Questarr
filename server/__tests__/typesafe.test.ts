@@ -1,19 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createChildLoggerMock, createSafeFetchOnlyMock } from "./fixtures/common-route-mocks.js";
 
-vi.mock("../logger.js", () => ({
-  logger: {
-    child: vi.fn().mockReturnValue({
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
-    }),
-  },
-}));
+vi.mock("../logger.js", () => createChildLoggerMock());
 
-vi.mock("../ssrf.js", () => ({
-  safeFetch: vi.fn(),
-}));
+vi.mock("../ssrf.js", () => createSafeFetchOnlyMock());
 
 vi.mock("../storage.js", () => ({
   storage: {

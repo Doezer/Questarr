@@ -205,20 +205,20 @@ export class ImportManager {
     // promote a .rar when the current first entry is actually one of ITS continuations
     // (same stem) — otherwise an unrelated .rar elsewhere in the directory (a second,
     // independent archive set) could jump the queue ahead of a correctly-ordered one.
-    const continuationMatch = /^(.*)\.r\d{2,3}$/i.exec(archiveEntries[0]);
-    if (continuationMatch) {
+    const continuationMatch = /^(.*)\.r\d{2,3}$/i.exec(archiveEntries[0]!);
+    if (continuationMatch?.[1]) {
       const stem = continuationMatch[1].toLowerCase();
       const primaryRarIndex = archiveEntries.findIndex(
         (name) => /\.rar$/i.test(name) && name.slice(0, -".rar".length).toLowerCase() === stem
       );
       if (primaryRarIndex > 0) {
         const [primaryRar] = archiveEntries.splice(primaryRarIndex, 1);
-        archiveEntries.unshift(primaryRar);
+        if (primaryRar) archiveEntries.unshift(primaryRar);
       }
     }
 
     // 7zip/unrar handle multi-part archives when given the first part.
-    const mainArchive = path.join(sourcePath, archiveEntries[0]);
+    const mainArchive = path.join(sourcePath, archiveEntries[0]!);
     const allAbsolutePaths = entries.map((name) => path.join(sourcePath, name));
     const volumeSiblings = this.archiveService.findVolumeSiblings(mainArchive, allAbsolutePaths);
     const excludePaths = new Set(volumeSiblings.map((p) => path.resolve(p)));
@@ -534,7 +534,7 @@ export class ImportManager {
       downloaderName: string;
       remoteDownloadPath: string;
       gameTitle?: string;
-      userId?: string;
+      userId?: string | undefined;
     }
   ): Promise<boolean> {
     if (await fs.pathExists(localPath)) {
@@ -904,9 +904,9 @@ export class ImportManager {
   async confirmImport(
     downloadId: string,
     overridePlan?: ImportReview & {
-      transferMode?: "move" | "copy" | "hardlink" | "symlink";
-      unpack?: boolean;
-      password?: string;
+      transferMode?: "move" | "copy" | "hardlink" | "symlink" | undefined;
+      unpack?: boolean | undefined;
+      password?: string | undefined;
     },
     callerUserId?: string
   ): Promise<void> {

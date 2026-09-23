@@ -39,11 +39,11 @@ interface ParsedLogLine {
   levelLabel: string;
   levelClass: string;
   time: string;
-  module?: string;
+  module?: string | undefined;
   msg: string;
   summaryFields: LogField[];
   detailFields: LogField[];
-  errorField?: LogField;
+  errorField?: LogField | undefined;
   searchableText: string;
   id: string;
 }

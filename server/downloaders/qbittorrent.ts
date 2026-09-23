@@ -161,7 +161,7 @@ export class QBittorrentClient implements DownloaderClient {
       }
 
       const findRecentlyAddedDownload = async (
-        options: { skipInitialWait?: boolean; correlationTag?: string } = {}
+        options: { skipInitialWait?: boolean; correlationTag?: string | undefined } = {}
       ): Promise<{
         hash: string;
         name?: string;
@@ -223,7 +223,7 @@ export class QBittorrentClient implements DownloaderClient {
           });
         }
 
-        if (!matchingDownload && allDownloads.length > 0) {
+        if (!matchingDownload && allDownloads[0]) {
           const mostRecent = allDownloads[0];
           const now = Date.now() / 1000;
           if (mostRecent.added_on && now - mostRecent.added_on < 5) {
@@ -1507,7 +1507,7 @@ export class QBittorrentClient implements DownloaderClient {
     let response = await safeFetch(url, {
       method,
       headers,
-      body: requestBody,
+      ...(requestBody !== undefined ? { body: requestBody } : {}),
       signal: AbortSignal.timeout(30000),
       requireHttps: isHttpsUrl(url),
     });
@@ -1528,7 +1528,7 @@ export class QBittorrentClient implements DownloaderClient {
       response = await safeFetch(url, {
         method,
         headers: retryHeaders,
-        body: requestBody,
+        ...(requestBody !== undefined ? { body: requestBody } : {}),
         signal: AbortSignal.timeout(30000),
         requireHttps: isHttpsUrl(url),
       });

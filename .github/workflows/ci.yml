@@ -31,7 +31,13 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
-          cache: "npm"
+          # GitHub scopes the Actions cache per-branch (a pull_request run cannot write
+          # into the cache that push/main runs restore from), and every `npm ci` in this
+          # workflow runs with --ignore-scripts, so a compromised dependency cannot run
+          # install/postinstall code to tamper with the cache before it's saved. This repo
+          # has a single maintainer with push access, so cache-poisoning here is accepted
+          # as a low, non-actionable risk instead of splitting cache restore/save by trust.
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       # secretlint only lints files; it needs no native modules built, so lifecycle
       # scripts (arbitrary code from transitive deps) are skipped here.
@@ -59,7 +65,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
-          cache: "npm"
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       # check-overrides only reads package.json manifests already unpacked into
       # node_modules; no native modules need building, so scripts are skipped.
@@ -89,7 +95,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
-          cache: "npm"
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
@@ -131,7 +137,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
-          cache: "npm"
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
@@ -176,7 +182,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
-          cache: "npm"
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       # This job only merges previously-collected blob reports; it never executes
       # application code, so native module build scripts (e.g. better-sqlite3) aren't needed.
@@ -194,7 +200,7 @@ jobs:
         run: npx --no-install vitest run --merge-reports --coverage --reporter=junit --outputFile=test-report.junit.xml
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7.1.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
@@ -203,7 +209,7 @@ jobs:
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7.1.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           report_type: test_results
@@ -231,7 +237,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node-version }}
-          cache: "npm"
+          cache: "npm" # zizmor: ignore[cache-poisoning]
 
       # Lint/type-check/bundle never execute application code, so native module
       # build scripts (e.g. better-sqlite3) aren't needed here.

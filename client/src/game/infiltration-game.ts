@@ -380,7 +380,7 @@ export class InfiltrationGame {
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of materials) material.dispose();
     });
-    while (this.scene.children.length) this.scene.remove(this.scene.children[0]);
+    while (this.scene.children.length) this.scene.remove(this.scene.children[0]!);
   }
 
   /** Freezes the simulation and drops held input, so nothing drifts while paused. */
@@ -932,7 +932,7 @@ export class InfiltrationGame {
     for (const [y, drumHeight] of [
       [0.18, 0.36],
       [height - 0.22, 0.44],
-    ]) {
+    ] as [number, number][]) {
       const trimMaterial = new THREE.MeshStandardMaterial({
         color: PALETTE.pillar,
         roughness: 0.8,
@@ -967,7 +967,8 @@ export class InfiltrationGame {
     // orientation. Rooms side by side on X are divided by a wall at constant X,
     // and a panel that always spanned X would leave gaps either side of that
     // opening while poking into both rooms.
-    const [roomA, roomB] = def.rooms.map((index) => this.level.rooms[index]);
+    const roomA = this.level.rooms[def.rooms[0]]!;
+    const roomB = this.level.rooms[def.rooms[1]]!;
     const dividedOnX = roomA.x + roomA.w <= roomB.x || roomB.x + roomB.w <= roomA.x;
     const span = size * 0.92;
     const thickness = size * 0.5;
@@ -1168,8 +1169,8 @@ export class InfiltrationGame {
     const attribute = this.dust.geometry.getAttribute("position") as THREE.BufferAttribute;
     const array = attribute.array as Float32Array;
     for (let i = 1; i < array.length; i += 3) {
-      array[i] += DUST_RISE * dt;
-      if (array[i] > DUST_CEILING) array[i] -= DUST_CEILING;
+      array[i]! += DUST_RISE * dt;
+      if (array[i]! > DUST_CEILING) array[i]! -= DUST_CEILING;
     }
     attribute.needsUpdate = true;
   }
@@ -1311,7 +1312,7 @@ export class InfiltrationGame {
       cone.position.y = 0.03;
 
       group.add(body, cone);
-      group.position.copy(waypoints[0]);
+      group.position.copy(waypoints[0]!);
       this.scene.add(group);
 
       this.guards.push({
@@ -1648,13 +1649,13 @@ export class InfiltrationGame {
     while (i < points.length) {
       let furthest = i;
       for (let j = points.length - 1; j > i; j--) {
-        if (this.segmentClear(cursor, points[j], forPlayer)) {
+        if (this.segmentClear(cursor, points[j]!, forPlayer)) {
           furthest = j;
           break;
         }
       }
-      out.push(points[furthest]);
-      cursor = points[furthest];
+      out.push(points[furthest]!);
+      cursor = points[furthest]!;
       i = furthest + 1;
     }
     return out;
@@ -1976,7 +1977,7 @@ export class InfiltrationGame {
   /** Steps thrown objects through their arc and retires them once spent. */
   private updateProjectiles(dt: number) {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
-      const projectile = this.projectiles[i];
+      const projectile = this.projectiles[i]!;
       if (!projectile.landed) {
         projectile.velocity.y -= 14 * dt;
         projectile.mesh.position.addScaledVector(projectile.velocity, dt);
@@ -2136,7 +2137,7 @@ export class InfiltrationGame {
     const target =
       guard.state === "investigate" && guard.investigateTarget
         ? guard.investigateTarget
-        : guard.waypoints[guard.waypointIndex];
+        : guard.waypoints[guard.waypointIndex]!;
 
     if (!guard.destination?.equals(target)) {
       guard.destination = target.clone();

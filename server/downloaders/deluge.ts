@@ -62,8 +62,8 @@ interface DelugeTorrentStatus {
 
 interface DelugeJSONRPCResponse {
   result?: unknown;
-  error?: { message?: string; code?: number } | null;
-  id?: number;
+  error?: { message?: string | undefined; code?: number | undefined } | null | undefined;
+  id?: number | undefined;
 }
 
 /**
@@ -158,11 +158,12 @@ export class DelugeClient implements DownloaderClient {
     const hosts = hostsResponse.result as
       Array<[string, string, number, string, string]> | undefined;
 
-    if (!hosts || hosts.length === 0) {
+    const firstHost = hosts?.[0];
+    if (!firstHost) {
       throw new Error("No Deluge daemon hosts configured in Web UI");
     }
 
-    const [hostId] = hosts[0];
+    const [hostId] = firstHost;
     await this.makeRequest("web.connect", [hostId]);
 
     // Verify connection
@@ -420,7 +421,10 @@ export class DelugeClient implements DownloaderClient {
     }
   }
 
-  private async findRecentlyAddedDownload(): Promise<{ hash: string; name?: string } | null> {
+  private async findRecentlyAddedDownload(): Promise<{
+    hash: string;
+    name?: string | undefined;
+  } | null> {
     try {
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
@@ -437,7 +441,9 @@ export class DelugeClient implements DownloaderClient {
       // Sort by time_added descending
       entries.sort((a, b) => (b[1].time_added ?? 0) - (a[1].time_added ?? 0));
 
-      const [mostRecentHash, mostRecentStatus] = entries[0];
+      const first = entries[0];
+      if (!first) return null;
+      const [mostRecentHash, mostRecentStatus] = first;
       const now = Date.now() / 1000;
       if (mostRecentStatus.time_added && now - mostRecentStatus.time_added < 10) {
         return { hash: mostRecentHash.toLowerCase(), name: mostRecentStatus.name };
@@ -532,6 +538,7 @@ export class DelugeClient implements DownloaderClient {
         const fileProgresses = status.file_progress || [];
         for (let i = 0; i < status.files.length; i++) {
           const file = status.files[i];
+          if (!file) continue;
           const priority = filePriorities[i] ?? 1;
           const progress = fileProgresses[i] ?? 0;
 
@@ -808,7 +815,7 @@ export class DelugeClient implements DownloaderClient {
     if (setCookieHeader) {
       const cookieMatch =
         setCookieHeader.match(/(_session_id=[^;]+)/) ?? setCookieHeader.match(/([^;]+)/);
-      if (cookieMatch) {
+      if (cookieMatch?.[1]) {
         this.cookie = cookieMatch[1];
       }
     }

@@ -54,9 +54,13 @@ export async function resolveSafeAddress(
         throw new Error("Invalid or unsafe URL");
       }
     }
+    const [first] = addresses;
+    if (!first) {
+      throw new Error("Invalid or unsafe URL");
+    }
     return {
-      address: addresses[0].address,
-      family: addresses[0].family as 4 | 6,
+      address: first.address,
+      family: first.family as 4 | 6,
     };
   } catch (error) {
     if (error instanceof Error && error.message === "Invalid or unsafe URL") {
@@ -127,10 +131,10 @@ function getRedirectOptions(
   headers.delete("content-length");
   headers.delete("content-type");
 
+  const { body: _body, ...rest } = fetchOptions;
   return {
-    ...fetchOptions,
+    ...rest,
     method: "GET",
-    body: undefined,
     headers,
   };
 }
@@ -167,9 +171,14 @@ async function resolveSafeFetchTarget(url: URL, allowPrivate = true): Promise<Sa
       }
     }
 
+    const [first] = addresses;
+    if (!first) {
+      throw new Error("Invalid or unsafe URL");
+    }
+
     return {
-      address: addresses[0].address,
-      family: addresses[0].family,
+      address: first.address,
+      family: first.family,
       hostname,
       isHttps,
     };
@@ -306,12 +315,13 @@ export function isSafeIp(ip: string, allowPrivate = true): boolean {
     // Handle hex version (e.g. ::ffff:a9fe:a9fe)
     if (suffix.includes(":")) {
       const parts = suffix.split(":");
-      if (parts.length === 2) {
+      const [hi, lo] = parts;
+      if (parts.length === 2 && hi !== undefined && lo !== undefined) {
         const v4parts = [
-          parseInt(parts[0].substring(0, 2), 16),
-          parseInt(parts[0].substring(2, 4), 16),
-          parseInt(parts[1].substring(0, 2), 16),
-          parseInt(parts[1].substring(2, 4), 16),
+          parseInt(hi.substring(0, 2), 16),
+          parseInt(hi.substring(2, 4), 16),
+          parseInt(lo.substring(0, 2), 16),
+          parseInt(lo.substring(2, 4), 16),
         ];
         if (!v4parts.some(isNaN)) {
           return isSafeIp(v4parts.join("."), allowPrivate);
@@ -324,26 +334,26 @@ export function isSafeIp(ip: string, allowPrivate = true): boolean {
 
   // IPv4 Checks
   if (isIP(ip) === 4) {
-    const parts = ip.split(".").map(Number);
+    const [p0, p1] = ip.split(".").map(Number);
 
     // 169.254.0.0/16 (Link-Local / Metadata)
-    if (parts[0] === 169 && parts[1] === 254) return false;
+    if (p0 === 169 && p1 === 254) return false;
 
     // 0.0.0.0/8 (Broadcast)
-    if (parts[0] === 0) return false;
+    if (p0 === 0) return false;
 
     if (!allowPrivate) {
       // 127.0.0.0/8 (Loopback)
-      if (parts[0] === 127) return false;
+      if (p0 === 127) return false;
 
       // 10.0.0.0/8 (Private)
-      if (parts[0] === 10) return false;
+      if (p0 === 10) return false;
 
       // 172.16.0.0/12 (Private)
-      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
+      if (p0 === 172 && p1 !== undefined && p1 >= 16 && p1 <= 31) return false;
 
       // 192.168.0.0/16 (Private)
-      if (parts[0] === 192 && parts[1] === 168) return false;
+      if (p0 === 192 && p1 === 168) return false;
     }
 
     return true;
@@ -419,9 +429,10 @@ export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}):
   } = options;
 
   let currentUrl = new URL(urlStr);
+  const builtSignal = buildFetchSignal(signal, timeoutMs);
   let currentOptions: RequestInit = {
     ...fetchOptions,
-    signal: buildFetchSignal(signal, timeoutMs),
+    ...(builtSignal !== undefined ? { signal: builtSignal } : {}),
   };
   let redirectCount = 0;
 

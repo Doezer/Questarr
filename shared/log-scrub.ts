@@ -125,12 +125,12 @@ function scrubEmailAddresses(text: string): string {
   return result;
 }
 
-function isEmailLocalChar(char: string): boolean {
-  return /[A-Za-z0-9._%+-]/.test(char);
+function isEmailLocalChar(char: string | undefined): boolean {
+  return char !== undefined && /[A-Za-z0-9._%+-]/.test(char);
 }
 
-function isEmailDomainChar(char: string): boolean {
-  return /[A-Za-z0-9.-]/.test(char);
+function isEmailDomainChar(char: string | undefined): boolean {
+  return char !== undefined && /[A-Za-z0-9.-]/.test(char);
 }
 
 function isLikelyEmail(candidate: string): boolean {

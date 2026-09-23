@@ -295,7 +295,7 @@ export default function DiscoverPage() {
 
       status: GameStatus;
 
-      localId?: string;
+      localId?: string | undefined;
     }) => {
       if (localId) {
         // Update existing game status

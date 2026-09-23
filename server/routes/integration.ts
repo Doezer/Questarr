@@ -151,9 +151,13 @@ integrationRouter.post("/library/sync", async (req: Request, res: Response) => {
       if (game.steamAppId) bySteamAppId.set(game.steamAppId, game);
     }
 
-    const matched: Array<{ externalId?: string; title: string; gameId: string; status: string }> =
-      [];
-    const unmatched: Array<{ externalId?: string; title: string }> = [];
+    const matched: Array<{
+      externalId?: string | undefined;
+      title: string;
+      gameId: string;
+      status: string;
+    }> = [];
+    const unmatched: Array<{ externalId?: string | undefined; title: string }> = [];
     const promoted: string[] = [];
 
     for (const entry of incoming) {

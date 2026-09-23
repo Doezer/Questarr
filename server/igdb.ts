@@ -108,9 +108,9 @@ export interface IGDBGame {
 }
 
 export interface TimeToBeat {
-  hastily?: number;
-  normally?: number;
-  completely?: number;
+  hastily?: number | undefined;
+  normally?: number | undefined;
+  completely?: number | undefined;
 }
 
 interface SearchGamesOptions {
@@ -332,6 +332,76 @@ class IGDBClient {
     return canonical;
   }
 
+  /**
+   * Verifies a Client ID/Secret pair against Twitch/IGDB directly, without touching the
+   * singleton's cached token or the stored/env credentials. Used by the "Test connection"
+   * button in settings and the setup wizard, so a typo or expired secret is caught before
+   * saving rather than surfacing later as a failed game search.
+   */
+  async testCredentials(
+    clientId: string,
+    clientSecret: string
+  ): Promise<{ success: true } | { success: false; error: string }> {
+    let tokenResponse: Response;
+    try {
+      // Credentials go in the request body, not the URL: query strings are commonly retained
+      // in server/proxy/monitoring logs, which would otherwise leak the client secret.
+      tokenResponse = await safeFetch("https://id.twitch.tv/oauth2/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          grant_type: "client_credentials",
+        }).toString(),
+        // Pins the redirect chain to HTTPS/same-origin so a redirect can't downgrade the
+        // request or forward the client secret to a different host.
+        requireHttps: true,
+      });
+    } catch (error) {
+      igdbLogger.warn({ error }, "IGDB credential test: network error reaching Twitch");
+      return { success: false, error: "Could not reach Twitch — check your network connection." };
+    }
+
+    if (!tokenResponse.ok) {
+      if (tokenResponse.status === 400 || tokenResponse.status === 403) {
+        return { success: false, error: "Invalid Client ID or Client Secret." };
+      }
+      return {
+        success: false,
+        error: `Twitch returned an unexpected error (status ${tokenResponse.status}).`,
+      };
+    }
+
+    const tokenData: IGDBAuthResponse = await tokenResponse.json();
+
+    let igdbResponse: Response;
+    try {
+      igdbResponse = await safeFetch("https://api.igdb.com/v4/games", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Client-ID": clientId,
+          Authorization: `Bearer ${tokenData.access_token}`,
+        },
+        body: "fields id; limit 1;",
+        requireHttps: true,
+      });
+    } catch (error) {
+      igdbLogger.warn({ error }, "IGDB credential test: network error reaching IGDB");
+      return { success: false, error: "Could not reach IGDB — check your network connection." };
+    }
+
+    if (!igdbResponse.ok) {
+      return {
+        success: false,
+        error: `IGDB rejected the request (status ${igdbResponse.status}).`,
+      };
+    }
+
+    return { success: true };
+  }
+
   private async getCredentials(): Promise<{
     clientId: string | undefined;
     clientSecret: string | undefined;
@@ -392,12 +462,18 @@ class IGDBClient {
       throw new Error("IGDB credentials not configured");
     }
 
-    const response = await safeFetch(
-      `https://id.twitch.tv/oauth2/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`,
-      {
-        method: "POST",
-      }
-    );
+    // Credentials go in the request body, not the URL: query strings are commonly retained in
+    // server/proxy/monitoring logs, which would otherwise leak the client secret.
+    const response = await safeFetch("https://id.twitch.tv/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: "client_credentials",
+      }).toString(),
+      requireHttps: true,
+    });
 
     if (!response.ok) {
       throw new Error(`IGDB authentication failed: ${response.status}`);
@@ -559,6 +635,8 @@ class IGDBClient {
     ];
 
     for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
+      const approach = searchApproaches[i];
+      if (approach === undefined) continue;
       try {
         attemptCount++;
         igdbLogger.debug(
@@ -571,11 +649,7 @@ class IGDBClient {
           `trying approach ${i + 1}`
         );
         // Cache search results for 15 minutes to reduce redundant API calls
-        const results = await this.makeRequest<IGDBGame[]>(
-          "games",
-          searchApproaches[i],
-          15 * 60 * 1000
-        );
+        const results = await this.makeRequest<IGDBGame[]>("games", approach, 15 * 60 * 1000);
         if (results.length > 0) {
           igdbLogger.info(
             { approach: i + 1, query: sanitizedQuery, resultCount: results.length },
@@ -741,7 +815,7 @@ class IGDBClient {
           const alias = `q${idx}`;
           const match = responseData.find((r) => r.name === alias);
           if (match && match.result && match.result.length > 0) {
-            results.set(originalQuery, match.result[0]);
+            results.set(originalQuery, match.result[0] ?? null);
           } else {
             results.set(originalQuery, null);
           }
@@ -766,7 +840,7 @@ class IGDBClient {
 
     // ⚡ Bolt: Cache game data for 24 hours as it's unlikely to change frequently.
     const results = await this.makeRequest<IGDBGame[]>("games", igdbQuery, 24 * 60 * 60 * 1000);
-    return results.length > 0 ? results[0] : null;
+    return results[0] ?? null;
   }
 
   async getGameIdBySteamAppId(steamAppId: number): Promise<number | null> {
@@ -786,7 +860,7 @@ class IGDBClient {
         igdbQuery,
         24 * 60 * 60 * 1000
       );
-      return results.length > 0 ? results[0].game : null;
+      return results[0]?.game ?? null;
     } catch (error) {
       igdbLogger.warn({ steamAppId, error }, "Failed to lookup IGDB ID from Steam App ID");
       return null;
@@ -1040,7 +1114,7 @@ class IGDBClient {
     };
 
     const mappedPlatforms = platforms.slice(0, 3).map(
-      (platform) => platformMap[platform] || platform.split(" ")[0] // Use first word if no mapping
+      (platform) => platformMap[platform] || (platform.split(" ")[0] ?? platform) // Use first word if no mapping
     );
     const uniquePlatforms = Array.from(new Set(mappedPlatforms));
 
@@ -1076,7 +1150,11 @@ class IGDBClient {
   }
 
   async getRecommendations(
-    userGames: Array<{ genres?: string[]; platforms?: string[]; igdbId?: number }>,
+    userGames: Array<{
+      genres?: string[] | undefined;
+      platforms?: string[] | undefined;
+      igdbId?: number | undefined;
+    }>,
     limit: number = 20
   ): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) return [];

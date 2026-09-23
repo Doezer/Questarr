@@ -80,6 +80,7 @@ import {
   groupDownloadsByCategory,
   type DownloadCategory,
 } from "@shared/download-categorizer";
+import type { ReleaseType } from "@shared/typesafe-types";
 import {
   parseReleaseMetadata,
   parseJsonStringArray,
@@ -110,6 +111,8 @@ interface DownloadItem {
   files?: number;
   poster?: string;
   group?: string;
+  aiReleaseType?: ReleaseType;
+  aiReleaseTypeConfidence?: number;
 }
 
 interface SearchResult {
@@ -144,7 +147,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 type ReleaseMetadataBadgesProps = Readonly<{
   metadata: ReleaseMetadata;
   isUsenet: boolean;
-  downloadVolumeFactor?: number;
+  downloadVolumeFactor?: number | undefined;
   className?: string;
 }>;
 

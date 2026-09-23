@@ -94,7 +94,7 @@ export function fixNzbUrlEncoding(rawUrl: string): string {
 export function extractHashFromUrl(url: string): string | null {
   // Extract hash from magnet link - supports both hex (40 chars) and base32 (32 chars) formats
   const magnetMatch = url.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
-  if (magnetMatch) {
+  if (magnetMatch?.[1]) {
     return magnetMatch[1].toLowerCase();
   }
   return null;
@@ -203,7 +203,7 @@ export function resolveDownloadRelativePath(details: {
   name: string;
   files?: DownloadFile[];
 }): string {
-  if (details.files?.length === 1 && details.files[0].name) {
+  if (details.files?.length === 1 && details.files[0]?.name) {
     return details.files[0].name;
   }
   return details.name;

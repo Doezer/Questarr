@@ -445,7 +445,7 @@ export async function checkGameUpdates() {
     if (!igdbGame.first_release_date) continue;
 
     const currentReleaseDate = new Date(igdbGame.first_release_date * 1000);
-    const currentReleaseDateStr = currentReleaseDate.toISOString().split("T")[0];
+    const currentReleaseDateStr = currentReleaseDate.toISOString().split("T")[0]!;
 
     // Initialize originalReleaseDate if not set
     if (!game.originalReleaseDate) {
@@ -1211,7 +1211,7 @@ export async function checkAutoSearch() {
                 const item = mainItems[0];
                 const downloaders = await storage.getEnabledDownloaders();
 
-                if (downloaders.length > 0) {
+                if (item && downloaders.length > 0) {
                   try {
                     const result = await DownloaderManager.addDownloadWithFallback(downloaders, {
                       url: item.link,

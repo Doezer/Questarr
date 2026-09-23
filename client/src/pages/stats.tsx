@@ -20,7 +20,15 @@ import {
 } from "lucide-react";
 import { calculateLibraryStats } from "@/lib/stats";
 import { apiRequest } from "@/lib/queryClient";
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Legend,
+  Tooltip,
+  type PieLabelRenderProps,
+} from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import ShareDiscordDialog from "@/components/ShareDiscordDialog";
@@ -152,11 +160,12 @@ export default function StatsPage() {
                   outerRadius={isMobile ? 75 : 100}
                   paddingAngle={5}
                   dataKey="value"
-                  label={
-                    isMobile
-                      ? undefined
-                      : ({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
-                  }
+                  {...(isMobile
+                    ? {}
+                    : {
+                        label: ({ name, percent }: PieLabelRenderProps) =>
+                          `${name} ${((percent ?? 0) * 100).toFixed(0)}%`,
+                      })}
                 >
                   {pieData.map((entry, index) => (
                     <Cell

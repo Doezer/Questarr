@@ -191,8 +191,8 @@ export class DownloaderManager {
     request: DownloadRequest
   ): Promise<{
     success: boolean;
-    id?: string;
-    correlationTag?: string;
+    id?: string | undefined;
+    correlationTag?: string | undefined;
     message?: string;
     downloaderId?: string;
     downloaderName?: string;

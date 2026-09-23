@@ -367,6 +367,21 @@ describe("MemStorage", () => {
       const value = await storage.getSystemConfig("missing.key");
       expect(value).toBeUndefined();
     });
+
+    it("should write multiple config entries atomically via setSystemConfigBatch", async () => {
+      await storage.setSystemConfigBatch([
+        { key: "batch.key1", value: "value1" },
+        { key: "batch.key2", value: "value2" },
+      ]);
+      expect(await storage.getSystemConfig("batch.key1")).toBe("value1");
+      expect(await storage.getSystemConfig("batch.key2")).toBe("value2");
+    });
+
+    it("should overwrite existing entries via setSystemConfigBatch", async () => {
+      await storage.setSystemConfig("batch.key3", "old-value");
+      await storage.setSystemConfigBatch([{ key: "batch.key3", value: "new-value" }]);
+      expect(await storage.getSystemConfig("batch.key3")).toBe("new-value");
+    });
   });
   describe("User Settings Management", () => {
     it("should create and update user settings", async () => {

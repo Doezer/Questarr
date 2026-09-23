@@ -7,10 +7,8 @@ import {
   Search,
   Download,
   AlertCircle,
-  Gauge,
   Eye,
   EyeOff,
-  HelpCircle,
   Newspaper,
   Lock,
   Calendar,
@@ -21,9 +19,9 @@ import {
   Ban,
   Trash2,
   Bell,
-  Ghost,
   Monitor,
   Radio,
+  Sparkles,
 } from "lucide-react";
 import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,15 +41,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { ApiKeysCard } from "@/components/ApiKeysCard";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
-import { GHOST_THEME_KEY, GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
-import { WIN2K_THEME_KEY } from "@/lib/win2k-mode";
+import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
+import {
+  THEMES,
+  THEME_CONFIGS,
+  THEME_KEY,
+  type Theme,
+  getCurrentTheme,
+  migrateLegacyTheme,
+  applyThemeClass,
+  setTheme,
+} from "@/lib/theme-mode";
 import PasswordSettings from "@/components/PasswordSettings";
 import {
   downloadRulesSchema,
@@ -67,6 +73,7 @@ import {
 } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
 import ImportSettings from "@/components/ImportSettings";
+import { IgdbHelpPopover, IgdbTestConnectionButton } from "@/components/IgdbCredentialsHelper";
 
 interface CertInfo {
   subject: string;
@@ -98,15 +105,44 @@ export default function SettingsPage() {
   const queryClient = useQueryClient();
 
   const [ghostUnlocked] = useLocalStorageState(GHOST_UNLOCK_KEY, false);
-  const [ghostThemeEnabled, setGhostThemeEnabled] = useLocalStorageState(GHOST_THEME_KEY, false);
-  useEffect(() => {
-    document.documentElement.classList.toggle("theme-ghost", ghostThemeEnabled);
-  }, [ghostThemeEnabled]);
+  const [selectedTheme, setSelectedTheme] = useLocalStorageState<Theme>(
+    THEME_KEY,
+    getCurrentTheme(ghostUnlocked)
+  );
 
-  const [win2kThemeEnabled, setWin2kThemeEnabled] = useLocalStorageState(WIN2K_THEME_KEY, false);
+  // Normalize the stored theme: useLocalStorageState returns whatever is in localStorage
+  // once THEME_KEY exists, without validating it against THEMES or the Ghost unlock state.
+  // A corrupted value, or one set directly (e.g. via devtools), would otherwise reach
+  // applyThemeClass() and either throw (unknown theme) or bypass the Ghost unlock.
+  const effectiveTheme: Theme =
+    THEMES.includes(selectedTheme) && (selectedTheme !== "ghost" || ghostUnlocked)
+      ? selectedTheme
+      : "default";
+
+  // Migrate legacy theme keys once on mount. Not done inline in the useLocalStorageState
+  // initializer above, since that runs during render and migration has localStorage
+  // side effects (React may render a component without committing it).
   useEffect(() => {
-    document.documentElement.classList.toggle("theme-win2k", win2kThemeEnabled);
-  }, [win2kThemeEnabled]);
+    migrateLegacyTheme(ghostUnlocked);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist the normalized value so a corrected theme sticks for later loads.
+  useEffect(() => {
+    if (effectiveTheme !== selectedTheme) {
+      setSelectedTheme(effectiveTheme);
+    }
+  }, [effectiveTheme, selectedTheme, setSelectedTheme]);
+
+  // Apply theme class on mount and when theme changes
+  useEffect(() => {
+    applyThemeClass(effectiveTheme);
+  }, [effectiveTheme]);
+
+  const handleThemeChange = (theme: Theme) => {
+    setTheme(theme, ghostUnlocked);
+    setSelectedTheme(theme);
+  };
 
   const {
     data: config,
@@ -260,6 +296,10 @@ export default function SettingsPage() {
   const [xrelApiBase, setXrelApiBase] = useState("");
   const [nexusApiKey, setNexusApiKey] = useState("");
   const [showNexusApiKey, setShowNexusApiKey] = useState(false);
+  const [typesafeApiUrl, setTypesafeApiUrl] = useState("");
+  const [typesafeApiKey, setTypesafeApiKey] = useState("");
+  const [typesafeModel, setTypesafeModel] = useState("");
+  const [showTypesafeApiKey, setShowTypesafeApiKey] = useState(false);
 
   // Sync with fetched settings. Guarded by settingsLoadedRef so a background
   // refetch (e.g. after saving one section) doesn't clobber unsaved edits the
@@ -484,6 +524,68 @@ export default function SettingsPage() {
     updateNexusMutation.mutate(nexusApiKey.trim());
   };
 
+  const { data: typesafeSettings } = useQuery<{
+    configured: boolean;
+    apiUrl?: string;
+    model?: string;
+  }>({
+    queryKey: ["/api/settings/typesafe"],
+    queryFn: () => apiRequest("GET", "/api/settings/typesafe").then((r) => r.json()),
+  });
+
+  const updateTypesafeMutation = useMutation({
+    mutationFn: async (data: { apiUrl: string; apiKey?: string; model: string }) => {
+      const res = await apiRequest("POST", "/api/settings/typesafe", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/typesafe"] });
+      setTypesafeApiKey("");
+      toast({ title: "TypeSafe settings saved" });
+    },
+    onError: () => {
+      toast({ title: "Failed to save TypeSafe settings", variant: "destructive" });
+    },
+  });
+
+  const clearTypesafeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", "/api/settings/typesafe");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/typesafe"] });
+      setTypesafeApiUrl("");
+      setTypesafeApiKey("");
+      setTypesafeModel("");
+      toast({ title: "TypeSafe integration disabled" });
+    },
+    onError: () => {
+      toast({ title: "Failed to disable TypeSafe integration", variant: "destructive" });
+    },
+  });
+
+  const handleSaveTypesafe = () => {
+    const trimmedKey = typesafeApiKey.trim();
+    // A key is only required the first time; once configured, saving with the field left
+    // blank reuses the stored key (e.g. to change just the URL or model).
+    if (!trimmedKey && !typesafeSettings?.configured) return;
+    updateTypesafeMutation.mutate({
+      apiUrl: typesafeApiUrl.trim(),
+      ...(trimmedKey ? { apiKey: trimmedKey } : {}),
+      model: typesafeModel.trim(),
+    });
+  };
+
+  useEffect(() => {
+    if (typesafeSettings?.apiUrl) {
+      setTypesafeApiUrl(typesafeSettings.apiUrl);
+    }
+    if (typesafeSettings?.model) {
+      setTypesafeModel(typesafeSettings.model);
+    }
+  }, [typesafeSettings?.apiUrl, typesafeSettings?.model]);
+
   const [certInfo, setCertInfo] = useState<CertInfo | null>(null); // State for cert info
   const [isCertBrowserOpen, setIsCertBrowserOpen] = useState(false);
   const [isKeyBrowserOpen, setIsKeyBrowserOpen] = useState(false);
@@ -660,10 +762,14 @@ export default function SettingsPage() {
       return { data: await res.json(), successMessage };
     },
     onSuccess: (data) => {
-      toast({
-        title: "Settings Updated",
-        description: data.successMessage,
-      });
+      // Empty successMessage means the caller (the unified IGDB save button) shows its own
+      // combined toast instead, describing exactly which parts were actually saved.
+      if (data.successMessage) {
+        toast({
+          title: "Settings Updated",
+          description: data.successMessage,
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
     },
     onError: (error: Error) => {
@@ -694,10 +800,8 @@ export default function SettingsPage() {
       return res.json();
     },
     onSuccess: () => {
-      toast({
-        title: "IGDB Updated",
-        description: "Your IGDB credentials have been saved.",
-      });
+      // The unified IGDB save button (handleSaveIgdb) shows its own combined toast describing
+      // exactly which parts were saved, instead of this mutation announcing on its own.
       queryClient.invalidateQueries({ queryKey: ["/api/config"] });
       queryClient.invalidateQueries({ queryKey: ["/api/settings/igdb"] });
     },
@@ -795,15 +899,6 @@ export default function SettingsPage() {
     });
   };
 
-  const handleSaveAdvanced = () => {
-    updateAdvancedSettingsMutation.mutate({
-      updates: {
-        igdbRateLimitPerSecond,
-      },
-      successMessage: "IGDB rate limit has been saved.",
-    });
-  };
-
   const saveXrelMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("PATCH", "/api/settings/xrel", {
@@ -834,12 +929,30 @@ export default function SettingsPage() {
     saveXrelMutation.mutate();
   };
 
-  const handleSaveIgdb = () => {
-    const isAlreadyConfigured = igdbSettings?.configured === true;
-    const bothCredentialsProvided = !!(igdbClientId && igdbClientSecret);
-    const partialUpdateAllowed = isAlreadyConfigured && !!(igdbClientId || igdbClientSecret);
-    const canSave = bothCredentialsProvided || partialUpdateAllowed;
-    if (!canSave) {
+  // Single save button covers both the credentials fields and the rate limit below them. Both
+  // parts only run when they actually changed (comparing against the last-loaded values), and
+  // the summary toast below is built from what actually got saved -- rather than each mutation
+  // firing its own fixed-text toast, which would show a stale/misleading combination now that
+  // one click can trigger either, both, or neither.
+  const handleSaveIgdb = async () => {
+    // Omitting the secret and keeping the existing one is only safe when that existing secret
+    // actually lives in the DB (source === "database"): the server pairs a DB clientId with a
+    // DB secret, so if the current credentials are env-sourced there's no DB secret to pair a
+    // new clientId with, and a clientId-only update would silently do nothing.
+    const hasDbSecretToPairWith = igdbSettings?.source === "database";
+    const originalClientId = igdbSettings?.clientId ?? "";
+    const trimmedClientId = igdbClientId.trim();
+    const trimmedClientSecret = igdbClientSecret.trim();
+    const bothCredentialsProvided = !!(trimmedClientId && trimmedClientSecret);
+    const hasCredentialChange = trimmedClientId !== originalClientId || !!trimmedClientSecret;
+    const shouldSaveCredentials =
+      bothCredentialsProvided || (hasDbSecretToPairWith && hasCredentialChange);
+    // Only an actual attempted change that can't be saved counts as "incomplete" -- an
+    // env-sourced clientId sitting unchanged in the field (prefilled on load) must not block
+    // an unrelated rate-limit-only save.
+    const attemptingIncompleteCredentials = hasCredentialChange && !shouldSaveCredentials;
+
+    if (attemptingIncompleteCredentials) {
       toast({
         title: "Missing Credentials",
         description: "Please provide both Client ID and Client Secret.",
@@ -847,7 +960,41 @@ export default function SettingsPage() {
       });
       return;
     }
-    updateIgdbMutation.mutate();
+
+    const originalRateLimit = userSettings?.igdbRateLimitPerSecond ?? 3;
+    const shouldSaveRateLimit = igdbRateLimitPerSecond !== originalRateLimit;
+
+    if (!shouldSaveCredentials && !shouldSaveRateLimit) {
+      return;
+    }
+
+    const results = await Promise.allSettled([
+      shouldSaveCredentials ? updateIgdbMutation.mutateAsync() : Promise.resolve(undefined),
+      shouldSaveRateLimit
+        ? updateAdvancedSettingsMutation.mutateAsync({
+            updates: { igdbRateLimitPerSecond },
+            successMessage: "",
+          })
+        : Promise.resolve(undefined),
+    ]);
+
+    const credentialsSaved = shouldSaveCredentials && results[0].status === "fulfilled";
+    const rateLimitSaved = shouldSaveRateLimit && results[1].status === "fulfilled";
+
+    // A failed part already showed its own error toast via the mutation's onError; only
+    // announce what actually succeeded, and stay silent if everything attempted failed.
+    let description: string | null = null;
+    if (credentialsSaved && rateLimitSaved) {
+      description = "Your IGDB credentials and rate limit have been saved.";
+    } else if (credentialsSaved) {
+      description = "Your IGDB credentials have been saved.";
+    } else if (rateLimitSaved) {
+      description = "Your IGDB rate limit has been saved.";
+    }
+
+    if (description) {
+      toast({ title: "IGDB Settings Updated", description });
+    }
   };
 
   const updateSteamIdMutation = useMutation({
@@ -1037,63 +1184,51 @@ export default function SettingsPage() {
           </div>
 
           <TabsContent value="appearance" className="space-y-6">
-            {ghostUnlocked && (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center space-x-3">
-                    <Ghost className="h-5 w-5 text-emerald-400" />
-                    <CardTitle className="text-lg">Ghost Mode</CardTitle>
-                  </div>
-                  <CardDescription>
-                    A cosmetic accent color, unlocked by hacking the terminal in Ghost the Terminal.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="ghost-theme" className="text-sm font-medium">
-                        Enable Ghost Mode accent
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Purely cosmetic &mdash; swaps the accent color, nothing else changes
-                      </p>
-                    </div>
-                    <Switch
-                      id="ghost-theme"
-                      checked={ghostThemeEnabled}
-                      onCheckedChange={setGhostThemeEnabled}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
             <Card>
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Monitor className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Windows 2000 Mode</CardTitle>
+                  <CardTitle className="text-lg">Theme</CardTitle>
                 </div>
-                <CardDescription>
-                  A cosmetic retro skin &mdash; navy title bars, silver beveled buttons, square
-                  corners, and Tahoma type
-                </CardDescription>
+                <CardDescription>Select the visual theme for Questarr</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="win2k-theme" className="text-sm font-medium">
-                      Enable Windows 2000 skin
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="theme-select" className="text-sm font-medium">
+                      Select Theme
                     </Label>
+                    <Select
+                      value={effectiveTheme}
+                      onValueChange={(value) => handleThemeChange(value as Theme)}
+                    >
+                      <SelectTrigger id="theme-select" className="w-full sm:w-64">
+                        <SelectValue placeholder="Select a theme">
+                          {THEME_CONFIGS[effectiveTheme].name}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {THEMES.map((theme) => {
+                          const config = THEME_CONFIGS[theme];
+                          // Only show Ghost if unlocked
+                          if (theme === "ghost" && !ghostUnlocked) return null;
+                          return (
+                            <SelectItem key={theme} value={theme}>
+                              <div className="flex flex-col">
+                                <span className="font-medium">{config.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {config.description}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
                     <p className="text-xs text-muted-foreground">
-                      Purely cosmetic &mdash; nothing else changes
+                      Purely cosmetic &mdash; changes the visual appearance, nothing else changes
                     </p>
                   </div>
-                  <Switch
-                    id="win2k-theme"
-                    checked={win2kThemeEnabled}
-                    onCheckedChange={setWin2kThemeEnabled}
-                  />
                 </div>
               </CardContent>
             </Card>
@@ -1732,6 +1867,127 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
+            {/* TypeSafe (Jev) AI Card */}
+            <Card id="typesafe-config">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <Sparkles className="h-5 w-5 text-blue-500" />
+                    <CardTitle className="text-lg">AI Release Analysis (TypeSafe)</CardTitle>
+                  </div>
+                  {typesafeSettings?.configured ? (
+                    <Badge variant="default">Enabled</Badge>
+                  ) : (
+                    <Badge variant="outline">Not Configured</Badge>
+                  )}
+                </div>
+                <CardDescription>
+                  Optional. Uses TypeSafe&apos;s Jev model to classify release types (full game,
+                  DLC, update, repack...) and flag suspiciously small files in search results.
+                  Entirely optional and off by default &mdash; Questarr works normally without it.
+                  Bring your own API key and endpoint (TypeSafe, OpenRouter, a self-hosted proxy,
+                  etc.).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="typesafe-api-url">API URL</Label>
+                  <Input
+                    id="typesafe-api-url"
+                    type="text"
+                    placeholder="https://api.typesafe.ai/v1/systemone"
+                    value={typesafeApiUrl}
+                    onChange={(e) => setTypesafeApiUrl(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave blank to use TypeSafe&apos;s default endpoint.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="typesafe-api-key">API Key</Label>
+                  <div className="relative">
+                    <Input
+                      id="typesafe-api-key"
+                      type={showTypesafeApiKey ? "text" : "password"}
+                      placeholder={
+                        typesafeSettings?.configured
+                          ? "Enter a new key to override the current one"
+                          : "Enter your API key"
+                      }
+                      value={typesafeApiKey}
+                      onChange={(e) => setTypesafeApiKey(e.target.value)}
+                      className="pr-10"
+                    />
+                    {typesafeApiKey && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        onClick={() => setShowTypesafeApiKey(!showTypesafeApiKey)}
+                        aria-label={showTypesafeApiKey ? "Hide API key" : "Show API key"}
+                      >
+                        {showTypesafeApiKey ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="typesafe-model">Model</Label>
+                  <Input
+                    id="typesafe-model"
+                    type="text"
+                    placeholder="jev-latest"
+                    value={typesafeModel}
+                    onChange={(e) => setTypesafeModel(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave blank for TypeSafe&apos;s default model. Routing through OpenRouter? Set
+                    the API URL to{" "}
+                    <code className="text-[10px]">https://openrouter.ai/api/alpha/decisions</code>{" "}
+                    and the model to <code className="text-[10px]">typesafe/jev-1.13</code>.
+                  </p>
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  {typesafeSettings?.configured && (
+                    <Button
+                      variant="outline"
+                      onClick={() => clearTypesafeMutation.mutate()}
+                      disabled={clearTypesafeMutation.isPending}
+                      className="gap-2"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Disable
+                    </Button>
+                  )}
+                  <Button
+                    onClick={handleSaveTypesafe}
+                    disabled={
+                      updateTypesafeMutation.isPending ||
+                      (!typesafeApiKey.trim() && !typesafeSettings?.configured)
+                    }
+                    className="gap-2"
+                  >
+                    {updateTypesafeMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Key className="h-4 w-4" />
+                        Save API Key
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* IGDB Card */}
             <Card id="igdb-config">
               <CardHeader>
@@ -1739,44 +1995,7 @@ export default function SettingsPage() {
                   <div className="flex items-center space-x-3">
                     <Key className="h-5 w-5 text-muted-foreground" />
                     <CardTitle className="text-lg">IGDB API</CardTitle>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full">
-                          <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                          <span className="sr-only">How to get credentials</span>
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-80">
-                        <div className="space-y-2 text-sm">
-                          <h4 className="font-bold">How to get IGDB credentials:</h4>
-                          <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                            <li>
-                              Go to the{" "}
-                              <a
-                                href="https://dev.twitch.tv/console"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-primary underline"
-                              >
-                                Twitch Developer Portal
-                              </a>
-                            </li>
-                            <li>Register a new application (name it 'Questarr')</li>
-                            <li>
-                              Set Redirect URI to{" "}
-                              <code className="bg-muted px-1">http://localhost</code>
-                            </li>
-                            <li>Select 'Application Integration' as category</li>
-                            <li>
-                              Copy the <strong>Client ID</strong>
-                            </li>
-                            <li>
-                              Click 'New Secret' to get your <strong>Client Secret</strong>
-                            </li>
-                          </ol>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+                    <IgdbHelpPopover />
                   </div>
                 </div>
                 <CardDescription>Twitch/IGDB API integration for game metadata.</CardDescription>
@@ -1847,25 +2066,11 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="flex justify-end pt-4 border-t">
-                  <Button
-                    onClick={handleSaveIgdb}
-                    disabled={updateIgdbMutation.isPending}
-                    className="gap-2"
-                  >
-                    {updateIgdbMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Key className="h-4 w-4" />
-                        Save Credentials
-                      </>
-                    )}
-                  </Button>
-                </div>
+                <IgdbTestConnectionButton
+                  clientId={igdbClientId}
+                  clientSecret={igdbClientSecret || (config?.igdb.configured ? "********" : "")}
+                  testEndpoint="/api/settings/igdb/test"
+                />
 
                 {/* Rate limit (formerly a standalone "Advanced" card) */}
                 <div className="space-y-3 pt-4 border-t">
@@ -1899,26 +2104,28 @@ export default function SettingsPage() {
                       ⚠️ Setting too high may result in API blacklisting.
                     </p>
                   </div>
-                  <div className="flex justify-end">
-                    <Button
-                      onClick={handleSaveAdvanced}
-                      disabled={updateAdvancedSettingsMutation.isPending}
-                      variant="outline"
-                      className="gap-2"
-                    >
-                      {updateAdvancedSettingsMutation.isPending ? (
-                        <>
-                          <RefreshCw className="h-4 w-4 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Gauge className="h-4 w-4" />
-                          Save Rate Limit
-                        </>
-                      )}
-                    </Button>
-                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t">
+                  <Button
+                    onClick={handleSaveIgdb}
+                    disabled={
+                      updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending
+                    }
+                    className="gap-2"
+                  >
+                    {updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending ? (
+                      <span role="status" className="flex items-center gap-2">
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                        Saving...
+                      </span>
+                    ) : (
+                      <>
+                        <Key className="h-4 w-4" />
+                        Save
+                      </>
+                    )}
+                  </Button>
                 </div>
               </CardContent>
             </Card>

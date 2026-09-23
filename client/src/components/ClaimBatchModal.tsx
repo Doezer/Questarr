@@ -435,7 +435,6 @@ function GroupRow({
                         onClick={() => {
                           onUpdate({
                             selectedGame: {
-                              id: undefined,
                               title: g.title,
                               source: "igdb",
                               data: g,

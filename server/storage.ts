@@ -87,6 +87,7 @@ import {
 import { containsCI, distinctJoin, affectedRows } from "./sql-compat.js";
 import { transactionalOps } from "./db/transactional-ops.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
+import { firstOrThrow, stripUndefined } from "./object-utils.js";
 import {
   encryptCredential,
   decryptCredential,
@@ -182,6 +183,8 @@ export interface IStorage {
   // System Config methods
   getSystemConfig(key: string): Promise<string | undefined>;
   setSystemConfig(key: string, value: string): Promise<void>;
+  /** Writes several system_config entries atomically -- use for related keys (e.g. a URL + its API key) that must never be observed half-updated. */
+  setSystemConfigBatch(entries: { key: string; value: string }[]): Promise<void>;
 
   // User methods
   getUser(id: string): Promise<User | undefined>;
@@ -439,6 +442,12 @@ export class MemStorage implements IStorage {
 
   async setSystemConfig(key: string, value: string): Promise<void> {
     this.systemConfig.set(key, value);
+  }
+
+  async setSystemConfigBatch(entries: { key: string; value: string }[]): Promise<void> {
+    for (const { key, value } of entries) {
+      this.systemConfig.set(key, value);
+    }
   }
 
   // User methods
@@ -773,7 +782,7 @@ export class MemStorage implements IStorage {
 
     const updatedIndexer: Indexer = {
       ...indexer,
-      ...updates,
+      ...stripUndefined(updates),
       updatedAt: new Date(),
     };
 
@@ -907,7 +916,7 @@ export class MemStorage implements IStorage {
 
     const updatedDownloader: Downloader = {
       ...downloader,
-      ...updates,
+      ...stripUndefined(updates),
       updatedAt: new Date(),
     };
 
@@ -1304,7 +1313,7 @@ export class MemStorage implements IStorage {
   ): Promise<RssFeedItem | undefined> {
     const item = this.rssFeedItems.get(id);
     if (!item) return undefined;
-    const updatedItem = { ...item, ...updates };
+    const updatedItem = { ...item, ...stripUndefined(updates) };
     this.rssFeedItems.set(id, updatedItem);
     return updatedItem;
   }
@@ -1368,7 +1377,7 @@ export class MemStorage implements IStorage {
 
     const updated: UserSettings = {
       ...existing,
-      ...updates,
+      ...stripUndefined(updates),
       updatedAt: new Date(),
     };
     this.userSettings.set(existing.id, updated);
@@ -1667,7 +1676,7 @@ export class MemStorage implements IStorage {
   async updateRootFolder(id: string, updates: UpdateRootFolder): Promise<RootFolder | undefined> {
     const existing = this.rootFolders.get(id);
     if (!existing) return undefined;
-    const updated: RootFolder = { ...existing, ...updates };
+    const updated: RootFolder = { ...existing, ...stripUndefined(updates) };
     this.rootFolders.set(id, updated);
     return updated;
   }
@@ -1755,6 +1764,20 @@ export class DatabaseStorage implements IStorage {
       });
   }
 
+  async setSystemConfigBatch(entries: { key: string; value: string }[]): Promise<void> {
+    db.transaction((tx) => {
+      for (const { key, value } of entries) {
+        tx.insert(systemConfig)
+          .values({ key, value })
+          .onConflictDoUpdate({
+            target: systemConfig.key,
+            set: { value, updatedAt: new Date() },
+          })
+          .run();
+      }
+    });
+  }
+
   // Path Mapping methods
   async getPathMappings(): Promise<PathMapping[]> {
     return db.select().from(pathMappings);
@@ -1767,11 +1790,11 @@ export class DatabaseStorage implements IStorage {
 
   async addPathMapping(insertMapping: InsertPathMapping): Promise<PathMapping> {
     const id = randomUUID();
-    const [mapping] = await db
+    const rows = await db
       .insert(pathMappings)
       .values({ ...insertMapping, id })
       .returning();
-    return mapping;
+    return firstOrThrow(rows);
   }
 
   async updatePathMapping(
@@ -1806,11 +1829,11 @@ export class DatabaseStorage implements IStorage {
 
   async addPlatformMapping(insertMapping: InsertPlatformMapping): Promise<PlatformMapping> {
     const id = randomUUID();
-    const [mapping] = await db
+    const rows = await db
       .insert(platformMappings)
       .values({ ...insertMapping, id })
       .returning();
-    return mapping;
+    return firstOrThrow(rows);
   }
 
   async seedPlatformMappingsIfEmpty(
@@ -1861,11 +1884,11 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     // Manually generate UUID for SQLite
     const id = randomUUID();
-    const [user] = await db
+    const rows = await db
       .insert(users)
       .values({ ...insertUser, id })
       .returning();
-    return user;
+    return firstOrThrow(rows);
   }
 
   async updateUserPassword(userId: string, passwordHash: string): Promise<User | undefined> {
@@ -2001,8 +2024,8 @@ export class DatabaseStorage implements IStorage {
       addedAt: new Date(),
     };
 
-    const [game] = await db.insert(games).values(gameWithId).returning();
-    return game;
+    const rows = await db.insert(games).values(gameWithId).returning();
+    return firstOrThrow(rows);
   }
 
   async updateGameStatus(id: string, statusUpdate: UpdateGameStatus): Promise<Game | undefined> {
@@ -2166,11 +2189,11 @@ export class DatabaseStorage implements IStorage {
     // Generate UUID manually
     const id = randomUUID();
     const apiKey = await encryptCredential(insertIndexer.apiKey);
-    const [indexer] = await db
+    const rows = await db
       .insert(indexers)
       .values({ ...insertIndexer, apiKey, id })
       .returning();
-    return this.decryptIndexer(indexer);
+    return this.decryptIndexer(firstOrThrow(rows));
   }
 
   async updateIndexer(id: string, updates: Partial<InsertIndexer>): Promise<Indexer | undefined> {
@@ -2234,11 +2257,11 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const username = await encryptCredential(insertDownloader.username);
     const password = await encryptCredential(insertDownloader.password);
-    const [downloader] = await db
+    const rows = await db
       .insert(downloaders)
       .values({ ...insertDownloader, username, password, id })
       .returning();
-    return this.decryptDownloader(downloader);
+    return this.decryptDownloader(firstOrThrow(rows));
   }
 
   async updateDownloader(
@@ -2647,11 +2670,11 @@ export class DatabaseStorage implements IStorage {
 
   async addNotification(insertNotification: InsertNotification): Promise<Notification> {
     const id = randomUUID();
-    const [notification] = await db
+    const rows = await db
       .insert(notifications)
       .values({ ...insertNotification, id })
       .returning();
-    return notification;
+    return firstOrThrow(rows);
   }
 
   async addNotificationsBatch(insertNotifications: InsertNotification[]): Promise<Notification[]> {
@@ -2697,11 +2720,11 @@ export class DatabaseStorage implements IStorage {
 
   async addRssFeed(feed: InsertRssFeed): Promise<RssFeed> {
     const id = randomUUID();
-    const [newFeed] = await db
+    const rows = await db
       .insert(rssFeeds)
       .values({ ...feed, id })
       .returning();
-    return newFeed;
+    return firstOrThrow(rows);
   }
 
   async updateRssFeed(id: string, updates: Partial<RssFeed>): Promise<RssFeed | undefined> {
@@ -2737,11 +2760,11 @@ export class DatabaseStorage implements IStorage {
 
   async addRssFeedItem(item: InsertRssFeedItem): Promise<RssFeedItem> {
     const id = randomUUID();
-    const [newItem] = await db
+    const rows = await db
       .insert(rssFeedItems)
       .values({ ...item, id })
       .returning();
-    return newItem;
+    return firstOrThrow(rows);
   }
 
   async getRssFeedItemByGuid(guid: string): Promise<RssFeedItem | undefined> {
@@ -2769,7 +2792,7 @@ export class DatabaseStorage implements IStorage {
 
   async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
     const id = randomUUID();
-    const [settings] = await db
+    const rows = await db
       .insert(userSettings)
       .values({
         ...insertSettings,
@@ -2777,7 +2800,7 @@ export class DatabaseStorage implements IStorage {
         id,
       })
       .returning();
-    return settings;
+    return firstOrThrow(rows);
   }
 
   async updateUserSettings(
@@ -2797,11 +2820,11 @@ export class DatabaseStorage implements IStorage {
 
   async addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease> {
     const id = randomUUID();
-    const [row] = await db
+    const rows = await db
       .insert(xrelNotifiedReleases)
       .values({ ...insert, id })
       .returning();
-    return row;
+    return firstOrThrow(rows);
   }
 
   async hasXrelNotifiedRelease(gameId: string, xrelReleaseId: string): Promise<boolean> {
@@ -2838,7 +2861,7 @@ export class DatabaseStorage implements IStorage {
       .onConflictDoNothing()
       .returning();
     if (!row) {
-      const [existing] = await db
+      const existingRows = await db
         .select()
         .from(releaseBlacklist)
         .where(
@@ -2847,7 +2870,7 @@ export class DatabaseStorage implements IStorage {
             eq(releaseBlacklist.releaseTitle, entry.releaseTitle)
           )
         );
-      return existing;
+      return firstOrThrow(existingRows);
     }
     return row;
   }
@@ -2909,11 +2932,11 @@ export class DatabaseStorage implements IStorage {
 
   async addGameFile(file: InsertGameFile): Promise<GameFile> {
     const id = randomUUID();
-    const [gf] = await db
+    const rows = await db
       .insert(gameFiles)
       .values({ ...file, id, category: file.category as "main" | "dlc" | "update" | "extra" })
       .returning();
-    return gf;
+    return firstOrThrow(rows);
   }
 
   async addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]> {
@@ -2943,7 +2966,7 @@ export class DatabaseStorage implements IStorage {
     triggeredBy: "manual" | "system";
   }): Promise<ImportTask> {
     const id = randomUUID();
-    const [task] = await db
+    const rows = await db
       .insert(importTasks)
       .values({
         id,
@@ -2953,7 +2976,7 @@ export class DatabaseStorage implements IStorage {
         status: "pending",
       })
       .returning();
-    return task;
+    return firstOrThrow(rows);
   }
 
   async startImportTask(id: string): Promise<void> {
@@ -2969,7 +2992,7 @@ export class DatabaseStorage implements IStorage {
 
   async addImportTaskItem(item: InsertImportTaskItem): Promise<ImportTaskItem> {
     const id = randomUUID();
-    const [row] = await db
+    const rows = await db
       .insert(importTaskItems)
       .values({
         id,
@@ -2981,7 +3004,7 @@ export class DatabaseStorage implements IStorage {
         errorMessage: item.errorMessage ?? null,
       })
       .returning();
-    return row;
+    return firstOrThrow(rows);
   }
 
   async addImportTaskItemsBatch(items: InsertImportTaskItem[]): Promise<ImportTaskItem[]> {
@@ -3054,11 +3077,11 @@ export class DatabaseStorage implements IStorage {
 
   async addRootFolder(folder: InsertRootFolder): Promise<RootFolder> {
     const id = randomUUID();
-    const [rf] = await db
+    const rows = await db
       .insert(rootFolders)
       .values({ ...folder, id })
       .returning();
-    return rf;
+    return firstOrThrow(rows);
   }
 
   async updateRootFolder(id: string, updates: UpdateRootFolder): Promise<RootFolder | undefined> {

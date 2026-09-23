@@ -141,6 +141,37 @@ describe("download-categorizer", () => {
     });
   });
 
+  describe("categorizeDownload with AI release-type hint", () => {
+    it("overrides an ambiguous title guess when the AI is more confident", () => {
+      // "Game.Name-GROUP" has no keyword match, so the regex guess is main@0.5.
+      const result = categorizeDownload("Game.Name-GROUP", "dlc", 0.91);
+      expect(result).toEqual({ category: "dlc", confidence: 0.91 });
+    });
+
+    it("does not override a more confident regex match", () => {
+      const result = categorizeDownload("Game.DLC.Pack-GROUP", "update", 0.6);
+      expect(result).toEqual({ category: "dlc", confidence: 0.85 });
+    });
+
+    it("ignores an AI type with no category mapping (other)", () => {
+      const result = categorizeDownload("Game.Name-GROUP", "other", 0.99);
+      expect(result).toEqual({ category: "main", confidence: 0.5 });
+    });
+
+    it("ignores the AI hint when no confidence is provided", () => {
+      const result = categorizeDownload("Game.Name-GROUP", "dlc");
+      expect(result).toEqual({ category: "main", confidence: 0.5 });
+    });
+
+    it("maps repack/full_game to main, demo/soundtrack/crack_only to extra", () => {
+      expect(categorizeDownload("Game.Name-GROUP", "repack", 0.9).category).toBe("main");
+      expect(categorizeDownload("Game.Name-GROUP", "full_game", 0.9).category).toBe("main");
+      expect(categorizeDownload("Game.Name-GROUP", "demo", 0.9).category).toBe("extra");
+      expect(categorizeDownload("Game.Name-GROUP", "soundtrack", 0.9).category).toBe("extra");
+      expect(categorizeDownload("Game.Name-GROUP", "crack_only", 0.9).category).toBe("extra");
+    });
+  });
+
   describe("groupDownloadsByCategory", () => {
     it("groups downloads into correct categories", () => {
       const downloads = [
@@ -183,6 +214,15 @@ describe("download-categorizer", () => {
       ];
       const groups = groupDownloadsByCategory(downloads);
       expect(groups.dlc).toHaveLength(3);
+    });
+
+    it("uses the AI release type to group an otherwise-ambiguous title", () => {
+      const downloads = [
+        { title: "Game.Name-GROUP", aiReleaseType: "dlc" as const, aiReleaseTypeConfidence: 0.9 },
+      ];
+      const groups = groupDownloadsByCategory(downloads);
+      expect(groups.dlc).toHaveLength(1);
+      expect(groups.main).toHaveLength(0);
     });
   });
 

@@ -2,6 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
+import { stripUndefined } from "./object-utils.js";
 import { normalizeDownloadHash, normalizeTrackedKey } from "./download-hash.js";
 import { igdbClient } from "./igdb.js";
 import type { IGDBGame } from "./igdb.js";
@@ -91,6 +92,13 @@ import {
 import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import {
+  typesafeClient,
+  TYPESAFE_URL_CONFIG_KEY,
+  TYPESAFE_KEY_CONFIG_KEY,
+  TYPESAFE_MODEL_CONFIG_KEY,
+} from "./typesafe.js";
+import { encryptCredential } from "./credential-crypto.js";
+import {
   appriseClient,
   isAppriseConfigured,
   normalizeAppriseMode,
@@ -141,6 +149,7 @@ async function getIgdbConfigStatus(): Promise<IgdbConfigStatus> {
 export const PUBLIC_API_ROUTES = new Set<string>([
   "GET /auth/status", // setup-wizard / login-page bootstrap check, runs pre-login
   "POST /auth/setup", // creates the first user; there is no user/token yet
+  "POST /auth/setup/test-igdb", // "Test connection" button on the setup wizard, runs pre-login
   "POST /auth/login", // issues the token; obviously can't require one
   "GET /health", // liveness probe (docker/compose healthcheck, DAST workflow)
   "GET /ready", // readiness probe (db/IGDB connectivity), no sensitive data
@@ -199,7 +208,7 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
 });
-import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
+import { searchAllIndexers, filterBlacklistedReleases, enrichWithAiAnalysis } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
 import {
   normalizeTitle,
@@ -277,6 +286,27 @@ function isValidDiscordWebhook(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+// Twitch Client IDs/Secrets are alphanumeric tokens (currently 30 characters); the range is
+// intentionally loose so a length tweak on Twitch's side doesn't start rejecting valid values,
+// while still catching obvious mistakes (pasted whitespace, truncated copy, stray punctuation).
+const IGDB_CREDENTIAL_FORMAT = /^[A-Za-z0-9]{20,40}$/;
+
+/** Cheap client-id/secret shape check, so an obvious typo is rejected before any network call. */
+function validateIgdbCredentialFormat(
+  clientId: string,
+  clientSecret: string
+): { error: string } | null {
+  if (!IGDB_CREDENTIAL_FORMAT.test(clientId)) {
+    return { error: "Client ID doesn't look valid — check for extra spaces or a partial copy." };
+  }
+  if (!IGDB_CREDENTIAL_FORMAT.test(clientSecret)) {
+    return {
+      error: "Client Secret doesn't look valid — check for extra spaces or a partial copy.",
+    };
+  }
+  return null;
 }
 
 /**
@@ -372,7 +402,7 @@ export function validateSetupCredentials(
 
   const passwordCheck = passwordPolicySchema.safeParse(trimmedPassword);
   if (!passwordCheck.success) {
-    return { error: passwordCheck.error.issues[0].message };
+    return { error: passwordCheck.error.issues[0]?.message ?? "Invalid password" };
   }
 
   if (trimmedUsername.length > 50) {
@@ -388,19 +418,27 @@ export function validateSetupCredentials(
 async function saveIgdbCredentialsIfProvided(
   igdbClientId: unknown,
   igdbClientSecret: unknown
-): Promise<void> {
+): Promise<{ error: string } | null> {
   if (
     typeof igdbClientId !== "string" ||
     typeof igdbClientSecret !== "string" ||
     igdbClientId.trim().length === 0 ||
     igdbClientSecret.trim().length === 0
   ) {
-    return;
+    return null;
   }
 
-  await storage.setSystemConfig("igdb.clientId", igdbClientId.trim());
-  await storage.setSystemConfig("igdb.clientSecret", igdbClientSecret.trim());
+  const trimmedClientId = igdbClientId.trim();
+  const trimmedClientSecret = igdbClientSecret.trim();
+  const formatError = validateIgdbCredentialFormat(trimmedClientId, trimmedClientSecret);
+  if (formatError) {
+    return formatError;
+  }
+
+  await storage.setSystemConfig("igdb.clientId", trimmedClientId);
+  await storage.setSystemConfig("igdb.clientSecret", trimmedClientSecret);
   routesLogger.info("IGDB credentials saved during setup");
+  return null;
 }
 
 // Helper function for aggregated indexer search
@@ -462,8 +500,10 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       }
     }
 
+    const enrichedItems = await enrichWithAiAnalysis(filteredItems);
+
     return res.json({
-      items: filteredItems,
+      items: enrichedItems,
       total,
       offset,
       ...(blacklistedCount > 0 ? { blacklistedCount } : {}),
@@ -491,6 +531,22 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
   const limit = Math.min(Math.max(1, Number.parseInt(query.limit as string, 10) || 20), 100);
   const offset = Math.max(0, Number.parseInt(query.offset as string, 10) || 0);
   return { limit, offset };
+}
+
+/**
+ * Resolves the encrypted TypeSafe API key to persist for a settings update: encrypts a
+ * newly supplied key, or reuses the already-stored encrypted key when none is supplied
+ * (e.g. the user is only changing the URL or model). Returns null when no key was
+ * supplied and none is stored yet -- the caller should treat that as "key required".
+ */
+async function resolveTypesafeApiKey(
+  trimmedNewKey: string
+): Promise<{ trimmedNewKey: string; encryptedKey: string } | null> {
+  if (trimmedNewKey) {
+    return { trimmedNewKey, encryptedKey: (await encryptCredential(trimmedNewKey)) ?? "" };
+  }
+  const storedEncryptedKey = await storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY);
+  return storedEncryptedKey ? { trimmedNewKey: "", encryptedKey: storedEncryptedKey } : null;
 }
 
 /** Filters an already-fetched list of library games according to the user's content-filter preferences. */
@@ -728,6 +784,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { username: trimmedUsername, password: trimmedPassword } = validated;
 
+      // Validate IGDB credential format before creating the user account: rejecting it after
+      // the account exists would leave the caller stuck (setup can't be re-run once a user
+      // exists), so a bad format -- an incomplete pair, or a non-string value, all of which
+      // saveIgdbCredentialsIfProvided would otherwise silently discard below -- must fail fast,
+      // before anything is persisted.
+      const igdbClientIdSupplied = igdbClientId !== undefined && igdbClientId !== null;
+      const igdbClientSecretSupplied = igdbClientSecret !== undefined && igdbClientSecret !== null;
+      if (
+        (igdbClientIdSupplied && typeof igdbClientId !== "string") ||
+        (igdbClientSecretSupplied && typeof igdbClientSecret !== "string")
+      ) {
+        return res.status(400).json({ error: "IGDB Client ID and Client Secret must be strings" });
+      }
+
+      const trimmedIgdbClientId = typeof igdbClientId === "string" ? igdbClientId.trim() : "";
+      const trimmedIgdbClientSecret =
+        typeof igdbClientSecret === "string" ? igdbClientSecret.trim() : "";
+      const hasIgdbClientId = trimmedIgdbClientId.length > 0;
+      const hasIgdbClientSecret = trimmedIgdbClientSecret.length > 0;
+
+      if (hasIgdbClientId !== hasIgdbClientSecret) {
+        return res
+          .status(400)
+          .json({ error: "Both IGDB Client ID and Client Secret are required together" });
+      }
+
+      if (hasIgdbClientId && hasIgdbClientSecret) {
+        const formatError = validateIgdbCredentialFormat(
+          trimmedIgdbClientId,
+          trimmedIgdbClientSecret
+        );
+        if (formatError) {
+          return res.status(400).json(formatError);
+        }
+      }
+
       // Create first user
       // Create first user atomically
       const passwordHash = await hashPassword(trimmedPassword);
@@ -744,7 +836,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const token = await generateToken(user);
 
-      // Save IGDB creds if provided
+      // Save IGDB creds if provided (format already validated above).
       await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
@@ -763,6 +855,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "Setup failed"
       );
       return res.status(500).json({ error: "Setup failed. Please try again." });
+    }
+  });
+
+  // "Test connection" button on the setup wizard. Public (no user/token exists yet), but only
+  // does anything before setup completes, so it can't become a standing unauthenticated
+  // Twitch-credential probe once the instance is in normal use.
+  app.post("/api/auth/setup/test-igdb", authRateLimiter, async (req, res) => {
+    try {
+      const userCount = await storage.countUsers();
+      if (userCount > 0) {
+        return res.status(403).json({ success: false, error: "Setup already completed" });
+      }
+
+      const { clientId, clientSecret } = req.body;
+      if (typeof clientId !== "string" || typeof clientSecret !== "string") {
+        return res
+          .status(400)
+          .json({ success: false, error: "Client ID and Client Secret are required" });
+      }
+
+      const trimmedClientId = clientId.trim();
+      const trimmedClientSecret = clientSecret.trim();
+      const formatError = validateIgdbCredentialFormat(trimmedClientId, trimmedClientSecret);
+      if (formatError) {
+        return res.status(400).json({ success: false, ...formatError });
+      }
+
+      const result = await igdbClient.testCredentials(trimmedClientId, trimmedClientSecret);
+      return res.status(result.success ? 200 : 400).json(result);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to test IGDB credentials during setup");
+      return res.status(500).json({ success: false, error: "Failed to test IGDB credentials" });
     }
   });
 
@@ -1372,7 +1496,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { status } = req.params;
+        const { status } = req.params as { status: string };
         const { includeHidden } = req.query;
 
         const userId = req.user!.id;
@@ -1461,7 +1585,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const userId = req.user!.id;
         const statusUpdate = updateGameStatusSchema.parse(req.body);
 
@@ -1491,7 +1615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const userId = req.user!.id;
         const { hidden } = updateGameHiddenSchema.parse(req.body);
 
@@ -1521,7 +1645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const userId = req.user!.id;
         const { userRating } = updateGameUserRatingSchema.parse(req.body);
 
@@ -1549,7 +1673,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const userId = req.user!.id;
         const { notes } = updateGameNotesSchema.parse(req.body);
 
@@ -1577,7 +1701,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const userId = req.user!.id;
         const target = updateGameTargetPlatformSchema.parse(req.body);
 
@@ -1654,7 +1778,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     .array(z.object({ url: z.string(), category: z.number() }))
                     .catch([])
                     .parse(updatedData.igdbWebsites),
-                  aggregatedRating: updatedData.aggregatedRating as number | undefined,
+                  aggregatedRating: (updatedData.aggregatedRating as number | undefined) ?? null,
                 },
               });
             }
@@ -1827,6 +1951,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
+        const { id } = req.params as { id: string };
         const updates = updateRootFolderSchema.parse(req.body);
 
         if (updates.path) {
@@ -1835,7 +1960,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- same as the create route: an arbitrary admin-supplied absolute path, not a filename joined onto a fixed destination
           updates.path = path.resolve(updates.path);
           const clash = await storage.getRootFolderByPath(updates.path);
-          if (clash && clash.id !== req.params.id) {
+          if (clash && clash.id !== id) {
             return res.status(409).json({ error: "Another root folder already uses this path" });
           }
 
@@ -1848,7 +1973,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               details: probe.error ?? "Path must exist and be a readable directory",
             });
           }
-          const folder = await storage.updateRootFolder(req.params.id, updates);
+          const folder = await storage.updateRootFolder(id, updates);
           if (!folder) return res.status(404).json({ error: "Root folder not found" });
           const withHealth = await storage.updateRootFolderHealth(folder.id, {
             accessible: probe.accessible,
@@ -1858,7 +1983,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.json(withHealth ?? folder);
         }
 
-        const folder = await storage.updateRootFolder(req.params.id, updates);
+        const folder = await storage.updateRootFolder(id, updates);
         if (!folder) return res.status(404).json({ error: "Root folder not found" });
         return res.json(folder);
       } catch (error) {
@@ -1879,7 +2004,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const success = await storage.removeRootFolder(req.params.id);
+        const { id } = req.params as { id: string };
+        const success = await storage.removeRootFolder(id);
         if (!success) return res.status(404).json({ error: "Root folder not found" });
         return res.status(204).send();
       } catch (error) {
@@ -1898,7 +2024,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const folder = await storage.getRootFolder(req.params.id);
+        const { id } = req.params as { id: string };
+        const folder = await storage.getRootFolder(id);
         if (!folder) return res.status(404).json({ error: "Root folder not found" });
 
         const probe = await probeRootFolder(folder.path);
@@ -2014,7 +2141,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const userId = req.user!.id;
         const deleteFiles = req.query.deleteFiles === "true";
 
@@ -2084,10 +2211,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
+        const { id } = req.params as { id: string };
         const userId = req.user!.id;
-        const game = await resolveOwnedGame(req.params.id, userId, res);
+        const game = await resolveOwnedGame(id, userId, res);
         if (!game) return;
-        const downloads = await storage.getDownloadsByGameId(req.params.id);
+        const downloads = await storage.getDownloadsByGameId(id);
         res.json(downloads);
       } catch (error) {
         routesLogger.error({ error }, "error fetching game downloads");
@@ -2122,7 +2250,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     authenticateToken,
     async (req: Request, res: Response) => {
       try {
-        const { gameId } = req.params;
+        const { gameId } = req.params as { gameId: string };
         const userId = req.user!.id;
 
         if (!(await resolveOwnedGame(gameId, userId, res))) return;
@@ -2151,7 +2279,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     authenticateToken,
     async (req: Request, res: Response) => {
       try {
-        const { gameId } = req.params;
+        const { gameId } = req.params as { gameId: string };
         const userId = req.user!.id;
 
         if (!(await resolveOwnedGame(gameId, userId, res))) return;
@@ -2171,7 +2299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     authenticateToken,
     async (req: Request, res: Response) => {
       try {
-        const { gameId, id } = req.params;
+        const { gameId, id } = req.params as { gameId: string; id: string };
         const userId = req.user!.id;
 
         if (!(await resolveOwnedGame(gameId, userId, res))) return;
@@ -2241,7 +2369,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       };
       try {
-        const game = await resolveOwnedGame(req.params.gameId, req.user!.id, res);
+        const { gameId } = req.params as { gameId: string };
+        const game = await resolveOwnedGame(gameId, req.user!.id, res);
         if (!game) return;
         if (!game.libraryPath) return res.json({ files: [] });
 
@@ -2316,7 +2445,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { gameId } = req.params;
+        const { gameId } = req.params as { gameId: string };
         const userId = req.user!.id;
 
         const game = await resolveOwnedGame(gameId, userId, res);
@@ -2361,7 +2490,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { downloadId } = req.params;
+        const { downloadId } = req.params as { downloadId: string };
         const download = await storage.getGameDownload(downloadId, req.user!.id);
         if (!download) {
           return res.status(404).json({ error: "Download not found" });
@@ -2412,7 +2541,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const gameFile = await storage.getGameFile(id);
         if (!gameFile) {
           return res.status(404).json({ error: "Game file not found" });
@@ -2566,7 +2695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const igdbId = parseInt(id);
 
         if (isNaN(igdbId)) {
@@ -2639,7 +2768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get single indexer
   app.get("/api/indexers/:id", async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const indexer = await storage.getIndexer(id);
       if (!indexer) {
         return res.status(404).json({ error: "Indexer not found" });
@@ -2685,7 +2814,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const updates = { ...req.body }; // Partial updates
 
         if (updates.url && !(await isSafeUrl(updates.url))) {
@@ -2712,7 +2841,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete indexer
   app.delete("/api/indexers/:id", sensitiveEndpointLimiter, async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const success = await storage.removeIndexer(id);
       if (!success) {
         return res.status(404).json({ error: "Indexer not found" });
@@ -2838,7 +2967,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get single downloader
   app.get("/api/downloaders/:id", async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const downloader = await storage.getDownloader(id);
       if (!downloader) {
         return res.status(404).json({ error: "Downloader not found" });
@@ -2884,7 +3013,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const updates = { ...req.body }; // Partial updates
 
         if (updates.url && !(await isSafeUrl(updates.url))) {
@@ -2928,7 +3057,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete downloader
   app.delete("/api/downloaders/:id", sensitiveEndpointLimiter, async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const success = await storage.removeDownloader(id);
       if (!success) {
         return res.status(404).json({ error: "Downloader not found" });
@@ -3007,7 +3136,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Test existing indexer connection by ID
   app.post("/api/indexers/:id/test", async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const indexer = await storage.getIndexer(id);
 
       if (!indexer) {
@@ -3028,7 +3157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get available categories from an indexer
   app.get("/api/indexers/:id/categories", async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const indexer = await storage.getIndexer(id);
 
       if (!indexer) {
@@ -3051,7 +3180,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const { query, category, cat, limit = 50, offset = 0 } = req.query;
 
         if (!query || typeof query !== "string") {
@@ -3158,7 +3287,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Test existing downloader connection by ID
   app.post("/api/downloaders/:id/test", async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const downloader = await storage.getDownloader(id);
 
       if (!downloader) {
@@ -3183,7 +3312,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const { id } = req.params as { id: string };
         const { url, title, category, downloadPath, priority, downloadType, password } = req.body;
 
         if (!url || !title) {
@@ -3222,7 +3351,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all downloads from a downloader
   app.get("/api/downloaders/:id/downloads", async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const downloader = await storage.getDownloader(id);
 
       if (!downloader) {
@@ -3240,7 +3369,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get specific download status
   app.get("/api/downloaders/:id/downloads/:downloadId", async (req, res) => {
     try {
-      const { id, downloadId } = req.params;
+      const { id, downloadId } = req.params as { id: string; downloadId: string };
       const downloader = await storage.getDownloader(id);
 
       if (!downloader) {
@@ -3262,7 +3391,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get detailed download information (files, trackers, etc.)
   app.get("/api/downloaders/:id/downloads/:downloadId/details", async (req, res) => {
     try {
-      const { id, downloadId } = req.params;
+      const { id, downloadId } = req.params as { id: string; downloadId: string };
       const downloader = await storage.getDownloader(id);
 
       if (!downloader) {
@@ -3284,7 +3413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Pause download
   app.post("/api/downloaders/:id/downloads/:downloadId/pause", async (req, res) => {
     try {
-      const { id, downloadId } = req.params;
+      const { id, downloadId } = req.params as { id: string; downloadId: string };
       const downloader = await storage.getDownloader(id);
 
       if (!downloader) {
@@ -3304,7 +3433,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Resume download
   app.post("/api/downloaders/:id/downloads/:downloadId/resume", async (req, res) => {
     try {
-      const { id, downloadId } = req.params;
+      const { id, downloadId } = req.params as { id: string; downloadId: string };
       const downloader = await storage.getDownloader(id);
 
       if (!downloader) {
@@ -3324,7 +3453,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Remove download
   app.delete("/api/downloaders/:id/downloads/:downloadId", async (req, res) => {
     try {
-      const { id, downloadId } = req.params;
+      const { id, downloadId } = req.params as { id: string; downloadId: string };
       const { deleteFiles = false } = req.query;
 
       const downloader = await storage.getDownloader(id);
@@ -3504,8 +3633,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let libraryMatch: { game: (typeof userGames)[0]; confidence: number } | null = null;
 
         outer: for (const { game } of normalizedGameTitles) {
-          for (let i = 0; i < group.downloads.length; i++) {
-            if (releaseMatchesGame(cleanedDlTitles[i], game.title)) {
+          for (const dlTitle of cleanedDlTitles) {
+            if (releaseMatchesGame(dlTitle, game.title)) {
               libraryMatch = { game, confidence: 0.9 };
               break outer;
             }
@@ -3863,12 +3992,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     authenticateToken,
     async (req: Request, res: Response) => {
       try {
+        const { id, downloadId } = req.params as { id: string; downloadId: string };
         const userId = req.user!.id;
-        const game = await storage.getGame(req.params.id);
+        const game = await storage.getGame(id);
         if (!game || game.userId !== userId) {
           return res.status(404).json({ error: "Game not found" });
         }
-        const removed = await storage.removeGameDownload(req.params.downloadId, req.params.id);
+        const removed = await storage.removeGameDownload(downloadId, id);
         if (!removed) {
           return res.status(404).json({ error: "Download record not found" });
         }
@@ -4062,7 +4192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/notifications/:id/read", authenticateToken, async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const notification = await storage.markNotificationAsRead(id, req.user!.id);
       if (!notification) {
         return res.status(404).json({ error: "Notification not found" });
@@ -4110,7 +4240,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     telemetryReportIdValidation,
     validateRequest,
     (req: Request, res: Response) => {
-      const report = getPendingReport(req.params.reportId, req.user!.id);
+      const { reportId } = req.params as { reportId: string };
+      const report = getPendingReport(reportId, req.user!.id);
       if (!report) {
         return res.status(404).json({ error: "This report is no longer available." });
       }
@@ -4130,7 +4261,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const result = await sendPendingReport(req.params.reportId, req.user!.id);
+        const { reportId } = req.params as { reportId: string };
+        const result = await sendPendingReport(reportId, req.user!.id);
         if (!result.ok) {
           return res.status(422).json({ error: result.message });
         }
@@ -4174,22 +4306,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { clientId, clientSecret } = req.body;
 
-      if (!clientId) {
+      if (typeof clientId !== "string" || !clientId.trim()) {
         return res.status(400).json({ error: "Client ID is required" });
       }
+      if (clientSecret !== undefined && typeof clientSecret !== "string") {
+        return res.status(400).json({ error: "Client Secret must be a string" });
+      }
 
-      // Check if already configured (in DB or Env)
+      // Whether it's safe to omit clientSecret and keep the existing one: only when a DB
+      // secret already exists to pair with the (possibly updated) DB clientId. An
+      // env-only-configured instance has no DB secret to pair with, so saving just a new
+      // clientId here would leave a DB clientId with no DB secret -- getCredentials() only
+      // uses DB creds when BOTH are present together, so it would silently fall back to the
+      // full env pair (including the old env clientId), making this update a silent no-op.
       const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
-      const isConfigured = !!dbSecret || appConfig.igdb.isConfigured;
+      const canOmitSecret = !!dbSecret;
 
       const isMaskedValue = isUnchangedSentinel(clientSecret);
-      const hasNewSecret = clientSecret && !isMaskedValue;
+      const hasNewSecret = !!clientSecret && !isMaskedValue;
 
-      if (!isConfigured && !hasNewSecret) {
+      if (!canOmitSecret && !hasNewSecret) {
         return res.status(400).json({ error: "Client Secret is required" });
       }
 
-      await storage.setSystemConfig("igdb.clientId", clientId.trim());
+      const trimmedClientId = clientId.trim();
+      const formatError = validateIgdbCredentialFormat(
+        trimmedClientId,
+        hasNewSecret ? clientSecret.trim() : "x".repeat(30) // skip re-checking an unchanged stored secret
+      );
+      if (formatError) {
+        return res.status(400).json(formatError);
+      }
+
+      await storage.setSystemConfig("igdb.clientId", trimmedClientId);
 
       if (hasNewSecret) {
         await storage.setSystemConfig("igdb.clientSecret", clientSecret.trim());
@@ -4200,6 +4349,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to update IGDB credentials");
       return res.status(500).json({ error: "Failed to update IGDB credentials" });
+    }
+  });
+
+  // Verifies a Client ID/Secret pair against Twitch/IGDB before the user saves it, so a typo
+  // or expired secret is caught immediately instead of surfacing later as a failed search.
+  // clientSecret may be the masked placeholder, meaning "use the already-saved secret".
+  app.post("/api/settings/igdb/test", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { clientId, clientSecret } = req.body;
+
+      if (typeof clientId !== "string" || !clientId.trim()) {
+        return res.status(400).json({ success: false, error: "Client ID is required" });
+      }
+
+      let secretToTest: string;
+      if (isUnchangedSentinel(clientSecret)) {
+        const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
+        secretToTest = dbSecret ?? appConfig.igdb.clientSecret ?? "";
+        if (!secretToTest) {
+          return res.status(400).json({ success: false, error: "Client Secret is required" });
+        }
+      } else if (typeof clientSecret === "string" && clientSecret.trim()) {
+        secretToTest = clientSecret.trim();
+      } else {
+        return res.status(400).json({ success: false, error: "Client Secret is required" });
+      }
+
+      const trimmedClientId = clientId.trim();
+      const formatError = validateIgdbCredentialFormat(trimmedClientId, secretToTest);
+      if (formatError) {
+        return res.status(400).json({ success: false, ...formatError });
+      }
+
+      const result = await igdbClient.testCredentials(trimmedClientId, secretToTest);
+      return res.status(result.success ? 200 : 400).json(result);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to test IGDB credentials");
+      return res.status(500).json({ success: false, error: "Failed to test IGDB credentials" });
     }
   });
 
@@ -4631,8 +4818,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         res.set("Cache-Control", "no-store");
+        const { id } = req.params as { id: string };
         const userId = req.user!.id;
-        const game = await resolveOwnedGame(req.params.id, userId, res);
+        const game = await resolveOwnedGame(id, userId, res);
         if (!game) return;
 
         const baseUrl =
@@ -4754,7 +4942,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid or unsafe URL" });
       }
 
-      const feed = await storage.updateRssFeed(req.params.id, updates);
+      const feed = await storage.updateRssFeed(req.params.id, stripUndefined(updates));
       if (!feed) {
         return res.status(404).json({ error: "Feed not found" });
       }
@@ -4886,6 +5074,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to update NexusMods settings");
       return res.status(500).json({ error: "Failed to update NexusMods settings" });
+    }
+  });
+
+  // ── TypeSafe (Jev) AI settings ────────────────────────────────────────────────
+
+  app.get("/api/settings/typesafe", sensitiveEndpointLimiter, async (_req, res) => {
+    try {
+      const [dbUrl, dbKey, dbModel] = await Promise.all([
+        storage.getSystemConfig(TYPESAFE_URL_CONFIG_KEY),
+        storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY),
+        storage.getSystemConfig(TYPESAFE_MODEL_CONFIG_KEY),
+      ]);
+      const configured = !!(dbKey && dbKey.length > 0);
+      res.json({
+        configured,
+        apiUrl: dbUrl && dbUrl.length > 0 ? dbUrl : undefined,
+        model: dbModel && dbModel.length > 0 ? dbModel : undefined,
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch TypeSafe settings");
+      res.status(500).json({ error: "Failed to fetch TypeSafe settings" });
+    }
+  });
+
+  app.post("/api/settings/typesafe", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { apiUrl, apiKey, model } = req.body as {
+        apiUrl?: unknown;
+        apiKey?: unknown;
+        model?: unknown;
+      };
+      // apiKey is optional on an update: omitting it (e.g. to change only the URL or model)
+      // reuses the already-stored encrypted key rather than forcing it to be re-entered.
+      if (apiKey !== undefined && typeof apiKey !== "string") {
+        return res.status(400).json({ error: "Invalid API key" });
+      }
+      if (apiUrl !== undefined && typeof apiUrl !== "string") {
+        return res.status(400).json({ error: "Invalid API URL" });
+      }
+      if (model !== undefined && typeof model !== "string") {
+        return res.status(400).json({ error: "Invalid model" });
+      }
+
+      const trimmedUrl = apiUrl?.trim() ?? "";
+      if (trimmedUrl) {
+        // TypeSafeClient always calls safeFetch with requireHttps -- reject anything that
+        // would fail that check at save time rather than let every analysis call fail later.
+        let parsed: URL;
+        try {
+          parsed = new URL(trimmedUrl);
+        } catch {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+        if (parsed.protocol !== "https:" || !(await isSafeUrl(trimmedUrl))) {
+          return res.status(400).json({ error: "API URL must be a safe HTTPS URL" });
+        }
+      }
+
+      const resolvedKey = await resolveTypesafeApiKey(apiKey?.trim() ?? "");
+      if (!resolvedKey) {
+        return res.status(400).json({ error: "API key is required" });
+      }
+
+      const trimmedModel = model?.trim() ?? "";
+      await storage.setSystemConfigBatch([
+        { key: TYPESAFE_URL_CONFIG_KEY, value: trimmedUrl },
+        { key: TYPESAFE_KEY_CONFIG_KEY, value: resolvedKey.encryptedKey },
+        { key: TYPESAFE_MODEL_CONFIG_KEY, value: trimmedModel },
+      ]);
+      if (resolvedKey.trimmedNewKey) {
+        typesafeClient.configure(
+          trimmedUrl || null,
+          resolvedKey.trimmedNewKey,
+          trimmedModel || null
+        );
+      } else {
+        // Reusing the stored key -- invalidate the in-memory cache so the next call reloads
+        // and decrypts it (and picks up the new URL/model) from storage instead of retaining
+        // stale values from before this save.
+        typesafeClient.invalidate();
+      }
+      routesLogger.info("TypeSafe API settings updated");
+      return res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update TypeSafe settings");
+      return res.status(500).json({ error: "Failed to update TypeSafe settings" });
+    }
+  });
+
+  app.delete("/api/settings/typesafe", sensitiveEndpointLimiter, async (_req, res) => {
+    try {
+      await storage.setSystemConfigBatch([
+        { key: TYPESAFE_URL_CONFIG_KEY, value: "" },
+        { key: TYPESAFE_KEY_CONFIG_KEY, value: "" },
+        { key: TYPESAFE_MODEL_CONFIG_KEY, value: "" },
+      ]);
+      typesafeClient.configure(null, null, null);
+      routesLogger.info("TypeSafe API settings cleared");
+      return res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to clear TypeSafe settings");
+      return res.status(500).json({ error: "Failed to clear TypeSafe settings" });
     }
   });
 

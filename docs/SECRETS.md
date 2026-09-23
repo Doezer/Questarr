@@ -177,17 +177,25 @@ file is currently tracked in git. Never commit real credentials in
 
 ## 8. Credential exposure in operational scripts
 
-**Resolved in v1.5.0 by removal.** `scripts/pg-to-sqlite.ts` logged the full
-`DATABASE_URL` connection string via `console.log` before connecting. Per
-standard `postgresql://` URL convention that string embeds
-`user:password@host`, so the credential was printed in plaintext, where it
-could land in CI logs or shell history.
+**Withdrawn in v1.5.0 — the finding was inaccurate.** This section previously
+stated that `scripts/pg-to-sqlite.ts:157` logged the full `DATABASE_URL`
+connection string, exposing `user:password@host` in plaintext.
 
-The script was a one-shot pre-v1.1 migration tool, not server runtime code,
-and has been removed rather than patched — see [MIGRATION.md](./MIGRATION.md).
-Operators who still need it should run it from the archived **v1.4.2** release,
-where the exposure remains: do not pipe its output into shared terminals or CI
-logs.
+That was a misreading. The line reads:
+
+```ts
+console.log(`Connecting to Postgres`);
+```
+
+It is a template literal with no interpolation. The script assigns
+`DATABASE_URL` to a local (`:151`) and passes it to `new Pool(...)` (`:158`),
+but never logs it — the only connection detail it prints is the SQLite path
+(`:161`), which is not a credential. No release of Questarr shipped this
+exposure, and the archived v1.4.2 tool does not carry it either.
+
+The script has since been removed for unrelated reasons — it understood only 8
+of the project's 19 tables — see [MIGRATION.md](./MIGRATION.md). This section
+is kept rather than deleted so the retraction is on the record.
 
 ## 9. Summary checklist for operators
 
@@ -204,6 +212,7 @@ logs.
       masked in responses and encrypted at rest, per §4).
 - [ ] Run behind HTTPS/a reverse proxy per `.github/SECURITY.md`.
 - [ ] Never commit `.env`, `sqlite.db`, or `docker-compose.local.yml`.
-- [ ] If running the archived v1.4.2 `pg-to-sqlite` migration tool, avoid
-      piping its output to shared/CI logs — it prints `DATABASE_URL` in
-      plaintext (§8).
+- [ ] If running the archived v1.4.2 `pg-to-sqlite` migration tool, set
+      `DATABASE_URL` to your real source credentials and verify the row counts
+      it reports — it continues past per-table failures and still reports
+      success (see [MIGRATION.md](./MIGRATION.md)).

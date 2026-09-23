@@ -10,12 +10,20 @@ Addresses dependency vulnerabilities flagged by `npm audit`.
 
 - **Legacy PostgreSQL migration tooling**: removed `scripts/pg-to-sqlite.ts` and
   `docker-compose.migrate.yml`. The tool dated from the v1.1 move off PostgreSQL
-  and only knew about 8 of the project's tables, so pointing it at a current
-  database would have silently skipped the rest. It also printed `DATABASE_URL`
-  (including credentials) to stdout. Operators still migrating a pre-v1.1
-  PostgreSQL installation should use the archived **v1.4.2** release — see
-  [MIGRATION.md](./MIGRATION.md), which now inlines the pinned compose file and
-  links the sources by tag permalink.
+  and only knew about 8 of the project's 19 tables, so pointing it at a current
+  database would have silently skipped the rest — and it continued past
+  per-table failures while still reporting `Migration completed.` Operators
+  still migrating a pre-v1.1 PostgreSQL installation should use the archived
+  **v1.4.2** release — see [MIGRATION.md](./MIGRATION.md), which now inlines the
+  pinned compose file, links the sources by tag permalink, and spells out how to
+  verify the result.
+
+### Fixed
+
+- **Documentation**: retracted `docs/SECRETS.md` §8, which claimed
+  `scripts/pg-to-sqlite.ts` logged the full `DATABASE_URL` including
+  credentials. It did not; the line cited was a non-interpolating
+  `console.log("Connecting to Postgres")`. No release carried this exposure.
 
 ### Security
 

@@ -79,10 +79,20 @@ present in `latest`, and `latest`'s schema is far ahead of what it understands.
     ```
 
     This is the archived file verbatim, with only the image tag changed from
-    `latest` to `v1.4.2`. Adjust `POSTGRES_USER`, `POSTGRES_PASSWORD` and
-    `POSTGRES_DB` to match your original installation, and run it from the
-    same directory as your original compose project so the `postgres_data`
-    volume resolves to your existing data rather than a fresh empty one.
+    `latest` to `v1.4.2`. Run it from the same directory as your original
+    compose project so the `postgres_data` volume resolves to your existing
+    data rather than a fresh empty one.
+
+    **Set `DATABASE_URL` to your original credentials and database name.**
+    This is the line that matters, and it is easy to get wrong: the
+    `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` variables on the `db`
+    service only take effect when Postgres initializes an _empty_ data
+    directory. Against your existing volume they do nothing — the role,
+    password and database name already stored there win. Editing them while
+    leaving `DATABASE_URL` at the sample
+    `postgresql://postgres:password@db:5432/questarr` is precisely the
+    mistake that produces an empty result, because the migrator only reads
+    `DATABASE_URL`.
 
 3.  **Run the migration:**
 
@@ -90,8 +100,22 @@ present in `latest`, and `latest`'s schema is far ahead of what it understands.
     docker compose -f docker-compose.migrate.yml up --abort-on-container-exit
     ```
 
-4.  **Verify**, then start Questarr normally on the current release. Your data
-    now lives in `./data/sqlite.db`.
+4.  **Verify before starting Questarr.** Do not trust the exit status: the
+    archived script catches failures per table, logs them, and still prints
+    `Migration completed.` at the end. A wrong `DATABASE_URL` therefore looks
+    like a clean run while producing an empty or partial database.
+
+    Read the `--- Migration Summary ---` table it prints and confirm the row
+    counts match your expectations, and that no line reads
+    `❌ Failed to migrate table` or `⚠️ Integrity Check Failed`. Then spot-check
+    the result directly:
+
+    ```bash
+    sqlite3 ./data/sqlite.db "SELECT COUNT(*) FROM games; SELECT COUNT(*) FROM users;"
+    ```
+
+    Only once that looks right, start Questarr normally on the current release.
+    Your data now lives in `./data/sqlite.db`.
 
 ## Source
 
@@ -103,7 +127,9 @@ The tool as it last shipped, for inspection or manual use:
 These are tag permalinks and will keep resolving after the files leave the
 default branch.
 
-> **Credential note:** the archived script prints the full `DATABASE_URL` —
-> including `user:password@host` — before connecting. Avoid piping its output
-> into shared terminals or CI logs. This was one reason for removing it rather
-> than carrying it forward.
+> **Correction:** earlier revisions of this guide, and `docs/SECRETS.md` §8,
+> stated that this script printed the full `DATABASE_URL` (credentials
+> included) before connecting. That was wrong. The line in question,
+> `scripts/pg-to-sqlite.ts:157`, is `console.log("Connecting to Postgres")` and
+> never interpolates the URL. The script reads `DATABASE_URL` but does not log
+> it. See §8 of [SECRETS.md](./SECRETS.md).

@@ -448,8 +448,9 @@ const CompactGameCard = ({
                   max={10}
                   step={0.5}
                   value={[popoverRating]}
-                  onValueChange={([val]) => setPopoverRating(val)}
+                  onValueChange={([val]) => val !== undefined && setPopoverRating(val)}
                   onValueCommit={([val]) =>
+                    val !== undefined &&
                     userRatingMutation.mutate({ gameId: game.id, userRating: val })
                   }
                   aria-label="My rating"

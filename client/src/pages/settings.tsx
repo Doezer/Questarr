@@ -1618,7 +1618,7 @@ export default function SettingsPage() {
                     </thead>
                     <tbody>
                       {NOTIFICATION_EVENT_ROWS.map(({ key, label, group }, idx, arr) => {
-                        const isGroupStart = idx > 0 && arr[idx - 1].group !== group;
+                        const isGroupStart = idx > 0 && arr[idx - 1]!.group !== group;
                         return (
                           <tr
                             key={key}

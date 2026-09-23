@@ -97,11 +97,11 @@ function useKonamiCode(onActivate: () => void) {
         return;
       }
 
-      if (matchesStep(event, KONAMI_CODE[progress])) {
+      if (matchesStep(event, KONAMI_CODE[progress]!)) {
         progress++;
       } else {
         // A mistyped repeat of the first key shouldn't force restarting the whole sequence.
-        progress = matchesStep(event, KONAMI_CODE[0]) ? 1 : 0;
+        progress = matchesStep(event, KONAMI_CODE[0]!) ? 1 : 0;
       }
       if (progress === KONAMI_CODE.length) {
         progress = 0;

@@ -658,8 +658,8 @@ export class TransmissionClient implements DownloaderClient {
   }
 
   private getTrackerSwarmCounts(trackerStats: TransmissionTorrent["trackerStats"]): {
-    seeders?: number;
-    leechers?: number;
+    seeders?: number | undefined;
+    leechers?: number | undefined;
   } {
     let seeders: number | undefined;
     let leechers: number | undefined;

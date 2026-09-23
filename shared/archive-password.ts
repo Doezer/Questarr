@@ -25,7 +25,7 @@ export function resolveArchivePassword(
   settings: string | null | undefined,
   baseUrl: string,
   downloaderTypeLabel: string
-): { password?: string; error?: string } {
+): { password?: string | undefined; error?: string } {
   const password = requestPassword || getArchivePasswordSetting(settings);
   if (password && !baseUrl.startsWith("https://")) {
     return {

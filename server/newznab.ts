@@ -18,7 +18,7 @@ const parser = new XMLParser({
 
 export interface NewznabSearchParams {
   query: string;
-  category?: string[];
+  category?: string[] | undefined;
   limit?: number;
   offset?: number;
 }
@@ -26,18 +26,18 @@ export interface NewznabSearchParams {
 export interface NewznabResult {
   title: string;
   link: string; // NZB download URL
-  size?: number;
+  size?: number | undefined;
   publishDate: string;
   indexerId: string;
   indexerName: string;
   category: string[];
   guid: string; // Unique identifier
   // Usenet-specific fields
-  grabs?: number; // Number of downloads
+  grabs?: number | undefined; // Number of downloads
   age?: number; // Age in days
-  files?: number; // Number of files in NZB
-  poster?: string; // Usenet poster
-  group?: string; // Usenet newsgroup
+  files?: number | undefined; // Number of files in NZB
+  poster?: string | undefined; // Usenet poster
+  group?: string | undefined; // Usenet newsgroup
 }
 
 export interface NewznabSearchResults {
@@ -52,8 +52,8 @@ export interface NewznabCategory {
 }
 
 interface NewznabServerInfo {
-  title?: string;
-  version?: string;
+  title?: string | undefined;
+  version?: string | undefined;
 }
 
 /** Shape of one <category>/<subcat> node as fast-xml-parser produces it. */

@@ -15,7 +15,7 @@ interface TorznabItem {
   pubDate: string;
   description?: string;
   category?: string;
-  size?: number;
+  size?: number | undefined;
   seeders?: number;
   leechers?: number;
   downloadVolumeFactor?: number;
@@ -23,14 +23,14 @@ interface TorznabItem {
   guid?: string;
   comments?: string;
   attributes?: { [key: string]: string };
-  indexerId?: string;
-  indexerName?: string;
-  indexerUrl?: string;
+  indexerId?: string | undefined;
+  indexerName?: string | undefined;
+  indexerUrl?: string | undefined;
 }
 
 interface TorznabSearchParams {
   query?: string;
-  category?: string[];
+  category?: string[] | undefined;
   limit?: number;
   offset?: number;
   imdbid?: string;
@@ -45,8 +45,8 @@ interface TorznabResponse {
 }
 
 interface TorznabServerInfo {
-  title?: string;
-  version?: string;
+  title?: string | undefined;
+  version?: string | undefined;
 }
 
 export class TorznabClient {

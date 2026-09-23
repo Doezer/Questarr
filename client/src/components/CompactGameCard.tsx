@@ -22,12 +22,12 @@ const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
 interface CompactGameCardProps {
   game: Game;
-  onStatusChange?: (gameId: string, newStatus: GameStatus) => void;
-  onViewDetails?: (gameId: string) => void;
-  onToggleHidden?: (gameId: string, hidden: boolean) => void;
+  onStatusChange?: ((gameId: string, newStatus: GameStatus) => void) | undefined;
+  onViewDetails?: ((gameId: string) => void) | undefined;
+  onToggleHidden?: ((gameId: string, hidden: boolean) => void) | undefined;
   isDiscovery?: boolean;
   density?: "comfortable" | "compact";
-  downloadSummary?: DownloadSummary;
+  downloadSummary?: DownloadSummary | undefined;
   /** When true, the row uses CSS subgrid (parent must provide the grid context). */
   useSubgrid?: boolean;
   mobileLayout?: boolean;

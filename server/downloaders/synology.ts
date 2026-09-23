@@ -407,7 +407,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     options: {
       httpMethod?: "GET" | "POST";
       params?: Record<string, string | number | boolean | undefined>;
-      body?: URLSearchParams | FormData;
+      body?: URLSearchParams | FormData | undefined;
       retryOnAuthFailure?: boolean;
       requiresAuth?: boolean;
       /**
@@ -525,7 +525,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     options: {
       httpMethod?: "GET" | "POST";
       params?: Record<string, string | number | boolean | undefined>;
-      body?: URLSearchParams | FormData;
+      body?: URLSearchParams | FormData | undefined;
       retryOnAuthFailure?: boolean;
       sidInQuery?: boolean;
       appendFileLast?: (formData: FormData) => void;
@@ -534,7 +534,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
        * (SYNO.DownloadStation.Task) file uploads specifically, vs v3 for its other legacy
        * calls. See docs/synology-download-station-api-notes.md.
        */
-      preferredVersion?: number;
+      preferredVersion?: number | undefined;
     } = {}
   ): Promise<T> {
     await this.ensureApiInfo();
@@ -920,7 +920,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
 
   async addDownload(
     request: DownloadRequest
-  ): Promise<{ success: boolean; id?: string; message: string }> {
+  ): Promise<{ success: boolean; id?: string | undefined; message: string }> {
     try {
       if (!request.url) {
         return { success: false, message: "Download URL is required" };
@@ -986,7 +986,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     destination: string | undefined,
     apiName: string,
     response: Response
-  ): Promise<{ success: boolean; id?: string; message: string }> {
+  ): Promise<{ success: boolean; id?: string | undefined; message: string }> {
     const contentDisposition = response.headers.get("content-disposition") || "";
     const fileNameMatch = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
     const fileName =
@@ -1078,8 +1078,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
   }
 
   private getTrackerSwarmCounts(trackers: SynologyTaskTrackerInfo[] | undefined): {
-    seeders?: number;
-    leechers?: number;
+    seeders?: number | undefined;
+    leechers?: number | undefined;
   } {
     let seeders: number | undefined;
     let leechers: number | undefined;

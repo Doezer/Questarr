@@ -4,7 +4,7 @@
  * the calendar and library filters classify it correctly from the start.
  */
 export const normalizeInitialReleaseStatus = <
-  T extends { releaseDate?: string | null; releaseStatus?: string | null },
+  T extends { releaseDate?: string | null | undefined; releaseStatus?: string | null | undefined },
 >(
   gameData: T
 ): T => {

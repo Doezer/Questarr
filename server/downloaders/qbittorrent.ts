@@ -161,7 +161,7 @@ export class QBittorrentClient implements DownloaderClient {
       }
 
       const findRecentlyAddedDownload = async (
-        options: { skipInitialWait?: boolean; correlationTag?: string } = {}
+        options: { skipInitialWait?: boolean; correlationTag?: string | undefined } = {}
       ): Promise<{
         hash: string;
         name?: string;
@@ -1507,7 +1507,7 @@ export class QBittorrentClient implements DownloaderClient {
     let response = await safeFetch(url, {
       method,
       headers,
-      body: requestBody,
+      ...(requestBody !== undefined ? { body: requestBody } : {}),
       signal: AbortSignal.timeout(30000),
       requireHttps: isHttpsUrl(url),
     });
@@ -1528,7 +1528,7 @@ export class QBittorrentClient implements DownloaderClient {
       response = await safeFetch(url, {
         method,
         headers: retryHeaders,
-        body: requestBody,
+        ...(requestBody !== undefined ? { body: requestBody } : {}),
         signal: AbortSignal.timeout(30000),
         requireHttps: isHttpsUrl(url),
       });

@@ -224,7 +224,7 @@ export async function getLatestReleases(
   options: {
     page?: number;
     perPage?: number;
-    baseUrl?: string | null;
+    baseUrl?: string | null | undefined;
     extInfoType?: string;
   } = {}
 ): Promise<{

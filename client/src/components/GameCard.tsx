@@ -25,12 +25,12 @@ const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
 interface GameCardProps {
   game: Game;
-  onStatusChange?: (gameId: string, newStatus: GameStatus) => void;
-  onViewDetails?: (gameId: string) => void;
-  onTrackGame?: (game: Game) => void;
-  onToggleHidden?: (gameId: string, hidden: boolean) => void;
+  onStatusChange?: ((gameId: string, newStatus: GameStatus) => void) | undefined;
+  onViewDetails?: ((gameId: string) => void) | undefined;
+  onTrackGame?: ((game: Game) => void) | undefined;
+  onToggleHidden?: ((gameId: string, hidden: boolean) => void) | undefined;
   isDiscovery?: boolean;
-  downloadSummary?: DownloadSummary;
+  downloadSummary?: DownloadSummary | undefined;
 }
 
 // ⚡ Bolt: Using React.memo to prevent unnecessary re-renders of the GameCard

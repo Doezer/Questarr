@@ -108,9 +108,9 @@ export interface IGDBGame {
 }
 
 export interface TimeToBeat {
-  hastily?: number;
-  normally?: number;
-  completely?: number;
+  hastily?: number | undefined;
+  normally?: number | undefined;
+  completely?: number | undefined;
 }
 
 interface SearchGamesOptions {
@@ -1152,7 +1152,11 @@ class IGDBClient {
   }
 
   async getRecommendations(
-    userGames: Array<{ genres?: string[]; platforms?: string[]; igdbId?: number }>,
+    userGames: Array<{
+      genres?: string[] | undefined;
+      platforms?: string[] | undefined;
+      igdbId?: number | undefined;
+    }>,
     limit: number = 20
   ): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) return [];

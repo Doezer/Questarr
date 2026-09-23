@@ -12,7 +12,7 @@ const rssLogger = logger.child({ module: "rss" });
 interface IgdbCacheEntry {
   id: number;
   name: string;
-  coverUrl?: string;
+  coverUrl?: string | undefined;
   timestamp: number;
 }
 

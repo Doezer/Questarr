@@ -21,12 +21,12 @@ export interface DownloaderActionResult {
 }
 
 export interface DownloadResult extends DownloaderActionResult {
-  id?: string;
+  id?: string | undefined;
   // Correlation tag for async qBittorrent adds where the hash isn't
   // immediately known. The route uses this as a temporary downloadHash
   // so the game_downloads tracking record is created upfront; the cron
   // later resolves the real hash.
-  correlationTag?: string;
+  correlationTag?: string | undefined;
 }
 
 export interface DownloaderClient {

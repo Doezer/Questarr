@@ -39,7 +39,7 @@ export interface ScanProgress {
   matched: number;
   unmatched: number;
   errors: number;
-  currentCandidate?: string;
+  currentCandidate?: string | undefined;
   errorMessage?: string;
 }
 

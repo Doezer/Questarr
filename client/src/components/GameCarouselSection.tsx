@@ -56,7 +56,7 @@ const GameCarouselSection = ({
   } = useQuery<Game[]>({
     queryKey,
     queryFn,
-    staleTime,
+    ...(staleTime !== undefined ? { staleTime } : {}),
   });
 
   // Update scroll states when API changes or when carousel slides

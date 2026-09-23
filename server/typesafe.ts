@@ -117,8 +117,8 @@ class TypeSafeClient {
    */
   async analyzeRelease(params: {
     releaseName: string;
-    sizeBytes?: number;
-    platform?: string;
+    sizeBytes?: number | undefined;
+    platform?: string | undefined;
   }): Promise<ReleaseAnalysis | null> {
     await this.ensureLoaded();
     if (!this.apiUrl || !this.apiKey) return null;

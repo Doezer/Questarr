@@ -127,10 +127,10 @@ function getRedirectOptions(
   headers.delete("content-length");
   headers.delete("content-type");
 
+  const { body: _body, ...rest } = fetchOptions;
   return {
-    ...fetchOptions,
+    ...rest,
     method: "GET",
-    body: undefined,
     headers,
   };
 }
@@ -419,9 +419,10 @@ export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}):
   } = options;
 
   let currentUrl = new URL(urlStr);
+  const builtSignal = buildFetchSignal(signal, timeoutMs);
   let currentOptions: RequestInit = {
     ...fetchOptions,
-    signal: buildFetchSignal(signal, timeoutMs),
+    ...(builtSignal !== undefined ? { signal: builtSignal } : {}),
   };
   let redirectCount = 0;
 

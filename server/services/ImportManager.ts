@@ -534,7 +534,7 @@ export class ImportManager {
       downloaderName: string;
       remoteDownloadPath: string;
       gameTitle?: string;
-      userId?: string;
+      userId?: string | undefined;
     }
   ): Promise<boolean> {
     if (await fs.pathExists(localPath)) {
@@ -904,9 +904,9 @@ export class ImportManager {
   async confirmImport(
     downloadId: string,
     overridePlan?: ImportReview & {
-      transferMode?: "move" | "copy" | "hardlink" | "symlink";
-      unpack?: boolean;
-      password?: string;
+      transferMode?: "move" | "copy" | "hardlink" | "symlink" | undefined;
+      unpack?: boolean | undefined;
+      password?: string | undefined;
     },
     callerUserId?: string
   ): Promise<void> {

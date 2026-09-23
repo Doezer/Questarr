@@ -25,14 +25,14 @@ export interface XrelReleaseIdentity {
 export interface XrelReleaseListItem extends XrelReleaseIdentity {
   time: number;
   group_name: string;
-  sizeMb?: number;
-  sizeUnit?: string;
-  ext_info?: XrelExtInfo;
+  sizeMb?: number | undefined;
+  sizeUnit?: string | undefined;
+  ext_info?: XrelExtInfo | undefined;
   source: "scene" | "p2p";
   // Normalized from XrelSceneRelease.nuke_reason (with a fallback for
   // flag-only nukes -- see deriveNukeReason in server/xrel.ts). Only ever
   // set for scene releases -- xREL's p2p releases don't carry nuke metadata.
-  nukeReason?: string;
+  nukeReason?: string | undefined;
   // "hypervisor" vs "cracked" -- see deriveCrackType() below.
   crackType: "hypervisor" | "cracked";
 }

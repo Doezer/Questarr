@@ -217,7 +217,7 @@ function AppShell() {
 
 function App() {
   return (
-    <WouterRouter base={routerBase}>
+    <WouterRouter {...(routerBase !== undefined ? { base: routerBase } : {})}>
       <AppShell />
     </WouterRouter>
   );

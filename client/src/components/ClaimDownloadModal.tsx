@@ -64,7 +64,7 @@ export default function ClaimDownloadModal({
   const [selectedGame, setSelectedGame] = useState<{
     id: string;
     title: string;
-    coverUrl?: string;
+    coverUrl?: string | undefined;
     source: "library" | "igdb";
     data: Game;
   } | null>(null);

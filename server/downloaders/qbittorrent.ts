@@ -223,7 +223,7 @@ export class QBittorrentClient implements DownloaderClient {
           });
         }
 
-        if (!matchingDownload && allDownloads.length > 0) {
+        if (!matchingDownload && allDownloads[0]) {
           const mostRecent = allDownloads[0];
           const now = Date.now() / 1000;
           if (mostRecent.added_on && now - mostRecent.added_on < 5) {

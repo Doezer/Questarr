@@ -69,7 +69,7 @@ import { db } from "./db.js";
 import { normalizeDownloadHash } from "./download-hash.js";
 import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { categorizeDownload } from "../shared/download-categorizer.js";
-import { stripUndefined } from "./object-utils.js";
+import { firstOrThrow, stripUndefined } from "./object-utils.js";
 import {
   encryptCredential,
   decryptCredential,
@@ -1773,11 +1773,11 @@ export class DatabaseStorage implements IStorage {
 
   async addPathMapping(insertMapping: InsertPathMapping): Promise<PathMapping> {
     const id = randomUUID();
-    const [mapping] = await db
+    const rows = await db
       .insert(pathMappings)
       .values({ ...insertMapping, id })
       .returning();
-    return mapping;
+    return firstOrThrow(rows);
   }
 
   async updatePathMapping(
@@ -1812,21 +1812,23 @@ export class DatabaseStorage implements IStorage {
 
   async addPlatformMapping(insertMapping: InsertPlatformMapping): Promise<PlatformMapping> {
     const id = randomUUID();
-    const [mapping] = await db
+    const rows = await db
       .insert(platformMappings)
       .values({ ...insertMapping, id })
       .returning();
-    return mapping;
+    return firstOrThrow(rows);
   }
 
   async seedPlatformMappingsIfEmpty(
     mappings: InsertPlatformMapping[]
   ): Promise<{ seeded: boolean; count: number }> {
     return db.transaction((tx) => {
-      const [existing] = tx
-        .select({ count: sql<number>`count(*)` })
-        .from(platformMappings)
-        .all();
+      const existing = firstOrThrow(
+        tx
+          .select({ count: sql<number>`count(*)` })
+          .from(platformMappings)
+          .all()
+      );
       if (existing.count > 0) {
         return { seeded: false, count: existing.count };
       }
@@ -1837,10 +1839,12 @@ export class DatabaseStorage implements IStorage {
           .run();
       }
 
-      const [seeded] = tx
-        .select({ count: sql<number>`count(*)` })
-        .from(platformMappings)
-        .all();
+      const seeded = firstOrThrow(
+        tx
+          .select({ count: sql<number>`count(*)` })
+          .from(platformMappings)
+          .all()
+      );
       return { seeded: true, count: seeded.count };
     });
   }
@@ -1887,11 +1891,11 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     // Manually generate UUID for SQLite
     const id = randomUUID();
-    const [user] = await db
+    const rows = await db
       .insert(users)
       .values({ ...insertUser, id })
       .returning();
-    return user;
+    return firstOrThrow(rows);
   }
 
   async updateUserPassword(userId: string, passwordHash: string): Promise<User | undefined> {
@@ -1917,16 +1921,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async countUsers(): Promise<number> {
-    const [result] = await db.select({ count: sql<number>`count(*)` }).from(users);
+    const result = firstOrThrow(await db.select({ count: sql<number>`count(*)` }).from(users));
     return result.count;
   }
 
   async registerSetupUser(insertUser: InsertUser): Promise<User> {
     return db.transaction((tx) => {
-      const [result] = tx
-        .select({ count: sql<number>`count(*)` })
-        .from(users)
-        .all();
+      const result = firstOrThrow(
+        tx
+          .select({ count: sql<number>`count(*)` })
+          .from(users)
+          .all()
+      );
 
       if (result.count > 0) {
         throw new Error("Setup already completed");
@@ -1934,12 +1940,12 @@ export class DatabaseStorage implements IStorage {
 
       // Manually generate UUID for SQLite
       const id = randomUUID();
-      const [user] = tx
+      const rows = tx
         .insert(users)
         .values({ ...insertUser, id, steamId64: null })
         .returning()
         .all();
-      return user;
+      return firstOrThrow(rows);
     });
   }
 
@@ -2049,8 +2055,8 @@ export class DatabaseStorage implements IStorage {
       addedAt: new Date(),
     };
 
-    const [game] = await db.insert(games).values(gameWithId).returning();
-    return game;
+    const rows = await db.insert(games).values(gameWithId).returning();
+    return firstOrThrow(rows);
   }
 
   async updateGameStatus(id: string, statusUpdate: UpdateGameStatus): Promise<Game | undefined> {
@@ -2224,11 +2230,11 @@ export class DatabaseStorage implements IStorage {
     // Generate UUID manually
     const id = randomUUID();
     const apiKey = await encryptCredential(insertIndexer.apiKey);
-    const [indexer] = await db
+    const rows = await db
       .insert(indexers)
       .values({ ...insertIndexer, apiKey, id })
       .returning();
-    return this.decryptIndexer(indexer);
+    return this.decryptIndexer(firstOrThrow(rows));
   }
 
   async updateIndexer(id: string, updates: Partial<InsertIndexer>): Promise<Indexer | undefined> {
@@ -2364,11 +2370,11 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const username = await encryptCredential(insertDownloader.username);
     const password = await encryptCredential(insertDownloader.password);
-    const [downloader] = await db
+    const rows = await db
       .insert(downloaders)
       .values({ ...insertDownloader, username, password, id })
       .returning();
-    return this.decryptDownloader(downloader);
+    return this.decryptDownloader(firstOrThrow(rows));
   }
 
   async updateDownloader(
@@ -2757,20 +2763,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUnreadNotificationsCount(userId: string): Promise<number> {
-    const [result] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(notifications)
-      .where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
+    const result = firstOrThrow(
+      await db
+        .select({ count: sql<number>`count(*)` })
+        .from(notifications)
+        .where(and(eq(notifications.userId, userId), eq(notifications.read, false)))
+    );
     return result.count;
   }
 
   async addNotification(insertNotification: InsertNotification): Promise<Notification> {
     const id = randomUUID();
-    const [notification] = await db
+    const rows = await db
       .insert(notifications)
       .values({ ...insertNotification, id })
       .returning();
-    return notification;
+    return firstOrThrow(rows);
   }
 
   async addNotificationsBatch(insertNotifications: InsertNotification[]): Promise<Notification[]> {
@@ -2816,11 +2824,11 @@ export class DatabaseStorage implements IStorage {
 
   async addRssFeed(feed: InsertRssFeed): Promise<RssFeed> {
     const id = randomUUID();
-    const [newFeed] = await db
+    const rows = await db
       .insert(rssFeeds)
       .values({ ...feed, id })
       .returning();
-    return newFeed;
+    return firstOrThrow(rows);
   }
 
   async updateRssFeed(id: string, updates: Partial<RssFeed>): Promise<RssFeed | undefined> {
@@ -2856,11 +2864,11 @@ export class DatabaseStorage implements IStorage {
 
   async addRssFeedItem(item: InsertRssFeedItem): Promise<RssFeedItem> {
     const id = randomUUID();
-    const [newItem] = await db
+    const rows = await db
       .insert(rssFeedItems)
       .values({ ...item, id })
       .returning();
-    return newItem;
+    return firstOrThrow(rows);
   }
 
   async getRssFeedItemByGuid(guid: string): Promise<RssFeedItem | undefined> {
@@ -2888,7 +2896,7 @@ export class DatabaseStorage implements IStorage {
 
   async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
     const id = randomUUID();
-    const [settings] = await db
+    const rows = await db
       .insert(userSettings)
       .values({
         ...insertSettings,
@@ -2896,7 +2904,7 @@ export class DatabaseStorage implements IStorage {
         id,
       })
       .returning();
-    return settings;
+    return firstOrThrow(rows);
   }
 
   async updateUserSettings(
@@ -2916,11 +2924,11 @@ export class DatabaseStorage implements IStorage {
 
   async addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease> {
     const id = randomUUID();
-    const [row] = await db
+    const rows = await db
       .insert(xrelNotifiedReleases)
       .values({ ...insert, id })
       .returning();
-    return row;
+    return firstOrThrow(rows);
   }
 
   async hasXrelNotifiedRelease(gameId: string, xrelReleaseId: string): Promise<boolean> {
@@ -2957,7 +2965,7 @@ export class DatabaseStorage implements IStorage {
       .onConflictDoNothing()
       .returning();
     if (!row) {
-      const [existing] = await db
+      const existingRows = await db
         .select()
         .from(releaseBlacklist)
         .where(
@@ -2966,7 +2974,7 @@ export class DatabaseStorage implements IStorage {
             eq(releaseBlacklist.releaseTitle, entry.releaseTitle)
           )
         );
-      return existing;
+      return firstOrThrow(existingRows);
     }
     return row;
   }
@@ -3028,11 +3036,11 @@ export class DatabaseStorage implements IStorage {
 
   async addGameFile(file: InsertGameFile): Promise<GameFile> {
     const id = randomUUID();
-    const [gf] = await db
+    const rows = await db
       .insert(gameFiles)
       .values({ ...file, id, category: file.category as "main" | "dlc" | "update" | "extra" })
       .returning();
-    return gf;
+    return firstOrThrow(rows);
   }
 
   async addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]> {
@@ -3062,7 +3070,7 @@ export class DatabaseStorage implements IStorage {
     triggeredBy: "manual" | "system";
   }): Promise<ImportTask> {
     const id = randomUUID();
-    const [task] = await db
+    const rows = await db
       .insert(importTasks)
       .values({
         id,
@@ -3072,7 +3080,7 @@ export class DatabaseStorage implements IStorage {
         status: "pending",
       })
       .returning();
-    return task;
+    return firstOrThrow(rows);
   }
 
   async startImportTask(id: string): Promise<void> {
@@ -3088,7 +3096,7 @@ export class DatabaseStorage implements IStorage {
 
   async addImportTaskItem(item: InsertImportTaskItem): Promise<ImportTaskItem> {
     const id = randomUUID();
-    const [row] = await db
+    const rows = await db
       .insert(importTaskItems)
       .values({
         id,
@@ -3100,7 +3108,7 @@ export class DatabaseStorage implements IStorage {
         errorMessage: item.errorMessage ?? null,
       })
       .returning();
-    return row;
+    return firstOrThrow(rows);
   }
 
   async addImportTaskItemsBatch(items: InsertImportTaskItem[]): Promise<ImportTaskItem[]> {
@@ -3170,11 +3178,11 @@ export class DatabaseStorage implements IStorage {
 
   async addRootFolder(folder: InsertRootFolder): Promise<RootFolder> {
     const id = randomUUID();
-    const [rf] = await db
+    const rows = await db
       .insert(rootFolders)
       .values({ ...folder, id })
       .returning();
-    return rf;
+    return firstOrThrow(rows);
   }
 
   async updateRootFolder(id: string, updates: UpdateRootFolder): Promise<RootFolder | undefined> {
@@ -3234,17 +3242,19 @@ export class DatabaseStorage implements IStorage {
     // concurrent requests would otherwise have around the cap: without it,
     // both could read the same under-limit count before either insert lands.
     return db.transaction((tx) => {
-      const [{ count }] = tx
-        .select({ count: sql<number>`count(*)` })
-        .from(apiKeys)
-        .where(eq(apiKeys.userId, key.userId))
-        .all();
+      const { count } = firstOrThrow(
+        tx
+          .select({ count: sql<number>`count(*)` })
+          .from(apiKeys)
+          .where(eq(apiKeys.userId, key.userId))
+          .all()
+      );
 
       if (count >= maxKeys) {
         throw new Error("API key limit reached");
       }
 
-      const [created] = tx
+      const created = tx
         .insert(apiKeys)
         .values({ ...key, id: randomUUID() })
         .returning({
@@ -3256,7 +3266,7 @@ export class DatabaseStorage implements IStorage {
           lastUsedAt: apiKeys.lastUsedAt,
         })
         .all();
-      return created;
+      return firstOrThrow(created);
     });
   }
 

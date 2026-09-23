@@ -173,6 +173,10 @@ async function migrate() {
     for (const targetTableName of tables) {
       console.log(`\n📦 Migrating table: ${targetTableName}...`);
       const config = MIGRATION_CONFIG[targetTableName];
+      if (!config) {
+        console.log(`   No migration config for ${targetTableName}, skipping.`);
+        continue;
+      }
 
       try {
         // 1. Determine Source Table Name
@@ -226,7 +230,7 @@ async function migrate() {
         console.log(`   Found ${sourceRowCount} rows in source table '${sourceTableName}'.`);
 
         // 2. Validate Source Schema
-        const sourceColumns = Object.keys(rows[0]);
+        const sourceColumns = Object.keys(rows[0] ?? {});
         if (config.requiredSourceColumns) {
           const missing = config.requiredSourceColumns.filter((c) => !sourceColumns.includes(c));
           if (missing.length > 0) {

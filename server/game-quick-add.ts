@@ -36,12 +36,12 @@ export async function quickAddGameByTitle(
   title: string,
   options: { status?: "wanted" | "owned"; source?: Game["source"] } = {}
 ): Promise<QuickAddResult> {
-  const igdbResults = await igdbClient.searchGames(title, 1);
-  if (igdbResults.length === 0) {
+  const [igdbResult] = await igdbClient.searchGames(title, 1);
+  if (!igdbResult) {
     return { outcome: "not_found" };
   }
 
-  const match = igdbClient.formatGameData(igdbResults[0]);
+  const match = igdbClient.formatGameData(igdbResult);
   const filterFlags = await getContentFilterFlags(userId);
   if (
     isContentFiltered(match as { isAdultContent?: boolean; isAgeRestricted?: boolean }, filterFlags)

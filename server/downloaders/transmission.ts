@@ -202,7 +202,7 @@ export class TransmissionClient implements DownloaderClient {
             !fetchResult.response?.ok &&
             request.url.includes("&file=")
           ) {
-            const urlNoFile = request.url.split("&file=")[0];
+            const urlNoFile = request.url.split("&file=")[0] ?? request.url;
             downloadersLogger.warn(
               { original: request.url, fixed: urlNoFile },
               "Retrying download without &file= parameter"
@@ -564,6 +564,7 @@ export class TransmissionClient implements DownloaderClient {
       for (let i = 0; i < torrent.files.length; i++) {
         const file = torrent.files[i];
         const stats = torrent.fileStats[i];
+        if (!file || !stats) continue;
 
         // Transmission priority: -1=low, 0=normal, 1=high
         // If file is not wanted, mark as 'off'

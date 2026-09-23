@@ -143,7 +143,7 @@ export class RTorrentClient implements DownloaderClient {
 
       // Some indexers reject the request when a &file= param is present — retry without it
       if (!fetchResult.magnetLink && !fetchResult.response?.ok && request.url.includes("&file=")) {
-        const urlNoFile = request.url.split("&file=")[0];
+        const urlNoFile = request.url.split("&file=")[0] ?? request.url;
         downloadersLogger.warn(
           { original: request.url, fixed: urlNoFile },
           "Retrying download without &file= parameter"
@@ -238,7 +238,7 @@ export class RTorrentClient implements DownloaderClient {
       // Filter for the specific ID since d.multicall2 returns all downloads in the view
       if (result && result.length > 0) {
         const download = result.find(
-          (t: unknown[]) => (t as string[])[0].toLowerCase() === id.toLowerCase()
+          (t: unknown[]) => ((t as string[])[0] ?? "").toLowerCase() === id.toLowerCase()
         );
         if (download) {
           return this.mapRTorrentStatus(download);
@@ -598,9 +598,11 @@ export class RTorrentClient implements DownloaderClient {
     const regex = /([a-z0-9_-]+)=(?:"([^"]+)"|([a-z0-9_-]+))/gi;
     let match;
     while ((match = regex.exec(authHeader)) !== null) {
-      const key = match[1].toLowerCase();
+      const key = match[1]?.toLowerCase();
       const value = match[2] || match[3]; // Group 2 is quoted, Group 3 is unquoted
-      challenge[key] = value;
+      if (key && value) {
+        challenge[key] = value;
+      }
     }
 
     const realm = challenge.realm;

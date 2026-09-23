@@ -1,4 +1,4 @@
-import { CARDINAL_DIRS, cellKey, isInterior, type GridPos } from "./grid";
+import { CARDINAL_DIRS, cellKey, isInterior, parseCellKey, type GridPos } from "./grid";
 
 /**
  * A* over the walkable interior grid, cardinal moves only. Diagonal steps are
@@ -106,10 +106,7 @@ function reconstructPath(cameFrom: Map<string, string>, goalKey: string): GridPo
   }
   keys.reverse();
   // Drop the start cell: the caller is already standing there.
-  return keys.slice(1).map((k) => {
-    const [x, z] = k.split(",").map(Number);
-    return { x, z };
-  });
+  return keys.slice(1).map(parseCellKey);
 }
 
 /**
@@ -132,7 +129,7 @@ export function nearestOpenCell(
   const queue: GridPos[] = [clamped];
   let head = 0;
   while (head < queue.length) {
-    const cur = queue[head++];
+    const cur = queue[head++]!;
     for (const dir of CARDINAL_DIRS) {
       const next: GridPos = { x: cur.x + dir.x, z: cur.z + dir.z };
       if (!isInterior(next, gridSize)) continue;

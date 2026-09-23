@@ -186,7 +186,9 @@ function roomsBesideDoor(rooms: Rect[], door: GridPos): [number, number] | null 
     const index = rooms.findIndex((room) => rectContains(room, cell));
     if (index >= 0 && !found.includes(index)) found.push(index);
   }
-  return found.length === 2 ? [found[0], found[1]] : null;
+  return found.length === 2 && found[0] !== undefined && found[1] !== undefined
+    ? [found[0], found[1]]
+    : null;
 }
 
 /**
@@ -206,9 +208,10 @@ function pickDoorInWall(
 ): DoorDef | null {
   const candidates: { pos: GridPos; rooms: [number, number]; edge: number }[] = [];
   for (let i = 0; i < wall.length; i++) {
-    const joined = roomsBesideDoor(rooms, wall[i]);
+    const cell = wall[i]!;
+    const joined = roomsBesideDoor(rooms, cell);
     if (!joined) continue;
-    candidates.push({ pos: wall[i], rooms: joined, edge: Math.min(i, wall.length - 1 - i) });
+    candidates.push({ pos: cell, rooms: joined, edge: Math.min(i, wall.length - 1 - i) });
   }
   if (candidates.length === 0) return null;
 
@@ -217,6 +220,7 @@ function pickDoorInWall(
   const reach = Math.min(DOOR_EDGE_MARGIN, Math.max(...candidates.map((c) => c.edge)));
   const preferred = candidates.filter((c) => c.edge >= reach);
   const pick = preferred[Math.floor(rand() * preferred.length)];
+  if (!pick) return null;
   return { pos: pick.pos, locked: false, rooms: pick.rooms };
 }
 
@@ -234,13 +238,14 @@ function partitionRooms(interior: Rect, roomCount: number, rand: () => number) {
     let best = -1;
     let bestArea = 0;
     for (let i = 0; i < rooms.length; i++) {
-      const area = rooms[i].w * rooms[i].h;
+      const room = rooms[i]!;
+      const area = room.w * room.h;
       if (area > bestArea) {
         bestArea = area;
         best = i;
       }
     }
-    const split = best < 0 ? null : splitRect(rooms[best], rand);
+    const split = best < 0 ? null : splitRect(rooms[best]!, rand);
     if (!split) break;
     rooms = [...rooms.slice(0, best), split.a, split.b, ...rooms.slice(best + 1)];
     splits.push(split);
@@ -275,12 +280,12 @@ function roomHops(
   const queue = [start];
   let head = 0;
   while (head < queue.length) {
-    const room = queue[head++];
+    const room = queue[head++]!;
     for (const door of doors) {
       if (door === skipDoor || !door.rooms.includes(room)) continue;
       const next = door.rooms[0] === room ? door.rooms[1] : door.rooms[0];
       if (hops[next] !== Infinity) continue;
-      hops[next] = hops[room] + 1;
+      hops[next] = hops[room]! + 1;
       via[next] = door;
       queue.push(next);
     }
@@ -332,12 +337,13 @@ function pickKeycardCell(
   let target = spawnRoom;
   let bestHops = -1;
   for (let index = 0; index < rooms.length; index++) {
-    if (hops[index] !== Infinity && hops[index] > bestHops) {
-      bestHops = hops[index];
+    const hop = hops[index]!;
+    if (hop !== Infinity && hop > bestHops) {
+      bestHops = hop;
       target = index;
     }
   }
-  return farthestCellIn(rooms[target], spawn, blocked);
+  return farthestCellIn(rooms[target]!, spawn, blocked);
 }
 
 /** Cells a door needs kept clear, so crates can never seal a doorway. */
@@ -441,7 +447,8 @@ function assignGuardWaypoints(
 ): { waypoints: GridPos[] }[] {
   const guards: { waypoints: GridPos[] }[] = [];
   for (let g = 0; g < config.guardCount; g++) {
-    const room = rooms[patrolRooms[g % patrolRooms.length]];
+    const roomIndex = patrolRooms[g % patrolRooms.length]!;
+    const room = rooms[roomIndex]!;
     const open = rectCells(room).filter((cell) => !blocked.has(cellKey(cell)));
     if (open.length === 0) continue;
     // Sampled without replacement: drawing the same cell twice would give this
@@ -450,7 +457,7 @@ function assignGuardWaypoints(
     const pool = [...open];
     const waypoints: GridPos[] = [];
     for (let i = 0; i < config.waypointsPerGuard && pool.length > 0; i++) {
-      waypoints.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]);
+      waypoints.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]!);
     }
     guards.push({ waypoints });
   }
@@ -487,7 +494,7 @@ interface Compound {
  * chosen here — see {@link pickGate}, which needs the rooms first.
  */
 function layOutCompound(gridSize: number, apronDepth: number, rand: () => number): Compound {
-  const side = APRON_SIDES[Math.floor(rand() * APRON_SIDES.length)];
+  const side = APRON_SIDES[Math.floor(rand() * APRON_SIDES.length)]!;
   const low = 1;
   const span = Math.max(1, gridSize - 2);
   const alongZ = side === "north" || side === "south";
@@ -614,7 +621,7 @@ function pickGate(
   );
   const best = Math.max(...reach);
   const bestCandidates = candidates.filter((_, index) => reach[index] === best);
-  return bestCandidates[Math.floor(rand() * bestCandidates.length)];
+  return bestCandidates[Math.floor(rand() * bestCandidates.length)] ?? null;
 }
 
 /**
@@ -651,15 +658,15 @@ export function generateLevel(seed: number, overrides: Partial<LevelConfig> = {}
 
   const { hops, via } = roomHops(rooms, doors, entryRoom);
   const terminalRoom = hops.reduce(
-    (best, value, index) => (value !== Infinity && value > hops[best] ? index : best),
+    (best, value, index) => (value !== Infinity && value > hops[best]! ? index : best),
     entryRoom
   );
-  const terminal = farthestCellIn(rooms[terminalRoom], gate.pos, structural);
+  const terminal = farthestCellIn(rooms[terminalRoom]!, gate.pos, structural);
 
   // The door into the terminal's room is the one worth locking: it is the last
   // bridge on the route, so the keycard detour can never be skipped.
   const route = doorsOnRoute(via, entryRoom, terminalRoom);
-  const lockedDoor = route.length > 0 ? route[0] : null;
+  const lockedDoor = route.length > 0 ? (route[0] ?? null) : null;
   if (lockedDoor) lockedDoor.locked = true;
 
   const keycard = lockedDoor

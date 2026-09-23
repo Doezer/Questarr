@@ -17,7 +17,7 @@ export function cellKey(pos: GridPos): string {
 /** Inverse of {@link cellKey}. */
 export function parseCellKey(key: string): GridPos {
   const [x, z] = key.split(",").map(Number);
-  return { x, z };
+  return { x: x ?? 0, z: z ?? 0 };
 }
 
 export const CARDINAL_DIRS: readonly GridPos[] = [
@@ -43,7 +43,7 @@ export function bfsDistances(
 
   let head = 0;
   while (head < queue.length) {
-    const cur = queue[head++];
+    const cur = queue[head++]!;
     const curDist = dist.get(cellKey(cur))!;
     for (const dir of CARDINAL_DIRS) {
       const next: GridPos = { x: cur.x + dir.x, z: cur.z + dir.z };

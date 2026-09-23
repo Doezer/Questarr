@@ -174,18 +174,18 @@ const IGDB_WEBSITE_CONFIG: Record<number, SiteLinkConfig> = {
 };
 
 const URL_WEBSITE_PATTERNS: Array<{ pattern: RegExp; config: SiteLinkConfig }> = [
-  { pattern: /store\.steampowered\.com/i, config: IGDB_WEBSITE_CONFIG[13] },
-  { pattern: /reddit\.com/i, config: IGDB_WEBSITE_CONFIG[14] },
-  { pattern: /itch\.io/i, config: IGDB_WEBSITE_CONFIG[15] },
-  { pattern: /epicgames\.com/i, config: IGDB_WEBSITE_CONFIG[16] },
-  { pattern: /gog\.com/i, config: IGDB_WEBSITE_CONFIG[17] },
-  { pattern: /discord\.(gg|com)/i, config: IGDB_WEBSITE_CONFIG[18] },
-  { pattern: /twitch\.tv/i, config: IGDB_WEBSITE_CONFIG[5] },
-  { pattern: /wikipedia\.org/i, config: IGDB_WEBSITE_CONFIG[3] },
+  { pattern: /store\.steampowered\.com/i, config: IGDB_WEBSITE_CONFIG[13]! },
+  { pattern: /reddit\.com/i, config: IGDB_WEBSITE_CONFIG[14]! },
+  { pattern: /itch\.io/i, config: IGDB_WEBSITE_CONFIG[15]! },
+  { pattern: /epicgames\.com/i, config: IGDB_WEBSITE_CONFIG[16]! },
+  { pattern: /gog\.com/i, config: IGDB_WEBSITE_CONFIG[17]! },
+  { pattern: /discord\.(gg|com)/i, config: IGDB_WEBSITE_CONFIG[18]! },
+  { pattern: /twitch\.tv/i, config: IGDB_WEBSITE_CONFIG[5]! },
+  { pattern: /wikipedia\.org/i, config: IGDB_WEBSITE_CONFIG[3]! },
 ];
 
 function resolveWebsiteConfig(w: { category?: number; url: string }): SiteLinkConfig | null {
-  if (w.category && IGDB_WEBSITE_CONFIG[w.category]) return IGDB_WEBSITE_CONFIG[w.category];
+  if (w.category && IGDB_WEBSITE_CONFIG[w.category]) return IGDB_WEBSITE_CONFIG[w.category]!;
   for (const { pattern, config } of URL_WEBSITE_PATTERNS) {
     if (pattern.test(w.url)) return config;
   }

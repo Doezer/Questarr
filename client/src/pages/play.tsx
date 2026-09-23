@@ -9,7 +9,7 @@ import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 function randomSeed() {
   // A fresh procedural layout per run isn't security-sensitive, but crypto.getRandomValues
   // avoids Math.random() static-analysis flags for no real cost.
-  return crypto.getRandomValues(new Uint32Array(1))[0];
+  return crypto.getRandomValues(new Uint32Array(1))[0]!;
 }
 
 /**

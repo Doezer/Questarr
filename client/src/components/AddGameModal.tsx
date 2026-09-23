@@ -254,7 +254,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     ) {
       return selectedPlatform;
     }
-    return supportedOptions.length === 1 ? String(supportedOptions[0].id) : "default";
+    return supportedOptions.length === 1 ? String(supportedOptions[0]!.id) : "default";
   };
 
   const renderTargetPlatformSelect = (game: SearchResult) => {

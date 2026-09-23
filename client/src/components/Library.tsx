@@ -391,7 +391,7 @@ export default function Library() {
                     </div>
                     <Slider
                       value={[gridColumns]}
-                      onValueChange={([val]) => setGridColumns(val)}
+                      onValueChange={([val]) => val !== undefined && setGridColumns(val)}
                       min={2}
                       max={10}
                       step={1}
@@ -529,6 +529,7 @@ export default function Library() {
                     step={0.5}
                     value={[minRating ?? 0]}
                     onValueChange={([val]) => {
+                      if (val === undefined) return;
                       setMinRating(val === 0 ? null : val);
                       if (val > 0) setShowUnratedOnly(false);
                     }}

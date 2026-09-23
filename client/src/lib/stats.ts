@@ -72,9 +72,7 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
     downloading: 0,
   };
 
-  for (let i = 0; i < games.length; i++) {
-    const g = games[i];
-
+  for (const g of games) {
     if (g.rating !== null && g.rating !== undefined) {
       ratingSum += g.rating;
       ratedCount++;
@@ -85,26 +83,23 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
     }
 
     if (g.genres) {
-      for (let j = 0; j < g.genres.length; j++) {
-        const genre = g.genres[j];
+      for (const genre of g.genres) {
         genreCounts[genre] = (genreCounts[genre] || 0) + 1;
       }
     }
     if (g.platforms) {
-      for (let j = 0; j < g.platforms.length; j++) {
-        const platform = g.platforms[j];
+      for (const platform of g.platforms) {
         platformCounts[platform] = (platformCounts[platform] || 0) + 1;
       }
     }
     if (g.publishers) {
-      for (let j = 0; j < g.publishers.length; j++) {
-        const publisher = g.publishers[j];
+      for (const publisher of g.publishers) {
         publisherCounts[publisher] = (publisherCounts[publisher] || 0) + 1;
       }
     }
     if (g.developers) {
-      for (let j = 0; j < g.developers.length; j++) {
-        uniqueDevelopers.add(g.developers[j]);
+      for (const developer of g.developers) {
+        uniqueDevelopers.add(developer);
       }
     }
 
@@ -143,7 +138,8 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
     const entries = Object.entries(counts);
     if (entries.length === 0) return null;
     entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    return { name: entries[0][0], count: entries[0][1] };
+    const [name, count] = entries[0]!;
+    return { name, count };
   };
 
   const topGenre = getTopItemFromCounts(genreCounts);

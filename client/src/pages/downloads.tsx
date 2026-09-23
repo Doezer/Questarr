@@ -165,9 +165,7 @@ export default function Downloads() {
 
     const statusFiltered = filterDownloadsByStatus(downloads, statusFilter);
 
-    for (let i = 0; i < statusFiltered.length; i++) {
-      const d = statusFiltered[i];
-
+    for (const d of statusFiltered) {
       // Type filter
       if (typeFilter !== "all" && (d.downloadType || "torrent") !== typeFilter) {
         continue;

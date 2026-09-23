@@ -124,9 +124,7 @@ export default function CalendarPage() {
     const grouped: GamesByDate = {};
     const lowercaseQuery = searchQuery?.toLowerCase() || "";
 
-    for (let i = 0; i < games.length; i++) {
-      const g = games[i];
-
+    for (const g of games) {
       if (g.status === "wanted" && g.releaseDate) {
         if (lowercaseQuery && !g.title.toLowerCase().includes(lowercaseQuery)) {
           continue;
@@ -140,7 +138,7 @@ export default function CalendarPage() {
           if (!grouped[g.releaseDate]) {
             grouped[g.releaseDate] = [];
           }
-          grouped[g.releaseDate].push(g);
+          grouped[g.releaseDate]!.push(g);
         }
       }
     }
@@ -181,7 +179,7 @@ export default function CalendarPage() {
     if (viewMode === "month")
       return `${getMonthName(currentDate.getMonth())} ${currentDate.getFullYear()}`;
     const weekDays = getWeekDays(new Date(currentDate));
-    return `${formatDate(weekDays[0])} - ${formatDate(weekDays[6])}`;
+    return `${formatDate(weekDays[0]!)} - ${formatDate(weekDays[6]!)}`;
   };
 
   if (config && !config.igdb.configured) {

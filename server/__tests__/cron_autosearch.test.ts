@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Game, UserSettings } from "@shared/schema";
+import { normalizeTitle } from "@shared/title-utils";
 
 // --- Mocks ---
 const createMockLogger = () => ({
@@ -1807,6 +1808,28 @@ describe("Cron - checkAutoSearch", () => {
       );
     });
 
+    it("does not hold back on a low legitimacy score when the item has no known size", async () => {
+      // Without a size, the AI never actually judged file-size plausibility (analyzeRelease
+      // omits it from the prompt) -- a low score here shouldn't gate anything.
+      const { size: _size, ...itemWithoutSize } = SINGLE_MAIN_ITEM;
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [itemWithoutSize],
+        errors: [],
+        total: 1,
+      });
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "full_game",
+        releaseTypeConfidence: 0.9,
+        legitimacyScore: 0.05,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+    });
+
     it("persists the hold to storage, keyed by game and release title, when first flagged", async () => {
       mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
       mockIsConfigured.mockResolvedValue(true);
@@ -1820,7 +1843,7 @@ describe("Cron - checkAutoSearch", () => {
 
       expect(mockRecordAiAutoDownloadHold).toHaveBeenCalledWith({
         gameId: wantedGame.id,
-        releaseTitle: SINGLE_MAIN_ITEM.title,
+        releaseTitle: normalizeTitle(SINGLE_MAIN_ITEM.title),
         reason: expect.stringContaining("dlc"),
       });
     });

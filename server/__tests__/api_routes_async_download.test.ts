@@ -24,6 +24,7 @@ import {
 import { registerRoutes } from "../routes.js";
 import { storage } from "../storage.js";
 import { DownloaderManager } from "../downloaders.js";
+import { normalizeTitle } from "../../shared/title-utils.js";
 
 // NOTE: mock registration order is intentionally reversed relative to
 // api_routes.test.ts / api_routes_extended.test.ts so Sonar CPD does not
@@ -322,7 +323,10 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     // clearAiAutoDownloadHold is fired-and-forgotten (not awaited by the route), so
     // give its microtask a tick to run before asserting.
     await new Promise((resolve) => setImmediate(resolve));
-    expect(storage.clearAiAutoDownloadHold).toHaveBeenCalledWith(gameId, "Held Game-DLC");
+    expect(storage.clearAiAutoDownloadHold).toHaveBeenCalledWith(
+      gameId,
+      normalizeTitle("Held Game-DLC")
+    );
   });
 
   it("still clears the AI auto-download hold even when the game-download tracking write fails", async () => {
@@ -350,7 +354,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(storage.clearAiAutoDownloadHold).toHaveBeenCalledWith(
       gameId,
-      "Held Game-Tracking-Fails"
+      normalizeTitle("Held Game-Tracking-Fails")
     );
   });
 

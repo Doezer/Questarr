@@ -126,6 +126,7 @@ export async function getAiAutoDownloadHoldReason(
   }
 
   if (
+    item.size !== undefined &&
     analysis.legitimacyScore !== null &&
     analysis.legitimacyScore < AI_AUTO_DOWNLOAD_LEGITIMACY_THRESHOLD
   ) {
@@ -1275,12 +1276,17 @@ export async function checkAutoSearch() {
                 const item = mainItems[0];
 
                 if (item) {
+                  // Keyed by the same normalized title used to de-duplicate candidates
+                  // above (deduplicateByTitle) -- not the raw title -- so a hold set from
+                  // one indexer's exact title formatting is still found when a later
+                  // cycle returns the same release from a different indexer.
+                  const releaseKey = normalizeTitle(item.title);
                   // Held releases are re-checked against storage, not re-analyzed: this
                   // both prevents a later cycle from silently auto-downloading a release
                   // flagged for review (a stale/differently-scored AI response would
                   // otherwise let it through) and avoids a repeat paid TypeSafe call for
                   // the same release every cycle.
-                  const alreadyHeld = await storage.hasAiAutoDownloadHold(game.id, item.title);
+                  const alreadyHeld = await storage.hasAiAutoDownloadHold(game.id, releaseKey);
                   const aiHoldReason = alreadyHeld
                     ? null
                     : await getAiAutoDownloadHoldReason(item, effectivePlatform);
@@ -1293,7 +1299,7 @@ export async function checkAutoSearch() {
                   } else if (aiHoldReason) {
                     const isNewHold = await storage.recordAiAutoDownloadHold({
                       gameId: game.id,
-                      releaseTitle: item.title,
+                      releaseTitle: releaseKey,
                       reason: aiHoldReason,
                     });
                     igdbLogger.info(

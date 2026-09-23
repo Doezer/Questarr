@@ -42,6 +42,7 @@ import { routesLogger } from "../logger.js";
 import { db } from "../db.js";
 import { appriseClient } from "../apprise.js";
 import fsExtra from "fs-extra";
+import { normalizeTitle } from "../../shared/title-utils.js";
 
 // Mock dependencies (factory bodies live in ./fixtures/common-route-mocks.ts so they can be
 // shared with other test files that also boot the full app via registerRoutes())
@@ -3524,7 +3525,10 @@ describe("API Routes - Extended Coverage", () => {
         // clearAiAutoDownloadHold is fired-and-forgotten (not awaited by the route), so
         // give its microtask a tick to run before asserting.
         await new Promise((resolve) => setImmediate(resolve));
-        expect(storage.clearAiAutoDownloadHold).toHaveBeenCalledWith(gameId, "Test Game-SKIDROW");
+        expect(storage.clearAiAutoDownloadHold).toHaveBeenCalledWith(
+          gameId,
+          normalizeTitle("Test Game-SKIDROW")
+        );
       });
 
       it("should return 400 for missing releaseTitle", async () => {

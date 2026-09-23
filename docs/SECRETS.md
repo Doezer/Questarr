@@ -177,14 +177,17 @@ file is currently tracked in git. Never commit real credentials in
 
 ## 8. Credential exposure in operational scripts
 
-`scripts/pg-to-sqlite.ts:157` logs the full `DATABASE_URL` connection string
-via `console.log` before connecting. Per standard `postgres://` URL
-convention this string embeds `user:password@host`, so the credential is
-printed in plaintext. This is a one-shot migration script, not server
-runtime code, but its output can still land in CI logs or shell history.
-**Not yet fixed** — tracked as a follow-up to redact the credential before
-logging (e.g. parse with `new URL(pgUrl)` and print only `hostname`/
-`pathname`).
+**Resolved in v1.5.0 by removal.** `scripts/pg-to-sqlite.ts` logged the full
+`DATABASE_URL` connection string via `console.log` before connecting. Per
+standard `postgresql://` URL convention that string embeds
+`user:password@host`, so the credential was printed in plaintext, where it
+could land in CI logs or shell history.
+
+The script was a one-shot pre-v1.1 migration tool, not server runtime code,
+and has been removed rather than patched — see [MIGRATION.md](./MIGRATION.md).
+Operators who still need it should run it from the archived **v1.4.2** release,
+where the exposure remains: do not pipe its output into shared terminals or CI
+logs.
 
 ## 9. Summary checklist for operators
 
@@ -201,5 +204,6 @@ logging (e.g. parse with `new URL(pgUrl)` and print only `hostname`/
       masked in responses and encrypted at rest, per §4).
 - [ ] Run behind HTTPS/a reverse proxy per `.github/SECURITY.md`.
 - [ ] Never commit `.env`, `sqlite.db`, or `docker-compose.local.yml`.
-- [ ] Avoid piping `scripts/pg-to-sqlite.ts` output to shared/CI logs until
-      the credential-redaction fix lands (§8).
+- [ ] If running the archived v1.4.2 `pg-to-sqlite` migration tool, avoid
+      piping its output to shared/CI logs — it prints `DATABASE_URL` in
+      plaintext (§8).

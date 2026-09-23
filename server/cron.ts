@@ -97,13 +97,24 @@ export async function getAiAutoDownloadHoldReason(
   item: Pick<SearchItem, "title" | "size">,
   platform: string | null
 ): Promise<string | null> {
-  if (!(await typesafeClient.isConfigured())) return null;
-
-  const analysis = await typesafeClient.analyzeRelease({
-    releaseName: item.title,
-    sizeBytes: item.size,
-    platform: platform ?? undefined,
-  });
+  let analysis: Awaited<ReturnType<typeof typesafeClient.analyzeRelease>>;
+  try {
+    if (!(await typesafeClient.isConfigured())) return null;
+    analysis = await typesafeClient.analyzeRelease({
+      releaseName: item.title,
+      sizeBytes: item.size,
+      platform: platform ?? undefined,
+    });
+  } catch (error) {
+    // isConfigured()/analyzeRelease() aren't expected to throw (analyzeRelease already
+    // catches its own network errors), but a storage/credential-decrypt failure could --
+    // fail open here too rather than letting it abort the whole game's auto-search cycle.
+    igdbLogger.warn(
+      { error, title: item.title },
+      "TypeSafe auto-download check failed, proceeding without it"
+    );
+    return null;
+  }
   if (!analysis) return null;
 
   if (

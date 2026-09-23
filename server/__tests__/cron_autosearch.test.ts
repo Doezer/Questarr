@@ -1719,6 +1719,25 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
     });
 
+    it("auto-downloads when isConfigured() rejects (fail-open on unexpected errors)", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
+      mockIsConfigured.mockRejectedValue(new Error("storage unavailable"));
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+    });
+
+    it("auto-downloads when analyzeRelease() rejects (fail-open on unexpected errors)", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockRejectedValue(new Error("network error"));
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+    });
+
     it("holds back the download and notifies for review when AI confidently classifies it as DLC", async () => {
       mockGetUserSettings.mockResolvedValue({
         ...baseSettings,

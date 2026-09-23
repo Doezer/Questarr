@@ -560,6 +560,114 @@ describe("MemStorage", () => {
     });
   });
 
+  describe("AI Auto-Download Hold Management", () => {
+    const userId = "hold-user-1";
+    let gameId: string;
+
+    beforeEach(async () => {
+      const game = await storage.addGame({
+        title: "Hold Game",
+        igdbId: 9101,
+        status: "wanted",
+        hidden: null,
+        userId,
+      } as InsertGame);
+      gameId = game.id;
+    });
+
+    it("records a new hold and returns true", async () => {
+      const isNew = await storage.recordAiAutoDownloadHold({
+        gameId,
+        releaseTitle: "Game-DLC-GROUP",
+        reason: "AI classified this release as dlc",
+      });
+      expect(isNew).toBe(true);
+    });
+
+    it("returns false when recording a hold that already exists", async () => {
+      await storage.recordAiAutoDownloadHold({
+        gameId,
+        releaseTitle: "Game-DLC-GROUP",
+        reason: "first reason",
+      });
+      const isNew = await storage.recordAiAutoDownloadHold({
+        gameId,
+        releaseTitle: "Game-DLC-GROUP",
+        reason: "second reason",
+      });
+      expect(isNew).toBe(false);
+    });
+
+    it("reports a held release as held", async () => {
+      await storage.recordAiAutoDownloadHold({
+        gameId,
+        releaseTitle: "Game-DLC-GROUP",
+        reason: "reason",
+      });
+      expect(await storage.hasAiAutoDownloadHold(gameId, "Game-DLC-GROUP")).toBe(true);
+    });
+
+    it("reports an unrelated release as not held", async () => {
+      await storage.recordAiAutoDownloadHold({
+        gameId,
+        releaseTitle: "Game-DLC-GROUP",
+        reason: "reason",
+      });
+      expect(await storage.hasAiAutoDownloadHold(gameId, "Some.Other.Release")).toBe(false);
+    });
+
+    it("scopes holds per game", async () => {
+      const otherGame = await storage.addGame({
+        title: "Other Hold Game",
+        igdbId: 9102,
+        status: "wanted",
+        hidden: null,
+        userId,
+      } as InsertGame);
+      await storage.recordAiAutoDownloadHold({
+        gameId,
+        releaseTitle: "Shared.Release.Title",
+        reason: "reason",
+      });
+      expect(await storage.hasAiAutoDownloadHold(otherGame.id, "Shared.Release.Title")).toBe(false);
+    });
+
+    it("clears a hold so the release is no longer reported as held", async () => {
+      await storage.recordAiAutoDownloadHold({
+        gameId,
+        releaseTitle: "Game-DLC-GROUP",
+        reason: "reason",
+      });
+      await storage.clearAiAutoDownloadHold(gameId, "Game-DLC-GROUP");
+      expect(await storage.hasAiAutoDownloadHold(gameId, "Game-DLC-GROUP")).toBe(false);
+    });
+
+    it("does nothing when clearing a hold that doesn't exist", async () => {
+      await expect(
+        storage.clearAiAutoDownloadHold(gameId, "Never.Held.Title")
+      ).resolves.not.toThrow();
+    });
+
+    it("treats a hold older than the TTL as expired", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+        await storage.recordAiAutoDownloadHold({
+          gameId,
+          releaseTitle: "Game-DLC-GROUP",
+          reason: "reason",
+        });
+        expect(await storage.hasAiAutoDownloadHold(gameId, "Game-DLC-GROUP")).toBe(true);
+
+        // 8 days later -- past the 7-day TTL
+        vi.setSystemTime(new Date("2026-01-09T00:00:00.000Z"));
+        expect(await storage.hasAiAutoDownloadHold(gameId, "Game-DLC-GROUP")).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe("getDownloadsByGameId", () => {
     let userId: string;
     let gameId: string;

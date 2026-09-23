@@ -33,6 +33,9 @@ const mockAddGameDownload = vi.fn();
 const mockGetEnabledDownloaders = vi.fn().mockResolvedValue([]);
 const mockGetReleaseBlacklistSet = vi.fn();
 const mockGetEnabledIndexers = vi.fn().mockResolvedValue([]);
+const mockHasAiAutoDownloadHold = vi.fn().mockResolvedValue(false);
+const mockRecordAiAutoDownloadHold = vi.fn().mockResolvedValue(true);
+const mockClearAiAutoDownloadHold = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -48,6 +51,9 @@ vi.mock("../storage.js", () => ({
     getEnabledDownloaders: mockGetEnabledDownloaders,
     getReleaseBlacklistSet: mockGetReleaseBlacklistSet,
     getEnabledIndexers: mockGetEnabledIndexers,
+    hasAiAutoDownloadHold: mockHasAiAutoDownloadHold,
+    recordAiAutoDownloadHold: mockRecordAiAutoDownloadHold,
+    clearAiAutoDownloadHold: mockClearAiAutoDownloadHold,
   },
 }));
 
@@ -172,6 +178,9 @@ describe("Cron - checkAutoSearch", () => {
     mockGetEnabledIndexers.mockResolvedValue([]);
     mockIsConfigured.mockResolvedValue(false);
     mockAnalyzeRelease.mockResolvedValue(null);
+    mockHasAiAutoDownloadHold.mockResolvedValue(false);
+    mockRecordAiAutoDownloadHold.mockResolvedValue(true);
+    mockClearAiAutoDownloadHold.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -1792,6 +1801,89 @@ describe("Cron - checkAutoSearch", () => {
       await checkAutoSearch();
 
       expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Release Flagged for Review" })
+      );
+    });
+
+    it("persists the hold to storage, keyed by game and release title, when first flagged", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "dlc",
+        releaseTypeConfidence: 0.85,
+        legitimacyScore: null,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockRecordAiAutoDownloadHold).toHaveBeenCalledWith({
+        gameId: wantedGame.id,
+        releaseTitle: SINGLE_MAIN_ITEM.title,
+        reason: expect.stringContaining("dlc"),
+      });
+    });
+
+    it("skips the AI call entirely and does not re-download when the release is already held", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        autoDownloadEnabled: true,
+        notifyMultipleDownloads: true,
+      });
+      mockIsConfigured.mockResolvedValue(true);
+      mockHasAiAutoDownloadHold.mockResolvedValue(true);
+
+      await checkAutoSearch();
+
+      expect(mockAnalyzeRelease).not.toHaveBeenCalled();
+      expect(mockRecordAiAutoDownloadHold).not.toHaveBeenCalled();
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Release Flagged for Review" })
+      );
+    });
+
+    it("does not re-notify when the hold already existed (recordAiAutoDownloadHold returns false)", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        autoDownloadEnabled: true,
+        notifyMultipleDownloads: true,
+      });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "dlc",
+        releaseTypeConfidence: 0.85,
+        legitimacyScore: null,
+      });
+      mockRecordAiAutoDownloadHold.mockResolvedValue(false);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Release Flagged for Review" })
+      );
+    });
+
+    it("notifies on a hold even when the game already had search results available (no longer gated on the availability transition)", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        autoDownloadEnabled: true,
+        notifyMultipleDownloads: true,
+      });
+      // Game already marked available from an earlier, unrelated cycle.
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(
+        new Map([[userId, [{ ...wantedGame, searchResultsAvailable: true }]]])
+      );
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "dlc",
+        releaseTypeConfidence: 0.85,
+        legitimacyScore: null,
+      });
+
+      await checkAutoSearch();
+
       expect(mockAddNotification).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Release Flagged for Review" })
       );

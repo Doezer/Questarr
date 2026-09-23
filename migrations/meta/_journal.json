@@ -267,6 +267,13 @@
       "when": 1789924116306,
       "tag": "0036_gray_mimic",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1790185242498,
+      "tag": "0037_flashy_longshot",
+      "breakpoints": true
     }
   ]
 }

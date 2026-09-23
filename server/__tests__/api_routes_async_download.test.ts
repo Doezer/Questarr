@@ -297,6 +297,34 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     );
   });
 
+  it("clears any pending AI auto-download hold for the release the user just downloaded", async () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174005";
+    mockSuccessCase({
+      fallback: {
+        success: true,
+        id: "hash-cleared",
+        downloaderId: "d-1",
+        downloaderName: "qBittorrent",
+        attemptedDownloaders: ["qBittorrent"],
+      },
+      gdId: "gd-cleared",
+      gameId,
+      hash: "hash-cleared",
+      title: "Held Game-DLC",
+    });
+
+    await postDownload({
+      url: "https://example.com/held.torrent",
+      title: "Held Game-DLC",
+      gameId,
+    });
+
+    // clearAiAutoDownloadHold is fired-and-forgotten (not awaited by the route), so
+    // give its microtask a tick to run before asserting.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(storage.clearAiAutoDownloadHold).toHaveBeenCalledWith(gameId, "Held Game-DLC");
+  });
+
   it("does NOT create a game_downloads record when the downloader fails", async () => {
     mockFallback({
       success: false,

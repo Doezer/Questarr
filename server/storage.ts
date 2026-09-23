@@ -25,6 +25,8 @@ import {
   type InsertRssFeedItem,
   type ReleaseBlacklist,
   type InsertReleaseBlacklist,
+  type AiAutoDownloadHold,
+  type InsertAiAutoDownloadHold,
   type ImportTask,
   type ImportTaskItem,
   type ImportTaskType,
@@ -52,6 +54,7 @@ import {
   type ImportConfig,
   importConfigSchema,
   releaseBlacklist,
+  aiAutoDownloadHolds,
   type GameFile,
   type InsertGameFile,
   gameFiles,
@@ -79,6 +82,12 @@ import {
 
 const isUpdateDownload = (title: string): boolean =>
   categorizeDownload(title).category === "update";
+
+// How long an AI auto-download hold blocks re-download before it's treated as expired.
+// Holds aren't actively cleaned up on expiry (the row just stops being checked) -- this
+// only matters for a release that keeps reappearing in search after being held, so a
+// week gives a user ample time to review without holding a release forever.
+const AI_AUTO_DOWNLOAD_HOLD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const STATUS_PRIORITY: Record<string, number> = {
   failed: 4,
@@ -329,6 +338,13 @@ export interface IStorage {
   removeReleaseBlacklist(id: string, gameId: string): Promise<boolean>;
   getReleaseBlacklistSet(gameId: string): Promise<Set<string>>;
 
+  // AI auto-download hold methods (TypeSafe review holds -- see aiAutoDownloadHolds in schema)
+  // Returns true when a new hold row was created, false when one already existed --
+  // callers use this to send the review notification only once, at the moment of the hold.
+  recordAiAutoDownloadHold(entry: InsertAiAutoDownloadHold): Promise<boolean>;
+  hasAiAutoDownloadHold(gameId: string, releaseTitle: string): Promise<boolean>;
+  clearAiAutoDownloadHold(gameId: string, releaseTitle: string): Promise<void>;
+
   // Import task history methods
   createImportTask(data: {
     userId: string;
@@ -394,6 +410,7 @@ export class MemStorage implements IStorage {
   private readonly pathMappings: Map<string, PathMapping>;
   private readonly platformMappings: Map<string, PlatformMapping>;
   private releaseBlacklists: Map<string, ReleaseBlacklist>;
+  private aiAutoDownloadHolds: Map<string, AiAutoDownloadHold>;
   private gameFiles: Map<string, GameFile>;
   private rootFolders: Map<string, RootFolder>;
   private apiKeys: Map<string, ApiKey>;
@@ -413,6 +430,7 @@ export class MemStorage implements IStorage {
     this.pathMappings = new Map();
     this.platformMappings = new Map();
     this.releaseBlacklists = new Map();
+    this.aiAutoDownloadHolds = new Map();
     this.gameFiles = new Map();
     this.rootFolders = new Map();
     this.apiKeys = new Map();
@@ -1535,6 +1553,41 @@ export class MemStorage implements IStorage {
       .filter((r) => r.gameId === gameId)
       .map((r) => r.releaseTitle);
     return new Set(titles);
+  }
+
+  // AI auto-download hold methods
+  async recordAiAutoDownloadHold(entry: InsertAiAutoDownloadHold): Promise<boolean> {
+    const existing = Array.from(this.aiAutoDownloadHolds.values()).find(
+      (h) => h.gameId === entry.gameId && h.releaseTitle === entry.releaseTitle
+    );
+    if (existing) return false;
+    const id = randomUUID();
+    this.aiAutoDownloadHolds.set(id, {
+      id,
+      gameId: entry.gameId,
+      releaseTitle: entry.releaseTitle,
+      reason: entry.reason,
+      createdAt: new Date(),
+    });
+    return true;
+  }
+
+  async hasAiAutoDownloadHold(gameId: string, releaseTitle: string): Promise<boolean> {
+    const cutoff = Date.now() - AI_AUTO_DOWNLOAD_HOLD_TTL_MS;
+    return Array.from(this.aiAutoDownloadHolds.values()).some(
+      (h) =>
+        h.gameId === gameId &&
+        h.releaseTitle === releaseTitle &&
+        (h.createdAt?.getTime() ?? 0) > cutoff
+    );
+  }
+
+  async clearAiAutoDownloadHold(gameId: string, releaseTitle: string): Promise<void> {
+    for (const [id, hold] of Array.from(this.aiAutoDownloadHolds.entries())) {
+      if (hold.gameId === gameId && hold.releaseTitle === releaseTitle) {
+        this.aiAutoDownloadHolds.delete(id);
+      }
+    }
   }
 
   // GameFile methods
@@ -3018,6 +3071,50 @@ export class DatabaseStorage implements IStorage {
       .from(releaseBlacklist)
       .where(eq(releaseBlacklist.gameId, gameId));
     return new Set(rows.map((r) => r.releaseTitle));
+  }
+
+  // AI auto-download hold methods
+  async recordAiAutoDownloadHold(entry: InsertAiAutoDownloadHold): Promise<boolean> {
+    const id = randomUUID();
+    const [row] = await db
+      .insert(aiAutoDownloadHolds)
+      .values({
+        id,
+        gameId: entry.gameId,
+        releaseTitle: entry.releaseTitle,
+        reason: entry.reason,
+        createdAt: new Date(),
+      })
+      .onConflictDoNothing()
+      .returning();
+    return !!row;
+  }
+
+  async hasAiAutoDownloadHold(gameId: string, releaseTitle: string): Promise<boolean> {
+    const cutoffMs = Date.now() - AI_AUTO_DOWNLOAD_HOLD_TTL_MS;
+    const rows = await db
+      .select({ id: aiAutoDownloadHolds.id })
+      .from(aiAutoDownloadHolds)
+      .where(
+        and(
+          eq(aiAutoDownloadHolds.gameId, gameId),
+          eq(aiAutoDownloadHolds.releaseTitle, releaseTitle),
+          sql`${aiAutoDownloadHolds.createdAt} > ${cutoffMs}`
+        )
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async clearAiAutoDownloadHold(gameId: string, releaseTitle: string): Promise<void> {
+    await db
+      .delete(aiAutoDownloadHolds)
+      .where(
+        and(
+          eq(aiAutoDownloadHolds.gameId, gameId),
+          eq(aiAutoDownloadHolds.releaseTitle, releaseTitle)
+        )
+      );
   }
 
   // GameFile methods

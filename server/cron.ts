@@ -1275,14 +1275,35 @@ export async function checkAutoSearch() {
                 const item = mainItems[0];
 
                 if (item) {
-                  const aiHoldReason = await getAiAutoDownloadHoldReason(item, effectivePlatform);
+                  // Held releases are re-checked against storage, not re-analyzed: this
+                  // both prevents a later cycle from silently auto-downloading a release
+                  // flagged for review (a stale/differently-scored AI response would
+                  // otherwise let it through) and avoids a repeat paid TypeSafe call for
+                  // the same release every cycle.
+                  const alreadyHeld = await storage.hasAiAutoDownloadHold(game.id, item.title);
+                  const aiHoldReason = alreadyHeld
+                    ? null
+                    : await getAiAutoDownloadHoldReason(item, effectivePlatform);
 
-                  if (aiHoldReason) {
+                  if (alreadyHeld) {
+                    igdbLogger.debug(
+                      { gameTitle: game.title },
+                      "Skipping auto-download: release already held for AI review"
+                    );
+                  } else if (aiHoldReason) {
+                    const isNewHold = await storage.recordAiAutoDownloadHold({
+                      gameId: game.id,
+                      releaseTitle: item.title,
+                      reason: aiHoldReason,
+                    });
                     igdbLogger.info(
                       { gameTitle: game.title, reason: aiHoldReason },
                       "Held back auto-download for AI review"
                     );
-                    if (!wasAvailable && prefs.multipleResults.inApp) {
+                    // Notify on the hold itself (not the game's general availability
+                    // transition) so a release flagged for review is never silently
+                    // dropped just because the game already had other results earlier.
+                    if (isNewHold && prefs.multipleResults.inApp) {
                       const notification = await storage.addNotification({
                         userId,
                         type: "info",

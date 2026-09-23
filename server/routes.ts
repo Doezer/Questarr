@@ -2266,6 +2266,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const entry = await storage.addReleaseBlacklist(parsed.data);
+        // Best-effort: a blacklisted release is filtered out of search entirely, so any
+        // pending AI review hold for it is now moot. Never let this fail the blacklist
+        // request itself.
+        storage.clearAiAutoDownloadHold(gameId, releaseTitle).catch((error) => {
+          routesLogger.warn({ error, gameId }, "Failed to clear AI auto-download hold");
+        });
         return res.status(201).json(entry);
       } catch (error) {
         routesLogger.error({ error }, "error adding to blacklist");
@@ -4073,6 +4079,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             await storage.updateGameStatus(gameId, { status: "downloading" });
             await storage.updateGameSearchResultsAvailable(gameId, false);
+            // The user just reviewed and chose this release directly, so any AI hold on
+            // it is resolved. Best-effort: never fail the request over this.
+            storage.clearAiAutoDownloadHold(gameId, title).catch((error) => {
+              routesLogger.warn({ error, gameId }, "Failed to clear AI auto-download hold");
+            });
           } catch (error) {
             routesLogger.error({ error, gameId }, "Failed to link download to game");
             // We don't fail the whole request since the download was added successfully

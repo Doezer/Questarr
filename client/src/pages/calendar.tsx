@@ -176,6 +176,8 @@ export default function CalendarPage() {
     setCurrentDate(new Date());
   };
 
+  const currentYearStr = currentDate.getFullYear().toString();
+
   const getTitle = () => {
     if (viewMode === "year") return currentDate.getFullYear().toString();
     if (viewMode === "month")
@@ -284,9 +286,7 @@ export default function CalendarPage() {
           {viewMode === "year" && (
             <UndatedSection
               year={currentDate.getFullYear()}
-              games={undatedGames.filter(
-                (g) => new Date(g.releaseDate!).getFullYear() === currentDate.getFullYear()
-              )}
+              games={undatedGames.filter((g) => g.releaseDate?.startsWith(currentYearStr))}
               onGameClick={handleGameClick}
             />
           )}

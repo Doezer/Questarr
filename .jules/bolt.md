@@ -57,3 +57,8 @@
 
 **Learning:** Using chained `.filter(...).length` calls for counting evaluates the entire array on each pass and creates unnecessary array allocations for items that are immediately discarded. In heavily re-rendered components like `AppSidebar`, this degrades performance. SonarCloud also flags manual index-based `for` loops over arrays when the index itself is unused — a `for...of` loop is the preferred single-pass form.
 **Action:** When counting items based on a condition, use a memoized `for...of` loop to increment a counter instead of `.filter(...).length`. Also hoist any `useQuery` no-data fallback (e.g. `data: x = []`) to a stable module-level constant — an inline `[]` default creates a new array reference on every render with no data, which defeats a `useMemo` keyed on that value.
+
+## 2024-05-23 - Expensive Date Instantiation in Render Loops
+
+**Learning:** Extracting `new Date()` out of `filter()` loops in frequently rendered components, such as `CalendarPage`'s year view, is critical. Using string comparison (`startsWith`) over allocating a Date object per iteration prevents severe O(N) allocation and performance degredation on keystrokes.
+**Action:** When filtering dates by year or month inside array operations like `.map` or `.filter`, cache string representations outside the loop or utilize O(1) string matching (`startsWith`) instead of runtime Date allocations, provided the timezone bounds allow for it.

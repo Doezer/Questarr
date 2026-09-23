@@ -666,6 +666,47 @@ describe("MemStorage", () => {
         vi.useRealTimers();
       }
     });
+
+    it("allows an expired hold to be re-recorded, starting a new review period", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+        const firstIsNew = await storage.recordAiAutoDownloadHold({
+          gameId,
+          releaseTitle: "Game-DLC-GROUP",
+          reason: "first reason",
+        });
+        expect(firstIsNew).toBe(true);
+
+        // 8 days later -- past the 7-day TTL
+        vi.setSystemTime(new Date("2026-01-09T00:00:00.000Z"));
+        const secondIsNew = await storage.recordAiAutoDownloadHold({
+          gameId,
+          releaseTitle: "Game-DLC-GROUP",
+          reason: "second reason",
+        });
+        expect(secondIsNew).toBe(true);
+        expect(await storage.hasAiAutoDownloadHold(gameId, "Game-DLC-GROUP")).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not let an active (unexpired) hold be re-recorded as new", async () => {
+      const first = await storage.recordAiAutoDownloadHold({
+        gameId,
+        releaseTitle: "Game-DLC-GROUP",
+        reason: "first reason",
+      });
+      expect(first).toBe(true);
+
+      const second = await storage.recordAiAutoDownloadHold({
+        gameId,
+        releaseTitle: "Game-DLC-GROUP",
+        reason: "second reason",
+      });
+      expect(second).toBe(false);
+    });
   });
 
   describe("getDownloadsByGameId", () => {

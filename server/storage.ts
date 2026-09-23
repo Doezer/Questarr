@@ -1557,10 +1557,18 @@ export class MemStorage implements IStorage {
 
   // AI auto-download hold methods
   async recordAiAutoDownloadHold(entry: InsertAiAutoDownloadHold): Promise<boolean> {
-    const existing = Array.from(this.aiAutoDownloadHolds.values()).find(
-      (h) => h.gameId === entry.gameId && h.releaseTitle === entry.releaseTitle
+    const cutoff = Date.now() - AI_AUTO_DOWNLOAD_HOLD_TTL_MS;
+    const existingEntry = Array.from(this.aiAutoDownloadHolds.entries()).find(
+      ([, h]) => h.gameId === entry.gameId && h.releaseTitle === entry.releaseTitle
     );
-    if (existing) return false;
+    if (existingEntry) {
+      const [id, hold] = existingEntry;
+      if ((hold.createdAt?.getTime() ?? 0) > cutoff) return false;
+      // The existing hold expired -- replace it to start a new review period
+      // instead of leaving a stale row that silently blocks re-notification forever.
+      this.aiAutoDownloadHolds.set(id, { ...hold, reason: entry.reason, createdAt: new Date() });
+      return true;
+    }
     const id = randomUUID();
     this.aiAutoDownloadHolds.set(id, {
       id,
@@ -3076,6 +3084,8 @@ export class DatabaseStorage implements IStorage {
   // AI auto-download hold methods
   async recordAiAutoDownloadHold(entry: InsertAiAutoDownloadHold): Promise<boolean> {
     const id = randomUUID();
+    const now = new Date();
+    const cutoffMs = now.getTime() - AI_AUTO_DOWNLOAD_HOLD_TTL_MS;
     const [row] = await db
       .insert(aiAutoDownloadHolds)
       .values({
@@ -3083,9 +3093,16 @@ export class DatabaseStorage implements IStorage {
         gameId: entry.gameId,
         releaseTitle: entry.releaseTitle,
         reason: entry.reason,
-        createdAt: new Date(),
+        createdAt: now,
       })
-      .onConflictDoNothing()
+      // A conflicting row that has since expired is replaced to start a new review
+      // period; an active (unexpired) conflicting row is left alone (the WHERE clause
+      // makes SQLite treat this exactly like DO NOTHING for that row -- no RETURNING row).
+      .onConflictDoUpdate({
+        target: [aiAutoDownloadHolds.gameId, aiAutoDownloadHolds.releaseTitle],
+        set: { reason: entry.reason, createdAt: now },
+        where: sql`${aiAutoDownloadHolds.createdAt} <= ${cutoffMs}`,
+      })
       .returning();
     return !!row;
   }

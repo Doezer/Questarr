@@ -77,8 +77,9 @@ vi.mock("../search.js", () => ({
 }));
 
 // Mock socket
+const mockNotifyUser = vi.fn();
 vi.mock("../socket.js", () => ({
-  notifyUser: vi.fn(),
+  notifyUser: mockNotifyUser,
 }));
 
 // Mock downloaders
@@ -1887,6 +1888,70 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockAddNotification).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Release Flagged for Review" })
       );
+    });
+
+    it("does not abort the game's cycle when sending the hold notification fails", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        autoDownloadEnabled: true,
+        notifyMultipleDownloads: true,
+      });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "dlc",
+        releaseTypeConfidence: 0.85,
+        legitimacyScore: null,
+      });
+      mockAddNotification.mockRejectedValueOnce(new Error("DB unavailable"));
+
+      // The hold itself was already recorded before the notification send failed, so
+      // the failure must not propagate and prevent the rest of this cycle from running.
+      await expect(checkAutoSearch()).resolves.not.toThrow();
+      expect(mockRecordAiAutoDownloadHold).toHaveBeenCalled();
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("sends the hold notification via Apprise when only the Apprise channel is enabled", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        autoDownloadEnabled: true,
+        notificationPreferences: JSON.stringify({
+          multipleResults: { inApp: false, apprise: true },
+        }),
+      });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "dlc",
+        releaseTypeConfidence: 0.85,
+        legitimacyScore: null,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Release Flagged for Review" })
+      );
+      expect(mockNotifyUser).not.toHaveBeenCalled();
+    });
+
+    it("does not send an in-app push when only the Apprise channel is enabled but still sends when in-app is enabled", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        autoDownloadEnabled: true,
+        notificationPreferences: JSON.stringify({
+          multipleResults: { inApp: true, apprise: false },
+        }),
+      });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "dlc",
+        releaseTypeConfidence: 0.85,
+        legitimacyScore: null,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockNotifyUser).toHaveBeenCalledWith("notification", { id: "notif-1" });
     });
   });
 });

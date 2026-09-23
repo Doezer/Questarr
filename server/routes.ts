@@ -4066,6 +4066,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const downloadHash = rawDownloadHash
           ? normalizeDownloadHash(rawDownloadHash)
           : rawDownloadHash;
+        if (gameId && result.success) {
+          // The user just reviewed and chose this release directly, so any AI hold on it
+          // is resolved -- independent of whether the tracking writes below succeed, so a
+          // failure there can't leave a stale hold blocking auto-download for up to 7 days.
+          // Best-effort: never fail the request over this.
+          storage.clearAiAutoDownloadHold(gameId, title).catch((error) => {
+            routesLogger.warn({ error, gameId }, "Failed to clear AI auto-download hold");
+          });
+        }
         if (gameId && result.success && downloadHash && result.downloaderId) {
           try {
             await storage.addGameDownload({
@@ -4079,11 +4088,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             await storage.updateGameStatus(gameId, { status: "downloading" });
             await storage.updateGameSearchResultsAvailable(gameId, false);
-            // The user just reviewed and chose this release directly, so any AI hold on
-            // it is resolved. Best-effort: never fail the request over this.
-            storage.clearAiAutoDownloadHold(gameId, title).catch((error) => {
-              routesLogger.warn({ error, gameId }, "Failed to clear AI auto-download hold");
-            });
           } catch (error) {
             routesLogger.error({ error, gameId }, "Failed to link download to game");
             // We don't fail the whole request since the download was added successfully

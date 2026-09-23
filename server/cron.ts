@@ -1303,16 +1303,31 @@ export async function checkAutoSearch() {
                     // Notify on the hold itself (not the game's general availability
                     // transition) so a release flagged for review is never silently
                     // dropped just because the game already had other results earlier.
-                    if (isNewHold && prefs.multipleResults.inApp) {
-                      const notification = await storage.addNotification({
-                        userId,
-                        type: "info",
-                        title: "Release Flagged for Review",
-                        message: `${game.title}: ${aiHoldReason}. Please review and choose.`,
-                        link: `modal:game:${game.id}`,
-                      });
-                      notifyUser("notification", notification);
-                      if (prefs.multipleResults.apprise) appriseClient.send(notification);
+                    // Wrapped separately from the hold recording above: the hold must
+                    // stick even if sending the notification fails, and a failure here
+                    // must not throw into the outer per-game catch -- that would abort
+                    // this cycle without ever retrying (a later cycle just sees
+                    // alreadyHeld and skips straight past the notification).
+                    if (
+                      isNewHold &&
+                      (prefs.multipleResults.inApp || prefs.multipleResults.apprise)
+                    ) {
+                      try {
+                        const notification = await storage.addNotification({
+                          userId,
+                          type: "info",
+                          title: "Release Flagged for Review",
+                          message: `${game.title}: ${aiHoldReason}. Please review and choose.`,
+                          link: `modal:game:${game.id}`,
+                        });
+                        if (prefs.multipleResults.inApp) notifyUser("notification", notification);
+                        if (prefs.multipleResults.apprise) appriseClient.send(notification);
+                      } catch (error) {
+                        igdbLogger.warn(
+                          { gameTitle: game.title, error },
+                          "Failed to send AI hold review notification"
+                        );
+                      }
                     }
                   } else {
                     const downloaders = await storage.getEnabledDownloaders();

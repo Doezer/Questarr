@@ -31,7 +31,7 @@ const envSchema = z.object({
   NEXUSMODS_API_KEY: z.string().optional(),
 
   // Steam Web API configuration (optional; required for the achievements
-  // section on the Playing page — player wishlist sync does not need it)
+  // section in the game details Journal tab — player wishlist sync does not need it)
   STEAM_API_KEY: z.string().optional(),
 
   // Encryption key for indexer/downloader credentials at rest (optional;

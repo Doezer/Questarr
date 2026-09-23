@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "729b3af6-d663-448d-9f97-fdc144fa913f",
+  "id": "b6bb8511-985e-4f24-8fc6-b1ca51c78a2d",
   "prevId": "dd059c75-0074-4aee-90de-0f97b7ea2687",
   "tables": {
     "api_keys": {
@@ -519,7 +519,13 @@
           "default": "(strftime('%s', 'now') * 1000)"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "game_journal_entries_game_user_idx": {
+          "name": "game_journal_entries_game_user_idx",
+          "columns": ["game_id", "user_id"],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "game_journal_entries_game_id_games_id_fk": {
           "name": "game_journal_entries_game_id_games_id_fk",
@@ -591,7 +597,13 @@
           "default": "(strftime('%s', 'now') * 1000)"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "game_milestones_game_user_idx": {
+          "name": "game_milestones_game_user_idx",
+          "columns": ["game_id", "user_id"],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "game_milestones_game_id_games_id_fk": {
           "name": "game_milestones_game_id_games_id_fk",
@@ -663,7 +675,13 @@
           "default": "(strftime('%s', 'now') * 1000)"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "game_screenshots_game_user_idx": {
+          "name": "game_screenshots_game_user_idx",
+          "columns": ["game_id", "user_id"],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "game_screenshots_game_id_games_id_fk": {
           "name": "game_screenshots_game_id_games_id_fk",

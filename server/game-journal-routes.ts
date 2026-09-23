@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
 import { z } from "zod";
+import { fileTypeFromBuffer } from "file-type";
 import { storage } from "./storage.js";
 import { authenticateToken } from "./auth.js";
 import { configLoader } from "./config-loader.js";
@@ -26,7 +27,15 @@ import {
 
 const router = Router();
 
-const SCREENSHOT_DIR = () => path.join(configLoader.getConfigDir(), "screenshots");
+/** Base directory all per-game screenshot folders live under. Exported so the
+ * game-deletion flow can clean up a game's screenshots on disk. */
+export const screenshotsRootDir = () => path.join(configLoader.getConfigDir(), "screenshots");
+
+/** Per-game screenshot directory, exported for reuse by the game-deletion cleanup. */
+export function screenshotDirForGame(gameId: string): string {
+  return path.join(screenshotsRootDir(), gameId);
+}
+
 const ALLOWED_SCREENSHOT_MIME_TYPES: Record<string, string> = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
@@ -35,14 +44,38 @@ const ALLOWED_SCREENSHOT_MIME_TYPES: Record<string, string> = {
 
 const screenshotUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+    files: 1,
+    fields: 1, // only the "caption" text field is allowed alongside the file
+    fieldSize: 1024,
+  },
   fileFilter: (_req, file, cb) => {
+    // A first-pass check on the client-declared MIME type, purely to reject
+    // obviously-wrong uploads early; the authoritative check is the
+    // magic-byte sniff on the buffer itself, once multer has read it.
     if (Object.hasOwn(ALLOWED_SCREENSHOT_MIME_TYPES, file.mimetype)) {
       return cb(null, true);
     }
     cb(new Error("Only JPEG, PNG, and WebP images are allowed"));
   },
 });
+
+/**
+ * Resolves `filePath` and asserts it stays within `dir` (also resolved), throwing
+ * otherwise. `gameId` is already regex-validated as a UUID by `sanitizeGameId` and
+ * filenames are always server-generated, so traversal isn't reachable in practice --
+ * this is a defense-in-depth guard against every screenshot filesystem operation
+ * being built from request-derived path segments.
+ */
+function resolveWithinDir(dir: string, filePath: string): string {
+  const resolvedDir = path.resolve(dir);
+  const resolvedPath = path.resolve(filePath);
+  if (resolvedPath !== resolvedDir && !resolvedPath.startsWith(resolvedDir + path.sep)) {
+    throw new Error("Resolved path escapes the screenshots directory");
+  }
+  return resolvedPath;
+}
 
 /** Verifies the game exists and belongs to the requesting user; returns 404 otherwise. */
 async function requireOwnedGame(req: Request, res: Response): Promise<string | null> {
@@ -261,15 +294,24 @@ router.post(
       if (!req.file) {
         return res.status(400).json({ error: "A screenshot file is required" });
       }
+
+      // Authoritative check: sniff the actual bytes rather than trusting the
+      // client-controlled Content-Type / filename, so an uploaded file can't
+      // masquerade as an image it isn't.
+      const detected = await fileTypeFromBuffer(req.file.buffer);
+      if (!detected || !Object.hasOwn(ALLOWED_SCREENSHOT_MIME_TYPES, detected.mime)) {
+        return res.status(400).json({ error: "Only JPEG, PNG, and WebP images are allowed" });
+      }
+
       const caption =
         typeof req.body.caption === "string" ? req.body.caption.trim().slice(0, 300) || null : null;
 
-      const dir = path.join(SCREENSHOT_DIR(), gameId);
+      const dir = screenshotDirForGame(gameId);
       await fs.promises.mkdir(dir, { recursive: true });
 
-      const extension = ALLOWED_SCREENSHOT_MIME_TYPES[req.file.mimetype];
+      const extension = ALLOWED_SCREENSHOT_MIME_TYPES[detected.mime];
       const fileName = `${randomUUID()}${extension}`;
-      const filePath = path.join(dir, fileName);
+      const filePath = resolveWithinDir(dir, path.join(dir, fileName));
       await fs.promises.writeFile(filePath, req.file.buffer);
 
       const screenshot = await storage.addGameScreenshot({
@@ -306,7 +348,8 @@ router.get(
       const screenshot = screenshots.find((s) => s.id === req.params.screenshotId);
       if (!screenshot) return res.status(404).json({ error: "Screenshot not found" });
 
-      return res.sendFile(path.resolve(screenshot.filePath), (error) => {
+      const filePath = resolveWithinDir(screenshotDirForGame(gameId), screenshot.filePath);
+      return res.sendFile(filePath, (error) => {
         if (error) {
           routesLogger.error({ error }, "Error sending screenshot file");
           if (!res.headersSent) res.status(404).json({ error: "Screenshot file not found" });
@@ -365,11 +408,9 @@ router.delete(
       const deleted = await storage.deleteGameScreenshot(req.params.screenshotId, user.id);
       if (!deleted) return res.status(404).json({ error: "Screenshot not found" });
 
-      await fs.promises.unlink(deleted.filePath).catch((error) => {
-        routesLogger.warn(
-          { error, filePath: deleted.filePath },
-          "Failed to delete screenshot file"
-        );
+      const filePath = resolveWithinDir(screenshotDirForGame(gameId), deleted.filePath);
+      await fs.promises.unlink(filePath).catch((error) => {
+        routesLogger.warn({ error, filePath }, "Failed to delete screenshot file");
       });
 
       return res.status(204).send();

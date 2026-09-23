@@ -155,16 +155,21 @@ export const steamService = {
     const achievementsUrl = `https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/?appid=${appId}&key=${apiKey}&steamid=${steamId}`;
 
     const [schemaResponse, achievementsResponse, globalPercentages] = await Promise.all([
-      safeFetch(schemaUrl),
-      safeFetch(achievementsUrl),
+      safeFetch(schemaUrl, { requireHttps: true }),
+      safeFetch(achievementsUrl, { requireHttps: true }),
       fetchGlobalAchievementPercentages(appId),
     ]);
 
-    if (!achievementsResponse.ok) {
-      throw new Error(getSteamApiErrorMessage(achievementsResponse.status));
+    // Steam returns a non-2xx status (with a { playerstats: { success: false } } body)
+    // for a private profile or an app with no stats -- parse the body before deciding
+    // whether that's an error or just an empty result, so those common cases don't
+    // get logged as a 500 on every Journal tab open.
+    const achievementsData = (await achievementsResponse
+      .json()
+      .catch(() => ({}))) as SteamPlayerAchievementsResponse;
+    if (!achievementsResponse.ok && achievementsData.playerstats?.success !== false) {
+      throw new Error(`Steam API error: ${achievementsResponse.status}`);
     }
-
-    const achievementsData = (await achievementsResponse.json()) as SteamPlayerAchievementsResponse;
     if (!achievementsData.playerstats?.success) {
       // No achievements schema for this app, or a private profile — surface as empty
       // rather than an error so the UI can just hide the section.

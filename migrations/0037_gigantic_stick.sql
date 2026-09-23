@@ -8,6 +8,7 @@ CREATE TABLE `game_journal_entries` (
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE INDEX `game_journal_entries_game_user_idx` ON `game_journal_entries` (`game_id`,`user_id`);--> statement-breakpoint
 CREATE TABLE `game_milestones` (
 	`id` text PRIMARY KEY NOT NULL,
 	`game_id` text NOT NULL,
@@ -19,6 +20,7 @@ CREATE TABLE `game_milestones` (
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE INDEX `game_milestones_game_user_idx` ON `game_milestones` (`game_id`,`user_id`);--> statement-breakpoint
 CREATE TABLE `game_screenshots` (
 	`id` text PRIMARY KEY NOT NULL,
 	`game_id` text NOT NULL,
@@ -30,14 +32,16 @@ CREATE TABLE `game_screenshots` (
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE INDEX `game_screenshots_game_user_idx` ON `game_screenshots` (`game_id`,`user_id`);--> statement-breakpoint
 INSERT INTO `game_journal_entries` (`id`, `game_id`, `user_id`, `note`, `created_at`)
 SELECT
 	lower(hex(randomblob(16))),
 	`id`,
-	`user_id`,
+	COALESCE(`user_id`, (SELECT `id` FROM `users` WHERE (SELECT count(*) FROM `users`) = 1)),
 	`notes`,
 	(strftime('%s', 'now') * 1000)
 FROM `games`
-WHERE `notes` IS NOT NULL AND trim(`notes`) != '' AND `user_id` IS NOT NULL;
+WHERE `notes` IS NOT NULL AND trim(`notes`) != ''
+	AND COALESCE(`user_id`, (SELECT `id` FROM `users` WHERE (SELECT count(*) FROM `users`) = 1)) IS NOT NULL;
 --> statement-breakpoint
 ALTER TABLE `games` DROP COLUMN `notes`;

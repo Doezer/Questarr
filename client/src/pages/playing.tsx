@@ -1,33 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Gamepad2, LayoutGrid, Settings2 } from "lucide-react";
+import { Gamepad2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import GameGrid from "@/components/GameGrid";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
-import { useLocalStorageState } from "@/hooks/use-local-storage-state";
+import { useGridColumns } from "@/hooks/use-grid-columns";
 import EmptyState from "@/components/EmptyState";
 import GameFilterPills from "@/components/GameFilterPills";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import GridColumnsControl from "@/components/GridColumnsControl";
 import { useViewControls } from "@/hooks/use-view-controls";
 import PageToolbar from "@/components/PageToolbar";
 import { useDownloadSummary } from "@/hooks/use-download-summary";
 import { compareDates } from "@/lib/game-sort";
 
 type SortOption = "added-desc" | "added-asc" | "title-asc";
-
-const GRID_COLUMNS_MIN = 2;
-const GRID_COLUMNS_MAX = 10;
-
-function sanitizeGridColumns(value: number): number {
-  if (!Number.isFinite(value)) return 5;
-  return Math.min(GRID_COLUMNS_MAX, Math.max(GRID_COLUMNS_MIN, Math.round(value)));
-}
 
 const SORT_OPTIONS = [
   { value: "added-desc", label: "Recently Added" },
@@ -60,22 +49,14 @@ export default function PlayingPage() {
   const downloadSummaries = useDownloadSummary();
   const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [gridColumns, setGridColumns] = useLocalStorageState("playingGridColumns", 5);
-  // localStorage can hold an out-of-range value (0, 1.5, 11, Infinity);
-  // clamp to a finite integer in range and persist the corrected value.
-  const safeGridColumns = sanitizeGridColumns(gridColumns);
-  useEffect(() => {
-    if (safeGridColumns !== gridColumns) {
-      setGridColumns(safeGridColumns);
-    }
-  }, [safeGridColumns, gridColumns, setGridColumns]);
+  const { gridColumns: safeGridColumns, handleGridColumnsChange } =
+    useGridColumns("playingGridColumns");
 
-  const handleGridColumnsChange = useCallback(
-    ([value]: number[]) => setGridColumns(sanitizeGridColumns(value)),
-    [setGridColumns]
-  );
-
-  const { data: games = [], isLoading } = useQuery<Game[]>({
+  const {
+    data: games = [],
+    isLoading,
+    isError,
+  } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=playing"],
   });
 
@@ -145,7 +126,15 @@ export default function PlayingPage() {
 
   let playingContent: React.ReactNode;
 
-  if (!isLoading && games.length === 0) {
+  if (isError) {
+    playingContent = (
+      <EmptyState
+        icon={Gamepad2}
+        title="Failed to load games"
+        description="Refresh the page or try again later."
+      />
+    );
+  } else if (!isLoading && games.length === 0) {
     playingContent = (
       <EmptyState
         icon={Gamepad2}
@@ -196,40 +185,10 @@ export default function PlayingPage() {
           onSearchChange={setSearchQuery}
           searchPlaceholder="Filter playing..."
           actions={
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8"
-                  aria-label="Configure grid columns"
-                >
-                  <Settings2 className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 space-y-4 p-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="flex items-center gap-2 text-sm font-medium">
-                      <LayoutGrid className="h-4 w-4" />
-                      Grid Columns
-                    </Label>
-                    <span className="w-4 text-center text-sm font-bold">{safeGridColumns}</span>
-                  </div>
-                  <Slider
-                    value={[safeGridColumns]}
-                    onValueChange={handleGridColumnsChange}
-                    min={2}
-                    max={10}
-                    step={1}
-                    aria-label="Grid columns"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Number of columns in the game grid (2-10).
-                  </p>
-                </div>
-              </PopoverContent>
-            </Popover>
+            <GridColumnsControl
+              columns={safeGridColumns}
+              onColumnsChange={handleGridColumnsChange}
+            />
           }
           filterPills={
             <>

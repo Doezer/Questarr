@@ -67,6 +67,20 @@ export default function GameJournalTab({ gameId, steamAppId }: Readonly<GameJour
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  /** Shared onSuccess/onError pair for the mutations below: invalidate the
+   * given query key and, on failure, show a toast with `errorMessage`. */
+  const invalidateOnSuccess = (
+    queryKey: string,
+    errorMessage: string,
+    onSuccessExtra?: () => void
+  ) => ({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [queryKey] });
+      onSuccessExtra?.();
+    },
+    onError: () => toast({ description: errorMessage, variant: "destructive" as const }),
+  });
+
   const { data: steamSettings } = useQuery<{ apiKeyConfigured: boolean }>({
     queryKey: ["/api/settings/steam"],
   });
@@ -98,19 +112,16 @@ export default function GameJournalTab({ gameId, steamAppId }: Readonly<GameJour
       const res = await apiRequest("POST", `/api/games/${gameId}/journal`, { note });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/journal`] });
-      setNoteDraft("");
-    },
-    onError: () => toast({ description: "Failed to add journal entry", variant: "destructive" }),
+    ...invalidateOnSuccess(`/api/games/${gameId}/journal`, "Failed to add journal entry", () =>
+      setNoteDraft("")
+    ),
   });
 
   const deleteEntryMutation = useMutation({
     mutationFn: async (entryId: string) => {
       await apiRequest("DELETE", `/api/games/${gameId}/journal/${entryId}`);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/journal`] }),
-    onError: () => toast({ description: "Failed to delete journal entry", variant: "destructive" }),
+    ...invalidateOnSuccess(`/api/games/${gameId}/journal`, "Failed to delete journal entry"),
   });
 
   // ─── Milestones ──────────────────────────────────────────────────────────
@@ -121,29 +132,23 @@ export default function GameJournalTab({ gameId, steamAppId }: Readonly<GameJour
       const res = await apiRequest("POST", `/api/games/${gameId}/milestones`, { label });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/milestones`] });
-      setMilestoneDraft("");
-    },
-    onError: () => toast({ description: "Failed to add milestone", variant: "destructive" }),
+    ...invalidateOnSuccess(`/api/games/${gameId}/milestones`, "Failed to add milestone", () =>
+      setMilestoneDraft("")
+    ),
   });
 
   const toggleMilestoneMutation = useMutation({
     mutationFn: async ({ id, completed }: { id: string; completed: boolean }) => {
       await apiRequest("PATCH", `/api/games/${gameId}/milestones/${id}`, { completed });
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/milestones`] }),
-    onError: () => toast({ description: "Failed to update milestone", variant: "destructive" }),
+    ...invalidateOnSuccess(`/api/games/${gameId}/milestones`, "Failed to update milestone"),
   });
 
   const deleteMilestoneMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/games/${gameId}/milestones/${id}`);
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/milestones`] }),
-    onError: () => toast({ description: "Failed to delete milestone", variant: "destructive" }),
+    ...invalidateOnSuccess(`/api/games/${gameId}/milestones`, "Failed to delete milestone"),
   });
 
   // ─── Screenshots ─────────────────────────────────────────────────────────
@@ -161,20 +166,16 @@ export default function GameJournalTab({ gameId, steamAppId }: Readonly<GameJour
       await throwIfResNotOk(res);
       return res.json();
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/screenshots`] }),
-    onError: () => toast({ description: "Failed to upload screenshot", variant: "destructive" }),
+    ...invalidateOnSuccess(`/api/games/${gameId}/screenshots`, "Failed to upload screenshot"),
   });
 
   const deleteScreenshotMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/games/${gameId}/screenshots/${id}`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/screenshots`] });
-      setLightboxScreenshot(null);
-    },
-    onError: () => toast({ description: "Failed to delete screenshot", variant: "destructive" }),
+    ...invalidateOnSuccess(`/api/games/${gameId}/screenshots`, "Failed to delete screenshot", () =>
+      setLightboxScreenshot(null)
+    ),
   });
 
   const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -293,7 +294,7 @@ export default function GameJournalTab({ gameId, steamAppId }: Readonly<GameJour
               maxLength={200}
               aria-label="New milestone label"
               onKeyDown={(e) => {
-                if (e.key === "Enter" && milestoneDraft.trim()) {
+                if (e.key === "Enter" && milestoneDraft.trim() && !addMilestoneMutation.isPending) {
                   addMilestoneMutation.mutate(milestoneDraft.trim());
                 }
               }}

@@ -87,6 +87,7 @@
     "express-session": "^1.19.0",
     "express-validator": "^7.3.2",
     "fast-xml-parser": "^5.11.1",
+    "file-type": "^22.1.1",
     "framer-motion": "^13.2.0",
     "fs-extra": "^11.4.0",
     "helmet": "^8.3.0",

@@ -334,52 +334,64 @@ export const releaseBlacklist = sqliteTable(
 
 // Local-only journaling entries for a game (e.g. while playing it). Never
 // synced externally — a personal log, replacing the old single-field notes.
-export const gameJournalEntries = sqliteTable("game_journal_entries", {
-  id: text("id").primaryKey(),
-  gameId: text("game_id")
-    .notNull()
-    .references(() => games.id, { onDelete: "cascade" }),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  note: text("note").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
-    sql`(strftime('%s', 'now') * 1000)`
-  ),
-});
+export const gameJournalEntries = sqliteTable(
+  "game_journal_entries",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    note: text("note").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("game_journal_entries_game_user_idx").on(t.gameId, t.userId)]
+);
 
 // User-defined "successes" checklist per game. Kept separate from any
 // Steam-sourced achievements, which are fetched live rather than stored here.
-export const gameMilestones = sqliteTable("game_milestones", {
-  id: text("id").primaryKey(),
-  gameId: text("game_id")
-    .notNull()
-    .references(() => games.id, { onDelete: "cascade" }),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  label: text("label").notNull(),
-  completedAt: integer("completed_at", { mode: "timestamp_ms" }),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
-    sql`(strftime('%s', 'now') * 1000)`
-  ),
-});
+export const gameMilestones = sqliteTable(
+  "game_milestones",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("game_milestones_game_user_idx").on(t.gameId, t.userId)]
+);
 
 // User-uploaded screenshots for a game, stored on disk with the path recorded here.
-export const gameScreenshots = sqliteTable("game_screenshots", {
-  id: text("id").primaryKey(),
-  gameId: text("game_id")
-    .notNull()
-    .references(() => games.id, { onDelete: "cascade" }),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  filePath: text("file_path").notNull(),
-  caption: text("caption"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
-    sql`(strftime('%s', 'now') * 1000)`
-  ),
-});
+export const gameScreenshots = sqliteTable(
+  "game_screenshots",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    filePath: text("file_path").notNull(),
+    caption: text("caption"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("game_screenshots_game_user_idx").on(t.gameId, t.userId)]
+);
 
 export const notifications = sqliteTable("notifications", {
   id: text("id").primaryKey(),

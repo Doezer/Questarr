@@ -1,6 +1,6 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
+﻿import React, { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Star, Eye, EyeOff, LayoutGrid, Settings2 } from "lucide-react";
+import { Star, Eye, EyeOff } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import GameGrid from "@/components/GameGrid";
 import { type Game } from "@shared/schema";
@@ -8,12 +8,11 @@ import { type GameStatus } from "@/components/StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
+import { useGridColumns } from "@/hooks/use-grid-columns";
 import EmptyState from "@/components/EmptyState";
 import GameFilterPills from "@/components/GameFilterPills";
+import GridColumnsControl from "@/components/GridColumnsControl";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useViewControls } from "@/hooks/use-view-controls";
 import PageToolbar from "@/components/PageToolbar";
 import { useDownloadSummary } from "@/hooks/use-download-summary";
@@ -23,14 +22,6 @@ import { compareDates } from "@/lib/game-sort";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 type MobileSection = { id: string; label: string; count: number; games: Game[] };
-
-const GRID_COLUMNS_MIN = 2;
-const GRID_COLUMNS_MAX = 10;
-
-function sanitizeGridColumns(value: number): number {
-  if (!Number.isFinite(value)) return 5;
-  return Math.min(GRID_COLUMNS_MAX, Math.max(GRID_COLUMNS_MIN, Math.round(value)));
-}
 
 const SORT_OPTIONS = [
   { value: "release-desc", label: "Release (Newest)" },
@@ -71,20 +62,8 @@ export default function WishlistPage() {
   const downloadSummaries = useDownloadSummary();
   const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [gridColumns, setGridColumns] = useLocalStorageState("wishlistGridColumns", 5);
-  // localStorage can hold an out-of-range value (0, 1.5, 11, Infinity);
-  // clamp to a finite integer in range and persist the corrected value.
-  const safeGridColumns = sanitizeGridColumns(gridColumns);
-  useEffect(() => {
-    if (safeGridColumns !== gridColumns) {
-      setGridColumns(safeGridColumns);
-    }
-  }, [safeGridColumns, gridColumns, setGridColumns]);
-
-  const handleGridColumnsChange = useCallback(
-    ([value]: number[]) => setGridColumns(sanitizeGridColumns(value)),
-    [setGridColumns]
-  );
+  const { gridColumns: safeGridColumns, handleGridColumnsChange } =
+    useGridColumns("wishlistGridColumns");
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=wanted"],
@@ -377,40 +356,10 @@ export default function WishlistPage() {
           onSearchChange={setSearchQuery}
           searchPlaceholder="Filter wishlist..."
           actions={
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8"
-                  aria-label="Configure grid columns"
-                >
-                  <Settings2 className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 space-y-4 p-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="flex items-center gap-2 text-sm font-medium">
-                      <LayoutGrid className="h-4 w-4" />
-                      Grid Columns
-                    </Label>
-                    <span className="w-4 text-center text-sm font-bold">{safeGridColumns}</span>
-                  </div>
-                  <Slider
-                    value={[safeGridColumns]}
-                    onValueChange={handleGridColumnsChange}
-                    min={2}
-                    max={10}
-                    step={1}
-                    aria-label="Grid columns"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Number of columns in the game grid (2-10).
-                  </p>
-                </div>
-              </PopoverContent>
-            </Popover>
+            <GridColumnsControl
+              columns={safeGridColumns}
+              onColumnsChange={handleGridColumnsChange}
+            />
           }
           filterPills={
             <>

@@ -234,7 +234,7 @@ export class ArchiveService {
             { err, filePath, tool, attempt },
             "Archive test failed — retrying in case the file is still settling on disk"
           );
-          await delay(ARCHIVE_TEST_RETRY_DELAYS_MS[attempt - 1]);
+          await delay(ARCHIVE_TEST_RETRY_DELAYS_MS[attempt - 1] ?? 3_000);
           continue;
         }
         logger.error(

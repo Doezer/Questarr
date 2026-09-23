@@ -635,6 +635,8 @@ class IGDBClient {
     ];
 
     for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
+      const approach = searchApproaches[i];
+      if (approach === undefined) continue;
       try {
         attemptCount++;
         igdbLogger.debug(
@@ -647,11 +649,7 @@ class IGDBClient {
           `trying approach ${i + 1}`
         );
         // Cache search results for 15 minutes to reduce redundant API calls
-        const results = await this.makeRequest<IGDBGame[]>(
-          "games",
-          searchApproaches[i],
-          15 * 60 * 1000
-        );
+        const results = await this.makeRequest<IGDBGame[]>("games", approach, 15 * 60 * 1000);
         if (results.length > 0) {
           igdbLogger.info(
             { approach: i + 1, query: sanitizedQuery, resultCount: results.length },
@@ -817,7 +815,7 @@ class IGDBClient {
           const alias = `q${idx}`;
           const match = responseData.find((r) => r.name === alias);
           if (match && match.result && match.result.length > 0) {
-            results.set(originalQuery, match.result[0]);
+            results.set(originalQuery, match.result[0] ?? null);
           } else {
             results.set(originalQuery, null);
           }
@@ -842,7 +840,7 @@ class IGDBClient {
 
     // ⚡ Bolt: Cache game data for 24 hours as it's unlikely to change frequently.
     const results = await this.makeRequest<IGDBGame[]>("games", igdbQuery, 24 * 60 * 60 * 1000);
-    return results.length > 0 ? results[0] : null;
+    return results[0] ?? null;
   }
 
   async getGameIdBySteamAppId(steamAppId: number): Promise<number | null> {
@@ -862,7 +860,7 @@ class IGDBClient {
         igdbQuery,
         24 * 60 * 60 * 1000
       );
-      return results.length > 0 ? results[0].game : null;
+      return results[0]?.game ?? null;
     } catch (error) {
       igdbLogger.warn({ steamAppId, error }, "Failed to lookup IGDB ID from Steam App ID");
       return null;
@@ -1116,7 +1114,7 @@ class IGDBClient {
     };
 
     const mappedPlatforms = platforms.slice(0, 3).map(
-      (platform) => platformMap[platform] || platform.split(" ")[0] // Use first word if no mapping
+      (platform) => platformMap[platform] || (platform.split(" ")[0] ?? platform) // Use first word if no mapping
     );
     const uniquePlatforms = Array.from(new Set(mappedPlatforms));
 

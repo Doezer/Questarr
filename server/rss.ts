@@ -197,8 +197,8 @@ export class RssService {
     // Search IGDB
     try {
       const results = await igdbClient.searchGames(cleanName, 1);
-      if (results && results.length > 0) {
-        const game = results[0];
+      const [game] = results ?? [];
+      if (game) {
         const entry: IgdbCacheEntry = {
           id: game.id,
           name: game.name,
@@ -233,8 +233,9 @@ export class RssService {
     for (const sep of separators) {
       const regex = new RegExp(sep);
       const parts = name.split(regex);
-      if (parts.length > 1 && parts[0].length > 2) {
-        name = parts[0];
+      const [firstPart] = parts;
+      if (parts.length > 1 && firstPart !== undefined && firstPart.length > 2) {
+        name = firstPart;
         break; // Stop at first split match
       }
     }

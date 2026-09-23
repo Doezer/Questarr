@@ -232,12 +232,13 @@ async function bestIgdbMatch(folderName: string): Promise<{
     return { best: null, candidates: [], cleaned, score: 0 };
   }
 
-  let best = candidates[0];
+  let best = candidates[0]!;
   let bestScore = scoreMatch(cleaned, best.name);
   for (let i = 1; i < candidates.length; i += 1) {
-    const s = scoreMatch(cleaned, candidates[i].name);
+    const candidate = candidates[i]!;
+    const s = scoreMatch(cleaned, candidate.name);
     if (s > bestScore) {
-      best = candidates[i];
+      best = candidate;
       bestScore = s;
     }
   }

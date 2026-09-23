@@ -96,12 +96,13 @@ apiKeysRouter.delete(
   validateRequest,
   async (req: Request, res: Response) => {
     try {
+      const { id } = req.params as { id: string };
       const userId = req.user!.id;
-      const removed = await storage.removeApiKey(req.params.id, userId);
+      const removed = await storage.removeApiKey(id, userId);
       if (!removed) {
         return res.status(404).json({ error: "API key not found" });
       }
-      logger.info({ userId, apiKeyId: req.params.id }, "Integration API key revoked");
+      logger.info({ userId, apiKeyId: id }, "Integration API key revoked");
       return res.status(204).send();
     } catch (error) {
       logger.error({ error }, "Failed to revoke API key");

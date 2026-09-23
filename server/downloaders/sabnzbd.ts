@@ -329,8 +329,9 @@ export class SABnzbdClient implements DownloaderClient {
     message: string;
   } {
     if (data.status === true) {
-      if (data.nzo_ids && data.nzo_ids.length > 0) {
-        return { success: true, id: data.nzo_ids[0], message: "NZB added successfully" };
+      const [nzoId] = data.nzo_ids ?? [];
+      if (nzoId) {
+        return { success: true, id: nzoId, message: "NZB added successfully" };
       }
       // Status true but no ID usually means duplicate in SABnzbd (or merged)
       return { success: true, message: "NZB added successfully (likely duplicate or merged)" };
@@ -456,7 +457,9 @@ export class SABnzbdClient implements DownloaderClient {
       let eta: number | undefined;
       if (item.timeleft && item.timeleft !== "0:00:00" && item.timeleft !== "unknown") {
         const [hours, minutes, seconds] = item.timeleft.split(":").map(Number);
-        eta = hours * 3600 + minutes * 60 + seconds;
+        if (hours !== undefined && minutes !== undefined && seconds !== undefined) {
+          eta = hours * 3600 + minutes * 60 + seconds;
+        }
       }
 
       // Map SABnzbd status to our status

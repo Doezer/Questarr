@@ -76,8 +76,8 @@ function parseAppriseUrls(urls: string | null): string[] {
   if (!urls) return [];
   const result: string[] = [];
   const lines = urls.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
+  for (const line of lines) {
+    const trimmed = line.trim();
     if (trimmed.length > 0 && !trimmed.startsWith("#")) {
       result.push(trimmed);
     }

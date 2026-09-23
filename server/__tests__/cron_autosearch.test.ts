@@ -51,6 +51,17 @@ vi.mock("../storage.js", () => ({
   },
 }));
 
+// Mock typesafe client directly so tests can control the AI auto-download gate
+// without going through the real HTTP call / storage lazy-load path.
+const mockAnalyzeRelease = vi.fn().mockResolvedValue(null);
+const mockIsConfigured = vi.fn().mockResolvedValue(false);
+vi.mock("../typesafe.js", () => ({
+  typesafeClient: {
+    isConfigured: mockIsConfigured,
+    analyzeRelease: mockAnalyzeRelease,
+  },
+}));
+
 // Mock search
 const mockSearchAllIndexers = vi.fn();
 vi.mock("../search.js", () => ({
@@ -159,6 +170,8 @@ describe("Cron - checkAutoSearch", () => {
     mockAddNotification.mockResolvedValue({ id: "notif-1" });
     mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
     mockGetEnabledIndexers.mockResolvedValue([]);
+    mockIsConfigured.mockResolvedValue(false);
+    mockAnalyzeRelease.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -1633,6 +1646,135 @@ describe("Cron - checkAutoSearch", () => {
       await checkAutoSearch();
       expect(mockAddNotification).not.toHaveBeenCalledWith(
         expect.objectContaining({ title: "Game Available" })
+      );
+    });
+  });
+
+  describe("AI auto-download gate (TypeSafe)", () => {
+    const SINGLE_MAIN_ITEM = {
+      title: "Test Game-GROUP",
+      link: "https://example.com/main",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 50,
+      size: 10_000,
+      downloadType: "torrent" as const,
+    };
+
+    let wantedGame: Game;
+    beforeEach(() => {
+      wantedGame = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [wantedGame]]]));
+      mockGetEnabledDownloaders.mockResolvedValue([
+        { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true },
+      ]);
+      mockAddDownloadWithFallback.mockResolvedValue({
+        success: true,
+        id: "hash-abc",
+        downloaderId: "dl-1",
+      });
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [SINGLE_MAIN_ITEM],
+        errors: [],
+        total: 1,
+      });
+    });
+
+    it("auto-downloads as before when TypeSafe is not configured", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
+      mockIsConfigured.mockResolvedValue(false);
+
+      await checkAutoSearch();
+
+      expect(mockAnalyzeRelease).not.toHaveBeenCalled();
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Download Started" })
+      );
+    });
+
+    it("auto-downloads when TypeSafe is configured but the release looks fine", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "full_game",
+        releaseTypeConfidence: 0.95,
+        legitimacyScore: 0.9,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAnalyzeRelease).toHaveBeenCalledWith(
+        expect.objectContaining({ releaseName: SINGLE_MAIN_ITEM.title, sizeBytes: 10_000 })
+      );
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+    });
+
+    it("auto-downloads when TypeSafe analysis fails (fail-open)", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue(null);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+    });
+
+    it("holds back the download and notifies for review when AI confidently classifies it as DLC", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        autoDownloadEnabled: true,
+        notifyMultipleDownloads: true,
+      });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "dlc",
+        releaseTypeConfidence: 0.85,
+        legitimacyScore: null,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Release Flagged for Review",
+          message: expect.stringContaining("dlc"),
+        })
+      );
+    });
+
+    it("does not hold back when the AI's release-type confidence is too low", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "dlc",
+        releaseTypeConfidence: 0.3, // below the 0.6 hold threshold
+        legitimacyScore: null,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+    });
+
+    it("holds back the download when the AI flags the file size as implausible", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        autoDownloadEnabled: true,
+        notifyMultipleDownloads: true,
+      });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "full_game",
+        releaseTypeConfidence: 0.9,
+        legitimacyScore: 0.1,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Release Flagged for Review" })
       );
     });
   });

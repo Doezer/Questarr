@@ -259,14 +259,24 @@ describe("MemStorage - Game update methods", () => {
     expect(updated?.userRating).toBe(9.5);
   });
 
-  it("updateGameNotes returns undefined for missing game", async () => {
-    const result = await storage.updateGameNotes("nonexistent", "u1", "notes");
-    expect(result).toBeUndefined();
+  it("addGameJournalEntry stores a note for the game", async () => {
+    const entry = await storage.addGameJournalEntry({ gameId, userId: "u1", note: "Great game!" });
+    expect(entry.note).toBe("Great game!");
+    const entries = await storage.getGameJournalEntries(gameId, "u1");
+    expect(entries).toHaveLength(1);
   });
 
-  it("updateGameNotes sets notes", async () => {
-    const updated = await storage.updateGameNotes(gameId, "u1", "Great game!");
-    expect(updated?.notes).toBe("Great game!");
+  it("deleteGameJournalEntry returns false for another user's entry", async () => {
+    const entry = await storage.addGameJournalEntry({ gameId, userId: "u1", note: "Mine" });
+    const result = await storage.deleteGameJournalEntry(entry.id, "someone-else");
+    expect(result).toBe(false);
+  });
+
+  it("addGameMilestone and updateGameMilestone toggle completion", async () => {
+    const milestone = await storage.addGameMilestone({ gameId, userId: "u1", label: "Beat boss" });
+    expect(milestone.completedAt).toBeNull();
+    const updated = await storage.updateGameMilestone(milestone.id, "u1", true);
+    expect(updated?.completedAt).not.toBeNull();
   });
 
   it("updateGameSearchResultsAvailable sets the flag", async () => {

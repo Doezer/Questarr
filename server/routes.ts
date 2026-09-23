@@ -14,7 +14,6 @@ import {
   updateGameStatusSchema,
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
-  updateGameNotesSchema,
   updateGameTargetPlatformSchema,
   insertIndexerSchema,
   insertDownloaderSchema,
@@ -224,6 +223,7 @@ import type { XrelGameStatus } from "../shared/xrel-types.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import { gameJournalRoutes } from "./game-journal-routes.js";
 import {
   getContentFilterFlags,
   isContentFiltered,
@@ -713,6 +713,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Use Steam Routes
   app.use(steamRoutes);
+  app.use(gameJournalRoutes);
   // Use PCGamingWiki Routes
   app.use(pcgamingwikiRouter);
 
@@ -1662,34 +1663,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         routesLogger.error({ error }, "error updating game user rating");
         return res.status(500).json({ error: "Failed to update user rating" });
-      }
-    }
-  );
-
-  // Update personal notes (freeform text, max 10,000 chars, or null to clear)
-  app.patch(
-    "/api/games/:id/notes",
-    sensitiveEndpointLimiter,
-    sanitizeGameId,
-    validateRequest,
-    async (req: Request, res: Response) => {
-      try {
-        const { id } = req.params;
-        const userId = req.user!.id;
-        const { notes } = updateGameNotesSchema.parse(req.body);
-
-        const updatedGame = await storage.updateGameNotes(id, userId, notes);
-        if (!updatedGame) {
-          return res.status(404).json({ error: "Game not found" });
-        }
-
-        return res.json(updatedGame);
-      } catch (error) {
-        if (error instanceof z.ZodError) {
-          return respondWithZodError(res, error, "Invalid notes data");
-        }
-        routesLogger.error({ error }, "error updating game notes");
-        return res.status(500).json({ error: "Failed to update notes" });
       }
     }
   );
@@ -4395,6 +4368,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       routesLogger.error({ error }, "Failed to fetch Discord settings");
       res.status(500).json({ error: "Failed to fetch Discord settings" });
     }
+  });
+
+  // Exposes only whether a Steam Web API key is configured server-side, so the
+  // client can conditionally show the achievements section on the Playing
+  // page without ever seeing the key itself.
+  app.get("/api/settings/steam", sensitiveEndpointLimiter, async (_req, res) => {
+    res.json({ apiKeyConfigured: appConfig.steam.isConfigured });
   });
 
   app.post("/api/settings/discord", sensitiveEndpointLimiter, async (req, res) => {

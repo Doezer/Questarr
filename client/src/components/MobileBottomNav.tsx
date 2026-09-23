@@ -6,6 +6,7 @@ import {
   primaryNavigation,
   managementNavigation,
   activityNavigation,
+  flattenNavigation,
   type AppNavItem,
 } from "@/components/navigation-items";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -17,7 +18,10 @@ interface MobileBottomNavProps {
 
 const pinnedUrls = new Set(mobileBottomNavigation.map((i) => i.url));
 
-const morePages: AppNavItem[] = primaryNavigation.filter((i) => !pinnedUrls.has(i.url));
+// Flatten so nested entries (e.g. Wishlist under Library) still surface here.
+const morePages: AppNavItem[] = flattenNavigation(primaryNavigation).filter(
+  (i) => !pinnedUrls.has(i.url)
+);
 
 const isMoreActive = (activeItem: string) =>
   !pinnedUrls.has(activeItem) && activeItem !== "/login" && activeItem !== "/setup";

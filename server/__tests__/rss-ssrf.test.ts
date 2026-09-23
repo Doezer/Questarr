@@ -113,6 +113,9 @@ vi.mock("../middleware.js", () => ({
   sanitizeRootFolderId: [],
   sanitizeLibraryScanData: [],
   sanitizeUnmatchedMatchData: [],
+  sanitizeJournalEntryId: [],
+  sanitizeMilestoneId: [],
+  sanitizeScreenshotId: [],
 }));
 
 describe("RSS Routes SSRF", () => {

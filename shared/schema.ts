@@ -193,7 +193,6 @@ export const games = sqliteTable("games", {
   isAdultContent: integer("is_adult_content", { mode: "boolean" }).notNull().default(false),
   isAgeRestricted: integer("is_age_restricted", { mode: "boolean" }).notNull().default(false),
   userRating: real("user_rating"),
-  notes: text("notes"),
   libraryPath: text("library_path"),
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
@@ -333,6 +332,55 @@ export const releaseBlacklist = sqliteTable(
   (t) => [uniqueIndex("release_blacklist_game_title_idx").on(t.gameId, t.releaseTitle)]
 );
 
+// Local-only journaling entries for a game (e.g. while playing it). Never
+// synced externally — a personal log, replacing the old single-field notes.
+export const gameJournalEntries = sqliteTable("game_journal_entries", {
+  id: text("id").primaryKey(),
+  gameId: text("game_id")
+    .notNull()
+    .references(() => games.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  note: text("note").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+});
+
+// User-defined "successes" checklist per game. Kept separate from any
+// Steam-sourced achievements, which are fetched live rather than stored here.
+export const gameMilestones = sqliteTable("game_milestones", {
+  id: text("id").primaryKey(),
+  gameId: text("game_id")
+    .notNull()
+    .references(() => games.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+});
+
+// User-uploaded screenshots for a game, stored on disk with the path recorded here.
+export const gameScreenshots = sqliteTable("game_screenshots", {
+  id: text("id").primaryKey(),
+  gameId: text("game_id")
+    .notNull()
+    .references(() => games.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  filePath: text("file_path").notNull(),
+  caption: text("caption"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+});
+
 export const notifications = sqliteTable("notifications", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
@@ -458,10 +506,29 @@ export const updateGameUserRatingSchema = z.object({
     .nullable(),
 });
 
-export const updateGameNotesSchema = z.object({
-  notes: z
+export const insertGameJournalEntrySchema = createInsertSchema(gameJournalEntries, {
+  note: (schema) => schema.trim().min(1, "Note cannot be empty").max(10000),
+}).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertGameMilestoneSchema = createInsertSchema(gameMilestones, {
+  label: (schema) => schema.trim().min(1, "Label is required").max(200),
+}).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
+export const updateGameMilestoneSchema = z.object({
+  completed: z.boolean(),
+});
+
+export const updateGameScreenshotSchema = z.object({
+  caption: z
     .string()
-    .max(10000)
+    .max(300)
     .nullable()
     .transform((val) => val?.trim() || null),
 });
@@ -645,6 +712,14 @@ export type InsertDownloader = (typeof insertDownloaderSchema)["_output"];
 
 export type GameDownload = typeof gameDownloads.$inferSelect;
 export type InsertGameDownload = (typeof insertGameDownloadSchema)["_output"];
+
+export type GameJournalEntry = typeof gameJournalEntries.$inferSelect;
+export type InsertGameJournalEntry = (typeof insertGameJournalEntrySchema)["_output"];
+
+export type GameMilestone = typeof gameMilestones.$inferSelect;
+export type InsertGameMilestone = (typeof insertGameMilestoneSchema)["_output"];
+
+export type GameScreenshot = typeof gameScreenshots.$inferSelect;
 
 export type XrelNotifiedRelease = typeof xrelNotifiedReleases.$inferSelect;
 export type InsertXrelNotifiedRelease = (typeof insertXrelNotifiedReleaseSchema)["_output"];

@@ -1,4 +1,4 @@
-import { LogOut, User } from "lucide-react";
+import { ChevronRight, LogOut, User } from "lucide-react";
 import { useMemo } from "react";
 import {
   Sidebar,
@@ -10,8 +10,12 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarHeader,
 } from "@/components/ui/sidebar";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
 import { type Game, type DownloadStatus } from "@shared/schema";
@@ -21,6 +25,7 @@ import {
   activityNavigation,
   managementNavigation,
   primaryNavigation,
+  type AppNavItem,
 } from "@/components/navigation-items";
 import { withBasePath } from "@/lib/app-path";
 
@@ -71,17 +76,22 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
     return count;
   }, [downloadsData?.downloads]);
 
-  const navigation = primaryNavigation.map((item) => {
-    let badge: string | undefined;
+  type NavItemWithBadge = Omit<AppNavItem, "children"> & {
+    badge?: string | undefined;
+    children?: NavItemWithBadge[] | undefined;
+  };
 
+  const withBadge = (item: AppNavItem): NavItemWithBadge => {
+    let badge: string | undefined;
     if (item.title === "Wishlist" && wishlistCount > 0) {
       badge = wishlistCount.toString();
     } else if (item.title === "Downloads" && activeDownloadsCount > 0) {
       badge = activeDownloadsCount.toString();
     }
+    return { ...item, badge, children: item.children?.map(withBadge) };
+  };
 
-    return { ...item, badge };
-  });
+  const navigation = primaryNavigation.map(withBadge);
 
   return (
     <Sidebar data-testid="sidebar-main">
@@ -102,37 +112,95 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navigation.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={activeItem === item.url}
-                    data-testid={`nav-${item.title.toLowerCase()}`}
-                  >
-                    <button
-                      onClick={() => handleNavigation(item.url)}
-                      className="flex items-center justify-between w-full"
-                      aria-label={
-                        item.badge
-                          ? `${item.title}, ${item.badge} ${
-                              item.title === "Downloads" ? "active downloads" : "items"
-                            }`
-                          : undefined
-                      }
+              {navigation.map((item) =>
+                item.children && item.children.length > 0 ? (
+                  <Collapsible key={item.title} defaultOpen className="group/collapsible" asChild>
+                    <SidebarMenuItem>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton
+                          isActive={
+                            activeItem === item.url ||
+                            item.children.some((child) => child.url === activeItem)
+                          }
+                          data-testid={`nav-${item.title.toLowerCase()}`}
+                        >
+                          <item.icon className="w-4 h-4" aria-hidden="true" />
+                          <span>{item.title}</span>
+                          <ChevronRight
+                            className="ml-auto h-4 w-4 shrink-0 transition-transform group-data-[state=open]/collapsible:rotate-90"
+                            aria-hidden="true"
+                          />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenuSub>
+                          {item.children.map((child) => (
+                            <SidebarMenuSubItem key={child.title}>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={activeItem === child.url}
+                                data-testid={`nav-${child.title.toLowerCase()}`}
+                              >
+                                <button
+                                  onClick={() => handleNavigation(child.url)}
+                                  className="flex items-center justify-between w-full"
+                                  aria-label={
+                                    child.badge ? `${child.title}, ${child.badge} items` : undefined
+                                  }
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <child.icon className="w-4 h-4" aria-hidden="true" />
+                                    <span>{child.title}</span>
+                                  </div>
+                                  {child.badge && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="ml-auto text-xs"
+                                      aria-hidden="true"
+                                    >
+                                      {child.badge}
+                                    </Badge>
+                                  )}
+                                </button>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ))}
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    </SidebarMenuItem>
+                  </Collapsible>
+                ) : (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={activeItem === item.url}
+                      data-testid={`nav-${item.title.toLowerCase()}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <item.icon className="w-4 h-4" aria-hidden="true" />
-                        <span>{item.title}</span>
-                      </div>
-                      {item.badge && (
-                        <Badge variant="secondary" className="ml-auto text-xs" aria-hidden="true">
-                          {item.badge}
-                        </Badge>
-                      )}
-                    </button>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+                      <button
+                        onClick={() => handleNavigation(item.url)}
+                        className="flex items-center justify-between w-full"
+                        aria-label={
+                          item.badge
+                            ? `${item.title}, ${item.badge} ${
+                                item.title === "Downloads" ? "active downloads" : "items"
+                              }`
+                            : undefined
+                        }
+                      >
+                        <div className="flex items-center gap-2">
+                          <item.icon className="w-4 h-4" aria-hidden="true" />
+                          <span>{item.title}</span>
+                        </div>
+                        {item.badge && (
+                          <Badge variant="secondary" className="ml-auto text-xs" aria-hidden="true">
+                            {item.badge}
+                          </Badge>
+                        )}
+                      </button>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

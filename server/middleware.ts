@@ -135,6 +135,21 @@ export const sanitizeDownloadId = [
     .withMessage("Invalid download ID format"),
 ];
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Sanitization rules for the game journal/milestone/screenshot sub-resource ID params
+export const sanitizeJournalEntryId = [
+  param("entryId").trim().matches(UUID_PATTERN).withMessage("Invalid journal entry ID format"),
+];
+
+export const sanitizeMilestoneId = [
+  param("milestoneId").trim().matches(UUID_PATTERN).withMessage("Invalid milestone ID format"),
+];
+
+export const sanitizeScreenshotId = [
+  param("screenshotId").trim().matches(UUID_PATTERN).withMessage("Invalid screenshot ID format"),
+];
+
 // Sanitization rules for IGDB ID parameters
 export const sanitizeIgdbId = [
   param("id").trim().isInt({ min: 1 }).withMessage("Invalid IGDB ID").toInt(),

@@ -989,28 +989,6 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
-  describe("PATCH /api/games/:id/notes", () => {
-    const gameId = "123e4567-e89b-12d3-a456-426614174000";
-
-    it("should update notes", async () => {
-      const updatedGame = { id: gameId, notes: "Great game" };
-      vi.mocked(storage.updateGameNotes).mockResolvedValue(updatedGame as unknown as Game);
-
-      const response = await request(app)
-        .patch(`/api/games/${gameId}/notes`)
-        .send({ notes: "Great game" });
-      expect(response.status).toBe(200);
-    });
-
-    it("should return 400 for a non-string notes value (fails schema, not sanitizer)", async () => {
-      const response = await request(app)
-        .patch(`/api/games/${gameId}/notes`)
-        .send({ notes: 12345 });
-      expect(response.status).toBe(400);
-      expect(response.body.error).toBe("Invalid notes data");
-    });
-  });
-
   describe("PATCH /api/games/:id/target-platform", () => {
     const gameId = "123e4567-e89b-12d3-a456-426614174000";
 

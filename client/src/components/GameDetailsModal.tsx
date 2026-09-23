@@ -34,7 +34,6 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { TagList } from "@/components/ui/tag-list";
 import { Card, CardContent } from "@/components/ui/card";
@@ -72,8 +71,8 @@ import {
   File,
   ChevronLeft,
   ChevronRight,
-  Pencil,
   ShieldCheck,
+  BookOpen,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -85,6 +84,7 @@ import {
   SiItchdotio,
 } from "react-icons/si";
 import { NexusModsIcon } from "./NexusModsIcon";
+import GameJournalTab from "./GameJournalTab";
 import { getSocket } from "@/lib/socket";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
@@ -431,33 +431,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [selectedScreenshotIndex, setSelectedScreenshotIndex] = useState<number | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
-  const [notesValue, setNotesValue] = useState<string>("");
   const [targetPlatformValue, setTargetPlatformValue] = useState("default");
-  const [isEditingNotes, setIsEditingNotes] = useState(false);
-  // Tracks the live notesValue so the async save's onSuccess (below) can tell
-  // whether the user kept typing after blur, instead of seeing the stale
-  // value it closed over.
-  const notesValueRef = useRef(notesValue);
-  useEffect(() => {
-    notesValueRef.current = notesValue;
-  }, [notesValue]);
-  // Tracks the live isEditingNotes so the server-sync effect (below) can
-  // check it without depending on it — depending on it directly would rerun
-  // the sync (using the still-stale pre-refetch game.notes) the instant a
-  // save flips isEditingNotes back to false, flashing the old value.
-  const isEditingNotesRef = useRef(isEditingNotes);
-  useEffect(() => {
-    isEditingNotesRef.current = isEditingNotes;
-  }, [isEditingNotes]);
-  // Serializes mobile note saves: only one PATCH is ever in flight. A save
-  // requested while one is pending is queued (overwriting any earlier queued
-  // value — only the latest draft matters) and fired once the in-flight one
-  // settles, so two overlapping requests can never complete out of order and
-  // let an older draft silently overwrite a newer one on the server. Each
-  // queued save also remembers which game it targets, so it's dropped
-  // instead of misfiring if the modal has since switched to another game.
-  const notesSaveInFlightRef = useRef(false);
-  const queuedNotesSaveRef = useRef<{ value: string | null; gameId: string } | null>(null);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removeFromClient, setRemoveFromClient] = useState(true);
   const [deleteFiles, setDeleteFiles] = useState(true);
@@ -475,31 +449,15 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       setIsSummaryExpanded(false);
       setSelectedScreenshotIndex(null);
       setDownloadOpen(false);
-      setIsEditingNotes(false);
-      queuedNotesSaveRef.current = null;
     }
   }, [open]);
 
-  // Full reset when switching to a different game — unconditional, since a
-  // new game.id means any in-progress notes draft belongs to a game we're
-  // no longer looking at.
+  // Full reset when switching to a different game.
   useEffect(() => {
     setIsSummaryExpanded(false);
-    setNotesValue(game?.notes ?? "");
     setTargetPlatformValue(getTargetPlatformSelectValue(game));
-    setIsEditingNotes(false);
-    queuedNotesSaveRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game?.id]);
-
-  // Keep notesValue in sync with the server for the *same* game — e.g. after
-  // the notes mutation's own invalidateQueries refetch lands. Skipped while
-  // actively editing on mobile so a background refetch can't stomp a draft
-  // the user hasn't blurred away from yet.
-  useEffect(() => {
-    if (isMobile && isEditingNotesRef.current) return;
-    setNotesValue(game?.notes ?? "");
-  }, [game?.notes, isMobile]);
 
   // Keep targetPlatformValue in sync with the server value for the same game
   // (e.g. after the target-platform mutation's invalidateQueries refetch lands).
@@ -770,50 +728,6 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     [supportedTargetPlatformOptions, targetPlatformMutation]
   );
 
-  const notesMutation = useMutation({
-    mutationFn: async ({ gameId, notes }: { gameId: string; notes: string | null }) => {
-      await apiRequest("PATCH", `/api/games/${gameId}/notes`, { notes });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-    },
-    onError: () => {
-      toast({ description: "Failed to save notes", variant: "destructive" });
-    },
-  });
-
-  // Fires a notes save for `gameId` (the current game by default), or queues
-  // it if one is already in flight (see the refs above) — never lets two
-  // PATCH requests race each other. The target game travels with the save
-  // itself, so a queued draft is dropped instead of misfiring against the
-  // wrong game if the modal switches games while a save is pending.
-  const saveNotes = (trimmed: string | null, gameId: string | undefined = game?.id) => {
-    if (!gameId) return;
-    if (notesSaveInFlightRef.current) {
-      queuedNotesSaveRef.current = { value: trimmed, gameId };
-      return;
-    }
-    notesSaveInFlightRef.current = true;
-    notesMutation.mutate(
-      { gameId, notes: trimmed },
-      {
-        onSuccess: () => {
-          if (isMobile && game?.id === gameId && notesValueRef.current.trim() === (trimmed ?? "")) {
-            setIsEditingNotes(false);
-          }
-        },
-        onSettled: () => {
-          notesSaveInFlightRef.current = false;
-          const queued = queuedNotesSaveRef.current;
-          queuedNotesSaveRef.current = null;
-          if (queued && queued.gameId === game?.id) {
-            saveNotes(queued.value, queued.gameId);
-          }
-        },
-      }
-    );
-  };
-
   const hiddenMutation = useHiddenMutation({
     hiddenSuccessMessage: "Game hidden from library",
     unhiddenSuccessMessage: "Game unhidden",
@@ -1003,60 +917,6 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
           )}
         </div>
 
-        {/* Personal notes */}
-        <div className="mt-3">
-          {isMobile && !isEditingNotes ? (
-            // Mobile: notes start collapsed to a read-only preview so opening the sheet
-            // never lands focus on a text field and pops the on-screen keyboard.
-            // Tapping "Edit" is an explicit user gesture, so autofocus there is expected.
-            <div className="flex items-start justify-between gap-2">
-              <p className="flex-1 min-w-0 line-clamp-2 text-sm text-muted-foreground">
-                {notesValue.trim() || "No personal notes yet"}
-              </p>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 flex-shrink-0"
-                aria-label="Edit personal notes"
-                onClick={() => setIsEditingNotes(true)}
-              >
-                <Pencil className="h-4 w-4" />
-              </Button>
-            </div>
-          ) : (
-            <Textarea
-              autoFocus={isMobile}
-              value={notesValue}
-              onChange={(e) => setNotesValue(e.target.value)}
-              onBlur={() => {
-                const trimmed = notesValue.trim() || null;
-                if (trimmed !== (game.notes ?? null)) {
-                  // saveNotes serializes this behind any already-in-flight
-                  // save, and its own onSuccess (above) only collapses the
-                  // mobile editor once the latest saved value matches what's
-                  // currently typed — a failed or superseded save leaves it
-                  // open instead of losing or misrepresenting the draft.
-                  saveNotes(trimmed);
-                } else if (isMobile) {
-                  setIsEditingNotes(false);
-                }
-              }}
-              placeholder="Personal notes..."
-              className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
-              maxLength={10000}
-              aria-label="Personal notes for this game"
-              // On mobile, keep the field editable through the save so the
-              // stale-save guard above is actually reachable — a disabled
-              // field would block the very typing it's meant to protect.
-              // Desktop keeps the pre-existing disable-while-saving behavior.
-              disabled={!isMobile && notesMutation.isPending}
-            />
-          )}
-          {notesMutation.isPending && (
-            <p className="text-xs text-muted-foreground mt-1">Saving...</p>
-          )}
-        </div>
-
         {/* Quick Actions */}
         <div className="flex gap-2 mt-3">
           <Tooltip>
@@ -1132,6 +992,17 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             </TooltipTrigger>
             <TooltipContent className="sm:hidden">Overview</TooltipContent>
           </Tooltip>
+          {!isDiscoveryId(game.id) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger value="journal" aria-label="Journal" className="gap-1.5">
+                  <BookOpen className="h-3.5 w-3.5 sm:hidden" />
+                  <span className="hidden sm:inline">Journal</span>
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent className="sm:hidden">Journal</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <TabsTrigger value="downloads" aria-label="Downloads" className="gap-1.5">
@@ -1356,6 +1227,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               </div>
             </div>
           </ScrollArea>
+        </TabsContent>
+
+        {/* ── Journal tab (notes, milestones, achievements, screenshots) ── */}
+        <TabsContent value="journal" className="flex-1 min-h-0">
+          <GameJournalTab gameId={game.id} steamAppId={game.steamAppId ?? null} />
         </TabsContent>
 
         {/* ── Downloads tab ── */}

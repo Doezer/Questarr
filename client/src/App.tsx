@@ -30,6 +30,7 @@ const SettingsPage = lazy(() => import("@/pages/settings"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
 const WishlistPage = lazy(() => import("@/pages/wishlist"));
+const PlayingPage = lazy(() => import("@/pages/playing"));
 const XrelReleasesPage = lazy(() => import("@/pages/xrel-releases"));
 const RssPage = lazy(() => import("@/pages/rss"));
 const LoginPage = lazy(() => import("@/pages/auth/login"));
@@ -129,6 +130,7 @@ function Router() {
         <Route path={routePaths.settings} component={SettingsPage} />
         <Route path={routePaths.calendar} component={CalendarPage} />
         <Route path={routePaths.wishlist} component={WishlistPage} />
+        <Route path={routePaths.playing} component={PlayingPage} />
         <Route path={routePaths.xrel} component={XrelReleasesPage} />
         <Route path={routePaths.rss} component={RssPage} />
         <Route path={routePaths.stats} component={StatsPage} />

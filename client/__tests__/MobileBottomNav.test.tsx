@@ -15,6 +15,7 @@ vi.mock("lucide-react", () => {
     Compass: Icon,
     Database: Icon,
     Download: Icon,
+    Gamepad2: Icon,
     HardDrive: Icon,
     Home: Icon,
     Newspaper: Icon,

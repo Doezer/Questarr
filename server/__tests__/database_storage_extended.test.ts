@@ -141,7 +141,7 @@ describe("DatabaseStorage Extended Coverage", () => {
   });
 
   describe("Games", () => {
-    it("adds, fetches, and updates a game's status, hidden, rating, and notes", async () => {
+    it("adds, fetches, and updates a game's status, hidden, and rating", async () => {
       const userId = await createUser();
       const gameData: InsertGame = {
         title: "Test Game",
@@ -166,9 +166,6 @@ describe("DatabaseStorage Extended Coverage", () => {
       const ratingUpdated = await storage.updateGameUserRating(game.id, userId, 8.5);
       expect(ratingUpdated?.userRating).toBe(8.5);
 
-      const notesUpdated = await storage.updateGameNotes(game.id, userId, "Great game");
-      expect(notesUpdated?.notes).toBe("Great game");
-
       await storage.updateGameSearchResultsAvailable(game.id, true);
       const refetched = await storage.getGame(game.id);
       expect(refetched?.searchResultsAvailable).toBe(true);
@@ -179,6 +176,52 @@ describe("DatabaseStorage Extended Coverage", () => {
       const removed = await storage.removeGame(game.id);
       expect(removed).toBe(true);
       expect(await storage.getGame(game.id)).toBeUndefined();
+    });
+
+    it("journal entries, milestones, and screenshots are scoped to their game and owner", async () => {
+      const userId = await createUser();
+      const game = await storage.addGame({
+        title: "Journaled Game",
+        status: "playing",
+        userId,
+        hidden: false,
+      });
+
+      const entry = await storage.addGameJournalEntry({
+        gameId: game.id,
+        userId,
+        note: "Reached the second boss",
+      });
+      expect(entry.note).toBe("Reached the second boss");
+      expect(await storage.getGameJournalEntries(game.id, userId)).toHaveLength(1);
+      expect(await storage.deleteGameJournalEntry(entry.id, "someone-else")).toBe(false);
+      expect(await storage.deleteGameJournalEntry(entry.id, userId)).toBe(true);
+
+      const milestone = await storage.addGameMilestone({
+        gameId: game.id,
+        userId,
+        label: "100% completion",
+      });
+      expect(milestone.completedAt).toBeNull();
+      const completed = await storage.updateGameMilestone(milestone.id, userId, true);
+      expect(completed?.completedAt).not.toBeNull();
+      expect(await storage.deleteGameMilestone(milestone.id, userId)).toBe(true);
+
+      const screenshot = await storage.addGameScreenshot({
+        gameId: game.id,
+        userId,
+        filePath: "/data/screenshots/example.png",
+      });
+      expect(screenshot.filePath).toBe("/data/screenshots/example.png");
+      const captioned = await storage.updateGameScreenshotCaption(
+        screenshot.id,
+        userId,
+        "Final boss"
+      );
+      expect(captioned?.caption).toBe("Final boss");
+      const deleted = await storage.deleteGameScreenshot(screenshot.id, userId);
+      expect(deleted?.id).toBe(screenshot.id);
+      expect(await storage.getGameScreenshots(game.id, userId)).toHaveLength(0);
     });
 
     it("filters getUserGames by status list and hidden state", async () => {

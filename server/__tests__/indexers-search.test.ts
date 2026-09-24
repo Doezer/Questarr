@@ -3,6 +3,7 @@ import type { Indexer } from "@shared/schema";
 
 // Mock modules
 vi.mock("../db.js", () => ({
+  dialect: "sqlite",
   pool: {},
   db: {},
 }));

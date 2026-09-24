@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Indexer } from "@shared/schema";
 import { DEFAULT_GAME_CATEGORIES, resolveSearchCategories } from "../indexer-caps.js";
 
-vi.mock("../db.js", () => ({ pool: {}, db: {} }));
+vi.mock("../db.js", () => ({ dialect: "sqlite", pool: {}, db: {} }));
 vi.mock("../logger.js", () => ({
   torznabLogger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));

@@ -5,6 +5,7 @@ const poolQueryMock = vi.fn();
 const igdbGetPopularGamesMock = vi.fn();
 
 vi.mock("../db.js", () => ({
+  dialect: "sqlite",
   pool: {
     query: poolQueryMock,
   },

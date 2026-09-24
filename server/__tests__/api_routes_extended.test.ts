@@ -8,6 +8,7 @@ import {
   createIgdbMock,
   createAuthMock,
   createDbMock,
+  createDbModuleMock,
   createLoggerMocks,
   createRssMock,
   createTorznabMock,
@@ -35,7 +36,7 @@ vi.mock("../log-file.js", () => ({ readLastLogLines: vi.fn().mockResolvedValue([
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
 vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
 vi.mock("../auth.js", () => createAuthMock());
-vi.mock("../db.js", () => ({ db: createDbMock() }));
+vi.mock("../db.js", () => createDbModuleMock());
 vi.mock("../logger.js", () => createLoggerMocks());
 vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
 vi.mock("../torznab.js", () => ({ torznabClient: createTorznabMock() }));

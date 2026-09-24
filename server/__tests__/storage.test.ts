@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Mock db.ts to avoid SQLite connection
 vi.mock("../db.js", () => ({
+  dialect: "sqlite",
   pool: {},
   db: {},
 }));
@@ -31,6 +32,7 @@ vi.mock("better-sqlite3", () => {
 // Mock db to avoid Drizzle connection
 vi.mock("../db", () => {
   return {
+    dialect: "sqlite",
     pool: {},
     db: {
       select: vi.fn().mockReturnThis(),

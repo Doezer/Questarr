@@ -1,5 +1,12 @@
 # Migration Guide: PostgreSQL to SQLite
 
+> **Not to be confused with the optional Postgres backend.** This document
+> describes the one-time v1.1 move _from_ Postgres _to_ SQLite. Questarr can now
+> also be run on Postgres again as an opt-in alternative to the SQLite default
+> (from v1.5.0), which is a different thing entirely -- see
+> [DATABASE.md](./DATABASE.md). The `scripts/pg-to-sqlite.ts` tool below belongs
+> to the v1.1 migration and is not part of that.
+
 Questarr v1.1+ moves from PostgreSQL to SQLite to simplify deployment and reduce resource usage. This guide explains how to migrate your existing data.
 
 ## Prerequisites

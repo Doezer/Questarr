@@ -39,6 +39,7 @@ const { mockConfig } = vi.hoisted(() => {
 
 // Mock dependencies
 vi.mock("../db.js", () => ({
+  dialect: "sqlite",
   db: {
     get: vi.fn(),
   },

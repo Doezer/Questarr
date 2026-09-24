@@ -4,6 +4,7 @@ import type { SearchItem } from "../search.js";
 
 // Mock dependencies
 vi.mock("../db.js", () => ({
+  dialect: "sqlite",
   pool: {},
   db: {},
 }));

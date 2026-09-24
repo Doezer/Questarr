@@ -314,12 +314,22 @@ router.post(
       const filePath = resolveWithinDir(dir, path.join(dir, fileName));
       await fs.promises.writeFile(filePath, req.file.buffer);
 
-      const screenshot = await storage.addGameScreenshot({
-        gameId,
-        userId: user.id,
-        filePath,
-        caption,
-      });
+      const screenshot = await storage
+        .addGameScreenshot({
+          gameId,
+          userId: user.id,
+          filePath,
+          caption,
+        })
+        .catch(async (error: unknown) => {
+          await fs.promises.unlink(filePath).catch((cleanupError: unknown) => {
+            routesLogger.warn(
+              { error: cleanupError, filePath },
+              "Failed to delete screenshot file after metadata insert failure"
+            );
+          });
+          throw error;
+        });
 
       return res.status(201).json({
         ...screenshot,

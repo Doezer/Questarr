@@ -37,11 +37,11 @@ INSERT INTO `game_journal_entries` (`id`, `game_id`, `user_id`, `note`, `created
 SELECT
 	lower(hex(randomblob(16))),
 	`id`,
-	COALESCE(`user_id`, (SELECT `id` FROM `users` WHERE (SELECT count(*) FROM `users`) = 1)),
+	COALESCE(`user_id`, (SELECT `id` FROM `users` ORDER BY `rowid` ASC LIMIT 1)),
 	`notes`,
 	(strftime('%s', 'now') * 1000)
 FROM `games`
 WHERE `notes` IS NOT NULL AND trim(`notes`) != ''
-	AND COALESCE(`user_id`, (SELECT `id` FROM `users` WHERE (SELECT count(*) FROM `users`) = 1)) IS NOT NULL;
+	AND COALESCE(`user_id`, (SELECT `id` FROM `users` ORDER BY `rowid` ASC LIMIT 1)) IS NOT NULL;
 --> statement-breakpoint
 ALTER TABLE `games` DROP COLUMN `notes`;

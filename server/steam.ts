@@ -157,7 +157,7 @@ export const steamService = {
     const [schemaResponse, achievementsResponse, globalPercentages] = await Promise.all([
       safeFetch(schemaUrl, { requireHttps: true }),
       safeFetch(achievementsUrl, { requireHttps: true }),
-      fetchGlobalAchievementPercentages(appId),
+      fetchGlobalAchievementPercentages(appId).catch(() => new Map<string, number>()),
     ]);
 
     // Steam returns a non-2xx status (with a { playerstats: { success: false } } body)

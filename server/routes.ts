@@ -50,10 +50,12 @@ import {
 import { z } from "zod";
 import { routesLogger } from "./logger.js";
 import { getPendingReport, sendPendingReport } from "./error-telemetry.js";
+import { SCAN_MAX_FILES, SCAN_TIME_BUDGET_MS } from "./scan-limits.js";
 import {
   igdbRateLimiter,
   sensitiveEndpointLimiter,
   authRateLimiter,
+  scanRateLimiter,
   validateRequest,
   sanitizeSearchQuery,
   sanitizeGameId,
@@ -2346,9 +2348,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   ];
 
   // Recursively scan a game library folder. This endpoint is read-only; imports are handled separately.
+  // The walk is bounded (file count + wall-clock budget) and rate-limited per user,
+  // since a very large library tree can otherwise exhaust filesystem I/O and memory.
   app.get(
     "/api/games/:gameId/files",
     authenticateToken,
+    scanRateLimiter,
     gameIdParamValidation,
     validateRequest,
     async (req: Request, res: Response) => {
@@ -2373,7 +2378,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { gameId } = req.params as { gameId: string };
         const game = await resolveOwnedGame(gameId, req.user!.id, res);
         if (!game) return;
-        if (!game.libraryPath) return res.json({ files: [] });
+        if (!game.libraryPath) return res.json({ files: [], truncated: false });
 
         const importConfig = await storage.getImportConfig(req.user!.id);
         const libraryRoot = await realpathOrNull(importConfig.libraryRoot);
@@ -2382,7 +2387,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           candidate === root ||
           candidate.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
         if (!libraryRoot || !scanRoot || !isContained(scanRoot, libraryRoot)) {
-          return res.json({ files: [] });
+          return res.json({ files: [], truncated: false });
         }
 
         const categoryDirs = new Set<DownloadCategory>(["dlc", "update", "extra", "packs"]);
@@ -2395,7 +2400,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const normalizeCategory = (category: DownloadCategory): GameFileCategory =>
           category === "packs" ? "extra" : category;
         const files: ScannedGameFile[] = [];
+        let truncated = false;
+        const deadline = Date.now() + SCAN_TIME_BUDGET_MS;
         const walk = async (dir: string, inheritedCategory?: DownloadCategory): Promise<void> => {
+          if (truncated) return;
           const canonicalDir = await realpathOrNull(dir);
           if (!canonicalDir || !isContained(canonicalDir, libraryRoot)) return;
           let entries: fs.Dirent[];
@@ -2406,6 +2414,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             throw error;
           }
           for (const entry of entries) {
+            // Stop traversing once a budget is exceeded; `truncated` short-circuits
+            // every pending recursion level on the way back up the tree.
+            if (truncated || files.length >= SCAN_MAX_FILES || Date.now() >= deadline) {
+              truncated = true;
+              return;
+            }
             const fullPath = path.join(canonicalDir, entry.name);
             if (entry.isDirectory()) {
               const lowerName = entry.name.toLowerCase();
@@ -2430,7 +2444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         };
         await walk(scanRoot);
-        return res.json({ files });
+        return res.json({ files, truncated });
       } catch (error) {
         routesLogger.error({ error }, "error scanning game files");
         return res.status(500).json({ error: "Failed to scan game files" });

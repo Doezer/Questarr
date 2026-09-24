@@ -223,7 +223,11 @@ async function main() {
   for (const name of TABLE_ORDER) {
     // copyAllTables() populates a `counts` entry for every name in TABLE_ORDER.
     const c = counts[name]!;
-    const ok = c.verified === c.read;
+    // With --force, `verified` includes rows that were already in the target
+    // before this run, so comparing it directly to `read` would report FAIL
+    // on every table that had a baseline. `mismatched` already accounts for
+    // that baseline, so it's the correct source of truth here.
+    const ok = !mismatched.includes(name);
     console.log(
       `  ${ok ? "ok  " : "FAIL"} ${name.padEnd(24)} sqlite=${c.read} postgres=${c.verified}`
     );

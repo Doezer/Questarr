@@ -13,8 +13,9 @@ import type { AppDatabase, DatabaseConnection } from "./types.js";
  * backend.
  *
  * It is NOT a substitute for a real server: PGlite is single-connection, so it
- * cannot surface pool exhaustion, lock contention or deadlock ordering. CI runs
- * the same suites against a real Postgres for that.
+ * cannot surface pool exhaustion, lock contention or deadlock ordering. There is
+ * currently no CI job that runs these suites against a real Postgres server --
+ * see "Known gaps" in this PR's description.
  *
  * Selected with QUESTARR_DB_DRIVER=pglite. @electric-sql/pglite is a
  * devDependency and is imported dynamically so that production installs, where

@@ -38,9 +38,12 @@ export async function seedPlatformMappingsIfEmpty(
   mappings: InsertPlatformMapping[]
 ): Promise<{ seeded: boolean; count: number }> {
   return db.transaction((tx) => {
+    // A bare count() aggregate with no GROUP BY always returns exactly one
+    // row, even over an empty table, so these destructures can't come up
+    // short -- the `!` documents that guarantee rather than working around it.
     const [existing] = tx.select({ count: count() }).from(platformMappings).all();
-    if (existing.count > 0) {
-      return { seeded: false, count: existing.count };
+    if (existing!.count > 0) {
+      return { seeded: false, count: existing!.count };
     }
 
     for (const mapping of mappings) {
@@ -50,7 +53,7 @@ export async function seedPlatformMappingsIfEmpty(
     }
 
     const [seeded] = tx.select({ count: count() }).from(platformMappings).all();
-    return { seeded: true, count: seeded.count };
+    return { seeded: true, count: seeded!.count };
   });
 }
 
@@ -58,18 +61,19 @@ export async function registerSetupUser(insertUser: InsertUser): Promise<User> {
   return db.transaction((tx) => {
     const [result] = tx.select({ count: count() }).from(users).all();
 
-    if (result.count > 0) {
+    if (result!.count > 0) {
       throw new Error("Setup already completed");
     }
 
     // Manually generate UUID for SQLite
     const id = randomUUID();
+    // A single-row insert's .returning() always yields exactly one row.
     const [user] = tx
       .insert(users)
       .values({ ...insertUser, id, steamId64: null })
       .returning()
       .all();
-    return user;
+    return user!;
   });
 }
 
@@ -157,16 +161,18 @@ export async function addApiKey(
   // concurrent requests would otherwise have around the cap: without it,
   // both could read the same under-limit count before either insert lands.
   return db.transaction((tx) => {
-    const [{ count: existingKeys }] = tx
+    const [keyCountRow] = tx
       .select({ count: count() })
       .from(apiKeys)
       .where(eq(apiKeys.userId, key.userId))
       .all();
+    const existingKeys = keyCountRow!.count;
 
     if (existingKeys >= maxKeys) {
       throw new Error("API key limit reached");
     }
 
+    // A single-row insert's .returning() always yields exactly one row.
     const [created] = tx
       .insert(apiKeys)
       .values({ ...key, id: randomUUID() })
@@ -179,6 +185,6 @@ export async function addApiKey(
         lastUsedAt: apiKeys.lastUsedAt,
       })
       .all();
-    return created;
+    return created!;
   });
 }

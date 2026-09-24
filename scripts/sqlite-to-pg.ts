@@ -118,10 +118,12 @@ export async function copyAllTables(
   // table that already had rows.
   const baseline: Record<string, number> = {};
   for (const name of TABLE_ORDER) {
+    // A bare count() aggregate with no GROUP BY always returns exactly one row,
+    // even over an empty table.
     const [row] = await dst
       .select({ n: sql<number>`count(*)`.mapWith(Number) })
       .from(pgSchema[name as TableName]);
-    baseline[name] = row.n;
+    baseline[name] = row!.n;
   }
 
   for (const name of TABLE_ORDER) {
@@ -138,11 +140,13 @@ export async function copyAllTables(
 
   const mismatched: string[] = [];
   for (const name of TABLE_ORDER) {
+    // A bare count() aggregate with no GROUP BY always returns exactly one row,
+    // even over an empty table.
     const [row] = await dst
       .select({ n: sql<number>`count(*)`.mapWith(Number) })
       .from(pgSchema[name as TableName]);
-    counts[name].verified = row.n;
-    if (row.n !== baseline[name] + counts[name].read) mismatched.push(name);
+    counts[name].verified = row!.n;
+    if (row!.n !== baseline[name] + counts[name].read) mismatched.push(name);
   }
 
   return { counts, mismatched };

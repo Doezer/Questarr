@@ -1904,8 +1904,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async countUsers(): Promise<number> {
+    // A bare count() aggregate with no GROUP BY always returns exactly one row,
+    // even over an empty table.
     const [result] = await db.select({ count: count() }).from(users);
-    return result.count;
+    return result!.count;
   }
 
   async registerSetupUser(insertUser: InsertUser): Promise<User> {
@@ -2651,11 +2653,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUnreadNotificationsCount(userId: string): Promise<number> {
+    // A bare count() aggregate with no GROUP BY always returns exactly one row,
+    // even over an empty table.
     const [result] = await db
       .select({ count: count() })
       .from(notifications)
       .where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
-    return result.count;
+    return result!.count;
   }
 
   async addNotification(insertNotification: InsertNotification): Promise<Notification> {

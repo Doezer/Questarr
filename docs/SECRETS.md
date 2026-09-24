@@ -177,25 +177,41 @@ file is currently tracked in git. Never commit real credentials in
 
 ## 8. Credential exposure in operational scripts
 
-**Withdrawn in v1.5.0 — the finding was inaccurate.** This section previously
-stated that `scripts/pg-to-sqlite.ts:157` logged the full `DATABASE_URL`
-connection string, exposing `user:password@host` in plaintext.
+**Real in v1.1.0–v1.3.1. Fixed in v1.4.0. Rotate if you kept the logs.**
 
-That was a misreading. The line reads:
+`scripts/pg-to-sqlite.ts` logged the full `DATABASE_URL` connection string
+before connecting:
 
 ```ts
-console.log(`Connecting to Postgres`);
+console.log(`Connecting to Postgres: ${pgUrl}`); // v1.1.0 – v1.3.1
 ```
 
-It is a template literal with no interpolation. The script assigns
-`DATABASE_URL` to a local (`:151`) and passes it to `new Pool(...)` (`:158`),
-but never logs it — the only connection detail it prints is the SQLite path
-(`:161`), which is not a credential. No release of Questarr shipped this
-exposure, and the archived v1.4.2 tool does not carry it either.
+Per standard `postgresql://` URL convention that string embeds
+`user:password@host`, so the credential was printed in plaintext, where it
+could land in CI logs, container logs or shell history.
 
-The script has since been removed for unrelated reasons — it understood only 8
-of the project's 19 tables — see [MIGRATION.md](./MIGRATION.md). This section
-is kept rather than deleted so the retraction is on the record.
+Commit `99984867` ("Fix visible postgreSQL URL in migration log") removed the
+interpolation. From **v1.4.0** onward the line is a constant
+``console.log(`Connecting to Postgres`)`` and the script logs nothing derived
+from `DATABASE_URL` — the only connection detail it prints is the SQLite path,
+which is not a credential.
+
+| Tags                                                       | Behavior          |
+| ---------------------------------------------------------- | ----------------- |
+| `v1.1.0`, `v1.2.0`, `v1.2.1`, `v1.2.2`, `v1.3.0`, `v1.3.1` | logs the full URL |
+| `v1.4.0`, `v1.4.1`, `v1.4.2`                               | constant, no URL  |
+
+**If you ran the migration on any of the six affected tags and still hold those
+logs, treat that Postgres password as exposed and rotate it.** Purging the logs
+is not sufficient on its own if they were ever shipped to a log aggregator or a
+CI provider.
+
+This section previously read as an open, unfixed finding, because it was never
+updated when `99984867` landed. It also carried a line reference that by then
+pointed at the fixed line. The script has since been removed entirely, for
+unrelated reasons — it understood only 8 of the project's 19 tables — see
+[MIGRATION.md](./MIGRATION.md). The archived **v1.4.2** tool that migration now
+points operators at is on the safe side of the fix.
 
 ## 9. Summary checklist for operators
 
@@ -212,6 +228,8 @@ is kept rather than deleted so the retraction is on the record.
       masked in responses and encrypted at rest, per §4).
 - [ ] Run behind HTTPS/a reverse proxy per `.github/SECURITY.md`.
 - [ ] Never commit `.env`, `sqlite.db`, or `docker-compose.local.yml`.
+- [ ] If you ran `pg-to-sqlite` on v1.1.0–v1.3.1 and kept the logs, rotate that
+      Postgres password — those versions printed the full `DATABASE_URL` (§8).
 - [ ] If running the archived v1.4.2 `pg-to-sqlite` migration tool, set
       `DATABASE_URL` to your real source credentials and verify the row counts
       it reports — it continues past per-table failures and still reports

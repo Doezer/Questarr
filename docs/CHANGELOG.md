@@ -20,10 +20,14 @@ Addresses dependency vulnerabilities flagged by `npm audit`.
 
 ### Fixed
 
-- **Documentation**: retracted `docs/SECRETS.md` §8, which claimed
-  `scripts/pg-to-sqlite.ts` logged the full `DATABASE_URL` including
-  credentials. It did not; the line cited was a non-interpolating
-  `console.log("Connecting to Postgres")`. No release carried this exposure.
+- **Documentation**: corrected `docs/SECRETS.md` §8, which presented the
+  `pg-to-sqlite` credential-logging issue as still open. It was real in
+  **v1.1.0–v1.3.1**, which printed the full `DATABASE_URL` (embedding
+  `user:password@host`), and was fixed in **v1.4.0** by commit `99984867`; §8
+  was never updated when that landed, and its line reference had drifted onto
+  the already-fixed line. §8 now states the affected range, the fix, and that
+  **operators who ran the migration on an affected tag and retained the logs
+  should rotate that Postgres password.**
 
 ### Security
 

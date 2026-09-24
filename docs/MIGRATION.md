@@ -79,9 +79,23 @@ present in `latest`, and `latest`'s schema is far ahead of what it understands.
     ```
 
     This is the archived file verbatim, with only the image tag changed from
-    `latest` to `v1.4.2`. Run it from the same directory as your original
-    compose project so the `postgres_data` volume resolves to your existing
-    data rather than a fresh empty one.
+    `latest` to `v1.4.2`.
+
+    **Run it under your original Compose project name**, or it will create a
+    brand-new empty `postgres_data` volume instead of reusing yours. Compose
+    namespaces volumes as `<project>_<volume>`, and the project name comes from
+    the first of these that is set: `-p` on the command line,
+    `COMPOSE_PROJECT_NAME`, a top-level `name:` in the compose file, and only
+    then the directory name. Running from the same directory reproduces just
+    that last, default case. If your original deployment set any of the others,
+    pass it explicitly:
+
+    ```bash
+    docker compose -p <your-original-project-name> -f docker-compose.migrate.yml up --abort-on-container-exit
+    ```
+
+    `docker volume ls | grep postgres_data` shows the existing volume's full
+    name; the part before `_postgres_data` is the project name to use.
 
     **Set `DATABASE_URL` to your original credentials and database name.**
     This is the line that matters, and it is easy to get wrong: the
@@ -127,9 +141,10 @@ The tool as it last shipped, for inspection or manual use:
 These are tag permalinks and will keep resolving after the files leave the
 default branch.
 
-> **Correction:** earlier revisions of this guide, and `docs/SECRETS.md` §8,
-> stated that this script printed the full `DATABASE_URL` (credentials
-> included) before connecting. That was wrong. The line in question,
-> `scripts/pg-to-sqlite.ts:157`, is `console.log("Connecting to Postgres")` and
-> never interpolates the URL. The script reads `DATABASE_URL` but does not log
-> it. See §8 of [SECRETS.md](./SECRETS.md).
+> **Credential note — applies to older tags, not v1.4.2.** In **v1.1.0–v1.3.1**
+> this script printed the full `DATABASE_URL`, credentials included, before
+> connecting. That was fixed in **v1.4.0**, so the v1.4.2 build this guide pins
+> logs only a constant `Connecting to Postgres` and nothing derived from the
+> URL. Pinning v1.4.2 therefore avoids the exposure — but if you already ran the
+> migration on an affected tag and kept the logs, rotate that Postgres password.
+> See §8 of [SECRETS.md](./SECRETS.md).

@@ -24,6 +24,7 @@ import {
 import { registerRoutes } from "../routes.js";
 import { storage } from "../storage.js";
 import { DownloaderManager } from "../downloaders.js";
+import { normalizeTitle } from "../../shared/title-utils.js";
 
 // NOTE: mock registration order is intentionally reversed relative to
 // api_routes.test.ts / api_routes_extended.test.ts so Sonar CPD does not
@@ -294,6 +295,66 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
         downloadHash: "realhash_preferred",
         status: "downloading",
       })
+    );
+  });
+
+  it("clears any pending AI auto-download hold for the release the user just downloaded", async () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174005";
+    mockSuccessCase({
+      fallback: {
+        success: true,
+        id: "hash-cleared",
+        downloaderId: "d-1",
+        downloaderName: "qBittorrent",
+        attemptedDownloaders: ["qBittorrent"],
+      },
+      gdId: "gd-cleared",
+      gameId,
+      hash: "hash-cleared",
+      title: "Held Game-DLC",
+    });
+
+    await postDownload({
+      url: "https://example.com/held.torrent",
+      title: "Held Game-DLC",
+      gameId,
+    });
+
+    // clearAiAutoDownloadHold is fired-and-forgotten (not awaited by the route), so
+    // give its microtask a tick to run before asserting.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(storage.clearAiAutoDownloadHold).toHaveBeenCalledWith(
+      gameId,
+      normalizeTitle("Held Game-DLC")
+    );
+  });
+
+  it("still clears the AI auto-download hold even when the game-download tracking write fails", async () => {
+    // Downloader succeeds, but linking it to the game (addGameDownload) throws. The hold
+    // must still be cleared -- otherwise a tracking-layer failure could leave the user's
+    // manually-chosen release blocked from auto-download for up to 7 days.
+    const gameId = "123e4567-e89b-12d3-a456-426614174006";
+    mockFallback({
+      success: true,
+      id: "hash-tracking-fails",
+      downloaderId: "d-1",
+      downloaderName: "qBittorrent",
+      attemptedDownloaders: ["qBittorrent"],
+    });
+    mockEnabledQb();
+    mockGameRow(gameId, "Held Game-Tracking-Fails");
+    vi.mocked(storage.addGameDownload).mockRejectedValue(new Error("DB write failed"));
+
+    await postDownload({
+      url: "https://example.com/tracking-fail.torrent",
+      title: "Held Game-Tracking-Fails",
+      gameId,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(storage.clearAiAutoDownloadHold).toHaveBeenCalledWith(
+      gameId,
+      normalizeTitle("Held Game-Tracking-Fails")
     );
   });
 

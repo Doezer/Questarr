@@ -9,6 +9,7 @@ import { resolveDownloadRelativePath, buildRemoteImportPath } from "./downloader
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { searchAllIndexers, filterBlacklistedReleases, type SearchItem } from "./search.js";
+import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { appriseClient } from "./apprise.js";
@@ -69,6 +70,70 @@ export interface AutoSearchCategorizedItems {
   mainItems: SearchItem[];
   updateItems: SearchItem[];
   packsItems: SearchItem[];
+}
+
+// AI release-type classifications that mean "this probably isn't the full game" --
+// auto-download should hold and let a human look, rather than silently grab something
+// the numeric filters (seeders/platform/group) let through by accident.
+const AI_AUTO_DOWNLOAD_BLOCK_TYPES = new Set<ReleaseType>([
+  "dlc",
+  "update",
+  "crack_only",
+  "demo",
+  "soundtrack",
+  "other",
+]);
+const AI_AUTO_DOWNLOAD_TYPE_CONFIDENCE_THRESHOLD = 0.6;
+const AI_AUTO_DOWNLOAD_LEGITIMACY_THRESHOLD = 0.5;
+
+/**
+ * Best-effort AI sanity check on the single release an auto-download is about to send
+ * to a downloader unattended. Returns a human-readable reason to hold it back for
+ * manual review, or null when TypeSafe isn't configured, the call fails/times out, or
+ * the release looks fine -- auto-download always proceeds in those cases (fail-open,
+ * matching the rest of the TypeSafe integration).
+ */
+export async function getAiAutoDownloadHoldReason(
+  item: Pick<SearchItem, "title" | "size">,
+  platform: string | null
+): Promise<string | null> {
+  let analysis: Awaited<ReturnType<typeof typesafeClient.analyzeRelease>>;
+  try {
+    if (!(await typesafeClient.isConfigured())) return null;
+    analysis = await typesafeClient.analyzeRelease({
+      releaseName: item.title,
+      sizeBytes: item.size,
+      platform: platform ?? undefined,
+    });
+  } catch (error) {
+    // isConfigured()/analyzeRelease() aren't expected to throw (analyzeRelease already
+    // catches its own network errors), but a storage/credential-decrypt failure could --
+    // fail open here too rather than letting it abort the whole game's auto-search cycle.
+    igdbLogger.warn(
+      { error, title: item.title },
+      "TypeSafe auto-download check failed, proceeding without it"
+    );
+    return null;
+  }
+  if (!analysis) return null;
+
+  if (
+    analysis.releaseType &&
+    AI_AUTO_DOWNLOAD_BLOCK_TYPES.has(analysis.releaseType) &&
+    (analysis.releaseTypeConfidence ?? 0) >= AI_AUTO_DOWNLOAD_TYPE_CONFIDENCE_THRESHOLD
+  ) {
+    return `AI classified this release as "${analysis.releaseType}" rather than the full game`;
+  }
+
+  if (
+    item.size !== undefined &&
+    analysis.legitimacyScore !== null &&
+    analysis.legitimacyScore < AI_AUTO_DOWNLOAD_LEGITIMACY_THRESHOLD
+  ) {
+    return "AI flagged this release's file size as implausible for this type of release";
+  }
+
+  return null;
 }
 
 function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
@@ -1209,50 +1274,120 @@ export async function checkAutoSearch() {
               if (settings.autoDownloadEnabled) {
                 // Auto-download if enabled
                 const item = mainItems[0];
-                const downloaders = await storage.getEnabledDownloaders();
 
-                if (item && downloaders.length > 0) {
-                  try {
-                    const result = await DownloaderManager.addDownloadWithFallback(downloaders, {
-                      url: item.link,
-                      title: item.title,
+                if (item) {
+                  // Keyed by the same normalized title used to de-duplicate candidates
+                  // above (deduplicateByTitle) -- not the raw title -- so a hold set from
+                  // one indexer's exact title formatting is still found when a later
+                  // cycle returns the same release from a different indexer.
+                  const releaseKey = normalizeTitle(item.title);
+                  // Held releases are re-checked against storage, not re-analyzed: this
+                  // both prevents a later cycle from silently auto-downloading a release
+                  // flagged for review (a stale/differently-scored AI response would
+                  // otherwise let it through) and avoids a repeat paid TypeSafe call for
+                  // the same release every cycle.
+                  const alreadyHeld = await storage.hasAiAutoDownloadHold(game.id, releaseKey);
+                  const aiHoldReason = alreadyHeld
+                    ? null
+                    : await getAiAutoDownloadHoldReason(item, effectivePlatform);
+
+                  if (alreadyHeld) {
+                    igdbLogger.debug(
+                      { gameTitle: game.title },
+                      "Skipping auto-download: release already held for AI review"
+                    );
+                  } else if (aiHoldReason) {
+                    const isNewHold = await storage.recordAiAutoDownloadHold({
+                      gameId: game.id,
+                      releaseTitle: releaseKey,
+                      reason: aiHoldReason,
                     });
-
-                    if (result && result.success && result.id && result.downloaderId) {
-                      // Track download
-                      await storage.addGameDownload({
-                        gameId: game.id,
-                        downloaderId: result.downloaderId,
-                        downloadHash: result.id,
-                        downloadTitle: item.title,
-                        status: "downloading",
-                        downloadType: item.downloadType,
-                      });
-
-                      // Update game status
-                      await storage.updateGameStatus(game.id, { status: "downloading" });
-
-                      // Notify success
-                      const groupSuffix = item.group ? ` [${item.group}]` : "";
-                      if (prefs.autoDownload.inApp) {
+                    igdbLogger.info(
+                      { gameTitle: game.title, reason: aiHoldReason },
+                      "Held back auto-download for AI review"
+                    );
+                    // Notify on the hold itself (not the game's general availability
+                    // transition) so a release flagged for review is never silently
+                    // dropped just because the game already had other results earlier.
+                    // Wrapped separately from the hold recording above: the hold must
+                    // stick even if sending the notification fails, and a failure here
+                    // must not throw into the outer per-game catch -- that would abort
+                    // this cycle without ever retrying (a later cycle just sees
+                    // alreadyHeld and skips straight past the notification).
+                    if (
+                      isNewHold &&
+                      (prefs.multipleResults.inApp || prefs.multipleResults.apprise)
+                    ) {
+                      try {
                         const notification = await storage.addNotification({
                           userId,
-                          type: "success",
-                          title: "Download Started",
-                          message: `Started downloading ${game.title}${groupSuffix} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
-                          link: "/",
+                          type: "info",
+                          title: "Release Flagged for Review",
+                          message: `${game.title}: ${aiHoldReason}. Please review and choose.`,
+                          link: `modal:game:${game.id}`,
                         });
-                        notifyUser("notification", notification);
-                        if (prefs.autoDownload.apprise) appriseClient.send(notification);
+                        if (prefs.multipleResults.inApp) notifyUser("notification", notification);
+                        if (prefs.multipleResults.apprise) appriseClient.send(notification);
+                      } catch (error) {
+                        igdbLogger.warn(
+                          { gameTitle: game.title, error },
+                          "Failed to send AI hold review notification"
+                        );
                       }
-
-                      igdbLogger.info(
-                        { gameTitle: game.title, type: item.downloadType },
-                        "Auto-downloaded result"
-                      );
                     }
-                  } catch (error) {
-                    igdbLogger.error({ gameTitle: game.title, error }, "Failed to auto-download");
+                  } else {
+                    const downloaders = await storage.getEnabledDownloaders();
+
+                    if (downloaders.length > 0) {
+                      try {
+                        const result = await DownloaderManager.addDownloadWithFallback(
+                          downloaders,
+                          {
+                            url: item.link,
+                            title: item.title,
+                          }
+                        );
+
+                        if (result && result.success && result.id && result.downloaderId) {
+                          // Track download
+                          await storage.addGameDownload({
+                            gameId: game.id,
+                            downloaderId: result.downloaderId,
+                            downloadHash: result.id,
+                            downloadTitle: item.title,
+                            status: "downloading",
+                            downloadType: item.downloadType,
+                          });
+
+                          // Update game status
+                          await storage.updateGameStatus(game.id, { status: "downloading" });
+
+                          // Notify success
+                          const groupSuffix = item.group ? ` [${item.group}]` : "";
+                          if (prefs.autoDownload.inApp) {
+                            const notification = await storage.addNotification({
+                              userId,
+                              type: "success",
+                              title: "Download Started",
+                              message: `Started downloading ${game.title}${groupSuffix} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
+                              link: "/",
+                            });
+                            notifyUser("notification", notification);
+                            if (prefs.autoDownload.apprise) appriseClient.send(notification);
+                          }
+
+                          igdbLogger.info(
+                            { gameTitle: game.title, type: item.downloadType },
+                            "Auto-downloaded result"
+                          );
+                        }
+                      } catch (error) {
+                        igdbLogger.error(
+                          { gameTitle: game.title, error },
+                          "Failed to auto-download"
+                        );
+                      }
+                    }
                   }
                 }
               } else {

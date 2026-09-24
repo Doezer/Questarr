@@ -333,6 +333,26 @@ export const releaseBlacklist = sqliteTable(
   (t) => [uniqueIndex("release_blacklist_game_title_idx").on(t.gameId, t.releaseTitle)]
 );
 
+// Tracks releases the TypeSafe AI auto-download check flagged for human review, so a
+// later cron cycle can't silently auto-download one before anyone looked. Distinct from
+// releaseBlacklist: a held release must stay visible in manual per-game search so the
+// user can still choose to download it themselves.
+export const aiAutoDownloadHolds = sqliteTable(
+  "ai_auto_download_holds",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    releaseTitle: text("release_title").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [uniqueIndex("ai_auto_download_holds_game_title_idx").on(t.gameId, t.releaseTitle)]
+);
+
 export const notifications = sqliteTable("notifications", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
@@ -579,6 +599,13 @@ export const insertReleaseBlacklistSchema = createInsertSchema(releaseBlacklist)
 });
 export type InsertReleaseBlacklist = (typeof insertReleaseBlacklistSchema)["_output"];
 export type ReleaseBlacklist = typeof releaseBlacklist.$inferSelect;
+
+export const insertAiAutoDownloadHoldSchema = createInsertSchema(aiAutoDownloadHolds).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertAiAutoDownloadHold = (typeof insertAiAutoDownloadHoldSchema)["_output"];
+export type AiAutoDownloadHold = typeof aiAutoDownloadHolds.$inferSelect;
 
 export const insertUserSettingsSchema = createInsertSchema(userSettings)
   .omit({

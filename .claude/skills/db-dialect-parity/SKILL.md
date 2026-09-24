@@ -33,6 +33,10 @@ native Postgres type that preserves the **exact** TypeScript type:
 holding a file size, disk capacity or byte count must be `bigint` on Postgres.
 Existing examples: `file_size`, `min_file_size`, `disk_free_bytes`, `disk_total_bytes`.
 
+A new or removed table also needs `TABLE_ORDER` in `scripts/sqlite-to-pg.ts`
+updated (foreign-key-safe position), since that list is hand-written rather than
+derived from the schema.
+
 Do not convert timestamps to `timestamptz`. They are deliberately epoch
 milliseconds on both dialects because raw SQL compares them against `Date.now()`;
 see the comment in `shared/schema.pg.ts`.

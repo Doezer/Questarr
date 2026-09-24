@@ -1,7 +1,7 @@
 # Database backends
 
 Questarr runs on **SQLite by default** and needs no configuration for it. Postgres
-is available as an opt-in alternative.
+is available as an opt-in alternative, from v1.5.0 onwards.
 
 Most self-hosters should stay on SQLite. Questarr actually ran on Postgres before
 v1.1 and moved to SQLite deliberately, to simplify deployment and cut resource
@@ -39,7 +39,9 @@ POSTGRES_PASSWORD=choose-something docker compose -f docker-compose.postgres.yml
 ```
 
 That file adds a `postgres:17-alpine` service with a healthcheck the app waits on,
-so the first migration cannot run against a database that is still starting.
+so the first migration cannot run against a database that is still starting. The
+`questarr` database itself is created automatically on that service's first start,
+via its `POSTGRES_DB` environment variable -- nothing to do on a fresh install.
 
 Manually, against a Postgres you already run:
 

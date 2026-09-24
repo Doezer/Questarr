@@ -1,9 +1,13 @@
 # Questarr with a Postgres backend.
 #
 # The default docker-compose.yml uses SQLite and needs no database service --
-# prefer it unless you specifically want Postgres. Postgres is for NEW
-# installations; there is no automatic import of an existing SQLite library.
-# See docs/DATABASE.md.
+# prefer it unless you specifically want Postgres. Switching an existing
+# SQLite install to Postgres does not move your data on its own -- run
+# scripts/sqlite-to-pg.ts to bring your library across. See docs/DATABASE.md.
+#
+# POSTGRES_PASSWORD must be safe to embed in a connection URL: stick to
+# letters, digits, and avoid @ / : % # ? &. A hex string from
+# `openssl rand -hex 32` is always safe.
 #
 #   POSTGRES_PASSWORD=<something> docker compose -f docker-compose.postgres.yml up -d
 
@@ -20,11 +24,12 @@ services:
       # - DATABASE_POOL_MAX=10
       # - QUESTARR_BASE_PATH=/Questarr  # Serve from a subdirectory behind a reverse proxy, see docs/REVERSE_PROXY.md
     volumes:
-      # No ./data mount is needed for the database here -- Postgres owns it.
+      # Postgres owns your library data, but Questarr still stores config.yaml
+      # and other non-database state under /app/data -- keep this mount.
+      - ./data:/app/data
       # Mount your root media/downloads folder here to allow atomic moves.
       # Example (uncomment and adjust):
       # - /mnt/user/data:/data
-      - ./data:/app/data
     depends_on:
       db:
         condition: service_healthy

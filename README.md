@@ -124,8 +124,9 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
    POSTGRES_PASSWORD=choose-something docker compose -f docker-compose.postgres.yml up -d
    ```
 
-   Postgres is for new installations — an existing SQLite library is not
-   imported automatically. See [docs/DATABASE.md](docs/DATABASE.md).
+   Switching an existing SQLite install to Postgres does not move your data —
+   run `scripts/sqlite-to-pg.ts` to bring your library across. See
+   [docs/DATABASE.md](docs/DATABASE.md).
 
 ### Proxmox VE (LXC)
 

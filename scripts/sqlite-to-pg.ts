@@ -82,10 +82,12 @@ export async function findExistingRows(
 ): Promise<Array<{ table: string; rows: number }>> {
   const existing: Array<{ table: string; rows: number }> = [];
   for (const name of TABLE_ORDER) {
+    // A bare count() aggregate with no GROUP BY always returns exactly one row,
+    // even over an empty table.
     const [row] = await dst
       .select({ n: sql<number>`count(*)`.mapWith(Number) })
       .from(pgSchema[name as TableName]);
-    if (row.n > 0) existing.push({ table: name, rows: row.n });
+    if (row!.n > 0) existing.push({ table: name, rows: row!.n });
   }
   return existing;
 }
@@ -145,8 +147,10 @@ export async function copyAllTables(
     const [row] = await dst
       .select({ n: sql<number>`count(*)`.mapWith(Number) })
       .from(pgSchema[name as TableName]);
-    counts[name].verified = row!.n;
-    if (row!.n !== baseline[name] + counts[name].read) mismatched.push(name);
+    // Every name in TABLE_ORDER got a `counts` entry in the loop above, and a
+    // `baseline` entry in the loop below, before either is ever read here.
+    counts[name]!.verified = row!.n;
+    if (row!.n !== baseline[name]! + counts[name]!.read) mismatched.push(name);
   }
 
   return { counts, mismatched };
@@ -217,7 +221,8 @@ async function main() {
 
   console.log("\nReconciliation:");
   for (const name of TABLE_ORDER) {
-    const c = counts[name];
+    // copyAllTables() populates a `counts` entry for every name in TABLE_ORDER.
+    const c = counts[name]!;
     const ok = c.verified === c.read;
     console.log(
       `  ${ok ? "ok  " : "FAIL"} ${name.padEnd(24)} sqlite=${c.read} postgres=${c.verified}`

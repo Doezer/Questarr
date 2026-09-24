@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { count, eq } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { db as appDb } from "../db.js";
 import * as pgSchema from "../../shared/schema.pg.js";
@@ -32,7 +32,7 @@ import type { SyncIndexersResult } from "./transactional-ops.js";
  * Postgres tables and their real types directly instead of the app-wide
  * SQLite-shaped view of the schema.
  */
-const { apiKeys, games, indexers, platformMappings, users } = pgSchema;
+const { apiKeys, games, indexers, platformMappings, systemConfig, users } = pgSchema;
 const db = appDb as unknown as NodePgDatabase<typeof pgSchema>;
 
 export async function seedPlatformMappingsIfEmpty(
@@ -55,6 +55,13 @@ export async function seedPlatformMappingsIfEmpty(
 
 export async function registerSetupUser(insertUser: InsertUser): Promise<User> {
   return db.transaction(async (tx) => {
+    // Postgres' default READ COMMITTED isolation lets two concurrent setup
+    // requests both see zero users and both insert -- unlike better-sqlite3's
+    // synchronous transactions, which serialize this for free. An exclusive
+    // table lock forces the second transaction to wait for the first to
+    // commit (or roll back) before it can even run its own count query.
+    await tx.execute(sql`LOCK TABLE ${users} IN EXCLUSIVE MODE`);
+
     const [result] = await tx.select({ count: count() }).from(users);
 
     if (result.count > 0) {
@@ -77,6 +84,22 @@ export async function updateGamesBatch(
   await db.transaction(async (tx) => {
     for (const update of updates) {
       await tx.update(games).set(update.data).where(eq(games.id, update.id));
+    }
+  });
+}
+
+export async function setSystemConfigBatch(
+  entries: { key: string; value: string }[]
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    for (const { key, value } of entries) {
+      await tx
+        .insert(systemConfig)
+        .values({ key, value })
+        .onConflictDoUpdate({
+          target: systemConfig.key,
+          set: { value, updatedAt: new Date() },
+        });
     }
   });
 }

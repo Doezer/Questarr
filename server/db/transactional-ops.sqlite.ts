@@ -1,7 +1,14 @@
 import { randomUUID } from "crypto";
 import { count, eq } from "drizzle-orm";
 import { db } from "../db.js";
-import { apiKeys, games, indexers, platformMappings, users } from "../../shared/schema.js";
+import {
+  apiKeys,
+  games,
+  indexers,
+  platformMappings,
+  systemConfig,
+  users,
+} from "../../shared/schema.js";
 import { encryptCredentialSync } from "../credential-crypto.js";
 import {
   validateIndexerInput,
@@ -72,6 +79,22 @@ export async function updateGamesBatch(
   db.transaction((tx) => {
     for (const update of updates) {
       tx.update(games).set(update.data).where(eq(games.id, update.id)).run();
+    }
+  });
+}
+
+export async function setSystemConfigBatch(
+  entries: { key: string; value: string }[]
+): Promise<void> {
+  db.transaction((tx) => {
+    for (const { key, value } of entries) {
+      tx.insert(systemConfig)
+        .values({ key, value })
+        .onConflictDoUpdate({
+          target: systemConfig.key,
+          set: { value, updatedAt: new Date() },
+        })
+        .run();
     }
   });
 }

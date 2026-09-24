@@ -64,6 +64,9 @@ export interface TransactionalOps {
     key: { userId: string; name: string; keyHash: string; prefix: string },
     maxKeys: number
   ): Promise<ApiKeyPublic>;
+
+  /** Upsert many config entries as one unit. */
+  setSystemConfigBatch(entries: { key: string; value: string }[]): Promise<void>;
 }
 
 export const transactionalOps: TransactionalOps = dialect === "postgres" ? pgOps : sqliteOps;

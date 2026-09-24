@@ -46,7 +46,17 @@ export function connectPostgres(): DatabaseConnection {
   }
   logger.info(`Initializing Postgres database at: ${target}`);
 
-  const pool = new Pool({ connectionString, max });
+  // Without these, a stalled server leaves pingDatabase() (and anything else
+  // that borrows from the pool) pending forever: a route-level timeout alone
+  // can't help, since it would return a response while the query keeps
+  // running underneath. connectionTimeoutMillis bounds the wait for a pool
+  // slot; statement_timeout bounds the query itself once it has one.
+  const pool = new Pool({
+    connectionString,
+    max,
+    connectionTimeoutMillis: 5000,
+    statement_timeout: 5000,
+  });
 
   // An idle client erroring (server restart, network blip) would otherwise be an
   // unhandled 'error' event and take the process down.

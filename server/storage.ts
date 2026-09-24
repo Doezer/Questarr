@@ -1765,17 +1765,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async setSystemConfigBatch(entries: { key: string; value: string }[]): Promise<void> {
-    db.transaction((tx) => {
-      for (const { key, value } of entries) {
-        tx.insert(systemConfig)
-          .values({ key, value })
-          .onConflictDoUpdate({
-            target: systemConfig.key,
-            set: { value, updatedAt: new Date() },
-          })
-          .run();
-      }
-    });
+    return transactionalOps.setSystemConfigBatch(entries);
   }
 
   // Path Mapping methods

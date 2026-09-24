@@ -69,6 +69,13 @@ vi.mock("../typesafe.js", () => ({
   },
 }));
 
+const mockAppriseSend = vi.fn();
+vi.mock("../apprise.js", () => ({
+  appriseClient: {
+    send: mockAppriseSend,
+  },
+}));
+
 // Mock search
 const mockSearchAllIndexers = vi.fn();
 vi.mock("../search.js", () => ({
@@ -1955,9 +1962,10 @@ describe("Cron - checkAutoSearch", () => {
         expect.objectContaining({ title: "Release Flagged for Review" })
       );
       expect(mockNotifyUser).not.toHaveBeenCalled();
+      expect(mockAppriseSend).toHaveBeenCalledWith({ id: "notif-1" });
     });
 
-    it("does not send an in-app push when only the Apprise channel is enabled but still sends when in-app is enabled", async () => {
+    it("sends only the in-app push when only the in-app channel is enabled", async () => {
       mockGetUserSettings.mockResolvedValue({
         ...baseSettings,
         autoDownloadEnabled: true,
@@ -1975,6 +1983,7 @@ describe("Cron - checkAutoSearch", () => {
       await checkAutoSearch();
 
       expect(mockNotifyUser).toHaveBeenCalledWith("notification", { id: "notif-1" });
+      expect(mockAppriseSend).not.toHaveBeenCalled();
     });
   });
 });

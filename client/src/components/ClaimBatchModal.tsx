@@ -319,7 +319,7 @@ function GroupRow({
   });
 
   if (group.downloads.length === 0) return null;
-  const mainDownload = group.downloads.find((d) => d.category === "main") ?? group.downloads[0];
+  const mainDownload = group.downloads.find((d) => d.category === "main") ?? group.downloads[0]!;
 
   return (
     <div

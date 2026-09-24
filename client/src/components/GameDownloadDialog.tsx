@@ -532,7 +532,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       const successfulResults = results.filter((r) => r.success);
       const successCount = successfulResults.length;
       const failedResults = results
-        .map((r, i) => ({ result: r, download: variables[i] }))
+        .map((r, i) => ({ result: r, download: variables[i]! }))
         .filter(({ result }) => !result.success);
       if (successCount === 0) {
         toast({ title: "Failed to start download", variant: "destructive" });
@@ -654,9 +654,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     const guid = selectedMainDownload.guid || selectedMainDownload.link;
     setDownloadingGuid(guid);
     if (includeUpdates && selectedUpdateIndices.size > 0) {
-      const selectedUpdates = Array.from(selectedUpdateIndices).map(
-        (i) => filteredCategorizedDownloads.update[i]
-      );
+      const selectedUpdates = Array.from(selectedUpdateIndices)
+        .map((i) => filteredCategorizedDownloads.update[i])
+        .filter((d): d is DownloadItem => d !== undefined);
       downloadMutation.mutate([selectedMainDownload, ...selectedUpdates]);
     } else {
       downloadMutation.mutate([selectedMainDownload]);

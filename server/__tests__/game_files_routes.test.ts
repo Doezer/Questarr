@@ -26,6 +26,7 @@ import {
 } from "./fixtures/common-route-mocks.js";
 import { registerRoutes } from "../routes.js";
 import { storage } from "../storage.js";
+import { setScanBudgets, resetScanBudgets } from "../scan-limits.js";
 import type { Game, GameFile, GameDownload, ImportConfig } from "../../shared/schema.js";
 
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
@@ -49,6 +50,7 @@ vi.mock("../middleware.js", async () => {
     ...actual,
     sensitiveEndpointLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
     authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+    scanRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   };
 });
 
@@ -71,6 +73,21 @@ function makeGame(overrides: Partial<Game> = {}): Game {
   } as Game;
 }
 
+function scanFixturePaths(root: string): { libraryRoot: string; gameDir: string } {
+  const libraryRoot = path.join(root, "library");
+  const gameDir = path.join(libraryRoot, "PC", "Test Game");
+  return { libraryRoot, gameDir };
+}
+
+function mockScanLibrary(gameDir: string, libraryRoot: string): void {
+  vi.mocked(storage.getGame).mockResolvedValue(
+    makeGame({ libraryPath: gameDir }) as unknown as Awaited<ReturnType<typeof storage.getGame>>
+  );
+  vi.mocked(storage.getImportConfig).mockResolvedValue({
+    libraryRoot,
+  } as unknown as ImportConfig);
+}
+
 describe("Game file routes", () => {
   let app: express.Express;
   let tempRoot: string;
@@ -87,6 +104,7 @@ describe("Game file routes", () => {
 
   afterEach(async () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
+    resetScanBudgets();
   });
 
   describe("GET /api/games/:gameId/files", () => {
@@ -118,20 +136,13 @@ describe("Game file routes", () => {
       const response = await request(app).get(`/api/games/${gameId}/files`);
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ files: [] });
+      expect(response.body).toEqual({ files: [], truncated: false });
     });
 
     it("returns 500 when an unexpected filesystem error occurs (e.g. permission denied)", async () => {
-      const libraryRoot = path.join(tempRoot, "library");
-      const gameDir = path.join(libraryRoot, "PC", "Test Game");
+      const { libraryRoot, gameDir } = scanFixturePaths(tempRoot);
       await fs.mkdir(gameDir, { recursive: true });
-
-      vi.mocked(storage.getGame).mockResolvedValue(
-        makeGame({ libraryPath: gameDir }) as unknown as Awaited<ReturnType<typeof storage.getGame>>
-      );
-      vi.mocked(storage.getImportConfig).mockResolvedValue({
-        libraryRoot,
-      } as unknown as ImportConfig);
+      mockScanLibrary(gameDir, libraryRoot);
 
       const eacces = Object.assign(new Error("permission denied"), { code: "EACCES" });
       const readdirSpy = vi.spyOn(fs, "readdir").mockRejectedValue(eacces);
@@ -143,20 +154,13 @@ describe("Game file routes", () => {
     });
 
     it("recursively lists files, inheriting category from dlc/extra/packs parent folders", async () => {
-      const libraryRoot = path.join(tempRoot, "library");
-      const gameDir = path.join(libraryRoot, "PC", "Test Game");
+      const { libraryRoot, gameDir } = scanFixturePaths(tempRoot);
       await fs.mkdir(path.join(gameDir, "dlc"), { recursive: true });
       await fs.mkdir(path.join(gameDir, "packs"), { recursive: true });
       await fs.writeFile(path.join(gameDir, "game.exe"), "main");
       await fs.writeFile(path.join(gameDir, "dlc", "content.bin"), "dlc-file");
       await fs.writeFile(path.join(gameDir, "packs", "content.bin"), "pack-file");
-
-      vi.mocked(storage.getGame).mockResolvedValue(
-        makeGame({ libraryPath: gameDir }) as unknown as Awaited<ReturnType<typeof storage.getGame>>
-      );
-      vi.mocked(storage.getImportConfig).mockResolvedValue({
-        libraryRoot,
-      } as unknown as ImportConfig);
+      mockScanLibrary(gameDir, libraryRoot);
 
       const response = await request(app).get(`/api/games/${gameId}/files`);
 
@@ -171,17 +175,10 @@ describe("Game file routes", () => {
     });
 
     it("normalizes a filename-based 'packs' classification to 'extra'", async () => {
-      const libraryRoot = path.join(tempRoot, "library");
-      const gameDir = path.join(libraryRoot, "PC", "Test Game");
+      const { libraryRoot, gameDir } = scanFixturePaths(tempRoot);
       await fs.mkdir(gameDir, { recursive: true });
       await fs.writeFile(path.join(gameDir, "Bonus Content Pack.zip"), "pack");
-
-      vi.mocked(storage.getGame).mockResolvedValue(
-        makeGame({ libraryPath: gameDir }) as unknown as Awaited<ReturnType<typeof storage.getGame>>
-      );
-      vi.mocked(storage.getImportConfig).mockResolvedValue({
-        libraryRoot,
-      } as unknown as ImportConfig);
+      mockScanLibrary(gameDir, libraryRoot);
 
       const response = await request(app).get(`/api/games/${gameId}/files`);
 
@@ -191,25 +188,64 @@ describe("Game file routes", () => {
     });
 
     it("returns an empty file list when the stored library path escapes the configured library root", async () => {
-      const libraryRoot = path.join(tempRoot, "library");
+      const { libraryRoot } = scanFixturePaths(tempRoot);
       const outsideDir = path.join(tempRoot, "outside", "Test Game");
       await fs.mkdir(libraryRoot, { recursive: true });
       await fs.mkdir(outsideDir, { recursive: true });
       await fs.writeFile(path.join(outsideDir, "game.exe"), "main");
-
-      vi.mocked(storage.getGame).mockResolvedValue(
-        makeGame({ libraryPath: outsideDir }) as unknown as Awaited<
-          ReturnType<typeof storage.getGame>
-        >
-      );
-      vi.mocked(storage.getImportConfig).mockResolvedValue({
-        libraryRoot,
-      } as unknown as ImportConfig);
+      mockScanLibrary(outsideDir, libraryRoot);
 
       const response = await request(app).get(`/api/games/${gameId}/files`);
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ files: [] });
+      expect(response.body).toEqual({ files: [], truncated: false });
+    });
+
+    it("caps the number of returned files and reports truncation", async () => {
+      const { libraryRoot, gameDir } = scanFixturePaths(tempRoot);
+      await fs.mkdir(gameDir, { recursive: true });
+      // One more file than the cap so the walk must stop early:
+      for (let i = 0; i < 4; i++) {
+        await fs.writeFile(path.join(gameDir, `file-${i}.bin`), "x");
+      }
+      mockScanLibrary(gameDir, libraryRoot);
+      setScanBudgets({ maxFiles: 3 });
+
+      const response = await request(app).get(`/api/games/${gameId}/files`);
+
+      expect(response.status).toBe(200);
+      const files = response.body.files as Array<{ name: string }>;
+      expect(files).toHaveLength(3);
+      expect(response.body.truncated).toBe(true);
+    });
+
+    it("reports truncation=false when every file fits within the budgets", async () => {
+      const { libraryRoot, gameDir } = scanFixturePaths(tempRoot);
+      await fs.mkdir(gameDir, { recursive: true });
+      await fs.writeFile(path.join(gameDir, "game.exe"), "main");
+      mockScanLibrary(gameDir, libraryRoot);
+
+      const response = await request(app).get(`/api/games/${gameId}/files`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.files).toHaveLength(1);
+      expect(response.body.truncated).toBe(false);
+    });
+
+    it("stops the walk once the wall-clock budget is exhausted", async () => {
+      const { libraryRoot, gameDir } = scanFixturePaths(tempRoot);
+      await fs.mkdir(gameDir, { recursive: true });
+      await fs.writeFile(path.join(gameDir, "game.exe"), "main");
+      mockScanLibrary(gameDir, libraryRoot);
+      // A zero (actually already-expired) budget trips the deadline
+      // before the first entry is visited:
+      setScanBudgets({ timeBudgetMs: -1 });
+
+      const response = await request(app).get(`/api/games/${gameId}/files`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.files).toEqual([]);
+      expect(response.body.truncated).toBe(true);
     });
   });
 

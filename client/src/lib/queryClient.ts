@@ -52,7 +52,7 @@ const CSRF_COOKIE_NAME = "questarr_csrf";
 function getCsrfTokenFromCookie(): string | undefined {
   if (typeof document === "undefined") return undefined;
   const match = document.cookie.match(new RegExp(`(?:^|; )${CSRF_COOKIE_NAME}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : undefined;
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
 /** Set `name: value` on a HeadersInit of any shape, without overwriting a value the caller already set explicitly. */

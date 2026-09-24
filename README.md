@@ -121,8 +121,12 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
    would rather run it against Postgres, use the bundled compose file:
 
    ```bash
-   POSTGRES_PASSWORD=choose-something docker compose -f docker-compose.postgres.yml up -d
+   POSTGRES_PASSWORD=$(openssl rand -hex 32) docker compose -f docker-compose.postgres.yml up -d
    ```
+
+   Keep whatever password you pick — the same value must be supplied on every
+   restart, and it must be safe to embed in a connection URL (a hex string
+   from `openssl rand -hex 32` always is).
 
    Switching an existing SQLite install to Postgres does not move your data —
    run `scripts/sqlite-to-pg.ts` to bring your library across. See

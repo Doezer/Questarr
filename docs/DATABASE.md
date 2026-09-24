@@ -35,8 +35,13 @@ on upgrade.
 With Docker Compose:
 
 ```bash
-POSTGRES_PASSWORD=choose-something docker compose -f docker-compose.postgres.yml up -d
+POSTGRES_PASSWORD=$(openssl rand -hex 32) docker compose -f docker-compose.postgres.yml up -d
 ```
+
+Keep whatever password you pick — the same value must be supplied on every
+restart. It's interpolated directly into a connection URL with no encoding, so
+it must be safe to embed in one; a hex string from `openssl rand -hex 32`
+always is.
 
 That file adds a `postgres:17-alpine` service with a healthcheck the app waits on,
 so the first migration cannot run against a database that is still starting. The
@@ -52,6 +57,10 @@ export DATABASE_URL=postgres://questarr:password@localhost:5432/questarr
 npm run db:migrate                    # applies migrations-pg/
 npm start
 ```
+
+If your password contains characters with reserved meaning in a URL (`@ / :
+% # ? &`), percent-encode them in `DATABASE_URL` -- `pass@word` becomes
+`pass%40word`.
 
 Questarr applies migrations at startup, so `db:migrate` is only needed if you want
 to run them ahead of time.

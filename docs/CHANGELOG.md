@@ -6,6 +6,29 @@ All notable changes to this project will be documented in this file.
 
 Addresses dependency vulnerabilities flagged by `npm audit`.
 
+### Removed
+
+- **Legacy PostgreSQL migration tooling**: removed `scripts/pg-to-sqlite.ts` and
+  `docker-compose.migrate.yml`. The tool dated from the v1.1 move off PostgreSQL
+  and only knew about 8 of the project's 19 tables, so pointing it at a current
+  database would have silently skipped the rest — and it continued past
+  per-table failures while still reporting `Migration completed.` Operators
+  still migrating a pre-v1.1 PostgreSQL installation should use the archived
+  **v1.4.2** release — see [MIGRATION.md](./MIGRATION.md), which now inlines the
+  pinned compose file, links the sources by tag permalink, and spells out how to
+  verify the result.
+
+### Fixed
+
+- **Documentation**: corrected `docs/SECRETS.md` §8, which presented the
+  `pg-to-sqlite` credential-logging issue as still open. It was real in
+  **v1.1.0–v1.3.1**, which printed the full `DATABASE_URL` (embedding
+  `user:password@host`), and was fixed in **v1.4.0** by commit `99984867`; §8
+  was never updated when that landed, and its line reference had drifted onto
+  the already-fixed line. §8 now states the affected range, the fix, and that
+  **operators who ran the migration on an affected tag and retained the logs
+  should rotate that Postgres password.**
+
 ### Security
 
 - **Dependency Vulnerabilities**: Fixed 5 known vulnerabilities in `fast-xml-parser`, `fast-uri`, `ip-address`, and `socket.io-parser`.

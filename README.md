@@ -366,30 +366,13 @@ IGDB provides game metadata (covers, descriptions, ratings, release dates, etc.)
 
 If you are upgrading from an older version that used PostgreSQL, you need to migrate your data.
 
-1. **Stop your current application:**
+The migration tooling was removed in v1.5.0 and is now run from the archived
+**v1.4.2** release. Follow [docs/MIGRATION.md](docs/MIGRATION.md), which inlines
+the pinned compose file and links the sources by tag permalink.
 
-   ```bash
-   docker compose down
-   ```
-
-2. **Get the migration tools:**
-   Download the [`docker-compose.migrate.yml`](https://raw.githubusercontent.com/Doezer/Questarr/main/docker-compose.migrate.yml) file to your directory.
-
-3. **Run the migration:**
-   This command spins up your old database and converts the data to the new format automatically.
-
-   ```bash
-   docker compose -f docker-compose.migrate.yml up --abort-on-container-exit
-   ```
-
-4. **Update your deployment:**
-   Replace your `docker-compose.yml` with the new version (see "Fresh Install" above).
-
-5. **Start the new version:**
-
-   ```bash
-   docker compose up -d
-   ```
+> This is only for **pre-v1.1 PostgreSQL** installations. Running Questarr _on_
+> PostgreSQL as an opt-in backend is a separate feature — see
+> `docs/DATABASE.md`.
 
 See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 

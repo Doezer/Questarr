@@ -30,6 +30,54 @@ function sortDirents(
 
 export const systemRouter = Router();
 
+// GET /api/system/languages
+// Returns available UI languages for localization
+systemRouter.get("/languages", async (_req, res) => {
+  try {
+    const localesDir = path.resolve(process.cwd(), "locales");
+    if (!(await fs.pathExists(localesDir))) {
+      return res.json([
+        { code: "en", name: "English" },
+      ]);
+    }
+
+    const entries = await fs.readdir(localesDir, { withFileTypes: true });
+    const languages: { code: string; name: string }[] = [];
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const langCode = entry.name;
+        const metaPath = path.join(localesDir, langCode, "meta.json");
+        let name = langCode;
+        if (await fs.pathExists(metaPath)) {
+          try {
+            const meta = await fs.readJson(metaPath);
+            if (meta?.name) {
+              name = meta.name;
+            }
+          } catch {
+            // Ignore parse errors, fallback to folder code
+          }
+        }
+        languages.push({ code: langCode, name });
+      } else if (entry.isFile() && entry.name.endsWith(".json")) {
+        const langCode = path.basename(entry.name, ".json");
+        languages.push({ code: langCode, name: langCode });
+      }
+    }
+
+    if (languages.length === 0) {
+      languages.push({ code: "en", name: "English" });
+    }
+
+    languages.sort((a, b) => a.name.localeCompare(b.name));
+    return res.json(languages);
+  } catch (error) {
+    logger.error({ error }, "Error fetching available languages");
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 systemRouter.use((req, res, next) => {
   if (!req.user?.id) {
     return res.status(401).json({ error: "Unauthorized" });

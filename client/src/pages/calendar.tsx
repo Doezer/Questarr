@@ -286,7 +286,7 @@ export default function CalendarPage() {
           {viewMode === "year" && (
             <UndatedSection
               year={currentDate.getFullYear()}
-              games={undatedGames.filter((g) => g.releaseDate?.startsWith(currentYearStr))}
+              games={undatedGames.filter((g) => g.releaseDate === `${currentYearStr}-12-31`)}
               onGameClick={handleGameClick}
             />
           )}

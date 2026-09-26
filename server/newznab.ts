@@ -126,10 +126,8 @@ class NewznabClient {
       url.searchParams.set("t", "search"); // Newznab search function
       url.searchParams.set("q", params.query);
 
-      url.searchParams.set(
-        "cat",
-        resolveSearchCategories(params.category, indexer.categories).join(",")
-      );
+      const catValue = resolveSearchCategories(params.category, indexer.categories).join(",");
+      url.searchParams.set("cat", catValue);
 
       if (params.limit) {
         url.searchParams.set("limit", params.limit.toString());
@@ -142,15 +140,28 @@ class NewznabClient {
       // Extended attributes for more metadata
       url.searchParams.set("extended", "1");
 
+      // Newznab expects the categories as a single comma-separated `cat` value
+      // (the spec's canonical form is `cat=200,300,400`). URLSearchParams
+      // percent-encodes the separator commas as `%2C`, and some indexers read
+      // that encoded blob as one opaque category instead of a list -- dropping
+      // every configured category but the first. Leave only the `cat` separator
+      // commas literal so all configured categories reach the indexer, matching
+      // Prowlarr/Jackett. Every other parameter (q, apikey, ...) keeps its
+      // standard URL encoding, so a literal comma in the search query or an API
+      // key is never altered. A single category is unaffected because it has no
+      // separator to encode.
+      const encodedCat = new URLSearchParams({ cat: catValue }).toString();
+      const requestUrl = url.toString().replace(encodedCat, `cat=${catValue}`);
+
       routesLogger.info(
-        { indexer: indexer.name, url: url.toString(), params },
+        { indexer: indexer.name, url: requestUrl, params },
         "searching newznab indexer"
       );
 
       const sendsApiKey = indexerAllowsApiKey(indexer);
       const requireHttps = sendsApiKey && url.protocol === "https:";
 
-      const response = await safeFetch(url.toString(), {
+      const response = await safeFetch(requestUrl, {
         headers: {
           "User-Agent": "Questarr/1.0",
         },

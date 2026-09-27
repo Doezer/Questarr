@@ -246,7 +246,7 @@ async function dispatchNotification(
   notification: InsertNotification
 ): Promise<void> {
   const created = await storage.addNotification(notification);
-  notifyUser("notification", created);
+  notifyUser("notification", created, created.userId);
   if (ctx.prefs.errorDetected.apprise) void appriseClient.send(created);
 }
 

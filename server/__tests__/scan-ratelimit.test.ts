@@ -77,3 +77,20 @@ describe("GET /api/games/:gameId/files rate limiting", () => {
     expect(response.headers["ratelimit-remaining"]).toBe("9");
   });
 });
+
+describe("scan rate limiting by client IP", () => {
+  it("shares the unauthenticated limit across addresses in one IPv6 subnet", async () => {
+    const app = express();
+    app.set("trust proxy", 1);
+    app.get("/scan", scanRateLimiter, (_req, res) => res.sendStatus(204));
+
+    let lastStatus = 0;
+    for (let i = 0; i < 11; i++) {
+      const address = i % 2 === 0 ? "2001:db8:feed:1::1" : "2001:db8:feed:1::2";
+      const response = await request(app).get("/scan").set("X-Forwarded-For", address);
+      lastStatus = response.status;
+    }
+
+    expect(lastStatus).toBe(429);
+  });
+});

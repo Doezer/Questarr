@@ -100,10 +100,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      # Policy: docs/VULNERABILITY_MANAGEMENT.md §1.3 — Critical/High findings
-      # in production dependencies block merge/release.
+      # Policy: docs/VULNERABILITY_MANAGEMENT.md §1.2–1.3 — Critical/High
+      # findings in production dependencies block merge/release. The gate is
+      # VEX-aware: findings covered by a not_affected/fixed statement in
+      # security/vex/questarr.openvex.json are reported, not failed; anything
+      # it cannot match to such a statement (including findings with no
+      # advisory ID) fails the build.
       - name: Audit production dependencies (Critical/High blocks build)
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-gate.mjs
 
       # Policy: docs/VULNERABILITY_MANAGEMENT.md §1.4 — production dependency
       # licenses must be on the allow-list.

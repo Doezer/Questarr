@@ -10,7 +10,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
-    environmentMatchGlobs: [["server/**", "node"]],
+    environmentMatchGlobs: [["server/**", "node"], ["scripts/**", "node"]],
     setupFiles: ["./tests/setup.ts"],
     testTimeout: 20000,
     coverage: {

@@ -34,3 +34,19 @@ export async function seedGame(
 export function uniqueId(): number {
   return 900_000 + Math.floor(Math.random() * 99_999);
 }
+
+/** Update user settings directly, including the CSRF header required by mutations. */
+export async function patchUserSettings(
+  page: Page,
+  updates: Record<string, unknown>
+): Promise<void> {
+  const cookies = await page.context().cookies();
+  const csrf = cookies.find((cookie) => cookie.name === "questarr_csrf")?.value ?? "";
+  const response = await page.request.patch("/api/settings", {
+    headers: { "X-CSRF-Token": csrf },
+    data: updates,
+  });
+  if (!response.ok()) {
+    throw new Error(`Updating settings failed: ${response.status()} ${await response.text()}`);
+  }
+}

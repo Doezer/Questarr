@@ -81,8 +81,7 @@ in Settings → Services.
 | `questarr.existingSecretKeys`               | see `values.yaml` | Secret key holding each value (the env var name is fixed) |
 | `questarr.secrets.jwtSecret`                | `""`              | `JWT_SECRET`                                              |
 | `questarr.secrets.credentialsEncryptionKey` | `""`              | `CREDENTIALS_ENCRYPTION_KEY`, 64 hex chars                |
-| `questarr.secrets.igdbClientId`             | `""`              | `IGDB_CLIENT_ID`                                          |
-| `questarr.secrets.igdbClientSecret`         | `""`              | `IGDB_CLIENT_SECRET`                                      |
+| `questarr.secrets.rawgApiKey`               | `""`              | `RAWG_API_KEY`                                            |
 | `questarr.secrets.nexusmodsApiKey`          | `""`              | `NEXUSMODS_API_KEY`                                       |
 
 Values under `questarr.secrets` end up in a chart-managed Secret, which means they also
@@ -92,8 +91,7 @@ create the Secret yourself and point the chart at it:
 ```bash
 kubectl create secret generic questarr-secrets \
   --namespace questarr \
-  --from-literal=IGDB_CLIENT_ID=... \
-  --from-literal=IGDB_CLIENT_SECRET=... \
+  --from-literal=RAWG_API_KEY=... \
   --from-literal=CREDENTIALS_ENCRYPTION_KEY="$(openssl rand -hex 32)"
 
 helm install questarr charts/questarr --namespace questarr \
@@ -102,12 +100,12 @@ helm install questarr charts/questarr --namespace questarr \
 
 Keys absent from that Secret are injected as `optional`, so a Secret carrying only some
 of them works. Only `JWT_SECRET` and `CREDENTIALS_ENCRYPTION_KEY` fall back to values
-Questarr generates and persists itself when missing — `IGDB_CLIENT_ID`,
-`IGDB_CLIENT_SECRET` and `NEXUSMODS_API_KEY` simply stay unset, leaving discovery and
+Questarr generates and persists itself when missing — `RAWG_API_KEY` and
+`NEXUSMODS_API_KEY` simply stay unset, leaving discovery and
 mods disabled until you enter them in Settings → Services.
 
 `questarr.existingSecretKeys` only renames the _key_ each value is read from inside the
-Secret; the environment variable Questarr sees (`JWT_SECRET`, `IGDB_CLIENT_ID`, …) is
+Secret; the environment variable Questarr sees (`JWT_SECRET`, `RAWG_API_KEY`, …) is
 fixed by the application. So a Secret that stores the JWT secret under `release-jwt`
 needs `questarr.existingSecretKeys.jwtSecret=release-jwt` and nothing else.
 

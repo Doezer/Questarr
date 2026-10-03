@@ -122,7 +122,7 @@ pct exec 210 -- sh -c 'vi /opt/questarr/.env && systemctl restart questarr'
 
 (`vi` ships with the base Debian template; install `nano` first with `apt-get install -y nano` if you prefer it.)
 
-IGDB credentials, indexers, and download clients are configured in the web UI under **Settings**, so
+The RAWG API key, indexers, and download clients are configured in the web UI under **Settings**, so
 you normally do not need to touch `.env` at all.
 
 ## Installing into an existing container or VM

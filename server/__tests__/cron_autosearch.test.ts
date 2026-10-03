@@ -12,8 +12,13 @@ const createMockLogger = () => ({
 
 // Mock logger to avoid noise and missing exports
 vi.mock("../logger.js", () => ({
-  logger: { child: vi.fn().mockReturnThis() },
-  igdbLogger: createMockLogger(),
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+  },
   searchLogger: createMockLogger(),
   torznabLogger: createMockLogger(),
   routesLogger: createMockLogger(),
@@ -105,13 +110,6 @@ vi.mock("../downloaders.js", () => ({
   },
 }));
 
-// Mock igdb
-vi.mock("../igdb.js", () => ({
-  igdbClient: {
-    getGamesByIds: vi.fn(),
-  },
-}));
-
 // Mock xrel
 vi.mock("../xrel.js", () => ({
   xrelClient: {
@@ -123,7 +121,9 @@ vi.mock("../xrel.js", () => ({
 // Import the function under test
 // We need to use dynamic import or require because of the hoisting of vi.mock
 const { checkAutoSearch, categorizeSearchItems } = await import("../cron.js");
-const { igdbLogger } = await import("../logger.js");
+// cron.ts logs through logger.child({module:"cron"}); the mock child() returns
+// the logger mock itself, so assertions target that object.
+const { logger: cronLogger } = await import("../logger.js");
 
 describe("Cron - checkAutoSearch", () => {
   const userId = "user-123";
@@ -164,7 +164,6 @@ describe("Cron - checkAutoSearch", () => {
     notifyMultipleDownloads: false,
     notifyUpdates: false,
     searchIntervalHours: 6, // Default interval
-    igdbRateLimitPerSecond: 3,
     downloadRules: null,
     lastAutoSearch: null, // Never searched before, so should run immediately
     xrelSceneReleases: true,
@@ -1177,7 +1176,7 @@ describe("Cron - checkAutoSearch", () => {
 
     await checkAutoSearch();
 
-    expect(igdbLogger.warn).toHaveBeenCalledWith(
+    expect(cronLogger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ gameTitle: game.title }),
       expect.stringContaining(message)
     );
@@ -1203,7 +1202,7 @@ describe("Cron - checkAutoSearch", () => {
 
     await checkAutoSearch();
 
-    expect(igdbLogger.debug).toHaveBeenCalledWith(
+    expect(cronLogger.debug).toHaveBeenCalledWith(
       expect.objectContaining({ gameTitle: game.title, originalCount: 1 }),
       "No items passed strict title matching"
     );

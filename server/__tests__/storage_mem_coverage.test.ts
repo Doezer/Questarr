@@ -131,14 +131,14 @@ describe("MemStorage - Game query methods", () => {
     await storage.registerSetupUser(makeUser());
   });
 
-  it("getGameByIgdbId returns game matching igdbId", async () => {
-    await storage.addGame(makeGame({ igdbId: 42, userId: "u1" }));
-    const found = await storage.getGameByIgdbId(42);
-    expect(found?.igdbId).toBe(42);
+  it("getGameByRawgId returns game matching rawgId", async () => {
+    await storage.addGame(makeGame({ rawgId: 42, userId: "u1" }));
+    const found = await storage.getGameByRawgId(42);
+    expect(found?.rawgId).toBe(42);
   });
 
-  it("getGameByIgdbId returns undefined for missing igdbId", async () => {
-    const result = await storage.getGameByIgdbId(99);
+  it("getGameByRawgId returns undefined for missing rawgId", async () => {
+    const result = await storage.getGameByRawgId(99);
     expect(result).toBeUndefined();
   });
 
@@ -624,67 +624,6 @@ describe("MemStorage - Path mapping CRUD", () => {
 
   it("removePathMapping returns false for missing id", async () => {
     expect(await storage.removePathMapping("nonexistent")).toBe(false);
-  });
-});
-
-describe("MemStorage - Platform mapping CRUD", () => {
-  let storage: MemStorageType;
-
-  beforeEach(() => {
-    storage = new MemStorage();
-  });
-
-  it("addPlatformMapping and getPlatformMappings", async () => {
-    await storage.addPlatformMapping({ igdbPlatformId: 6, sourcePlatformName: "pc" });
-    const all = await storage.getPlatformMappings();
-    expect(all).toHaveLength(1);
-    expect(all[0].sourcePlatformName).toBe("pc");
-  });
-
-  it("getPlatformMapping finds by igdbPlatformId", async () => {
-    await storage.addPlatformMapping({ igdbPlatformId: 6, sourcePlatformName: "pc" });
-    const found = await storage.getPlatformMapping(6);
-    expect(found?.sourcePlatformName).toBe("pc");
-  });
-
-  it("getPlatformMapping returns undefined for missing igdbPlatformId", async () => {
-    const result = await storage.getPlatformMapping(999);
-    expect(result).toBeUndefined();
-  });
-
-  it("updatePlatformMapping updates existing mapping", async () => {
-    const m = await storage.addPlatformMapping({ igdbPlatformId: 6, sourcePlatformName: "pc" });
-    const updated = await storage.updatePlatformMapping(m.id, { sourcePlatformName: "windows" });
-    expect(updated?.sourcePlatformName).toBe("windows");
-  });
-
-  it("updatePlatformMapping returns undefined for missing id", async () => {
-    const result = await storage.updatePlatformMapping("nonexistent", { sourcePlatformName: "x" });
-    expect(result).toBeUndefined();
-  });
-
-  it("removePlatformMapping returns true and deletes mapping", async () => {
-    const m = await storage.addPlatformMapping({ igdbPlatformId: 6, sourcePlatformName: "pc" });
-    expect(await storage.removePlatformMapping(m.id)).toBe(true);
-    expect(await storage.getPlatformMappings()).toHaveLength(0);
-  });
-
-  it("seedPlatformMappingsIfEmpty seeds when empty", async () => {
-    const result = await storage.seedPlatformMappingsIfEmpty([
-      { igdbPlatformId: 6, sourcePlatformName: "pc" },
-      { igdbPlatformId: 9, sourcePlatformName: "ps3" },
-    ]);
-    expect(result.seeded).toBe(true);
-    expect(result.count).toBe(2);
-  });
-
-  it("seedPlatformMappingsIfEmpty skips when already populated", async () => {
-    await storage.addPlatformMapping({ igdbPlatformId: 6, sourcePlatformName: "pc" });
-    const result = await storage.seedPlatformMappingsIfEmpty([
-      { igdbPlatformId: 9, sourcePlatformName: "ps3" },
-    ]);
-    expect(result.seeded).toBe(false);
-    expect(result.count).toBe(1);
   });
 });
 

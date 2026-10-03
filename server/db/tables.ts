@@ -33,7 +33,6 @@ export const {
   indexers,
   notifications,
   pathMappings,
-  platformMappings,
   releaseBlacklist,
   rootFolders,
   rssFeedItems,

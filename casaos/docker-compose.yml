@@ -83,7 +83,7 @@ x-casaos:
   description:
     en_us:
       Questarr is a video game management application inspired by the *Arr apps (Sonarr, Radarr,
-      Prowlarr). Track your collection, discover new releases through IGDB, RSS and xREL, search your
+      Prowlarr). Track your collection, discover new releases through RAWG, RSS and xREL, search your
       Torznab/Newznab indexers, and send releases straight to your download client.
   tips:
     before_install:

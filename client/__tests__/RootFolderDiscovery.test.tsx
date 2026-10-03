@@ -182,7 +182,7 @@ describe("RootFolderDiscovery", () => {
     });
   });
 
-  it("shows unmatched entries and resolves one against an IGDB candidate", async () => {
+  it("shows unmatched entries and resolves one against a RAWG candidate", async () => {
     mockFetch(
       [folder],
       [],
@@ -192,7 +192,7 @@ describe("RootFolderDiscovery", () => {
           rootFolderPath: "/mnt/old-library",
           folderName: "Mystery Game",
           absolutePath: "/mnt/old-library/Mystery Game",
-          candidates: [{ igdbId: 42, name: "Some Game", releaseYear: 2020 }],
+          candidates: [{ rawgId: 42, name: "Some Game", releaseYear: 2020 }],
         },
       ]
     );
@@ -206,7 +206,7 @@ describe("RootFolderDiscovery", () => {
       expect(apiRequest).toHaveBeenCalledWith("POST", "/api/library/scan/unmatched/match", {
         rootFolderId: "rf-1",
         folderName: "Mystery Game",
-        igdbId: 42,
+        rawgId: 42,
       });
     });
   });

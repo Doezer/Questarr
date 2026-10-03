@@ -29,14 +29,13 @@ library, settings and SQLite database are lost when the pod is replaced.
 Secrets come from the existing Secret {{ .Values.questarr.existingSecret | quote }}. Keys it does not
 carry are simply not injected, so check that it holds the ones you rely on:
 JWT_SECRET and CREDENTIALS_ENCRYPTION_KEY fall back to values Questarr
-generates and persists itself, but IGDB_CLIENT_ID / IGDB_CLIENT_SECRET and
+generates and persists itself, but RAWG_API_KEY and
 NEXUSMODS_API_KEY do not — leave them unset and discovery/mods stay disabled
-until you enter them in Settings → Services.
+until you enter them in Settings → RAWG API.
 {{- else }}
-{{- if not (and .Values.questarr.secrets.igdbClientId .Values.questarr.secrets.igdbClientSecret) }}
-IGDB credentials are incomplete. Game discovery and metadata stay disabled until
-you add them in Settings → Services, or set both questarr.secrets.igdbClientId
-and questarr.secrets.igdbClientSecret.
+{{- if not .Values.questarr.secrets.rawgApiKey }}
+No RAWG API key is set. Game discovery and metadata stay disabled until
+you add it in Settings → RAWG API, or set questarr.secrets.rawgApiKey.
 {{- end }}
 {{- if not .Values.questarr.secrets.jwtSecret }}
 No JWT_SECRET was provided: Questarr generated one and persisted it to its

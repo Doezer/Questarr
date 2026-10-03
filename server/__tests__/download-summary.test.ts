@@ -195,20 +195,21 @@ vi.mock("../search.js", () => ({
   filterByReleaseNameBlacklist: (items: unknown[]) => items,
 }));
 
-vi.mock("../igdb.js", () => ({
-  igdbClient: {
+vi.mock("../rawg.js", () => ({
+  rawgClient: {
+    isConfigured: vi.fn().mockResolvedValue(false),
     searchGames: vi.fn().mockResolvedValue([]),
-    formatGameData: vi.fn((game: unknown) => game),
+    formatGame: vi.fn((g: unknown) => g),
     getPopularGames: vi.fn().mockResolvedValue([]),
     getRecentReleases: vi.fn().mockResolvedValue([]),
     getUpcomingReleases: vi.fn().mockResolvedValue([]),
-    getRecommendations: vi.fn().mockResolvedValue([]),
     getGamesByGenre: vi.fn().mockResolvedValue([]),
     getGamesByPlatform: vi.fn().mockResolvedValue([]),
     getGenres: vi.fn().mockResolvedValue([]),
     getPlatforms: vi.fn().mockResolvedValue([]),
     getGameById: vi.fn(),
     getGamesByIds: vi.fn().mockResolvedValue([]),
+    getGamesForRefresh: vi.fn().mockResolvedValue(new Map()),
     batchSearchGames: vi.fn().mockResolvedValue(new Map()),
   },
 }));
@@ -216,7 +217,7 @@ vi.mock("../igdb.js", () => ({
 vi.mock("../config.js", () => ({
   config: {
     server: { isProduction: false, allowedOrigins: [] },
-    igdb: { isConfigured: false, clientId: "test-id", clientSecret: "test-secret" },
+    rawg: { apiKey: undefined },
     nexusmods: { apiKey: undefined },
     auth: { jwtSecret: "test-secret" },
     database: { url: "test.db" },

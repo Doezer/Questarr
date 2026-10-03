@@ -1,4 +1,6 @@
-import { igdbLogger } from "./logger.js";
+import { logger } from "./logger.js";
+
+const prefsLogger = logger.child({ module: "notification-prefs" });
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   type NotificationPreferences,
@@ -19,7 +21,7 @@ export function resolvePrefs(
   try {
     return { ...DEFAULT_NOTIFICATION_PREFERENCES, ...JSON.parse(settings.notificationPreferences) };
   } catch {
-    igdbLogger.warn(
+    prefsLogger.warn(
       { length: settings.notificationPreferences?.length ?? 0 },
       "Failed to parse notification preferences, using defaults"
     );

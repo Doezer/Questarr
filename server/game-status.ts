@@ -1,5 +1,5 @@
 /**
- * IGDB hands back a release date but no "has it shipped yet" flag, and the
+ * RAWG hands back a release date but no "has it shipped yet" flag, and the
  * schema defaults new games to "upcoming". Stamp anything already released so
  * the calendar and library filters classify it correctly from the start.
  */

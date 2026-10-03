@@ -1,4 +1,6 @@
-import { igdbLogger } from "./logger.js";
+import { logger } from "./logger.js";
+
+const steamLogger = logger.child({ module: "steam" });
 import { safeFetch } from "./ssrf.js";
 
 /**
@@ -173,7 +175,7 @@ export const steamService = {
     if (!achievementsData.playerstats?.success) {
       // No achievements schema for this app, or a private profile — surface as empty
       // rather than an error so the UI can just hide the section.
-      igdbLogger.info(
+      steamLogger.info(
         { steamId, appId, error: achievementsData.playerstats?.error },
         "Steam player achievements unavailable"
       );
@@ -210,7 +212,7 @@ export const steamService = {
 
     const url = STEAM_WISHLIST_API_URL(steamId);
 
-    igdbLogger.debug({ steamId }, "Fetching Steam wishlist via IWishlistService");
+    steamLogger.debug({ steamId }, "Fetching Steam wishlist via IWishlistService");
 
     try {
       const response = await safeFetch(url);
@@ -223,22 +225,22 @@ export const steamService = {
 
       if (!data.response || !data.response.items) {
         // Empty wishlist or inaccessible profile (Steam returns empty response object)
-        igdbLogger.info({ steamId }, "Steam wishlist is empty or inaccessible");
+        steamLogger.info({ steamId }, "Steam wishlist is empty or inaccessible");
         return [];
       }
 
       const games: SteamWishlistGame[] = data.response.items.map((item) => ({
         steamAppId: item.appid,
-        // The new API does not return game names — IGDB lookup handles that downstream
+        // The new API does not return game names — RAWG title search handles that downstream
         title: `Steam App ${item.appid}`,
         addedAt: item.date_added,
         priority: item.priority,
       }));
 
-      igdbLogger.info({ steamId, count: games.length }, "Fetched Steam wishlist");
+      steamLogger.info({ steamId, count: games.length }, "Fetched Steam wishlist");
       return games;
     } catch (error) {
-      igdbLogger.error({ steamId, error }, "Failed to fetch Steam wishlist");
+      steamLogger.error({ steamId, error }, "Failed to fetch Steam wishlist");
       throw error;
     }
   },

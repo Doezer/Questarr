@@ -1,22 +1,22 @@
 import Parser from "rss-parser";
 import { storage } from "./storage.js";
-import { igdbClient } from "./igdb.js";
+import { rawgClient } from "./rawg.js";
 import { logger } from "./logger.js";
 import { RssFeed, InsertRssFeedItem } from "../shared/schema.js";
 import { safeFetch } from "./ssrf.js";
 
 const rssLogger = logger.child({ module: "rss" });
 
-// Cache for IGDB lookups (Game Name -> IGDB Data)
-// To satisfy the 24h cache requirement for IGDB requests
-interface IgdbCacheEntry {
+// Cache for game lookups (Game Name -> matched game data). The long TTL
+// keeps RSS feed checks well under RAWG's free-tier rate budget.
+interface GameCacheEntry {
   id: number;
   name: string;
   coverUrl?: string | undefined;
   timestamp: number;
 }
 
-const igdbCache = new Map<string, IgdbCacheEntry>();
+const gameCache = new Map<string, GameCacheEntry>();
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 export class RssService {
@@ -96,8 +96,8 @@ export class RssService {
         pubDate: normalized.pubDate,
         sourceName: feed.name,
         // Match asynchronously later
-        igdbGameId: null,
-        igdbGameName: null,
+        rawgGameId: null,
+        rawgGameName: null,
         coverUrl: null,
       };
 
@@ -126,13 +126,13 @@ export class RssService {
       try {
         // Assuming storage methods can handle string IDs or convert internally
         const item = await storage.getRssFeedItem(id);
-        if (!item || item.igdbGameId) continue; // Already matched or gone
+        if (!item || item.rawgGameId) continue; // Already matched or gone
 
         const match = await this.matchGame(item.title);
         if (match) {
           await storage.updateRssFeedItem(id, {
-            igdbGameId: match.id,
-            igdbGameName: match.name,
+            rawgGameId: match.id,
+            rawgGameName: match.name,
             coverUrl: match.coverUrl,
           });
           rssLogger.debug(`Matched item ${id} to game ${match.name}`);
@@ -181,35 +181,35 @@ export class RssService {
     };
   }
 
-  private async matchGame(releaseTitle: string): Promise<IgdbCacheEntry | null> {
+  private async matchGame(releaseTitle: string): Promise<GameCacheEntry | null> {
     // Extract potential game name
     const cleanName = this.extractGameName(releaseTitle);
 
     // Check cache
-    const cached = igdbCache.get(cleanName.toLowerCase());
+    const cached = gameCache.get(cleanName.toLowerCase());
     if (cached) {
       if (Date.now() - cached.timestamp < CACHE_TTL) {
         return cached;
       }
-      igdbCache.delete(cleanName.toLowerCase());
+      gameCache.delete(cleanName.toLowerCase());
     }
 
-    // Search IGDB
+    // Search RAWG
     try {
-      const results = await igdbClient.searchGames(cleanName, 1);
+      const results = await rawgClient.searchGames(cleanName, 1);
       const [game] = results ?? [];
       if (game) {
-        const entry: IgdbCacheEntry = {
+        const entry: GameCacheEntry = {
           id: game.id,
           name: game.name,
-          coverUrl: game.cover?.url?.replace("t_thumb", "t_cover_big"), // Better quality
+          coverUrl: game.image ?? undefined,
           timestamp: Date.now(),
         };
-        igdbCache.set(cleanName.toLowerCase(), entry);
+        gameCache.set(cleanName.toLowerCase(), entry);
         return entry;
       }
     } catch (error) {
-      rssLogger.warn({ releaseTitle, cleanName, error }, "IGDB match failed");
+      rssLogger.warn({ releaseTitle, cleanName, error }, "RAWG match failed");
     }
 
     return null;

@@ -5,7 +5,7 @@ import fs from "fs";
 import {
   mockConfig,
   createStorageMock,
-  createIgdbMock,
+  createRawgMock,
   createAuthMock,
   createDbMock,
   createDbModuleMock,
@@ -24,7 +24,7 @@ import {
 } from "./fixtures/common-route-mocks.js";
 import { registerRoutes } from "../routes.js";
 import { storage } from "../storage.js";
-import { igdbClient } from "../igdb.js";
+import { rawgClient } from "../rawg.js";
 import { torznabClient } from "../torznab.js";
 import { newznabClient } from "../newznab.js";
 import { DownloaderManager } from "../downloaders.js";
@@ -34,7 +34,7 @@ import type { Downloader, Indexer, Game } from "../../shared/schema.js";
 
 vi.mock("../log-file.js", () => ({ readLastLogLines: vi.fn().mockResolvedValue([]) }));
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
-vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
+vi.mock("../rawg.js", () => ({ rawgClient: createRawgMock() }));
 vi.mock("../auth.js", () => createAuthMock());
 vi.mock("../db.js", () => createDbModuleMock());
 vi.mock("../logger.js", () => createLoggerMocks());
@@ -301,44 +301,44 @@ describe("API Routes - Additional Coverage", () => {
   });
 
   describe("GET /api/games/discover", () => {
-    it("returns formatted recommendations", async () => {
+    it("falls back to popular games when the library has no RAWG-linked seeds", async () => {
       vi.mocked(storage.getUserGames).mockResolvedValue([]);
-      vi.mocked(igdbClient.getRecommendations).mockResolvedValue([{ id: 1, name: "Rec" }] as never);
+      vi.mocked(rawgClient.getPopularGames).mockResolvedValue([{ id: 1, name: "Rec" }] as never);
       const res = await request(app).get("/api/games/discover");
       expect(res.status).toBe(200);
-      expect(igdbClient.getRecommendations).toHaveBeenCalled();
+      expect(rawgClient.getPopularGames).toHaveBeenCalled();
     });
   });
 
-  describe("GET /api/igdb/genre/:genre", () => {
-    it("rejects an overly long genre parameter", async () => {
-      const res = await request(app).get(`/api/igdb/genre/${"a".repeat(101)}`);
+  describe("GET /api/rawg/genre/:genre", () => {
+    it("rejects an invalid genre parameter", async () => {
+      const res = await request(app).get(`/api/rawg/genre/${"a".repeat(101)}`);
       expect(res.status).toBe(400);
     });
 
-    it("returns formatted games for a genre", async () => {
-      vi.mocked(igdbClient.getGamesByGenre).mockResolvedValue([
+    it("returns formatted games for a genre slug", async () => {
+      vi.mocked(rawgClient.getGamesByGenre).mockResolvedValue([
         { id: 1, name: "Action Game" },
       ] as never);
-      const res = await request(app).get("/api/igdb/genre/Action");
+      const res = await request(app).get("/api/rawg/genre/action");
       expect(res.status).toBe(200);
-      expect(igdbClient.getGamesByGenre).toHaveBeenCalled();
+      expect(rawgClient.getGamesByGenre).toHaveBeenCalled();
     });
   });
 
-  describe("GET /api/igdb/platform/:platform", () => {
-    it("rejects an overly long platform parameter", async () => {
-      const res = await request(app).get(`/api/igdb/platform/${"a".repeat(101)}`);
+  describe("GET /api/rawg/platform/:platform", () => {
+    it("rejects an invalid platform parameter", async () => {
+      const res = await request(app).get(`/api/rawg/platform/${"a".repeat(101)}`);
       expect(res.status).toBe(400);
     });
 
-    it("returns formatted games for a platform", async () => {
-      vi.mocked(igdbClient.getGamesByPlatform).mockResolvedValue([
+    it("returns formatted games for a platform slug", async () => {
+      vi.mocked(rawgClient.getGamesByPlatform).mockResolvedValue([
         { id: 1, name: "PC Game" },
       ] as never);
-      const res = await request(app).get("/api/igdb/platform/PC");
+      const res = await request(app).get("/api/rawg/platform/pc");
       expect(res.status).toBe(200);
-      expect(igdbClient.getGamesByPlatform).toHaveBeenCalled();
+      expect(rawgClient.getGamesByPlatform).toHaveBeenCalled();
     });
   });
 
@@ -568,19 +568,19 @@ describe("API Routes - Additional Coverage", () => {
       expect(res.status).toBe(400);
     });
 
-    it("returns 404 when IGDB has no results", async () => {
-      vi.mocked(igdbClient.searchGames).mockResolvedValue([]);
+    it("returns 404 when RAWG has no results", async () => {
+      vi.mocked(rawgClient.searchGames).mockResolvedValue([]);
       const res = await request(app).post("/api/games/match-and-add").send({ title: "Unknown" });
       expect(res.status).toBe(404);
     });
 
     it("adds a matched game to the collection", async () => {
-      vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      vi.mocked(rawgClient.searchGames).mockResolvedValue([
         { id: 42, name: "Matched Game" },
       ] as never);
-      vi.mocked(igdbClient.formatGameData).mockReturnValue({
+      vi.mocked(rawgClient.formatGame).mockReturnValue({
         title: "Matched Game",
-        igdbId: 42,
+        rawgId: 42,
         platforms: [],
         genres: [],
         coverUrl: "",
@@ -605,12 +605,12 @@ describe("API Routes - Additional Coverage", () => {
     });
 
     it("returns 409 when the game already exists in the collection", async () => {
-      vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      vi.mocked(rawgClient.searchGames).mockResolvedValue([
         { id: 42, name: "Matched Game" },
       ] as never);
-      vi.mocked(igdbClient.formatGameData).mockReturnValue({
+      vi.mocked(rawgClient.formatGame).mockReturnValue({
         title: "Matched Game",
-        igdbId: 42,
+        rawgId: 42,
         platforms: [],
         genres: [],
         coverUrl: "",
@@ -622,7 +622,7 @@ describe("API Routes - Additional Coverage", () => {
         rating: null,
       });
       vi.mocked(storage.getUserGames).mockResolvedValue([
-        { id: "existing", igdbId: 42, title: "Matched Game" },
+        { id: "existing", rawgId: 42, title: "Matched Game" },
       ] as unknown as Game[]);
 
       const res = await request(app)
@@ -635,12 +635,14 @@ describe("API Routes - Additional Coverage", () => {
   describe("POST /api/games/refresh-metadata", () => {
     it("refreshes metadata for the user's games", async () => {
       vi.mocked(storage.getUserGames).mockResolvedValue([
-        { id: "g1", igdbId: 42, title: "Old Title" },
+        { id: "g1", rawgId: 42, title: "Old Title" },
       ] as unknown as Game[]);
-      vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
-        { id: 42, name: "New Title" },
-      ] as never);
-      vi.mocked(igdbClient.formatGameData).mockReturnValue({
+      vi.mocked(rawgClient.getGamesForRefresh).mockResolvedValue(
+        new Map<number, { game: unknown; screenshots: string[] }>([
+          [42, { game: { id: 42, name: "New Title" }, screenshots: [] }],
+        ])
+      );
+      vi.mocked(rawgClient.formatGame).mockReturnValue({
         publishers: [],
         developers: [],
         summary: "",
@@ -651,7 +653,7 @@ describe("API Routes - Additional Coverage", () => {
         screenshots: [],
         releaseDate: "",
         earlyAccess: false,
-        igdbWebsites: [],
+        websites: [],
         aggregatedRating: undefined,
       });
 
@@ -660,14 +662,16 @@ describe("API Routes - Additional Coverage", () => {
       expect(storage.updateGamesBatch).toHaveBeenCalled();
     });
 
-    it("persists IGDB expansions/DLC metadata returned by formatGameData", async () => {
+    it("persists RAWG expansions/DLC metadata returned by formatGame", async () => {
       vi.mocked(storage.getUserGames).mockResolvedValue([
-        { id: "g1", igdbId: 42, title: "Old Title" },
+        { id: "g1", rawgId: 42, title: "Old Title" },
       ] as unknown as Game[]);
-      vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
-        { id: 42, name: "New Title" },
-      ] as never);
-      vi.mocked(igdbClient.formatGameData).mockReturnValue({
+      vi.mocked(rawgClient.getGamesForRefresh).mockResolvedValue(
+        new Map<number, { game: unknown; screenshots: string[] }>([
+          [42, { game: { id: 42, name: "New Title" }, screenshots: [] }],
+        ])
+      );
+      vi.mocked(rawgClient.formatGame).mockReturnValue({
         publishers: [],
         developers: [],
         summary: "",
@@ -678,7 +682,7 @@ describe("API Routes - Additional Coverage", () => {
         screenshots: [],
         releaseDate: "",
         earlyAccess: false,
-        igdbWebsites: [],
+        websites: [],
         expansions: [
           {
             id: 7,
@@ -687,7 +691,7 @@ describe("API Routes - Additional Coverage", () => {
             releaseDate: "2024-01-01",
             category: "dlc",
             gameType: 2,
-            igdbUrl: "https://www.igdb.com/games/some-expansion",
+            rawgUrl: "https://rawg.io/games/some-expansion",
           },
         ],
         aggregatedRating: undefined,

@@ -79,12 +79,6 @@ export const pathMappings = pgTable("path_mappings", {
   remoteHost: text("remote_host"),
 });
 
-export const platformMappings = pgTable("platform_mappings", {
-  id: text("id").primaryKey(),
-  igdbPlatformId: integer("igdb_platform_id").notNull(),
-  sourcePlatformName: text("source_platform_name").notNull(),
-});
-
 export const userSettings = pgTable("user_settings", {
   id: text("id").primaryKey(),
   userId: text("user_id")
@@ -95,7 +89,6 @@ export const userSettings = pgTable("user_settings", {
   autoDownloadEnabled: boolean("auto_download_enabled").notNull().default(false),
   notificationPreferences: text("notification_preferences"),
   searchIntervalHours: integer("search_interval_hours").notNull().default(6),
-  igdbRateLimitPerSecond: integer("igdb_rate_limit_per_second").notNull().default(3),
   downloadRules: text("download_rules"),
   lastAutoSearch: timestampMs("last_auto_search"),
   xrelSceneReleases: boolean("xrel_scene_releases").notNull().default(true),
@@ -141,6 +134,10 @@ export const games = pgTable("games", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
   igdbId: integer("igdb_id"),
+  // RAWG (rawg.io) game ID — the external identity for every game; IGDB was
+  // retired in v1.5.0 and `igdb_id` is a preserved legacy column only.
+  rawgId: integer("rawg_id"),
+  rawgSlug: text("rawg_slug"),
   steamAppId: integer("steam_appid"),
   title: text("title").notNull(),
   summary: text("summary"),
@@ -155,8 +152,8 @@ export const games = pgTable("games", {
   publishers: jsonb("publishers").$type<string[]>(),
   developers: jsonb("developers").$type<string[]>(),
   screenshots: jsonb("screenshots").$type<string[]>(),
-  source: text("source").default("manual"), // "manual" | "steam" | "api"
-  igdbWebsites: jsonb("igdb_websites").$type<Array<{ category: number; url: string }>>(),
+  source: text("source").default("manual"), // "manual" | "steam" | "api" | "rawg"
+  websites: jsonb("websites").$type<Array<{ category: number; url: string }>>(),
   expansions: jsonb("expansions").$type<GameExpansion[]>(),
   aggregatedRating: doublePrecision("aggregated_rating"),
   timeToBeatHastily: doublePrecision("time_to_beat_hastily"),
@@ -381,8 +378,8 @@ export const rssFeedItems = pgTable("rss_feed_items", {
   link: text("link").notNull(),
   pubDate: timestampMs("pub_date"),
   sourceName: text("source_name"),
-  igdbGameId: integer("igdb_game_id"),
-  igdbGameName: text("igdb_game_name"),
+  rawgGameId: integer("rawg_game_id"),
+  rawgGameName: text("rawg_game_name"),
   coverUrl: text("cover_url"),
   createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
 });

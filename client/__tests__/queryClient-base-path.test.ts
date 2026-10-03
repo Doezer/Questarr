@@ -26,9 +26,9 @@ describe("apiFetch under a configured base path", () => {
     vi.unstubAllGlobals();
   });
 
-  it("prefixes /api/igdb/search with the configured base path", async () => {
-    await apiFetch("/api/igdb/search?q=Zelda");
+  it("prefixes /api/rawg/search with the configured base path", async () => {
+    await apiFetch("/api/rawg/search?q=Zelda");
     const [url] = fetchSpy.mock.calls[0];
-    expect(String(url)).toBe("/Questarr/api/igdb/search?q=Zelda");
+    expect(String(url)).toBe("/Questarr/api/rawg/search?q=Zelda");
   });
 });

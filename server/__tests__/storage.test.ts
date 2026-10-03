@@ -1435,37 +1435,6 @@ describe("Import And Mapping Helpers", () => {
     );
     expect(await storage.removePathMapping(pathMapping.id)).toBe(true);
     expect(await storage.getPathMapping(pathMapping.id)).toBeUndefined();
-
-    const platformMapping = await storage.addPlatformMapping({
-      igdbPlatformId: 6,
-      rommPlatformSlug: "n64",
-    });
-    expect(await storage.getPlatformMapping(6)).toEqual(platformMapping);
-
-    const updatedPlatform = await storage.updatePlatformMapping(platformMapping.id, {
-      rommPlatformSlug: "nintendo-64",
-    });
-    expect(updatedPlatform?.rommPlatformSlug).toBe("nintendo-64");
-    expect((await storage.getPlatformMappings()).map((m) => m.id)).toContain(platformMapping.id);
-    expect(await storage.removePlatformMapping(platformMapping.id)).toBe(true);
-    expect(await storage.getPlatformMapping(6)).toBeUndefined();
-  });
-
-  it("seedPlatformMappingsIfEmpty() is idempotent — calling twice does not create duplicates", async () => {
-    const seed = [
-      { igdbPlatformId: 100, rommPlatformSlug: "snes" },
-      { igdbPlatformId: 101, rommPlatformSlug: "nes" },
-    ];
-
-    const first = await storage.seedPlatformMappingsIfEmpty(seed);
-    expect(first.seeded).toBe(true);
-    expect(first.count).toBe(2);
-
-    const second = await storage.seedPlatformMappingsIfEmpty(seed);
-    expect(second.seeded).toBe(false);
-
-    const all = await storage.getPlatformMappings();
-    expect(all).toHaveLength(2);
   });
 
   it("should expose getGameDownload and filter active downloads", async () => {

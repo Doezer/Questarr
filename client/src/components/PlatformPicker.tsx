@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { type IgdbPlatform } from "@shared/platforms";
+import { type RawgPlatform } from "@shared/platforms";
 import { type Config } from "@shared/schema";
 
 export interface PlatformPickerProps {
@@ -14,7 +14,7 @@ export interface PlatformPickerProps {
 }
 
 /**
- * Shared IGDB platform multi-select used by the Platforms setting and the
+ * Shared RAWG platform multi-select used by the Platforms setting and the
  * import tab's read-only summary. Owns the platform-list query, search box,
  * and loading/error/empty states; the caller owns persistence.
  */
@@ -25,14 +25,14 @@ export function PlatformPicker({
   className,
 }: PlatformPickerProps) {
   const {
-    data: igdbPlatformsData,
+    data: rawgPlatformsData,
     isLoading: platformsLoading,
     isError: platformsError,
     refetch: refetchPlatforms,
-  } = useQuery<IgdbPlatform[]>({
-    queryKey: ["/api/igdb/platforms"],
+  } = useQuery<RawgPlatform[]>({
+    queryKey: ["/api/rawg/platforms"],
   });
-  const igdbPlatforms = Array.isArray(igdbPlatformsData) ? igdbPlatformsData : [];
+  const rawgPlatforms = Array.isArray(rawgPlatformsData) ? rawgPlatformsData : [];
   const { data: appConfig } = useQuery<Config>({
     queryKey: ["/api/config"],
   });
@@ -48,10 +48,10 @@ export function PlatformPicker({
 
   const normalizedPlatformSearch = platformSearch.trim().toLowerCase();
   const filteredPlatforms = normalizedPlatformSearch
-    ? igdbPlatforms.filter((platform) =>
+    ? rawgPlatforms.filter((platform) =>
         platform.name.toLowerCase().includes(normalizedPlatformSearch)
       )
-    : igdbPlatforms;
+    : rawgPlatforms;
 
   return (
     <div className={`space-y-2 ${className ?? ""}`}>
@@ -68,22 +68,22 @@ export function PlatformPicker({
         {platformsLoading && <p className="text-xs text-muted-foreground">Loading platforms...</p>}
         {platformsError && (
           <div className="space-y-2">
-            <p className="text-xs text-amber-500">Could not load platform list from IGDB.</p>
+            <p className="text-xs text-amber-500">Could not load platform list from RAWG.</p>
             <Button type="button" variant="outline" size="sm" onClick={() => refetchPlatforms()}>
               Retry
             </Button>
           </div>
         )}
-        {!platformsLoading && !platformsError && igdbPlatforms.length === 0 && (
+        {!platformsLoading && !platformsError && rawgPlatforms.length === 0 && (
           <p className="text-xs text-muted-foreground">
-            {appConfig?.igdb.configured
-              ? "IGDB returned no platforms. Try again in a few seconds."
-              : "IGDB is not configured yet — platform filters unavailable."}
+            {appConfig?.rawg?.configured
+              ? "RAWG returned no platforms. Try again in a few seconds."
+              : "RAWG is not configured yet — add a free API key in Settings."}
           </p>
         )}
         {!platformsLoading &&
           !platformsError &&
-          igdbPlatforms.length > 0 &&
+          rawgPlatforms.length > 0 &&
           filteredPlatforms.length === 0 && (
             <p className="text-xs text-muted-foreground">No platforms match your search.</p>
           )}

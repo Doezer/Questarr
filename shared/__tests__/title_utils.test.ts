@@ -169,8 +169,11 @@ describe("title-utils", () => {
       expect(resolveTargetPlatform(23, "Dreamcast")).toBe("Dreamcast");
     });
 
-    it("fails closed for mismatched, partial, or unsupported target pairs", () => {
-      expect(resolveTargetPlatform(8, "PlayStation 5")).toBeNull();
+    it("fails closed for partial or unsupported target pairs", () => {
+      // The id no longer gates resolution — the provider name decides, so an
+      // outdated id paired with a valid name still resolves.
+      expect(resolveTargetPlatform(8, "PlayStation 5")).toBe("PS5");
+      expect(resolveTargetPlatform(9999, "Mystery Box")).toBeNull();
       expect(resolveGamePlatformPreference({ targetPlatformId: 8 }, "PC")).toBe(
         UNSUPPORTED_TARGET_PLATFORM
       );

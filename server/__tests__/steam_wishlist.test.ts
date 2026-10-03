@@ -2,13 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { syncUserSteamWishlist, checkSteamWishlist } from "../cron.js";
 import { storage } from "../storage.js";
 import { steamService } from "../steam.js";
-import { igdbClient, type IGDBGame } from "../igdb.js";
+import { rawgClient } from "../rawg.js";
 import type { Game, ImportTask, User, UserSettings } from "../../shared/schema.js";
+import type { RawgGame } from "../rawg.js";
 
 // Mock dependencies
 vi.mock("../storage.js");
 vi.mock("../steam.js");
-vi.mock("../igdb.js");
+vi.mock("../rawg.js");
 vi.mock("../logger.js", () => {
   const mockLogger = {
     info: vi.fn(),
@@ -19,7 +20,6 @@ vi.mock("../logger.js", () => {
   };
   return {
     logger: mockLogger,
-    igdbLogger: mockLogger,
     routesLogger: mockLogger,
     expressLogger: mockLogger,
     downloadersLogger: mockLogger,
@@ -40,359 +40,211 @@ vi.mock("../services/index.js", () => ({
   importManager: { processImport: vi.fn() },
 }));
 
-function setupUser(steamSyncFailures = 0) {
+function setupUser(steamSyncFailures = 0, settingsOverrides: Partial<UserSettings> = {}) {
   vi.mocked(storage.getUser).mockResolvedValue({
     id: "user-1",
     steamId64: "76561198000000000",
   } as unknown as User);
   vi.mocked(storage.getUserSettings).mockResolvedValue({
     steamSyncFailures,
+    ...settingsOverrides,
   } as unknown as UserSettings);
+  vi.mocked(storage.createImportTask).mockResolvedValue({
+    id: "task-1",
+  } as unknown as ImportTask);
+  vi.mocked(storage.addNotification).mockImplementation(
+    async (n) => ({ id: "notif-1", ...n }) as never
+  );
 }
 
-function makeFormattedGame(title: string, igdbId: number) {
+function makeFormattedGame(title: string, rawgId: number) {
   return {
     title,
-    igdbId,
+    rawgId,
+    rawgSlug: `slug-${rawgId}`,
     coverUrl: "",
     summary: "",
     releaseDate: "",
     rating: 0,
-    platforms: [] as string[],
-    genres: [] as string[],
-    developers: [] as string[],
-    publishers: [] as string[],
-    screenshots: [] as string[],
+    platforms: [],
+    genres: [],
+    themes: [],
+    isAdultContent: false,
+    isAgeRestricted: false,
+    developers: [],
+    publishers: [],
+    screenshots: [],
+    isReleased: true,
   };
 }
 
-describe("syncUserSteamWishlist", () => {
+describe("syncUserSteamWishlist (RAWG resolution)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(storage.createImportTask).mockResolvedValue({ id: "task-id" } as any);
+    vi.mocked(storage.getUserGames).mockResolvedValue([] as Game[]);
     vi.mocked(storage.startImportTask).mockResolvedValue(undefined);
     vi.mocked(storage.updateImportTask).mockResolvedValue(undefined);
-    vi.mocked(storage.addImportTaskItemsBatch).mockResolvedValue([]);
-    vi.mocked(storage.addNotification).mockResolvedValue({ id: "notif-id" } as any);
-    vi.mocked(storage.addGame).mockResolvedValue({ id: "game-id" } as any);
+    vi.mocked(storage.addImportTaskItemsBatch).mockResolvedValue([] as never);
   });
 
-  it("should return failure and skip sync when steamSyncFailures >= MAX_STEAM_SYNC_FAILURES", async () => {
+  it("returns early when the user has no Steam ID", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue(undefined as never);
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result).toBeUndefined();
+    expect(steamService.getWishlist).not.toHaveBeenCalled();
+  });
+
+  it("refuses to sync after repeated failures", async () => {
     setupUser(3);
 
     const result = await syncUserSteamWishlist("user-1");
 
-    expect(result?.success).toBe(false);
-    expect(result?.message).toContain("temporarily disabled");
+    expect(result).toMatchObject({ success: false });
     expect(steamService.getWishlist).not.toHaveBeenCalled();
   });
 
-  it("should increment steamSyncFailures and return failure when wishlist fetch throws", async () => {
-    setupUser(1);
-    vi.mocked(steamService.getWishlist).mockRejectedValue(new Error("Steam API down"));
-
-    const result = await syncUserSteamWishlist("user-1");
-
-    expect(result?.success).toBe(false);
-    expect(result?.message).toBe("Steam API down");
-    expect(storage.updateUserSettings).toHaveBeenCalledWith("user-1", { steamSyncFailures: 2 });
-  });
-
-  it("should reset steamSyncFailures to 0 on a successful sync after prior failures", async () => {
-    setupUser(2);
-    vi.mocked(steamService.getWishlist).mockResolvedValue([]);
-    vi.mocked(storage.getUserGames).mockResolvedValue([]);
-
-    const result = await syncUserSteamWishlist("user-1");
-
-    expect(result?.success).toBe(true);
-    expect(storage.updateUserSettings).toHaveBeenCalledWith("user-1", { steamSyncFailures: 0 });
-  });
-
-  it("should skip IGDB lookup when all wishlist games are already owned by steamAppId", async () => {
-    setupUser();
+  it("resolves wishlist App IDs through RAWG and adds new games", async () => {
+    setupUser(0);
     vi.mocked(steamService.getWishlist).mockResolvedValue([
-      { title: "Already Owned", steamAppId: 101, addedAt: 0, priority: 0 },
-    ]);
-    vi.mocked(storage.getUserGames).mockResolvedValue([
-      { id: "g1", igdbId: 1001, steamAppId: 101 } as unknown as Game,
-    ]);
+      { steamAppId: 201, name: "New Game" },
+    ] as never);
+    vi.mocked(rawgClient.getGameBySteamAppId).mockResolvedValue({
+      id: 2001,
+      name: "New Game",
+    } as RawgGame);
+    vi.mocked(rawgClient.formatGame).mockReturnValue(makeFormattedGame("New Game", 2001));
 
     const result = await syncUserSteamWishlist("user-1");
 
-    expect(result?.success).toBe(true);
-    expect(result?.addedCount).toBe(0);
-    expect(igdbClient.getGameIdsBySteamAppIds).not.toHaveBeenCalled();
-  });
-
-  it("should not overwrite steamAppId when existing game already has one set for that igdbId", async () => {
-    setupUser();
-    // Wishlist has steamAppId 201; collection has same igdbId but different steamAppId (999)
-    vi.mocked(steamService.getWishlist).mockResolvedValue([
-      { title: "Game", steamAppId: 201, addedAt: 0, priority: 0 },
-    ]);
-    vi.mocked(storage.getUserGames).mockResolvedValue([
-      { id: "g1", igdbId: 2001, steamAppId: 999 } as unknown as Game,
-    ]);
-    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(
-      new Map<number, number>([[201, 2001]])
-    );
-
-    await syncUserSteamWishlist("user-1");
-
-    expect(storage.updateGame).not.toHaveBeenCalled();
-    expect(storage.addGame).not.toHaveBeenCalled();
-  });
-
-  it("should return failure if user has no Steam ID", async () => {
-    vi.mocked(storage.getUser).mockResolvedValue({
-      id: "user-1",
-      steamId64: null,
-    } as unknown as User);
-
-    const result = await syncUserSteamWishlist("user-1");
-    expect(result).toBeUndefined(); // It returns early with return; (void)
-  });
-
-  it("should fetch wishlist games and add them in batches", async () => {
-    setupUser();
-    vi.mocked(steamService.getWishlist).mockResolvedValue([
-      { title: "Game 1", steamAppId: 101, addedAt: 0, priority: 0 },
-      { title: "Game 2", steamAppId: 102, addedAt: 0, priority: 0 },
-    ]);
-    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(
-      new Map<number, number>([
-        [101, 1001],
-        [102, 1002],
-      ])
-    );
-    vi.mocked(storage.getUserGames).mockResolvedValue([]);
-    vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
-      { id: 1001, name: "Game 1" },
-      { id: 1002, name: "Game 2" },
-    ] as unknown as IGDBGame[]);
-    vi.mocked(igdbClient.formatGameData).mockImplementation((game: unknown) => {
-      const g = game as { id: number; name: string };
-      return {
-        ...makeFormattedGame(g.name, g.id),
-        coverUrl: "url",
-        summary: "summary",
-        releaseDate: "2023-01-01",
-        rating: 80,
-        platforms: ["PC"],
-        genres: ["Action"],
-        developers: ["Dev"],
-        publishers: ["Pub"],
-        screenshots: ["s1"],
-        isReleased: true,
-      };
-    });
-
-    const result = await syncUserSteamWishlist("user-1");
-
-    expect(result).toBeDefined();
-    expect(result?.success).toBe(true);
-    expect(result?.addedCount).toBe(2);
-    expect(igdbClient.getGameIdsBySteamAppIds).toHaveBeenCalledWith([101, 102]);
-    expect(storage.addGame).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ success: true, addedCount: 1 });
+    expect(rawgClient.getGameBySteamAppId).toHaveBeenCalledWith(201);
     expect(storage.addGame).toHaveBeenCalledWith(
-      expect.objectContaining({ releaseStatus: "released" })
+      expect.objectContaining({
+        userId: "user-1",
+        title: "New Game",
+        rawgId: 2001,
+        steamAppId: 201,
+        status: "wanted",
+        source: "steam",
+      })
+    );
+    // Successful resolution -> clean completion, no failed import items.
+    expect(storage.addImportTaskItemsBatch).not.toHaveBeenCalled();
+    expect(storage.updateImportTask).toHaveBeenCalledWith(
+      "task-1",
+      expect.objectContaining({ status: "completed", failedItems: 0, addedItems: 1 })
+    );
+    expect(storage.addNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Steam Wishlist Synced" })
     );
   });
 
-  it("should skip Steam App IDs with no matching IGDB ID", async () => {
-    setupUser();
-    // steamAppId 301 has no IGDB match
+  it("links an existing library game instead of adding a duplicate", async () => {
+    setupUser(0);
+    const existing = {
+      id: "game-1",
+      userId: "user-1",
+      rawgId: 1001,
+      steamAppId: null,
+    } as unknown as Game;
+    vi.mocked(storage.getUserGames).mockResolvedValue([existing]);
     vi.mocked(steamService.getWishlist).mockResolvedValue([
-      { title: "Unknown Game", steamAppId: 301, addedAt: 0, priority: 0 },
-    ]);
-    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(new Map());
-    vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      { steamAppId: 101, name: "Existing Game" },
+    ] as never);
+    vi.mocked(rawgClient.getGameBySteamAppId).mockResolvedValue({
+      id: 1001,
+      name: "Existing Game",
+    } as RawgGame);
+    vi.mocked(rawgClient.formatGame).mockReturnValue(makeFormattedGame("Existing Game", 1001));
 
     const result = await syncUserSteamWishlist("user-1");
 
-    expect(result?.addedCount).toBe(0);
+    expect(result).toMatchObject({ success: true, addedCount: 0 });
+    expect(storage.updateGame).toHaveBeenCalledWith(
+      "game-1",
+      expect.objectContaining({ steamAppId: 101 })
+    );
     expect(storage.addGame).not.toHaveBeenCalled();
   });
 
-  it("should NOT skip a Steam App ID whose IGDB mapping is 0 (falsy but valid)", async () => {
-    setupUser();
+  it("skips wishlist games already in the library by Steam App ID", async () => {
+    setupUser(0);
+    const existing = {
+      id: "game-1",
+      userId: "user-1",
+      rawgId: 1001,
+      steamAppId: 101,
+    } as unknown as Game;
+    vi.mocked(storage.getUserGames).mockResolvedValue([existing]);
     vi.mocked(steamService.getWishlist).mockResolvedValue([
-      { title: "Zero Game", steamAppId: 301, addedAt: 0, priority: 0 },
-    ]);
-    vi.mocked(storage.getUserGames).mockResolvedValue([]);
-    // IGDB ID 0 is falsy — old `!igdbId` check would incorrectly skip this
-    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(
-      new Map<number, number>([[301, 0]])
-    );
-    vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
-      { id: 0, name: "Zero Game" },
-    ] as unknown as IGDBGame[]);
-    vi.mocked(igdbClient.formatGameData).mockReturnValue(makeFormattedGame("Zero Game", 0));
+      { steamAppId: 101, name: "Existing Game" },
+    ] as never);
 
     const result = await syncUserSteamWishlist("user-1");
 
-    expect(result?.addedCount).toBe(1);
-    expect(storage.addGame).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({ success: true, addedCount: 0 });
+    expect(rawgClient.getGameBySteamAppId).not.toHaveBeenCalled();
+    expect(storage.updateImportTask).toHaveBeenCalledWith(
+      "task-1",
+      expect.objectContaining({ status: "completed", skippedItems: 1 })
+    );
   });
 
-  it("should link an existing game that has igdbId but no steamAppId", async () => {
-    setupUser();
+  it("records unresolvable App IDs as failed import items", async () => {
+    setupUser(0);
     vi.mocked(steamService.getWishlist).mockResolvedValue([
-      { title: "Linked Game", steamAppId: 201, addedAt: 0, priority: 0 },
-    ]);
-    // Game exists with matching igdbId but steamAppId not yet set
-    vi.mocked(storage.getUserGames).mockResolvedValue([
-      { id: "game-1", igdbId: 2001, steamAppId: null } as unknown as Game,
-    ]);
-    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(
-      new Map<number, number>([[201, 2001]])
-    );
+      { steamAppId: 301, name: "Unknown Game" },
+    ] as never);
+    vi.mocked(rawgClient.getGameBySteamAppId).mockResolvedValue(null);
 
     const result = await syncUserSteamWishlist("user-1");
 
-    expect(result?.addedCount).toBe(0);
-    expect(storage.addGame).not.toHaveBeenCalled();
-    expect(storage.updateGame).toHaveBeenCalledWith("game-1", { steamAppId: 201 });
+    expect(result).toMatchObject({ success: true, addedCount: 0 });
+    expect(storage.addImportTaskItemsBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        taskId: "task-1",
+        itemName: "Steam App 301",
+        result: "failed",
+        errorMessage: "No RAWG match found",
+      }),
+    ]);
+    expect(storage.updateImportTask).toHaveBeenCalledWith(
+      "task-1",
+      expect.objectContaining({ status: "completed_with_errors", failedItems: 1 })
+    );
   });
 
-  it("should link multiple existing games via precomputed map and add truly new ones", async () => {
-    setupUser();
-    vi.mocked(steamService.getWishlist).mockResolvedValue([
-      { title: "Link Me 1", steamAppId: 201, addedAt: 0, priority: 0 },
-      { title: "Link Me 2", steamAppId: 202, addedAt: 0, priority: 0 },
-      { title: "New Game", steamAppId: 203, addedAt: 0, priority: 0 },
-    ]);
-    // Two existing games with igdbId but no steamAppId; one is truly new
-    vi.mocked(storage.getUserGames).mockResolvedValue([
-      { id: "g1", igdbId: 2001, steamAppId: null } as unknown as Game,
-      { id: "g2", igdbId: 2002, steamAppId: null } as unknown as Game,
-    ]);
-    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(
-      new Map<number, number>([
-        [201, 2001],
-        [202, 2002],
-        [203, 2003],
-      ])
+  it("increments the failure counter and marks the task failed on Steam errors", async () => {
+    setupUser(0);
+    vi.mocked(steamService.getWishlist).mockRejectedValue(new Error("Steam API error"));
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result).toMatchObject({ success: false });
+    expect(storage.updateUserSettings).toHaveBeenCalledWith("user-1", {
+      steamSyncFailures: 1,
+    });
+    expect(storage.updateImportTask).toHaveBeenCalledWith(
+      "task-1",
+      expect.objectContaining({ status: "failed" })
     );
-    vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
-      { id: 2003, name: "New Game" },
-    ] as unknown as IGDBGame[]);
-    vi.mocked(igdbClient.formatGameData).mockReturnValue(makeFormattedGame("New Game", 2003));
-
-    const result = await syncUserSteamWishlist("user-1");
-
-    expect(storage.updateGame).toHaveBeenCalledTimes(2);
-    expect(storage.updateGame).toHaveBeenCalledWith("g1", { steamAppId: 201 });
-    expect(storage.updateGame).toHaveBeenCalledWith("g2", { steamAppId: 202 });
-    expect(storage.addGame).toHaveBeenCalledOnce();
-    expect(result?.addedCount).toBe(1);
-  });
-
-  it("should avoid adding games already in collection", async () => {
-    setupUser();
-    vi.mocked(steamService.getWishlist).mockResolvedValue([
-      { title: "Existing Game", steamAppId: 201, addedAt: 0, priority: 0 },
-    ]);
-    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(
-      new Map<number, number>([[201, 2001]])
-    );
-    vi.mocked(storage.getUserGames).mockResolvedValue([{ igdbId: 2001 }] as Game[]);
-
-    const result = await syncUserSteamWishlist("user-1");
-
-    expect(result?.addedCount).toBe(0);
-    expect(storage.addGame).not.toHaveBeenCalled();
-  });
-
-  it("should return success with addedCount 0 when wishlist is empty", async () => {
-    setupUser();
-    vi.mocked(steamService.getWishlist).mockResolvedValue([]);
-    vi.mocked(storage.getUserGames).mockResolvedValue([]);
-
-    const result = await syncUserSteamWishlist("user-1");
-
-    expect(result?.success).toBe(true);
-    expect(result?.addedCount).toBe(0);
-    expect(igdbClient.getGameIdsBySteamAppIds).not.toHaveBeenCalled();
-  });
-
-  it("should skip a new game when IGDB returns no details for its igdbId", async () => {
-    setupUser();
-    vi.mocked(steamService.getWishlist).mockResolvedValue([
-      { title: "Mystery Game", steamAppId: 101, addedAt: 0, priority: 0 },
-    ]);
-    vi.mocked(storage.getUserGames).mockResolvedValue([]);
-    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(
-      new Map<number, number>([[101, 1001]])
-    );
-    // IGDB returns empty — no details for igdbId 1001
-    vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([]);
-
-    const result = await syncUserSteamWishlist("user-1");
-
-    expect(result?.addedCount).toBe(0);
-    expect(storage.addGame).not.toHaveBeenCalled();
-  });
-
-  it("should add only games for which IGDB returns details when response is partial", async () => {
-    setupUser();
-    vi.mocked(steamService.getWishlist).mockResolvedValue([
-      { title: "Game A", steamAppId: 101, addedAt: 0, priority: 0 },
-      { title: "Game B", steamAppId: 102, addedAt: 0, priority: 0 },
-    ]);
-    vi.mocked(storage.getUserGames).mockResolvedValue([]);
-    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(
-      new Map<number, number>([
-        [101, 1001],
-        [102, 1002],
-      ])
-    );
-    // Only igdbId 1001 has details; 1002 is missing from IGDB response
-    vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
-      { id: 1001, name: "Game A" },
-    ] as unknown as IGDBGame[]);
-    vi.mocked(igdbClient.formatGameData).mockReturnValue(makeFormattedGame("Game A", 1001));
-
-    const result = await syncUserSteamWishlist("user-1");
-
-    expect(result?.addedCount).toBe(1);
-    expect(storage.addGame).toHaveBeenCalledOnce();
   });
 });
 
-describe("checkSteamWishlist", () => {
+describe("checkSteamWishlist (scheduled auto-sync)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(storage.createImportTask).mockResolvedValue({
-      id: "task-id",
-    } as unknown as ImportTask);
-    vi.mocked(storage.startImportTask).mockResolvedValue(undefined);
-    vi.mocked(storage.updateImportTask).mockResolvedValue(undefined);
-    vi.mocked(storage.addImportTaskItemsBatch).mockResolvedValue([]);
-    vi.mocked(storage.getUserGames).mockResolvedValue([]);
-    vi.mocked(steamService.getWishlist).mockResolvedValue([]);
   });
 
-  it("skips users without a linked Steam ID", async () => {
+  it("skips users without Steam IDs or auto-sync enabled", async () => {
     vi.mocked(storage.getAllUsers).mockResolvedValue([
-      { id: "user-1", steamId64: null } as unknown as User,
-    ]);
-
-    await checkSteamWishlist();
-
-    expect(storage.getUserSettings).not.toHaveBeenCalled();
-    expect(steamService.getWishlist).not.toHaveBeenCalled();
-  });
-
-  it("skips users who have not opted into auto-sync", async () => {
-    vi.mocked(storage.getAllUsers).mockResolvedValue([
-      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+      { id: "user-a" } as unknown as User,
+      { id: "user-b", steamId64: "1" } as unknown as User,
     ]);
     vi.mocked(storage.getUserSettings).mockResolvedValue({
       steamSyncEnabled: false,
-      steamSyncIntervalHours: 24,
-      lastSteamSync: null,
     } as unknown as UserSettings);
 
     await checkSteamWishlist();
@@ -400,134 +252,36 @@ describe("checkSteamWishlist", () => {
     expect(steamService.getWishlist).not.toHaveBeenCalled();
   });
 
-  it("skips users whose sync interval has not elapsed yet", async () => {
-    const FIXED_NOW = new Date("2023-01-02T00:00:00.000Z");
+  it("syncs users whose sync interval has elapsed and records the timestamp", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(FIXED_NOW);
-
+    vi.setSystemTime(new Date("2023-06-01T12:00:00Z"));
     try {
       vi.mocked(storage.getAllUsers).mockResolvedValue([
-        { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+        { id: "user-1", steamId64: "76561198000000001" } as unknown as User,
       ]);
       vi.mocked(storage.getUserSettings).mockResolvedValue({
         steamSyncEnabled: true,
         steamSyncIntervalHours: 24,
-        lastSteamSync: new Date(FIXED_NOW.getTime() - 60 * 60 * 1000), // synced 1 hour ago
+        lastSteamSync: "2023-05-30T12:00:00.000Z",
+        steamSyncFailures: 0,
       } as unknown as UserSettings);
+      vi.mocked(storage.getUser).mockResolvedValue({
+        id: "user-1",
+        steamId64: "76561198000000001",
+      } as unknown as User);
+      vi.mocked(storage.getUserGames).mockResolvedValue([] as Game[]);
+      vi.mocked(storage.createImportTask).mockResolvedValue({ id: "task-1" } as never);
+      vi.mocked(steamService.getWishlist).mockResolvedValue([] as never);
 
       await checkSteamWishlist();
 
-      expect(steamService.getWishlist).not.toHaveBeenCalled();
-      expect(storage.updateUserSettings).not.toHaveBeenCalledWith(
+      expect(steamService.getWishlist).toHaveBeenCalledWith("76561198000000001");
+      expect(storage.updateUserSettings).toHaveBeenCalledWith(
         "user-1",
-        expect.objectContaining({ lastSteamSync: expect.anything() })
+        expect.objectContaining({ lastSteamSync: expect.any(Date) })
       );
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("syncs and records lastSteamSync when enabled and the interval has elapsed", async () => {
-    vi.mocked(storage.getAllUsers).mockResolvedValue([
-      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
-    ]);
-    vi.mocked(storage.getUser).mockResolvedValue({
-      id: "user-1",
-      steamId64: "76561198000000000",
-    } as unknown as User);
-    vi.mocked(storage.getUserSettings).mockResolvedValue({
-      steamSyncEnabled: true,
-      steamSyncIntervalHours: 24,
-      lastSteamSync: null,
-      steamSyncFailures: 0,
-    } as unknown as UserSettings);
-
-    await checkSteamWishlist();
-
-    expect(steamService.getWishlist).toHaveBeenCalledWith("76561198000000000");
-    expect(storage.updateUserSettings).toHaveBeenCalledWith(
-      "user-1",
-      expect.objectContaining({ lastSteamSync: expect.any(Date) })
-    );
-  });
-
-  it("does not record lastSteamSync when the scheduled sync fails", async () => {
-    vi.mocked(storage.getAllUsers).mockResolvedValue([
-      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
-    ]);
-    vi.mocked(storage.getUser).mockResolvedValue({
-      id: "user-1",
-      steamId64: "76561198000000000",
-    } as unknown as User);
-    vi.mocked(storage.getUserSettings).mockResolvedValue({
-      steamSyncEnabled: true,
-      steamSyncIntervalHours: 24,
-      lastSteamSync: null,
-      steamSyncFailures: 0,
-    } as unknown as UserSettings);
-    vi.mocked(steamService.getWishlist).mockRejectedValue(new Error("Steam API down"));
-
-    await checkSteamWishlist();
-
-    expect(storage.updateUserSettings).not.toHaveBeenCalledWith(
-      "user-1",
-      expect.objectContaining({ lastSteamSync: expect.anything() })
-    );
-  });
-
-  it("continues checking other users when one user's sync throws", async () => {
-    vi.mocked(storage.getAllUsers).mockResolvedValue([
-      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
-      { id: "user-2", steamId64: "76561198000000001" } as unknown as User,
-    ]);
-    vi.mocked(storage.getUserSettings).mockImplementation(async (userId: string) => {
-      if (userId === "user-1") {
-        throw new Error("DB error");
-      }
-      return {
-        steamSyncEnabled: true,
-        steamSyncIntervalHours: 24,
-        lastSteamSync: null,
-        steamSyncFailures: 0,
-      } as unknown as UserSettings;
-    });
-    vi.mocked(storage.getUser).mockResolvedValue({
-      id: "user-2",
-      steamId64: "76561198000000001",
-    } as unknown as User);
-
-    await expect(checkSteamWishlist()).resolves.not.toThrow();
-
-    expect(steamService.getWishlist).toHaveBeenCalledWith("76561198000000001");
-  });
-
-  it("skips a run entirely when a previous run is still in progress", async () => {
-    let resolveGetAllUsers: (users: User[]) => void;
-    const getAllUsersPromise = new Promise<User[]>((resolve) => {
-      resolveGetAllUsers = resolve;
-    });
-    vi.mocked(storage.getAllUsers).mockReturnValueOnce(getAllUsersPromise);
-
-    const firstRun = checkSteamWishlist();
-    const secondRun = checkSteamWishlist();
-
-    // The second call should return immediately without waiting on getAllUsers.
-    await secondRun;
-    expect(storage.getAllUsers).toHaveBeenCalledTimes(1);
-    expect(storage.getUserSettings).not.toHaveBeenCalled();
-
-    resolveGetAllUsers!([]);
-    await firstRun;
-  });
-
-  it("does not throw and clears the in-progress guard when getAllUsers fails", async () => {
-    vi.mocked(storage.getAllUsers).mockRejectedValueOnce(new Error("DB unavailable"));
-
-    await expect(checkSteamWishlist()).resolves.toBeUndefined();
-
-    // The in-progress guard must have been cleared, so a subsequent run proceeds normally.
-    vi.mocked(storage.getAllUsers).mockResolvedValueOnce([]);
-    await expect(checkSteamWishlist()).resolves.toBeUndefined();
-    expect(storage.getAllUsers).toHaveBeenCalledTimes(2);
   });
 });

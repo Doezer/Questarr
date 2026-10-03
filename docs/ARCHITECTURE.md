@@ -41,12 +41,12 @@ of the system — by writing data, triggering a request, or emitting an event.
 | Server — `storage.ts` (Drizzle ORM)                                                                                                                          | Sole writer/reader of the SQLite DB                                                        | SQLite database                                                                                                                                                           |
 | SQLite database                                                                                                                                              | Persists all app state                                                                     | Read by every server module via `storage.ts`                                                                                                                              |
 | Server — `ssrf.ts` (`safeFetch`)                                                                                                                             | Validates and pins outbound URLs                                                           | Every outbound HTTP(S) call to indexers, downloaders, and most metadata services                                                                                          |
-| Server — `cron.ts` (scheduler)                                                                                                                               | Runs unattended background jobs                                                            | Storage, IGDB, indexers (via `search.ts`), downloaders, Socket.io                                                                                                         |
+| Server — `cron.ts` (scheduler)                                                                                                                               | Runs unattended background jobs                                                            | Storage, RAWG, indexers (via `search.ts`), downloaders, Socket.io                                                                                                         |
 | Server — `socket.ts` (Socket.io)                                                                                                                             | Pushes real-time events                                                                    | Client SPA (broadcast to authenticated sockets)                                                                                                                           |
 | Server — `search.ts`                                                                                                                                         | Orchestrates indexer search, applies filtering/dedup                                       | Torznab/Newznab indexers (read), routes/cron (results)                                                                                                                    |
 | Server — `downloaders.ts` (`DownloaderManager`)                                                                                                              | Abstracts the 5 download-client integrations                                               | qBittorrent/Transmission/rTorrent/SABnzbd/NZBGet (write: submit; read: status)                                                                                            |
-| Server — `library-scanner.ts` / `root-folders.ts`                                                                                                            | Discovers games already on disk in user-configured root folders (outside the library root) | Reads the local filesystem directly (not via `safeFetch` — local paths, not URLs); queries IGDB for matching; writes `games`/`game_files`/`root_folders` via `storage.ts` |
-| IGDB (via Twitch OAuth)                                                                                                                                      | External game-metadata provider                                                            | Server, via `server/igdb.ts` (through `safeFetch`) — read-only queries; also drives `cron.ts::checkGameUpdates`                                                           |
+| Server — `library-scanner.ts` / `root-folders.ts`                                                                                                            | Discovers games already on disk in user-configured root folders (outside the library root) | Reads the local filesystem directly (not via `safeFetch` — local paths, not URLs); queries RAWG for matching; writes `games`/`game_files`/`root_folders` via `storage.ts` |
+| RAWG (rawg.io)                                                                                                                                               | External game-metadata provider                                                            | Server, via `server/rawg.ts` (through `safeFetch`) — read-only queries, free-tier paced; also drives `cron.ts::checkGameUpdates`                                                           |
 | HowLongToBeat                                                                                                                                                | External gameplay-length provider                                                          | Server, via `server/hltb.ts` (through `safeFetch`)                                                                                                                        |
 | NexusMods                                                                                                                                                    | External mod-listing provider                                                              | Server, via `server/nexusmods.ts` (through `safeFetch`)                                                                                                                   |
 | Steam Web API                                                                                                                                                | External wishlist provider                                                                 | Server, via `server/steam.ts` / `server/steam-routes.ts` (through `safeFetch`), keyed by user-supplied `steamId64`                                                        |
@@ -79,7 +79,7 @@ flowchart TB
     DB[("SQLite (Drizzle)")]
 
     subgraph Metadata["Metadata & Discovery Services"]
-        IGDB["IGDB (Twitch OAuth)"]
+        RAWG["RAWG (rawg.io)"]
         HLTB["HowLongToBeat"]
         Nexus["NexusMods"]
         Steam["Steam Web API"]
@@ -118,10 +118,10 @@ flowchart TB
     SSRF --> Nexus
     SSRF --> Steam
     SSRF --> PCGW
-    SSRF --> IGDB
+    SSRF --> RAWG
 
     Cron --> Storage
-    Cron -->|checkGameUpdates| IGDB
+    Cron -->|checkGameUpdates| RAWG
     Cron -->|checkAutoSearch| SearchOrch
     Cron -->|checkDownloadStatus| DLManager
     Cron -->|checkXrelReleases| Storage
@@ -199,11 +199,11 @@ domain data covered by this table:
 
 | Job                   | Interval                                                                                  | Upstream read                                                                           | Downstream write                                                                                                 |
 | --------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `checkGameUpdates`    | 24 hours                                                                                  | IGDB (batch fetch by ID)                                                                | `games` table (release date/status), `notifications` table, Socket.io `notification`                             |
+| `checkGameUpdates`    | 24 hours                                                                                  | RAWG (paced fetch by ID)                                                                | `games` table (release date/status), `notifications` table, Socket.io `notification`                             |
 | `checkDownloadStatus` | 1 minute                                                                                  | Configured download clients (via `DownloaderManager`)                                   | `game_downloads`/`games` status, `notifications`, Socket.io `downloadUpdate`/`notification`                      |
 | `checkAutoSearch`     | 1 hour (per user, gated by their configured search interval)                              | Torznab/Newznab indexers (via `search.ts`), download clients (if auto-download enabled) | `games` search-results flag, `game_downloads`, `notifications`, Socket.io `notification`                         |
 | `checkXrelReleases`   | 6 hours                                                                                   | xREL.to latest releases                                                                 | `xrel_notified_releases`, `notifications`, Socket.io `notification`                                              |
-| `checkSteamWishlist`  | 1 hour (per user, gated by their configured sync interval, opt-in via `steamSyncEnabled`) | Steam Web API wishlist, IGDB (Steam App ID lookup)                                      | `games` table (new/linked entries), `import_tasks`, `notifications`, Socket.io `importTaskUpdate`/`notification` |
+| `checkSteamWishlist`  | 1 hour (per user, gated by their configured sync interval, opt-in via `steamSyncEnabled`) | Steam Web API wishlist, RAWG (Steam App ID lookup)                                      | `games` table (new/linked entries), `import_tasks`, `notifications`, Socket.io `importTaskUpdate`/`notification` |
 
 Steam wishlist sync (`syncUserSteamWishlist` in `server/cron.ts`) also runs
 on-demand when a user explicitly triggers it via
@@ -229,9 +229,9 @@ default 24) tracked via `userSettings.lastSteamSync`.
   loopback ranges are reachable by design — Questarr is meant to be
   self-hosted alongside indexers/downloaders that often live on the same
   LAN.
-- `server/igdb.ts` also routes its Twitch/IGDB requests through `safeFetch`,
+- `server/rawg.ts` also routes its RAWG requests through `safeFetch`,
   consistent with every other integration, even though the target host
-  (`api.igdb.com`/`id.twitch.tv`) is hardcoded rather than user-supplied —
+  (`api.rawg.io`) is hardcoded rather than user-supplied —
   applied as defense in depth rather than out of SSRF necessity.
 
 See [`docs/THREAT_MODEL.md`](THREAT_MODEL.md) for a more detailed attack-surface
@@ -259,7 +259,7 @@ Because of this, account isolation is inconsistent by design, not a defect
 to eliminate wholesale:
 
 - Some code paths do scope by `userId` (e.g. `resolveOwnedGame` in
-  `routes.ts`, and the igdbId-reuse checks before reusing an existing game
+  `routes.ts`, and the rawgId-reuse checks before reusing an existing game
   record), because getting those specific paths right also happens to be
   good practice regardless of user count.
 - Others intentionally don't: `notifyUser()` broadcasts Socket.io events to

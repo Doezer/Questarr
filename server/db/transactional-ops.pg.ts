@@ -14,7 +14,6 @@ import type {
   ApiKeyPublic,
   Game,
   Indexer,
-  InsertPlatformMapping,
   InsertUser,
   User,
 } from "../../shared/schema.js";
@@ -32,29 +31,8 @@ import type { SyncIndexersResult } from "./transactional-ops.js";
  * Postgres tables and their real types directly instead of the app-wide
  * SQLite-shaped view of the schema.
  */
-const { apiKeys, games, indexers, platformMappings, systemConfig, users } = pgSchema;
+const { apiKeys, games, indexers, systemConfig, users } = pgSchema;
 const db = appDb as unknown as NodePgDatabase<typeof pgSchema>;
-
-export async function seedPlatformMappingsIfEmpty(
-  mappings: InsertPlatformMapping[]
-): Promise<{ seeded: boolean; count: number }> {
-  return db.transaction(async (tx) => {
-    // A bare count() aggregate with no GROUP BY always returns exactly one
-    // row, even over an empty table, so these destructures can't come up
-    // short -- the `!` documents that guarantee rather than working around it.
-    const [existing] = await tx.select({ count: count() }).from(platformMappings);
-    if (existing!.count > 0) {
-      return { seeded: false, count: existing!.count };
-    }
-
-    for (const mapping of mappings) {
-      await tx.insert(platformMappings).values({ ...mapping, id: randomUUID() });
-    }
-
-    const [seeded] = await tx.select({ count: count() }).from(platformMappings);
-    return { seeded: true, count: seeded!.count };
-  });
-}
 
 export async function registerSetupUser(insertUser: InsertUser): Promise<User> {
   return db.transaction(async (tx) => {

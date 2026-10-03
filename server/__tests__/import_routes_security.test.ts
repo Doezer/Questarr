@@ -17,9 +17,6 @@ vi.mock("../storage.js", () => ({
 
 vi.mock("../services/index.js", () => ({
   importManager: mockImportManager,
-  platformMappingService: {
-    initializeDefaults: vi.fn(),
-  },
 }));
 
 import { importRouter } from "../routes/import.js";

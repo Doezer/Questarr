@@ -249,199 +249,213 @@ export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
 }
 
 /**
- * Canonical release labels and their stable IGDB identities. Keep parsing aliases here so
- * discovery selection and automation use the same cross-generation vocabulary.
+ * Canonical release labels and their stable platform identities. `names` holds
+ * the display names the game providers use for this platform (RAWG, the active
+ * provider, plus legacy IGDB-era names so stored values keep resolving), and
+ * `rawgId` is the platform's ID in RAWG's API catalog — verified against RAWG's
+ * own documentation (e.g. PC = 4, PS5 = 187, Xbox Series S/X = 186, Xbox = 80).
+ * Keep parsing aliases here so discovery selection and automation use the same
+ * cross-generation vocabulary.
  */
 export const PLATFORM_CATALOG = [
   {
     canonical: "PS5",
-    igdbIds: [167],
-    igdbNames: ["PlayStation 5"],
+    rawgId: 187,
+    names: ["PlayStation 5"],
     releasePattern: /(?:^|[^a-z0-9])(ps5|playstation\s*5)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "PS4",
-    igdbIds: [48],
-    igdbNames: ["PlayStation 4"],
+    rawgId: 18,
+    names: ["PlayStation 4"],
     releasePattern: /(?:^|[^a-z0-9])(ps4|playstation\s*4)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "PS3",
-    igdbIds: [9],
-    igdbNames: ["PlayStation 3"],
+    rawgId: 16,
+    names: ["PlayStation 3"],
     releasePattern: /(?:^|[^a-z0-9])(ps3|playstation\s*3)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "PS2",
-    igdbIds: [8],
-    igdbNames: ["PlayStation 2"],
+    rawgId: 15,
+    names: ["PlayStation 2"],
     releasePattern: /(?:^|[^a-z0-9])(ps2|playstation\s*2)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "PS1",
-    igdbIds: [7],
-    igdbNames: ["PlayStation"],
+    rawgId: 27,
+    names: ["PlayStation"],
     releasePattern: /(?:^|[^a-z0-9])(psx|ps1|playstation\s*1)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "PSP",
-    igdbIds: [38],
-    igdbNames: ["PlayStation Portable"],
+    rawgId: 17,
+    names: ["PlayStation Portable", "PSP"],
     releasePattern: /(?:^|[^a-z0-9])(psp|playstation\s*portable)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "PSVita",
-    igdbIds: [46],
-    igdbNames: ["PlayStation Vita"],
+    rawgId: 19,
+    names: ["PlayStation Vita", "PS Vita"],
     releasePattern: /(?:^|[^a-z0-9])(ps\s?vita|vita)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Xbox Series",
-    igdbIds: [169],
-    igdbNames: ["Xbox Series X|S"],
+    rawgId: 186,
+    names: ["Xbox Series X|S", "Xbox Series", "Xbox Series S/X"],
     releasePattern: /(?:^|[^a-z0-9])(xbox\s*series(?:\s*[xs])?|xbsx|xss)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Xbox One",
-    igdbIds: [49],
-    igdbNames: ["Xbox One"],
+    rawgId: 1,
+    names: ["Xbox One"],
     releasePattern: /(?:^|[^a-z0-9])(xbox\s*one|xbone)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Xbox 360",
-    igdbIds: [12],
-    igdbNames: ["Xbox 360"],
+    rawgId: 14,
+    names: ["Xbox 360"],
     releasePattern: /(?:^|[^a-z0-9])(xbox\s*360|xbox360|x360)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Xbox Classic",
-    igdbIds: [11],
-    igdbNames: ["Xbox"],
+    rawgId: 80,
+    names: ["Xbox"],
     releasePattern: /(?:^|[^a-z0-9])(xbox(?:\s*(?:classic|original))?|xb)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Switch",
-    igdbIds: [130],
-    igdbNames: ["Nintendo Switch"],
+    rawgId: 7,
+    names: ["Nintendo Switch"],
     releasePattern: /(?:^|[^a-z0-9])(nintendo\s*switch|switch|nsw|nsp|xci)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "GameCube",
-    igdbIds: [21],
-    igdbNames: ["Nintendo GameCube"],
+    rawgId: 105,
+    names: ["Nintendo GameCube", "GameCube"],
     releasePattern: /(?:^|[^a-z0-9])(game\s?cube|ngc|gc)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Wii U",
-    igdbIds: [41],
-    igdbNames: ["Wii U"],
+    rawgId: 10,
+    names: ["Wii U"],
     releasePattern: /(?:^|[^a-z0-9])(wii\s*u|wiiu)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Wii",
-    igdbIds: [5],
-    igdbNames: ["Wii"],
+    rawgId: 11,
+    names: ["Wii"],
     releasePattern: /(?:^|[^a-z0-9])(wii)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "3DS",
-    igdbIds: [37],
-    igdbNames: ["Nintendo 3DS"],
+    rawgId: 8,
+    names: ["Nintendo 3DS"],
     releasePattern: /(?:^|[^a-z0-9])(3ds)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "NDS",
-    igdbIds: [20],
-    igdbNames: ["Nintendo DS"],
+    rawgId: 9,
+    names: ["Nintendo DS"],
     releasePattern: /(?:^|[^a-z0-9])(nds|nintendo\s*ds|ds)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "N64",
-    igdbIds: [4],
-    igdbNames: ["Nintendo 64"],
+    rawgId: 83,
+    names: ["Nintendo 64"],
     releasePattern: /(?:^|[^a-z0-9])(n64|nintendo\s*64)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "SNES",
-    igdbIds: [19],
-    igdbNames: ["Super Nintendo Entertainment System"],
+    rawgId: 79,
+    names: ["Super Nintendo Entertainment System", "Nintendo SNES", "SNES"],
     releasePattern: /(?:^|[^a-z0-9])(snes|super\s*nintendo|super\s*nes)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "NES",
-    igdbIds: [18],
-    igdbNames: ["Nintendo Entertainment System"],
+    rawgId: 49,
+    names: ["Nintendo Entertainment System", "NES"],
     releasePattern: /(?:^|[^a-z0-9])(nes|famicom)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "GBA",
-    igdbIds: [24],
-    igdbNames: ["Game Boy Advance"],
+    rawgId: 24,
+    names: ["Game Boy Advance"],
     releasePattern: /(?:^|[^a-z0-9])(gba|game\s*boy\s*advance)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "GBC",
-    igdbIds: [22],
-    igdbNames: ["Game Boy Color"],
+    rawgId: 43,
+    names: ["Game Boy Color"],
     releasePattern: /(?:^|[^a-z0-9])(gbc|game\s*boy\s*color)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "GB",
-    igdbIds: [33],
-    igdbNames: ["Game Boy"],
+    rawgId: 26,
+    names: ["Game Boy"],
     releasePattern: /(?:^|[^a-z0-9])(game\s*boy|gb)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Dreamcast",
-    igdbIds: [23],
-    igdbNames: ["Dreamcast"],
+    rawgId: 106,
+    names: ["Dreamcast"],
     releasePattern: /(?:^|[^a-z0-9])(dreamcast|dc)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Mega Drive",
-    igdbIds: [29],
-    igdbNames: ["Sega Mega Drive/Genesis"],
+    rawgId: 167,
+    names: ["Sega Mega Drive/Genesis", "Sega Genesis", "Genesis"],
     releasePattern: /(?:^|[^a-z0-9])(megadrive|mega\s*drive|genesis)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Master System",
-    igdbIds: [64],
-    igdbNames: ["Sega Master System/Mark III"],
+    rawgId: 74,
+    names: ["Sega Master System/Mark III", "Sega Master System", "SEGA Master System"],
     releasePattern: /(?:^|[^a-z0-9])(master\s*system|sms)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Neo Geo",
-    igdbIds: [80],
-    igdbNames: ["Neo Geo AES"],
+    rawgId: 12,
+    names: ["Neo Geo AES", "Neo Geo"],
     releasePattern: /(?:^|[^a-z0-9])(neo\s*geo|neogeo)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Atari 2600",
-    igdbIds: [59],
-    igdbNames: ["Atari 2600"],
+    rawgId: 23,
+    names: ["Atari 2600"],
     releasePattern: /(?:^|[^a-z0-9])(atari\s*2600|a2600)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "PC",
-    igdbIds: [6],
-    igdbNames: ["PC (Microsoft Windows)"],
+    rawgId: 4,
+    names: ["PC (Microsoft Windows)", "PC", "PC Desktop"],
     releasePattern: /(?:^|[^a-z0-9])(pc|windows|win64|win32)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Linux",
-    igdbIds: [3],
-    igdbNames: ["Linux"],
+    rawgId: 6,
+    names: ["Linux"],
     releasePattern: /(?:^|[^a-z0-9])(linux)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "Mac",
-    igdbIds: [14],
-    igdbNames: ["Mac"],
+    rawgId: 5,
+    names: ["Mac", "macOS"],
     releasePattern: /(?:^|[^a-z0-9])(mac|macos|osx)(?=$|[^a-z0-9])/i,
   },
 ] as const;
 
 export type CanonicalPlatform = (typeof PLATFORM_CATALOG)[number]["canonical"];
+
+/**
+ * Canonical platform -> RAWG platform ID, derived from the catalog. This is the
+ * single source of truth for translating Questarr platform labels into RAWG IDs
+ * (the import pipeline and the release-filter map in shared/platforms.ts).
+ */
+export const CANONICAL_PLATFORM_RAWG_ID: Record<CanonicalPlatform, number> = Object.fromEntries(
+  PLATFORM_CATALOG.map((entry) => [entry.canonical, entry.rawgId])
+) as Record<CanonicalPlatform, number>;
 // Keep the legacy account-wide Xbox umbrella selectable while explicit game targets use
 // generation-specific catalog entries.
 export const CANONICAL_PLATFORMS: readonly string[] = [
@@ -451,18 +465,21 @@ export const CANONICAL_PLATFORMS: readonly string[] = [
 
 const normalizePlatformName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
-/** Resolves a stored IGDB platform pair to the release label used by automation. */
+/**
+ * Resolves a stored provider platform pair to the canonical release label used
+ * by automation. Matching is name-based against the catalog's provider names
+ * (the id namespaces differ between providers); the id is kept in the signature
+ * for call-site compatibility.
+ */
 export function resolveTargetPlatform(
-  targetPlatformId: number | null | undefined,
+  _targetPlatformId: number | null | undefined,
   targetPlatformName: string | null | undefined
 ): CanonicalPlatform | null {
-  if (targetPlatformId == null || !targetPlatformName) return null;
+  if (!targetPlatformName) return null;
   const normalizedName = normalizePlatformName(targetPlatformName);
   return (
-    PLATFORM_CATALOG.find(
-      ({ igdbIds, igdbNames }) =>
-        (igdbIds as readonly number[]).includes(targetPlatformId) &&
-        igdbNames.some((name) => normalizePlatformName(name) === normalizedName)
+    PLATFORM_CATALOG.find(({ names }) =>
+      names.some((name) => normalizePlatformName(name) === normalizedName)
     )?.canonical ?? null
   );
 }

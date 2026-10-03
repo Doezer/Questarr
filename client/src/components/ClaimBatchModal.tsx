@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
 import { Search, Link2, CheckCircle2, AlertCircle, Loader2, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
@@ -43,11 +42,10 @@ interface ScanResponse {
 }
 
 interface GroupState {
-  selectedGame: { id?: string; title: string; source: "library" | "igdb"; data: Game } | null;
+  selectedGame: { id?: string; title: string; source: "library" | "rawg"; data: Game } | null;
   skip: boolean;
-  igdbQuery: string;
-  igdbOpen: boolean;
-  showUndatedGames: boolean;
+  rawgQuery: string;
+  rawgOpen: boolean;
 }
 
 interface ClaimBatchModalProps {
@@ -108,9 +106,8 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
                 }
               : null,
             skip: false,
-            igdbQuery: "",
-            igdbOpen: false,
-            showUndatedGames: false,
+            rawgQuery: "",
+            rawgOpen: false,
           });
         }
       }
@@ -137,8 +134,8 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
 
       setProgress({ done: 0, total: toProcess.length });
 
-      // Build all claim items upfront — IGDB groups send newGame for every download
-      // so the server's igdbId dedup handles game reuse within the same batch.
+      // Build all claim items upfront — RAWG groups send newGame for every download
+      // so the server's rawgId dedup handles game reuse within the same batch.
       const items = toProcess.flatMap((group) => {
         const state = groupStates.get(group.baseTitle)!;
         const selectedGame = state.selectedGame!;
@@ -159,7 +156,7 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
           return {
             ...base,
             newGame: {
-              igdbId: g.igdbId,
+              rawgId: g.rawgId,
               title: g.title,
               coverUrl: g.coverUrl,
               summary: g.summary,
@@ -169,7 +166,7 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
               rating: g.rating,
               aggregatedRating: g.aggregatedRating,
               screenshots: g.screenshots,
-              igdbWebsites: g.igdbWebsites,
+              websites: g.websites,
             },
           };
         });
@@ -301,21 +298,21 @@ function GroupRow({
   state: GroupState;
   onUpdate: (patch: Partial<GroupState>) => void;
 }) {
-  const [igdbDebouncedQuery, setIgdbDebouncedQuery] = useState("");
+  const [rawgDebouncedQuery, setRawgDebouncedQuery] = useState("");
 
   useEffect(() => {
-    const t = setTimeout(() => setIgdbDebouncedQuery(state.igdbQuery), 500);
+    const t = setTimeout(() => setRawgDebouncedQuery(state.rawgQuery), 500);
     return () => clearTimeout(t);
-  }, [state.igdbQuery]);
+  }, [state.rawgQuery]);
 
-  const { data: igdbResults = [], isLoading: searchingIgdb } = useQuery<Game[]>({
-    queryKey: ["/api/igdb/search", igdbDebouncedQuery, state.showUndatedGames],
+  const { data: rawgResults = [], isLoading: searchingRawg } = useQuery<Game[]>({
+    queryKey: ["/api/rawg/search", rawgDebouncedQuery],
     queryFn: () =>
       apiRequest(
         "GET",
-        `/api/igdb/search?q=${encodeURIComponent(igdbDebouncedQuery)}&limit=6&includeUndated=${state.showUndatedGames}`
+        `/api/rawg/search?q=${encodeURIComponent(rawgDebouncedQuery)}&limit=6`
       ).then((r) => r.json()),
-    enabled: state.igdbOpen && igdbDebouncedQuery.trim().length > 2,
+    enabled: state.rawgOpen && rawgDebouncedQuery.trim().length > 2,
   });
 
   if (group.downloads.length === 0) return null;
@@ -358,15 +355,15 @@ function GroupRow({
               <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
               <span className="text-sm font-medium truncate">{state.selectedGame.title}</span>
               <Badge variant="secondary" className="text-xs shrink-0">
-                {state.selectedGame.source === "library" ? "Library" : "IGDB"}
+                {state.selectedGame.source === "library" ? "Library" : "RAWG"}
               </Badge>
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs ml-auto"
                 onClick={() => {
-                  onUpdate({ igdbOpen: !state.igdbOpen, igdbQuery: "" });
-                  setIgdbDebouncedQuery("");
+                  onUpdate({ rawgOpen: !state.rawgOpen, rawgQuery: "" });
+                  setRawgDebouncedQuery("");
                 }}
               >
                 Change
@@ -383,63 +380,51 @@ function GroupRow({
                 className="h-6 px-2 text-xs ml-auto"
                 onClick={() =>
                   onUpdate({
-                    igdbOpen: !state.igdbOpen,
-                    igdbQuery: state.igdbOpen ? state.igdbQuery : mainDownload.downloadTitle,
+                    rawgOpen: !state.rawgOpen,
+                    rawgQuery: state.rawgOpen ? state.rawgQuery : mainDownload.downloadTitle,
                   })
                 }
               >
                 <Search className="h-3 w-3 mr-1" />
-                Search IGDB
+                Search RAWG
               </Button>
             </div>
           )}
 
-          {/* Inline IGDB search */}
-          {state.igdbOpen && (
+          {/* Inline RAWG search */}
+          {state.rawgOpen && (
             <div className="mt-2 space-y-1.5">
               <div className="relative">
                 <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
                   className="pl-7 h-8 text-sm"
-                  placeholder="Search IGDB…"
-                  value={state.igdbQuery}
-                  onChange={(e) => onUpdate({ igdbQuery: e.target.value })}
+                  placeholder="Search RAWG…"
+                  value={state.rawgQuery}
+                  onChange={(e) => onUpdate({ rawgQuery: e.target.value })}
                   autoFocus
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Show undated games first</p>
-                  <p className="text-xs text-muted-foreground">
-                    Include titles without a release date and place them before dated results.
-                  </p>
-                </div>
-                <Switch
-                  checked={state.showUndatedGames}
-                  onCheckedChange={(showUndatedGames) => onUpdate({ showUndatedGames })}
                 />
               </div>
               <div className="max-h-36 overflow-y-auto">
                 <div className="space-y-1">
-                  {searchingIgdb ? (
+                  {searchingRawg ? (
                     <p className="text-xs text-muted-foreground py-1 px-1">Searching…</p>
-                  ) : igdbResults.length === 0 &&
-                    igdbDebouncedQuery.trim().length > 2 &&
-                    !searchingIgdb ? (
+                  ) : rawgResults.length === 0 &&
+                    rawgDebouncedQuery.trim().length > 2 &&
+                    !searchingRawg ? (
                     <p className="text-sm text-muted-foreground py-1 px-1">No results found</p>
                   ) : (
-                    igdbResults.map((g) => (
+                    rawgResults.map((g) => (
                       <button
-                        key={g.igdbId?.toString() ?? g.title}
+                        key={g.rawgId?.toString() ?? g.title}
                         type="button"
                         onClick={() => {
                           onUpdate({
                             selectedGame: {
                               title: g.title,
-                              source: "igdb",
+                              source: "rawg",
                               data: g,
                             },
-                            igdbOpen: false,
+                            rawgOpen: false,
                           });
                         }}
                         className="w-full flex items-center gap-2 px-2 py-1 rounded text-sm hover:bg-accent text-left"

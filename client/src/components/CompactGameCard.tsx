@@ -404,7 +404,7 @@ const CompactGameCard = ({
           </div>
         )}
 
-        {/* Score (IGDB) */}
+        {/* Score (RAWG) */}
         <div className="flex items-center justify-center gap-1 tabular-nums">
           <Star className="w-3 h-3 text-amber-400 flex-shrink-0" />
           <span className="text-xs text-muted-foreground">

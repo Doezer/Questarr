@@ -41,9 +41,6 @@ vi.mock("../search.js", () => ({
   filterByReleaseNameBlacklist: vi.fn((items: unknown[]) => items),
   searchAllIndexers: vi.fn(),
 }));
-vi.mock("../igdb.js", () => ({
-  igdbClient: { getGamesByIds: vi.fn() },
-}));
 vi.mock("../socket.js", () => ({
   notifyUser: mockNotifyUser,
 }));
@@ -80,8 +77,14 @@ vi.mock("../logger.js", () => ({
   routesLogger: createMockLogger(),
   torznabLogger: createMockLogger(),
   searchLogger: createMockLogger(),
-  igdbLogger: createMockLogger(),
-  logger: { child: vi.fn().mockReturnThis() },
+  rawgLogger: createMockLogger(),
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+  },
 }));
 
 const { checkDownloadStatus } = await import("../cron.js");

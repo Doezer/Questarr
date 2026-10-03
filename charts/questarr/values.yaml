@@ -55,8 +55,7 @@ questarr:
   existingSecretKeys:
     jwtSecret: JWT_SECRET
     credentialsEncryptionKey: CREDENTIALS_ENCRYPTION_KEY
-    igdbClientId: IGDB_CLIENT_ID
-    igdbClientSecret: IGDB_CLIENT_SECRET
+    rawgApiKey: RAWG_API_KEY
     nexusmodsApiKey: NEXUSMODS_API_KEY
   secrets:
     # Keeps sessions valid across restarts. Auto-generated when empty.
@@ -64,9 +63,9 @@ questarr:
     # 64-character hex string (32 bytes), e.g. `openssl rand -hex 32`.
     # Encrypts stored indexer/downloader credentials. Auto-generated when empty.
     credentialsEncryptionKey: ""
-    # IGDB / Twitch credentials, required for discovery and metadata.
-    igdbClientId: ""
-    igdbClientSecret: ""
+    # RAWG API key (free at https://rawg.io/apidocs) — the metadata provider used
+    # for discovery, search and library scanning.
+    rawgApiKey: ""
     # NexusMods API key (optional).
     nexusmodsApiKey: ""
 

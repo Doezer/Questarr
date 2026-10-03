@@ -77,7 +77,6 @@ import {
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
 import PlatformsSettings from "@/components/PlatformsSettings";
 import ImportSettings from "@/components/ImportSettings";
-import { IgdbHelpPopover, IgdbTestConnectionButton } from "@/components/IgdbCredentialsHelper";
 
 interface CertInfo {
   subject: string;
@@ -253,13 +252,13 @@ export default function SettingsPage() {
     queryKey: ["/api/config"],
   });
 
-  const { data: igdbSettings } = useQuery<{
+  const { data: rawgSettings } = useQuery<{
     configured: boolean;
     source?: "env" | "database";
-    clientId?: string;
+    apiKey?: string;
   }>({
-    queryKey: ["/api/settings/igdb"],
-    queryFn: () => apiRequest("GET", "/api/settings/igdb").then((res) => res.json()),
+    queryKey: ["/api/settings/rawg"],
+    queryFn: () => apiRequest("GET", "/api/settings/rawg").then((res) => res.json()),
   });
 
   const {
@@ -365,7 +364,6 @@ export default function SettingsPage() {
   const [autoSearchUnreleased, setAutoSearchUnreleased] = useState(false);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState(false);
   const [searchIntervalHours, setSearchIntervalHours] = useState(6);
-  const [igdbRateLimitPerSecond, setIgdbRateLimitPerSecond] = useState(3);
   const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>(
     DEFAULT_NOTIFICATION_PREFERENCES
   );
@@ -382,9 +380,8 @@ export default function SettingsPage() {
   const [steamSyncIntervalHours, setSteamSyncIntervalHours] = useState(24);
 
   // Local state for forms
-  const [igdbClientId, setIgdbClientId] = useState("");
-  const [igdbClientSecret, setIgdbClientSecret] = useState("");
-  const [showClientSecret, setShowClientSecret] = useState(false);
+  const [rawgApiKey, setRawgApiKey] = useState("");
+  const [showRawgApiKey, setShowRawgApiKey] = useState(false);
   const [downloadRules, setDownloadRules] = useState<DownloadRules | null>(null);
   const [preferredReleaseGroups, setPreferredReleaseGroups] = useState<string[]>([]);
   const [filterByPreferredGroups, setFilterByPreferredGroups] = useState(false);
@@ -414,10 +411,6 @@ export default function SettingsPage() {
       setAutoSearchUnreleased(userSettings.autoSearchUnreleased ?? false);
       setAutoDownloadEnabled(userSettings.autoDownloadEnabled);
       setSearchIntervalHours(userSettings.searchIntervalHours);
-      const rateLimit = userSettings.igdbRateLimitPerSecond;
-      setIgdbRateLimitPerSecond(
-        Number.isInteger(rateLimit) ? Math.min(4, Math.max(1, rateLimit)) : 3
-      );
       if (userSettings.notificationPreferences) {
         try {
           setNotifPrefs({
@@ -465,16 +458,15 @@ export default function SettingsPage() {
       setXrelApiBase(config.xrel.apiBase);
     }
 
-    if (igdbSettings?.clientId) {
-      setIgdbClientId(igdbSettings.clientId);
-    }
-    if (igdbSettings?.configured) {
-      setIgdbClientSecret("");
+    // Prefill the redacted placeholder when a DB key exists so saving without
+    // touching the field keeps it (the server treats "********" as "unchanged").
+    if (rawgSettings?.apiKey) {
+      setRawgApiKey(rawgSettings.apiKey);
     }
     if (user?.steamId64) {
       setSteamIdInput(user.steamId64);
     }
-  }, [userSettings, config, igdbSettings, user, toast]);
+  }, [userSettings, config, rawgSettings, user, toast]);
 
   // SSL Settings State
   const [sslEnabled, setSslEnabled] = useState(false);
@@ -850,71 +842,41 @@ export default function SettingsPage() {
     },
   });
 
-  const updateAdvancedSettingsMutation = useMutation({
-    mutationFn: async ({
-      updates,
-      successMessage,
-    }: {
-      updates: Partial<UserSettings>;
-      successMessage: string;
-    }) => {
-      const res = await apiRequest("PATCH", "/api/settings", updates);
-
-      // Check if response is HTML (which means the route wasn't found and Vite served index.html)
-      const contentType = res.headers.get("content-type");
-      if (contentType && contentType.includes("text/html")) {
-        throw new Error("API route not found. Please restart the server to apply changes.");
-      }
-
-      return { data: await res.json(), successMessage };
+  const updateRawgMutation = useMutation({
+    mutationFn: async (apiKey: string) => {
+      const res = await apiRequest("POST", "/api/settings/rawg", { apiKey });
+      return res.json();
     },
-    onSuccess: (data) => {
-      // Empty successMessage means the caller (the unified IGDB save button) shows its own
-      // combined toast instead, describing exactly which parts were actually saved.
-      if (data.successMessage) {
-        toast({
-          title: "Settings Updated",
-          description: data.successMessage,
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+    onSuccess: () => {
+      toast({ title: "RAWG Settings Updated", description: "Your RAWG API key has been saved." });
+      queryClient.invalidateQueries({ queryKey: ["/api/config"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/rawg"] });
     },
     onError: (error: Error) => {
-      console.error("Settings update error:", error);
-
-      let message = error.message;
-      if (message.includes("Unexpected token") || message.includes("JSON")) {
-        message = "Server response invalid. Please restart the server.";
-      }
-
       toast({
         title: "Update Failed",
-        description: message,
+        description: error.message,
         variant: "destructive",
       });
     },
   });
 
-  const updateIgdbMutation = useMutation({
+  const testRawgMutation = useMutation({
     mutationFn: async () => {
-      const payload: { clientId: string; clientSecret?: string } = {
-        clientId: igdbClientId,
-      };
-      if (igdbClientSecret) {
-        payload.clientSecret = igdbClientSecret;
-      }
-      const res = await apiRequest("POST", "/api/settings/igdb", payload);
-      return res.json();
+      const apiKey = rawgApiKey.trim() || (rawgSettings?.configured ? "********" : "");
+      const res = await apiRequest("POST", "/api/settings/rawg/test", { apiKey });
+      return res.json() as Promise<{ success: boolean; error?: string }>;
     },
-    onSuccess: () => {
-      // The unified IGDB save button (handleSaveIgdb) shows its own combined toast describing
-      // exactly which parts were saved, instead of this mutation announcing on its own.
-      queryClient.invalidateQueries({ queryKey: ["/api/config"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings/igdb"] });
+    onSuccess: (result) => {
+      toast({
+        title: result.success ? "RAWG connection successful" : "RAWG connection failed",
+        description: result.success ? "The API key is valid." : result.error,
+        variant: result.success ? "default" : "destructive",
+      });
     },
     onError: (error: Error) => {
       toast({
-        title: "Update Failed",
+        title: "RAWG connection failed",
         description: error.message,
         variant: "destructive",
       });
@@ -1044,74 +1006,6 @@ export default function SettingsPage() {
 
   const handleSaveXrel = () => {
     saveXrelMutation.mutate();
-  };
-
-  // Single save button covers both the credentials fields and the rate limit below them. Both
-  // parts only run when they actually changed (comparing against the last-loaded values), and
-  // the summary toast below is built from what actually got saved -- rather than each mutation
-  // firing its own fixed-text toast, which would show a stale/misleading combination now that
-  // one click can trigger either, both, or neither.
-  const handleSaveIgdb = async () => {
-    // Omitting the secret and keeping the existing one is only safe when that existing secret
-    // actually lives in the DB (source === "database"): the server pairs a DB clientId with a
-    // DB secret, so if the current credentials are env-sourced there's no DB secret to pair a
-    // new clientId with, and a clientId-only update would silently do nothing.
-    const hasDbSecretToPairWith = igdbSettings?.source === "database";
-    const originalClientId = igdbSettings?.clientId ?? "";
-    const trimmedClientId = igdbClientId.trim();
-    const trimmedClientSecret = igdbClientSecret.trim();
-    const bothCredentialsProvided = !!(trimmedClientId && trimmedClientSecret);
-    const hasCredentialChange = trimmedClientId !== originalClientId || !!trimmedClientSecret;
-    const shouldSaveCredentials =
-      bothCredentialsProvided || (hasDbSecretToPairWith && hasCredentialChange);
-    // Only an actual attempted change that can't be saved counts as "incomplete" -- an
-    // env-sourced clientId sitting unchanged in the field (prefilled on load) must not block
-    // an unrelated rate-limit-only save.
-    const attemptingIncompleteCredentials = hasCredentialChange && !shouldSaveCredentials;
-
-    if (attemptingIncompleteCredentials) {
-      toast({
-        title: "Missing Credentials",
-        description: "Please provide both Client ID and Client Secret.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const originalRateLimit = userSettings?.igdbRateLimitPerSecond ?? 3;
-    const shouldSaveRateLimit = igdbRateLimitPerSecond !== originalRateLimit;
-
-    if (!shouldSaveCredentials && !shouldSaveRateLimit) {
-      return;
-    }
-
-    const results = await Promise.allSettled([
-      shouldSaveCredentials ? updateIgdbMutation.mutateAsync() : Promise.resolve(undefined),
-      shouldSaveRateLimit
-        ? updateAdvancedSettingsMutation.mutateAsync({
-            updates: { igdbRateLimitPerSecond },
-            successMessage: "",
-          })
-        : Promise.resolve(undefined),
-    ]);
-
-    const credentialsSaved = shouldSaveCredentials && results[0].status === "fulfilled";
-    const rateLimitSaved = shouldSaveRateLimit && results[1].status === "fulfilled";
-
-    // A failed part already showed its own error toast via the mutation's onError; only
-    // announce what actually succeeded, and stay silent if everything attempted failed.
-    let description: string | null = null;
-    if (credentialsSaved && rateLimitSaved) {
-      description = "Your IGDB credentials and rate limit have been saved.";
-    } else if (credentialsSaved) {
-      description = "Your IGDB credentials have been saved.";
-    } else if (rateLimitSaved) {
-      description = "Your IGDB rate limit has been saved.";
-    }
-
-    if (description) {
-      toast({ title: "IGDB Settings Updated", description });
-    }
   };
 
   const updateSteamIdMutation = useMutation({
@@ -2105,25 +1999,33 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            {/* IGDB Card */}
-            <Card id="igdb-config">
+            {/* RAWG Card */}
+            <Card id="rawg-config">
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Key className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-lg">IGDB API</CardTitle>
-                    <IgdbHelpPopover />
-                  </div>
+                <div className="flex items-center space-x-3">
+                  <Key className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">RAWG API</CardTitle>
                 </div>
-                <CardDescription>Twitch/IGDB API integration for game metadata.</CardDescription>
+                <CardDescription>
+                  Game metadata provider (search, add, discover, refresh). Get a free API key at{" "}
+                  <a
+                    href="https://rawg.io/apidocs"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-2"
+                  >
+                    rawg.io/apidocs
+                  </a>
+                  .
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-col space-y-2 pb-4 border-b">
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium">Status</span>
-                    {config?.igdb.configured ? (
-                      <Badge variant={config.igdb.source === "database" ? "default" : "secondary"}>
-                        {config.igdb.source === "database"
+                    {config?.rawg?.configured ? (
+                      <Badge variant={config.rawg.source === "database" ? "default" : "secondary"}>
+                        {config.rawg.source === "database"
                           ? "Database (Active)"
                           : "Environment Variable"}
                       </Badge>
@@ -2132,117 +2034,95 @@ export default function SettingsPage() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Credentials configured here will override environment variables (IGDB_CLIENT_ID,
-                    IGDB_CLIENT_SECRET).
+                    A database key overrides <code>RAWG_API_KEY</code>. The key is stored masked;
+                    leaving the field unchanged preserves it.
                   </p>
                 </div>
 
-                <div className="space-y-4 pt-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="igdb-client-id">Client ID</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="rawg-api-key">API Key</Label>
+                  <div className="relative">
                     <Input
-                      id="igdb-client-id"
-                      placeholder="Enter your IGDB Client ID"
-                      value={igdbClientId}
-                      onChange={(e) => setIgdbClientId(e.target.value)}
+                      id="rawg-api-key"
+                      type={showRawgApiKey ? "text" : "password"}
+                      placeholder={
+                        rawgSettings?.configured ? "********" : "Enter your RAWG API key"
+                      }
+                      value={rawgApiKey}
+                      onChange={(e) => setRawgApiKey(e.target.value)}
+                      className="pr-10"
+                      autoComplete="new-password"
                     />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="igdb-client-secret">Client Secret</Label>
-                    <div className="relative">
-                      <Input
-                        id="igdb-client-secret"
-                        type={showClientSecret ? "text" : "password"}
-                        placeholder={
-                          config?.igdb.configured ? "********" : "Enter your IGDB Client Secret"
-                        }
-                        value={igdbClientSecret}
-                        onChange={(e) => setIgdbClientSecret(e.target.value)}
-                        className="pr-10"
-                      />
-                      {igdbClientSecret && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                          onClick={() => setShowClientSecret(!showClientSecret)}
-                          aria-label={
-                            showClientSecret ? "Hide client secret" : "Show client secret"
-                          }
-                        >
-                          {showClientSecret ? (
-                            <EyeOff className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <Eye className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </Button>
-                      )}
-                    </div>
+                    {rawgApiKey && rawgApiKey !== "********" && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        onClick={() => setShowRawgApiKey(!showRawgApiKey)}
+                        aria-label={showRawgApiKey ? "Hide RAWG API key" : "Show RAWG API key"}
+                      >
+                        {showRawgApiKey ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    )}
                   </div>
                 </div>
 
-                <IgdbTestConnectionButton
-                  clientId={igdbClientId}
-                  clientSecret={igdbClientSecret || (config?.igdb.configured ? "********" : "")}
-                  testEndpoint="/api/settings/igdb/test"
-                />
-
-                {/* Rate limit (formerly a standalone "Advanced" card) */}
-                <div className="space-y-3 pt-4 border-t">
-                  <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
-                    IGDB API Rate Limit (requests/second)
-                  </Label>
-                  <Input
-                    id="igdb-rate-limit"
-                    type="number"
-                    min="1"
-                    max="4"
-                    value={igdbRateLimitPerSecond}
-                    onChange={(e) => {
-                      const parsed = parseInt(e.target.value);
-                      setIgdbRateLimitPerSecond(
-                        isNaN(parsed) ? 3 : Math.min(4, Math.max(1, parsed))
-                      );
-                    }}
-                    className="w-32"
-                  />
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p>
-                      <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
-                      conservative.
-                    </p>
-                    <p>
-                      Only increase if you experience slow loading times and are confident your
-                      usage won&apos;t exceed the limit.
-                    </p>
-                    <p className="text-amber-500">
-                      ⚠️ Setting too high may result in API blacklisting.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-4 border-t">
+                <div className="flex flex-wrap justify-between gap-3 pt-2">
                   <Button
-                    onClick={handleSaveIgdb}
+                    type="button"
+                    variant="outline"
+                    onClick={() => testRawgMutation.mutate()}
                     disabled={
-                      updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending
+                      testRawgMutation.isPending ||
+                      (!rawgApiKey.trim() && !rawgSettings?.configured)
                     }
-                    className="gap-2"
                   >
-                    {updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending ? (
-                      <span role="status" className="flex items-center gap-2">
-                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
-                        Saving...
-                      </span>
-                    ) : (
+                    {testRawgMutation.isPending ? (
                       <>
-                        <Key className="h-4 w-4" />
-                        Save
+                        <RefreshCw className="mr-2 h-4 w-4 motion-safe:animate-spin" />
+                        Testing...
                       </>
+                    ) : (
+                      "Test Connection"
                     )}
                   </Button>
+                  <div className="flex gap-2">
+                    {rawgSettings?.source === "database" && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setRawgApiKey("");
+                          updateRawgMutation.mutate("");
+                        }}
+                        disabled={updateRawgMutation.isPending}
+                      >
+                        Clear saved key
+                      </Button>
+                    )}
+                    <Button
+                      onClick={() => updateRawgMutation.mutate(rawgApiKey.trim())}
+                      disabled={updateRawgMutation.isPending || rawgApiKey.trim() === "********"}
+                      className="gap-2"
+                    >
+                      {updateRawgMutation.isPending ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Key className="h-4 w-4" />
+                          Save
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -2383,7 +2263,7 @@ export default function SettingsPage() {
                     <div>
                       <p className="text-sm font-medium">Refresh Metadata</p>
                       <p className="text-xs text-muted-foreground">
-                        Update all games in your library with the latest information from IGDB.
+                        Update all games in your library with the latest information from RAWG.
                       </p>
                     </div>
                     <Button

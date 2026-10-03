@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 
-const { mockStorage, mockImportManager, mockPlatformMappingService, fsMock } = vi.hoisted(() => ({
+const { mockStorage, mockImportManager, fsMock } = vi.hoisted(() => ({
   mockStorage: {
     getImportConfig: vi.fn(),
     getEnabledDownloaders: vi.fn(),
@@ -11,7 +11,6 @@ const { mockStorage, mockImportManager, mockPlatformMappingService, fsMock } = v
     relinkGameDownload: vi.fn(),
     getGameDownload: vi.fn(),
     getGame: vi.fn(),
-    getPlatformMappings: vi.fn(),
     getPathMappings: vi.fn(),
     updatePathMapping: vi.fn(),
     removePathMapping: vi.fn(),
@@ -20,9 +19,6 @@ const { mockStorage, mockImportManager, mockPlatformMappingService, fsMock } = v
   },
   mockImportManager: {
     confirmImport: vi.fn(),
-  },
-  mockPlatformMappingService: {
-    initializeDefaults: vi.fn(),
   },
   fsMock: {
     stat: vi.fn(),
@@ -38,7 +34,6 @@ vi.mock("../storage.js", () => ({
 
 vi.mock("../services/index.js", () => ({
   importManager: mockImportManager,
-  platformMappingService: mockPlatformMappingService,
 }));
 
 vi.mock("fs-extra", () => ({
@@ -238,19 +233,6 @@ describe("importRouter additional coverage", () => {
 
       expect(response.status).toBe(500);
     });
-  });
-
-  it("initializes platform mappings via /mappings/platforms/init", async () => {
-    mockStorage.getPlatformMappings.mockResolvedValue([
-      { id: "m1", igdbPlatformId: 19, sourcePlatformName: "snes" },
-    ]);
-    const app = createApp();
-
-    const response = await request(app).post("/api/imports/mappings/platforms/init").send({});
-
-    expect(response.status).toBe(200);
-    expect(mockPlatformMappingService.initializeDefaults).toHaveBeenCalled();
-    expect(response.body.count).toBe(1);
   });
 
   it("returns 400 for invalid /config patch payload", async () => {

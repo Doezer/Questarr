@@ -8,7 +8,7 @@
 // - Every immediate child of a root folder (directory or standalone file) is
 //   treated as one game candidate. We do not recurse looking for nested
 //   games, so DLC/extras subfolders don't get mistaken for separate titles.
-// - Matching against IGDB is deliberately conservative: only a strong match
+// - Matching against RAWG is deliberately conservative: only a strong match
 //   is auto-linked. Everything else is queued as "unmatched" for the user to
 //   resolve manually.
 // - A matched game is created with `libraryPath` pointing at the discovered
@@ -19,10 +19,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { storage } from "./storage.js";
-import { igdbClient, type IGDBGame } from "./igdb.js";
+import { rawgClient, type RawgGame } from "./rawg.js";
 import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
-import { igdbLogger, routesLogger } from "./logger.js";
+import { logger, routesLogger } from "./logger.js";
+
+const scannerLogger = logger.child({ module: "library-scanner" });
 import { notifyUser } from "./socket.js";
 import type { InsertGame, InsertGameFile, GameFileCategory } from "../shared/schema.js";
 import { isUserCuratedGameStatus } from "../shared/schema.js";
@@ -49,7 +51,7 @@ export interface UnmatchedEntry {
   rootFolderPath: string;
   folderName: string; // relative to the root folder (the leaf)
   absolutePath: string;
-  candidates: Array<{ igdbId: number; name: string; releaseYear: number | null }>;
+  candidates: Array<{ rawgId: number; name: string; releaseYear: number | null }>;
 }
 
 interface FolderCandidate {
@@ -190,12 +192,12 @@ async function listFiles(
   return results;
 }
 
-// ---------- IGDB matching ----------
+// ---------- RAWG matching ----------
 
-/** Score how well an IGDB name matches the folder's cleaned title. 0..1, >= 0.85 auto-matches. */
-function scoreMatch(folderClean: string, igdbName: string): number {
+/** Score how well a RAWG name matches the folder's cleaned title. 0..1, >= 0.85 auto-matches. */
+function scoreMatch(folderClean: string, rawgName: string): number {
   const a = normalizeTitle(folderClean);
-  const b = normalizeTitle(igdbName);
+  const b = normalizeTitle(rawgName);
   if (a === b) return 1;
   if (a.length === 0 || b.length === 0) return 0;
 
@@ -215,18 +217,18 @@ function scoreMatch(folderClean: string, igdbName: string): number {
   return Math.min(1, jaccard + prefixBonus);
 }
 
-async function bestIgdbMatch(folderName: string): Promise<{
-  best: IGDBGame | null;
-  candidates: IGDBGame[];
+async function bestRawgMatch(folderName: string): Promise<{
+  best: RawgGame | null;
+  candidates: RawgGame[];
   cleaned: string;
   score: number;
 }> {
   const cleaned = cleanReleaseName(folderName) || folderName;
-  let candidates: IGDBGame[];
+  let candidates: RawgGame[];
   try {
-    candidates = await igdbClient.searchGames(cleaned, 5);
+    candidates = await rawgClient.searchGames(cleaned, 5);
   } catch (err) {
-    igdbLogger.warn({ err, query: cleaned }, "IGDB search failed during library scan");
+    scannerLogger.warn({ err, query: cleaned }, "RAWG search failed during library scan");
     return { best: null, candidates: [], cleaned, score: 0 };
   }
   if (candidates.length === 0) {
@@ -248,26 +250,22 @@ async function bestIgdbMatch(folderName: string): Promise<{
 
 // ---------- Ingestion ----------
 
-function igdbToInsertGame(igdb: IGDBGame, userId: string): InsertGame {
-  const releaseDate = igdb.first_release_date
-    ? new Date(igdb.first_release_date * 1000).toISOString().slice(0, 10)
-    : null;
+function rawgToInsertGame(rawg: RawgGame, userId: string): InsertGame {
+  const formatted = rawgClient.formatGame(rawg);
   return {
     userId,
-    igdbId: igdb.id,
-    title: igdb.name,
-    summary: igdb.summary ?? null,
-    coverUrl: igdb.cover?.url ? `https:${igdb.cover.url.replace("t_thumb", "t_cover_big")}` : null,
-    releaseDate,
-    rating: igdb.rating ?? null,
-    platforms: igdb.platforms?.map((p) => p.name) ?? [],
-    genres: igdb.genres?.map((g) => g.name) ?? [],
-    publishers:
-      igdb.involved_companies?.filter((c) => c.publisher).map((c) => c.company.name) ?? [],
-    developers:
-      igdb.involved_companies?.filter((c) => c.developer).map((c) => c.company.name) ?? [],
-    screenshots:
-      igdb.screenshots?.map((s) => `https:${s.url.replace("t_thumb", "t_screenshot_big")}`) ?? [],
+    rawgId: rawg.id,
+    rawgSlug: rawg.slug ?? null,
+    title: formatted.title as string,
+    summary: formatted.summary as string,
+    coverUrl: formatted.coverUrl as string,
+    releaseDate: formatted.releaseDate as string,
+    rating: (formatted.rating as number | null) ?? null,
+    platforms: formatted.platforms as string[],
+    genres: formatted.genres as string[],
+    publishers: formatted.publishers as string[],
+    developers: formatted.developers as string[],
+    screenshots: formatted.screenshots as string[],
     status: "owned",
     releaseStatus: "released",
     source: "scan",
@@ -315,11 +313,11 @@ async function assignFilesToGame(
 
 // ---------- Public API ----------
 
-/** Force-assign an unmatched folder to a specific IGDB game (user override). */
+/** Force-assign an unmatched folder to a specific RAWG game (user override). */
 export async function matchUnmatchedFolder(
   rootFolderId: string,
   folderName: string,
-  igdbId: number,
+  rawgId: number,
   userId: string
 ): Promise<{ gameId: string; filesAdded: number }> {
   const rootFolder = await storage.getRootFolder(rootFolderId);
@@ -339,13 +337,13 @@ export async function matchUnmatchedFolder(
   const isFile = stat.isFile();
   const standaloneSize = isFile ? stat.size : 0;
 
-  const candidates = await igdbClient.searchGames(folderName, 10);
-  const igdb = candidates.find((c) => c.id === igdbId);
-  if (!igdb) throw new Error("Selected IGDB game not found in top candidates");
+  const candidates = await rawgClient.searchGames(folderName, 10);
+  const rawg = candidates.find((c) => c.id === rawgId);
+  if (!rawg) throw new Error("Selected RAWG game not found in top candidates");
 
-  let game = await storage.getGameByIgdbId(igdbId);
+  let game = await storage.getGameByRawgId(rawgId);
   if (!game) {
-    game = await storage.addGame(igdbToInsertGame(igdb, userId));
+    game = await storage.addGame(rawgToInsertGame(rawg, userId));
     await storage.updateGame(game.id, { libraryPath: absolutePath });
   } else {
     if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
@@ -370,9 +368,9 @@ export async function matchUnmatchedFolder(
 export async function scanRootFolderById(rootFolderId: string, userId: string): Promise<void> {
   // Guard before the first await so two near-simultaneous requests for the
   // same root folder can't both pass this check and race on shared
-  // progress/unmatched state or duplicate filesystem/IGDB work.
+  // progress/unmatched state or duplicate filesystem/RAWG work.
   if (activeScans.has(rootFolderId)) {
-    igdbLogger.info({ rootFolderId }, "Skipping scan: already in progress for this root folder");
+    scannerLogger.info({ rootFolderId }, "Skipping scan: already in progress for this root folder");
     return;
   }
   activeScans.add(rootFolderId);
@@ -381,7 +379,7 @@ export async function scanRootFolderById(rootFolderId: string, userId: string): 
     const rootFolder = await storage.getRootFolder(rootFolderId);
     if (!rootFolder) throw new Error("Root folder not found");
     if (!rootFolder.enabled) {
-      igdbLogger.info({ rootFolderId }, "Skipping scan: root folder is disabled");
+      scannerLogger.info({ rootFolderId }, "Skipping scan: root folder is disabled");
       return;
     }
 
@@ -411,13 +409,13 @@ type RootFolderRow = NonNullable<Awaited<ReturnType<typeof storage.getRootFolder
 /** Auto-link a strongly matched candidate to a game and record its files. */
 async function recordMatchedCandidate(
   cand: FolderCandidate,
-  best: IGDBGame,
+  best: RawgGame,
   userId: string,
   files: Array<{ absolutePath: string; size: number }>
 ): Promise<void> {
-  let game = await storage.getGameByIgdbId(best.id);
+  let game = await storage.getGameByRawgId(best.id);
   if (!game) {
-    game = await storage.addGame(igdbToInsertGame(best, userId));
+    game = await storage.addGame(rawgToInsertGame(best, userId));
     await storage.updateGame(game.id, { libraryPath: cand.absolutePath });
   } else {
     if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
@@ -436,7 +434,7 @@ async function recordMatchedCandidate(
 function recordUnmatchedCandidate(
   rootFolder: RootFolderRow,
   cand: FolderCandidate,
-  igdbCandidates: IGDBGame[]
+  rawgCandidates: RawgGame[]
 ): void {
   const rootFolderId = rootFolder.id;
   const list = unmatchedByFolder.get(rootFolderId) ?? [];
@@ -445,12 +443,10 @@ function recordUnmatchedCandidate(
     rootFolderPath: rootFolder.path,
     folderName: cand.folderName,
     absolutePath: cand.absolutePath,
-    candidates: igdbCandidates.slice(0, 5).map((c) => ({
-      igdbId: c.id,
+    candidates: rawgCandidates.slice(0, 5).map((c) => ({
+      rawgId: c.id,
       name: c.name,
-      releaseYear: c.first_release_date
-        ? new Date(c.first_release_date * 1000).getUTCFullYear()
-        : null,
+      releaseYear: c.released ? parseInt(c.released.slice(0, 4), 10) || null : null,
     })),
   });
   unmatchedByFolder.set(rootFolderId, list);
@@ -470,13 +466,13 @@ async function processCandidate(
     : await listFiles(cand.absolutePath);
   if (files.length === 0) return;
 
-  const { best, candidates: igdbCandidates, score } = await bestIgdbMatch(cand.folderName);
+  const { best, candidates: rawgCandidates, score } = await bestRawgMatch(cand.folderName);
 
   if (best && score >= AUTO_MATCH_THRESHOLD) {
     await recordMatchedCandidate(cand, best, userId, files);
     progress.matched += 1;
   } else {
-    recordUnmatchedCandidate(rootFolder, cand, igdbCandidates);
+    recordUnmatchedCandidate(rootFolder, cand, rawgCandidates);
     progress.unmatched += 1;
   }
 }

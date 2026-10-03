@@ -19,7 +19,7 @@ vi.mock("@/lib/queryClient", async (importOriginal) => {
   return {
     ...actual,
     apiRequest: vi.fn(async () => ({
-      json: async () => ({ igdb: { configured: true } }),
+      json: async () => ({ rawg: { configured: true } }),
     })),
   };
 });
@@ -100,15 +100,15 @@ describe("CalendarPage", () => {
     vi.useRealTimers();
   });
 
-  it("shows the IGDB setup prompt when configuration is missing", async () => {
+  it("shows the RAWG setup prompt when configuration is missing", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     vi.mocked(apiRequest).mockResolvedValueOnce(
-      createJsonResponse({ igdb: { configured: false } })
+      createJsonResponse({ rawg: { configured: false } })
     );
 
     renderPage();
 
-    expect(await screen.findByText("IGDB Configuration Required")).toBeInTheDocument();
+    expect(await screen.findByText("RAWG Configuration Required")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Go to Settings" })).toBeInTheDocument();
   });
 

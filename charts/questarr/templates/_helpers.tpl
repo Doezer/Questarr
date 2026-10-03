@@ -67,8 +67,7 @@ Secret *key* holding each value is configurable, via questarr.existingSecretKeys
 {{- define "questarr.secretEnvNames" -}}
 jwtSecret: JWT_SECRET
 credentialsEncryptionKey: CREDENTIALS_ENCRYPTION_KEY
-igdbClientId: IGDB_CLIENT_ID
-igdbClientSecret: IGDB_CLIENT_SECRET
+rawgApiKey: RAWG_API_KEY
 nexusmodsApiKey: NEXUSMODS_API_KEY
 {{- end }}
 

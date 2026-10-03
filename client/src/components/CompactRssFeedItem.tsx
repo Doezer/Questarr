@@ -21,7 +21,7 @@ const CompactRssFeedItem = ({ item }: CompactRssFeedItemProps) => {
         {item.coverUrl ? (
           <img
             src={item.coverUrl}
-            alt={item.igdbGameName || item.title}
+            alt={item.rawgGameName || item.title}
             className="w-full h-full object-cover"
             loading="lazy"
           />
@@ -43,9 +43,9 @@ const CompactRssFeedItem = ({ item }: CompactRssFeedItemProps) => {
           </Badge>
         </div>
 
-        {item.igdbGameName && (
+        {item.rawgGameName && (
           <div className="text-xs text-muted-foreground truncate">
-            Matched: <span className="font-medium text-foreground">{item.igdbGameName}</span>
+            Matched: <span className="font-medium text-foreground">{item.rawgGameName}</span>
           </div>
         )}
 

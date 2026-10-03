@@ -51,8 +51,7 @@ jobs:
             --set questarr.timezone=Europe/Paris \
             --set service.type=NodePort \
             --set service.nodePort=30500 \
-            --set questarr.secrets.igdbClientId=id \
-            --set questarr.secrets.igdbClientSecret=secret \
+            --set questarr.secrets.rawgApiKey=key \
             --set persistence.data.existingClaim=questarr-data \
             > /dev/null
 

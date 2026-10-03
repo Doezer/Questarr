@@ -30,7 +30,7 @@ Ensure you set the following environment variables in your production environmen
 
 - **`JWT_SECRET`**: This is used to sign authentication tokens. Set a long, random string so sessions survive restarts (if unset, one is auto-generated and stored in the database instead — see [docs/SECRETS.md](../docs/SECRETS.md)).
 - **`SQLITE_DB_PATH`**: Ensure the SQLite database file lives on a volume/path that isn't publicly accessible or served by the web server.
-- **`IGDB_CLIENT_SECRET`**: Your IGDB API secret.
+- **`RAWG_API_KEY`**: Your RAWG API key (optional; a key saved in Settings takes precedence).
 
 ### 2. Docker Compose
 

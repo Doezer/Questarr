@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { storage } from "../storage.js";
-import { importManager, platformMappingService } from "../services/index.js";
+import { importManager } from "../services/index.js";
 import { ARCHIVE_PASSWORD_REQUIRED_PREFIX } from "../services/ImportManager.js";
 import { ArchivePasswordRequiredError } from "../services/ArchiveService.js";
 import { routesLogger as logger } from "../logger.js";
@@ -8,7 +8,6 @@ import { routesLogger as logger } from "../logger.js";
 import z from "zod";
 import {
   insertPathMappingSchema,
-  insertPlatformMappingSchema,
   updatePathMappingSchema,
   importTransferModeSchema,
   IMPORT_TRANSFER_MODES,
@@ -49,10 +48,6 @@ const importConfigPatchSchema = z
     autoDeleteAfterImport: z.boolean().optional(),
     sortExtras: z.boolean().optional(),
   })
-  .strict();
-
-const platformMappingPatchSchema = z
-  .object({ sourcePlatformName: z.string().min(1).max(100) })
   .strict();
 
 function isPathInside(root: string, candidate: string): boolean {
@@ -194,65 +189,6 @@ async function checkHardlinkPair(
 }
 
 // --- Mappings Management ---
-
-// Platform Mappings
-importRouter.get("/mappings/platforms", async (_req, res) => {
-  try {
-    const mappings = await storage.getPlatformMappings();
-    res.json(mappings);
-  } catch (error) {
-    logger.error({ error }, "Error fetching platform mappings");
-    res.status(500).json({ error: "Failed to fetch platform mappings" });
-  }
-});
-
-importRouter.post("/mappings/platforms", async (req, res) => {
-  try {
-    const mapping = insertPlatformMappingSchema.parse(req.body);
-    const created = await storage.addPlatformMapping(mapping);
-    return res.json(created);
-  } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
-    return res.status(500).json({ error: "Failed to create platform mapping" });
-  }
-});
-
-importRouter.patch("/mappings/platforms/:id", async (req, res) => {
-  try {
-    const updates = platformMappingPatchSchema.parse(req.body);
-    const updated = await platformMappingService.updateMapping(req.params.id, updates);
-    if (updated) {
-      return res.json(updated);
-    } else {
-      return res.status(404).json({ error: "Mapping not found" });
-    }
-  } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
-    return res.status(500).json({ error: "Failed to update platform mapping" });
-  }
-});
-
-importRouter.delete("/mappings/platforms/:id", async (req, res) => {
-  try {
-    const success = await storage.removePlatformMapping(req.params.id);
-    if (success) res.json({ success: true });
-    else res.status(404).json({ error: "Mapping not found" });
-  } catch (error) {
-    logger.error({ error }, "Error deleting platform mapping");
-    res.status(500).json({ error: "Failed to delete platform mapping" });
-  }
-});
-
-importRouter.post("/mappings/platforms/init", async (_req, res) => {
-  try {
-    await platformMappingService.initializeDefaults();
-    const mappings = await storage.getPlatformMappings();
-    res.json({ success: true, count: mappings.length, mappings });
-  } catch (error) {
-    logger.error({ error }, "Error initializing platform mapping defaults");
-    res.status(500).json({ error: "Failed to initialize defaults" });
-  }
-});
 
 // Path Mappings
 importRouter.get("/mappings/paths", async (_req, res) => {

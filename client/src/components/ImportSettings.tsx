@@ -58,16 +58,17 @@ export default function ImportSettings() {
   const { data: userSettings } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
   });
-  const { data: igdbPlatforms = [], isLoading: platformsLoading } = useQuery<
+  const { data: rawgPlatformsData, isLoading: platformsLoading } = useQuery<
     { id: number; name: string }[]
   >({
-    queryKey: ["/api/igdb/platforms"],
+    queryKey: ["/api/rawg/platforms"],
   });
+  const rawgPlatforms = Array.isArray(rawgPlatformsData) ? rawgPlatformsData : [];
   const selectedPlatformNames = resolveSelectedPlatformNames(
-    igdbPlatforms,
+    rawgPlatforms,
     userSettings?.importPlatformIds
   );
-  const selectedPlatformLabels = igdbPlatforms
+  const selectedPlatformLabels = rawgPlatforms
     .filter((platform) => selectedPlatformNames.has(platform.name))
     .map((platform) => platform.name);
   // `selectedPlatformNames` returns every platform for an empty selection, so
@@ -78,7 +79,7 @@ export default function ImportSettings() {
   const restrictedPlatformIds = Array.isArray(userSettings?.importPlatformIds)
     ? userSettings.importPlatformIds
     : [];
-  // Platform ids can outlive an IGDB entry, and the list may still be loading,
+  // Platform ids can outlive an RAWG entry, and the list may still be loading,
   // so an active restriction does not always come with names to show.
   const platformEligibilitySummary = (() => {
     if (restrictedPlatformIds.length === 0) return "All platforms are currently eligible.";

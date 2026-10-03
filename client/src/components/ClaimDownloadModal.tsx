@@ -18,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Search, Link2, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
@@ -43,7 +42,7 @@ interface ClaimDownloadModalProps {
   onOpenChange: (v: boolean) => void;
 }
 
-interface IgdbSearchResult extends Game {
+interface RawgSearchResult extends Game {
   inCollection?: boolean;
 }
 
@@ -58,14 +57,13 @@ export default function ClaimDownloadModal({
   const detected = categorizeDownload(download.name);
   const [category, setCategory] = useState<DownloadCategory>(detected.category);
   const [librarySearch, setLibrarySearch] = useState("");
-  const [igdbQuery, setIgdbQuery] = useState("");
-  const [debouncedIgdbQuery, setDebouncedIgdbQuery] = useState("");
-  const [showUndatedGames, setShowUndatedGames] = useState(false);
+  const [rawgQuery, setRawgQuery] = useState("");
+  const [debouncedRawgQuery, setDebouncedRawgQuery] = useState("");
   const [selectedGame, setSelectedGame] = useState<{
     id: string;
     title: string;
     coverUrl?: string | undefined;
-    source: "library" | "igdb";
+    source: "library" | "rawg";
     data: Game;
   } | null>(null);
 
@@ -75,9 +73,8 @@ export default function ClaimDownloadModal({
       const d = categorizeDownload(download.name);
       setCategory(d.category);
       setLibrarySearch("");
-      setIgdbQuery("");
-      setDebouncedIgdbQuery("");
-      setShowUndatedGames(false);
+      setRawgQuery("");
+      setDebouncedRawgQuery("");
       setSelectedGame(null);
       claimMutation.reset();
     }
@@ -85,11 +82,11 @@ export default function ClaimDownloadModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, download.name]);
 
-  // Debounce IGDB query
+  // Debounce RAWG query
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedIgdbQuery(igdbQuery), 500);
+    const t = setTimeout(() => setDebouncedRawgQuery(rawgQuery), 500);
     return () => clearTimeout(t);
-  }, [igdbQuery]);
+  }, [rawgQuery]);
 
   // User's library
   const { data: userGames = [] } = useQuery<Game[]>({
@@ -104,26 +101,26 @@ export default function ClaimDownloadModal({
     return releaseMatchesGame(download.name, g.title);
   });
 
-  // IGDB search
+  // RAWG search
   const {
-    data: igdbResults = [],
-    isLoading: isSearchingIgdb,
-    isError: igdbSearchFailed,
-  } = useQuery<IgdbSearchResult[]>({
-    queryKey: ["/api/igdb/search", debouncedIgdbQuery, showUndatedGames],
+    data: rawgResults = [],
+    isLoading: isSearchingRawg,
+    isError: rawgSearchFailed,
+  } = useQuery<RawgSearchResult[]>({
+    queryKey: ["/api/rawg/search", debouncedRawgQuery],
     queryFn: async () => {
-      if (!debouncedIgdbQuery.trim()) return [];
+      if (!debouncedRawgQuery.trim()) return [];
       const res = await apiRequest(
         "GET",
-        `/api/igdb/search?q=${encodeURIComponent(debouncedIgdbQuery)}&limit=10&includeUndated=${showUndatedGames}`
+        `/api/rawg/search?q=${encodeURIComponent(debouncedRawgQuery)}&limit=10`
       );
       return res.json();
     },
-    enabled: debouncedIgdbQuery.trim().length > 2,
+    enabled: debouncedRawgQuery.trim().length > 2,
   });
 
   // CDM-3: clear stale results when query is too short
-  const displayedIgdbResults = debouncedIgdbQuery.trim().length > 2 ? igdbResults : [];
+  const displayedRawgResults = debouncedRawgQuery.trim().length > 2 ? rawgResults : [];
 
   const claimMutation = useMutation({
     mutationFn: async () => {
@@ -142,7 +139,7 @@ export default function ClaimDownloadModal({
       } else {
         const g = selectedGame.data;
         body.newGame = {
-          igdbId: g.igdbId,
+          rawgId: g.rawgId,
           title: g.title,
           coverUrl: g.coverUrl,
           summary: g.summary,
@@ -152,8 +149,7 @@ export default function ClaimDownloadModal({
           rating: g.rating,
           aggregatedRating: g.aggregatedRating,
           screenshots: g.screenshots,
-          igdbWebsites: g.igdbWebsites,
-          source: "api",
+          websites: g.websites,
         };
       }
 
@@ -201,7 +197,7 @@ export default function ClaimDownloadModal({
         <Tabs defaultValue="library" className="flex-1 flex flex-col min-h-0">
           <TabsList>
             <TabsTrigger value="library">Library</TabsTrigger>
-            <TabsTrigger value="igdb">IGDB Search</TabsTrigger>
+            <TabsTrigger value="rawg">RAWG Search</TabsTrigger>
           </TabsList>
 
           <TabsContent value="library" className="flex-1 flex flex-col gap-2 min-h-0">
@@ -219,7 +215,7 @@ export default function ClaimDownloadModal({
                 <p className="text-sm text-muted-foreground py-4 text-center">
                   {librarySearch
                     ? "No games match your search"
-                    : "No library matches found — try IGDB Search"}
+                    : "No library matches found — try RAWG Search"}
                 </p>
               ) : (
                 libraryMatches.map((g) => {
@@ -248,51 +244,42 @@ export default function ClaimDownloadModal({
             </div>
           </TabsContent>
 
-          <TabsContent value="igdb" className="flex-1 flex flex-col gap-2 min-h-0">
+          <TabsContent value="rawg" className="flex-1 flex flex-col gap-2 min-h-0">
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search IGDB…"
+                placeholder="Search RAWG…"
                 className="pl-8"
-                value={igdbQuery}
-                onChange={(e) => setIgdbQuery(e.target.value)}
+                value={rawgQuery}
+                onChange={(e) => setRawgQuery(e.target.value)}
               />
             </div>
-            <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">Show undated games first</p>
-                <p className="text-xs text-muted-foreground">
-                  Include titles without a release date and place them before dated results.
-                </p>
-              </div>
-              <Switch checked={showUndatedGames} onCheckedChange={setShowUndatedGames} />
-            </div>
             <div className="overflow-y-auto flex-1 space-y-1 pr-1">
-              {isSearchingIgdb ? (
+              {isSearchingRawg ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">Searching…</p>
-              ) : igdbSearchFailed ? (
+              ) : rawgSearchFailed ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">
                   Search failed. Try again.
                 </p>
-              ) : displayedIgdbResults.length === 0 && debouncedIgdbQuery.trim().length > 2 ? (
+              ) : displayedRawgResults.length === 0 && debouncedRawgQuery.trim().length > 2 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">No results found</p>
               ) : (
-                displayedIgdbResults.map((g) => {
+                displayedRawgResults.map((g) => {
                   const isSelected =
-                    selectedGame?.source === "igdb" && selectedGame?.data.igdbId === g.igdbId;
+                    selectedGame?.source === "rawg" && selectedGame?.data.rawgId === g.rawgId;
                   return (
                     <GameRow
-                      key={g.igdbId ?? g.id}
+                      key={g.rawgId ?? g.id}
                       game={g}
                       selected={isSelected}
                       onSelect={() =>
                         isSelected
                           ? setSelectedGame(null)
                           : setSelectedGame({
-                              id: g.igdbId?.toString() ?? g.id,
+                              id: g.rawgId?.toString() ?? g.id,
                               title: g.title,
                               coverUrl: g.coverUrl ?? undefined,
-                              source: "igdb",
+                              source: "rawg",
                               data: g,
                             })
                       }
@@ -309,7 +296,7 @@ export default function ClaimDownloadModal({
             <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
             <span className="truncate font-medium">{selectedGame.title}</span>
             <Badge variant="secondary" className="ml-auto shrink-0 text-xs">
-              {selectedGame.source === "library" ? "Library" : "IGDB"}
+              {selectedGame.source === "library" ? "Library" : "RAWG"}
             </Badge>
           </div>
         )}

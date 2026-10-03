@@ -74,6 +74,7 @@ import {
   ChevronRight,
   ShieldCheck,
   BookOpen,
+  Globe,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -127,7 +128,7 @@ type FileDeletionResult =
   | { deleted: true; path: string | null }
   | { deleted: false; reason: "outside-library-root" | "delete-failed"; path: string };
 
-interface IgdbPlatformOption {
+interface RawgPlatformOption {
   id: number;
   name: string;
 }
@@ -163,6 +164,29 @@ const EXPANSION_CATEGORY_LABELS: Record<string, string> = {
 // A tab trigger showing an icon, a label (hidden below sm, shown as a tooltip
 // instead), and an optional count badge. Shared by every tab in the Game
 // Details modal so the icon/label/badge/tooltip structure isn't repeated per tab.
+// Mobile-only tooltip: the content is `sm:hidden`, so on desktop there is
+// nothing to show — yet an open tooltip still mounts a dismissable layer
+// that stacks above the dialog and swallows the first Escape press (which
+// would otherwise close the dialog). Render the trigger bare on desktop so
+// no layer is mounted at all. (@radix-ui/react-tooltip@1.2 has no `disabled`
+// prop, so conditional rendering is the way to do this.)
+function MobileOnlyTooltip({
+  trigger,
+  label,
+}: {
+  readonly trigger: React.ReactNode;
+  readonly label: string;
+}) {
+  const isMobile = useIsMobile();
+  if (!isMobile) return trigger;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+      <TooltipContent className="sm:hidden">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function GameTabTrigger({
   value,
   label,
@@ -176,21 +200,25 @@ function GameTabTrigger({
   readonly icon: React.ReactNode;
   readonly count?: number | undefined;
 }) {
-  return (
+  const isMobile = useIsMobile();
+  const trigger = (
+    <TabsTrigger value={value} aria-label={ariaLabel} className="gap-1.5">
+      {icon}
+      <span className="hidden sm:inline">{label}</span>
+      {count !== undefined && count > 0 && (
+        <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-xs">
+          {count}
+        </Badge>
+      )}
+    </TabsTrigger>
+  );
+  return isMobile ? (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <TabsTrigger value={value} aria-label={ariaLabel} className="gap-1.5">
-          {icon}
-          <span className="hidden sm:inline">{label}</span>
-          {count !== undefined && count > 0 && (
-            <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-xs">
-              {count}
-            </Badge>
-          )}
-        </TabsTrigger>
-      </TooltipTrigger>
+      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
       <TooltipContent className="sm:hidden">{ariaLabel}</TooltipContent>
     </Tooltip>
+  ) : (
+    trigger
   );
 }
 
@@ -204,7 +232,7 @@ interface SiteLinkConfig {
   colorClass: string;
 }
 
-const IGDB_WEBSITE_CONFIG: Record<number, SiteLinkConfig> = {
+const WEBSITE_CATEGORY_CONFIG: Record<number, SiteLinkConfig> = {
   1: { label: "Official Site", Icon: ExternalLink as IconComponent, colorClass: "text-blue-400" },
   3: { label: "Wikipedia", Icon: FaWikipediaW as IconComponent, colorClass: "text-gray-300" },
   5: { label: "Twitch", Icon: FaTwitch as IconComponent, colorClass: "text-purple-500" },
@@ -217,18 +245,19 @@ const IGDB_WEBSITE_CONFIG: Record<number, SiteLinkConfig> = {
 };
 
 const URL_WEBSITE_PATTERNS: Array<{ pattern: RegExp; config: SiteLinkConfig }> = [
-  { pattern: /store\.steampowered\.com/i, config: IGDB_WEBSITE_CONFIG[13]! },
-  { pattern: /reddit\.com/i, config: IGDB_WEBSITE_CONFIG[14]! },
-  { pattern: /itch\.io/i, config: IGDB_WEBSITE_CONFIG[15]! },
-  { pattern: /epicgames\.com/i, config: IGDB_WEBSITE_CONFIG[16]! },
-  { pattern: /gog\.com/i, config: IGDB_WEBSITE_CONFIG[17]! },
-  { pattern: /discord\.(gg|com)/i, config: IGDB_WEBSITE_CONFIG[18]! },
-  { pattern: /twitch\.tv/i, config: IGDB_WEBSITE_CONFIG[5]! },
-  { pattern: /wikipedia\.org/i, config: IGDB_WEBSITE_CONFIG[3]! },
+  { pattern: /store\.steampowered\.com/i, config: WEBSITE_CATEGORY_CONFIG[13]! },
+  { pattern: /reddit\.com/i, config: WEBSITE_CATEGORY_CONFIG[14]! },
+  { pattern: /itch\.io/i, config: WEBSITE_CATEGORY_CONFIG[15]! },
+  { pattern: /epicgames\.com/i, config: WEBSITE_CATEGORY_CONFIG[16]! },
+  { pattern: /gog\.com/i, config: WEBSITE_CATEGORY_CONFIG[17]! },
+  { pattern: /discord\.(gg|com)/i, config: WEBSITE_CATEGORY_CONFIG[18]! },
+  { pattern: /twitch\.tv/i, config: WEBSITE_CATEGORY_CONFIG[5]! },
+  { pattern: /wikipedia\.org/i, config: WEBSITE_CATEGORY_CONFIG[3]! },
 ];
 
 function resolveWebsiteConfig(w: { category?: number; url: string }): SiteLinkConfig | null {
-  if (w.category && IGDB_WEBSITE_CONFIG[w.category]) return IGDB_WEBSITE_CONFIG[w.category]!;
+  if (w.category && WEBSITE_CATEGORY_CONFIG[w.category])
+    return WEBSITE_CATEGORY_CONFIG[w.category]!;
   for (const { pattern, config } of URL_WEBSITE_PATTERNS) {
     if (pattern.test(w.url)) return config;
   }
@@ -268,6 +297,18 @@ function getDerivedLinks(
       colorClass: "text-green-400",
       href: `https://isthereanydeal.com/search/?q=${t}`,
     },
+    // RAWG-sourced games get a direct catalog link (also satisfies the
+    // attribution requirement from RAWG's terms of use).
+    ...(game.rawgId
+      ? [
+          {
+            label: "RAWG",
+            Icon: Globe as IconComponent,
+            colorClass: "text-blue-400",
+            href: `https://rawg.io/games/${game.rawgSlug ?? game.rawgId}`,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -297,6 +338,7 @@ function getTrackedDownloadStatusLabel(status: string): string {
 function getSourceLabel(source: string | null | undefined): string {
   if (source === "steam") return "Steam Wishlist";
   if (source === "api") return "Via API";
+  if (source === "rawg") return "Via RAWG";
   return "Added Manually";
 }
 
@@ -314,6 +356,14 @@ function SourceBadge({ source }: { source: string | null | undefined }) {
       <Badge variant="outline" className="gap-1.5 text-purple-400 border-purple-400/30">
         <Zap className="w-3 h-3" />
         <span className="hidden sm:inline">Via API</span>
+      </Badge>
+    );
+  }
+  if (source === "rawg") {
+    return (
+      <Badge variant="outline" className="gap-1.5 text-blue-400 border-blue-400/30">
+        <Globe className="w-3 h-3" />
+        <span className="hidden sm:inline">Via RAWG</span>
       </Badge>
     );
   }
@@ -517,7 +567,24 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     setSelectedScreenshotIndex(null);
   }, [game?.id]);
 
-  const screenshots = game?.screenshots ?? [];
+  // RAWG discovery list items carry no screenshots, so when a RAWG-sourced
+  // game is opened without stored screenshots we fetch the full record once
+  // (cached for a day) to fill the media tab.
+  const { data: rawgDetail } = useQuery({
+    queryKey: ["/api/rawg/game", game?.rawgId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/rawg/game/${game!.rawgId}`);
+      return (await res.json()) as { screenshots?: string[] } | { error?: string };
+    },
+    enabled: !!game?.rawgId && (game?.screenshots?.length ?? 0) === 0,
+    staleTime: 1000 * 60 * 60 * 24,
+    retry: 1,
+  });
+
+  const screenshots =
+    rawgDetail && "screenshots" in rawgDetail && (rawgDetail.screenshots?.length ?? 0) > 0
+      ? rawgDetail.screenshots!
+      : (game?.screenshots ?? []);
 
   // Clear the selection if it falls outside the current screenshots list
   // (e.g. the list shrinks while the lightbox is open).
@@ -599,10 +666,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     };
   }, [open, game?.id, queryClient]);
 
-  const { data: targetPlatformOptions = [] } = useQuery<IgdbPlatformOption[]>({
-    queryKey: ["/api/igdb/platforms"],
+  const { data: targetPlatformOptions = [] } = useQuery<RawgPlatformOption[]>({
+    queryKey: ["/api/rawg/platforms"],
     queryFn: async () => {
-      const res = await apiRequest("GET", "/api/igdb/platforms");
+      const res = await apiRequest("GET", "/api/rawg/platforms");
       return res.json();
     },
     enabled: open && !!game?.id && !isDiscoveryId(game.id),
@@ -851,9 +918,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const SUMMARY_LIMIT = 280;
   const isSummaryLong = game.summary && game.summary.length > SUMMARY_LIMIT;
 
-  // Include Steam link derived from steamAppId if IGDB didn't provide one (category 13)
-  const rawWebsites = (game.igdbWebsites ?? []) as Array<{ category: number; url: string }>;
-  const igdbWebsites =
+  // Include Steam link derived from steamAppId if the provider didn't provide one (category 13)
+  const rawWebsites = (game.websites ?? []) as Array<{ category: number; url: string }>;
+  const websites =
     game.steamAppId && !rawWebsites.some((w) => w.category === 13)
       ? [
           ...rawWebsites,
@@ -883,26 +950,26 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               Detailed information about {game.title}
             </DialogDescription>
             <div className="flex flex-wrap items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
+              <MobileOnlyTooltip
+                trigger={
                   <span className="cursor-default">
                     <StatusBadge status={game.status} />
                   </span>
-                </TooltipTrigger>
-                <TooltipContent className="sm:hidden">{getStatusLabel(game.status)}</TooltipContent>
-              </Tooltip>
+                }
+                label={getStatusLabel(game.status)}
+              />
               {game.earlyAccess && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
+                <MobileOnlyTooltip
+                  trigger={
                     <span className="cursor-default">
                       <Badge className="text-xs bg-amber-500 border-amber-600 text-white gap-1">
                         <FlaskConical className="w-3 h-3" />
                         <span className="hidden sm:inline">Early Access</span>
                       </Badge>
                     </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="sm:hidden">Early Access</TooltipContent>
-                </Tooltip>
+                  }
+                  label="Early Access"
+                />
               )}
               {game.rating ? (
                 <div className="flex items-center gap-1 text-sm">
@@ -923,8 +990,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 </div>
               )}
               {game.searchResultsAvailable && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
+                <MobileOnlyTooltip
+                  trigger={
                     <Badge
                       variant="outline"
                       className="gap-1 border-violet-500 text-violet-400 cursor-default"
@@ -933,18 +1000,18 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       <Search className="w-3 h-3" />
                       <span className="hidden sm:inline">Results available</span>
                     </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent className="sm:hidden">Downloads found on indexers</TooltipContent>
-                </Tooltip>
+                  }
+                  label="Downloads found on indexers"
+                />
               )}
-              <Tooltip>
-                <TooltipTrigger asChild>
+              <MobileOnlyTooltip
+                trigger={
                   <span className="cursor-default">
                     <SourceBadge source={game.source} />
                   </span>
-                </TooltipTrigger>
-                <TooltipContent className="sm:hidden">{getSourceLabel(game.source)}</TooltipContent>
-              </Tooltip>
+                }
+                label={getSourceLabel(game.source)}
+              />
             </div>
           </div>
           {game.coverUrl && (
@@ -962,8 +1029,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
         {/* Quick Actions */}
         <div className="flex gap-2 mt-3">
-          <Tooltip>
-            <TooltipTrigger asChild>
+          <MobileOnlyTooltip
+            trigger={
               <Button
                 variant="outline"
                 size="sm"
@@ -975,11 +1042,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 <Download className="w-4 h-4" />
                 <span className="hidden sm:inline">Download</span>
               </Button>
-            </TooltipTrigger>
-            <TooltipContent className="sm:hidden">Download</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
+            }
+            label="Download"
+          />
+          <MobileOnlyTooltip
+            trigger={
               <Button
                 variant="secondary"
                 size="sm"
@@ -994,11 +1061,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   {hiddenMutation.isPending ? "Updating..." : game.hidden ? "Unhide" : "Hide"}
                 </span>
               </Button>
-            </TooltipTrigger>
-            <TooltipContent className="sm:hidden">{game.hidden ? "Unhide" : "Hide"}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
+            }
+            label={game.hidden ? "Unhide" : "Hide"}
+          />
+          <MobileOnlyTooltip
+            trigger={
               <Button
                 variant="destructive"
                 size="sm"
@@ -1013,9 +1080,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   {removeGameMutation.isPending ? "Removing..." : "Remove"}
                 </span>
               </Button>
-            </TooltipTrigger>
-            <TooltipContent className="sm:hidden">Remove</TooltipContent>
-          </Tooltip>
+            }
+            label="Remove"
+          />
         </div>
       </DialogHeader>
 
@@ -1048,7 +1115,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             value="media"
             label="Media"
             icon={<Image className="h-3.5 w-3.5 sm:hidden" />}
-            count={game.screenshots?.length}
+            count={screenshots.length}
           />
           {game.expansions && game.expansions.length > 0 && (
             <GameTabTrigger
@@ -1132,7 +1199,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               <div className="grid grid-cols-2 gap-4">
                 {game.rating && (
                   <div>
-                    <h4 className="font-medium text-sm text-muted-foreground mb-1">IGDB score</h4>
+                    <h4 className="font-medium text-sm text-muted-foreground mb-1">RAWG score</h4>
                     <div className="flex items-center gap-1">
                       <Star className="w-4 h-4 text-accent fill-current" />
                       <span className="text-sm font-medium">{game.rating}/10</span>
@@ -1344,9 +1411,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
         >
           <ScrollArea className="h-full">
             <div className="pr-4 pb-2">
-              {game.screenshots && game.screenshots.length > 0 ? (
+              {screenshots.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {game.screenshots.map((screenshot, index) => (
+                  {screenshots.map((screenshot, index) => (
                     <button
                       key={index}
                       type="button"
@@ -1420,10 +1487,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                     );
                     const className =
                       "shadcn-card overflow-hidden rounded-xl border bg-card border-card-border text-card-foreground shadow-sm block";
-                    return expansion.igdbUrl ? (
+                    const expansionUrl = expansion.rawgUrl;
+                    return expansionUrl ? (
                       <a
                         key={expansion.id}
-                        href={safeUrl(expansion.igdbUrl)}
+                        href={safeUrl(expansionUrl)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className={cn(className, "hover-elevate cursor-pointer")}
@@ -1548,7 +1616,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       <div>
                         <div className="flex items-center gap-1.5 text-sm font-medium">
                           <Users className="w-3.5 h-3.5" />
-                          IGDB Users
+                          RAWG Users
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">Community score</p>
                       </div>
@@ -1601,9 +1669,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                           </div>
                           <div>
                             <div className="text-sm font-medium">{entry.label}</div>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              Estimated hours (IGDB)
-                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">Estimated hours</p>
                           </div>
                         </div>
                       ))}
@@ -1612,31 +1678,32 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               )}
 
               <div>
-                {/* IGDB website links */}
-                {igdbWebsites.length > 0 && (
+                {/* Website links */}
+                {websites.length > 0 && (
                   <div>
                     <h3 className="font-semibold mb-3 flex items-center gap-2">
                       <ExternalLink className="w-4 h-4" />
                       Official &amp; Store Pages
                     </h3>
                     <div className="flex flex-wrap gap-2">
-                      {igdbWebsites
+                      {websites
                         .map((w) => ({ w, cfg: resolveWebsiteConfig(w) }))
                         .filter(({ cfg }) => cfg !== null)
                         .map(({ w, cfg }, i) => {
                           const { Icon, colorClass, label } = cfg!;
                           return (
-                            <Tooltip key={i}>
-                              <TooltipTrigger asChild>
+                            <MobileOnlyTooltip
+                              key={i}
+                              trigger={
                                 <a href={safeUrl(w.url)} target="_blank" rel="noopener noreferrer">
                                   <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
                                     <Icon size={16} className={colorClass} />
                                     <span className="hidden sm:inline">{label}</span>
                                   </Button>
                                 </a>
-                              </TooltipTrigger>
-                              <TooltipContent className="sm:hidden">{label}</TooltipContent>
-                            </Tooltip>
+                              }
+                              label={label}
+                            />
                           );
                         })}
                     </div>
@@ -1651,23 +1718,24 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {derivedLinks.map((link, i) => (
-                      <Tooltip key={i}>
-                        <TooltipTrigger asChild>
+                      <MobileOnlyTooltip
+                        key={i}
+                        trigger={
                           <a href={safeUrl(link.href)} target="_blank" rel="noopener noreferrer">
                             <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
                               <link.Icon size={16} className={link.colorClass} />
                               <span className="hidden sm:inline">{link.label}</span>
                             </Button>
                           </a>
-                        </TooltipTrigger>
-                        <TooltipContent className="sm:hidden">{link.label}</TooltipContent>
-                      </Tooltip>
+                        }
+                        label={link.label}
+                      />
                     ))}
                     {/* NexusMods: direct link when configured + found, fallback search when unconfigured or on error */}
                     {(nexusGameData || nexusDomainError) &&
                       (nexusDomain ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
+                        <MobileOnlyTooltip
+                          trigger={
                             <a
                               href={safeUrl(`https://www.nexusmods.com/${nexusDomain}/mods/`)}
                               target="_blank"
@@ -1678,12 +1746,12 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                 <span className="hidden sm:inline">NexusMods</span>
                               </Button>
                             </a>
-                          </TooltipTrigger>
-                          <TooltipContent className="sm:hidden">NexusMods</TooltipContent>
-                        </Tooltip>
+                          }
+                          label="NexusMods"
+                        />
                       ) : !nexusGameData?.configured || nexusDomainError ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
+                        <MobileOnlyTooltip
+                          trigger={
                             <a
                               href={safeUrl(
                                 `https://www.nexusmods.com/games?keyword=${encodeURIComponent(game.title)}`
@@ -1696,9 +1764,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                 <span className="hidden sm:inline">NexusMods</span>
                               </Button>
                             </a>
-                          </TooltipTrigger>
-                          <TooltipContent className="sm:hidden">NexusMods</TooltipContent>
-                        </Tooltip>
+                          }
+                          label="NexusMods"
+                        />
                       ) : null)}
                   </div>
                 </div>

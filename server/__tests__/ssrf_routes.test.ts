@@ -10,11 +10,7 @@ const { mockConfig } = vi.hoisted(() => {
         isProduction: false,
         allowedOrigins: [],
       },
-      igdb: {
-        isConfigured: true,
-        clientId: "test-id",
-        clientSecret: "test-secret",
-      },
+      rawg: { apiKey: undefined },
       nexusmods: {
         apiKey: undefined,
       },
@@ -52,9 +48,22 @@ vi.mock("../storage.js", () => ({
   },
 }));
 
-vi.mock("../igdb.js", () => ({
-  igdbClient: {
-    getPopularGames: vi.fn(),
+vi.mock("../rawg.js", () => ({
+  rawgClient: {
+    isConfigured: vi.fn().mockResolvedValue(false),
+    searchGames: vi.fn().mockResolvedValue([]),
+    formatGame: vi.fn((g: unknown) => g),
+    getPopularGames: vi.fn().mockResolvedValue([]),
+    getRecentReleases: vi.fn().mockResolvedValue([]),
+    getUpcomingReleases: vi.fn().mockResolvedValue([]),
+    getGamesByGenre: vi.fn().mockResolvedValue([]),
+    getGamesByPlatform: vi.fn().mockResolvedValue([]),
+    getGenres: vi.fn().mockResolvedValue([]),
+    getPlatforms: vi.fn().mockResolvedValue([]),
+    getGameById: vi.fn(),
+    getGamesByIds: vi.fn().mockResolvedValue([]),
+    getGamesForRefresh: vi.fn().mockResolvedValue(new Map()),
+    batchSearchGames: vi.fn().mockResolvedValue(new Map()),
   },
 }));
 

@@ -7,7 +7,7 @@ import fs from "fs/promises";
 import {
   mockConfig,
   createStorageMock,
-  createIgdbMock,
+  createRawgMock,
   createAuthMock,
   createDbModuleMock,
   createLoggerMocks,
@@ -30,7 +30,7 @@ import { fileTypeFromBuffer } from "file-type";
 import type { Game, GameJournalEntry, GameMilestone, GameScreenshot } from "../../shared/schema.js";
 
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
-vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
+vi.mock("../rawg.js", () => ({ rawgClient: createRawgMock() }));
 vi.mock("../auth.js", () => createAuthMock());
 vi.mock("../db.js", () => createDbModuleMock());
 vi.mock("../logger.js", () => createLoggerMocks());

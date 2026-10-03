@@ -37,7 +37,7 @@ vi.mock("../logger.js", () => {
   };
   return {
     logger: mockLogger,
-    igdbLogger: mockLogger,
+    rawgLogger: mockLogger,
     routesLogger: mockLogger,
     expressLogger: mockLogger,
     downloadersLogger: mockLogger,

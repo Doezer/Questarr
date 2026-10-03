@@ -35,11 +35,11 @@ describe("insertGameSchema", () => {
     }
   );
 
-  it("rejects a mismatched complete target platform pair", () => {
+  it("rejects a target platform name that matches no known platform", () => {
     const result = insertGameSchema.safeParse({
       title: "God of War",
-      targetPlatformId: 8,
-      targetPlatformName: "PlayStation 5",
+      targetPlatformId: 9999,
+      targetPlatformName: "Mystery Box",
     });
     expect(result.success).toBe(false);
     expect(result.error?.issues).toEqual(
@@ -71,11 +71,11 @@ describe("updateGameTargetPlatformSchema", () => {
     ).toBe(false);
   });
 
-  it("rejects mismatched target-platform updates", () => {
+  it("rejects an unsupported target-platform update", () => {
     expect(
       updateGameTargetPlatformSchema.safeParse({
-        targetPlatformId: 8,
-        targetPlatformName: "PlayStation 5",
+        targetPlatformId: 9999,
+        targetPlatformName: "Mystery Box",
       }).success
     ).toBe(false);
   });

@@ -1,15 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 
-const { mockStorage, mockImportManager, mockPlatformMappingService, fsMock } = vi.hoisted(() => ({
+const { mockStorage, mockImportManager, fsMock } = vi.hoisted(() => ({
   mockStorage: {
     getImportConfig: vi.fn(),
     getEnabledDownloaders: vi.fn(),
     getPendingImportReviews: vi.fn(),
     getGame: vi.fn(),
-    getPlatformMappings: vi.fn(),
-    addPlatformMapping: vi.fn(),
-    removePlatformMapping: vi.fn(),
     getPathMappings: vi.fn(),
     addPathMapping: vi.fn(),
     updatePathMapping: vi.fn(),
@@ -25,10 +22,6 @@ const { mockStorage, mockImportManager, mockPlatformMappingService, fsMock } = v
     confirmImport: vi.fn(),
     planConfirmImport: vi.fn(),
   },
-  mockPlatformMappingService: {
-    initializeDefaults: vi.fn(),
-    updateMapping: vi.fn(),
-  },
   fsMock: {
     stat: vi.fn(),
     writeFile: vi.fn(),
@@ -40,7 +33,6 @@ const { mockStorage, mockImportManager, mockPlatformMappingService, fsMock } = v
 vi.mock("../storage.js", () => ({ storage: mockStorage }));
 vi.mock("../services/index.js", () => ({
   importManager: mockImportManager,
-  platformMappingService: mockPlatformMappingService,
 }));
 vi.mock("fs-extra", () => ({ default: fsMock }));
 
@@ -61,143 +53,6 @@ beforeEach(() => {
     files: [],
     hasArchive: false,
     totalCount: 0,
-  });
-});
-
-// ─── Platform mapping CRUD ────────────────────────────────────────────────────
-
-describe("GET /api/imports/mappings/platforms", () => {
-  it("returns all platform mappings", async () => {
-    mockStorage.getPlatformMappings.mockResolvedValue([
-      { id: "pm-1", igdbPlatformId: 6, sourcePlatformName: "pc" },
-    ]);
-
-    const res = await request(createApp()).get("/api/imports/mappings/platforms");
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual([{ id: "pm-1", igdbPlatformId: 6, sourcePlatformName: "pc" }]);
-  });
-
-  it("returns 500 on storage error", async () => {
-    mockStorage.getPlatformMappings.mockRejectedValue(new Error("db failure"));
-
-    const res = await request(createApp()).get("/api/imports/mappings/platforms");
-
-    expect(res.status).toBe(500);
-    expect(res.body.error).toMatch(/fetch platform mappings/i);
-  });
-});
-
-describe("POST /api/imports/mappings/platforms", () => {
-  it("creates a platform mapping", async () => {
-    mockStorage.addPlatformMapping.mockResolvedValue({
-      id: "pm-2",
-      igdbPlatformId: 19,
-      sourcePlatformName: "snes",
-    });
-
-    const res = await request(createApp()).post("/api/imports/mappings/platforms").send({
-      igdbPlatformId: 19,
-      sourcePlatformName: "snes",
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ igdbPlatformId: 19, sourcePlatformName: "snes" });
-    expect(mockStorage.addPlatformMapping).toHaveBeenCalled();
-  });
-
-  it("returns 400 for invalid schema (missing igdbPlatformId)", async () => {
-    const res = await request(createApp()).post("/api/imports/mappings/platforms").send({
-      sourcePlatformName: "snes",
-    });
-
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 500 on storage error", async () => {
-    mockStorage.addPlatformMapping.mockRejectedValue(new Error("db failure"));
-
-    const res = await request(createApp()).post("/api/imports/mappings/platforms").send({
-      igdbPlatformId: 19,
-      sourcePlatformName: "snes",
-    });
-
-    expect(res.status).toBe(500);
-    expect(res.body.error).toMatch(/create platform mapping/i);
-  });
-});
-
-describe("PATCH /api/imports/mappings/platforms/:id", () => {
-  it("updates a platform mapping", async () => {
-    mockPlatformMappingService.updateMapping.mockResolvedValue({
-      id: "pm-1",
-      igdbPlatformId: 6,
-      sourcePlatformName: "win",
-    });
-
-    const res = await request(createApp())
-      .patch("/api/imports/mappings/platforms/pm-1")
-      .send({ sourcePlatformName: "win" });
-
-    expect(res.status).toBe(200);
-    expect(res.body.sourcePlatformName).toBe("win");
-  });
-
-  it("returns 404 when mapping not found", async () => {
-    mockPlatformMappingService.updateMapping.mockResolvedValue(undefined);
-
-    const res = await request(createApp())
-      .patch("/api/imports/mappings/platforms/missing")
-      .send({ sourcePlatformName: "win" });
-
-    expect(res.status).toBe(404);
-  });
-
-  it("returns 400 for invalid schema", async () => {
-    const res = await request(createApp())
-      .patch("/api/imports/mappings/platforms/pm-1")
-      .send({ unknownField: true });
-
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 500 on service error", async () => {
-    mockPlatformMappingService.updateMapping.mockRejectedValue(new Error("db error"));
-
-    const res = await request(createApp())
-      .patch("/api/imports/mappings/platforms/pm-1")
-      .send({ sourcePlatformName: "win" });
-
-    expect(res.status).toBe(500);
-    expect(res.body.error).toMatch(/update platform mapping/i);
-  });
-});
-
-describe("DELETE /api/imports/mappings/platforms/:id", () => {
-  it("deletes a platform mapping", async () => {
-    mockStorage.removePlatformMapping.mockResolvedValue(true);
-
-    const res = await request(createApp()).delete("/api/imports/mappings/platforms/pm-1");
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-  });
-
-  it("returns 404 when mapping not found", async () => {
-    mockStorage.removePlatformMapping.mockResolvedValue(false);
-
-    const res = await request(createApp()).delete("/api/imports/mappings/platforms/missing");
-
-    expect(res.status).toBe(404);
-  });
-
-  it("returns 500 on storage error", async () => {
-    mockStorage.removePlatformMapping.mockRejectedValue(new Error("db failure"));
-
-    const res = await request(createApp()).delete("/api/imports/mappings/platforms/pm-1");
-
-    expect(res.status).toBe(500);
-    expect(res.body.error).toMatch(/delete platform mapping/i);
   });
 });
 

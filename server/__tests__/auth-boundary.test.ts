@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 import {
   mockConfig,
   createStorageMock,
-  createIgdbMock,
+  createRawgMock,
   createDbMock,
   createDbModuleMock,
   createLoggerMocks,
@@ -28,7 +28,7 @@ import {
 // actually works, rather than relying on the shared auth-bypassing mock the
 // rest of the route test suite uses for convenience.
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
-vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
+vi.mock("../rawg.js", () => ({ rawgClient: createRawgMock() }));
 vi.mock("../db.js", () => createDbModuleMock());
 vi.mock("../logger.js", () => createLoggerMocks());
 vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
@@ -63,8 +63,8 @@ describe("default-deny API auth boundary", () => {
     const { db } = await import("../db.js");
     (db.get as ReturnType<typeof vi.fn>).mockResolvedValue({ result: 1 });
 
-    const { igdbClient } = await import("../igdb.js");
-    (igdbClient.getPopularGames as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const { rawgClient } = await import("../rawg.js");
+    (rawgClient.getPopularGames as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     const { registerRoutes } = await import("../routes.js");
     app = express();
@@ -124,7 +124,7 @@ describe("default-deny API auth boundary", () => {
         .get("/api/config")
         .set("Authorization", `Bearer ${tokenFor("user-1")}`);
       expect(res.status).toBe(200);
-      expect(res.body).toHaveProperty("igdb");
+      expect(res.body).toHaveProperty("rawg");
     });
   });
 

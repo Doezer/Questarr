@@ -31,7 +31,7 @@ vi.mock("../storage.js", () => ({
     getRootFolder: vi.fn(),
     getEnabledRootFolders: vi.fn().mockResolvedValue([]),
     touchRootFolderScanned: vi.fn().mockResolvedValue(undefined),
-    getGameByIgdbId: vi.fn(),
+    getGameByRawgId: vi.fn(),
     addGame: vi.fn(),
     updateGame: vi.fn(),
     updateGameStatus: vi.fn(),
@@ -44,14 +44,24 @@ vi.mock("../socket.js", () => ({
   notifyUser: vi.fn(),
 }));
 
-vi.mock("../igdb.js", () => ({
-  igdbClient: {
+vi.mock("../rawg.js", () => {
+  const rawgClient = {
     searchGames: vi.fn().mockResolvedValue([]),
-  },
-}));
+    // Identity mapping keeps the scanner's field access simple; storage is
+    // mocked, so only shapes the tests assert on matter.
+    formatGame: vi.fn((game: unknown) => game),
+  };
+  return { rawgClient };
+});
 
 vi.mock("../logger.js", () => ({
-  igdbLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+  },
   routesLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
@@ -150,17 +160,17 @@ describe("scanRootFolderById full scan", () => {
     await fs.promises.writeFile(path.join(tmpDir, "Halo Infinite", "setup.exe"), "x");
     await fs.promises.writeFile(path.join(tmpDir, "Halo Infinite", "dlc", "bonus.zip"), "x");
 
-    // "Existing Game": auto-matches an IGDB id that storage already has a
+    // "Existing Game": auto-matches a RAWG id that storage already has a
     // (non-owned) game for — exercises the "update status" branch.
     await fs.promises.mkdir(path.join(tmpDir, "Existing Game"));
     await fs.promises.writeFile(path.join(tmpDir, "Existing Game", "install.exe"), "x");
 
-    // Standalone file with no strong IGDB match — exercises the unmatched
+    // Standalone file with no strong RAWG match — exercises the unmatched
     // branch, including an empty candidates list.
     await fs.promises.writeFile(path.join(tmpDir, "Mystery Game.iso"), "x");
 
     // Folder with only ignored files (nfo) — exercises the "skip candidate
-    // with no usable files" branch; IGDB is never queried for it.
+    // with no usable files" branch; RAWG is never queried for it.
     await fs.promises.mkdir(path.join(tmpDir, "IgnoredOnly"));
     await fs.promises.writeFile(path.join(tmpDir, "IgnoredOnly", "readme.nfo"), "x");
 
@@ -173,11 +183,11 @@ describe("scanRootFolderById full scan", () => {
     vi.mocked(storage.updateGameStatus).mockResolvedValue(undefined as never);
     vi.mocked(storage.touchRootFolderScanned).mockResolvedValue(undefined);
     vi.mocked(storage.addGame).mockImplementation(
-      async (g) => ({ id: `game-${g.igdbId}`, ...g }) as unknown as Game
+      async (g) => ({ id: `game-${g.rawgId}`, ...g }) as unknown as Game
     );
-    vi.mocked(storage.getGameByIgdbId).mockImplementation(async (igdbId: number) => {
-      if (igdbId === 2) {
-        return { id: "existing-game", status: "wanted", igdbId: 2 } as unknown as Game;
+    vi.mocked(storage.getGameByRawgId).mockImplementation(async (rawgId: number) => {
+      if (rawgId === 2) {
+        return { id: "existing-game", status: "wanted", rawgId: 2 } as unknown as Game;
       }
       return undefined;
     });
@@ -191,26 +201,23 @@ describe("scanRootFolderById full scan", () => {
         : []
     );
 
-    const { igdbClient } = await import("../igdb.js");
-    vi.mocked(igdbClient.searchGames).mockImplementation(async (query: string) => {
+    const { rawgClient } = await import("../rawg.js");
+    vi.mocked(rawgClient.searchGames).mockImplementation(async (query: string) => {
       if (query === "Halo Infinite") {
-        // Full metadata so igdbToInsertGame's optional-field mapping branches
-        // (cover/screenshots/platforms/genres/involved_companies) run too.
+        // Full RAWG metadata so rawgToInsertGame's optional-field mapping
+        // branches (cover/date/platforms/genres/companies) run too.
         return [
           {
             id: 1,
             name: "Halo Infinite",
-            summary: "A Spartan's journey.",
-            first_release_date: 1638835200,
-            rating: 87.5,
-            cover: { url: "//images.igdb.com/t_thumb/cover.jpg" },
-            screenshots: [{ url: "//images.igdb.com/t_thumb/shot1.jpg" }],
-            platforms: [{ name: "PC" }],
-            genres: [{ name: "Shooter" }],
-            involved_companies: [
-              { publisher: true, developer: false, company: { name: "Xbox Game Studios" } },
-              { publisher: false, developer: true, company: { name: "343 Industries" } },
-            ],
+            slug: "halo-infinite",
+            background_image: "https://media.rawg.io/media/games/halo.jpg",
+            released: "2021-09-28",
+            metacritic: 87,
+            platforms: [{ id: 1, name: "PC" }],
+            genres: [{ id: 4, name: "Action" }],
+            developers: [{ name: "343 Industries" }],
+            publishers: [{ name: "Xbox Game Studios" }],
           },
         ] as never;
       }
@@ -221,7 +228,7 @@ describe("scanRootFolderById full scan", () => {
 
   it("auto-matches strong candidates, queues weak ones as unmatched, and skips empty folders", async () => {
     const { storage } = await import("../storage.js");
-    const { igdbClient } = await import("../igdb.js");
+    const { rawgClient } = await import("../rawg.js");
 
     await scanRootFolderById("rf-1", "user-1");
 
@@ -230,10 +237,10 @@ describe("scanRootFolderById full scan", () => {
     expect(progress?.matched).toBe(2);
     expect(progress?.unmatched).toBe(1);
     expect(progress?.errors).toBe(0);
-    // The ignored-only folder never reaches file classification / IGDB.
+    // The ignored-only folder never reaches file classification / RAWG.
     expect(progress?.processedCandidates).toBe(4);
 
-    // New game created for the never-seen IGDB id, with a dlc-categorized file.
+    // New game created for the never-seen RAWG id, with a dlc-categorized file.
     expect(storage.addGame).toHaveBeenCalledTimes(1);
     expect(storage.updateGame).toHaveBeenCalledWith(
       "game-1",
@@ -260,8 +267,8 @@ describe("scanRootFolderById full scan", () => {
     expect(unmatched[0].folderName).toBe("Mystery Game.iso");
     expect(unmatched[0].candidates).toEqual([]);
 
-    // The IGDB-less ignored folder was never queried.
-    expect(igdbClient.searchGames).not.toHaveBeenCalledWith("IgnoredOnly", 5);
+    // The RAWG-less ignored folder was never queried.
+    expect(rawgClient.searchGames).not.toHaveBeenCalledWith("IgnoredOnly", 5);
   });
 
   it("scanAllEnabledRootFolders scans every enabled folder", async () => {
@@ -296,14 +303,14 @@ describe("same-basename standalone files stay independently resolvable", () => {
     vi.mocked(storage.addGameFile).mockResolvedValue(undefined as never);
     vi.mocked(storage.updateGame).mockResolvedValue(undefined as never);
     vi.mocked(storage.touchRootFolderScanned).mockResolvedValue(undefined);
-    vi.mocked(storage.getGameByIgdbId).mockResolvedValue(undefined);
+    vi.mocked(storage.getGameByRawgId).mockResolvedValue(undefined);
     vi.mocked(storage.addGame).mockImplementation(
-      async (g) => ({ id: `game-${g.igdbId}`, ...g }) as unknown as Game
+      async (g) => ({ id: `game-${g.rawgId}`, ...g }) as unknown as Game
     );
 
-    const { igdbClient } = await import("../igdb.js");
+    const { rawgClient } = await import("../rawg.js");
     // No strong match for either — both land in the unmatched queue.
-    vi.mocked(igdbClient.searchGames).mockResolvedValue([]);
+    vi.mocked(rawgClient.searchGames).mockResolvedValue([]);
 
     await scanRootFolderById("rf-basename", "user-1");
 
@@ -312,7 +319,7 @@ describe("same-basename standalone files stay independently resolvable", () => {
     expect(new Set(beforeMatch.map((e) => e.absolutePath)).size).toBe(2);
 
     // Resolving Game.iso must not clear Game.zip's queued entry too.
-    vi.mocked(igdbClient.searchGames).mockResolvedValueOnce([
+    vi.mocked(rawgClient.searchGames).mockResolvedValueOnce([
       { id: 99, name: "Some Game" },
     ] as never);
     await matchUnmatchedFolder("rf-basename", "Game.iso", 99, "user-1");
@@ -337,15 +344,15 @@ describe("existing game libraryPath handling", () => {
     vi.mocked(storage.updateGameStatus).mockResolvedValue(undefined as never);
     vi.mocked(storage.touchRootFolderScanned).mockResolvedValue(undefined);
     // Already owned AND already has a managed libraryPath from a prior import.
-    vi.mocked(storage.getGameByIgdbId).mockResolvedValue({
+    vi.mocked(storage.getGameByRawgId).mockResolvedValue({
       id: "managed-game",
       status: "owned",
-      igdbId: 7,
+      rawgId: 7,
       libraryPath: "/data/library/Portal 2",
     } as unknown as Game);
 
-    const { igdbClient } = await import("../igdb.js");
-    vi.mocked(igdbClient.searchGames).mockResolvedValue([{ id: 7, name: "Portal 2" }] as never);
+    const { rawgClient } = await import("../rawg.js");
+    vi.mocked(rawgClient.searchGames).mockResolvedValue([{ id: 7, name: "Portal 2" }] as never);
 
     // Other tests in this file reuse these same mocks — reset call history
     // so this test only sees calls made by its own scan below.
@@ -373,15 +380,15 @@ describe("existing game libraryPath handling", () => {
     vi.mocked(storage.updateGame).mockResolvedValue(undefined as never);
     vi.mocked(storage.updateGameStatus).mockResolvedValue(undefined as never);
     vi.mocked(storage.touchRootFolderScanned).mockResolvedValue(undefined);
-    vi.mocked(storage.getGameByIgdbId).mockResolvedValue({
+    vi.mocked(storage.getGameByRawgId).mockResolvedValue({
       id: "playing-game",
       status: "playing",
-      igdbId: 7,
+      rawgId: 7,
       libraryPath: null,
     } as unknown as Game);
 
-    const { igdbClient } = await import("../igdb.js");
-    vi.mocked(igdbClient.searchGames).mockResolvedValue([{ id: 7, name: "Portal 2" }] as never);
+    const { rawgClient } = await import("../rawg.js");
+    vi.mocked(rawgClient.searchGames).mockResolvedValue([{ id: 7, name: "Portal 2" }] as never);
 
     vi.mocked(storage.updateGameStatus).mockClear();
     vi.mocked(storage.updateGame).mockClear();

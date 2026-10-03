@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock the db and igdb modules
+// Mock the db and rawg modules
 const poolQueryMock = vi.fn();
-const igdbGetPopularGamesMock = vi.fn();
+const rawgGetPopularGamesMock = vi.fn();
 
 vi.mock("../db.js", () => ({
   dialect: "sqlite",
@@ -12,15 +12,14 @@ vi.mock("../db.js", () => ({
   db: {},
 }));
 
-vi.mock("../igdb.js", () => ({
-  igdbClient: {
-    getPopularGames: igdbGetPopularGamesMock,
+vi.mock("../rawg.js", () => ({
+  rawgClient: {
+    getPopularGames: rawgGetPopularGamesMock,
     searchGames: vi.fn(),
     getGameById: vi.fn(),
-    getRecentReleases: vi.fn(),
-    getUpcomingReleases: vi.fn(),
-    getRecommendations: vi.fn(),
-    formatGameData: vi.fn(),
+    getSuggested: vi.fn(),
+    isConfigured: vi.fn(),
+    formatGame: vi.fn(),
   },
 }));
 
@@ -32,12 +31,12 @@ async function performLivenessCheck() {
 // Helper function to perform readiness checks (matches the /api/ready endpoint)
 async function performReadinessCheck() {
   const { pool } = await import("../db.js");
-  const { igdbClient } = await import("../igdb.js");
+  const { rawgClient } = await import("../rawg.js");
 
   const health = {
     ok: true,
     db: false,
-    igdb: false,
+    rawg: false,
   };
 
   // Check database connectivity
@@ -48,10 +47,10 @@ async function performReadinessCheck() {
     health.ok = false;
   }
 
-  // Check IGDB API connectivity
+  // Check RAWG API connectivity
   try {
-    await igdbClient.getPopularGames(1);
-    health.igdb = true;
+    await rawgClient.getPopularGames(1);
+    health.rawg = true;
   } catch {
     health.ok = false;
   }
@@ -72,9 +71,9 @@ describe("Health and Readiness Endpoints", () => {
   });
 
   describe("Readiness Probe (/api/ready)", () => {
-    it("should return ok: true when both db and igdb are healthy", async () => {
+    it("should return ok: true when both db and rawg are healthy", async () => {
       poolQueryMock.mockResolvedValueOnce({ rows: [{ "?column?": 1 }] });
-      igdbGetPopularGamesMock.mockResolvedValueOnce([
+      rawgGetPopularGamesMock.mockResolvedValueOnce([
         {
           id: 1,
           name: "Test Game",
@@ -86,13 +85,13 @@ describe("Health and Readiness Endpoints", () => {
       expect(health).toEqual({
         ok: true,
         db: true,
-        igdb: true,
+        rawg: true,
       });
     });
 
     it("should return ok: false when database is down", async () => {
       poolQueryMock.mockRejectedValueOnce(new Error("Database connection failed"));
-      igdbGetPopularGamesMock.mockResolvedValueOnce([
+      rawgGetPopularGamesMock.mockResolvedValueOnce([
         {
           id: 1,
           name: "Test Game",
@@ -104,33 +103,33 @@ describe("Health and Readiness Endpoints", () => {
       expect(health).toEqual({
         ok: false,
         db: false,
-        igdb: true,
+        rawg: true,
       });
     });
 
-    it("should return ok: false when IGDB API is down", async () => {
+    it("should return ok: false when the RAWG API is down", async () => {
       poolQueryMock.mockResolvedValueOnce({ rows: [{ "?column?": 1 }] });
-      igdbGetPopularGamesMock.mockRejectedValueOnce(new Error("IGDB API error"));
+      rawgGetPopularGamesMock.mockRejectedValueOnce(new Error("RAWG API error"));
 
       const health = await performReadinessCheck();
 
       expect(health).toEqual({
         ok: false,
         db: true,
-        igdb: false,
+        rawg: false,
       });
     });
 
     it("should return ok: false when both services are down", async () => {
       poolQueryMock.mockRejectedValueOnce(new Error("Database connection failed"));
-      igdbGetPopularGamesMock.mockRejectedValueOnce(new Error("IGDB API error"));
+      rawgGetPopularGamesMock.mockRejectedValueOnce(new Error("RAWG API error"));
 
       const health = await performReadinessCheck();
 
       expect(health).toEqual({
         ok: false,
         db: false,
-        igdb: false,
+        rawg: false,
       });
     });
   });

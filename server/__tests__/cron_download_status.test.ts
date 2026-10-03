@@ -10,8 +10,14 @@ const createMockLogger = () => ({
 });
 
 vi.mock("../logger.js", () => ({
-  logger: { child: vi.fn().mockReturnThis() },
-  igdbLogger: createMockLogger(),
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+  },
+  rawgLogger: createMockLogger(),
   searchLogger: createMockLogger(),
   torznabLogger: createMockLogger(),
   routesLogger: createMockLogger(),
@@ -71,10 +77,6 @@ const mockNotifyUser = vi.fn();
 
 vi.mock("../socket.js", () => ({
   notifyUser: mockNotifyUser,
-}));
-
-vi.mock("../igdb.js", () => ({
-  igdbClient: { getGamesByIds: vi.fn() },
 }));
 
 vi.mock("../search.js", () => ({

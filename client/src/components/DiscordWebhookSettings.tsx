@@ -16,7 +16,7 @@ import { apiRequest } from "@/lib/queryClient";
  *
  * The webhook URL is a secret: the API never returns the real value once
  * configured (just `configured: true`), so the input is left blank rather
- * than pre-filled — same pattern as the IGDB client secret field.
+ * than pre-filled — same pattern as the RAWG API key field.
  */
 export default function DiscordWebhookSettings() {
   const { toast } = useToast();

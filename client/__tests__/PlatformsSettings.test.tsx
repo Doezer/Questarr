@@ -18,22 +18,22 @@ vi.mock("@/lib/queryClient", async (importOriginal) => {
   return { ...actual, apiRequest: (...args: unknown[]) => apiRequestMock(...args) };
 });
 
-const IGDB_PLATFORMS = [
+const RAWG_PLATFORMS = [
   { id: 130, name: "Nintendo Switch" },
-  { id: 6, name: "PC (Microsoft Windows)" },
+  { id: 6, name: "PC" },
   { id: 167, name: "PlayStation 5" },
 ];
 
 function mockFetch({
   importPlatformIds = [] as unknown,
-  platforms = IGDB_PLATFORMS,
+  platforms = RAWG_PLATFORMS,
 }: { importPlatformIds?: unknown; platforms?: unknown } = {}) {
   globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
     const u = getRequestUrl(url);
     if (u.includes("/api/settings")) {
       return { ok: true, json: async () => ({ importPlatformIds }) } as Response;
     }
-    if (u.includes("/api/igdb/platforms")) {
+    if (u.includes("/api/rawg/platforms")) {
       return { ok: true, json: async () => platforms } as Response;
     }
     return { ok: true, json: async () => ({}) } as Response;
@@ -58,11 +58,11 @@ describe("PlatformsSettings", () => {
     renderSection();
 
     await waitFor(() => expect(screen.getByLabelText("Nintendo Switch")).toBeChecked());
-    expect(screen.getByLabelText("PC (Microsoft Windows)")).not.toBeChecked();
+    expect(screen.getByLabelText("PC")).not.toBeChecked();
     expect(screen.getByLabelText("PlayStation 5")).not.toBeChecked();
   });
 
-  it("saves the checked platforms as IGDB ids", async () => {
+  it("saves the checked platforms as RAWG ids", async () => {
     mockFetch({ importPlatformIds: [] });
     renderSection();
 
@@ -78,7 +78,7 @@ describe("PlatformsSettings", () => {
     );
   });
 
-  it("preserves a stored id IGDB no longer reports", async () => {
+  it("preserves a stored id RAWG no longer reports", async () => {
     mockFetch({ importPlatformIds: [999, 130] });
     renderSection();
 
@@ -103,7 +103,7 @@ describe("PlatformsSettings", () => {
     expect(screen.getByLabelText("Nintendo Switch")).not.toBeChecked();
   });
 
-  it("shows an empty-state-safe list when IGDB returns a non-array", async () => {
+  it("shows an empty-state-safe list when RAWG returns a non-array", async () => {
     mockFetch({ platforms: { nope: true } });
     renderSection();
 
@@ -113,20 +113,20 @@ describe("PlatformsSettings", () => {
   it("filters platforms by search text", async () => {
     mockFetch();
     renderSection();
-    await screen.findByText("PC (Microsoft Windows)");
+    await screen.findByText("PC");
 
     fireEvent.change(screen.getByPlaceholderText("Search platforms..."), {
       target: { value: "playstation" },
     });
 
-    expect(screen.queryByText("PC (Microsoft Windows)")).not.toBeInTheDocument();
+    expect(screen.queryByText("PC")).not.toBeInTheDocument();
     expect(screen.getByText("PlayStation 5")).toBeInTheDocument();
   });
 
   it("shows a no-match message when the search filters out all platforms", async () => {
     mockFetch();
     renderSection();
-    await screen.findByText("PC (Microsoft Windows)");
+    await screen.findByText("PC");
 
     fireEvent.change(screen.getByPlaceholderText("Search platforms..."), {
       target: { value: "nonexistent-platform" },
@@ -156,7 +156,7 @@ describe("PlatformsSettings", () => {
     renderSection();
 
     await waitFor(() => expect(screen.getByLabelText("Nintendo Switch")).toBeChecked());
-    // 0 and -6 are not valid IGDB ids and must not surface as selections.
+    // 0 and -6 are not valid RAWG ids and must not surface as selections.
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
     await waitFor(() =>
       expect(apiRequestMock).toHaveBeenCalledWith("PATCH", "/api/settings", {
@@ -168,9 +168,9 @@ describe("PlatformsSettings", () => {
   it("toggles a platform checkbox", async () => {
     mockFetch();
     renderSection();
-    await screen.findByText("PC (Microsoft Windows)");
+    await screen.findByText("PC");
 
-    const checkbox = screen.getByLabelText("PC (Microsoft Windows)");
+    const checkbox = screen.getByLabelText("PC");
     fireEvent.click(checkbox);
     expect(checkbox).toBeChecked();
   });

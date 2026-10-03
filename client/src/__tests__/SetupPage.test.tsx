@@ -66,20 +66,19 @@ describe("SetupPage", () => {
     } as Response);
   });
 
-  const renderComponent = () => {
-    return render(
-      <QueryClientProvider client={queryClient}>
-        <SetupPage />
-      </QueryClientProvider>
-    );
+  const fillAccountFields = () => {
+    fireEvent.change(screen.getByLabelText(/username/i), { target: { value: "admin" } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
+    fireEvent.change(screen.getByLabelText(/confirm password/i), {
+      target: { value: "password123" },
+    });
   };
 
-  it("submits form successfully without IGDB fields when IGDB is already configured", async () => {
-    // Mock config as configured
+  it("submits form successfully without a key field when RAWG is already configured", async () => {
     mockApiRequest.mockImplementation((_method, url) => {
       if (url === "/api/auth/status") {
         return Promise.resolve({
-          json: async () => ({ igdb: { configured: true } }),
+          json: async () => ({ rawg: { configured: true } }),
         } as Response);
       }
       if (url === "/api/auth/setup") {
@@ -90,41 +89,35 @@ describe("SetupPage", () => {
       return Promise.reject(new Error(`Unhandled url: ${url}`));
     });
 
-    renderComponent();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SetupPage />
+      </QueryClientProvider>
+    );
 
-    // Wait for config to load and verify IGDB fields are NOT present
+    // Wait for the status to load and verify the key field is NOT present.
     await waitFor(() => {
       expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/auth/status");
-      expect(screen.queryByLabelText(/client id/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/^api key$/i)).not.toBeInTheDocument();
     });
 
-    // Fill form
-    fireEvent.change(screen.getByLabelText(/username/i), { target: { value: "admin" } });
-    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
-    fireEvent.change(screen.getByLabelText(/confirm password/i), {
-      target: { value: "password123" },
-    });
-
-    // Submit
+    fillAccountFields();
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
-    // Verify API call
     await waitFor(() => {
       expect(mockApiRequest).toHaveBeenCalledWith("POST", "/api/auth/setup", {
         username: "admin",
         password: "password123",
-        igdbClientId: "",
-        igdbClientSecret: "",
+        rawgApiKey: "",
       });
     });
   }, 10000);
 
-  it("requires IGDB fields when IGDB is NOT configured", async () => {
-    // Mock config as NOT configured
+  it("requires a RAWG API key when RAWG is not configured", async () => {
     mockApiRequest.mockImplementation((_method, url) => {
       if (url === "/api/auth/status") {
         return Promise.resolve({
-          json: async () => ({ igdb: { configured: false } }),
+          json: async () => ({ rawg: { configured: false } }),
         } as Response);
       }
       return Promise.resolve({
@@ -132,53 +125,80 @@ describe("SetupPage", () => {
       } as Response);
     });
 
-    renderComponent();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SetupPage />
+      </QueryClientProvider>
+    );
 
-    // Wait for config to load and verify IGDB fields ARE present
+    // Wait for the status to load and verify the RAWG key field is present.
     await waitFor(() => {
       expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/auth/status");
-      expect(screen.getByLabelText(/client id/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/^api key$/i)).toBeInTheDocument();
     });
 
-    // Fill only user fields
-    fireEvent.change(screen.getByLabelText(/username/i), { target: { value: "admin" } });
-    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
-    fireEvent.change(screen.getByLabelText(/confirm password/i), {
-      target: { value: "password123" },
-    });
-
-    // Submit
+    fillAccountFields();
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
-    // Should verify that API was NOT called (validation error)
-    // We can check for validation error message if we want, or just that API request wasn't made
-    await new Promise((resolve) => setTimeout(resolve, 100)); // Small delay
+    // Without a key the validation refine blocks the request.
+    await new Promise((resolve) => setTimeout(resolve, 100));
     expect(mockApiRequest).not.toHaveBeenCalledWith("POST", "/api/auth/setup", expect.anything());
+    expect(screen.getByText("Enter a RAWG API key (free at rawg.io).")).toBeInTheDocument();
 
-    // Fill IGDB fields
-    fireEvent.change(screen.getByLabelText(/client id/i), { target: { value: "client_id" } });
-    fireEvent.change(screen.getByLabelText(/client secret/i), {
-      target: { value: "client_secret" },
-    });
-
-    // Submit again
+    fireEvent.change(screen.getByLabelText(/^api key$/i), { target: { value: "rawg-test-key" } });
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
-    // Verify API call
     await waitFor(() => {
       expect(mockApiRequest).toHaveBeenCalledWith("POST", "/api/auth/setup", {
         username: "admin",
         password: "password123",
-        igdbClientId: "client_id",
-        igdbClientSecret: "client_secret",
+        rawgApiKey: "rawg-test-key",
       });
     });
   });
 
-  it("does not crash when GET /api/auth/status returns { hasUsers: true } (no igdb field)", async () => {
-    // Once setup is complete, /api/auth/status omits the igdb field entirely
-    // (see server/routes.ts) -- a direct navigation to /setup racing ahead of
-    // AuthProvider's own redirect must not crash this page while it renders.
+  it("tests the RAWG key through the unauthenticated test endpoint", async () => {
+    mockApiRequest.mockImplementation((_method, url) => {
+      if (url === "/api/auth/status") {
+        return Promise.resolve({
+          json: async () => ({ rawg: { configured: false } }),
+        } as Response);
+      }
+      if (url === "/api/auth/setup/test-rawg") {
+        return Promise.resolve({
+          json: async () => ({ success: true }),
+        } as Response);
+      }
+      return Promise.resolve({ json: async () => ({}) } as Response);
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SetupPage />
+      </QueryClientProvider>
+    );
+
+    const keyInput = await screen.findByLabelText(/^api key$/i);
+    expect(screen.getByRole("button", { name: /test rawg key/i })).toBeDisabled();
+
+    fireEvent.change(keyInput, { target: { value: "rawg-test-key" } });
+    fireEvent.click(screen.getByRole("button", { name: /test rawg key/i }));
+
+    await waitFor(() => {
+      expect(mockApiRequest).toHaveBeenCalledWith("POST", "/api/auth/setup/test-rawg", {
+        apiKey: "rawg-test-key",
+      });
+    });
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "RAWG connection successful" })
+    );
+  });
+
+  it("does not crash when GET /api/auth/status returns { hasUsers: true } (no rawg field)", async () => {
+    // Once setup is complete, /api/auth/status omits the provider fields
+    // entirely (see server/routes.ts) -- a direct navigation to /setup racing
+    // ahead of AuthProvider's own redirect must not crash this page while it
+    // renders.
     mockApiRequest.mockImplementation((_method, url) => {
       if (url === "/api/auth/status") {
         return Promise.resolve({
@@ -188,19 +208,22 @@ describe("SetupPage", () => {
       return Promise.resolve({ json: async () => ({}) } as Response);
     });
 
-    renderComponent();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SetupPage />
+      </QueryClientProvider>
+    );
 
     await waitFor(() => {
       expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/auth/status");
       expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
     });
 
-    // igdb is absent, so isIgdbConfigured is falsy and the IGDB fields
-    // render as required -- the same as the "not configured" case. The
-    // regression this guards against is a crash reading config.igdb.configured
-    // when igdb itself is undefined, not this field's required-ness.
+    // rawg is absent, so the RAWG block renders with the key field, exactly
+    // like the explicit "not configured" case. The regression this guards
+    // against is a crash reading config.rawg.configured when rawg is undefined.
     await waitFor(() => {
-      expect(screen.getByLabelText(/client id/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/^api key$/i)).toBeInTheDocument();
     });
   });
 });

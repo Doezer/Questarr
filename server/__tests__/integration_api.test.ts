@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 import {
   mockConfig,
   createStorageMock,
-  createIgdbMock,
+  createRawgMock,
   createDbMock,
   createDbModuleMock,
   createLoggerMocks,
@@ -26,7 +26,7 @@ import {
 // the whole point is to prove that a real API key authenticates against the
 // real middleware, and that it is refused everywhere except /api/integration.
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
-vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
+vi.mock("../rawg.js", () => ({ rawgClient: createRawgMock() }));
 vi.mock("../db.js", () => createDbModuleMock());
 vi.mock("../logger.js", () => createLoggerMocks());
 vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
@@ -177,7 +177,7 @@ describe("integration API", () => {
         {
           id: "game-1",
           title: "Hollow Knight",
-          igdbId: 14593,
+          rawgId: 9767,
           steamAppId: 367520,
           status: "owned",
           coverUrl: "https://example.test/cover.jpg",
@@ -351,11 +351,11 @@ describe("integration API", () => {
 
   describe("POST /api/integration/games/request", () => {
     beforeEach(async () => {
-      const { igdbClient } = await import("../igdb.js");
-      (igdbClient.searchGames as Mock).mockResolvedValue([{ id: 1 }]);
-      (igdbClient.formatGameData as Mock).mockReturnValue({
+      const { rawgClient } = await import("../rawg.js");
+      (rawgClient.searchGames as Mock).mockResolvedValue([{ id: 1 }]);
+      (rawgClient.formatGame as Mock).mockReturnValue({
         title: "Hades",
-        igdbId: 113112,
+        rawgId: 113112,
         platforms: ["PC"],
         releaseDate: "2020-09-17",
         isAdultContent: false,
@@ -393,7 +393,7 @@ describe("integration API", () => {
         {
           id: "game-1",
           title: "Hades",
-          igdbId: 113112,
+          rawgId: 113112,
           status: "owned",
           userId: "user-1",
           notes: "private note",
@@ -411,9 +411,9 @@ describe("integration API", () => {
       expect(storage.addGame).not.toHaveBeenCalled();
     });
 
-    it("returns 404 when IGDB has no match", async () => {
-      const { igdbClient } = await import("../igdb.js");
-      (igdbClient.searchGames as Mock).mockResolvedValue([]);
+    it("returns 404 when RAWG has no match", async () => {
+      const { rawgClient } = await import("../rawg.js");
+      (rawgClient.searchGames as Mock).mockResolvedValue([]);
 
       const res = await withKey(request(app).post("/api/integration/games/request")).send({
         title: "Definitely Not A Game",
@@ -423,10 +423,10 @@ describe("integration API", () => {
     });
 
     it("hides a content-filtered match behind the same 404", async () => {
-      const { igdbClient } = await import("../igdb.js");
-      (igdbClient.formatGameData as Mock).mockReturnValue({
+      const { rawgClient } = await import("../rawg.js");
+      (rawgClient.formatGame as Mock).mockReturnValue({
         title: "Filtered",
-        igdbId: 999,
+        rawgId: 999,
         isAdultContent: true,
       });
       (storage.getUserSettings as Mock).mockResolvedValue({ hideAdultContent: true });
@@ -446,12 +446,12 @@ describe("integration API", () => {
       expect(res.status).toBe(400);
     });
 
-    it("returns 400 when the matched IGDB data fails schema validation", async () => {
-      const { igdbClient } = await import("../igdb.js");
+    it("returns 400 when the matched RAWG data fails schema validation", async () => {
+      const { rawgClient } = await import("../rawg.js");
       // No title -- insertGameSchema requires one, so quickAddGameByTitle's
       // own `insertGameSchema.parse` throws a ZodError before storage is touched.
-      (igdbClient.formatGameData as Mock).mockReturnValue({
-        igdbId: 113112,
+      (rawgClient.formatGame as Mock).mockReturnValue({
+        rawgId: 113112,
         isAdultContent: false,
         isAgeRestricted: false,
       });

@@ -4,8 +4,7 @@ import { createServer, type Server } from "http";
 import { storage, type IStorage } from "./storage.js";
 import { stripUndefined } from "./object-utils.js";
 import { normalizeDownloadHash, normalizeTrackedKey } from "./download-hash.js";
-import { igdbClient } from "./igdb.js";
-import type { IGDBGame } from "./igdb.js";
+import { rawgClient, rawgErrorToHttpError, type RawgGame } from "./rawg.js";
 import { pingDatabase } from "./db.js";
 import {
   insertGameSchema,
@@ -50,7 +49,7 @@ import { routesLogger } from "./logger.js";
 import { getPendingReport, sendPendingReport } from "./error-telemetry.js";
 import { SCAN_MAX_FILES, SCAN_TIME_BUDGET_MS } from "./scan-limits.js";
 import {
-  igdbRateLimiter,
+  rawgRateLimiter,
   sensitiveEndpointLimiter,
   authRateLimiter,
   scanRateLimiter,
@@ -58,7 +57,7 @@ import {
   sanitizeSearchQuery,
   sanitizeGameId,
   sanitizeDownloadId,
-  sanitizeIgdbId,
+  sanitizeExternalGameId,
   sanitizeGameStatus,
   sanitizeGameData,
   sanitizeIndexerData,
@@ -167,28 +166,26 @@ async function resolveCanonicalWithinFileBrowserRoot(input: string): Promise<str
   return canonical;
 }
 
-type IgdbConfigSource = "env" | "database" | undefined;
+type ProviderConfigSource = "env" | "database" | undefined;
 
-interface IgdbConfigStatus {
+interface ProviderConfigStatus {
   configured: boolean;
-  source: IgdbConfigSource;
+  source: ProviderConfigSource;
 }
 
 /**
- * Whether IGDB credentials are configured (DB takes precedence over env vars),
- * and which source they came from. Shared between the authenticated
+ * Whether the RAWG API key is configured (DB takes precedence over env var),
+ * and which source it came from. Shared between the authenticated
  * GET /api/config endpoint and the unauthenticated GET /api/auth/status
  * endpoint (which needs just this boolean to drive the setup wizard, without
  * exposing anything else config-related pre-login).
  */
-async function getIgdbConfigStatus(): Promise<IgdbConfigStatus> {
-  const dbClientId = await storage.getSystemConfig("igdb.clientId");
-  const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-
-  if (dbClientId && dbClientSecret) {
+async function getRawgConfigStatus(): Promise<ProviderConfigStatus> {
+  const dbKey = (await storage.getSystemConfig("rawg.apiKey"))?.trim();
+  if (dbKey) {
     return { configured: true, source: "database" };
   }
-  if (appConfig.igdb.isConfigured) {
+  if (appConfig.rawg?.apiKey?.trim()) {
     return { configured: true, source: "env" };
   }
   return { configured: false, source: undefined };
@@ -203,10 +200,10 @@ async function getIgdbConfigStatus(): Promise<IgdbConfigStatus> {
 export const PUBLIC_API_ROUTES = new Set<string>([
   "GET /auth/status", // setup-wizard / login-page bootstrap check, runs pre-login
   "POST /auth/setup", // creates the first user; there is no user/token yet
-  "POST /auth/setup/test-igdb", // "Test connection" button on the setup wizard, runs pre-login
+  "POST /auth/setup/test-rawg", // "Test connection" button for the optional RAWG key, runs pre-login
   "POST /auth/login", // issues the token; obviously can't require one
   "GET /health", // liveness probe (docker/compose healthcheck, DAST workflow)
-  "GET /ready", // readiness probe (db/IGDB connectivity), no sensitive data
+  "GET /ready", // readiness probe (db/metadata-provider connectivity), no sensitive data
 ]);
 
 function isPublicApiRequest(req: Request): boolean {
@@ -306,10 +303,10 @@ import {
 import { integrationRouter } from "./routes/integration.js";
 import { apiKeysRouter } from "./routes/api-keys.js";
 
-// Cache-Control header values for IGDB discovery endpoints
-const CC_IGDB_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
-// Adult-content filtering makes game-list responses vary per user, so they must not be shared-cacheable
-const CC_IGDB_GAME_LIST_PRIVATE = "private, max-age=3600, stale-while-revalidate=600";
+// RAWG lists are private-cached for the same reason (content filter); its
+// taxonomy endpoints (genres/platforms) rarely change, so they use the public TTL.
+const CC_RAWG_GAME_LIST_PRIVATE = "private, max-age=3600, stale-while-revalidate=600";
+const CC_RAWG_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
@@ -461,27 +458,6 @@ function isValidDiscordWebhook(value: string): boolean {
   }
 }
 
-// Twitch Client IDs/Secrets are alphanumeric tokens (currently 30 characters); the range is
-// intentionally loose so a length tweak on Twitch's side doesn't start rejecting valid values,
-// while still catching obvious mistakes (pasted whitespace, truncated copy, stray punctuation).
-const IGDB_CREDENTIAL_FORMAT = /^[A-Za-z0-9]{20,40}$/;
-
-/** Cheap client-id/secret shape check, so an obvious typo is rejected before any network call. */
-function validateIgdbCredentialFormat(
-  clientId: string,
-  clientSecret: string
-): { error: string } | null {
-  if (!IGDB_CREDENTIAL_FORMAT.test(clientId)) {
-    return { error: "Client ID doesn't look valid — check for extra spaces or a partial copy." };
-  }
-  if (!IGDB_CREDENTIAL_FORMAT.test(clientSecret)) {
-    return {
-      error: "Client Secret doesn't look valid — check for extra spaces or a partial copy.",
-    };
-  }
-  return null;
-}
-
 /**
  * Masks an indexer's API key before exposing its configuration.
  *
@@ -583,35 +559,6 @@ export function validateSetupCredentials(
   }
 
   return { username: trimmedUsername, password: trimmedPassword };
-}
-
-// Helper to save IGDB credentials provided during setup, if they're valid. Kept separate
-// from the /api/auth/setup handler for the same reason as validateSetupCredentials above:
-// keeping the handler's own cognitive complexity low.
-async function saveIgdbCredentialsIfProvided(
-  igdbClientId: unknown,
-  igdbClientSecret: unknown
-): Promise<{ error: string } | null> {
-  if (
-    typeof igdbClientId !== "string" ||
-    typeof igdbClientSecret !== "string" ||
-    igdbClientId.trim().length === 0 ||
-    igdbClientSecret.trim().length === 0
-  ) {
-    return null;
-  }
-
-  const trimmedClientId = igdbClientId.trim();
-  const trimmedClientSecret = igdbClientSecret.trim();
-  const formatError = validateIgdbCredentialFormat(trimmedClientId, trimmedClientSecret);
-  if (formatError) {
-    return formatError;
-  }
-
-  await storage.setSystemConfig("igdb.clientId", trimmedClientId);
-  await storage.setSystemConfig("igdb.clientSecret", trimmedClientSecret);
-  routesLogger.info("IGDB credentials saved during setup");
-  return null;
 }
 
 /**
@@ -737,81 +684,118 @@ async function applyContentFilter<T>(userId: string, games: T[]): Promise<T[]> {
   return excludeFilteredContent(games, flags);
 }
 
-// Cap how much we over-fetch from IGDB to backfill items dropped by content filtering
+// Cap how much we over-fetch to backfill items dropped by content filtering
 const MAX_CONTENT_FILTER_FETCH_LIMIT = 100;
 
-/**
- * Fetches games from IGDB via `fetchGames`, formats them, and applies the user's content-filter
- * preferences, over-fetching when either filter is active so the response still has up to `limit`
- * items instead of silently returning fewer than requested.
- */
-async function fetchFilteredIgdbGames(
+// ── RAWG discovery route helpers ─────────────────────────────────────────
+//
+
+/** Formats a RAWG game list and applies the user's content-filter preferences, over-fetching when either filter is active so the response still has up to `limit` items instead of silently returning fewer than requested. */
+async function fetchFilteredRawgGames(
   userId: string,
   limit: number,
-  fetchGames: (fetchLimit: number) => Promise<IGDBGame[]>
+  fetchGames: (fetchLimit: number) => Promise<RawgGame[]>
 ): Promise<Record<string, unknown>[]> {
   const flags = await getContentFilterFlags(userId);
   const filteringActive = flags.hideAdultContent || flags.hideAgeRestrictedContent;
   const fetchLimit = filteringActive ? Math.min(limit * 2, MAX_CONTENT_FILTER_FETCH_LIMIT) : limit;
-  const igdbGames = await fetchGames(fetchLimit);
-  const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+  const games = await fetchGames(fetchLimit);
+  const formattedGames = games.map((game) => rawgClient.formatGame(game));
   return filteringActive
     ? excludeFilteredContent(formattedGames, flags).slice(0, limit)
     : formattedGames;
 }
 
-/** Registers a simple `?limit=` IGDB list endpoint (popular/recent/upcoming), adult-filtered and privately cached. */
-function registerIgdbListRoute(
+function rawgNotConfiguredResponse(res: Response) {
+  res.status(503).json({
+    error: "RAWG is not configured. Add an API key in Settings → RAWG (free key: rawg.io/apidocs).",
+  });
+}
+
+function parseRawgListOptions(query: Record<string, unknown>): {
+  platform?: string;
+  genre?: string;
+  year?: number;
+} {
+  const { platform, genre, year } = query as {
+    platform?: unknown;
+    genre?: unknown;
+    year?: unknown;
+  };
+  const parsedYear =
+    typeof year === "string" ? Number.parseInt(year, 10) : typeof year === "number" ? year : NaN;
+  return {
+    ...(typeof platform === "string" && platform ? { platform } : {}),
+    ...(typeof genre === "string" && genre ? { genre } : {}),
+    ...(Number.isInteger(parsedYear) && parsedYear >= 1950 && parsedYear <= 2100
+      ? { year: parsedYear }
+      : {}),
+  };
+}
+
+/** Registers a `?limit=` RAWG list endpoint (popular/recent/upcoming) with optional `?platform=`/`?genre=` filters, adult-filtered and privately cached. */
+function registerRawgListRoute(
   app: Express,
   path: string,
   errorLabel: string,
-  fetchGames: (fetchLimit: number) => Promise<IGDBGame[]>
+  fetchGames: (
+    fetchLimit: number,
+    options: { platform?: string; genre?: string }
+  ) => Promise<RawgGame[]>
 ) {
-  app.get(path, igdbRateLimiter, async (req, res) => {
+  app.get(path, rawgRateLimiter, async (req, res) => {
+    if (!(await rawgClient.isConfigured())) return rawgNotConfiguredResponse(res);
     try {
       const { limit } = req.query;
       const parsed = typeof limit === "string" ? parseInt(limit, 10) : NaN;
       const limitNum = Number.isNaN(parsed) || parsed < 1 ? 20 : Math.min(parsed, 100);
+      const options = parseRawgListOptions(req.query);
 
-      const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limitNum, fetchGames);
+      const formattedGames = await fetchFilteredRawgGames(req.user!.id, limitNum, (fetchLimit) =>
+        fetchGames(fetchLimit, options)
+      );
 
-      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
+      res.set("Cache-Control", CC_RAWG_GAME_LIST_PRIVATE);
       res.json(formattedGames);
     } catch (error) {
-      routesLogger.error({ error }, `error fetching ${errorLabel}`);
-      res.status(500).json({ error: `Failed to fetch ${errorLabel}` });
+      routesLogger.error({ error }, `error fetching RAWG ${errorLabel}`);
+      const mapped = rawgErrorToHttpError(error);
+      res.status(mapped.status).json({ error: mapped.message });
     }
   });
 }
 
-/** Registers a `:param`-scoped, `limit`/`offset`-paginated IGDB list endpoint (genre/platform), adult-filtered and privately cached. */
-function registerIgdbParamListRoute(
+/** Registers a `:param`-scoped, `limit`/`offset`-paginated RAWG list endpoint (genre/platform slug), adult-filtered and privately cached. */
+function registerRawgParamListRoute(
   app: Express,
   path: string,
   paramName: string,
   errorLabel: string,
-  fetchGames: (paramValue: string, fetchLimit: number, offset: number) => Promise<IGDBGame[]>
+  fetchGames: (paramValue: string, fetchLimit: number, offset: number) => Promise<RawgGame[]>
 ) {
-  app.get(path, igdbRateLimiter, async (req, res) => {
+  app.get(path, rawgRateLimiter, async (req, res) => {
+    if (!(await rawgClient.isConfigured())) return rawgNotConfiguredResponse(res);
     try {
       const paramValue = req.params[paramName];
       const { limit, offset } = validatePaginationParams(
         req.query as { limit?: string; offset?: string }
       );
 
-      if (!paramValue || paramValue.length > 100) {
+      // RAWG slugs are lowercase alphanumerics with hyphens (or numeric IDs).
+      if (!paramValue || paramValue.length > 100 || !/^[a-z0-9-]+$/.test(paramValue)) {
         return res.status(400).json({ error: `Invalid ${paramName} parameter` });
       }
 
-      const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limit, (fetchLimit) =>
+      const formattedGames = await fetchFilteredRawgGames(req.user!.id, limit, (fetchLimit) =>
         fetchGames(paramValue, fetchLimit, offset)
       );
 
-      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
+      res.set("Cache-Control", CC_RAWG_GAME_LIST_PRIVATE);
       return res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, `error fetching games by ${errorLabel}`);
-      return res.status(500).json({ error: `Failed to fetch games by ${errorLabel}` });
+      const mapped = rawgErrorToHttpError(error);
+      return res.status(mapped.status).json({ error: mapped.message });
     }
   });
 }
@@ -824,7 +808,7 @@ function registerIgdbParamListRoute(
  */
 export async function registerRoutes(app: Express): Promise<Server> {
   // 🛡️ Sentinel: Add security headers with Helmet
-  // Configured to allow Vite/React (unsafe-inline/eval) in dev, and IGDB images everywhere
+  // Configured to allow Vite/React (unsafe-inline/eval) in dev, and RAWG images everywhere
   const scriptSrc = ["'self'"];
   const connectSrc = [
     "'self'",
@@ -852,7 +836,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "img-src": [
             "'self'",
             "data:",
-            "https://images.igdb.com",
+            // RAWG cover art / screenshots CDN (media.rawg.io)
+            "https://media.rawg.io",
             "https://staticdelivery.nexusmods.com",
             // Steam achievement icons (GetSchemaForGame), served from Steam's CDN
             "https://steamcdn-a.akamaihd.net",
@@ -937,16 +922,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userCount = await storage.countUsers();
       const hasUsers = userCount > 0;
-      // Also surface IGDB configured-status here (not just hasUsers) so the
-      // unauthenticated setup wizard can decide whether to ask for IGDB
-      // credentials without needing to call the authenticated /api/config
-      // endpoint pre-login. This route stays on the public allowlist even
-      // after setup completes (existing sessions re-check it), so once a
-      // user exists, omit the igdb field entirely rather than leaving IGDB
-      // configuration status queryable by any anonymous caller forever.
+      // Also surface RAWG configured-status here (not just hasUsers) so the
+      // unauthenticated setup wizard can decide whether to ask for a RAWG API
+      // key without needing to call the authenticated /api/config endpoint
+      // pre-login. This route stays on the public allowlist even after setup
+      // completes (existing sessions re-check it), so once a user exists, omit
+      // the rawg field entirely rather than leaving provider configuration
+      // status queryable by any anonymous caller forever.
       if (!hasUsers) {
-        const igdb = await getIgdbConfigStatus();
-        return res.json({ hasUsers, igdb });
+        const rawg = await getRawgConfigStatus();
+        return res.json({ hasUsers, rawg });
       }
       return res.json({ hasUsers });
     } catch (error) {
@@ -963,7 +948,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Setup already completed" });
       }
 
-      const { username, password, igdbClientId, igdbClientSecret } = req.body;
+      const { username, password, rawgApiKey } = req.body;
 
       const validated = validateSetupCredentials(username, password);
       if ("error" in validated) {
@@ -971,40 +956,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const { username: trimmedUsername, password: trimmedPassword } = validated;
 
-      // Validate IGDB credential format before creating the user account: rejecting it after
-      // the account exists would leave the caller stuck (setup can't be re-run once a user
-      // exists), so a bad format -- an incomplete pair, or a non-string value, all of which
-      // saveIgdbCredentialsIfProvided would otherwise silently discard below -- must fail fast,
-      // before anything is persisted.
-      const igdbClientIdSupplied = igdbClientId !== undefined && igdbClientId !== null;
-      const igdbClientSecretSupplied = igdbClientSecret !== undefined && igdbClientSecret !== null;
-      if (
-        (igdbClientIdSupplied && typeof igdbClientId !== "string") ||
-        (igdbClientSecretSupplied && typeof igdbClientSecret !== "string")
-      ) {
-        return res.status(400).json({ error: "IGDB Client ID and Client Secret must be strings" });
-      }
-
-      const trimmedIgdbClientId = typeof igdbClientId === "string" ? igdbClientId.trim() : "";
-      const trimmedIgdbClientSecret =
-        typeof igdbClientSecret === "string" ? igdbClientSecret.trim() : "";
-      const hasIgdbClientId = trimmedIgdbClientId.length > 0;
-      const hasIgdbClientSecret = trimmedIgdbClientSecret.length > 0;
-
-      if (hasIgdbClientId !== hasIgdbClientSecret) {
-        return res
-          .status(400)
-          .json({ error: "Both IGDB Client ID and Client Secret are required together" });
-      }
-
-      if (hasIgdbClientId && hasIgdbClientSecret) {
-        const formatError = validateIgdbCredentialFormat(
-          trimmedIgdbClientId,
-          trimmedIgdbClientSecret
-        );
-        if (formatError) {
-          return res.status(400).json(formatError);
-        }
+      // The RAWG key is a single opaque string (no pair to format-check), so a
+      // type check is all that's safe to fail fast on.
+      if (rawgApiKey !== undefined && rawgApiKey !== null && typeof rawgApiKey !== "string") {
+        return res.status(400).json({ error: "RAWG API key must be a string" });
       }
 
       // Create first user
@@ -1023,8 +978,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const token = await generateToken(user);
 
-      // Save IGDB creds if provided (format already validated above).
-      await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
+      // Save the RAWG key if provided.
+      if (typeof rawgApiKey === "string" && rawgApiKey.trim().length > 0) {
+        await storage.setSystemConfig("rawg.apiKey", rawgApiKey.trim());
+        routesLogger.info("RAWG API key saved during setup");
+      }
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
       // Cookie-based auth is the primary mechanism for browser clients (see
@@ -1045,35 +1003,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // "Test connection" button on the setup wizard. Public (no user/token exists yet), but only
-  // does anything before setup completes, so it can't become a standing unauthenticated
-  // Twitch-credential probe once the instance is in normal use.
-  app.post("/api/auth/setup/test-igdb", authRateLimiter, async (req, res) => {
+  // "Test connection" button for the optional RAWG key on the setup wizard.
+  // Public because no user/token exists yet at this point.
+  app.post("/api/auth/setup/test-rawg", authRateLimiter, async (req, res) => {
     try {
       const userCount = await storage.countUsers();
       if (userCount > 0) {
         return res.status(403).json({ success: false, error: "Setup already completed" });
       }
 
-      const { clientId, clientSecret } = req.body;
-      if (typeof clientId !== "string" || typeof clientSecret !== "string") {
-        return res
-          .status(400)
-          .json({ success: false, error: "Client ID and Client Secret are required" });
+      const { apiKey } = req.body;
+      if (typeof apiKey !== "string" || !apiKey.trim()) {
+        return res.status(400).json({ success: false, error: "API key is required" });
       }
 
-      const trimmedClientId = clientId.trim();
-      const trimmedClientSecret = clientSecret.trim();
-      const formatError = validateIgdbCredentialFormat(trimmedClientId, trimmedClientSecret);
-      if (formatError) {
-        return res.status(400).json({ success: false, ...formatError });
-      }
-
-      const result = await igdbClient.testCredentials(trimmedClientId, trimmedClientSecret);
+      const result = await rawgClient.testApiKey(apiKey.trim());
       return res.status(result.success ? 200 : 400).json(result);
     } catch (error) {
-      routesLogger.error({ error }, "Failed to test IGDB credentials during setup");
-      return res.status(500).json({ success: false, error: "Failed to test IGDB credentials" });
+      routesLogger.error({ error }, "Failed to test RAWG key during setup");
+      return res.status(500).json({ success: false, error: "Failed to test RAWG key" });
     }
   });
 
@@ -1535,27 +1483,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Configuration endpoint - read-only access to key settings. Requires
   // authentication (enforced by the default-deny API auth boundary below);
-  // the unauthenticated setup flow instead uses the `igdb` field on
+  // the unauthenticated setup flow instead uses the `rawg` field on
   // GET /api/auth/status, which exposes only the configured/source booleans.
   app.get("/api/config", sensitiveEndpointLimiter, async (_req, res) => {
     try {
       // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
       // Only expose boolean flags indicating if services are configured, not
       // sensitive details like database URLs or partial API keys.
-      // clientId is intentionally omitted here; use the authenticated
-      // GET /api/settings/igdb endpoint to retrieve it.
-      const { configured: isConfigured, source } = await getIgdbConfigStatus();
-
       const xrelApiBase =
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
         process.env.XREL_API_BASE ||
         DEFAULT_XREL_BASE;
 
       const config: Config = {
-        igdb: {
-          configured: isConfigured,
-          source,
-        },
+        rawg: await getRawgConfigStatus(),
         xrel: { apiBase: xrelApiBase },
       };
       res.json(config);
@@ -1619,13 +1560,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       isHealthy = false;
     }
 
-    // Check IGDB API connectivity
-    try {
-      // Try to get popular games with a minimal limit to test connectivity
-      await igdbClient.getPopularGames(1);
-    } catch (error) {
-      routesLogger.error({ error }, "igdb health check failed");
-      isHealthy = false;
+    // Check the configured metadata provider (RAWG). It is only required
+    // for readiness when it IS configured and then must be reachable — an
+    // instance with no provider at all still serves the whole library, so it
+    // must not report 503.
+    const rawgStatus = await getRawgConfigStatus();
+    if (rawgStatus.configured) {
+      try {
+        await rawgClient.getPopularGames(1);
+      } catch (error) {
+        routesLogger.error({ error }, "rawg health check failed");
+        isHealthy = false;
+      }
     }
 
     if (isHealthy) {
@@ -1748,11 +1694,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const gameData = insertGameSchema.parse({ ...req.body, userId });
 
         const userGames = await storage.getUserGames(userId, true); // Check against all games including hidden
-        const existingGame = userGames.find((g) =>
-          gameData.igdbId != null
-            ? g.igdbId === gameData.igdbId
-            : g.title.toLowerCase() === gameData.title.toLowerCase()
-        );
+        const existingGame = userGames.find((g) => {
+          if (gameData.rawgId != null && g.rawgId === gameData.rawgId) return true;
+          // No external ID (manual add): fall back to an exact title match.
+          return gameData.rawgId == null && g.title.toLowerCase() === gameData.title.toLowerCase();
+        });
 
         if (existingGame) {
           return res.status(409).json({ error: "Game already in collection", game: existingGame });
@@ -1899,11 +1845,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     releaseDate: z.string(),
     category: z.enum(["main", "update", "dlc", "extra", "packs"]),
     gameType: z.number().optional(),
-    igdbUrl: z.string().optional(),
+    rawgUrl: z.string().optional(),
   });
 
   // Refresh metadata for all games
-  app.post("/api/games/refresh-metadata", igdbRateLimiter, async (req, res) => {
+  app.post("/api/games/refresh-metadata", rawgRateLimiter, async (req, res) => {
     try {
       const userId = req.user!.id;
       const userGames = await storage.getUserGames(userId, true);
@@ -1912,13 +1858,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // ⚡ Bolt: Optimize metadata refresh by fetching all games in batches
       // instead of sequential 1-by-1 requests.
-      const igdbIds = userGames
-        .map((g) => g.igdbId)
-        .filter((id): id is number => id !== null && id !== undefined);
+      const rawgIds = Array.from(
+        new Set(userGames.map((g) => g.rawgId).filter((id): id is number => id != null))
+      );
 
-      // Fetch all updated game data from IGDB in parallel/batches
-      const igdbGames = igdbIds.length > 0 ? await igdbClient.getGamesByIds(igdbIds) : [];
-      const igdbGameMap = new Map(igdbGames.map((g) => [g.id, g]));
+      let rawgRefreshMap = new Map<number, { game: RawgGame; screenshots: string[] }>();
+      if (rawgIds.length > 0 && (await rawgClient.isConfigured())) {
+        const hasStoredScreenshots = new Map(
+          userGames.map((g) => [g.rawgId, (g.screenshots?.length ?? 0) > 0])
+        );
+        // Screenshots only re-fetched when a game has none stored yet; the
+        // client throttles this to stay under the free-tier burst limit.
+        rawgRefreshMap = await rawgClient.getGamesForRefresh(
+          rawgIds,
+          (id) => !hasStoredScreenshots.get(id)
+        );
+      }
 
       let updatedCount = 0;
       let errorCount = 0;
@@ -1931,43 +1886,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const updates: { id: string; data: Partial<Game> }[] = [];
 
         for (const game of chunk) {
-          if (!game.igdbId) continue;
-
-          try {
-            const igdbGame = igdbGameMap.get(game.igdbId);
-            if (igdbGame) {
-              const updatedData = igdbClient.formatGameData(igdbGame);
-              updates.push({
-                id: game.id,
-                data: {
-                  publishers: updatedData.publishers as string[],
-                  developers: updatedData.developers as string[],
-                  summary: updatedData.summary as string,
-                  rating: updatedData.rating as number | null,
-                  genres: updatedData.genres as string[],
-                  themes: updatedData.themes as string[],
-                  isAdultContent: updatedData.isAdultContent as boolean,
-                  isAgeRestricted: updatedData.isAgeRestricted as boolean,
-                  platforms: updatedData.platforms as string[],
-                  coverUrl: updatedData.coverUrl as string,
-                  screenshots: updatedData.screenshots as string[],
-                  releaseDate: updatedData.releaseDate as string,
-                  earlyAccess: updatedData.earlyAccess as boolean,
-                  igdbWebsites: z
-                    .array(z.object({ url: z.string(), category: z.number() }))
-                    .catch([])
-                    .parse(updatedData.igdbWebsites),
-                  expansions: gameExpansionSchema.array().catch([]).parse(updatedData.expansions),
-                  aggregatedRating: (updatedData.aggregatedRating as number | undefined) ?? null,
-                },
-              });
+          if (game.rawgId) {
+            try {
+              const rawgEntry = rawgRefreshMap.get(game.rawgId);
+              if (rawgEntry) {
+                const updatedData = rawgClient.formatGame(rawgEntry.game, rawgEntry.screenshots);
+                updates.push({
+                  id: game.id,
+                  data: {
+                    publishers: updatedData.publishers as string[],
+                    developers: updatedData.developers as string[],
+                    summary: updatedData.summary as string,
+                    genres: updatedData.genres as string[],
+                    themes: updatedData.themes as string[],
+                    isAdultContent: updatedData.isAdultContent as boolean,
+                    isAgeRestricted: updatedData.isAgeRestricted as boolean,
+                    platforms: updatedData.platforms as string[],
+                    coverUrl: updatedData.coverUrl as string,
+                    screenshots: updatedData.screenshots as string[],
+                    releaseDate: updatedData.releaseDate as string,
+                    websites: z
+                      .array(z.object({ url: z.string(), category: z.number() }))
+                      .catch([])
+                      .parse(updatedData.websites),
+                    expansions: gameExpansionSchema.array().catch([]).parse(updatedData.expansions),
+                    aggregatedRating: (updatedData.aggregatedRating as number | undefined) ?? null,
+                    rawgSlug: (updatedData.rawgSlug as string | null) ?? null,
+                  },
+                });
+              }
+            } catch (error) {
+              routesLogger.error(
+                { gameId: game.id, error },
+                "failed to prepare metadata update for game"
+              );
+              errorCount++;
             }
-          } catch (error) {
-            routesLogger.error(
-              { gameId: game.id, error },
-              "failed to prepare metadata update for game"
-            );
-            errorCount++;
           }
         }
 
@@ -2224,7 +2178,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==========================================================================
   // Library scanner — scans configured root folders for games not yet
-  // tracked in Questarr and matches them against IGDB.
+  // tracked in Questarr and matches them against RAWG.
   // ==========================================================================
 
   app.post(
@@ -2287,19 +2241,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { rootFolderId, folderName, igdbId } = req.body as {
+        const { rootFolderId, folderName, rawgId } = req.body as {
           rootFolderId: string;
           folderName: string;
-          igdbId: number;
+          rawgId: number;
         };
-        const result = await matchUnmatchedFolder(rootFolderId, folderName, igdbId, req.user!.id);
+        const result = await matchUnmatchedFolder(rootFolderId, folderName, rawgId, req.user!.id);
         res.json(result);
       } catch (error) {
         const msg = error instanceof Error ? error.message : "Unknown error";
         routesLogger.error({ error }, "error resolving unmatched folder");
         // matchUnmatchedFolder throws these two plain-Error messages for the
         // "client asked to match something that no longer exists" cases —
-        // report them as 404s rather than 500s; everything else (IGDB
+        // report them as 404s rather than 500s; everything else (RAWG
         // lookup failure, filesystem error) stays a 500.
         const notFound =
           msg === "Root folder not found" ||
@@ -2769,17 +2723,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  // IGDB discovery routes
+  // "Discover" feed: personal recommendations seeded from games in the user's
+  // library that are linked to RAWG, falling back to RAWG's popular list.
+  app.get("/api/games/discover", rawgRateLimiter, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      if (!(await rawgClient.isConfigured())) return rawgNotConfiguredResponse(res);
 
-  // Search IGDB for games
+      const userGames = await storage.getUserGames(userId);
+      const seeds = Array.from(
+        new Set(userGames.map((g) => g.rawgId).filter((id): id is number => id != null))
+      );
+      // Cap the number of seed games: the free-tier rate budget can't cover a
+      // per-game suggestion call for an entire library.
+      const recommendationSeeds = seeds.slice(0, 2);
+
+      let rawgGames: Record<string, unknown>[];
+      if (recommendationSeeds.length > 0) {
+        const perSeed = 25;
+        const suggestedLists = await Promise.all(
+          recommendationSeeds.map((seedId) => rawgClient.getSuggested(seedId, perSeed))
+        );
+        const merged = suggestedLists.flat();
+        rawgGames = await fetchFilteredRawgGames(userId, 50, async (fetchLimit) => {
+          const unique = new Map<number, RawgGame>();
+          for (const game of merged) unique.set(game.id, game);
+          return Array.from(unique.values()).slice(0, fetchLimit);
+        });
+      } else {
+        rawgGames = await fetchFilteredRawgGames(userId, 50, (fetchLimit) =>
+          rawgClient.getPopularGames(fetchLimit)
+        );
+      }
+
+      return res.json(rawgGames);
+    } catch (error) {
+      routesLogger.error({ error }, "error fetching games to discover");
+      return res.status(500).json({ error: "Failed to fetch games to discover" });
+    }
+  });
+
+  // ── RAWG discovery endpoints (rawg.io) ───────────────────────────────
+  // RAWG is the metadata provider for discovery: search, popular/recent/
+  // upcoming, by genre/platform, and game details. The free tier is ~5
+  // requests / 10s, so rawgRateLimiter uses a 10-second window. List
+  // endpoints don't include screenshots; /api/rawg/game/:id does.
+
   app.get(
-    "/api/igdb/search",
-    igdbRateLimiter,
+    "/api/rawg/search",
+    rawgRateLimiter,
     sanitizeSearchQuery,
     validateRequest,
     async (req: Request, res: Response) => {
+      if (!(await rawgClient.isConfigured())) return rawgNotConfiguredResponse(res);
       try {
-        const { q, limit, includeUndated, platform, year } = req.query;
+        const { q, limit } = req.query;
         if (!q || typeof q !== "string") {
           return res.status(400).json({ error: "Search query required" });
         }
@@ -2792,139 +2790,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
               : NaN;
         const limitNum =
           Number.isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(parsedLimit, 100);
-        const searchOptions = {
-          ...(typeof includeUndated === "boolean"
-            ? { includeUndated, undatedFirst: includeUndated }
-            : {}),
-          ...(typeof platform === "number" ? { platformId: platform } : {}),
-          ...(typeof year === "number" ? { releaseYear: year } : {}),
-        };
-        const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limitNum, (fetchLimit) =>
-          igdbClient.searchGames(q, fetchLimit, searchOptions)
+        const searchOptions = parseRawgListOptions(req.query);
+
+        const formattedGames = await fetchFilteredRawgGames(req.user!.id, limitNum, (fetchLimit) =>
+          rawgClient.searchGames(q, fetchLimit, searchOptions)
         );
 
-        res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
+        res.set("Cache-Control", CC_RAWG_GAME_LIST_PRIVATE);
         return res.json(formattedGames);
       } catch (error) {
-        routesLogger.error({ error }, "error searching IGDB");
-        return res.status(500).json({ error: "Failed to search games" });
+        routesLogger.error({ error }, "error searching RAWG");
+        const mapped = rawgErrorToHttpError(error);
+        return res.status(mapped.status).json({ error: mapped.message });
       }
     }
   );
 
-  // New discover endpoint for personalized recommendations
-  app.get("/api/games/discover", igdbRateLimiter, async (req, res) => {
-    try {
-      const rawLimit = req.query.limit;
-      const parsedLimit = typeof rawLimit === "string" ? parseInt(rawLimit, 10) : NaN;
-      const limit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(parsedLimit, 100);
-      const userId = req.user!.id;
-
-      // Get user's current games for recommendations
-      const userGames = await storage.getUserGames(userId, true);
-      const recommendationSeeds = userGames.map((g) => ({
-        genres: g.genres || undefined,
-        platforms: g.platforms || undefined,
-        igdbId: g.igdbId ?? undefined,
-      }));
-
-      const formattedGames = await fetchFilteredIgdbGames(userId, limit, (fetchLimit) =>
-        igdbClient.getRecommendations(recommendationSeeds, fetchLimit)
-      );
-
-      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
-      res.json(formattedGames);
-    } catch (error) {
-      routesLogger.error({ error }, "error getting game recommendations");
-      res.status(500).json({ error: "Failed to get recommendations" });
-    }
-  });
-
-  // Get popular games
-  registerIgdbListRoute(app, "/api/igdb/popular", "popular games", (fetchLimit) =>
-    igdbClient.getPopularGames(fetchLimit)
+  // Get popular / recent / upcoming releases
+  registerRawgListRoute(app, "/api/rawg/popular", "popular games", (fetchLimit, options) =>
+    rawgClient.getPopularGames(fetchLimit, options)
+  );
+  registerRawgListRoute(app, "/api/rawg/recent", "recent releases", (fetchLimit, options) =>
+    rawgClient.getRecentReleases(fetchLimit, options)
+  );
+  registerRawgListRoute(app, "/api/rawg/upcoming", "upcoming releases", (fetchLimit, options) =>
+    rawgClient.getUpcomingReleases(fetchLimit, options)
   );
 
-  // Get recent releases
-  registerIgdbListRoute(app, "/api/igdb/recent", "recent releases", (fetchLimit) =>
-    igdbClient.getRecentReleases(fetchLimit)
-  );
-
-  // Get upcoming releases
-  registerIgdbListRoute(app, "/api/igdb/upcoming", "upcoming releases", (fetchLimit) =>
-    igdbClient.getUpcomingReleases(fetchLimit)
-  );
-
-  // Get games by genre
-  registerIgdbParamListRoute(
+  // Get games by genre / platform (RAWG slugs or IDs)
+  registerRawgParamListRoute(
     app,
-    "/api/igdb/genre/:genre",
+    "/api/rawg/genre/:genre",
     "genre",
     "genre",
-    (genre, fetchLimit, offset) => igdbClient.getGamesByGenre(genre, fetchLimit, offset)
+    (genre, fetchLimit, offset) => rawgClient.getGamesByGenre(genre, fetchLimit, offset)
   );
-
-  // Get games by platform
-  registerIgdbParamListRoute(
+  registerRawgParamListRoute(
     app,
-    "/api/igdb/platform/:platform",
+    "/api/rawg/platform/:platform",
     "platform",
     "platform",
-    (platform, fetchLimit, offset) => igdbClient.getGamesByPlatform(platform, fetchLimit, offset)
+    (platform, fetchLimit, offset) => rawgClient.getGamesByPlatform(platform, fetchLimit, offset)
   );
 
-  // Get available genres (for UI dropdowns/filters)
-  app.get("/api/igdb/genres", igdbRateLimiter, async (_req, res) => {
+  // Get available genres / platforms (for UI dropdowns/filters)
+  app.get("/api/rawg/genres", rawgRateLimiter, async (_req, res) => {
+    if (!(await rawgClient.isConfigured())) return rawgNotConfiguredResponse(res);
     try {
-      const genres = await igdbClient.getGenres();
-      res.set("Cache-Control", CC_IGDB_METADATA);
+      const genres = await rawgClient.getGenres();
+      res.set("Cache-Control", CC_RAWG_METADATA);
       res.json(genres);
     } catch (error) {
-      console.error("Error fetching genres:", error);
-      res.status(500).json({ error: "Failed to fetch genres" });
+      routesLogger.error({ error }, "error fetching RAWG genres");
+      const mapped = rawgErrorToHttpError(error);
+      res.status(mapped.status).json({ error: mapped.message });
     }
   });
 
-  // Get available platforms (for UI dropdowns/filters)
-  app.get("/api/igdb/platforms", igdbRateLimiter, async (_req, res) => {
+  app.get("/api/rawg/platforms", rawgRateLimiter, async (_req, res) => {
+    if (!(await rawgClient.isConfigured())) return rawgNotConfiguredResponse(res);
     try {
-      const platforms = await igdbClient.getPlatforms();
-      res.set("Cache-Control", CC_IGDB_METADATA);
+      const platforms = await rawgClient.getPlatforms();
+      res.set("Cache-Control", CC_RAWG_METADATA);
       res.json(platforms);
     } catch (error) {
-      console.error("Error fetching platforms:", error);
-      res.status(500).json({ error: "Failed to fetch platforms" });
+      routesLogger.error({ error }, "error fetching RAWG platforms");
+      const mapped = rawgErrorToHttpError(error);
+      res.status(mapped.status).json({ error: mapped.message });
     }
   });
 
-  // Get game details by IGDB ID
+  // Get game details (with screenshots) by RAWG ID
   app.get(
-    "/api/igdb/game/:id",
-    igdbRateLimiter,
-    sanitizeIgdbId,
+    "/api/rawg/game/:id",
+    rawgRateLimiter,
+    sanitizeExternalGameId,
     validateRequest,
     async (req: Request, res: Response) => {
+      if (!(await rawgClient.isConfigured())) return rawgNotConfiguredResponse(res);
       try {
         const { id } = req.params as { id: string };
-        const igdbId = parseInt(id);
+        const rawgId = parseInt(id);
 
-        if (isNaN(igdbId)) {
+        if (isNaN(rawgId)) {
           return res.status(400).json({ error: "Invalid game ID" });
         }
 
-        const igdbGame = await igdbClient.getGameById(igdbId);
-        if (!igdbGame) {
+        const rawgGame = await rawgClient.getGameById(rawgId);
+        if (!rawgGame) {
           return res.status(404).json({ error: "Game not found" });
         }
 
-        const formattedGame = igdbClient.formatGameData(igdbGame);
-        const timeToBeat = (await igdbClient.getTimeToBeats([igdbId])).get(igdbId);
-        if (timeToBeat) {
-          formattedGame.timeToBeatHastily = timeToBeat.hastily ?? null;
-          formattedGame.timeToBeatNormally = timeToBeat.normally ?? null;
-          formattedGame.timeToBeatCompletely = timeToBeat.completely ?? null;
-        }
-        res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
+        const screenshots = await rawgClient.getScreenshots(rawgId);
+        const formattedGame = rawgClient.formatGame(rawgGame, screenshots);
+        res.set("Cache-Control", CC_RAWG_GAME_LIST_PRIVATE);
         const filterFlags = await getContentFilterFlags(req.user!.id);
         if (
           isContentFiltered(
@@ -2936,8 +2895,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         return res.json(formattedGame);
       } catch (error) {
-        routesLogger.error({ error }, "error fetching game details");
-        return res.status(500).json({ error: "Failed to fetch game details" });
+        routesLogger.error({ error }, "error fetching RAWG game details");
+        const mapped = rawgErrorToHttpError(error);
+        return res.status(mapped.status).json({ error: mapped.message });
       }
     }
   );
@@ -3929,9 +3889,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       } else {
-        // Avoid duplicates: reuse an existing library entry for the same IGDB game
-        if (newGame!.igdbId != null) {
-          const existing = await storage.getGameByIgdbId(newGame!.igdbId);
+        // Avoid duplicates: reuse an existing library entry for the same RAWG game
+        if (newGame!.rawgId != null) {
+          const existing = await storage.getGameByRawgId(newGame!.rawgId);
           if (existing && existing.userId === userId) {
             resolvedGameId = existing.id;
             if (category === "main") {
@@ -4029,7 +3989,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let addedCount = 0;
     let failedCount = 0;
     const taskItemsToInsert: InsertImportTaskItem[] = [];
-    const igdbIdToGameId = new Map<number, string>();
+    const rawgIdToGameId = new Map<number, string>();
 
     for (const item of parsedItems) {
       const key = `${item.downloaderId}:${normalizeDownloadHash(item.downloadHash)}`;
@@ -4078,15 +4038,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
         } else if (item.newGame) {
-          if (item.newGame.igdbId != null) {
-            const cached = igdbIdToGameId.get(item.newGame.igdbId);
+          if (item.newGame.rawgId != null) {
+            const cached = rawgIdToGameId.get(item.newGame.rawgId);
             if (cached) {
               resolvedGameId = cached;
             } else {
-              const existing = await storage.getGameByIgdbId(item.newGame.igdbId);
+              const existing = await storage.getGameByRawgId(item.newGame.rawgId);
               if (existing && existing.userId === userId) {
                 resolvedGameId = existing.id;
-                igdbIdToGameId.set(item.newGame.igdbId, existing.id);
+                rawgIdToGameId.set(item.newGame.rawgId, existing.id);
                 if (item.category === "main") {
                   const targetStatus = downloadStatus === "completed" ? "owned" : "downloading";
                   if (
@@ -4113,8 +4073,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               )
             );
             resolvedGameId = game.id;
-            if (item.newGame.igdbId != null) {
-              igdbIdToGameId.set(item.newGame.igdbId, game.id);
+            if (item.newGame.rawgId != null) {
+              rawgIdToGameId.set(item.newGame.rawgId, game.id);
             }
           }
         }
@@ -4504,119 +4464,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  // IGDB Configuration endpoint
-  app.get("/api/settings/igdb", sensitiveEndpointLimiter, async (_req, res) => {
+  // ── RAWG (rawg.io) configuration ──────────────────────────────────
+  // The API key is the only credential and it's an opaque secret, so GET
+  // returns a redacted placeholder (same pattern as the Discord webhook)
+  // rather than the real key. POSTing the placeholder keeps the stored
+  // key, a non-empty string replaces it, and an empty string clears it.
+  app.get("/api/settings/rawg", sensitiveEndpointLimiter, async (_req, res) => {
     try {
-      const dbClientId = await storage.getSystemConfig("igdb.clientId");
-      const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-
-      let clientId: string | undefined;
+      const dbKey = (await storage.getSystemConfig("rawg.apiKey"))?.trim();
       let source: "env" | "database" | undefined;
-
-      if (dbClientId && dbClientSecret) {
-        clientId = dbClientId;
+      if (dbKey) {
         source = "database";
-      } else if (appConfig.igdb.isConfigured) {
-        clientId = appConfig.igdb.clientId;
+      } else if (appConfig.rawg?.apiKey?.trim()) {
         source = "env";
       }
-
       res.json({
-        configured: !!(dbClientId && dbClientSecret) || appConfig.igdb.isConfigured,
+        configured: !!(dbKey || appConfig.rawg?.apiKey?.trim()),
         source,
-        clientId,
+        apiKey: dbKey ? REDACTED_PLACEHOLDER : undefined,
       });
     } catch (error) {
-      routesLogger.error({ error }, "Failed to fetch IGDB credentials");
-      res.status(500).json({ error: "Failed to fetch IGDB credentials" });
+      routesLogger.error({ error }, "Failed to fetch RAWG settings");
+      res.status(500).json({ error: "Failed to fetch RAWG settings" });
     }
   });
 
-  app.post("/api/settings/igdb", sensitiveEndpointLimiter, async (req, res) => {
+  app.post("/api/settings/rawg", sensitiveEndpointLimiter, async (req, res) => {
     try {
-      const { clientId, clientSecret } = req.body;
+      const { apiKey } = req.body as { apiKey?: string };
 
-      if (typeof clientId !== "string" || !clientId.trim()) {
-        return res.status(400).json({ error: "Client ID is required" });
-      }
-      if (clientSecret !== undefined && typeof clientSecret !== "string") {
-        return res.status(400).json({ error: "Client Secret must be a string" });
+      if (apiKey !== undefined && !isUnchangedSentinel(apiKey) && typeof apiKey !== "string") {
+        return res.status(400).json({ error: "RAWG API key must be a string" });
       }
 
-      // Whether it's safe to omit clientSecret and keep the existing one: only when a DB
-      // secret already exists to pair with the (possibly updated) DB clientId. An
-      // env-only-configured instance has no DB secret to pair with, so saving just a new
-      // clientId here would leave a DB clientId with no DB secret -- getCredentials() only
-      // uses DB creds when BOTH are present together, so it would silently fall back to the
-      // full env pair (including the old env clientId), making this update a silent no-op.
-      const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
-      const canOmitSecret = !!dbSecret;
-
-      const isMaskedValue = isUnchangedSentinel(clientSecret);
-      const hasNewSecret = !!clientSecret && !isMaskedValue;
-
-      if (!canOmitSecret && !hasNewSecret) {
-        return res.status(400).json({ error: "Client Secret is required" });
+      if (!isUnchangedSentinel(apiKey)) {
+        await storage.setSystemConfig("rawg.apiKey", (apiKey ?? "").trim());
       }
-
-      const trimmedClientId = clientId.trim();
-      const formatError = validateIgdbCredentialFormat(
-        trimmedClientId,
-        hasNewSecret ? clientSecret.trim() : "x".repeat(30) // skip re-checking an unchanged stored secret
-      );
-      if (formatError) {
-        return res.status(400).json(formatError);
-      }
-
-      await storage.setSystemConfig("igdb.clientId", trimmedClientId);
-
-      if (hasNewSecret) {
-        await storage.setSystemConfig("igdb.clientSecret", clientSecret.trim());
-      }
-
-      routesLogger.info("IGDB credentials updated via settings");
+      routesLogger.info("RAWG settings updated via settings");
       return res.json({ success: true });
     } catch (error) {
-      routesLogger.error({ error }, "Failed to update IGDB credentials");
-      return res.status(500).json({ error: "Failed to update IGDB credentials" });
+      routesLogger.error({ error }, "Failed to update RAWG settings");
+      return res.status(500).json({ error: "Failed to update RAWG settings" });
     }
   });
 
-  // Verifies a Client ID/Secret pair against Twitch/IGDB before the user saves it, so a typo
-  // or expired secret is caught immediately instead of surfacing later as a failed search.
-  // clientSecret may be the masked placeholder, meaning "use the already-saved secret".
-  app.post("/api/settings/igdb/test", sensitiveEndpointLimiter, async (req, res) => {
+  // Verifies an API key against RAWG before the user saves it, so a typo is
+  // caught immediately instead of surfacing later as an empty Discover tab.
+  // `apiKey` may be the redacted placeholder, meaning "use the stored key".
+  app.post("/api/settings/rawg/test", sensitiveEndpointLimiter, async (req, res) => {
     try {
-      const { clientId, clientSecret } = req.body;
-
-      if (typeof clientId !== "string" || !clientId.trim()) {
-        return res.status(400).json({ success: false, error: "Client ID is required" });
+      const { apiKey } = req.body as { apiKey?: string };
+      if (typeof apiKey !== "string" || !apiKey.trim()) {
+        return res.status(400).json({ success: false, error: "API key is required" });
       }
 
-      let secretToTest: string;
-      if (isUnchangedSentinel(clientSecret)) {
-        const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
-        secretToTest = dbSecret ?? appConfig.igdb.clientSecret ?? "";
-        if (!secretToTest) {
-          return res.status(400).json({ success: false, error: "Client Secret is required" });
+      let keyToTest = apiKey.trim();
+      if (isUnchangedSentinel(apiKey)) {
+        const dbKey = (await storage.getSystemConfig("rawg.apiKey"))?.trim();
+        keyToTest = dbKey || appConfig.rawg?.apiKey?.trim() || "";
+        if (!keyToTest) {
+          return res.status(400).json({ success: false, error: "API key is required" });
         }
-      } else if (typeof clientSecret === "string" && clientSecret.trim()) {
-        secretToTest = clientSecret.trim();
-      } else {
-        return res.status(400).json({ success: false, error: "Client Secret is required" });
       }
 
-      const trimmedClientId = clientId.trim();
-      const formatError = validateIgdbCredentialFormat(trimmedClientId, secretToTest);
-      if (formatError) {
-        return res.status(400).json({ success: false, ...formatError });
-      }
-
-      const result = await igdbClient.testCredentials(trimmedClientId, secretToTest);
+      const result = await rawgClient.testApiKey(keyToTest);
       return res.status(result.success ? 200 : 400).json(result);
     } catch (error) {
-      routesLogger.error({ error }, "Failed to test IGDB credentials");
-      return res.status(500).json({ success: false, error: "Failed to test IGDB credentials" });
+      routesLogger.error({ error }, "Failed to test RAWG API key");
+      return res.status(500).json({ success: false, error: "Failed to test RAWG API key" });
     }
   });
 
@@ -5063,7 +4978,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           matchedGame = found?.game;
         }
 
-        // If still no match, prepare for IGDB search
+        // If still no match, prepare for RAWG search
         if (!matchedGame) {
           // User feedback: xREL title is often "Indie-Spiele", so rely on dirname
           const title = cleanReleaseName(rel.dirname);
@@ -5081,31 +4996,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       });
 
-      // Batch search IGDB for unmatched titles
+      // Batch search RAWG for unmatched titles (only when RAWG is configured)
       const candidatesArray = Array.from(candidatesToMatch);
-      // routesLogger.debug({ count: candidatesArray.length, candidates: candidatesArray }, "Batch searching IGDB");
+      // routesLogger.debug({ count: candidatesArray.length, candidates: candidatesArray }, "Batch searching RAWG");
 
-      const igdbMatches = await igdbClient.batchSearchGames(candidatesArray);
+      const rawgMatches =
+        (await rawgClient.isConfigured()) && candidatesArray.length > 0
+          ? await rawgClient.batchSearchGames(candidatesArray)
+          : new Map<string, RawgGame>();
 
-      if (igdbMatches.size > 0) {
+      if (rawgMatches.size > 0) {
         routesLogger.debug(
           {
-            count: igdbMatches.size,
-            matches: Array.from(igdbMatches.entries()).map(([k, v]) => `${k} => ${v?.name}`),
+            count: rawgMatches.size,
+            matches: Array.from(rawgMatches.entries()).map(([k, v]) => `${k} => ${v?.name}`),
           },
-          "IGDB Matches found"
+          "RAWG matches found"
         );
       }
 
-      // Attach IGDB match candidates to results
+      // Attach RAWG match candidates to results
       const finallist = listWithMatches.map((item) => {
         if (item.libraryStatus) return item;
 
         const title = cleanReleaseName(item.dirname);
-        const match = igdbMatches.get(title);
+        const match = rawgMatches.get(title);
 
         if (match) {
-          const formattedMatch = igdbClient.formatGameData(match);
+          const formattedMatch = rawgClient.formatGame(match);
           return {
             ...item,
             matchCandidate: formattedMatch,
@@ -5205,12 +5123,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         switch (result.outcome) {
           case "not_found":
-            return res.status(404).json({ error: "No game found on IGDB for this title" });
+            return res.status(404).json({ error: "No game found on RAWG for this title" });
           case "duplicate":
             return res.status(409).json({ error: "Game already in collection", game: result.game });
           case "added":
             routesLogger.info(
-              { userId, title: result.game.title, igdbId: result.game.igdbId },
+              { userId, title: result.game.title, rawgId: result.game.rawgId },
               "Game quick-added from matching"
             );
             return res.status(201).json(result.game);

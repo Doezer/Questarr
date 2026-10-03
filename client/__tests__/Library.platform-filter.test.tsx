@@ -80,7 +80,7 @@ const GAMES = [
     title: "Alpha",
     status: "owned",
     genres: ["RPG"],
-    platforms: ["Nintendo Switch", "PC (Microsoft Windows)"],
+    platforms: ["Nintendo Switch", "PC"],
     userRating: null,
     searchResultsAvailable: false,
   },
@@ -95,10 +95,10 @@ const GAMES = [
   },
 ];
 
-const IGDB_PLATFORMS = [
-  { id: 130, name: "Nintendo Switch" },
-  { id: 6, name: "PC (Microsoft Windows)" },
-  { id: 167, name: "PlayStation 5" },
+const RAWG_PLATFORMS = [
+  { id: 9, name: "Nintendo Switch" },
+  { id: 1, name: "PC" },
+  { id: 7, name: "PlayStation 5" },
 ];
 
 function mockFetch(settings: Record<string, unknown>) {
@@ -106,8 +106,8 @@ function mockFetch(settings: Record<string, unknown>) {
     const u = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
     if (u.includes("/api/games")) return { ok: true, json: async () => GAMES } as Response;
     if (u.includes("/api/settings")) return { ok: true, json: async () => settings } as Response;
-    if (u.includes("/api/igdb/platforms"))
-      return { ok: true, json: async () => IGDB_PLATFORMS } as Response;
+    if (u.includes("/api/rawg/platforms"))
+      return { ok: true, json: async () => RAWG_PLATFORMS } as Response;
     return { ok: true, json: async () => [] } as Response;
   }) as typeof fetch;
 }
@@ -126,10 +126,10 @@ describe("Library platform filter visibility", () => {
   it("hides platforms the Platforms setting leaves unchecked", async () => {
     // Only Switch and PC are selected, so PS5 disappears from the dropdown
     // while the library itself keeps every game.
-    await renderLibrary({ importPlatformIds: [130, 6] });
+    await renderLibrary({ importPlatformIds: [9, 1] });
 
     expect(await screen.findByText("Nintendo Switch")).toBeInTheDocument();
-    expect(screen.getByText("PC (Microsoft Windows)")).toBeInTheDocument();
+    expect(screen.getByText("PC")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("PlayStation 5")).not.toBeInTheDocument());
   });
 
@@ -137,7 +137,7 @@ describe("Library platform filter visibility", () => {
     await renderLibrary({ importPlatformIds: [] });
 
     expect(await screen.findByText("Nintendo Switch")).toBeInTheDocument();
-    expect(screen.getByText("PC (Microsoft Windows)")).toBeInTheDocument();
+    expect(screen.getByText("PC")).toBeInTheDocument();
     expect(screen.getByText("PlayStation 5")).toBeInTheDocument();
   });
 
@@ -149,11 +149,11 @@ describe("Library platform filter visibility", () => {
   });
 
   it("offers no platforms when the selection matches nothing in the library", async () => {
-    // Mac (14) is a valid IGDB id that no game in this library uses. The
+    // Mac (33) is a valid RAWG id that no game in this library uses. The
     // selection resolves once the platform list loads, so the empty result is
     // genuine: the dropdown must not fall back to offering unselected
     // platforms just because the intersection came out empty.
-    await renderLibrary({ importPlatformIds: [14] });
+    await renderLibrary({ importPlatformIds: [33] });
 
     await waitFor(() => expect(screen.queryByText("Nintendo Switch")).not.toBeInTheDocument());
     expect(screen.queryByText("PC (Microsoft Windows)")).not.toBeInTheDocument();

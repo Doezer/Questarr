@@ -56,7 +56,6 @@ const pathService = {
   translatePath: vi.fn(async (p: string) => p),
   getConfiguredRoots: vi.fn().mockResolvedValue([]),
 };
-const platformService = {};
 
 function createManager(
   archiveService: ArchiveService,
@@ -69,7 +68,6 @@ function createManager(
   return new ImportManager(
     storage as never, // NOSONAR
     pathService as never, // NOSONAR
-    platformService as never, // NOSONAR
     archiveService
   );
 }

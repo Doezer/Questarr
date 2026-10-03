@@ -41,18 +41,6 @@ export type _SelectPathMappings = Expect<
 export type _InsertPathMappings = Expect<
   Equal<typeof sqliteSchema.pathMappings.$inferInsert, typeof pgSchema.pathMappings.$inferInsert>
 >;
-export type _SelectPlatformMappings = Expect<
-  Equal<
-    typeof sqliteSchema.platformMappings.$inferSelect,
-    typeof pgSchema.platformMappings.$inferSelect
-  >
->;
-export type _InsertPlatformMappings = Expect<
-  Equal<
-    typeof sqliteSchema.platformMappings.$inferInsert,
-    typeof pgSchema.platformMappings.$inferInsert
-  >
->;
 export type _SelectUserSettings = Expect<
   Equal<typeof sqliteSchema.userSettings.$inferSelect, typeof pgSchema.userSettings.$inferSelect>
 >;

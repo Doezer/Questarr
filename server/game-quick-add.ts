@@ -1,5 +1,5 @@
 import { storage } from "./storage.js";
-import { igdbClient } from "./igdb.js";
+import { rawgClient } from "./rawg.js";
 // Relative path, not the "@shared" alias: that alias only resolves for Vite's
 // client build and for type-only imports here (which tsc elides entirely).
 // insertGameSchema is a runtime value, so an alias import would compile
@@ -21,7 +21,7 @@ export type QuickAddResult =
   | { outcome: "duplicate"; game: Game };
 
 /**
- * Searches IGDB for a free-text title and adds the best match to the user's
+ * Searches RAWG for a free-text title and adds the best match to the user's
  * library. Shared by `POST /api/games/match-and-add` (browser quick-add) and
  * `POST /api/integration/games/request` (Playnite and other machine clients)
  * so the two surfaces can never drift on matching, content-filtering, or
@@ -36,12 +36,15 @@ export async function quickAddGameByTitle(
   title: string,
   options: { status?: "wanted" | "owned"; source?: Game["source"] } = {}
 ): Promise<QuickAddResult> {
-  const [igdbResult] = await igdbClient.searchGames(title, 1);
-  if (!igdbResult) {
-    return { outcome: "not_found" };
+  let match: Record<string, unknown> | null = null;
+  if (await rawgClient.isConfigured()) {
+    const [rawgResult] = await rawgClient.searchGames(title, 1);
+    if (rawgResult) match = rawgClient.formatGame(rawgResult);
   }
 
-  const match = igdbClient.formatGameData(igdbResult);
+  if (!match) {
+    return { outcome: "not_found" };
+  }
   const filterFlags = await getContentFilterFlags(userId);
   if (
     isContentFiltered(match as { isAdultContent?: boolean; isAgeRestricted?: boolean }, filterFlags)
@@ -52,7 +55,8 @@ export async function quickAddGameByTitle(
   const gameData = insertGameSchema.parse({
     userId,
     title: match.title,
-    igdbId: match.igdbId,
+    rawgId: match.rawgId,
+    rawgSlug: match.rawgSlug,
     status: options.status ?? "wanted",
     platform: "PC", // Default platform, user can change later
     platforms: match.platforms,
@@ -71,11 +75,11 @@ export async function quickAddGameByTitle(
   });
 
   const userGames = await storage.getUserGames(userId, true);
-  const existingGame = userGames.find((g) =>
-    gameData.igdbId != null
-      ? g.igdbId === gameData.igdbId
-      : g.title.toLowerCase() === gameData.title.toLowerCase()
-  );
+  const existingGame = userGames.find((g) => {
+    if (gameData.rawgId != null && g.rawgId === gameData.rawgId) return true;
+    // No external ID (manual add): fall back to an exact title match.
+    return gameData.rawgId == null && g.title.toLowerCase() === gameData.title.toLowerCase();
+  });
   if (existingGame) {
     return { outcome: "duplicate", game: existingGame };
   }

@@ -1,7 +1,6 @@
 import { vi } from "vitest";
 import type { Request, Response, NextFunction } from "express";
 import type { User } from "../../../shared/schema.js";
-import type { TimeToBeat } from "../../igdb.js";
 
 /**
  * Shared mock factories for tests that boot the full app via `registerRoutes()`
@@ -20,10 +19,8 @@ export const mockConfig = {
     allowedOrigins: [] as string[],
     basePath: "" as string,
   },
-  igdb: {
-    isConfigured: true,
-    clientId: "test-id",
-    clientSecret: "test-secret",
+  rawg: {
+    apiKey: "test-key",
   },
   nexusmods: {
     apiKey: undefined as string | undefined,
@@ -114,7 +111,7 @@ export function createStorageMock() {
     }),
     getTrackedDownloadKeys: vi.fn().mockResolvedValue(new Set()),
     getTrackedDownloadGameStatuses: vi.fn().mockResolvedValue(new Map()),
-    getGameByIgdbId: vi.fn(),
+    getGameByRawgId: vi.fn().mockResolvedValue(null),
     createImportTask: vi.fn(),
     startImportTask: vi.fn(),
     updateImportTask: vi.fn(),
@@ -160,23 +157,25 @@ export function createStorageMock() {
   };
 }
 
-export function createIgdbMock() {
+export function createRawgMock() {
   return {
     searchGames: vi.fn().mockResolvedValue([]),
-    formatGameData: vi.fn((game) => game),
+    formatGame: vi.fn((game) => game),
     getPopularGames: vi.fn().mockResolvedValue([]),
     getRecentReleases: vi.fn().mockResolvedValue([]),
     getUpcomingReleases: vi.fn().mockResolvedValue([]),
-    getRecommendations: vi.fn().mockResolvedValue([]),
+    getSuggested: vi.fn().mockResolvedValue([]),
     getGamesByGenre: vi.fn().mockResolvedValue([]),
     getGamesByPlatform: vi.fn().mockResolvedValue([]),
     getGenres: vi.fn().mockResolvedValue([]),
     getPlatforms: vi.fn().mockResolvedValue([]),
-    getGameById: vi.fn(),
-    getGamesByIds: vi.fn().mockResolvedValue([]),
-    getTimeToBeats: vi.fn().mockResolvedValue(new Map<number, TimeToBeat>()),
+    getGameById: vi.fn().mockResolvedValue(null),
+    getScreenshots: vi.fn().mockResolvedValue([]),
+    getGamesForRefresh: vi.fn().mockResolvedValue(new Map<number, unknown>()),
+    getGameBySteamAppId: vi.fn().mockResolvedValue(null),
     batchSearchGames: vi.fn().mockResolvedValue(new Map()),
-    testCredentials: vi.fn().mockResolvedValue({ success: true }),
+    testApiKey: vi.fn().mockResolvedValue({ success: true }),
+    isConfigured: vi.fn().mockResolvedValue(true),
   };
 }
 
@@ -243,17 +242,20 @@ export function createLoggerMocks() {
       info: vi.fn(),
       warn: vi.fn(),
       error: vi.fn(),
+      debug: vi.fn(),
       child: vi.fn().mockReturnThis(),
     },
     expressLogger: {
       info: vi.fn(),
       warn: vi.fn(),
       error: vi.fn(),
+      debug: vi.fn(),
       child: vi.fn().mockReturnThis(),
     },
     downloadersLogger: {
       info: vi.fn(),
       error: vi.fn(),
+      debug: vi.fn(),
       child: vi.fn().mockReturnThis(),
     },
   };

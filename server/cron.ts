@@ -1,7 +1,9 @@
 import { storage } from "./storage.js";
 import { normalizeDownloadHash } from "./download-hash.js";
-import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
-import { igdbLogger } from "./logger.js";
+import { rawgClient, type RawgGame } from "./rawg.js";
+import { logger } from "./logger.js";
+
+const cronLogger = logger.child({ module: "cron" });
 import { notifyUser } from "./socket.js";
 import { resolvePrefs } from "./notification-prefs.js";
 import { DownloaderManager } from "./downloaders.js";
@@ -118,7 +120,7 @@ export async function getAiAutoDownloadHoldReason(
     // isConfigured()/analyzeRelease() aren't expected to throw (analyzeRelease already
     // catches its own network errors), but a storage/credential-decrypt failure could --
     // fail open here too rather than letting it abort the whole game's auto-search cycle.
-    igdbLogger.warn(
+    cronLogger.warn(
       { error, title: item.title },
       "TypeSafe auto-download check failed, proceeding without it"
     );
@@ -295,12 +297,12 @@ function logAutoSearchErrors(gameTitle: string, errors: string[]): void {
   );
 
   if (areAllErrorsNetworkRelated) {
-    igdbLogger.warn(
+    cronLogger.warn(
       { gameTitle, errorCount: errors.length },
       "Search failed due to network connectivity issues (DNS/Fetch/Safety check). Please check your internet connection."
     );
   } else {
-    igdbLogger.warn({ gameTitle, errors }, "Errors during search");
+    cronLogger.warn({ gameTitle, errors }, "Errors during search");
   }
 }
 
@@ -338,7 +340,7 @@ async function searchAndCategorizeItemsForGame(
     // are only fetched because the blacklist hid a whole page, so an unrelated page there
     // should not stop the search.
     if (matchedItems.length === 0 && page === 0) {
-      igdbLogger.debug(
+      cronLogger.debug(
         { gameTitle: game.title, originalCount: items.length },
         "No items passed strict title matching"
       );
@@ -358,7 +360,7 @@ async function searchAndCategorizeItemsForGame(
   const nonBlacklisted = filterBlacklistedReleases(globallyFiltered, blacklisted);
 
   if (nonBlacklisted.length === 0) {
-    igdbLogger.debug(
+    cronLogger.debug(
       { gameTitle: game.title, matchedCount: matchedItems.length },
       "All matched items were blacklisted"
     );
@@ -369,7 +371,7 @@ async function searchAndCategorizeItemsForGame(
   try {
     rules = getAutoSearchRules(downloadRules);
   } catch (error) {
-    igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
+    cronLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
     rules = getAutoSearchRules(null);
   }
 
@@ -377,8 +379,8 @@ async function searchAndCategorizeItemsForGame(
 }
 
 export function startCronJobs() {
-  igdbLogger.info("Starting cron jobs...");
-  igdbLogger.info(
+  cronLogger.info("Starting cron jobs...");
+  cronLogger.info(
     {
       gameUpdates: `every ${CHECK_INTERVAL_MS / 1000 / 60 / 60} hours`,
       downloadStatus: `every ${DOWNLOAD_CHECK_INTERVAL_MS / 1000} seconds`,
@@ -390,38 +392,38 @@ export function startCronJobs() {
 
   // Run immediately on startup (or after a slight delay to ensure DB is ready)
   setTimeout(() => {
-    igdbLogger.info("Running initial cron job checks...");
-    checkGameUpdates().catch((err) => igdbLogger.error({ err }, "Error in checkGameUpdates"));
-    checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
-    checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
-    checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
-    checkSteamWishlist().catch((err) => igdbLogger.error({ err }, "Error in checkSteamWishlist"));
-    logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
+    cronLogger.info("Running initial cron job checks...");
+    checkGameUpdates().catch((err) => cronLogger.error({ err }, "Error in checkGameUpdates"));
+    checkDownloadStatus().catch((err) => cronLogger.error({ err }, "Error in checkDownloadStatus"));
+    checkAutoSearch().catch((err) => cronLogger.error({ err }, "Error in checkAutoSearch"));
+    checkXrelReleases().catch((err) => cronLogger.error({ err }, "Error in checkXrelReleases"));
+    checkSteamWishlist().catch((err) => cronLogger.error({ err }, "Error in checkSteamWishlist"));
+    logClientVersions().catch((err) => cronLogger.warn({ err }, "Error in logClientVersions"));
   }, 10000);
 
   // Schedule periodic checks
   setInterval(() => {
-    checkGameUpdates().catch((err) => igdbLogger.error({ err }, "Error in checkGameUpdates"));
+    checkGameUpdates().catch((err) => cronLogger.error({ err }, "Error in checkGameUpdates"));
   }, CHECK_INTERVAL_MS);
 
   setInterval(() => {
-    checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
+    checkDownloadStatus().catch((err) => cronLogger.error({ err }, "Error in checkDownloadStatus"));
   }, DOWNLOAD_CHECK_INTERVAL_MS);
 
   setInterval(() => {
-    checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
+    checkAutoSearch().catch((err) => cronLogger.error({ err }, "Error in checkAutoSearch"));
   }, AUTO_SEARCH_CHECK_INTERVAL_MS);
 
   setInterval(() => {
-    checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
+    checkXrelReleases().catch((err) => cronLogger.error({ err }, "Error in checkXrelReleases"));
   }, XREL_CHECK_INTERVAL_MS);
 
   setInterval(() => {
-    checkSteamWishlist().catch((err) => igdbLogger.error({ err }, "Error in checkSteamWishlist"));
+    checkSteamWishlist().catch((err) => cronLogger.error({ err }, "Error in checkSteamWishlist"));
   }, STEAM_SYNC_CHECK_INTERVAL_MS);
 
   setInterval(() => {
-    logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
+    logClientVersions().catch((err) => cronLogger.warn({ err }, "Error in logClientVersions"));
   }, CLIENT_VERSION_LOG_INTERVAL_MS);
 
   const IMPORT_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -429,7 +431,7 @@ export function startCronJobs() {
     const cutoff = Date.now() - IMPORT_TASK_RETENTION_MS;
     storage
       .deleteImportTasksOlderThan(cutoff)
-      .catch((err) => igdbLogger.warn({ err }, "Import task cleanup failed"));
+      .catch((err) => cronLogger.warn({ err }, "Import task cleanup failed"));
   };
   setInterval(runImportTaskCleanup, 24 * 60 * 60 * 1000);
 }
@@ -444,7 +446,7 @@ async function logClientVersions(): Promise<void> {
     return;
   }
 
-  igdbLogger.debug(
+  cronLogger.debug(
     { downloaderCount: downloaders.length, indexerCount: indexers.length },
     "Running periodic client version probes"
   );
@@ -460,49 +462,30 @@ async function logClientVersions(): Promise<void> {
 }
 
 /** Refreshes tracked game metadata and queues notifications for release changes. */
+const GAME_UPDATE_CHECK_LIMIT = 25;
+
 export async function checkGameUpdates() {
-  igdbLogger.info("Checking for game updates...");
-
-  const allGames = await storage.getAllGames();
-
-  // Filter games that are tracked (have IGDB ID) and not hidden
-  const gamesToCheck = allGames.filter((g) => g.igdbId !== null && !g.hidden);
-
-  if (gamesToCheck.length === 0) {
-    igdbLogger.info("No games to check for updates.");
+  if (!(await rawgClient.isConfigured())) {
+    cronLogger.debug("Skipping game update check — RAWG is not configured");
     return;
   }
 
-  const igdbIds = gamesToCheck.map((g) => g.igdbId as number);
+  cronLogger.info("Checking for game updates...");
 
-  // Batch fetch from IGDB
-  let igdbGames;
-  try {
-    igdbGames = await igdbClient.getGamesByIds(igdbIds);
-  } catch (error) {
-    if (error instanceof Error) {
-      const err = error as Error & { code?: string };
-      if (
-        err.code === "ENOTFOUND" ||
-        err.code === "EAI_AGAIN" ||
-        err.message.includes("fetch failed")
-      ) {
-        igdbLogger.warn(
-          { error: err.message },
-          "Network error fetching updates from IGDB. Skipping this check."
-        );
-        return;
-      }
-    }
-    throw error;
+  const allGames = await storage.getAllGames();
+
+  // Only "upcoming" games have a known future date that can be re-checked
+  // for release or delay. The free-tier rate budget limits how many games
+  // can be re-queried per cycle, so cap the batch and let later cycles
+  // pick up the rest.
+  const gamesToCheck = allGames
+    .filter((g) => g.rawgId != null && !g.hidden && g.releaseStatus === "upcoming")
+    .slice(0, GAME_UPDATE_CHECK_LIMIT);
+
+  if (gamesToCheck.length === 0) {
+    cronLogger.info("No games to check for updates.");
+    return;
   }
-
-  const igdbGameMap = new Map(igdbGames.map((g) => [g.id, g]));
-
-  // Best-effort: a failed/empty fetch here just means no games get their
-  // time-to-beat fields refreshed this cycle, never a reason to abort the
-  // rest of checkGameUpdates.
-  const timeToBeatMap = await igdbClient.getTimeToBeats(igdbIds);
 
   const updatesMap = new Map<string, Partial<Game>>();
   const notificationsToSend: InsertNotification[] = [];
@@ -516,61 +499,42 @@ export async function checkGameUpdates() {
   };
 
   for (const game of gamesToCheck) {
-    const igdbGame = igdbGameMap.get(game.igdbId!);
+    let rawgGame: RawgGame | null;
+    try {
+      rawgGame = await rawgClient.getGameById(game.rawgId!);
+    } catch {
+      // A transient RAWG failure (rate limit, network) shouldn't abort the
+      // whole batch; the game is retried in a later cycle.
+      continue;
+    }
+    if (!rawgGame) continue;
 
-    if (!igdbGame) continue;
-
-    // Helper to queue update
-    const queueUpdate = (updates: Partial<Game>) => {
-      const existing = updatesMap.get(game.id) || {};
-      updatesMap.set(game.id, { ...existing, ...updates });
-    };
-
-    // Update early access flag regardless of whether a release date is known
-    const newEarlyAccess = igdbGame.status === IGDB_EARLY_ACCESS_STATUS;
-    if (game.earlyAccess !== newEarlyAccess) {
-      queueUpdate({ earlyAccess: newEarlyAccess });
+    // Refresh the early-access flag from RAWG tags, including for undated
+    // games (early access titles often have no release date at all).
+    const newEarlyAccess = (rawgGame.tags ?? []).some((t) => /early access/i.test(t.name));
+    if (Boolean(game.earlyAccess) !== newEarlyAccess) {
+      updatesMap.set(game.id, { earlyAccess: newEarlyAccess });
     }
 
-    // Refresh time-to-beat estimates regardless of release-date info; a
-    // game absent from timeToBeatMap has no IGDB submissions yet, so leave
-    // its existing (possibly null) values untouched rather than clearing them.
-    const timeToBeat = timeToBeatMap.get(game.igdbId!);
-    if (timeToBeat) {
-      const newHastily = timeToBeat.hastily ?? null;
-      const newNormally = timeToBeat.normally ?? null;
-      const newCompletely = timeToBeat.completely ?? null;
-      if (
-        game.timeToBeatHastily !== newHastily ||
-        game.timeToBeatNormally !== newNormally ||
-        game.timeToBeatCompletely !== newCompletely
-      ) {
-        queueUpdate({
-          timeToBeatHastily: newHastily,
-          timeToBeatNormally: newNormally,
-          timeToBeatCompletely: newCompletely,
-        });
-      }
-    }
+    const currentReleaseDateStr = rawgGame.released ?? "";
+    if (!currentReleaseDateStr) continue;
 
-    if (!igdbGame.first_release_date) continue;
-
-    const currentReleaseDate = new Date(igdbGame.first_release_date * 1000);
-    const currentReleaseDateStr = currentReleaseDate.toISOString().split("T")[0]!;
-
-    // Initialize originalReleaseDate if not set
+    // Initialize originalReleaseDate if not set.
     if (!game.originalReleaseDate) {
       if (game.releaseDate) {
-        queueUpdate({ originalReleaseDate: game.releaseDate });
+        updatesMap.set(game.id, { originalReleaseDate: game.releaseDate });
         game.originalReleaseDate = game.releaseDate;
       } else {
-        queueUpdate({
+        updatesMap.set(game.id, {
           releaseDate: currentReleaseDateStr,
           originalReleaseDate: currentReleaseDateStr,
         });
         continue;
       }
     }
+
+    const currentReleaseDate = new Date(currentReleaseDateStr);
+    if (Number.isNaN(currentReleaseDate.getTime())) continue;
 
     // Now compare
     const storedOriginalDate = new Date(game.originalReleaseDate!);
@@ -605,7 +569,7 @@ export async function checkGameUpdates() {
 
     // If release date or status changed, update DB
     if (game.releaseDate !== currentReleaseDateStr || game.releaseStatus !== newReleaseStatus) {
-      igdbLogger.info(
+      cronLogger.info(
         {
           game: game.title,
           oldDate: game.releaseDate,
@@ -617,7 +581,7 @@ export async function checkGameUpdates() {
         "Game release updated"
       );
 
-      queueUpdate({
+      updatesMap.set(game.id, {
         releaseDate: currentReleaseDateStr,
         releaseStatus: newReleaseStatus,
       });
@@ -657,11 +621,11 @@ export async function checkGameUpdates() {
         if (eventKey && prefs[eventKey].apprise) appriseClient.send(notification);
       }
     } catch (error) {
-      igdbLogger.error({ error }, "Failed to add notifications in batch");
+      cronLogger.error({ error }, "Failed to add notifications in batch");
     }
   }
 
-  igdbLogger.info(
+  cronLogger.info(
     { updatedCount: updatesMap.size, checkedCount: gamesToCheck.length },
     "Finished checking for game updates."
   );
@@ -674,7 +638,7 @@ export async function checkDownloadStatus() {
     return;
   }
 
-  igdbLogger.info({ downloadingCount: downloadingDownloads.length }, "Checking download status");
+  cronLogger.info({ downloadingCount: downloadingDownloads.length }, "Checking download status");
 
   // Prune stale entries from downloadMissCount (e.g. downloads removed from DB while still downloading)
   const activeDownloadIds = new Set(downloadingDownloads.map((d) => d.id));
@@ -706,7 +670,7 @@ export async function checkDownloadStatus() {
       const activeDownloads = await DownloaderManager.getAllDownloads(downloader);
       const activeDownloadMap = new Map(activeDownloads.map((t) => [t.id.toLowerCase(), t]));
 
-      igdbLogger.debug(
+      cronLogger.debug(
         {
           downloaderId,
           activeDownloadCount: activeDownloads.length,
@@ -735,7 +699,7 @@ export async function checkDownloadStatus() {
             // Auth/transport/API failure — the torrent's visibility is unknown.
             // Skip this cycle without incrementing the miss counter, otherwise
             // a client outage would falsely mark the download failed.
-            igdbLogger.warn(
+            cronLogger.warn(
               { error, downloadId: download.id, tag: originalTag },
               "Correlation tag lookup failed — skipping this cycle"
             );
@@ -751,7 +715,7 @@ export async function checkDownloadStatus() {
               // The tag row was dropped because a real-hash row already tracks
               // this torrent (claim race). The stale object is gone, so stop
               // here rather than updating ownership or importing a dead id.
-              igdbLogger.info(
+              cronLogger.info(
                 { downloadId: download.id, tag: originalTag, resolvedHash },
                 "Correlation tag row merged into existing real-hash row — skipping"
               );
@@ -760,7 +724,7 @@ export async function checkDownloadStatus() {
             // Normalize to match what storage just persisted, so the in-memory
             // row doesn't diverge from the DB for the rest of this tick.
             download.downloadHash = normalizeDownloadHash(resolvedHash);
-            igdbLogger.info(
+            cronLogger.info(
               { downloadId: download.id, tag: originalTag, resolvedHash },
               "Resolved async qBittorrent hash for tracked download"
             );
@@ -803,13 +767,13 @@ export async function checkDownloadStatus() {
                     { status: "wanted" },
                     { preserveCurated: true }
                   );
-                  igdbLogger.debug(
+                  cronLogger.debug(
                     { gameId: download.gameId, oldStatus: failedGame.status, newStatus: "wanted" },
                     "Reset game status after async tag resolution failure"
                   );
                 }
               }
-              igdbLogger.warn(
+              cronLogger.warn(
                 {
                   downloadId: download.id,
                   tag: originalTag,
@@ -819,7 +783,7 @@ export async function checkDownloadStatus() {
               );
               continue;
             }
-            igdbLogger.debug(
+            cronLogger.debug(
               { downloadId: download.id, tag: originalTag, tagMisses },
               "Async qBittorrent download not yet visible — skipping"
             );
@@ -832,7 +796,7 @@ export async function checkDownloadStatus() {
         // Re-invoking here would start a second extraction into the same
         // directory and clobber the in-flight one.
         if (download.status === "unpacking" || download.status === "completed_pending_import") {
-          igdbLogger.debug(
+          cronLogger.debug(
             { downloadId: download.id, status: download.status },
             "Skipping download — import already in progress"
           );
@@ -860,7 +824,7 @@ export async function checkDownloadStatus() {
               { throwOnError: true }
             );
           } catch (error) {
-            igdbLogger.warn(
+            cronLogger.warn(
               { error, downloadId: download.id, downloadHash: download.downloadHash },
               "Individual download status lookup failed — skipping this cycle without counting a miss"
             );
@@ -875,7 +839,7 @@ export async function checkDownloadStatus() {
           // Clear any previous miss count — download is alive.
           downloadMissCount.delete(download.id);
 
-          igdbLogger.debug(
+          cronLogger.debug(
             {
               item: download.downloadTitle,
               status: remoteDownload.status,
@@ -897,7 +861,7 @@ export async function checkDownloadStatus() {
               remoteDownload.status !== "repairing");
 
           if (isComplete) {
-            igdbLogger.info(
+            cronLogger.info(
               {
                 item: download.downloadTitle,
                 status: remoteDownload.status,
@@ -926,7 +890,7 @@ export async function checkDownloadStatus() {
                 try {
                   await importManager.processImport(download.id, remoteImportPath);
                 } catch (error) {
-                  igdbLogger.error(
+                  cronLogger.error(
                     { error, downloadId: download.id, remoteImportPath },
                     "Failed to start import pipeline after download completion"
                   );
@@ -934,7 +898,7 @@ export async function checkDownloadStatus() {
               } else {
                 shouldSendCompletionNotification = false;
                 await storage.updateGameDownloadStatus(download.id, "manual_review_required");
-                igdbLogger.warn(
+                cronLogger.warn(
                   { downloadId: download.id, downloadHash: download.downloadHash, downloaderId },
                   "Download completed but no remote path was available for import"
                 );
@@ -948,7 +912,7 @@ export async function checkDownloadStatus() {
                   });
                   notifyUser("notification", notification);
                 } catch (notifErr) {
-                  igdbLogger.error(
+                  cronLogger.error(
                     { notifErr, downloadId: download.id },
                     "Failed to create path-unavailable notification"
                   );
@@ -968,7 +932,7 @@ export async function checkDownloadStatus() {
                 );
               }
 
-              igdbLogger.info(
+              cronLogger.info(
                 { gameId: download.gameId, downloadId: download.id },
                 "Updated game status to 'owned' after completion"
               );
@@ -1007,7 +971,7 @@ export async function checkDownloadStatus() {
               newErrorMessage =
                 remoteDownload.error?.trim() || "Aborted by downloader (no details provided)";
               isDefinitiveError = true;
-              igdbLogger.warn(
+              cronLogger.warn(
                 { title: download.downloadTitle, error: newErrorMessage },
                 "Download error detected"
               );
@@ -1031,7 +995,7 @@ export async function checkDownloadStatus() {
                 newDownloadStatus,
                 newErrorMessage
               );
-              igdbLogger.debug(
+              cronLogger.debug(
                 {
                   title: download.downloadTitle,
                   oldStatus: download.status,
@@ -1093,7 +1057,7 @@ export async function checkDownloadStatus() {
                 { status: newGameStatus },
                 { preserveCurated: true }
               );
-              igdbLogger.debug(
+              cronLogger.debug(
                 { gameId: download.gameId, oldStatus: game.status, newStatus: newGameStatus },
                 "Updated game status"
               );
@@ -1116,7 +1080,7 @@ export async function checkDownloadStatus() {
           const misses = (downloadMissCount.get(download.id) ?? 0) + 1;
           downloadMissCount.set(download.id, misses);
 
-          igdbLogger.debug(
+          cronLogger.debug(
             {
               downloadId: download.id,
               downloadHash: download.downloadHash,
@@ -1127,7 +1091,7 @@ export async function checkDownloadStatus() {
           );
 
           if (misses < DOWNLOAD_MISS_THRESHOLD) {
-            igdbLogger.warn(
+            cronLogger.warn(
               {
                 gameId: download.gameId,
                 downloadId: download.id,
@@ -1154,7 +1118,7 @@ export async function checkDownloadStatus() {
           const game = await storage.getGame(download.gameId);
           const gameTitle = game ? game.title : download.downloadTitle;
 
-          igdbLogger.warn(
+          cronLogger.warn(
             {
               gameId: download.gameId,
               downloadId: download.id,
@@ -1220,7 +1184,7 @@ export async function checkDownloadStatus() {
             if (missedPrefs.downloadFailed.apprise) appriseClient.send(notification);
           }
 
-          igdbLogger.info(
+          cronLogger.info(
             { gameId: download.gameId, gameTitle, resetGameToWanted: willResetGame },
             willResetGame
               ? "Marked download as failed and reset game status to 'wanted' after it " +
@@ -1232,7 +1196,7 @@ export async function checkDownloadStatus() {
         }
       }
     } catch (error) {
-      igdbLogger.error({ error, downloaderId }, "Error checking downloader status");
+      cronLogger.error({ error, downloaderId }, "Error checking downloader status");
       for (const dl of downloads) {
         downloadMissCount.delete(dl.id);
       }
@@ -1246,7 +1210,7 @@ export async function checkDownloadStatus() {
  * before notifying or auto-downloading.
  */
 export async function checkAutoSearch() {
-  igdbLogger.debug("Checking auto-search for wanted games...");
+  cronLogger.debug("Checking auto-search for wanted games...");
 
   try {
     // Get wanted games grouped by user directly from storage (optimized)
@@ -1285,13 +1249,13 @@ export async function checkAutoSearch() {
         const ownedGames = await storage.getUserGames(userId, false, OWNED_STATUSES_ARRAY);
 
         if (wantedGames.length === 0 && ownedGames.length === 0) {
-          igdbLogger.debug({ userId }, "No wanted or owned games found");
+          cronLogger.debug({ userId }, "No wanted or owned games found");
           // Update last search time even if no games found, to avoid checking again too soon
           await storage.updateUserSettings(userId, { lastAutoSearch: new Date() });
           continue;
         }
 
-        igdbLogger.info(
+        cronLogger.info(
           { userId, gameCount: wantedGames.length },
           "Starting auto-search for wanted games"
         );
@@ -1306,7 +1270,7 @@ export async function checkAutoSearch() {
           try {
             // Skip unreleased games if configured to do so
             if (!settings.autoSearchUnreleased && game.releaseStatus !== "released") {
-              igdbLogger.debug(
+              cronLogger.debug(
                 { gameTitle: game.title, status: game.releaseStatus },
                 "Skipping auto-search for unreleased game"
               );
@@ -1377,7 +1341,7 @@ export async function checkAutoSearch() {
                     : await getAiAutoDownloadHoldReason(item, effectivePlatform);
 
                   if (alreadyHeld) {
-                    igdbLogger.debug(
+                    cronLogger.debug(
                       { gameTitle: game.title },
                       "Skipping auto-download: release already held for AI review"
                     );
@@ -1387,7 +1351,7 @@ export async function checkAutoSearch() {
                       releaseTitle: releaseKey,
                       reason: aiHoldReason,
                     });
-                    igdbLogger.info(
+                    cronLogger.info(
                       { gameTitle: game.title, reason: aiHoldReason },
                       "Held back auto-download for AI review"
                     );
@@ -1414,7 +1378,7 @@ export async function checkAutoSearch() {
                         if (prefs.multipleResults.inApp) notifyUser("notification", notification);
                         if (prefs.multipleResults.apprise) appriseClient.send(notification);
                       } catch (error) {
-                        igdbLogger.warn(
+                        cronLogger.warn(
                           { gameTitle: game.title, error },
                           "Failed to send AI hold review notification"
                         );
@@ -1467,13 +1431,13 @@ export async function checkAutoSearch() {
                             if (prefs.autoDownload.apprise) appriseClient.send(notification);
                           }
 
-                          igdbLogger.info(
+                          cronLogger.info(
                             { gameTitle: game.title, type: item.downloadType },
                             "Auto-downloaded result"
                           );
                         }
                       } catch (error) {
-                        igdbLogger.error(
+                        cronLogger.error(
                           { gameTitle: game.title, error },
                           "Failed to auto-download"
                         );
@@ -1508,7 +1472,7 @@ export async function checkAutoSearch() {
               if (prefs.multipleResults.apprise) appriseClient.send(notification);
             }
           } catch (error) {
-            igdbLogger.error({ gameTitle: game.title, error }, "Error searching for game");
+            cronLogger.error({ gameTitle: game.title, error }, "Error searching for game");
           }
         }
 
@@ -1587,14 +1551,14 @@ export async function checkAutoSearch() {
               if (prefs.gameUpdates.apprise) appriseClient.send(notification);
             }
           } catch (error) {
-            igdbLogger.error(
+            cronLogger.error(
               { gameTitle: game.title, error },
               "Error searching for owned game updates"
             );
           }
         }
 
-        igdbLogger.info(
+        cronLogger.info(
           { userId, wantedGames: wantedGames.length, gamesWithResults },
           "Completed auto-search"
         );
@@ -1602,16 +1566,16 @@ export async function checkAutoSearch() {
         // Update last search time
         await storage.updateUserSettings(userId, { lastAutoSearch: new Date() });
       } catch (error) {
-        igdbLogger.error({ userId, error }, "Error processing auto-search for user");
+        cronLogger.error({ userId, error }, "Error processing auto-search for user");
       }
     }
   } catch (error) {
-    igdbLogger.error({ error }, "Error in checkAutoSearch");
+    cronLogger.error({ error }, "Error in checkAutoSearch");
   }
 }
 
 export async function checkXrelReleases() {
-  igdbLogger.debug("Checking xREL.to for wanted games...");
+  cronLogger.debug("Checking xREL.to for wanted games...");
 
   try {
     const baseUrl =
@@ -1626,7 +1590,7 @@ export async function checkXrelReleases() {
     });
 
     if (latestReleases.length === 0) {
-      igdbLogger.debug("No latest releases found on xREL.to, skipping check.");
+      cronLogger.debug("No latest releases found on xREL.to, skipping check.");
       return;
     }
 
@@ -1711,17 +1675,17 @@ export async function checkXrelReleases() {
             notifyUser("notification", notification);
             if (xrelPrefs.xrelRelease.apprise) appriseClient.send(notification);
           }
-          igdbLogger.info(
+          cronLogger.info(
             { gameTitle: game.title, dirname: rel.dirname },
             "xREL notification sent"
           );
         }
       } catch (error) {
-        igdbLogger.warn({ gameTitle: game.title, error }, "xREL match failed for game");
+        cronLogger.warn({ gameTitle: game.title, error }, "xREL match failed for game");
       }
     }
   } catch (error) {
-    igdbLogger.error({ error }, "Error in checkXrelReleases");
+    cronLogger.error({ error }, "Error in checkXrelReleases");
   }
 }
 
@@ -1729,13 +1693,13 @@ let steamWishlistCheckInProgress = false;
 
 export async function checkSteamWishlist() {
   if (steamWishlistCheckInProgress) {
-    igdbLogger.debug("Skipping Steam Wishlist auto-sync check — previous run still in progress");
+    cronLogger.debug("Skipping Steam Wishlist auto-sync check — previous run still in progress");
     return;
   }
 
   steamWishlistCheckInProgress = true;
   try {
-    igdbLogger.debug("Checking Steam Wishlist auto-sync for all users...");
+    cronLogger.debug("Checking Steam Wishlist auto-sync for all users...");
     const users = await storage.getAllUsers();
     for (const user of users) {
       if (!user.steamId64) continue;
@@ -1749,113 +1713,77 @@ export async function checkSteamWishlist() {
 
         if (Date.now() - lastSync < intervalMs) continue;
 
-        igdbLogger.info({ userId: user.id }, "Running scheduled Steam Wishlist sync");
+        cronLogger.info({ userId: user.id }, "Running scheduled Steam Wishlist sync");
         const result = await syncUserSteamWishlist(user.id, "system");
         if (result && result.success) {
           await storage.updateUserSettings(user.id, { lastSteamSync: new Date() });
         }
       } catch (error) {
-        igdbLogger.error({ userId: user.id, error }, "Error during scheduled Steam Wishlist sync");
+        cronLogger.error({ userId: user.id, error }, "Error during scheduled Steam Wishlist sync");
       }
     }
   } catch (error) {
-    igdbLogger.error({ error }, "Failed scheduled Steam Wishlist auto-sync check");
+    cronLogger.error({ error }, "Failed scheduled Steam Wishlist auto-sync check");
   } finally {
     steamWishlistCheckInProgress = false;
   }
 }
 
 const MAX_STEAM_SYNC_FAILURES = 3;
+// The RAWG free tier (~5 requests / 10s) makes per-App-ID lookups slow, so a
+// single sync resolves at most this many wishlist games; the rest are picked
+// up on the next sync cycle.
+const STEAM_SYNC_RESOLVE_LIMIT = 50;
 
 interface SteamSyncGameSet {
   currentGames: Game[];
-  ownedIgdbIds: Set<number>;
+  ownedRawgIds: Set<number>;
   ownedSteamAppIds: Set<number>;
 }
 
-/** Link existing games that match by IGDB ID but are missing their Steam App ID. */
+/** Link an existing library game to a Steam App ID when their RAWG IDs match. */
 async function linkExistingGamesToSteam(
-  pendingSteamAppIds: number[],
-  steamToIgdbMap: Map<number, number>,
-  { currentGames, ownedIgdbIds }: SteamSyncGameSet
-): Promise<Set<number>> {
-  const newIgdbIdsToFetch = new Set<number>();
-  const currentGamesByIgdbId = new Map(
-    currentGames.filter((g) => g.igdbId != null).map((g) => [g.igdbId as number, g])
-  );
-
-  for (const steamAppId of pendingSteamAppIds) {
-    const igdbId = steamToIgdbMap.get(steamAppId);
-    if (igdbId == null) {
-      igdbLogger.debug({ steamAppId }, "No IGDB ID found for Steam App ID");
-      continue;
-    }
-
-    if (ownedIgdbIds.has(igdbId)) {
-      const existing = currentGamesByIgdbId.get(igdbId);
-      if (existing && !existing.steamAppId) {
-        await storage.updateGame(existing.id, { steamAppId });
-      }
-    } else {
-      newIgdbIdsToFetch.add(igdbId);
-    }
+  steamAppId: number,
+  rawgId: number,
+  { currentGames, ownedRawgIds }: SteamSyncGameSet
+): Promise<boolean> {
+  if (!ownedRawgIds.has(rawgId)) return false;
+  const existing = currentGames.find((g) => g.rawgId === rawgId);
+  if (existing && !existing.steamAppId) {
+    await storage.updateGame(existing.id, { steamAppId });
   }
-
-  return newIgdbIdsToFetch;
+  return true;
 }
 
-/** Fetch details from IGDB and add new games to the user's library. */
-async function addNewSteamWishlistGames(
+/** Add a newly resolved Steam wishlist game to the user's library. */
+async function addNewSteamWishlistGame(
   userId: string,
-  pendingSteamAppIds: number[],
-  steamToIgdbMap: Map<number, number>,
-  newIgdbIds: Set<number>,
-  ownedIgdbIds: Set<number>
-) {
-  const addedGames: { title: string; igdbId: number; steamAppId: number; gameId: string }[] = [];
-
-  const gameDetailsList = await igdbClient.getGamesByIds(Array.from(newIgdbIds));
-  const gameDetailsMap = new Map(gameDetailsList.map((g) => [g.id, g]));
-
-  for (const steamAppId of pendingSteamAppIds) {
-    const igdbId = steamToIgdbMap.get(steamAppId);
-    if (igdbId == null || ownedIgdbIds.has(igdbId)) continue;
-
-    const gameDetails = gameDetailsMap.get(igdbId);
-    if (!gameDetails) continue;
-
-    const formatted = igdbClient.formatGameData(gameDetails);
-    const game = await storage.addGame({
-      userId,
-      title: formatted.title as string,
-      igdbId: formatted.igdbId as number,
-      steamAppId: steamAppId,
-      status: "wanted",
-      coverUrl: formatted.coverUrl as string,
-      summary: formatted.summary as string,
-      releaseDate: formatted.releaseDate as string,
-      rating: formatted.rating as number | null,
-      platforms: formatted.platforms as string[],
-      genres: formatted.genres as string[],
-      themes: formatted.themes as string[],
-      isAdultContent: formatted.isAdultContent as boolean,
-      isAgeRestricted: formatted.isAgeRestricted as boolean,
-      developers: formatted.developers as string[],
-      publishers: formatted.publishers as string[],
-      screenshots: formatted.screenshots as string[],
-      source: "steam",
-      hidden: false,
-      releaseStatus: formatted.isReleased ? "released" : undefined,
-    });
-    addedGames.push({
-      title: formatted.title as string,
-      igdbId: formatted.igdbId as number,
-      steamAppId,
-      gameId: game.id,
-    });
-  }
-
-  return addedGames;
+  steamAppId: number,
+  formatted: Record<string, unknown>
+): Promise<void> {
+  await storage.addGame({
+    userId,
+    title: formatted.title as string,
+    rawgId: (formatted.rawgId as number | null) ?? null,
+    rawgSlug: (formatted.rawgSlug as string | null) ?? null,
+    steamAppId,
+    status: "wanted",
+    coverUrl: formatted.coverUrl as string,
+    summary: formatted.summary as string,
+    releaseDate: formatted.releaseDate as string,
+    rating: (formatted.rating as number | null) ?? null,
+    platforms: formatted.platforms as string[],
+    genres: formatted.genres as string[],
+    themes: formatted.themes as string[],
+    isAdultContent: formatted.isAdultContent as boolean,
+    isAgeRestricted: formatted.isAgeRestricted as boolean,
+    developers: formatted.developers as string[],
+    publishers: formatted.publishers as string[],
+    screenshots: formatted.screenshots as string[],
+    source: "steam",
+    hidden: false,
+    releaseStatus: (formatted.isReleased as boolean) ? "released" : undefined,
+  });
 }
 
 export async function syncUserSteamWishlist(
@@ -1876,7 +1804,7 @@ export async function syncUserSteamWishlist(
       const message =
         "Steam wishlist sync is temporarily disabled after repeated failures. " +
         "Please verify Steam profile visibility and try again later.";
-      igdbLogger.warn({ userId, steamSyncFailures }, message);
+      cronLogger.warn({ userId, steamSyncFailures }, message);
       return { success: false, message };
     }
 
@@ -1889,7 +1817,7 @@ export async function syncUserSteamWishlist(
     await storage.startImportTask(taskId);
     notifyUser("importTaskUpdate", { taskId, status: "in_progress" });
 
-    igdbLogger.info({ userId, steamId: user.steamId64 }, "Syncing Steam Wishlist");
+    cronLogger.info({ userId, steamId: user.steamId64 }, "Syncing Steam Wishlist");
 
     const wishlistGames = await steamService.getWishlist(user.steamId64);
 
@@ -1900,8 +1828,8 @@ export async function syncUserSteamWishlist(
     const currentGames = await storage.getUserGames(userId, true);
     const gameSet: SteamSyncGameSet = {
       currentGames,
-      ownedIgdbIds: new Set(
-        currentGames.filter((g) => g.igdbId != null).map((g) => g.igdbId as number)
+      ownedRawgIds: new Set(
+        currentGames.filter((g) => g.rawgId != null).map((g) => g.rawgId as number)
       ),
       ownedSteamAppIds: new Set(
         currentGames.filter((g) => g.steamAppId != null).map((g) => g.steamAppId as number)
@@ -1914,43 +1842,43 @@ export async function syncUserSteamWishlist(
 
     const skippedCount = wishlistGames.length - pendingSteamAppIds.length;
 
-    let addedGames: { title: string; igdbId: number; steamAppId: number; gameId: string }[] = [];
-    let failedSteamAppIds: number[] = [];
+    let addedCount = 0;
+    const failedSteamAppIds: number[] = [];
 
-    if (pendingSteamAppIds.length > 0) {
-      const steamToIgdbMap = await igdbClient.getGameIdsBySteamAppIds(pendingSteamAppIds);
-      failedSteamAppIds = pendingSteamAppIds.filter((id) => !steamToIgdbMap.has(id));
+    // Resolve each wishlist App ID through RAWG's external reference
+    // endpoint, throttled to the provider's rate budget.
+    for (const steamAppId of pendingSteamAppIds.slice(0, STEAM_SYNC_RESOLVE_LIMIT)) {
+      try {
+        const rawgGame = await rawgClient.getGameBySteamAppId(steamAppId);
+        if (!rawgGame) {
+          failedSteamAppIds.push(steamAppId);
+          continue;
+        }
+        const formatted = rawgClient.formatGame(rawgGame);
 
-      const newIgdbIds = await linkExistingGamesToSteam(
-        pendingSteamAppIds,
-        steamToIgdbMap,
-        gameSet
-      );
-
-      if (newIgdbIds.size > 0) {
-        addedGames = await addNewSteamWishlistGames(
-          userId,
-          pendingSteamAppIds,
-          steamToIgdbMap,
-          newIgdbIds,
-          gameSet.ownedIgdbIds
-        );
+        if (
+          (formatted.rawgId as number | null) != null &&
+          (await linkExistingGamesToSteam(steamAppId, formatted.rawgId as number, gameSet))
+        ) {
+          continue;
+        }
+        await addNewSteamWishlistGame(userId, steamAppId, formatted);
+        addedCount++;
+        // Keep the in-memory set fresh so later wishlist items can link.
+        if (formatted.rawgId != null) gameSet.ownedRawgIds.add(formatted.rawgId as number);
+        gameSet.ownedSteamAppIds.add(steamAppId);
+      } catch (error) {
+        cronLogger.error({ userId, steamAppId, error }, "Failed to resolve Steam App ID via RAWG");
+        failedSteamAppIds.push(steamAppId);
       }
     }
 
     const importItems = [
-      ...addedGames.map((g) => ({
-        taskId: taskId!,
-        itemName: `Steam App ${g.steamAppId}`,
-        result: "added" as const,
-        gameId: g.gameId,
-        gameTitle: g.title,
-      })),
       ...failedSteamAppIds.map((id) => ({
         taskId: taskId!,
         itemName: `Steam App ${id}`,
         result: "failed" as const,
-        errorMessage: "No IGDB match found",
+        errorMessage: "No RAWG match found",
       })),
     ];
     if (importItems.length > 0) {
@@ -1963,29 +1891,29 @@ export async function syncUserSteamWishlist(
       status: finalStatus,
       completedAt: new Date(),
       totalItems: wishlistGames.length,
-      addedItems: addedGames.length,
+      addedItems: addedCount,
       skippedItems: skippedCount,
       failedItems: failedSteamAppIds.length,
     });
     notifyUser("importTaskUpdate", { taskId, status: finalStatus });
 
     const steamPrefs = resolvePrefs(settings);
-    if (addedGames.length > 0 && steamPrefs.steamSync.inApp) {
+    if (addedCount > 0 && steamPrefs.steamSync.inApp) {
       const notification = await storage.addNotification({
         userId,
         type: "success",
         title: "Steam Wishlist Synced",
-        message: `Successfully added ${addedGames.length} games from your Steam Wishlist.`,
+        message: `Successfully added ${addedCount} game(s) from your Steam Wishlist.`,
       });
       notifyUser("notification", notification);
       if (steamPrefs.steamSync.apprise) appriseClient.send(notification);
     }
 
-    return { success: true, addedCount: addedGames.length, games: addedGames };
+    return { success: true, addedCount, games: [] };
   } catch (error) {
     const nextSteamSyncFailures = steamSyncFailures + 1;
     await storage.updateUserSettings(userId, { steamSyncFailures: nextSteamSyncFailures });
-    igdbLogger.error({ userId, error }, "Steam Sync Failed");
+    cronLogger.error({ userId, error }, "Steam Sync Failed");
     const errMessage = error instanceof Error ? error.message : "Unknown error";
 
     if (taskId) {

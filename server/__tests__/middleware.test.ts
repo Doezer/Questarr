@@ -4,7 +4,7 @@ import {
   validateRequest,
   sanitizeSearchQuery,
   sanitizeGameId,
-  sanitizeIgdbId,
+  sanitizeExternalGameId,
   sanitizeGameStatus,
   sanitizeGameData,
   sanitizeIndexerData,
@@ -123,13 +123,13 @@ describe("Middleware - Input Sanitization", () => {
     });
   });
 
-  describe("sanitizeIgdbId", () => {
-    it("should allow valid IGDB ID", async () => {
+  describe("sanitizeExternalGameId", () => {
+    it("should allow valid external game ID", async () => {
       const req = createMockRequest({ params: { id: "12345" } });
       const res = createMockResponse();
       const next = createMockNext();
 
-      for (const validator of sanitizeIgdbId) {
+      for (const validator of sanitizeExternalGameId) {
         await validator(req as Request, res as Response, next);
       }
 
@@ -139,12 +139,12 @@ describe("Middleware - Input Sanitization", () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
-    it("should reject negative IGDB ID", async () => {
+    it("should reject negative external game ID", async () => {
       const req = createMockRequest({ params: { id: "-1" } });
       const res = createMockResponse();
       const next = createMockNext();
 
-      for (const validator of sanitizeIgdbId) {
+      for (const validator of sanitizeExternalGameId) {
         await validator(req as Request, res as Response, next);
       }
 
@@ -153,12 +153,12 @@ describe("Middleware - Input Sanitization", () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it("should reject non-numeric IGDB ID", async () => {
+    it("should reject non-numeric external game ID", async () => {
       const req = createMockRequest({ params: { id: "abc" } });
       const res = createMockResponse();
       const next = createMockNext();
 
-      for (const validator of sanitizeIgdbId) {
+      for (const validator of sanitizeExternalGameId) {
         await validator(req as Request, res as Response, next);
       }
 

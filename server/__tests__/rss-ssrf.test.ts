@@ -9,7 +9,7 @@ import { isSafeUrl } from "../ssrf.js";
 // Mock dependencies
 vi.mock("../storage.js");
 vi.mock("../rss.js");
-vi.mock("../igdb.js");
+vi.mock("../rawg.js");
 vi.mock("../db.js");
 vi.mock("../torznab.js");
 vi.mock("../downloaders.js");
@@ -62,7 +62,7 @@ vi.mock("../logger.js", () => ({
       debug: vi.fn(),
     }),
   },
-  igdbLogger: {
+  rawgLogger: {
     info: vi.fn(),
     error: vi.fn(),
     warn: vi.fn(),
@@ -71,7 +71,7 @@ vi.mock("../logger.js", () => ({
 }));
 
 vi.mock("../middleware.js", () => ({
-  igdbRateLimiter: (
+  rawgRateLimiter: (
     req: import("express").Request,
     res: import("express").Response,
     next: import("express").NextFunction
@@ -98,7 +98,7 @@ vi.mock("../middleware.js", () => ({
   ) => next(),
   sanitizeSearchQuery: [],
   sanitizeGameId: [],
-  sanitizeIgdbId: [],
+  sanitizeExternalGameId: [],
   sanitizeDownloadId: [],
   sanitizeGameStatus: [],
   sanitizeGameData: [],

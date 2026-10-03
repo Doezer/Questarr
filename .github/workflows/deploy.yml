@@ -354,8 +354,7 @@ jobs:
           docker pull ghcr.io/${{ env.REPO_LC }}:\$TAG
           docker run -d -p 5000:5000 \\
             -e POSTGRES_PASSWORD=your_password \\
-            -e IGDB_CLIENT_ID=your_client_id \\
-            -e IGDB_CLIENT_SECRET=your_client_secret \\
+            -e RAWG_API_KEY=your_rawg_api_key \\
             ghcr.io/${{ env.REPO_LC }}:\$TAG
           \`\`\`
 

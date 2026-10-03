@@ -33,7 +33,6 @@ const EXPECTED_TABLES = [
   "indexers",
   "notifications",
   "pathMappings",
-  "platformMappings",
   "releaseBlacklist",
   "rootFolders",
   "rssFeedItems",

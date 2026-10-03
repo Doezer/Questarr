@@ -22,7 +22,7 @@ vi.mock("../logger.js", () => {
   };
   return {
     logger: { child: vi.fn(() => mockLogger) },
-    igdbLogger: mockLogger,
+    rawgLogger: mockLogger,
     routesLogger: mockLogger,
     expressLogger: mockLogger,
     downloadersLogger: mockLogger,

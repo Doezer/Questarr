@@ -6,7 +6,7 @@ import { Gamepad2, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { UserSettings } from "@shared/schema";
-import type { IgdbPlatform } from "@shared/platforms";
+import type { RawgPlatform } from "@shared/platforms";
 import { PlatformPicker } from "./PlatformPicker";
 
 /**
@@ -37,12 +37,12 @@ export default function PlatformsSettings() {
   const { data: settings } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
   });
-  const { data: igdbPlatformsData, isLoading: platformsLoading } = useQuery<IgdbPlatform[]>({
-    queryKey: ["/api/igdb/platforms"],
+  const { data: rawgPlatformsData, isLoading: platformsLoading } = useQuery<RawgPlatform[]>({
+    queryKey: ["/api/rawg/platforms"],
   });
-  const igdbPlatforms = useMemo(
-    () => (Array.isArray(igdbPlatformsData) ? igdbPlatformsData : []),
-    [igdbPlatformsData]
+  const rawgPlatforms = useMemo(
+    () => (Array.isArray(rawgPlatformsData) ? rawgPlatformsData : []),
+    [rawgPlatformsData]
   );
 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -53,11 +53,11 @@ export default function PlatformsSettings() {
   // for `settings` matters: the platform list may resolve first, and seeding
   // from an undefined settings object would latch an empty selection.
   useEffect(() => {
-    if (loadedRef.current || !settings || igdbPlatforms.length === 0) return;
+    if (loadedRef.current || !settings || rawgPlatforms.length === 0) return;
     const saved = settings.importPlatformIds;
     setSelectedIds(Array.isArray(saved) ? saved.filter(isSelectablePlatformId) : []);
     loadedRef.current = true;
-  }, [settings, igdbPlatforms]);
+  }, [settings, rawgPlatforms]);
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (importPlatformIds: number[]) => {
@@ -77,12 +77,12 @@ export default function PlatformsSettings() {
   });
 
   const handleSave = () => {
-    // Without the stored settings we cannot tell which saved ids IGDB no longer
+    // Without the stored settings we cannot tell which saved ids RAWG no longer
     // reports, so saving would silently drop them.
     if (!settings) return;
-    const knownIds = new Set(igdbPlatforms.map((p) => p.id));
+    const knownIds = new Set(rawgPlatforms.map((p) => p.id));
     const selectedKnown = selectedIds.filter((id) => knownIds.has(id));
-    // Keep any stored id IGDB no longer reports, so an upstream removal can't
+    // Keep any stored id RAWG no longer reports, so an upstream removal can't
     // silently widen the selection. Malformed members are dropped rather than
     // preserved: sending one back would fail schema validation on every save.
     const stored = Array.isArray(settings.importPlatformIds) ? settings.importPlatformIds : [];

@@ -78,7 +78,7 @@ describe("mapGameToInsertGame", () => {
   it("maps only insertable fields and normalizes booleans", () => {
     const mapped = mapGameToInsertGame({
       id: "game-1",
-      igdbId: 77,
+      rawgId: 77,
       title: "Questarr",
       summary: "Summary",
       coverUrl: "/cover.png",
@@ -87,7 +87,7 @@ describe("mapGameToInsertGame", () => {
       platforms: ["PC"],
       genres: ["Action"],
       screenshots: ["shot"],
-      igdbWebsites: ["site"],
+      websites: ["site"],
       aggregatedRating: 88,
       source: "api",
       status: "wanted",
@@ -98,7 +98,7 @@ describe("mapGameToInsertGame", () => {
     });
 
     expect(mapped).toEqual({
-      igdbId: 77,
+      rawgId: 77,
       title: "Questarr",
       summary: "Summary",
       coverUrl: "/cover.png",
@@ -108,7 +108,7 @@ describe("mapGameToInsertGame", () => {
       genres: ["Action"],
       themes: undefined,
       screenshots: ["shot"],
-      igdbWebsites: ["site"],
+      websites: ["site"],
       aggregatedRating: 88,
       source: "api",
       status: "wanted",

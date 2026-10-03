@@ -23,14 +23,12 @@ import {
 import { Lock, User, ShieldCheck, Gamepad2, Info, ExternalLink } from "lucide-react";
 import { withBasePath } from "@/lib/app-path";
 import { passwordPolicySchema } from "@shared/schema";
-import { IgdbHelpPopover, IgdbTestConnectionButton } from "@/components/IgdbCredentialsHelper";
 
 type SetupForm = {
   username: string;
   password: string;
   confirmPassword: string;
-  igdbClientId: string | undefined;
-  igdbClientSecret: string | undefined;
+  rawgApiKey?: string | undefined;
 };
 
 export default function SetupPage() {
@@ -39,7 +37,7 @@ export default function SetupPage() {
   // const [_, setLocation] = useLocation();
 
   // GET /api/config requires authentication, which doesn't exist yet during
-  // setup, so the IGDB-configured status is read from the unauthenticated
+  // setup, so the provider-configured status is read from the unauthenticated
   // GET /api/auth/status endpoint instead (shares the query cache with
   // AuthProvider's own status check).
   const { data: statusData, isLoading: isLoadingConfig } = useQuery({
@@ -49,23 +47,22 @@ export default function SetupPage() {
   const config = statusData;
 
   const setupSchema = useMemo(() => {
-    const isIgdbConfigured = config?.igdb?.configured;
+    const isRawgConfigured = !!config?.rawg?.configured;
 
     return z
       .object({
         username: z.string().min(3, "Username must be at least 3 characters"),
         password: passwordPolicySchema,
         confirmPassword: z.string().trim(),
-        igdbClientId: isIgdbConfigured
-          ? z.string().optional()
-          : z.string().min(1, "IGDB Client ID is required"),
-        igdbClientSecret: isIgdbConfigured
-          ? z.string().optional()
-          : z.string().min(1, "IGDB Client Secret is required"),
+        rawgApiKey: z.string().optional(),
       })
       .refine((data) => data.password === data.confirmPassword, {
         message: "Passwords do not match",
         path: ["confirmPassword"],
+      })
+      .refine((data) => isRawgConfigured || !!data.rawgApiKey?.trim(), {
+        message: "Enter a RAWG API key (free at rawg.io).",
+        path: ["rawgApiKey"],
       });
   }, [config]);
 
@@ -75,8 +72,7 @@ export default function SetupPage() {
       username: "",
       password: "",
       confirmPassword: "",
-      igdbClientId: "",
-      igdbClientSecret: "",
+      rawgApiKey: "",
     },
   });
 
@@ -85,8 +81,7 @@ export default function SetupPage() {
       const res = await apiRequest("POST", "/api/auth/setup", {
         username: data.username,
         password: data.password,
-        igdbClientId: data.igdbClientId,
-        igdbClientSecret: data.igdbClientSecret,
+        rawgApiKey: data.rawgApiKey,
       });
       return res.json();
     },
@@ -101,6 +96,29 @@ export default function SetupPage() {
     onError: (error: Error) => {
       toast({
         title: "Setup failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const testRawgMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/auth/setup/test-rawg", {
+        apiKey: form.getValues("rawgApiKey")?.trim() ?? "",
+      });
+      return res.json() as Promise<{ success: boolean; error?: string }>;
+    },
+    onSuccess: (result) => {
+      toast({
+        title: result.success ? "RAWG connection successful" : "RAWG connection failed",
+        description: result.success ? "The API key is valid." : result.error,
+        variant: result.success ? "default" : "destructive",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "RAWG connection failed",
         description: error.message,
         variant: "destructive",
       });
@@ -211,55 +229,60 @@ export default function SetupPage() {
                 )}
               />
 
-              {config && !config.igdb?.configured && (
-                <>
-                  <div className="border-t my-4 pt-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <h3 className="font-medium flex items-center gap-2">
-                        <Gamepad2 className="h-4 w-4" />
-                        IGDB Configuration
-                      </h3>
-                      <IgdbHelpPopover />
-                    </div>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      IGDB credentials are required to discover and import games.
-                    </p>
+              {config && !config.rawg?.configured && (
+                <div className="border-t my-4 pt-4">
+                  <h3 className="font-medium flex items-center gap-2 mb-2">
+                    <Gamepad2 className="h-4 w-4" />
+                    Game Metadata Provider
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Questarr uses RAWG for game search, discovery, and metadata. You can also add
+                    the key later in Settings.
+                  </p>
+
+                  <div className="space-y-3">
+                    <h4 className="font-medium">RAWG</h4>
+                    <FormField
+                      control={form.control}
+                      name="rawgApiKey"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>API Key</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="password"
+                              placeholder="RAWG API key"
+                              autoComplete="new-password"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Get a free key at{" "}
+                            <a
+                              href="https://rawg.io/apidocs"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline underline-offset-2"
+                            >
+                              rawg.io/apidocs
+                            </a>
+                            .
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => testRawgMutation.mutate()}
+                      disabled={testRawgMutation.isPending || !form.watch("rawgApiKey")?.trim()}
+                    >
+                      {testRawgMutation.isPending ? "Testing..." : "Test RAWG key"}
+                    </Button>
                   </div>
-
-                  <FormField
-                    control={form.control}
-                    name="igdbClientId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Client ID</FormLabel>
-                        <FormControl>
-                          <Input placeholder="IGDB Client ID" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="igdbClientSecret"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Client Secret</FormLabel>
-                        <FormControl>
-                          <Input type="password" placeholder="IGDB Client Secret" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <IgdbTestConnectionButton
-                    clientId={form.watch("igdbClientId") ?? ""}
-                    clientSecret={form.watch("igdbClientSecret") ?? ""}
-                    testEndpoint="/api/auth/setup/test-igdb"
-                  />
-                </>
+                </div>
               )}
 
               <Button

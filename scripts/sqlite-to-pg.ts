@@ -36,7 +36,6 @@ const TABLE_ORDER = [
   // No foreign keys.
   "users",
   "pathMappings",
-  "platformMappings",
   "systemConfig",
   "rootFolders",
   "indexers",

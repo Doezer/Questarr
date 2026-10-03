@@ -3,8 +3,22 @@
   "@id": "https://github.com/Doezer/questarr/blob/main/security/vex/questarr.openvex.json",
   "author": "Doezer",
   "role": "Project maintainer",
-  "timestamp": "2026-07-03T08:27:09Z",
-  "version": 1,
+  "timestamp": "2026-10-03T18:45:00Z",
+  "version": 2,
   "tooling": "manual assessment, cross-referenced with npm audit and Anchore Grype/Trivy scans of the published container image",
-  "statements": []
+  "statements": [
+    {
+      "vulnerability": {
+        "@id": "GHSA-86w9-cpqp-85rv"
+      },
+      "product": {
+        "@id": "pkg:npm/node-forge",
+        "versions_affected": ["0.0.0-1.5.0"]
+      },
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "The vulnerable function is RSA PKCS#1 v1.5 signature VERIFICATION in node-forge (forge.pki.verify / certificate.verify): a malformed nested DigestAlgorithm lets a forged signature pass verification against a low-exponent RSA public key (incomplete fix for CVE-2026-33894). Questarr uses node-forge only in server/ssl.ts, for (1) generating an RSA key pair (pki.rsa.generateKeyPair), (2) creating and signing the self-signed TLS certificate the setup wizard can generate (pki.createCertificate + certificate.sign — signature creation, not verification), and (3) parsing PEM certificates to display expiry/subject in the UI (pki.certificateFromPem). It never calls the verification API — the certificate/key match check in validateCertFiles() uses Node's own tls.createSecureContext — so the vulnerable code path is unreachable from Questarr, and no Questarr input can be routed through it.",
+      "action_statement": "No patched release exists as of 2026-10-03 (node-forge 1.4.0 is the latest published version, and the advisory's affected range is <=1.4.0). Re-assess whenever a new node-forge release ships (Dependabot proposes upgrades); when a fixed version is available, upgrade and replace this statement with a `fixed` statement. This statement is invalid if Questarr ever starts verifying signatures with node-forge — that change must be paired with a patched or replacement dependency before it ships."
+    }
+  ]
 }

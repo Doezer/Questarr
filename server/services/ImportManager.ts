@@ -1,6 +1,5 @@
 import { type IStorage } from "../storage.js";
 import { PathMappingService } from "./PathMappingService.js";
-import { PlatformMappingService } from "./PlatformMappingService.js";
 import { ArchiveService, ArchivePasswordRequiredError } from "./ArchiveService.js";
 import {
   ImportStrategy,
@@ -16,7 +15,7 @@ import { DownloaderManager } from "../downloaders.js";
 import { resolveDownloadRelativePath, buildRemoteImportPath } from "../downloaders/utils.js";
 import fs from "fs-extra";
 import path from "node:path";
-import { parseReleaseMetadata } from "../../shared/title-utils.js";
+import { parseReleaseMetadata, resolveTargetPlatform, CANONICAL_PLATFORM_RAWG_ID } from "../../shared/title-utils.js";
 import {
   GAME_LINK_REQUIRED_STATUS,
   QUARANTINED_STATUS,
@@ -30,29 +29,39 @@ import { resolvePrefs } from "../notification-prefs.js";
 import { appriseClient } from "../apprise.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
 
-const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
-  nes: 18,
-  snes: 19,
-  n64: 4,
-  gamecube: 21,
-  wii: 5,
-  gb: 33,
-  gbc: 22,
-  gba: 24,
-  nds: 20,
-  "3ds": 37,
-  switch: 130,
-  ps1: 7,
-  ps2: 8,
-  ps3: 9,
-  psp: 38,
-  "game gear": 35,
-  "master system": 64,
-  "mega drive": 29,
-  dreamcast: 23,
-  "atari 2600": 59,
-  "neo geo": 80,
-  pc: 6,
+/**
+ * Release-title platform slug -> RAWG platform ID.
+ *
+ * Values derive from the canonical platform catalog (single source of truth,
+ * shared/title-utils.ts) so import filtering and the release-filter map in
+ * shared/platforms.ts can never disagree on a RAWG id. The one exception is
+ * "game gear": RAWG has a Game Gear platform but the catalog has no entry
+ * for it (it is not a supported target platform), so its verified RAWG id
+ * (77) stays a literal here.
+ */
+const RELEASE_PLATFORM_TO_RAWG_ID: Record<string, number> = {
+  nes: CANONICAL_PLATFORM_RAWG_ID.NES,
+  snes: CANONICAL_PLATFORM_RAWG_ID.SNES,
+  n64: CANONICAL_PLATFORM_RAWG_ID.N64,
+  gamecube: CANONICAL_PLATFORM_RAWG_ID.GameCube,
+  wii: CANONICAL_PLATFORM_RAWG_ID.Wii,
+  gb: CANONICAL_PLATFORM_RAWG_ID.GB,
+  gbc: CANONICAL_PLATFORM_RAWG_ID.GBC,
+  gba: CANONICAL_PLATFORM_RAWG_ID.GBA,
+  nds: CANONICAL_PLATFORM_RAWG_ID.NDS,
+  "3ds": CANONICAL_PLATFORM_RAWG_ID["3DS"],
+  switch: CANONICAL_PLATFORM_RAWG_ID.Switch,
+  ps1: CANONICAL_PLATFORM_RAWG_ID.PS1,
+  ps2: CANONICAL_PLATFORM_RAWG_ID.PS2,
+  ps3: CANONICAL_PLATFORM_RAWG_ID.PS3,
+  psp: CANONICAL_PLATFORM_RAWG_ID.PSP,
+  "game gear": 77,
+  "master system": CANONICAL_PLATFORM_RAWG_ID["Master System"],
+  "mega drive": CANONICAL_PLATFORM_RAWG_ID["Mega Drive"],
+  dreamcast: CANONICAL_PLATFORM_RAWG_ID.Dreamcast,
+  "atari 2600": CANONICAL_PLATFORM_RAWG_ID["Atari 2600"],
+  "neo geo": CANONICAL_PLATFORM_RAWG_ID["Neo Geo"],
+  pc: CANONICAL_PLATFORM_RAWG_ID.PC,
 };
 
 const PLATFORM_FOLDER_NAMES: Record<string, string> = {
@@ -80,8 +89,8 @@ const PLATFORM_FOLDER_NAMES: Record<string, string> = {
   pc: "PC",
 };
 
-const IGDB_ID_TO_PLATFORM_KEY: Record<number, string> = Object.fromEntries(
-  Object.entries(RELEASE_PLATFORM_TO_IGDB_ID).map(([key, id]) => [id, key])
+const RAWG_ID_TO_PLATFORM_KEY: Record<number, string> = Object.fromEntries(
+  Object.entries(RELEASE_PLATFORM_TO_RAWG_ID).map(([key, id]) => [id, key])
 );
 
 const MAX_PATH_RETRY = 5;
@@ -114,7 +123,6 @@ export class ImportManager {
   constructor(
     private readonly storage: IStorage,
     private readonly pathService: PathMappingService,
-    _platformService: PlatformMappingService,
     private readonly archiveService: ArchiveService,
     securityScanService?: Pick<SecurityScanService, "scan">
   ) {
@@ -132,8 +140,20 @@ export class ImportManager {
     return undefined;
   }
 
-  private getPrimaryPlatformId(game: { platforms?: unknown }): number | undefined {
+  /**
+   * Resolves a game's primary RAWG platform id. Games store their platforms as
+   * provider names (RAWG since v1.5.0, IGDB before that), so each name is
+   * matched against the catalog's name list and the first hit wins. Numeric-id
+   * payloads (legacy rows) still resolve via the numeric extraction fallback.
+   */
+  private getPrimaryPlatformRawgId(game: { platforms?: unknown }): number | undefined {
     if (!Array.isArray(game.platforms)) return undefined;
+    for (const p of game.platforms) {
+      if (typeof p === "string") {
+        const canonical = resolveTargetPlatform(null, p);
+        if (canonical) return CANONICAL_PLATFORM_RAWG_ID[canonical];
+      }
+    }
     for (const p of game.platforms) {
       const platformId = this.extractPlatformIdFromElement(p);
       if (platformId !== undefined) return platformId;
@@ -152,19 +172,19 @@ export class ImportManager {
     return parsed.platform.trim().toLowerCase();
   }
 
-  private getReleasePlatformIgdbId(releasePlatformKey: string | null): number | undefined {
+  private getReleasePlatformRawgId(releasePlatformKey: string | null): number | undefined {
     if (!releasePlatformKey) return undefined;
-    return RELEASE_PLATFORM_TO_IGDB_ID[releasePlatformKey];
+    return RELEASE_PLATFORM_TO_RAWG_ID[releasePlatformKey];
   }
 
   private resolvePlatformFolderName(downloadTitle: string, game: { platforms?: unknown }): string {
     const key = this.getReleasePlatformKey(downloadTitle);
     if (key && PLATFORM_FOLDER_NAMES[key]) return PLATFORM_FOLDER_NAMES[key];
 
-    const igdbId = this.getPrimaryPlatformId(game);
-    if (igdbId !== undefined) {
-      const igdbKey = IGDB_ID_TO_PLATFORM_KEY[igdbId];
-      if (igdbKey && PLATFORM_FOLDER_NAMES[igdbKey]) return PLATFORM_FOLDER_NAMES[igdbKey];
+    const rawgId = this.getPrimaryPlatformRawgId(game);
+    if (rawgId !== undefined) {
+      const rawgKey = RAWG_ID_TO_PLATFORM_KEY[rawgId];
+      if (rawgKey && PLATFORM_FOLDER_NAMES[rawgKey]) return PLATFORM_FOLDER_NAMES[rawgKey];
     }
 
     return "PC";
@@ -517,9 +537,9 @@ export class ImportManager {
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     importPlatformIds: number[]
   ): boolean {
-    const gamePrimaryPlatformId = this.getPrimaryPlatformId(game);
+    const gamePrimaryPlatformId = this.getPrimaryPlatformRawgId(game);
     const releasePlatformKey = this.getReleasePlatformKey(downloadTitle);
-    const releasePlatformId = this.getReleasePlatformIgdbId(releasePlatformKey);
+    const releasePlatformId = this.getReleasePlatformRawgId(releasePlatformKey);
     const effectivePlatformId = releasePlatformId ?? gamePrimaryPlatformId;
 
     if (!this.isPlatformEnabled(effectivePlatformId, importPlatformIds)) {

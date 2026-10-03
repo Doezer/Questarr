@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RssService } from "../rss.js";
 import { storage } from "../storage.js";
-import { igdbClient } from "../igdb.js";
+import { rawgClient } from "../rawg.js";
 
 const mocks = vi.hoisted(() => ({
   parseString: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock("../ssrf.js", () => ({
 }));
 
 vi.mock("../storage.js");
-vi.mock("../igdb.js");
+vi.mock("../rawg.js");
 
 describe("RssService", () => {
   let rssService: RssService;
@@ -63,12 +63,12 @@ describe("RssService", () => {
       ],
     });
 
-    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+    vi.mocked(rawgClient.searchGames).mockResolvedValue([
       {
         id: 123,
         name: "My Game",
-        cover: { id: 1, url: "//images.igdb.com/igdb/image/upload/t_thumb/123.jpg" },
-      } as unknown as import("../igdb").IGDBGame,
+        image: "//cdn.rawg.io/media/games/123/cover.jpg",
+      } as unknown as import("../rawg").RawgGame,
     ]);
 
     // Mock addRssFeedItem to return an item with ID so background process can use it
@@ -81,7 +81,7 @@ describe("RssService", () => {
     vi.mocked(storage.getRssFeedItem).mockResolvedValue({
       id: "item-1",
       title: "My Game v1.0 - Repack",
-      igdbGameId: null,
+      rawgGameId: null,
     } as unknown as import("../../shared/schema").RssFeedItem);
 
     await rssService.refreshFeeds();
@@ -95,8 +95,8 @@ describe("RssService", () => {
       expect.objectContaining({
         title: "My Game v1.0 - Repack",
         guid: "guid-1",
-        igdbGameId: null,
-        igdbGameName: null,
+        rawgGameId: null,
+        rawgGameName: null,
       })
     );
 
@@ -104,13 +104,13 @@ describe("RssService", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // 3. Verify background matching behaviors
-    expect(igdbClient.searchGames).toHaveBeenCalledWith("My Game", 1);
+    expect(rawgClient.searchGames).toHaveBeenCalledWith("My Game", 1);
 
     expect(storage.updateRssFeedItem).toHaveBeenCalledWith(
       "item-1",
       expect.objectContaining({
-        igdbGameId: 123,
-        igdbGameName: "My Game",
+        rawgGameId: 123,
+        rawgGameName: "My Game",
       })
     );
 
@@ -204,7 +204,7 @@ describe("RssService", () => {
     );
   });
 
-  it("should use cache for IGDB lookups", async () => {
+  it("should use cache for RAWG lookups", async () => {
     const mockFeed = {
       id: "feed-1",
       url: "url",
@@ -219,8 +219,8 @@ describe("RssService", () => {
       ],
     });
 
-    vi.mocked(igdbClient.searchGames).mockResolvedValue([
-      { id: 1, name: "Game A" } as unknown as import("../igdb").IGDBGame,
+    vi.mocked(rawgClient.searchGames).mockResolvedValue([
+      { id: 1, name: "Game A" } as unknown as import("../rawg").RawgGame,
     ]);
 
     // Mock returns
@@ -242,7 +242,7 @@ describe("RssService", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Should be called once per unique game name extraction
-    expect(igdbClient.searchGames).toHaveBeenCalledTimes(1);
+    expect(rawgClient.searchGames).toHaveBeenCalledTimes(1);
     expect(storage.addRssFeedItem).toHaveBeenCalledTimes(2);
   });
 });

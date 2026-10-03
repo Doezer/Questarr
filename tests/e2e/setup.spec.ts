@@ -30,11 +30,11 @@ test.describe("Initial Setup", () => {
       const submitBtn = page.getByRole("button", { name: "Create Account" });
       await expect(submitBtn).toBeEnabled();
 
-      // Fill IGDB Creds if requested (fresh setup)
-      const igdbIdInput = page.locator('input[name="igdbClientId"]');
-      if (await igdbIdInput.isVisible()) {
-        await igdbIdInput.fill("dummyclientid0000000000000000");
-        await page.fill('input[name="igdbClientSecret"]', "dummyclientsecret000000000000");
+      // The RAWG API key field is shown (and required) when no key is
+      // configured yet; a dummy value is enough for the e2e environment.
+      const rawgKeyInput = page.locator('input[name="rawgApiKey"]');
+      if (await rawgKeyInput.isVisible()) {
+        await rawgKeyInput.fill("e2e-rawg-key");
       }
 
       // Wait for successful setup response

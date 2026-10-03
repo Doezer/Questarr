@@ -3,7 +3,6 @@ import type {
   ApiKeyPublic,
   Game,
   Indexer,
-  InsertPlatformMapping,
   InsertUser,
   User,
 } from "../../shared/schema.js";
@@ -37,11 +36,6 @@ export interface SyncIndexersResult {
  * making to save a hundred lines.
  */
 export interface TransactionalOps {
-  /** Seed platform mappings only if the table is empty. */
-  seedPlatformMappingsIfEmpty(
-    mappings: InsertPlatformMapping[]
-  ): Promise<{ seeded: boolean; count: number }>;
-
   /** Create the first user, refusing if setup already ran. */
   registerSetupUser(insertUser: InsertUser): Promise<User>;
 

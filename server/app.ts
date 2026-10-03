@@ -63,9 +63,9 @@ export function createApp() {
             path === "/api/search" ||
             path === "/api/rss/items") &&
             req.method === "GET") ||
-          path.startsWith("/api/igdb/genre/") ||
-          path === "/api/igdb/popular" ||
-          path === "/api/igdb/upcoming" ||
+          path.startsWith("/api/rawg/genre/") ||
+          path === "/api/rawg/popular" ||
+          path === "/api/rawg/upcoming" ||
           path.match(/^\/api\/indexers\/[^/]+\/categories$/);
 
         expressLogger.info(

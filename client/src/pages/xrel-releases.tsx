@@ -17,7 +17,7 @@ interface XrelRelease extends XrelReleaseListItem {
   gameId?: string;
   matchCandidate?: {
     title: string;
-    igdbId: number;
+    rawgId: number;
     // other fields if needed for UI
   };
 }

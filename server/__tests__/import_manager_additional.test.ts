@@ -66,7 +66,6 @@ function makeManager(
     getConfiguredRoots: vi.fn().mockResolvedValue([]),
     ...(overrides.pathService ?? { translatePath: vi.fn().mockResolvedValue("/local/file.iso") }),
   };
-  const platformService = { getSourcePlatform: vi.fn() };
   const archiveService = overrides.archiveService ?? {
     isArchive: vi.fn().mockReturnValue(false),
     extract: vi.fn().mockResolvedValue([]),
@@ -74,7 +73,6 @@ function makeManager(
   return new ImportManager(
     storage as never, // NOSONAR
     pathService as never, // NOSONAR
-    platformService as never, // NOSONAR
     archiveService as never // NOSONAR
   );
 }

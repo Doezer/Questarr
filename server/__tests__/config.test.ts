@@ -10,8 +10,7 @@ describe("Config Module", () => {
     // Clear all environment variables used by config
     process.env = { ...originalEnv };
     delete process.env.SQLITE_DB_PATH;
-    delete process.env.IGDB_CLIENT_ID;
-    delete process.env.IGDB_CLIENT_SECRET;
+    delete process.env.RAWG_API_KEY;
     delete process.env.PORT;
     delete process.env.HOST;
     delete process.env.NODE_ENV;
@@ -65,7 +64,7 @@ describe("Config Module", () => {
       expect(config.server.port).toBe(5000); // default
       expect(config.server.host).toBe("0.0.0.0"); // default
       expect(config.server.nodeEnv).toBe("production"); // default
-      expect(config.igdb.isConfigured).toBe(false);
+      expect(config.rawg.apiKey).toBeUndefined();
     });
 
     it("should respect custom PORT and HOST", async () => {
@@ -79,28 +78,13 @@ describe("Config Module", () => {
       expect(config.server.host).toBe("0.0.0.0");
     });
 
-    it("should detect IGDB as configured when both credentials are set", async () => {
+    it("should expose the RAWG API key when set", async () => {
       process.env.SQLITE_DB_PATH = "test.db";
-      process.env.IGDB_CLIENT_ID = "test-client-id";
-      process.env.IGDB_CLIENT_SECRET = "test-client-secret";
+      process.env.RAWG_API_KEY = "test-rawg-key";
 
       const { config } = await import("../config.js");
 
-      expect(config.igdb.isConfigured).toBe(true);
-      expect(config.igdb.clientId).toBe("test-client-id");
-      expect(config.igdb.clientSecret).toBe("test-client-secret");
-    });
-
-    it("should detect IGDB as not configured when only one credential is set", async () => {
-      process.env.SQLITE_DB_PATH = "test.db";
-      process.env.IGDB_CLIENT_ID = "test-client-id";
-      // IGDB_CLIENT_SECRET is not set
-
-      const { config } = await import("../config.js");
-
-      expect(config.igdb.isConfigured).toBe(false);
-      expect(config.igdb.clientId).toBe("test-client-id");
-      expect(config.igdb.clientSecret).toBeUndefined();
+      expect(config.rawg.apiKey).toBe("test-rawg-key");
     });
 
     it("should set NODE_ENV correctly", async () => {

@@ -21,7 +21,7 @@ rather than starting with an invalid configuration.
 | `JWT_SECRET`                            | Signs/verifies session JWTs                                   | No — auto-generated and persisted to the DB if unset (§2)                                                                                                                                                                     |
 | `NEXUSMODS_API_KEY`                     | NexusMods mod lookups                                         | No — validated by `envSchema`; can be set later in Settings → Services (§3)                                                                                                                                                   |
 | `STEAM_API_KEY`                         | Steam achievements in a game's Journal tab                    | No — env-only; without it the achievements section is simply hidden (`server/config.ts`, `GET /api/settings/steam`)                                                                                                           |
-| `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | Twitch/IGDB OAuth for game metadata & discovery               | No env-wise, but one of env/DB must be set for discovery to work                                                                                                                                                              |
+| `RAWG_API_KEY`                          | RAWG API key for game metadata & discovery                    | No — a key in env or the DB (`system_config`) is required for discovery to work                                                                                                                                                              |
 | `PORT`                                  | HTTP port                                                     | No (default `5000`)                                                                                                                                                                                                           |
 | `HOST`                                  | Bind address                                                  | No — **defaults to `0.0.0.0` (all interfaces) in every deployment mode**, not just Docker (`server/config.ts:52`). Set `HOST=127.0.0.1` explicitly if you don't want the server reachable from other machines on the network. |
 | `NODE_ENV`                              | `development` \| `production` \| `test`                       | No (defaults to `production`)                                                                                                                                                                                                 |
@@ -66,7 +66,7 @@ existing session.
 
 | Service                                          | Where configured                                                      | Storage                                                                                                                                                | Refresh/rotation                                                                                                                                                                                                         |
 | ------------------------------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **IGDB** (via Twitch OAuth)                      | `.env` (`IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`) or Settings → Services | DB `system_config` keys `igdb.clientId` / `igdb.clientSecret` take priority over env if both are present (`server/igdb.ts:138-153`)                    | Twitch access token is fetched via `client_credentials` grant and cached in memory, auto-refreshed ~1 minute before expiry (`server/igdb.ts:187-214`). Client ID/secret themselves are user-rotated via the Settings UI. |
+| **RAWG**                                     | `.env` (`RAWG_API_KEY`) or Settings → RAWG API               | DB `system_config` key `rawg.apiKey` takes priority over env if both are present (`server/rawg.ts`)                                              | No token refresh — a static API key; free-tier requests are paced client-side (~2.1 s apart). User-rotated via the Settings UI.                        |
 | **NexusMods**                                    | `.env` (`NEXUSMODS_API_KEY`) or Settings → Services                   | DB `system_config` key `nexusmods.apiKey`; client reconfigured in-memory on save (`server/nexusmods.ts:46-69,176-182`)                                 | Manual — overwrite the key in Settings.                                                                                                                                                                                  |
 | **HowLongToBeat**, **PCGamingWiki**, **xREL.to** | N/A                                                                   | N/A                                                                                                                                                    | These are unauthenticated public APIs; no credentials involved.                                                                                                                                                          |
 | **Steam** wishlist import                        | N/A (public Steam endpoints + user's `steamId64`)                     | N/A                                                                                                                                                    | N/A                                                                                                                                                                                                                      |
@@ -76,9 +76,9 @@ existing session.
 All four of these settings endpoints follow the same pattern: `GET`
 never returns the real secret, and updating it without changing the
 non-secret part (if any) is done by sending the sentinel string
-`"********"` for the unchanged field. `GET /api/settings/igdb` returns
-the `clientId` but never the `clientSecret` (`server/routes.ts:2709-2768`
-sends/accepts the sentinel). `GET /api/settings/nexusmods` returns only
+`"********"` for the unchanged field. `GET /api/settings/rawg` returns
+a redacted `"********"` placeholder when a key is stored, never the key itself
+(`server/routes.ts` sends/accepts the sentinel). `GET /api/settings/nexusmods` returns only
 `{ configured, source }` booleans (`server/routes.ts:3311-3342`).
 `GET /api/settings/discord` returns `{ configured, webhookUrl: "********" }`
 when set, and `POST` treats the sentinel as "no change"
@@ -141,7 +141,7 @@ Transmission, rTorrent, sabnzbd, nzbget).
   as a secret and is still returned in full, matching how it's used (a login
   name, not a token).
 - **Rotation:** `PATCH /api/indexers/:id` / `PATCH /api/downloaders/:id`
-  follow the IGDB masked-sentinel convention — sending `"********"` for
+  follow the masked-sentinel convention — sending `"********"` for
   `apiKey`/`password` leaves the stored value unchanged (the sentinel is
   stripped from the update before it reaches storage); sending any other
   value overwrites and re-encrypts it. This is what lets the edit dialogs
@@ -162,7 +162,7 @@ current password before accepting a new one
 | Limiter                    | Limit                     | Applied to                                                                                               |
 | -------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `authRateLimiter`          | 20 requests / 15 min / IP | `POST /api/auth/login`                                                                                   |
-| `sensitiveEndpointLimiter` | 30 requests / min / IP    | Indexer/downloader writes, password change, IGDB/NexusMods/Discord settings, SSL settings, Prowlarr sync |
+| `sensitiveEndpointLimiter` | 30 requests / min / IP    | Indexer/downloader writes, password change, RAWG/NexusMods/Discord settings, SSL settings, Prowlarr sync |
 | `generalApiLimiter`        | 100 requests / min / IP   | General fallback                                                                                         |
 
 There is no account lockout beyond the IP-based `authRateLimiter` window
@@ -222,7 +222,7 @@ points operators at is on the safe side of the fix.
 - [ ] Set `CREDENTIALS_ENCRYPTION_KEY` explicitly in production so stored
       indexer/downloader credentials stay decryptable across DB resets
       (`openssl rand -hex 32`).
-- [ ] Set IGDB and (optionally) NexusMods credentials via `.env` or
+- [ ] Set the RAWG API key and (optionally) NexusMods credentials via `.env` or
       Settings → Services.
 - [ ] Restrict who has login access to the app — Questarr has no per-user
       role scoping, so any account holder can use every configured

@@ -1,10 +1,9 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { body, param, query, validationResult } from "express-validator";
 import type { Request, Response, NextFunction } from "express";
 import { TORRENT_DOWNLOADER_TYPES, USENET_DOWNLOADER_TYPES } from "../shared/downloader-types.js";
 import { GAME_STATUSES } from "../shared/schema.js";
 import { normalizeReleaseTitle } from "../shared/title-utils.js";
-import { storage } from "./storage.js";
 import { expressLogger } from "./logger.js";
 import { reportServerError } from "./error-telemetry.js";
 
@@ -22,26 +21,19 @@ export function rateLimitsDisabled(): boolean {
   );
 }
 
-// Dynamic rate limiter for IGDB API endpoints to prevent blacklisting
-// IGDB has a limit of 4 requests per second, we default to 3 to be conservative
-// The rate limit can be configured per user in settings
-export const igdbRateLimiter = rateLimit({
-  windowMs: 1000, // 1 second
-  max: async (req: Request) => {
-    try {
-      const userId = req.user?.id;
-      if (!userId) {
-        return 20; // Default for unauthenticated requests
-      }
-
-      const settings = await storage.getUserSettings(userId);
-      return settings?.igdbRateLimitPerSecond ?? 20;
-    } catch (error) {
-      console.error("Error fetching user rate limit:", error);
-      return 20; // Fallback to default on error
-    }
+// Request-abuse guard for RAWG proxy routes. The UI fans out to several
+// sections at once, so allow that inbound burst; RawgClient separately
+// serializes upstream calls to stay within the free tier's ~5 requests/10s.
+// Keyed by user (IP fallback) so one user cannot starve another's route budget.
+export const rawgRateLimiter = rateLimit({
+  windowMs: 10_000,
+  max: 10,
+  keyGenerator: (req: Request) => {
+    const userId = req.user?.id;
+    if (userId) return `user:${userId}`;
+    return ipKeyGenerator(req.ip ?? "unknown");
   },
-  message: "Too many IGDB requests, please try again later",
+  message: "Too many RAWG requests, please try again later",
   standardHeaders: true,
   legacyHeaders: false,
   skip: rateLimitsDisabled,
@@ -77,7 +69,7 @@ export const scanRateLimiter = rateLimit({
   keyGenerator: (req: Request) => {
     const userId = req.user?.id;
     if (userId) return `user:${userId}`;
-    return req.ip ?? "unknown";
+    return ipKeyGenerator(req.ip ?? "unknown");
   },
   message: "Too many scan requests, please try again later",
   standardHeaders: true,
@@ -142,16 +134,16 @@ export const sanitizeSearchQuery = [
     .isInt({ min: 1, max: 100 })
     .withMessage("Limit must be between 1 and 100")
     .toInt(),
-  query("includeUndated")
-    .optional()
-    .isBoolean()
-    .withMessage("includeUndated must be a boolean")
-    .toBoolean(),
+  // RAWG search filters: platform/genre are provider slugs (or numeric
+  // provider IDs), so only length-capped strings are safe to pass through.
   query("platform")
     .optional()
-    .isInt({ min: 1 })
-    .withMessage("Platform must be a valid IGDB platform ID")
-    .toInt(),
+    .isLength({ max: 100 })
+    .withMessage("Platform must be at most 100 characters"),
+  query("genre")
+    .optional()
+    .isLength({ max: 100 })
+    .withMessage("Genre must be at most 100 characters"),
   query("year")
     .optional()
     .isInt({ min: 1950, max: 2100 })
@@ -198,9 +190,9 @@ export const sanitizeScreenshotId = [
   param("screenshotId").trim().matches(UUID_PATTERN).withMessage("Invalid screenshot ID format"),
 ];
 
-// Sanitization rules for IGDB ID parameters
-export const sanitizeIgdbId = [
-  param("id").trim().isInt({ min: 1 }).withMessage("Invalid IGDB ID").toInt(),
+// Sanitization rules for external game ID path parameters (RAWG ids)
+export const sanitizeExternalGameId = [
+  param("id").trim().isInt({ min: 1 }).withMessage("Invalid game ID").toInt(),
 ];
 
 // Sanitization rules for game status updates
@@ -214,10 +206,10 @@ export const sanitizeGameData = [
     .trim()
     .isLength({ min: 1, max: 500 })
     .withMessage("Title must be between 1 and 500 characters"),
-  body("igdbId")
+  body("rawgId")
     .optional({ nullable: true })
     .isInt({ min: 1 })
-    .withMessage("Invalid IGDB ID")
+    .withMessage("Invalid RAWG ID")
     .toInt(),
   body("summary")
     .optional()
@@ -655,7 +647,7 @@ export const sanitizeUnmatchedMatchData = [
     .isLength({ min: 1, max: 200 })
     .withMessage("rootFolderId is required"),
   body("folderName").trim().isLength({ min: 1, max: 1000 }).withMessage("folderName is required"),
-  body("igdbId").isInt({ min: 1 }).withMessage("igdbId must be a positive integer").toInt(),
+  body("rawgId").isInt({ min: 1 }).withMessage("rawgId must be a positive integer").toInt(),
 ];
 
 // 🛡️ Sentinel: Global error handler middleware

@@ -5,7 +5,7 @@ import request from "supertest";
 import {
   mockConfig,
   createStorageMock,
-  createIgdbMock,
+  createRawgMock,
   createAuthMock,
   createDbModuleMock,
   createLoggerMocks,
@@ -53,7 +53,7 @@ vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
 vi.mock("../logger.js", () => createLoggerMocks());
 vi.mock("../db.js", () => createDbModuleMock());
 vi.mock("../auth.js", () => createAuthMock());
-vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
+vi.mock("../rawg.js", () => ({ rawgClient: createRawgMock() }));
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
 
 type FallbackResult = {

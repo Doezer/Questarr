@@ -4,7 +4,7 @@ import request from "supertest";
 import {
   mockConfig,
   createStorageMock,
-  createIgdbMock,
+  createRawgMock,
   createAuthMock,
   createDbMock,
   createDbModuleMock,
@@ -26,7 +26,7 @@ import { registerRoutes } from "../routes.js";
 // shared authRateLimiter state (which also backs /api/auth/login). Mock factory bodies
 // live in ./fixtures/common-route-mocks.ts, shared with api_routes.test.ts.
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
-vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
+vi.mock("../rawg.js", () => ({ rawgClient: createRawgMock() }));
 vi.mock("../auth.js", () => createAuthMock());
 vi.mock("../db.js", () => createDbModuleMock());
 vi.mock("../logger.js", () => createLoggerMocks());

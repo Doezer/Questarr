@@ -122,8 +122,8 @@ describe("steamRoutes", () => {
         success: true,
         addedCount: 2,
         games: [
-          { title: "Game 1", igdbId: 1001, steamAppId: 101 },
-          { title: "Game 2", igdbId: 1002, steamAppId: 102 },
+          { title: "Game 1", rawgId: 1001, steamAppId: 101 },
+          { title: "Game 2", rawgId: 1002, steamAppId: 102 },
         ],
       });
 

@@ -88,7 +88,7 @@ import {
   normalizeTitle,
   type CanonicalPlatform,
 } from "@shared/title-utils";
-import { canonicalPlatformsForIgdbIds, matchesSelectedIgdbPlatform } from "@shared/platforms";
+import { canonicalPlatformsForRawgIds, matchesSelectedPlatform } from "@shared/platforms";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
 
 interface DownloadItem {
@@ -314,7 +314,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       // The preferred platform must also be allowed by the Platforms setting;
       // otherwise preselecting it would hide every release and show a warning
       // that blames the wrong filter.
-      const allowed = canonicalPlatformsForIgdbIds(userSettings?.importPlatformIds);
+      const allowed = canonicalPlatformsForRawgIds(userSettings?.importPlatformIds);
       const preferredAllowed =
         allowed.length === 0 ||
         allowed.includes(userSettings.preferredPlatform as CanonicalPlatform);
@@ -447,7 +447,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }
     // The Platforms setting narrows this dropdown the same way it narrows the
     // Library and Discover selectors.
-    const allowed = new Set<string>(canonicalPlatformsForIgdbIds(userSettings?.importPlatformIds));
+    const allowed = new Set<string>(canonicalPlatformsForRawgIds(userSettings?.importPlatformIds));
     return Array.from(platforms)
       .filter((p) => allowed.size === 0 || allowed.has(p))
       .sort((a, b) => a.localeCompare(b))
@@ -485,7 +485,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           const platform = itemsMetadata.get(t.title)?.platform;
           // Platforms setting first: releases outside the user's platforms are
           // never offered, regardless of the in-dialog selection below.
-          if (!matchesSelectedIgdbPlatform(platform, userSettings?.importPlatformIds)) return false;
+          if (!matchesSelectedPlatform(platform, userSettings?.importPlatformIds)) return false;
           if (selectedPlatforms.length === 0) return true;
           return selectedPlatforms.some((sp) => matchesPlatformFilter(platform, sp));
         })
@@ -970,7 +970,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                   // claim the preferred-platform filter is at fault, and clearing
                   // that filter would still show nothing.
                   .filter((t) =>
-                    matchesSelectedIgdbPlatform(
+                    matchesSelectedPlatform(
                       itemsMetadata.get(t.title)?.platform,
                       userSettings?.importPlatformIds
                     )

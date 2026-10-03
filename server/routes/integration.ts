@@ -20,7 +20,7 @@ const { version: APP_VERSION } = JSON.parse(
  * an already-released extension. Clients check it during the ping handshake so
  * a mismatched pair fails loudly instead of misbehaving halfway through a sync.
  */
-export const INTEGRATION_API_VERSION = 1;
+export const INTEGRATION_API_VERSION = 2;
 
 /** Upper bound on a single library sync payload, to keep one request bounded. */
 const MAX_SYNC_GAMES = 5000;
@@ -45,7 +45,7 @@ function toIntegrationGame(game: Game) {
   return {
     id: game.id,
     title: game.title,
-    igdbId: game.igdbId,
+    rawgId: game.rawgId,
     steamAppId: game.steamAppId,
     status: game.status,
     releaseStatus: game.releaseStatus,
@@ -209,7 +209,7 @@ integrationRouter.post("/library/sync", async (req: Request, res: Response) => {
 });
 
 // ── Request a game from the couch ────────────────────────────────────────────
-// Matches a free-text title against IGDB and adds it to the library. Adding it
+// Matches a free-text title against RAWG and adds it to the library. Adding it
 // as "wanted" is what hands it to the existing auto-search pipeline, which
 // searches indexers and sends the best release to the download client — so a
 // single call from Playnite is enough to start a download.
@@ -238,7 +238,7 @@ integrationRouter.post("/games/request", async (req: Request, res: Response) => 
       case "not_found":
         // Deliberately indistinguishable from "no match": a filtered title
         // must not be discoverable through this endpoint either.
-        return res.status(404).json({ error: "No game found on IGDB for this title" });
+        return res.status(404).json({ error: "No game found on RAWG for this title" });
       case "duplicate":
         return res
           .status(409)
@@ -248,7 +248,7 @@ integrationRouter.post("/games/request", async (req: Request, res: Response) => 
           {
             userId,
             title: result.game.title,
-            igdbId: result.game.igdbId,
+            rawgId: result.game.rawgId,
             viaApiKey: Boolean(req.apiKeyId),
           },
           "Game requested through the integration API"

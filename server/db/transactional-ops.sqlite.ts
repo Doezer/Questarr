@@ -5,7 +5,6 @@ import {
   apiKeys,
   games,
   indexers,
-  platformMappings,
   systemConfig,
   users,
 } from "../../shared/schema.js";
@@ -20,7 +19,6 @@ import type {
   ApiKeyPublic,
   Game,
   Indexer,
-  InsertPlatformMapping,
   InsertUser,
   User,
 } from "../../shared/schema.js";
@@ -33,29 +31,6 @@ import type { SyncIndexersResult } from "./transactional-ops.js";
  * directly and statements are executed with .all()/.run(). See
  * ./transactional-ops.ts for why this is not shared with Postgres.
  */
-
-export async function seedPlatformMappingsIfEmpty(
-  mappings: InsertPlatformMapping[]
-): Promise<{ seeded: boolean; count: number }> {
-  return db.transaction((tx) => {
-    // A bare count() aggregate with no GROUP BY always returns exactly one
-    // row, even over an empty table, so these destructures can't come up
-    // short -- the `!` documents that guarantee rather than working around it.
-    const [existing] = tx.select({ count: count() }).from(platformMappings).all();
-    if (existing!.count > 0) {
-      return { seeded: false, count: existing!.count };
-    }
-
-    for (const mapping of mappings) {
-      tx.insert(platformMappings)
-        .values({ ...mapping, id: randomUUID() })
-        .run();
-    }
-
-    const [seeded] = tx.select({ count: count() }).from(platformMappings).all();
-    return { seeded: true, count: seeded!.count };
-  });
-}
 
 export async function registerSetupUser(insertUser: InsertUser): Promise<User> {
   return db.transaction((tx) => {

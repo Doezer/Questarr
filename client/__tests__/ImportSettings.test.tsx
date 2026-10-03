@@ -44,7 +44,7 @@ function mockFetch({
     { id: 1, name: "PC (Microsoft Windows)" },
     { id: 2, name: "PlayStation 5" },
   ],
-  appConfig = { igdb: { configured: true } },
+  appConfig = { rawg: { configured: true } },
   settings = {},
   hardlink = {
     generic: { targetRoot: "/data/library", supportedForAll: true, checkedSources: [] },
@@ -59,7 +59,7 @@ function mockFetch({
   vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
     const u = getRequestUrl(url);
     if (u.includes("/api/imports/config")) return createJsonResponse(config);
-    if (u.includes("/api/igdb/platforms")) return createJsonResponse(platforms);
+    if (u.includes("/api/rawg/platforms")) return createJsonResponse(platforms);
     if (u.includes("/api/settings")) return createJsonResponse(settings);
     if (u.includes("/api/imports/hardlink/check")) return createJsonResponse(hardlink);
     if (u.includes("/api/config")) return createJsonResponse(appConfig);
@@ -143,7 +143,7 @@ describe("ImportSettings", () => {
       if (u.includes("/api/imports/mappings/paths")) return createJsonResponse([]);
       if (u.includes("/api/downloaders")) return createJsonResponse([]);
       if (u.includes("/api/imports/config")) return createJsonResponse(baseConfig);
-      if (u.includes("/api/igdb/platforms")) return createJsonResponse([]);
+      if (u.includes("/api/rawg/platforms")) return createJsonResponse([]);
       if (u.includes("/api/imports/hardlink/check")) {
         return createJsonResponse({
           generic: { targetRoot: "/data/library", supportedForAll: true, checkedSources: [] },
@@ -214,7 +214,7 @@ describe("ImportSettings", () => {
   });
 
   it("distinguishes an active restriction whose names are unavailable", async () => {
-    // Id 999 is a valid restriction that IGDB does not report, so there is no
+    // Id 999 is a valid restriction that RAWG does not report, so there is no
     // label to show — this must not read as "all platforms eligible".
     mockFetch({ settings: { importPlatformIds: [999] } });
     renderComponent();

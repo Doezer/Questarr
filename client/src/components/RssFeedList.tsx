@@ -122,12 +122,12 @@ export default function RssFeedList() {
                 <div className="aspect-video w-full overflow-hidden bg-muted relative">
                   <img
                     src={item.coverUrl}
-                    alt={item.igdbGameName || item.title}
+                    alt={item.rawgGameName || item.title}
                     className="w-full h-full object-cover"
                   />
-                  {item.igdbGameName && (
+                  {item.rawgGameName && (
                     <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white p-2 text-xs truncate">
-                      Matched: {item.igdbGameName}
+                      Matched: {item.rawgGameName}
                     </div>
                   )}
                 </div>

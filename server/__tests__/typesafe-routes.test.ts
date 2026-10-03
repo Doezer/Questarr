@@ -4,7 +4,7 @@ import request from "supertest";
 import {
   mockConfig,
   createStorageMock,
-  createIgdbMock,
+  createRawgMock,
   createAuthMock,
   createDbMock,
   createLoggerMocks,
@@ -22,7 +22,7 @@ import { registerRoutes } from "../routes.js";
 
 // Mock factory bodies live in ./fixtures/common-route-mocks.ts, shared across route suites.
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
-vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
+vi.mock("../rawg.js", () => ({ rawgClient: createRawgMock() }));
 vi.mock("../auth.js", () => createAuthMock());
 vi.mock("../db.js", () => ({ db: createDbMock() }));
 vi.mock("../logger.js", () => createLoggerMocks());

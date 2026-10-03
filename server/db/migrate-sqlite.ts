@@ -72,9 +72,11 @@ const REPAIRS_V1_3_0: Record<string, TableRepair> = {
       { name: "search_results_available", definition: "integer NOT NULL DEFAULT 0" },
       // 0009 – early access flag
       { name: "early_access", definition: "integer NOT NULL DEFAULT 0" },
-      // 0010 – game metadata fields
+      // 0010 – game metadata fields ("igdb_websites" was renamed to "websites"
+      // by 0043 once it stopped carrying IGDB data; the repair adds the
+      // current name so a drifted v1.2.2 database ends up with it)
       { name: "source", definition: "text DEFAULT 'manual'" },
-      { name: "igdb_websites", definition: "text" },
+      { name: "websites", definition: "text" },
       { name: "aggregated_rating", definition: "real" },
       // 0012 – user rating
       { name: "user_rating", definition: "real" },

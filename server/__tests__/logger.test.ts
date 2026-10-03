@@ -21,7 +21,7 @@ describe("Logger Module", () => {
     const loggerModule = await import("../logger.js");
 
     expect(loggerModule.logger).toBeDefined();
-    expect(loggerModule.igdbLogger).toBeDefined();
+    expect(loggerModule.rawgLogger).toBeDefined();
     expect(loggerModule.routesLogger).toBeDefined();
     expect(loggerModule.expressLogger).toBeDefined();
     expect(loggerModule.downloadersLogger).toBeDefined();
@@ -32,7 +32,7 @@ describe("Logger Module", () => {
     const loggerModule = await import("../logger.js");
 
     // Check that child loggers have the module property set
-    expect(loggerModule.igdbLogger.bindings()).toHaveProperty("module", "igdb");
+    expect(loggerModule.rawgLogger.bindings()).toHaveProperty("module", "rawg");
     expect(loggerModule.routesLogger.bindings()).toHaveProperty("module", "routes");
     expect(loggerModule.expressLogger.bindings()).toHaveProperty("module", "express");
     expect(loggerModule.downloadersLogger.bindings()).toHaveProperty("module", "downloaders");

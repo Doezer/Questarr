@@ -153,8 +153,8 @@ export default function Library() {
 
   // The platforms the user selected in Settings → Platforms. Only these appear
   // in the filter dropdown; games on other platforms stay in the library.
-  const { data: igdbPlatforms = [] } = useQuery<{ id: number; name: string }[]>({
-    queryKey: ["/api/igdb/platforms"],
+  const { data: rawgPlatforms = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["/api/rawg/platforms"],
   });
 
   // ⚡ Bolt: Consolidate multiple array traversals into a single pass to
@@ -183,19 +183,20 @@ export default function Library() {
   }, [games]);
 
   const visiblePlatforms = useMemo(() => {
-    // The platform setting stores IGDB ids, while `games.platforms` holds IGDB
-    // names, so translate once via the platform list both surfaces share.
-    const allowed = selectedPlatformNames(igdbPlatforms, userSettings?.importPlatformIds);
+    // The platform setting stores RAWG ids, while `games.platforms` holds
+    // platform names, so translate once via the platform list both surfaces
+    // share.
+    const allowed = selectedPlatformNames(rawgPlatforms, userSettings?.importPlatformIds);
     const filtered = uniquePlatforms.filter((platform) =>
       isPlatformNameSelected(platform, allowed, userSettings?.importPlatformIds)
     );
-    // An empty `allowed` means one of two things: while the IGDB platform list
+    // An empty `allowed` means one of two things: while the RAWG platform list
     // is still loading (or errored) every name is filtered out and the dropdown
     // would blank, so fall back to the unfiltered list. Once the list is present
     // an empty `filtered` is a genuine zero-overlap selection — return it, or
     // the dropdown would offer platforms the user did not select.
-    return igdbPlatforms.length === 0 ? uniquePlatforms : filtered;
-  }, [uniquePlatforms, igdbPlatforms, userSettings?.importPlatformIds]);
+    return rawgPlatforms.length === 0 ? uniquePlatforms : filtered;
+  }, [uniquePlatforms, rawgPlatforms, userSettings?.importPlatformIds]);
 
   // The Platforms setting can drop the platform currently being filtered on.
   // Reset to "all" so a stale value cannot filter the grid invisibly (it would

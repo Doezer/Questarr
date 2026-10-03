@@ -59,7 +59,7 @@ interface UnmatchedEntry {
   rootFolderPath: string;
   folderName: string;
   absolutePath: string;
-  candidates: Array<{ igdbId: number; name: string; releaseYear: number | null }>;
+  candidates: Array<{ rawgId: number; name: string; releaseYear: number | null }>;
 }
 
 function formatBytes(bytes: number | null): string {
@@ -188,7 +188,7 @@ export function RootFolderDiscovery() {
   });
 
   const matchMutation = useMutation({
-    mutationFn: async (vars: { rootFolderId: string; folderName: string; igdbId: number }) => {
+    mutationFn: async (vars: { rootFolderId: string; folderName: string; rawgId: number }) => {
       await apiRequest("POST", "/api/library/scan/unmatched/match", vars);
     },
     onSuccess: () => {
@@ -452,12 +452,12 @@ export function RootFolderDiscovery() {
                 <p className="text-sm font-medium">{entry.folderName}</p>
                 <p className="text-xs text-muted-foreground font-mono">{entry.absolutePath}</p>
                 {entry.candidates.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No IGDB matches found.</p>
+                  <p className="text-xs text-muted-foreground">No RAWG matches found.</p>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {entry.candidates.map((c) => (
                       <Button
-                        key={c.igdbId}
+                        key={c.rawgId}
                         variant="outline"
                         size="sm"
                         disabled={matchMutation.isPending}
@@ -465,7 +465,7 @@ export function RootFolderDiscovery() {
                           matchMutation.mutate({
                             rootFolderId: entry.rootFolderId,
                             folderName: entry.folderName,
-                            igdbId: c.igdbId,
+                            rawgId: c.rawgId,
                           })
                         }
                       >

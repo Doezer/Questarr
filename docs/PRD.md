@@ -52,15 +52,15 @@ Questarr is a working, production-ready application. The features below are live
 
 ### Library Management
 
-- Add games manually, via IGDB search, or by importing from Steam wishlist
+- Add games manually, via RAWG search, or by importing from Steam wishlist
 - Game detail modal: cover art, metadata, user rating (0.5–10), hidden flag
 - Filter, sort, and search the library
 - Per-game status tracking (wanted, downloading, downloaded, etc.)
-- Platform detection (from release title, IGDB data, fallback to PC)
+- Platform detection (from release title, RAWG data, fallback to PC)
 
 ### Discovery
 
-- IGDB-powered game discovery and metadata enrichment
+- RAWG-powered game discovery and metadata enrichment
 - Steam App ID resolution + PCGamingWiki integration
 - NexusMods trending mods per game
 

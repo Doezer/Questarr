@@ -57,7 +57,7 @@ Scored as the share of checked items (15 of 21) × 25.
 - [x] rTorrent
 - [x] SABnzbd
 - [x] NZBGet
-- [x] IGDB metadata
+- [x] RAWG metadata
 - [x] Steam wishlist import
 - [x] PCGamingWiki integration
 - [x] NexusMods trending mods

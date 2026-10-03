@@ -21,7 +21,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -32,7 +31,7 @@ import {
 import { Search, Plus, Star, AlertCircle, Calendar, Check, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game, type InsertGame, type Config, type UserSettings } from "@shared/schema";
-import { visibleIgdbPlatforms } from "@shared/platforms";
+import { visiblePlatforms, type RawgPlatform } from "@shared/platforms";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { Link } from "wouter";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
@@ -42,7 +41,7 @@ import { resolveTargetPlatform } from "@shared/title-utils";
 
 interface SearchResult extends Game {
   inCollection?: boolean;
-  platformOptions?: IGDBPlatform[];
+  platformOptions?: RawgPlatform[];
 }
 
 interface AddGameModalProps {
@@ -50,16 +49,10 @@ interface AddGameModalProps {
   initialQuery?: string;
 }
 
-interface IGDBPlatform {
-  id: number;
-  name: string;
-}
-
 export default function AddGameModal({ children, initialQuery }: AddGameModalProps) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [showUndatedGames, setShowUndatedGames] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState("all");
   const [releaseYear, setReleaseYear] = useState("");
   const [targetPlatforms, setTargetPlatforms] = useState<Record<string, string>>({});
@@ -76,10 +69,10 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     queryFn: () => apiRequest("GET", "/api/config").then((res) => res.json()),
   });
 
-  const { data: platforms = [] } = useQuery<IGDBPlatform[]>({
-    queryKey: ["/api/igdb/platforms"],
-    queryFn: () => apiRequest("GET", "/api/igdb/platforms").then((res) => res.json()),
-    enabled: open && !!config?.igdb?.configured,
+  const { data: platforms = [] } = useQuery<RawgPlatform[]>({
+    queryKey: ["/api/rawg/platforms"],
+    queryFn: () => apiRequest("GET", "/api/rawg/platforms").then((res) => res.json()),
+    enabled: open && !!config?.rawg?.configured,
     staleTime: 24 * 60 * 60 * 1000,
   });
 
@@ -89,7 +82,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
   });
   // The Platforms setting governs every platform selector, this one included.
   const displayPlatforms = useMemo(
-    () => visibleIgdbPlatforms(platforms, userSettings?.importPlatformIds),
+    () => visiblePlatforms(platforms, userSettings?.importPlatformIds),
     [platforms, userSettings?.importPlatformIds]
   );
 
@@ -113,7 +106,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
   // Per-result target overrides only apply to the current discovery result set.
   useEffect(() => {
     setTargetPlatforms({});
-  }, [searchQuery, selectedPlatform, releaseYear, showUndatedGames]);
+  }, [searchQuery, selectedPlatform, releaseYear]);
 
   // Pre-fill search when modal opens (from prop or from the dashboard store)
   useEffect(() => {
@@ -128,34 +121,32 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     } else {
       setSearchQuery("");
       setDebouncedQuery("");
-      setShowUndatedGames(false);
       setSelectedPlatform("all");
       setReleaseYear("");
       setTargetPlatforms({});
     }
   }, [open, initialQuery]);
 
-  // Search IGDB for games
+  // Search RAWG for games
   const { data: searchResults = [], isFetching: isSearching } = useQuery({
-    queryKey: ["/api/igdb/search", debouncedQuery, showUndatedGames, selectedPlatform, releaseYear],
+    queryKey: ["/api/rawg/search", debouncedQuery, selectedPlatform, releaseYear],
     queryFn: async () => {
       if (!debouncedQuery.trim()) return [];
       const params = new URLSearchParams({
         q: debouncedQuery,
         limit: "10",
-        includeUndated: String(showUndatedGames),
       });
       if (selectedPlatform !== "all") params.set("platform", selectedPlatform);
       if (hasValidReleaseYear) {
         params.set("year", releaseYear);
       }
-      const response = await apiFetch(`/api/igdb/search?${params.toString()}`);
+      const response = await apiFetch(`/api/rawg/search?${params.toString()}`);
       if (!response.ok) throw new Error("Search failed");
       const data: unknown = await response.json();
       return Array.isArray(data) ? data.slice(0, 10) : [];
     },
     enabled:
-      debouncedQuery.trim().length > 2 && canSearchWithReleaseYear && !!config?.igdb?.configured,
+      debouncedQuery.trim().length > 2 && canSearchWithReleaseYear && !!config?.rawg?.configured,
   });
 
   // Get user's collection to check if games are already added
@@ -196,10 +187,6 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
 
   const handleReleaseYearChange = (value: string) => {
     setReleaseYear(value);
-    const parsedYear = Number.parseInt(value, 10);
-    if (/^\d{4}$/.test(value) && parsedYear >= 1950 && parsedYear <= 2100) {
-      setShowUndatedGames(false);
-    }
   };
 
   const renderDiscoveryFilters = (compact = false) => (
@@ -229,30 +216,6 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
           aria-label="Release year filter"
         />
       </div>
-      <div
-        className={
-          compact
-            ? "flex items-center justify-between gap-2"
-            : "flex items-center justify-between gap-2 rounded-md border px-4 py-2"
-        }
-      >
-        <div className={compact ? undefined : "space-y-1"}>
-          <p className={compact ? "text-xs text-muted-foreground" : "text-sm font-medium"}>
-            Show undated games first
-          </p>
-          {!compact && (
-            <p className="text-xs text-muted-foreground">
-              Include titles without a release date and place them before dated results.
-            </p>
-          )}
-        </div>
-        <Switch
-          checked={showUndatedGames}
-          onCheckedChange={setShowUndatedGames}
-          disabled={hasValidReleaseYear}
-          aria-label="Show undated games first"
-        />
-      </div>
     </div>
   );
   const getSupportedTargetOptions = (game: SearchResult) =>
@@ -260,7 +223,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
 
   const getTargetPlatformValue = (game: SearchResult) => {
     const supportedOptions = getSupportedTargetOptions(game);
-    const key = String(game.igdbId ?? game.id);
+    const key = String(game.rawgId ?? game.id);
     const explicitValue = targetPlatforms[key];
     if (
       explicitValue &&
@@ -281,7 +244,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
   const renderTargetPlatformSelect = (game: SearchResult) => {
     const supportedOptions = getSupportedTargetOptions(game);
     if (game.inCollection || !supportedOptions?.length) return null;
-    const key = String(game.igdbId ?? game.id);
+    const key = String(game.rawgId ?? game.id);
     return (
       <Select
         value={getTargetPlatformValue(game)}
@@ -317,10 +280,10 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     addGameMutation.mutate(gameData);
   };
 
-  const userGameIgdbIds = useMemo(() => {
+  const userGameRawgIds = useMemo(() => {
     const ids = new Set<number>();
     for (const g of userGames) {
-      if (g.igdbId != null) ids.add(g.igdbId);
+      if (g.rawgId != null) ids.add(g.rawgId);
     }
     return ids;
   }, [userGames]);
@@ -329,14 +292,14 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
   const resultsWithCollectionStatus: SearchResult[] = useMemo(() => {
     return searchResults.slice(0, 10).map((game: Game) => ({
       ...game,
-      inCollection: game.igdbId != null ? userGameIgdbIds.has(game.igdbId) : false,
+      inCollection: game.rawgId != null ? userGameRawgIds.has(game.rawgId) : false,
     }));
-  }, [searchResults, userGameIgdbIds]);
+  }, [searchResults, userGameRawgIds]);
 
-  const igdbNotConfigured = config && !config.igdb?.configured;
+  const rawgNotConfigured = config && !config.rawg?.configured;
 
-  const isAddingGame = (igdbId: number | null | undefined) =>
-    addGameMutation.isPending && addGameMutation.variables?.igdbId === igdbId;
+  const isAddingGame = (rawgId: number | null | undefined) =>
+    addGameMutation.isPending && addGameMutation.variables?.rawgId === rawgId;
 
   // ─── Mobile layout (bottom sheet) ────────────────────────────────────────────
 
@@ -352,14 +315,14 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
             </DrawerDescription>
           </DrawerHeader>
 
-          {igdbNotConfigured ? (
+          {rawgNotConfigured ? (
             <div className="flex flex-col items-center justify-center flex-1 py-8 text-center space-y-4 px-6">
               <div className="bg-muted p-4 rounded-full">
                 <AlertCircle className="h-8 w-8 text-muted-foreground" />
               </div>
-              <h3 className="font-semibold text-lg">IGDB Configuration Required</h3>
+              <h3 className="font-semibold text-lg">RAWG Configuration Required</h3>
               <p className="text-muted-foreground text-sm">
-                Please configure IGDB credentials in settings to search for and add games.
+                Please add a free RAWG API key (rawg.io) in settings to search for and add games.
               </p>
               <Link href="/settings">
                 <Button className="w-full" onClick={() => setOpen(false)}>
@@ -442,7 +405,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                             data-testid={`button-add-${game.id}`}
                             aria-label={`Add ${game.title} to collection`}
                           >
-                            {isAddingGame(game.igdbId) ? (
+                            {isAddingGame(game.rawgId) ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
                             ) : (
                               <Plus className="w-4 h-4" />
@@ -506,14 +469,14 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
           <DialogDescription>Search for games to add to your collection</DialogDescription>
         </DialogHeader>
 
-        {igdbNotConfigured ? (
+        {rawgNotConfigured ? (
           <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
             <div className="bg-muted p-4 rounded-full">
               <AlertCircle className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="font-semibold text-lg">IGDB Configuration Required</h3>
+            <h3 className="font-semibold text-lg">RAWG Configuration Required</h3>
             <p className="text-muted-foreground max-w-sm">
-              Please configure IGDB credentials in settings to search for and add games.
+              Please add a free RAWG API key (rawg.io) in settings to search for and add games.
             </p>
             <Link href="/settings">
               <Button onClick={() => setOpen(false)}>Go to Settings</Button>
@@ -637,12 +600,12 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                               data-testid={`button-add-${game.id}`}
                               aria-label={`Add ${game.title} to collection`}
                             >
-                              {isAddingGame(game.igdbId) ? (
+                              {isAddingGame(game.rawgId) ? (
                                 <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                               ) : (
                                 <Plus className="w-4 h-4 mr-1" />
                               )}
-                              {isAddingGame(game.igdbId) ? "Adding..." : "Add"}
+                              {isAddingGame(game.rawgId) ? "Adding..." : "Add"}
                             </Button>
                           )}
                         </div>

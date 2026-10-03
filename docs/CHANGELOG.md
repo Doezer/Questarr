@@ -15,9 +15,9 @@ All notable changes to this project will be documented in this file.
 - **Library filters**: added filters to hide shelved games and games already owned from search/discover results (#1089).
 - **"Playing" status** for games (#1043), with a dedicated **Playing** page — journal notes, a milestones checklist, screenshots, and Steam achievements per game (#1080).
 - **Crack status** section on the game detail page (#1012, #1062).
-- **Time to Beat** via IGDB's official endpoint (#1063).
+- **Time to Beat** section on the game detail page (#1063).
 - **Sort menu** on the Library page, plus an indexer-priority sort option for downloads (#980, #963).
-- **DLC & expansions**: games now persist their IGDB expansions and show them in a new DLC tab on the game detail page, with cover art, release year, and a category badge (#1105).
+- **DLC & expansions**: games now persist their RAWG expansions and show them in a new DLC tab on the game detail page, with cover art, release year, and a category badge (#1105).
 - **xREL**: surfaces a release's nuke reason with a "Nuked" badge (#948).
 - **Screenshot lightbox**: carousel navigation with arrow-key and swipe support, plus an image counter (#804).
 - **Wishlist**: configurable grid column count (#871).
@@ -71,7 +71,7 @@ All notable changes to this project will be documented in this file.
 - **Prowlarr**: download links no longer double-wrapped when the proxy URL comes back on a container IP (#1007).
 - **Indexers**: search categories outside 40xx/10xx were being dropped; hardened Newznab/Torznab caps discovery (#1058, #951).
 - **Downloaders**: credential policy now validates the resolved URL, not just `useSsl` (#1061).
-- **IGDB**: validated the rate-limit setting's range; canonicalized/deduped game editions in search results (#1020, #950).
+- **Metadata provider**: validated the rate-limit setting's range; canonicalized/deduped game editions in search results (#1020, #950).
 - **Unraid**: fixed the Community Applications template category and default `PUID`/`PGID`, and added an optional Library Path and `UMASK` setting (#850, #886).
 - **safeFetch**: fixed the `Host` header being silently replaced by the resolved IP on plain-HTTP requests, which broke Prowlarr's proxy-link matching (#822).
 - **HTTPS**: the `ssl.redirectHttp` option never redirected anything, because its middleware was registered after the web app's catch-all route. It now runs ahead of every route and keeps the base path and query string. With `QUESTARR_BASE_PATH` set, the HTTPS listener now also serves the app under that path, like the HTTP one.
@@ -94,10 +94,19 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+#### Metadata Provider
+
+- **RAWG is now the sole metadata provider.** Discovery, search, the library
+  scanner, Steam wishlist sync, and release-date update checks all use the
+  RAWG API (free key from [rawg.io/apidocs](https://rawg.io/apidocs)). The
+  setup wizard and **Settings → RAWG API** take a single API key (env var
+  `RAWG_API_KEY` or stored in system config, which takes precedence), and the
+  old provider switch in Discover is gone.
+
 #### Auth & Settings
 
 - **Auth**: migrated to httpOnly cookies plus CSRF, with a bearer-token fallback (#954).
-- **IGDB credential validation** and a test-connection UI (#1064).
+- **RAWG API key validation** and a test-connection UI (#1064).
 - **Settings**: reorganized page tabs by domain; moved the Discord webhook config to the Stats page (#949, #946).
 - **Appearance**: unified theme selection into a single dropdown (#1042).
 
@@ -187,6 +196,12 @@ Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.d
 - Docker base image: `apk upgrade` for Alpine's patched `openssl`/`expat` (Trivy #417, #361, #351, #364, #363); removed the base image's bundled npm CLI after `npm prune`, dropping its vendored `tar`/`ip-address`/`brace-expansion` copies (Trivy #350, #287, #286, #272) (#1113).
 
 ### Removed
+
+- **IGDB integration**: the IGDB API client (`server/igdb.ts`), its Twitch
+  OAuth credentials (`IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`), and all
+  `/api/igdb/*` routes are gone, replaced by the RAWG client and
+  `/api/rawg/*` routes. The legacy `igdb_id` database column is preserved
+  (no destructive migration); it is no longer written.
 
 - **Legacy PostgreSQL migration tooling**: removed `scripts/pg-to-sqlite.ts` and
   `docker-compose.migrate.yml`. The tool dated from the v1.1 move off PostgreSQL

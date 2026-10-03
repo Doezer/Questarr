@@ -12,10 +12,8 @@ const { mockConfig } = vi.hoisted(() => {
         isProduction: false,
         allowedOrigins: [],
       },
-      igdb: {
-        isConfigured: true,
-        clientId: "test-id",
-        clientSecret: "test-secret",
+      rawg: {
+        apiKey: "test-rawg-key",
       },
       nexusmods: {
         apiKey: undefined,
@@ -56,11 +54,28 @@ vi.mock("../storage.js", () => ({
   },
 }));
 
-vi.mock("../igdb.js", () => ({
-  igdbClient: {
-    getPopularGames: vi.fn(),
-  },
-}));
+vi.mock("../rawg.js", () => {
+  const rawgClient = {
+    searchGames: vi.fn().mockResolvedValue([]),
+    formatGame: vi.fn((g: unknown) => g),
+    getPopularGames: vi.fn().mockResolvedValue([]),
+    getRecentReleases: vi.fn().mockResolvedValue([]),
+    getUpcomingReleases: vi.fn().mockResolvedValue([]),
+    getSuggested: vi.fn().mockResolvedValue([]),
+    getGamesByGenre: vi.fn().mockResolvedValue([]),
+    getGamesByPlatform: vi.fn().mockResolvedValue([]),
+    getGenres: vi.fn().mockResolvedValue([]),
+    getPlatforms: vi.fn().mockResolvedValue([]),
+    getGameById: vi.fn().mockResolvedValue(null),
+    getScreenshots: vi.fn().mockResolvedValue([]),
+    getGamesForRefresh: vi.fn().mockResolvedValue(new Map()),
+    getGameBySteamAppId: vi.fn().mockResolvedValue(null),
+    batchSearchGames: vi.fn().mockResolvedValue(new Map()),
+    testApiKey: vi.fn().mockResolvedValue({ success: true }),
+    isConfigured: vi.fn().mockResolvedValue(true),
+  };
+  return { rawgClient };
+});
 
 vi.mock("../torznab.js", () => ({
   torznabClient: {},
@@ -109,7 +124,7 @@ describe("Security Headers", () => {
     // Dev mode needs unsafe-inline/eval for Vite
     expect(csp).toContain("'unsafe-inline'");
     expect(csp).toContain("'unsafe-eval'");
-    expect(csp).toContain("https://images.igdb.com");
+    expect(csp).toContain("https://media.rawg.io");
   });
 
   it("should set strict CSP in production", async () => {
@@ -125,7 +140,7 @@ describe("Security Headers", () => {
     expect(scriptSrc).toBeDefined();
     expect(scriptSrc).not.toContain("'unsafe-inline'");
     expect(scriptSrc).not.toContain("'unsafe-eval'");
-    expect(csp).toContain("https://images.igdb.com");
+    expect(csp).toContain("https://media.rawg.io");
   });
 
   // ZAP's baseline scan flags a bare scheme (e.g. "https:") in any directive as a
@@ -215,25 +230,25 @@ describe("Credential Exposure Prevention", () => {
     expect(response.status).toBe(401);
   });
 
-  it("should not expose IGDB clientId in the authenticated /api/config response", async () => {
+  it("should not expose the RAWG API key in the authenticated /api/config response", async () => {
     const app = await createApp();
     const response = await request(app)
       .get("/api/config")
       .set("Authorization", `Bearer ${authToken()}`);
 
     expect(response.status).toBe(200);
-    expect(response.body).not.toHaveProperty("igdb.clientId");
-    // Even authenticated, the endpoint should only return whether IGDB is configured
-    expect(response.body.igdb).toHaveProperty("configured");
+    expect(response.body).not.toHaveProperty("rawg.apiKey");
+    // Even authenticated, the endpoint should only return whether RAWG is configured
+    expect(response.body.rawg).toHaveProperty("configured");
   });
 
-  it("should not expose IGDB clientSecret in the authenticated /api/config response", async () => {
+  it("should not expose the RAWG API key source details in the /api/config response", async () => {
     const app = await createApp();
     const response = await request(app)
       .get("/api/config")
       .set("Authorization", `Bearer ${authToken()}`);
 
     expect(response.status).toBe(200);
-    expect(response.body).not.toHaveProperty("igdb.clientSecret");
+    expect(response.body.rawg).not.toHaveProperty("apiKey");
   });
 });

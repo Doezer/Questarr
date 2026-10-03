@@ -17,7 +17,6 @@ import { rssService } from "./rss.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import { appriseClient, readAppriseSettings } from "./apprise.js";
 import { storage } from "./storage.js";
-import { platformMappingService } from "./services/index.js";
 import { reportServerError } from "./error-telemetry.js";
 import { logger } from "./logger.js";
 import {
@@ -56,13 +55,6 @@ process.on("unhandledRejection", (reason) => handleFatalError("unhandledRejectio
   try {
     // Ensure database is ready before starting server
     await ensureDatabase();
-
-    // Seed default platform mappings (must run after migrations create the table)
-    try {
-      await platformMappingService.initializeDefaults();
-    } catch (err) {
-      log("Failed to initialize platform mappings: " + String(err));
-    }
 
     // Initialize RSS service (seeding default feeds)
     await rssService.initialize();
@@ -176,11 +168,10 @@ process.on("unhandledRejection", (reason) => handleFatalError("unhandledRejectio
     if (safeConfig.auth) {
       safeConfig.auth = { ...safeConfig.auth, jwtSecret: "***REDACTED***" };
     }
-    if (safeConfig.igdb) {
-      safeConfig.igdb = {
-        ...safeConfig.igdb,
-        clientId: safeConfig.igdb.clientId ? "***REDACTED***" : undefined,
-        clientSecret: safeConfig.igdb.clientSecret ? "***REDACTED***" : undefined,
+    if (safeConfig.rawg) {
+      safeConfig.rawg = {
+        ...safeConfig.rawg,
+        apiKey: safeConfig.rawg.apiKey ? "***REDACTED***" : undefined,
       };
     }
     log(JSON.stringify(safeConfig, null, 2));

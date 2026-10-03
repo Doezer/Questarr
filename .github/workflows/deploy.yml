@@ -71,8 +71,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      # VEX-aware release gate (docs/VULNERABILITY_MANAGEMENT.md §1.3):
+      # findings covered by a not_affected/fixed statement in
+      # security/vex/questarr.openvex.json are reported, not failed.
       - name: Audit production dependencies (Critical/High blocks release)
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/audit-gate.mjs
 
       # @lizenz/checker is a pinned devDependency (see package.json), installed above by
       # `npm ci` — --no-install below guarantees this never installs anything ad-hoc.
@@ -354,8 +357,7 @@ jobs:
           docker pull ghcr.io/${{ env.REPO_LC }}:\$TAG
           docker run -d -p 5000:5000 \\
             -e POSTGRES_PASSWORD=your_password \\
-            -e IGDB_CLIENT_ID=your_client_id \\
-            -e IGDB_CLIENT_SECRET=your_client_secret \\
+            -e RAWG_API_KEY=your_rawg_api_key \\
             ghcr.io/${{ env.REPO_LC }}:\$TAG
           \`\`\`
 

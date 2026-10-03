@@ -33,12 +33,12 @@ export function asZodType<T>(schema: unknown): z.ZodType<T, T> {
 }
 
 /**
- * Checks if a game ID is a temporary ID from IGDB discovery results.
- * Temporary IDs are prefixed with 'igdb-' followed by numeric digits.
+ * Checks if a game ID is a temporary ID from discovery results.
+ * Temporary IDs are prefixed with 'igdb-' or 'rawg-' followed by numeric digits.
  */
 export function isDiscoveryId(id: string | number | null | undefined): boolean {
   if (typeof id !== "string") return false;
-  return id.startsWith("igdb-");
+  return id.startsWith("igdb-") || id.startsWith("rawg-");
 }
 
 /**
@@ -56,7 +56,8 @@ export function isDiscoveryId(id: string | number | null | undefined): boolean {
 export function mapGameToInsertGame(game: Game): InsertGame {
   // Pick only the fields that are part of InsertGame schema
   return {
-    igdbId: game.igdbId,
+    rawgId: game.rawgId,
+    rawgSlug: game.rawgSlug,
     title: game.title,
     summary: game.summary,
     coverUrl: game.coverUrl,
@@ -68,7 +69,7 @@ export function mapGameToInsertGame(game: Game): InsertGame {
     genres: game.genres,
     themes: game.themes,
     screenshots: game.screenshots,
-    igdbWebsites: game.igdbWebsites,
+    websites: game.websites,
     aggregatedRating: game.aggregatedRating,
     source: game.source,
     status: game.status,
@@ -168,7 +169,7 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 
 /**
  * Parses an ISO release date string into a display year and an optional full date.
- * IGDB represents year-only known dates as YYYY-12-31; fullDate is null in that case.
+ * Legacy IGDB-era rows stored year-only dates as YYYY-12-31; fullDate is null for those.
  * fullDate is formatted as dd/mm/yyyy using UTC to avoid timezone shifts.
  */
 export function parseReleaseDate(isoDate: string | null | undefined): {

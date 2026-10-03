@@ -90,7 +90,7 @@ export default function Header({ title = "Library" }: HeaderProps) {
     },
   });
 
-  // Fetch config to check for IGDB status
+  // Fetch config to check for RAWG status
   const { data: config } = useQuery<Config>({
     queryKey: ["/api/config"],
   });
@@ -236,13 +236,12 @@ export default function Header({ title = "Library" }: HeaderProps) {
       </header>
 
       {/* Configuration Alert Banner */}
-      {config && !config.igdb.configured && (
+      {config && !config.rawg?.configured && (
         <Alert variant="destructive" className="rounded-none border-x-0 border-t-0 border-b-1">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Configuration Required</AlertTitle>
           <AlertDescription className="flex items-center gap-2">
-            IGDB credentials are required. The application will only function for existing games
-            until configured.
+            Add a free RAWG API key in Settings to enable discovery and game search.
             <Link href="/settings">
               <span className="underline font-bold cursor-pointer hover:text-white">
                 Configure in Settings

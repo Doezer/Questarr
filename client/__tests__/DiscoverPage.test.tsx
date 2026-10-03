@@ -88,18 +88,18 @@ describe("DiscoverPage", () => {
     vi.clearAllMocks();
     globalThis.fetch = vi.fn(async () => ({
       ok: true,
-      json: async () => ({ igdb: { configured: true } }),
+      json: async () => ({ rawg: { configured: true } }),
     })) as typeof fetch;
   });
 
-  it("renders the Discover heading and handles games with varying status and nullable igdbId", async () => {
+  it("renders the Discover heading and handles games with varying status and nullable rawgId", async () => {
     const games = [
-      { id: "1", igdbId: 1, hidden: true, status: "wanted" },
-      { id: "2", igdbId: 2, hidden: false, status: "owned" },
-      { id: "3", igdbId: 3, hidden: false, status: "completed" },
-      { id: "4", igdbId: 4, hidden: false, status: "downloading" },
-      { id: "5", igdbId: 5, hidden: false, status: "wanted" },
-      { id: "6", igdbId: null, hidden: false, status: "wanted" }, // covers the !g.igdbId branch
+      { id: "1", rawgId: 1, hidden: true, status: "wanted" },
+      { id: "2", rawgId: 2, hidden: false, status: "owned" },
+      { id: "3", rawgId: 3, hidden: false, status: "completed" },
+      { id: "4", rawgId: 4, hidden: false, status: "downloading" },
+      { id: "5", rawgId: 5, hidden: false, status: "wanted" },
+      { id: "6", rawgId: null, hidden: false, status: "wanted" }, // covers the !g.rawgId branch
     ];
     // Override the mock temporarily for this test to hit all logic branches
     vi.mocked(apiRequest).mockImplementation((method: string, url: string) => {
@@ -124,24 +124,24 @@ describe("DiscoverPage", () => {
 
   it("snaps the platform select to a listed platform when the setting excludes PC", async () => {
     const platforms = [
-      { id: 130, name: "Nintendo Switch" },
-      { id: 167, name: "PlayStation 5" },
+      { id: 9, name: "Nintendo Switch" },
+      { id: 7, name: "PlayStation 5" },
     ];
     // `/api/config`, `/api/settings` and `/api/games` use the query client's
-    // default fetch-based queryFn, while `/api/igdb/platforms` calls apiRequest.
+    // default fetch-based queryFn, while `/api/rawg/platforms` calls apiRequest.
     globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
       const u = getRequestUrl(url);
       if (u.includes("/api/settings")) {
         // Only Switch is selected, so the default "PC" is not on offer.
-        return { ok: true, json: async () => ({ importPlatformIds: [130] }) } as Response;
+        return { ok: true, json: async () => ({ importPlatformIds: [9] }) } as Response;
       }
       if (u.includes("/api/games")) {
         return { ok: true, json: async () => [] } as Response;
       }
-      return { ok: true, json: async () => ({ igdb: { configured: true } }) } as Response;
+      return { ok: true, json: async () => ({ rawg: { configured: true } }) } as Response;
     }) as typeof fetch;
     vi.mocked(apiRequest).mockImplementation((_method: string, url: string) => {
-      if (url.includes("/api/igdb/platforms")) {
+      if (url.includes("/api/rawg/platforms")) {
         return Promise.resolve({ json: async () => platforms } as Response);
       }
       return Promise.resolve({ json: async () => [] } as Response);

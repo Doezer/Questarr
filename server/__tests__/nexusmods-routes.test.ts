@@ -9,7 +9,7 @@ import { type User } from "../../shared/schema.js";
 const { mockConfig } = vi.hoisted(() => ({
   mockConfig: {
     server: { isProduction: false, allowedOrigins: [] },
-    igdb: { isConfigured: false },
+    rawg: { apiKey: undefined },
     auth: { jwtSecret: "test-secret" },
     database: { url: "test.db" },
     ssl: { enabled: false, port: 5000, certPath: "", keyPath: "", redirectHttp: false },
@@ -47,24 +47,6 @@ vi.mock("../nexusmods.js", () => ({
     configure: vi.fn(),
     findGameDomain: vi.fn().mockResolvedValue(null),
     getTrendingMods: vi.fn().mockResolvedValue([]),
-  },
-}));
-
-vi.mock("../igdb.js", () => ({
-  igdbClient: {
-    searchGames: vi.fn().mockResolvedValue([]),
-    formatGameData: vi.fn((g) => g),
-    getPopularGames: vi.fn().mockResolvedValue([]),
-    getRecentReleases: vi.fn().mockResolvedValue([]),
-    getUpcomingReleases: vi.fn().mockResolvedValue([]),
-    getRecommendations: vi.fn().mockResolvedValue([]),
-    getGamesByGenre: vi.fn().mockResolvedValue([]),
-    getGamesByPlatform: vi.fn().mockResolvedValue([]),
-    getGenres: vi.fn().mockResolvedValue([]),
-    getPlatforms: vi.fn().mockResolvedValue([]),
-    getGameById: vi.fn(),
-    getGamesByIds: vi.fn().mockResolvedValue([]),
-    batchSearchGames: vi.fn().mockResolvedValue(new Map()),
   },
 }));
 

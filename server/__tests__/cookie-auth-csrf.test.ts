@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 import {
   mockConfig,
   createStorageMock,
-  createIgdbMock,
+  createRawgMock,
   createDbMock,
   createDbModuleMock,
   createLoggerMocks,
@@ -27,7 +27,7 @@ import {
 // cookie-authenticating, and CSRF-checking wiring end-to-end via the real
 // registerRoutes app, since this is the highest-risk change in this PR.
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
-vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
+vi.mock("../rawg.js", () => ({ rawgClient: createRawgMock() }));
 vi.mock("../db.js", () => createDbModuleMock());
 vi.mock("../logger.js", () => createLoggerMocks());
 vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
@@ -87,8 +87,8 @@ describe("cookie-based auth + CSRF", () => {
     const { db } = await import("../db.js");
     (db.get as ReturnType<typeof vi.fn>).mockResolvedValue({ result: 1 });
 
-    const { igdbClient } = await import("../igdb.js");
-    (igdbClient.getPopularGames as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const { rawgClient } = await import("../rawg.js");
+    (rawgClient.getPopularGames as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     const { registerRoutes } = await import("../routes.js");
     app = express();

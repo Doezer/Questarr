@@ -3,42 +3,39 @@
  * One user setting governs every platform selector in the app: the Library
  * platform filter, the download-search platform filter, the Discover and
  * Add Game dropdowns, and the import engine's eligibility check. The stored
- * shape is a list of IGDB platform ids (`importPlatformIds`).
+ * shape is a list of provider (RAWG) platform ids (`importPlatformIds`).
  *
  * Checked = the platforms the user uses. Anything unchecked is hidden from
  * every selector. An empty list means "no restriction" and shows everything,
  * matching the import engine's long-standing eligibility rule.
  */
 
-import { matchesPlatformFilter, type CanonicalPlatform } from "./title-utils.js";
+import { CANONICAL_PLATFORM_RAWG_ID, matchesPlatformFilter, type CanonicalPlatform } from "./title-utils.js";
 
-/** Shape of one entry in the `/api/igdb/platforms` response. */
-export interface IgdbPlatform {
+/** Shape of one entry in the `/api/rawg/platforms` response. */
+export interface RawgPlatform {
   id: number;
   name: string;
 }
 
 /**
- * IGDB platform ids for the canonical release labels that
- * `parseReleaseMetadata` can detect in a release name.
+ * RAWG platform ids for the canonical release labels that
+ * `parseReleaseMetadata` can detect in a release name, derived from the
+ * catalog's verified `rawgId` field (e.g. PC = 4, PS5 = 187, Xbox Series S/X
+ * = 186, original Xbox = 80).
  *
- * Library, Discover and Add Game filter by IGDB id, so they work for every
- * platform IGDB reports. The download-search filter only sees release-title
+ * Library, Discover and Add Game filter by RAWG id, so they work for every
+ * platform RAWG reports. The download-search filter only sees release-title
  * labels, so it can be narrowed for these ids and no others.
  */
-export const IGDB_ID_TO_CANONICAL_PLATFORM: Record<number, CanonicalPlatform | "Xbox"> = {
-  6: "PC",
-  167: "PS5",
-  48: "PS4",
-  9: "PS3",
-  130: "Switch",
-  169: "Xbox Series",
-  // The original Xbox is IGDB id 11, but this repo's own generation-specific
+export const RAWG_ID_TO_CANONICAL_PLATFORM: Record<number, CanonicalPlatform | "Xbox"> = {
+  ...Object.fromEntries(
+    Object.entries(CANONICAL_PLATFORM_RAWG_ID).map(([label, id]) => [id, label as CanonicalPlatform])
+  ),
+  // The original Xbox is RAWG id 80, but this repo's own generation-specific
   // "Xbox Classic" label wouldn't match older release names tagged with the
   // legacy account-wide "Xbox" umbrella `matchesPlatformFilter` understands.
-  11: "Xbox",
-  14: "Mac",
-  3: "Linux",
+  80: "Xbox",
 };
 
 function normalizeSelectedIds(selectedIds: unknown): number[] {
@@ -49,26 +46,23 @@ function normalizeSelectedIds(selectedIds: unknown): number[] {
 }
 
 /**
- * Release-title labels covered by the selected IGDB platform ids.
+ * Release-title labels covered by the selected RAWG platform ids.
  */
-export function canonicalPlatformsForIgdbIds(selectedIds: unknown): (CanonicalPlatform | "Xbox")[] {
+export function canonicalPlatformsForRawgIds(selectedIds: unknown): (CanonicalPlatform | "Xbox")[] {
   const ids = normalizeSelectedIds(selectedIds);
   const labels: (CanonicalPlatform | "Xbox")[] = [];
   for (const id of ids) {
-    const label = IGDB_ID_TO_CANONICAL_PLATFORM[id];
+    const label = RAWG_ID_TO_CANONICAL_PLATFORM[id];
     if (label && !labels.includes(label)) labels.push(label);
   }
   return labels;
 }
 
 /**
- * Filters IGDB platforms down to the selected ids. An empty selection returns
+ * Filters platforms down to the selected ids. An empty selection returns
  * every platform so an unconfigured setting never blanks a dropdown.
  */
-export function visibleIgdbPlatforms<T extends { id: number }>(
-  platforms: T[],
-  selectedIds: unknown
-): T[] {
+export function visiblePlatforms<T extends { id: number }>(platforms: T[], selectedIds: unknown): T[] {
   const list = Array.isArray(platforms) ? platforms : [];
   const ids = normalizeSelectedIds(selectedIds);
   if (ids.length === 0) return list;
@@ -77,7 +71,7 @@ export function visibleIgdbPlatforms<T extends { id: number }>(
 }
 
 /**
- * Names of the selected platforms, for surfaces that match on IGDB platform
+ * Names of the selected platforms, for surfaces that match on platform
  * *names* (the Library's `games.platforms` values) rather than ids.
  *
  * An empty selection yields an empty set, which callers treat as "no
@@ -88,7 +82,7 @@ export function selectedPlatformNames<T extends { id: number; name: string }>(
   platforms: T[],
   selectedIds: unknown
 ): Set<string> {
-  return new Set(visibleIgdbPlatforms(platforms, selectedIds).map((platform) => platform.name));
+  return new Set(visiblePlatforms(platforms, selectedIds).map((platform) => platform.name));
 }
 
 /**
@@ -112,13 +106,13 @@ export function isPlatformNameSelected(
  * names cannot express that platform, so the filter stays out of the way
  * instead of hiding every result.
  */
-export function matchesSelectedIgdbPlatform(
+export function matchesSelectedPlatform(
   releasePlatform: string | undefined,
   selectedIds: unknown
 ): boolean {
   const ids = normalizeSelectedIds(selectedIds);
   if (ids.length === 0) return true;
-  const labels = canonicalPlatformsForIgdbIds(ids);
+  const labels = canonicalPlatformsForRawgIds(ids);
   if (labels.length === 0) return true;
   return labels.some((label) => matchesPlatformFilter(releasePlatform, label));
 }

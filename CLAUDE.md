@@ -86,7 +86,7 @@ Three-layer TypeScript app with a single `package.json` (not a monorepo):
 | `routes.ts`              | All API endpoints (~3360 lines, organized by domain)                                    |
 | `storage.ts`             | Database access layer (Drizzle queries)                                                 |
 | `downloaders.ts`         | Multi-client download management (qBittorrent, Transmission, rTorrent, sabnzbd, nzbget) |
-| `igdb.ts`                | IGDB API client with in-memory cache                                                    |
+| `rawg.ts`                | RAWG API client with free-tier request pacing                                           |
 | `search.ts`              | Aggregated Torznab/Newznab indexer search                                               |
 | `cron.ts`                | Scheduled jobs (auto-search, download checks, xREL monitoring, game updates)            |
 | `middleware.ts`          | Rate limiters, validators, sanitizers                                                   |
@@ -147,7 +147,7 @@ Any PR that touches `client/src/**` must include visual evidence (a screenshot o
 
 Key vars (see `.env.example`):
 
-- `IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET` — IGDB/Twitch API credentials
+- `RAWG_API_KEY` — RAWG API key (optional; a key saved in Settings takes precedence)
 - `SQLITE_DB_PATH` — Database file path (default: `sqlite.db`)
 - `JWT_SECRET` — JWT signing secret (auto-generated if unset)
 - `PORT` — Server port (default: 5000)

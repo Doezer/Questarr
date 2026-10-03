@@ -88,7 +88,7 @@ export const logger = pino(
 );
 
 // Create child loggers for different modules
-export const igdbLogger = logger.child({ module: "igdb" });
+export const rawgLogger = logger.child({ module: "rawg" });
 export const routesLogger = logger.child({ module: "routes" });
 export const expressLogger = logger.child({ module: "express" });
 export const downloadersLogger = logger.child({ module: "downloaders" });

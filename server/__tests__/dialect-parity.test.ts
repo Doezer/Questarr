@@ -38,19 +38,6 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       ).rejects.toThrow(/already completed/i);
     });
 
-    it("seedPlatformMappingsIfEmpty seeds once and is then idempotent", async () => {
-      const first = await storage().seedPlatformMappingsIfEmpty([
-        { igdbPlatformId: 6, sourcePlatformName: "PC" },
-        { igdbPlatformId: 48, sourcePlatformName: "PS4" },
-      ]);
-      expect(first).toEqual({ seeded: true, count: 2 });
-
-      const second = await storage().seedPlatformMappingsIfEmpty([
-        { igdbPlatformId: 1, sourcePlatformName: "Ignored" },
-      ]);
-      expect(second).toEqual({ seeded: false, count: 2 });
-    });
-
     it("addApiKey enforces the per-user cap inside the transaction", async () => {
       const [user] = await storage().getAllUsers();
       await storage().addApiKey({ userId: user.id, name: "k1", keyHash: "h1", prefix: "p1" }, 2);

@@ -17,7 +17,7 @@ knowingly accepted.
 
 **In scope:** the Express API and its route handlers, the React client, the SQLite/Drizzle
 data layer, Socket.io realtime channel, and every external service Questarr talks to
-(indexers, download clients, IGDB, Steam, HowLongToBeat, NexusMods, xREL, PCGamingWiki).
+(indexers, download clients, RAWG, Steam, HowLongToBeat, NexusMods, xREL, PCGamingWiki).
 
 **Out of scope:** OS/host hardening, reverse proxy/TLS termination, and Docker deployment
 configuration — those are covered by [`.github/SECURITY.md`](../.github/SECURITY.md)'s
@@ -53,7 +53,7 @@ flowchart LR
     SSRF --> Indexers["Indexers\n(Torznab/Newznab/Prowlarr)\nuser-configured"]
     SSRF --> Downloaders["Download clients\n(qBittorrent/Transmission/rTorrent/\nSABnzbd/NZBGet)\nuser-configured, typically LAN"]
     SSRF --> RSS["RSS feeds\nuser-configured"]
-    SSRF --> IGDB["IGDB / Twitch OAuth\nhardcoded host"]
+    SSRF --> RAWG["RAWG (rawg.io)\nhardcoded host"]
     SSRF --> Steam["Steam / HLTB / NexusMods /\nxREL / PCGamingWiki\nhardcoded hosts"]
 ```
 
@@ -67,7 +67,7 @@ Four named trust boundaries:
    **the highest-risk boundary**. A user (or a compromised/malicious indexer response) can
    point the server at an arbitrary host, including internal LAN services. This is the
    primary reason `server/ssrf.ts` exists.
-4. **Server ↔ hardcoded external APIs** (IGDB, Steam, HLTB, NexusMods, xREL, PCGamingWiki) —
+4. **Server ↔ hardcoded external APIs** (RAWG, Steam, HLTB, NexusMods, xREL, PCGamingWiki) —
    lower risk since hosts aren't user-supplied, but responses are still untrusted data, and
    `safeFetch`/`isSafeUrl` is applied as defense in depth regardless.
 
@@ -114,13 +114,13 @@ and don't need to be — that host is the trust anchor the admin explicitly conf
 attacker-influenced data. Only fetches of indexer-supplied _payload_ URLs are the SSRF
 concern, and those are covered above.
 
-### 4.2 IGDB metadata fetch
+### 4.2 RAWG metadata fetch
 
-Server → `id.twitch.tv` (OAuth token) → `api.igdb.com` (game metadata). Both hosts are
+Server → `api.rawg.io` (game metadata, API key in `X-Api-Key` header). The host is
 hardcoded; credentials come from `system_config`/env (`server/config.ts`).
 
-Mitigations: `igdbRateLimiter` (per-user configurable); `sanitizeSearchQuery`/`sanitizeIgdbId`
-in `server/middleware.ts`; as of this document's revision, both calls in `server/igdb.ts`
+Mitigations: `rawgRateLimiter` (per-user, 10-second window) plus the client's own ~2.1 s request pacing; `sanitizeSearchQuery`/`sanitizeExternalGameId`
+in `server/middleware.ts`; as of this document's revision, both calls in `server/rawg.ts`
 route through `safeFetch()` (previously used raw `fetch()`, inconsistent with every other
 integration — fixed alongside this document, see Section 8).
 
@@ -144,7 +144,7 @@ this matters because DNS can change between when a URL is saved and when it's ne
 | Indexers (Torznab/Newznab/Prowlarr)                                 | user-configured                | API key (AES-256-GCM encrypted at rest)           | Yes                                                                                        | highest risk — user-supplied host               |
 | Download clients (qBittorrent/Transmission/rTorrent/SABnzbd/NZBGet) | user-configured, typically LAN | username/password (AES-256-GCM encrypted at rest) | Payload-URL fetches: yes. Control-plane calls to the configured client: N/A (trust anchor) | see 4.1                                         |
 | RSS feeds                                                           | user-configured                | none                                              | Yes (`server/rss.ts`)                                                                      |                                                 |
-| IGDB / Twitch                                                       | hardcoded                      | client ID/secret (`system_config`)                | Yes (fixed in this revision)                                                               | see 4.2                                         |
+| RAWG                                                                | hardcoded                      | API key (`system_config` `rawg.apiKey`)          | Yes (fixed in this revision)                                                               | see 4.2                                         |
 | Steam                                                               | hardcoded                      | none (public endpoint)                            | Yes (`server/steam.ts`)                                                                    | wishlist import only                            |
 | HowLongToBeat                                                       | hardcoded                      | none                                              | Yes (`server/hltb.ts`)                                                                     |                                                 |
 | NexusMods                                                           | hardcoded                      | API key (`system_config`)                         | Yes (`server/nexusmods.ts`)                                                                |                                                 |
@@ -160,9 +160,9 @@ linked file as the source of truth.
 
 - **SSRF / DNS rebinding:** `server/ssrf.ts` (`isSafeUrl`, `safeFetch`)
 - **Input sanitization:** `server/middleware.ts` (`sanitizeSearchQuery`, `sanitizeGameId`,
-  `sanitizeDownloadId`, `sanitizeIgdbId`, `sanitizeGameData`, `sanitizeIndexerData`,
+  `sanitizeDownloadId`, `sanitizeExternalGameId`, `sanitizeGameData`, `sanitizeIndexerData`,
   `sanitizeDownloaderData`, `sanitizeIndexerSearchQuery`)
-- **Rate limiting:** `server/middleware.ts` (`igdbRateLimiter`, `authRateLimiter`,
+- **Rate limiting:** `server/middleware.ts` (`rawgRateLimiter`, `authRateLimiter`,
   `sensitiveEndpointLimiter`, `generalApiLimiter`, `scanRateLimiter`); `server/index.ts:34` (global mount)
 - **Authentication/session:** `server/auth.ts` (JWT issuance/verification); global gate at
   `server/routes.ts:845`
@@ -202,7 +202,7 @@ the actual unauthenticated surface:
 | `GET /api/health`                                    | no                                              | Intentionally public liveness check.                                                                  |
 | `GET`/`PATCH /api/settings/ssl`, SSL generate/upload | n/a                                             | Each has explicit `authenticateToken`.                                                                |
 | `GET /api/system/filesystem`                         | n/a (`sensitiveEndpointLimiter`)                | Has explicit `authenticateToken`; scoped to `FILE_BROWSER_ROOT` with path-resolution + prefix checks. |
-| `GET /api/config`                                    | yes (`sensitiveEndpointLimiter`)                | Intentionally public — returns only an IGDB-configured boolean and the xREL API base URL.             |
+| `GET /api/config`                                    | yes (`sensitiveEndpointLimiter`)                | Intentionally public — returns only a RAWG-configured boolean and the xREL API base URL.             |
 
 No route here exposes user data or performs a state-changing action without either explicit
 authentication or a narrowly-scoped, low-sensitivity response.

@@ -18,12 +18,6 @@ export const pathMappings = sqliteTable("path_mappings", {
   remoteHost: text("remote_host"),
 });
 
-export const platformMappings = sqliteTable("platform_mappings", {
-  id: text("id").primaryKey(),
-  igdbPlatformId: integer("igdb_platform_id").notNull(),
-  sourcePlatformName: text("source_platform_name").notNull(),
-});
-
 export const userSettings = sqliteTable("user_settings", {
   id: text("id").primaryKey(),
   userId: text("user_id")
@@ -36,7 +30,6 @@ export const userSettings = sqliteTable("user_settings", {
     .default(false),
   notificationPreferences: text("notification_preferences"),
   searchIntervalHours: integer("search_interval_hours").notNull().default(6),
-  igdbRateLimitPerSecond: integer("igdb_rate_limit_per_second").notNull().default(3),
   downloadRules: text("download_rules"),
   lastAutoSearch: integer("last_auto_search", { mode: "timestamp_ms" }),
   xrelSceneReleases: integer("xrel_scene_releases", { mode: "boolean" }).notNull().default(true),
@@ -107,17 +100,9 @@ export const updatePathMappingSchema = z.object({
   remoteHost: z.string().min(1).nullable().optional(),
 });
 
-export const insertPlatformMappingSchema = z.object({
-  igdbPlatformId: z.number().int(),
-  sourcePlatformName: z.string().min(1),
-});
-
 export type PathMapping = typeof pathMappings.$inferSelect;
 export type InsertPathMapping = (typeof insertPathMappingSchema)["_output"];
 export type UpdatePathMapping = (typeof updatePathMappingSchema)["_output"];
-
-export type PlatformMapping = typeof platformMappings.$inferSelect;
-export type InsertPlatformMapping = (typeof insertPlatformMappingSchema)["_output"];
 
 // ... existing code ...
 
@@ -168,8 +153,9 @@ export const importConfigSchema = z.object({
   sortExtras: z.boolean(),
 });
 
-// A DLC/expansion IGDB reports as related to a game, carried through from
-// IGDBClient.formatGameData for display; not a separately tracked entity.
+// A DLC/expansion the metadata provider (RAWG) reports as related to a
+// game, carried through from formatGame for display; not a separately
+// tracked entity.
 export type GameExpansion = {
   id: number;
   name: string;
@@ -177,7 +163,7 @@ export type GameExpansion = {
   releaseDate: string;
   category: "main" | "update" | "dlc" | "extra" | "packs";
   gameType?: number | undefined;
-  igdbUrl?: string | undefined;
+  rawgUrl?: string | undefined;
 };
 
 export const systemConfig = sqliteTable("system_config", {
@@ -192,6 +178,10 @@ export const games = sqliteTable("games", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
   igdbId: integer("igdb_id"),
+  // RAWG (rawg.io) game ID — the external identity for every game; IGDB was
+  // retired in v1.5.0 and `igdb_id` is a preserved legacy column only.
+  rawgId: integer("rawg_id"),
+  rawgSlug: text("rawg_slug"),
   steamAppId: integer("steam_appid"),
   title: text("title").notNull(),
   summary: text("summary"),
@@ -206,10 +196,8 @@ export const games = sqliteTable("games", {
   publishers: text("publishers", { mode: "json" }).$type<string[]>(),
   developers: text("developers", { mode: "json" }).$type<string[]>(),
   screenshots: text("screenshots", { mode: "json" }).$type<string[]>(),
-  source: text("source").default("manual"), // "manual" | "steam" | "api"
-  igdbWebsites: text("igdb_websites", { mode: "json" }).$type<
-    Array<{ category: number; url: string }>
-  >(),
+  source: text("source").default("manual"), // "manual" | "steam" | "api" | "rawg"
+  websites: text("websites", { mode: "json" }).$type<Array<{ category: number; url: string }>>(),
   expansions: text("expansions", { mode: "json" }).$type<GameExpansion[]>(),
   aggregatedRating: real("aggregated_rating"),
   timeToBeatHastily: real("time_to_beat_hastily"),
@@ -490,6 +478,8 @@ export const insertGameSchema = createInsertSchema(games, {
     id: true,
     addedAt: true,
     completedAt: true,
+    // Legacy IGDB column: never written to again, so the client cannot set it.
+    igdbId: true,
   })
   .superRefine((game, ctx) => {
     const hasTargetId = game.targetPlatformId != null;
@@ -661,7 +651,7 @@ export const claimDownloadRequestSchema = z.object({
   gameId: z.string().optional(),
   newGame: z
     .object({
-      igdbId: z.number().int().optional(),
+      rawgId: z.number().int().optional(),
       title: z.string().min(1),
       coverUrl: z.string().optional(),
       summary: z.string().optional(),
@@ -671,7 +661,7 @@ export const claimDownloadRequestSchema = z.object({
       rating: z.number().optional(),
       aggregatedRating: z.number().optional(),
       screenshots: z.array(z.string()).optional(),
-      igdbWebsites: z.array(z.object({ category: z.number(), url: z.string() })).optional(),
+      websites: z.array(z.object({ category: z.number(), url: z.string() })).optional(),
     })
     .optional(),
 });
@@ -799,9 +789,6 @@ export const updateUserSettingsSchema = createInsertSchema(userSettings)
     updatedAt: true,
   })
   .partial()
-  .extend({
-    igdbRateLimitPerSecond: z.number().int().min(1).max(4).optional(),
-  })
   .superRefine(validateUserSettingsEnums);
 
 // Shared password policy: minimum length plus a mix of letters and digits,
@@ -927,10 +914,9 @@ export interface DashboardStatus {
 
 // Application configuration type
 export interface Config {
-  igdb: {
+  rawg: {
     configured: boolean;
     source?: "env" | "database" | undefined;
-    clientId?: string;
   };
   xrel?: {
     apiBase: string;
@@ -1065,8 +1051,8 @@ export const rssFeedItems = sqliteTable("rss_feed_items", {
   link: text("link").notNull(),
   pubDate: integer("pub_date", { mode: "timestamp_ms" }),
   sourceName: text("source_name"),
-  igdbGameId: integer("igdb_game_id"),
-  igdbGameName: text("igdb_game_name"),
+  rawgGameId: integer("rawg_game_id"),
+  rawgGameName: text("rawg_game_name"),
   coverUrl: text("cover_url"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`

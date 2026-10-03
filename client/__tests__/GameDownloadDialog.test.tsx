@@ -686,10 +686,11 @@ describe("GameDownloadDialog", () => {
   const platformSearchResults = makeSearchResult([pcItem, macItem]);
 
   it("hides releases outside the platforms chosen in the Platforms setting", async () => {
-    // Only Mac is selected, so the PC release must not be offered at all.
+    // Only Mac is selected (RAWG id 5), so the PC release must not be offered
+    // at all.
     globalThis.fetch = createFetchMock({
       search: platformSearchResults,
-      settings: { importPlatformIds: [14] },
+      settings: { importPlatformIds: [5] },
     });
 
     renderComponent();

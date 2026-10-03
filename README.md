@@ -56,16 +56,16 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 
 | Feature                     | Description                                                                                                                                                                                                                                                                                                                           |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Backlog management**      | Track your collection with status indicators (Wanted, Owned, Playing, Completed, Shelved), ratings, and notes. A dedicated **Playing** page adds journal notes, a milestones checklist, screenshots, and Steam achievements per game, plus Crack status and Time to Beat (via IGDB) on the game detail page and a DLC/expansions tab. |
-| **Game Discovery**          | Browse popular, new, and upcoming titles via IGDB, RSS feeds, and xREL.to, or sync your Steam wishlist directly into the app. A per-platform **Root folder / Scan Disk** discovers games already on disk and reconciles their files. |
-| **Search & Filter**         | Find games by genre, platform, and keyword, with automatic search until a release is found, plus release blacklisting and preferred release groups/platforms. A Platforms setting scopes the whole app to your platform(s) of choice, with optional filters to hide shelved/owned games and age-restricted or erotic content. |
-| **Download Management**     | Integrates with indexers and downloaders with optional auto-download and automatic post-processing import, password-protected archive handling, optional pre-import VirusTotal/ClamAV scanning and optional "Powered by AI" workflow to improve game matches (using Typesafe's Jev, in BYOK) |
-| **Real-time Notifications** | In-app alerts for releases and downloads, plus external notifications to 100+ providers via [Apprise](https://github.com/caronc/apprise). |
-| **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available. |
-| **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧 |
-| **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](.github/SECURITY.md) for the full process. |
-| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧 |
-| **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind. |
+| **Backlog management**      | Track your collection with status indicators (Wanted, Owned, Playing, Completed, Shelved), ratings, and notes. A dedicated **Playing** page adds journal notes, a milestones checklist, screenshots, and Steam achievements per game, plus Crack status and Time to Beat on the game detail page and a DLC/expansions tab. |
+| **Game Discovery**          | Browse popular, new, and upcoming titles via the RAWG metadata provider, RSS feeds, and xREL.to, or sync your Steam wishlist directly into the app. A per-platform **Root folder / Scan Disk** discovers games already on disk and reconciles their files.                                                            |
+| **Search & Filter**         | Find games by genre, platform, and keyword, with automatic search until a release is found, plus release blacklisting and preferred release groups/platforms. A Platforms setting scopes the whole app to your platform(s) of choice, with optional filters to hide shelved/owned games and age-restricted or erotic content.         |
+| **Download Management**     | Integrates with indexers and downloaders with optional auto-download and automatic post-processing import, password-protected archive handling, optional pre-import VirusTotal/ClamAV scanning and optional "Powered by AI" workflow to improve game matches (using Typesafe's Jev, in BYOK)                                          |
+| **Real-time Notifications** | In-app alerts for releases and downloads, plus external notifications to 100+ providers via [Apprise](https://github.com/caronc/apprise).                                                                                                                                                                                             |
+| **Rich Game Metadata**      | Details enriched with RAWG, Steam, PCGamingWiki, and NexusMods, including trending mods where available.                                                                                                                                                                                                                              |
+| **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                                                                                                                                                                                      |
+| **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](.github/SECURITY.md) for the full process.                                                                                                                                                         |
+| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                            |
+| **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                                                                                                                                                                                     |
 
 ### Supported Indexers/Downloaders
 
@@ -309,7 +309,7 @@ Browse and find new games to add to your collection.
 
 #### RSS & xRel.to feeds
 
-Custom RSS feeds and xRel.to flux matched to IGDB games directly into the app. Default RSS is set to fitgirl site.
+Custom RSS feeds and xRel.to flux matched to RAWG games directly into the app. Default RSS is set to fitgirl site.
 
 <p float="left">
   <a href="images/Screenshots/rss.png"><img src="images/Screenshots/rss.png" width="49%" /></a>
@@ -354,7 +354,7 @@ Configure indexers, downloaders, and application preferences.
 [![OS](https://img.shields.io/badge/OS-linux%2C%20windows%2C%20macOS-0078D4)](#installation)
 [![CPU](https://img.shields.io/badge/CPU-amd64%2C%20arm64-FF8C00)](#installation)
 
-- **APIs**: IGDB (game metadata), Torznab/Newznab (indexer search), PCGamingWiki, NexusMods, xREL.to
+- **APIs**: RAWG (game metadata), Torznab/Newznab (indexer search), PCGamingWiki, NexusMods, xREL.to
 - **AIs usage**:
   - Claude and Github Copilot are used for AI-Assisted coding, internal code reviews, PR cleanup. Eventually automated coding and troubleshooting for small tasks and bug reports.
   - Gemini & Codex are used for automated code reviews, and brainstorming from time to time (as well as Perplexity for this usage).
@@ -365,7 +365,7 @@ Configure indexers, downloaders, and application preferences.
 1. **First-time setup:**
 
 - Create your admin account
-- Configure the IGDB credentials
+- Configure the RAWG API key during setup (or later in Settings)
 
 Once logged-in:
 
@@ -376,20 +376,15 @@ Once logged-in:
 See [Configuration on the Wiki](https://github.com/Doezer/Questarr/wiki/Configuring-the-application#configure-app-behavior-in-settings--general) for more detailed info.
 
 <details>
-<summary><b>Getting IGDB API Credentials</b></summary>
+<summary><b>Getting a RAWG API Key</b></summary>
 
-IGDB provides game metadata (covers, descriptions, ratings, release dates, etc.).
+RAWG is Questarr's metadata provider (covers, descriptions, ratings, release dates, etc.).
+A registered API key is required; the demo key does not work.
 
-1. Go to [Twitch Developer Console](https://dev.twitch.tv/console)
-2. Log in with your Twitch account (create one if needed)
-3. Click "Register Your Application"
-4. Fill in:
-   - **Name**: Questarr (or any name)
-   - **OAuth Redirect URLs**: `http://localhost` (not used, but required)
-   - **Category**: Application Integration
-5. Click "Create"
-6. Copy your **Client ID** and **Client Secret**
-7. Add them to your `.env` file
+1. Open [rawg.io/apidocs](https://rawg.io/apidocs) and register for a free API key.
+2. Enter the key during initial setup, in **Settings → RAWG API**, or set `RAWG_API_KEY` in your environment.
+3. RAWG's free tier is rate-limited, so Questarr paces requests. Questarr also displays a link to
+   RAWG on pages where its data or images are shown, as required by RAWG's terms.
 
 </details>
 
@@ -504,7 +499,7 @@ Made with [contrib.rocks](https://contrib.rocks).
 
 ## Legal Disclaimer
 
-Questarr is a self-hosted game manager designed solely for organizing, tracking, and automating game libraries using user-provided data and metadata APIs (such as IGDB). Questarr does not host, distribute, or provide any copyrighted game content, ROMs, or download links. It is a technology-neutral tool: any indexers, download clients, or sources you configure are chosen and operated entirely by you. You are solely responsible for ensuring that your use of Questarr, and any content you access or download through third-party services you configure, complies with all applicable laws and the terms of service of those third parties.
+Questarr is a self-hosted game manager designed solely for organizing, tracking, and automating game libraries using user-provided data and metadata APIs (such as RAWG). Questarr does not host, distribute, or provide any copyrighted game content, ROMs, or download links. It is a technology-neutral tool: any indexers, download clients, or sources you configure are chosen and operated entirely by you. You are solely responsible for ensuring that your use of Questarr, and any content you access or download through third-party services you configure, complies with all applicable laws and the terms of service of those third parties.
 
 ## License
 
@@ -513,5 +508,5 @@ GPL3 License - see [COPYING](COPYING) file for details.
 ## Acknowledgments
 
 - Inspired by [Sonarr](https://sonarr.tv/) and [GamezServer](https://github.com/05sonicblue/GamezServer)
-- Game metadata powered by [IGDB API](https://www.igdb.com/)
+- Game metadata powered by [RAWG](https://rawg.io/)
 - UI components from [shadcn/ui](https://ui.shadcn.com/)

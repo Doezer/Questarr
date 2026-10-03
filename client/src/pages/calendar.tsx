@@ -111,7 +111,7 @@ export default function CalendarPage() {
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games"],
-    enabled: !!config?.igdb.configured,
+    enabled: !!config?.rawg?.configured,
   });
 
   // Games with year-only release dates use YYYY-12-31 as a placeholder
@@ -185,16 +185,16 @@ export default function CalendarPage() {
     return `${formatDate(weekDays[0]!)} - ${formatDate(weekDays[6]!)}`;
   };
 
-  if (config && !config.igdb.configured) {
+  if (config && !config.rawg?.configured) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
         <div className="bg-muted p-4 rounded-full">
           <AlertCircle className="h-12 w-12 text-muted-foreground" />
         </div>
-        <h2 className="text-2xl font-bold">IGDB Configuration Required</h2>
+        <h2 className="text-2xl font-bold">RAWG Configuration Required</h2>
         <p className="text-muted-foreground max-w-md">
-          To track game release dates and view the calendar, you need to configure your IGDB
-          credentials in the settings.
+          To track game release dates and view the calendar, you need to add a free RAWG API key in
+          the settings.
         </p>
         <Link href="/settings">
           <Button>Go to Settings</Button>

@@ -29,7 +29,7 @@ Questarr is a video game management application inspired by the \*Arr ecosystem 
 
 ### External APIs
 
-- **IGDB API**: Game metadata, cover images, screenshots, ratings, and platform information (via Twitch OAuth)
+- **RAWG API**: Game metadata, cover images, screenshots, ratings, and platform information (free key from https://rawg.io/apidocs)
 - **Torznab/Newznab**: Indexer search protocol (torrent/NZB)
 - **Download Clients**: qBittorrent, Transmission, rTorrent, sabnzbd, nzbget
 - **Steam**: Wishlist import and Steam App ID resolution
@@ -53,7 +53,7 @@ Questarr is a video game management application inspired by the \*Arr ecosystem 
   storage.ts         # Database access layer (Drizzle queries)
   middleware.ts      # Rate limiters, validators, sanitizers
   auth.ts            # JWT generation/verification, password hashing
-  igdb.ts            # IGDB API client with caching
+  rawg.ts            # RAWG API client with free-tier request pacing
   downloaders.ts     # Multi-client download management
   search.ts          # Aggregated Torznab/Newznab search
   cron.ts            # Scheduled jobs (auto-search, download checks, etc.)
@@ -213,17 +213,16 @@ Pre-commit hooks (Husky + lint-staged) run ESLint + Prettier on staged files aut
 3. Run `npm run db:migrate` to apply
 4. Update Zod schemas if needed
 
-### External API Usage (IGDB)
+### External API Usage (RAWG)
 
-- Always use the abstraction in `server/igdb.ts`
-- The client includes in-memory caching (30s TTL for searches)
-- Rate limits are configurable per user in settings
+- Always use the abstraction in `server/rawg.ts`
+- The free tier is rate-limited; the client paces requests (~2.1s apart) to stay under it
 - Handle API failures gracefully
 
 ## Security
 
 1. **SSRF Protection**: All outbound fetches use `safeFetch()` with DNS rebinding and cloud metadata filtering.
-2. **Rate Limiting**: IGDB (3/sec configurable), auth (5/15min), general API (100/min).
+2. **Rate Limiting**: RAWG (free-tier paced client), auth (5/15min), general API (100/min).
 3. **Input Validation**: express-validator + Zod schemas at API boundaries.
 4. **Helmet**: Security headers configured via helmet middleware.
 
@@ -231,7 +230,7 @@ Pre-commit hooks (Husky + lint-staged) run ESLint + Prettier on staged files aut
 
 Key environment variables (see `.env.example`):
 
-- `IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET` — IGDB/Twitch API credentials
+- `RAWG_API_KEY` — RAWG API key (optional; a key saved in Settings takes precedence)
 - `SQLITE_DB_PATH` — Database file path (default: `sqlite.db`)
 - `JWT_SECRET` — JWT signing secret (auto-generated if unset)
 - `PORT` — Server port (default: 5000)

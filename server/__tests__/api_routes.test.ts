@@ -5,7 +5,7 @@ import path from "path";
 import {
   mockConfig,
   createStorageMock,
-  createIgdbMock,
+  createRawgMock,
   createAuthMock,
   createDbMock,
   createDbModuleMock,
@@ -26,7 +26,7 @@ import { registerRoutes, parseCategories } from "../routes.js";
 import { matchUnmatchedFolder } from "../library-scanner.js";
 import { storage } from "../storage.js";
 import { searchAllIndexers } from "../search.js";
-import { igdbClient, type IGDBGame } from "../igdb.js";
+import { rawgClient } from "../rawg.js";
 import {
   type Game,
   type User,
@@ -49,7 +49,7 @@ import { normalizeTitle } from "../../shared/title-utils.js";
 // Mock dependencies (factory bodies live in ./fixtures/common-route-mocks.ts so they can be
 // shared with other test files that also boot the full app via registerRoutes())
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
-vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
+vi.mock("../rawg.js", () => ({ rawgClient: createRawgMock() }));
 vi.mock("../auth.js", () => createAuthMock());
 vi.mock("../db.js", () => createDbModuleMock());
 vi.mock("../logger.js", () => createLoggerMocks());
@@ -134,6 +134,7 @@ vi.mock("../middleware.js", async () => {
   const actual = await vi.importActual<typeof import("../middleware.js")>("../middleware.js");
   return {
     ...actual,
+    rawgRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
     sensitiveEndpointLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
     authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   };
@@ -193,6 +194,9 @@ describe("API Routes - Extended Coverage", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    // clearAllMocks() can drop the factory-provided implementations, so pin the
+    // provider state here; individual tests override it when they need 503s.
+    vi.mocked(rawgClient.isConfigured).mockResolvedValue(true);
     app = express();
     app.set("trust proxy", 1);
     app.use(express.json());
@@ -325,63 +329,31 @@ describe("API Routes - Extended Coverage", () => {
         expect(res.status).toBe(400);
       });
 
-      it("should save IGDB credentials if provided", async () => {
+      it("should save the RAWG API key if provided", async () => {
         vi.mocked(storage.countUsers).mockResolvedValue(0);
         vi.mocked(storage.registerSetupUser).mockResolvedValue({
           id: "user-1",
           username: "admin",
         } as any);
 
-        const igdbClientId = "setupigdbclientid1234567890ab";
-        const igdbClientSecret = "setupigdbclientsecret1234567890";
+        const rawgApiKey = "setup-rawg-key-123";
         const res = await request(app).post("/api/auth/setup").send({
           username: "admin",
           password: "password123",
-          igdbClientId,
-          igdbClientSecret,
+          rawgApiKey,
         });
 
         expect(res.status).toBe(200);
-        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientId", igdbClientId);
-        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientSecret", igdbClientSecret);
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("rawg.apiKey", rawgApiKey);
       });
 
-      it("should reject a partial IGDB credential pair without creating the user", async () => {
+      it("should reject a non-string RAWG API key without creating the user", async () => {
         vi.mocked(storage.countUsers).mockResolvedValue(0);
 
         const res = await request(app).post("/api/auth/setup").send({
           username: "admin",
           password: "password123",
-          igdbClientId: "setupigdbclientid1234567890ab",
-          // igdbClientSecret omitted
-        });
-
-        expect(res.status).toBe(400);
-        expect(storage.registerSetupUser).not.toHaveBeenCalled();
-      });
-
-      it("should reject a full but malformed IGDB credential pair without creating the user", async () => {
-        vi.mocked(storage.countUsers).mockResolvedValue(0);
-
-        const res = await request(app).post("/api/auth/setup").send({
-          username: "admin",
-          password: "password123",
-          igdbClientId: "not-a-real-id",
-          igdbClientSecret: "not-a-real-secret",
-        });
-
-        expect(res.status).toBe(400);
-        expect(storage.registerSetupUser).not.toHaveBeenCalled();
-      });
-
-      it("should reject non-string IGDB credential values without creating the user", async () => {
-        vi.mocked(storage.countUsers).mockResolvedValue(0);
-
-        const res = await request(app).post("/api/auth/setup").send({
-          username: "admin",
-          password: "password123",
-          igdbClientId: 123456,
-          igdbClientSecret: 654321,
+          rawgApiKey: 123456,
         });
 
         expect(res.status).toBe(400);
@@ -401,59 +373,44 @@ describe("API Routes - Extended Coverage", () => {
       });
     });
 
-    describe("POST /api/auth/setup/test-igdb", () => {
-      const VALID_CLIENT_ID = "newigdbclientid1234567890ab";
-      const VALID_CLIENT_SECRET = "newigdbclientsecret1234567890";
+    describe("POST /api/auth/setup/test-rawg", () => {
+      const VALID_API_KEY = "new-rawg-api-key-123";
 
       it("should return 403 once setup is already complete", async () => {
         vi.mocked(storage.countUsers).mockResolvedValue(1);
         const res = await request(app)
-          .post("/api/auth/setup/test-igdb")
-          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+          .post("/api/auth/setup/test-rawg")
+          .send({ apiKey: VALID_API_KEY });
         expect(res.status).toBe(403);
-        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+        expect(rawgClient.testApiKey).not.toHaveBeenCalled();
       });
 
-      it("should return 400 when a field is missing", async () => {
+      it("should return 400 when the key is missing", async () => {
         vi.mocked(storage.countUsers).mockResolvedValue(0);
-        const res = await request(app)
-          .post("/api/auth/setup/test-igdb")
-          .send({ clientId: VALID_CLIENT_ID });
+        const res = await request(app).post("/api/auth/setup/test-rawg").send({});
         expect(res.status).toBe(400);
-        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
-      });
-
-      it("should return 400 when the credential format looks invalid", async () => {
-        vi.mocked(storage.countUsers).mockResolvedValue(0);
-        const res = await request(app)
-          .post("/api/auth/setup/test-igdb")
-          .send({ clientId: "not-a-real-id", clientSecret: "not-a-real-secret" });
-        expect(res.status).toBe(400);
-        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+        expect(rawgClient.testApiKey).not.toHaveBeenCalled();
       });
 
       it("should return the test result when setup is still open", async () => {
         vi.mocked(storage.countUsers).mockResolvedValue(0);
-        vi.mocked(igdbClient.testCredentials).mockResolvedValue({
+        vi.mocked(rawgClient.testApiKey).mockResolvedValue({
           success: false,
-          error: "Invalid Client ID or Client Secret.",
+          error: "Invalid API key",
         });
         const res = await request(app)
-          .post("/api/auth/setup/test-igdb")
-          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+          .post("/api/auth/setup/test-rawg")
+          .send({ apiKey: VALID_API_KEY });
         expect(res.status).toBe(400);
-        expect(res.body).toEqual({
-          success: false,
-          error: "Invalid Client ID or Client Secret.",
-        });
+        expect(res.body).toEqual({ success: false, error: "Invalid API key" });
       });
 
-      it("should return 500 when testCredentials throws unexpectedly", async () => {
+      it("should return 500 when testApiKey throws unexpectedly", async () => {
         vi.mocked(storage.countUsers).mockResolvedValue(0);
-        vi.mocked(igdbClient.testCredentials).mockRejectedValue(new Error("boom"));
+        vi.mocked(rawgClient.testApiKey).mockRejectedValue(new Error("boom"));
         const res = await request(app)
-          .post("/api/auth/setup/test-igdb")
-          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+          .post("/api/auth/setup/test-rawg")
+          .send({ apiKey: VALID_API_KEY });
         expect(res.status).toBe(500);
       });
     });
@@ -641,9 +598,9 @@ describe("API Routes - Extended Coverage", () => {
 
   // ─── Ready check ───
   describe("GET /api/ready", () => {
-    it("should return 200 when db and igdb are healthy", async () => {
+    it("should return 200 when db and rawg are healthy", async () => {
       vi.mocked(db.get).mockResolvedValue({ result: 1 });
-      vi.mocked(igdbClient.getPopularGames).mockResolvedValue([]);
+      vi.mocked(rawgClient.getPopularGames).mockResolvedValue([]);
 
       const res = await request(app).get("/api/ready");
       expect(res.status).toBe(200);
@@ -652,16 +609,16 @@ describe("API Routes - Extended Coverage", () => {
 
     it("should return 503 when db check fails", async () => {
       vi.mocked(db.get).mockRejectedValue(new Error("DB connection failed"));
-      vi.mocked(igdbClient.getPopularGames).mockResolvedValue([]);
+      vi.mocked(rawgClient.getPopularGames).mockResolvedValue([]);
 
       const res = await request(app).get("/api/ready");
       expect(res.status).toBe(503);
       expect(res.body.status).toBe("error");
     });
 
-    it("should return 503 when igdb check fails", async () => {
+    it("should return 503 when the rawg check fails", async () => {
       vi.mocked(db.get).mockResolvedValue({ result: 1 });
-      vi.mocked(igdbClient.getPopularGames).mockRejectedValue(new Error("IGDB error"));
+      vi.mocked(rawgClient.getPopularGames).mockRejectedValue(new Error("RAWG error"));
 
       const res = await request(app).get("/api/ready");
       expect(res.status).toBe(503);
@@ -756,7 +713,7 @@ describe("API Routes - Extended Coverage", () => {
   describe("POST /api/games", () => {
     afterEach(() => vi.useRealTimers());
     it("should add a new game", async () => {
-      const newGame = { title: "New Game", igdbId: 12345, platform: "PC" };
+      const newGame = { title: "New Game", rawgId: 12345, platform: "PC" };
       const savedGame = { ...newGame, id: "game-new", userId: "user-1" };
 
       vi.mocked(storage.getUserGames).mockResolvedValue([]);
@@ -770,7 +727,7 @@ describe("API Routes - Extended Coverage", () => {
     it("marks an already-released game as released when adding it", async () => {
       const newGame = {
         title: "Previously Released Game",
-        igdbId: 12346,
+        rawgId: 12346,
         platform: "PC",
         releaseDate: "2020-01-01",
       };
@@ -798,7 +755,7 @@ describe("API Routes - Extended Coverage", () => {
 
       const newGame = {
         title: "Future Game",
-        igdbId: 12347,
+        rawgId: 12347,
         platform: "PC",
         releaseDate: futureDate,
         releaseStatus: "upcoming",
@@ -824,7 +781,7 @@ describe("API Routes - Extended Coverage", () => {
     it("does not force a release status when releaseDate is omitted", async () => {
       const newGame = {
         title: "Undated Game",
-        igdbId: 12348,
+        rawgId: 12348,
         platform: "PC",
         releaseStatus: "upcoming",
       };
@@ -852,7 +809,7 @@ describe("API Routes - Extended Coverage", () => {
 
       const newGame = {
         title: "Releasing Today",
-        igdbId: 12349,
+        rawgId: 12349,
         platform: "PC",
         releaseDate: today,
       };
@@ -875,7 +832,7 @@ describe("API Routes - Extended Coverage", () => {
     });
 
     it("should prevent duplicate games", async () => {
-      const gameData = { title: "Dup Game", igdbId: 100, platform: "PC" };
+      const gameData = { title: "Dup Game", rawgId: 100, platform: "PC" };
       const existingGame = { ...gameData, id: "game-100", userId: "user-1" };
       vi.mocked(storage.getUserGames).mockResolvedValue([existingGame as unknown as Game]);
 
@@ -1049,7 +1006,7 @@ describe("API Routes - Extended Coverage", () => {
   describe("PATCH /api/games/:id/target-platform", () => {
     const gameId = "123e4567-e89b-12d3-a456-426614174000";
 
-    it("updates a complete IGDB target pair", async () => {
+    it("updates a complete target pair", async () => {
       vi.mocked(storage.getGame).mockResolvedValue({
         id: gameId,
         userId: "user-1",
@@ -1080,10 +1037,30 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.body.error).toBe("Invalid target platform data");
     });
 
-    it("rejects a mismatched complete target pair before storage", async () => {
+    it("accepts a complete pair whose ID comes from another provider's namespace", async () => {
+      // Resolution is name-based (RAWG IDs differ from legacy IGDB IDs), so the
+      // stored ID is kept as-is as long as the name resolves to a catalog entry.
+      vi.mocked(storage.updateGame).mockResolvedValue({
+        id: gameId,
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 5",
+      } as unknown as Game);
+
       const response = await request(app)
         .patch(`/api/games/${gameId}/target-platform`)
         .send({ targetPlatformId: 8, targetPlatformName: "PlayStation 5" });
+
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGame)).toHaveBeenCalledWith(gameId, {
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 5",
+      });
+    });
+
+    it("rejects a complete pair whose name is not a known platform", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/target-platform`)
+        .send({ targetPlatformId: 8, targetPlatformName: "Atari Jaguar" });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe("Invalid target platform data");
@@ -1338,120 +1315,127 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
-  // ─── IGDB routes ───
-  describe("IGDB routes", () => {
-    describe("GET /api/igdb/search", () => {
+  // ─── RAWG routes ───
+  describe("RAWG routes", () => {
+    describe("GET /api/rawg/search", () => {
       it("should return search results", async () => {
         const mockResults = [{ id: 1, name: "Zelda" }];
-        vi.mocked(igdbClient.searchGames).mockResolvedValue(mockResults as unknown as IGDBGame[]);
+        vi.mocked(rawgClient.searchGames).mockResolvedValue(mockResults as never);
 
-        const response = await request(app).get("/api/igdb/search?q=Zelda");
+        const response = await request(app).get("/api/rawg/search?q=Zelda");
         expect(response.status).toBe(200);
         // Adult-content filtering is on by default, so the route over-fetches (2x limit)
         // to still return up to `limit` results after filtering.
-        expect(igdbClient.searchGames).toHaveBeenCalledWith("Zelda", 40, {});
+        expect(rawgClient.searchGames).toHaveBeenCalledWith("Zelda", 40, {});
       });
 
       it("should require query parameter", async () => {
-        const response = await request(app).get("/api/igdb/search");
+        const response = await request(app).get("/api/rawg/search");
         expect(response.status).toBe(400);
       });
 
-      it("should pass includeUndated to IGDB search", async () => {
-        vi.mocked(igdbClient.searchGames).mockResolvedValue([]);
-
-        const response = await request(app).get("/api/igdb/search?q=Zelda&includeUndated=true");
-
-        expect(response.status).toBe(200);
-        expect(igdbClient.searchGames).toHaveBeenCalledWith("Zelda", 40, {
-          includeUndated: true,
-          undatedFirst: true,
-        });
-      });
-      it("should pass platform and release year filters to IGDB search", async () => {
-        vi.mocked(igdbClient.searchGames).mockResolvedValue([]);
+      it("should pass platform and release year filters to RAWG search", async () => {
+        vi.mocked(rawgClient.searchGames).mockResolvedValue([]);
 
         const response = await request(app).get(
-          "/api/igdb/search?q=God%20of%20War&limit=10&platform=8&year=2005"
+          "/api/rawg/search?q=God%20of%20War&limit=10&platform=pc&year=2005"
         );
 
         expect(response.status).toBe(200);
-        expect(igdbClient.searchGames).toHaveBeenCalledWith("God of War", 20, {
-          platformId: 8,
-          releaseYear: 2005,
+        expect(rawgClient.searchGames).toHaveBeenCalledWith("God of War", 20, {
+          platform: "pc",
+          year: 2005,
         });
       });
+
+      it("should return 503 when RAWG is not configured", async () => {
+        vi.mocked(rawgClient.isConfigured).mockResolvedValue(false);
+        const response = await request(app).get("/api/rawg/search?q=Zelda");
+        expect(response.status).toBe(503);
+        expect(rawgClient.searchGames).not.toHaveBeenCalled();
+      });
     });
 
-    describe("GET /api/igdb/popular", () => {
+    describe("GET /api/rawg/popular", () => {
       it("should return popular games", async () => {
-        vi.mocked(igdbClient.getPopularGames).mockResolvedValue([]);
-        const response = await request(app).get("/api/igdb/popular");
+        vi.mocked(rawgClient.getPopularGames).mockResolvedValue([]);
+        const response = await request(app).get("/api/rawg/popular");
         expect(response.status).toBe(200);
       });
     });
 
-    describe("GET /api/igdb/recent", () => {
+    describe("GET /api/rawg/recent", () => {
       it("should return recent releases", async () => {
-        vi.mocked(igdbClient.getRecentReleases).mockResolvedValue([]);
-        const response = await request(app).get("/api/igdb/recent");
+        vi.mocked(rawgClient.getRecentReleases).mockResolvedValue([]);
+        const response = await request(app).get("/api/rawg/recent");
         expect(response.status).toBe(200);
       });
     });
 
-    describe("GET /api/igdb/upcoming", () => {
+    describe("GET /api/rawg/upcoming", () => {
       it("should return upcoming releases", async () => {
-        vi.mocked(igdbClient.getUpcomingReleases).mockResolvedValue([]);
-        const response = await request(app).get("/api/igdb/upcoming");
+        vi.mocked(rawgClient.getUpcomingReleases).mockResolvedValue([]);
+        const response = await request(app).get("/api/rawg/upcoming");
         expect(response.status).toBe(200);
       });
     });
 
-    describe("GET /api/igdb/genre/:genre", () => {
-      it("should return games by genre", async () => {
-        vi.mocked(igdbClient.getGamesByGenre).mockResolvedValue([]);
-        const response = await request(app).get("/api/igdb/genre/Action");
+    describe("GET /api/rawg/genre/:genre", () => {
+      it("should return games by genre slug", async () => {
+        vi.mocked(rawgClient.getGamesByGenre).mockResolvedValue([]);
+        const response = await request(app).get("/api/rawg/genre/action");
+        expect(response.status).toBe(200);
+      });
+
+      it("should reject an invalid slug", async () => {
+        const response = await request(app).get("/api/rawg/genre/Action");
+        expect(response.status).toBe(400);
+      });
+    });
+
+    describe("GET /api/rawg/platform/:platform", () => {
+      it("should return games by platform slug", async () => {
+        vi.mocked(rawgClient.getGamesByPlatform).mockResolvedValue([]);
+        const response = await request(app).get("/api/rawg/platform/pc");
         expect(response.status).toBe(200);
       });
     });
 
-    describe("GET /api/igdb/platform/:platform", () => {
-      it("should return games by platform", async () => {
-        vi.mocked(igdbClient.getGamesByPlatform).mockResolvedValue([]);
-        const response = await request(app).get("/api/igdb/platform/PC");
-        expect(response.status).toBe(200);
-      });
-    });
-
-    describe("GET /api/igdb/genres", () => {
+    describe("GET /api/rawg/genres", () => {
       it("should return genres", async () => {
-        vi.mocked(igdbClient.getGenres).mockResolvedValue([]);
-        const response = await request(app).get("/api/igdb/genres");
+        vi.mocked(rawgClient.getGenres).mockResolvedValue([]);
+        const response = await request(app).get("/api/rawg/genres");
         expect(response.status).toBe(200);
       });
     });
 
-    describe("GET /api/igdb/platforms", () => {
+    describe("GET /api/rawg/platforms", () => {
       it("should return platforms", async () => {
-        vi.mocked(igdbClient.getPlatforms).mockResolvedValue([]);
-        const response = await request(app).get("/api/igdb/platforms");
+        vi.mocked(rawgClient.getPlatforms).mockResolvedValue([]);
+        const response = await request(app).get("/api/rawg/platforms");
         expect(response.status).toBe(200);
       });
     });
 
-    describe("GET /api/igdb/game/:id", () => {
+    describe("GET /api/rawg/game/:id", () => {
       it("should return game details", async () => {
         const mockGame = { id: 1, name: "Zelda" };
-        vi.mocked(igdbClient.getGameById).mockResolvedValue(mockGame as unknown as IGDBGame);
+        vi.mocked(rawgClient.getGameById).mockResolvedValue(mockGame as never);
 
-        const response = await request(app).get("/api/igdb/game/1");
+        const response = await request(app).get("/api/rawg/game/1");
         expect(response.status).toBe(200);
+        expect(rawgClient.getScreenshots).toHaveBeenCalledWith(1);
       });
 
       it("should return 404 for missing game", async () => {
-        vi.mocked(igdbClient.getGameById).mockResolvedValue(null as any);
-        const response = await request(app).get("/api/igdb/game/9999");
+        vi.mocked(rawgClient.getGameById).mockResolvedValue(null as never);
+        const response = await request(app).get("/api/rawg/game/9999");
         expect(response.status).toBe(404);
+      });
+
+      it("should reject a non-numeric id", async () => {
+        const response = await request(app).get("/api/rawg/game/abc");
+        expect(response.status).toBe(400);
       });
     });
   });
@@ -2230,182 +2214,117 @@ describe("API Routes - Extended Coverage", () => {
 
   // ─── Config routes ───
   describe("GET /api/config", () => {
-    it("should return config with DB credentials", async () => {
-      vi.mocked(storage.getSystemConfig)
-        .mockResolvedValueOnce("db-client-id")
-        .mockResolvedValueOnce("db-secret")
-        .mockResolvedValueOnce(null as any); // xrel_api_base
+    it("should return config with a DB-stored RAWG key", async () => {
+      vi.mocked(storage.getSystemConfig).mockImplementation(async (key) =>
+        key === "rawg.apiKey" ? "db-rawg-key" : null
+      );
 
       const response = await request(app).get("/api/config");
       expect(response.status).toBe(200);
-      expect(response.body.igdb.configured).toBe(true);
-      expect(response.body.igdb.source).toBe("database");
+      expect(response.body.rawg.configured).toBe(true);
+      expect(response.body.rawg.source).toBe("database");
     });
 
-    it("should fallback to env credentials", async () => {
+    it("should fallback to the env-configured key", async () => {
       vi.mocked(storage.getSystemConfig).mockResolvedValue(null as any);
 
       const response = await request(app).get("/api/config");
       expect(response.status).toBe(200);
-      expect(response.body.igdb.configured).toBe(true);
-      expect(response.body.igdb.source).toBe("env");
+      expect(response.body.rawg.configured).toBe(true);
+      expect(response.body.rawg.source).toBe("env");
     });
   });
 
-  // ─── IGDB settings ───
-  describe("IGDB settings", () => {
-    describe("GET /api/settings/igdb", () => {
-      it("should return IGDB settings from DB", async () => {
-        vi.mocked(storage.getSystemConfig)
-          .mockResolvedValueOnce("db-client-id")
-          .mockResolvedValueOnce("db-secret");
+  // ─── RAWG settings ───
+  describe("RAWG settings", () => {
+    describe("GET /api/settings/rawg", () => {
+      it("should return settings from the DB with a redacted key", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue("db-rawg-key");
 
-        const response = await request(app).get("/api/settings/igdb");
+        const response = await request(app).get("/api/settings/rawg");
         expect(response.status).toBe(200);
         expect(response.body.configured).toBe(true);
         expect(response.body.source).toBe("database");
+        expect(response.body.apiKey).toBe("********");
+      });
+
+      it("should report the env source when no DB key is stored", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue(null as any);
+
+        const response = await request(app).get("/api/settings/rawg");
+        expect(response.status).toBe(200);
+        expect(response.body.configured).toBe(true);
+        expect(response.body.source).toBe("env");
+        expect(response.body.apiKey).toBeUndefined();
       });
     });
 
-    describe("POST /api/settings/igdb", () => {
-      // Twitch Client IDs/Secrets are 20-40 char alphanumeric tokens; the endpoint now rejects
-      // anything shorter/punctuated before it ever touches storage, so fixtures must look real.
-      const VALID_CLIENT_ID = "newigdbclientid1234567890ab";
-      const VALID_CLIENT_SECRET = "newigdbclientsecret1234567890";
-
-      it("should update IGDB credentials", async () => {
-        vi.mocked(storage.getSystemConfig).mockResolvedValue("existing-secret");
+    describe("POST /api/settings/rawg", () => {
+      it("should save a new API key", async () => {
         const response = await request(app)
-          .post("/api/settings/igdb")
-          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+          .post("/api/settings/rawg")
+          .send({ apiKey: "new-rawg-key" });
         expect(response.status).toBe(200);
         expect(response.body.success).toBe(true);
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("rawg.apiKey", "new-rawg-key");
       });
 
-      it("should return 400 when clientId is missing", async () => {
-        const response = await request(app).post("/api/settings/igdb").send({});
-        expect(response.status).toBe(400);
+      it("should clear the key when an empty string is sent", async () => {
+        const response = await request(app).post("/api/settings/rawg").send({ apiKey: "" });
+        expect(response.status).toBe(200);
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("rawg.apiKey", "");
       });
 
-      it("should return 400 when the credential format looks invalid", async () => {
-        const response = await request(app)
-          .post("/api/settings/igdb")
-          .send({ clientId: "not-a-real-id", clientSecret: "not-a-real-secret" });
-        expect(response.status).toBe(400);
-      });
-
-      it("should return 400 (not 500) when clientId is a non-string value", async () => {
-        const response = await request(app)
-          .post("/api/settings/igdb")
-          .send({ clientId: 123456, clientSecret: VALID_CLIENT_SECRET });
-        expect(response.status).toBe(400);
-      });
-
-      it("should return 400 (not 500) when clientSecret is a non-string value", async () => {
-        const response = await request(app)
-          .post("/api/settings/igdb")
-          .send({ clientId: VALID_CLIENT_ID, clientSecret: 123456 });
-        expect(response.status).toBe(400);
-      });
-
-      it("should require the secret for a clientId-only update when no DB secret exists yet (env-only configured)", async () => {
-        // appConfig.igdb.isConfigured is true in this test's mock, simulating an env-configured
-        // instance; storage.getSystemConfig defaults to undefined, i.e. no DB secret yet. A
-        // clientId-only update here must not silently save a DB clientId with no DB secret to
-        // pair it with (getCredentials() only uses DB creds when both are present together).
-        vi.mocked(storage.getSystemConfig).mockResolvedValue(undefined);
-        const response = await request(app)
-          .post("/api/settings/igdb")
-          .send({ clientId: VALID_CLIENT_ID });
+      it("should return 400 (not 500) when apiKey is a non-string value", async () => {
+        const response = await request(app).post("/api/settings/rawg").send({ apiKey: 123456 });
         expect(response.status).toBe(400);
         expect(storage.setSystemConfig).not.toHaveBeenCalled();
       });
 
-      it("should handle masked secret update", async () => {
-        vi.mocked(storage.getSystemConfig).mockResolvedValue("existing-secret");
-        const response = await request(app)
-          .post("/api/settings/igdb")
-          .send({ clientId: VALID_CLIENT_ID, clientSecret: "********" });
+      it("should keep the stored key when the redacted placeholder is posted", async () => {
+        const response = await request(app).post("/api/settings/rawg").send({ apiKey: "********" });
         expect(response.status).toBe(200);
-        // Should NOT save the masked value
-        expect(storage.setSystemConfig).toHaveBeenCalledWith("igdb.clientId", VALID_CLIENT_ID);
-        expect(storage.setSystemConfig).not.toHaveBeenCalledWith("igdb.clientSecret", "********");
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
       });
     });
 
-    describe("POST /api/settings/igdb/test", () => {
-      const VALID_CLIENT_ID = "newigdbclientid1234567890ab";
-      const VALID_CLIENT_SECRET = "newigdbclientsecret1234567890";
-
-      it("should return success when the credentials are valid", async () => {
-        vi.mocked(igdbClient.testCredentials).mockResolvedValue({ success: true });
+    describe("POST /api/settings/rawg/test", () => {
+      it("should return success when the key is valid", async () => {
+        vi.mocked(rawgClient.testApiKey).mockResolvedValue({ success: true });
         const response = await request(app)
-          .post("/api/settings/igdb/test")
-          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+          .post("/api/settings/rawg/test")
+          .send({ apiKey: "some-rawg-key" });
         expect(response.status).toBe(200);
         expect(response.body).toEqual({ success: true });
-        expect(igdbClient.testCredentials).toHaveBeenCalledWith(
-          VALID_CLIENT_ID,
-          VALID_CLIENT_SECRET
-        );
+        expect(rawgClient.testApiKey).toHaveBeenCalledWith("some-rawg-key");
       });
 
-      it("should return 400 with the server's error when credentials are rejected", async () => {
-        vi.mocked(igdbClient.testCredentials).mockResolvedValue({
+      it("should return 400 with the server's error when the key is rejected", async () => {
+        vi.mocked(rawgClient.testApiKey).mockResolvedValue({
           success: false,
-          error: "Invalid Client ID or Client Secret.",
+          error: "Invalid API key",
         });
         const response = await request(app)
-          .post("/api/settings/igdb/test")
-          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
+          .post("/api/settings/rawg/test")
+          .send({ apiKey: "bad-key" });
         expect(response.status).toBe(400);
-        expect(response.body.error).toBe("Invalid Client ID or Client Secret.");
+        expect(response.body.error).toBe("Invalid API key");
       });
 
-      it("should return 400 when clientId is missing", async () => {
-        const response = await request(app)
-          .post("/api/settings/igdb/test")
-          .send({ clientSecret: VALID_CLIENT_SECRET });
+      it("should return 400 when apiKey is missing", async () => {
+        const response = await request(app).post("/api/settings/rawg/test").send({});
         expect(response.status).toBe(400);
-        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
+        expect(rawgClient.testApiKey).not.toHaveBeenCalled();
       });
 
-      it("should return 400 when the credential format looks invalid", async () => {
+      it("should test against the stored key when the redacted placeholder is sent", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue("stored-rawg-key");
+        vi.mocked(rawgClient.testApiKey).mockResolvedValue({ success: true });
         const response = await request(app)
-          .post("/api/settings/igdb/test")
-          .send({ clientId: "not-a-real-id", clientSecret: "not-a-real-secret" });
-        expect(response.status).toBe(400);
-        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
-      });
-
-      it("should test against the stored secret when clientSecret is the masked placeholder", async () => {
-        vi.mocked(storage.getSystemConfig).mockResolvedValue(VALID_CLIENT_SECRET);
-        vi.mocked(igdbClient.testCredentials).mockResolvedValue({ success: true });
-        const response = await request(app)
-          .post("/api/settings/igdb/test")
-          .send({ clientId: VALID_CLIENT_ID, clientSecret: "********" });
+          .post("/api/settings/rawg/test")
+          .send({ apiKey: "********" });
         expect(response.status).toBe(200);
-        expect(igdbClient.testCredentials).toHaveBeenCalledWith(
-          VALID_CLIENT_ID,
-          VALID_CLIENT_SECRET
-        );
-      });
-
-      it("should return 400 when the placeholder is sent but no secret is stored", async () => {
-        vi.mocked(storage.getSystemConfig).mockResolvedValue(undefined);
-        const response = await request(app)
-          .post("/api/settings/igdb/test")
-          .send({ clientId: VALID_CLIENT_ID, clientSecret: "********" });
-        expect(response.status).toBe(400);
-        expect(igdbClient.testCredentials).not.toHaveBeenCalled();
-      });
-
-      it("should return 500 when testCredentials throws unexpectedly", async () => {
-        vi.mocked(igdbClient.testCredentials).mockRejectedValue(new Error("boom"));
-        const response = await request(app)
-          .post("/api/settings/igdb/test")
-          .send({ clientId: VALID_CLIENT_ID, clientSecret: VALID_CLIENT_SECRET });
-        expect(response.status).toBe(500);
+        expect(rawgClient.testApiKey).toHaveBeenCalledWith("stored-rawg-key");
       });
     });
   });
@@ -2442,42 +2361,6 @@ describe("API Routes - Extended Coverage", () => {
         const response = await request(app)
           .patch("/api/settings")
           .send({ transferMode: "not-a-real-mode" });
-        expect(response.status).toBe(400);
-        expect(response.body.error).toBe("Invalid settings data");
-      });
-
-      it("should accept igdbRateLimitPerSecond at boundary value 1", async () => {
-        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as any);
-        vi.mocked(storage.updateUserSettings).mockResolvedValue({ id: "s-1" } as any);
-
-        const response = await request(app)
-          .patch("/api/settings")
-          .send({ igdbRateLimitPerSecond: 1 });
-        expect(response.status).toBe(200);
-      });
-
-      it("should accept igdbRateLimitPerSecond at boundary value 4", async () => {
-        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as any);
-        vi.mocked(storage.updateUserSettings).mockResolvedValue({ id: "s-1" } as any);
-
-        const response = await request(app)
-          .patch("/api/settings")
-          .send({ igdbRateLimitPerSecond: 4 });
-        expect(response.status).toBe(200);
-      });
-
-      it("should reject igdbRateLimitPerSecond below 1", async () => {
-        const response = await request(app)
-          .patch("/api/settings")
-          .send({ igdbRateLimitPerSecond: 0 });
-        expect(response.status).toBe(400);
-        expect(response.body.error).toBe("Invalid settings data");
-      });
-
-      it("should reject igdbRateLimitPerSecond above 4", async () => {
-        const response = await request(app)
-          .patch("/api/settings")
-          .send({ igdbRateLimitPerSecond: 5 });
         expect(response.status).toBe(400);
         expect(response.body.error).toBe("Invalid settings data");
       });
@@ -2573,13 +2456,20 @@ describe("API Routes - Extended Coverage", () => {
     });
 
     it("should use newznabClient when protocol is g4u", async () => {
+      // The route only needs the SSRF guard to approve this fixture URL; avoid
+      // relying on external DNS in this protocol-routing unit test.
+      const safeUrlSpy = vi.spyOn(ssrfModule, "isSafeUrl").mockResolvedValue(true);
       vi.mocked(newznabClient.testConnection).mockResolvedValue({ success: true, message: "ok" });
-      const response = await request(app)
-        .post("/api/indexers/test")
-        .send({ url: "https://api.g4u.to/api", apiKey: "key", protocol: "g4u" });
-      expect(response.status).toBe(200);
-      expect(newznabClient.testConnection).toHaveBeenCalled();
-      expect(torznabClient.testConnection).not.toHaveBeenCalled();
+      try {
+        const response = await request(app)
+          .post("/api/indexers/test")
+          .send({ url: "https://api.g4u.to/api", apiKey: "key", protocol: "g4u" });
+        expect(response.status).toBe(200);
+        expect(newznabClient.testConnection).toHaveBeenCalled();
+        expect(torznabClient.testConnection).not.toHaveBeenCalled();
+      } finally {
+        safeUrlSpy.mockRestore();
+      }
     });
 
     it("should use newznabClient when protocol is newznab", async () => {
@@ -3219,8 +3109,8 @@ describe("API Routes - Extended Coverage", () => {
       expect(res.body.failedCount).toBe(1);
     });
 
-    it("links existing game when newGame igdbId matches a game in the collection", async () => {
-      vi.mocked(storage.getGameByIgdbId).mockResolvedValue({
+    it("links existing game when newGame rawgId matches a game in the collection", async () => {
+      vi.mocked(storage.getGameByRawgId).mockResolvedValue({
         id: "existing-game",
         userId: "user-1",
         status: "wanted",
@@ -3236,7 +3126,7 @@ describe("API Routes - Extended Coverage", () => {
               downloadTitle: "Known Game",
               currentStatus: "completed",
               category: "main",
-              newGame: { igdbId: 9999, title: "Known Game" },
+              newGame: { rawgId: 9999, title: "Known Game" },
             },
           ],
         });
@@ -4145,7 +4035,7 @@ describe("API Routes - Extended Coverage", () => {
   });
 
   describe("POST /api/library/scan/unmatched/match", () => {
-    const validBody = { rootFolderId: "rf-1", folderName: "Some Game", igdbId: 42 };
+    const validBody = { rootFolderId: "rf-1", folderName: "Some Game", rawgId: 42 };
 
     it("returns 404 when matchUnmatchedFolder reports the root folder is gone", async () => {
       vi.mocked(matchUnmatchedFolder).mockRejectedValue(new Error("Root folder not found"));
@@ -4169,13 +4059,13 @@ describe("API Routes - Extended Coverage", () => {
 
     it("returns 500 for any other matchUnmatchedFolder failure", async () => {
       vi.mocked(matchUnmatchedFolder).mockRejectedValue(
-        new Error("Selected IGDB game not found in top candidates")
+        new Error("Selected RAWG game not found in top candidates")
       );
 
       const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
 
       expect(response.status).toBe(500);
-      expect(response.body).toEqual({ error: "Selected IGDB game not found in top candidates" });
+      expect(response.body).toEqual({ error: "Selected RAWG game not found in top candidates" });
     });
   });
 });
@@ -4244,26 +4134,24 @@ describe("QUESTARR_BASE_PATH subdirectory mounting", () => {
     expect(response.status).toBe(404);
   });
 
-  // Regression test for #925: IGDB search 404'd under a configured base path
+  // Regression test for #925: RAWG search 404'd under a configured base path
   // because a client call site bypassed the shared apiFetch()/withBasePath()
   // wrapper. The server-side mounting below was never the problem -- it wraps
-  // every route registered on `app`, IGDB search included -- but nothing
+  // every route registered on `app`, RAWG search included -- but nothing
   // previously asserted that explicitly for this endpoint.
-  it("serves /api/igdb/search under the configured base path", async () => {
+  it("serves /api/rawg/search under the configured base path", async () => {
     mockConfig.server.basePath = "/Questarr";
 
     const prefixedApp = express();
     prefixedApp.use(express.json());
     const httpServer = await registerRoutes(prefixedApp);
 
-    vi.mocked(igdbClient.searchGames).mockResolvedValue([
-      { id: 1, name: "Zelda" },
-    ] as unknown as IGDBGame[]);
+    vi.mocked(rawgClient.searchGames).mockResolvedValue([{ id: 1, name: "Zelda" }] as never);
 
-    const prefixed = await request(httpServer).get("/Questarr/api/igdb/search?q=Zelda");
+    const prefixed = await request(httpServer).get("/Questarr/api/rawg/search?q=Zelda");
     expect(prefixed.status).toBe(200);
 
-    const unprefixed = await request(httpServer).get("/api/igdb/search?q=Zelda");
+    const unprefixed = await request(httpServer).get("/api/rawg/search?q=Zelda");
     expect(unprefixed.status).toBe(404);
   });
 });

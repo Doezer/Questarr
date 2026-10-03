@@ -282,7 +282,7 @@ describe("GameDetailsModal", () => {
   it("updates and clears the automatic download target", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
       makeFetchMock({
-        "/api/igdb/platforms": [
+        "/api/rawg/platforms": [
           { id: 8, name: "PlayStation 2" },
           { id: 48, name: "PlayStation 4" },
         ],
@@ -531,9 +531,9 @@ describe("GameDetailsModal", () => {
     });
   });
 
-  it("uses 'IGDB score' label instead of 'Rating' in the metadata section", () => {
+  it("uses 'RAWG score' label instead of 'Rating' in the metadata section", () => {
     renderComponent();
-    expect(screen.getByText("IGDB score")).toBeInTheDocument();
+    expect(screen.getByText("RAWG score")).toBeInTheDocument();
     expect(screen.queryByText("Rating")).not.toBeInTheDocument();
   });
 
@@ -769,7 +769,7 @@ describe("GameDetailsModal", () => {
             releaseDate: "2024-01-01",
             category: "dlc",
             gameType: 2,
-            igdbUrl: "https://www.igdb.com/games/some-expansion",
+            rawgUrl: "https://rawg.io/games/some-expansion",
           },
           {
             id: 8,
@@ -786,7 +786,7 @@ describe("GameDetailsModal", () => {
       expect(screen.getByText("Some Expansion")).toBeInTheDocument();
       expect(screen.getByText("2024")).toBeInTheDocument();
       const link = screen.getByTestId("dlc-7");
-      expect(link).toHaveAttribute("href", "https://www.igdb.com/games/some-expansion");
+      expect(link).toHaveAttribute("href", "https://rawg.io/games/some-expansion");
 
       expect(screen.getByText("No Link Extra")).toBeInTheDocument();
       expect(screen.getByTestId("dlc-8").tagName).not.toBe("A");
@@ -977,7 +977,7 @@ describe("GameDetailsModal", () => {
     it("does not show the Files tab for discovery games", () => {
       const discoveryGame = {
         ...mockGame,
-        id: "igdb-123",
+        id: "rawg-123",
       } as unknown as import("@shared/schema").Game;
       renderComponent(discoveryGame);
 

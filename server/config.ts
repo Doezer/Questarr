@@ -23,9 +23,9 @@ const envSchema = z.object({
         "JWT_SECRET is set to an insecure legacy default. Remove it to auto-generate, or set a strong random value.",
     }),
 
-  // IGDB API configuration (optional, but required for game discovery features)
-  IGDB_CLIENT_ID: z.string().optional(),
-  IGDB_CLIENT_SECRET: z.string().optional(),
+  // RAWG (rawg.io) API key (optional; a user-saved key in system config takes
+  // precedence). Required for game discovery and metadata features.
+  RAWG_API_KEY: z.string().optional(),
 
   // NexusMods API configuration (optional)
   NEXUSMODS_API_KEY: z.string().optional(),
@@ -125,10 +125,10 @@ export const config = {
   auth: {
     jwtSecret: env.JWT_SECRET,
   },
-  igdb: {
-    clientId: env.IGDB_CLIENT_ID,
-    clientSecret: env.IGDB_CLIENT_SECRET,
-    isConfigured: !!(env.IGDB_CLIENT_ID && env.IGDB_CLIENT_SECRET),
+  rawg: {
+    // Optional RAWG (rawg.io) API key; a user-saved key in system config takes
+    // precedence (see RawgClient.getApiKey). Free key from https://rawg.io/apidocs.
+    apiKey: env.RAWG_API_KEY,
   },
   nexusmods: {
     apiKey: env.NEXUSMODS_API_KEY,

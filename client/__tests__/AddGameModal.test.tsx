@@ -52,8 +52,8 @@ const createTestQueryClient = () =>
   });
 
 const makeSearchResult = (title = "Test Game", releaseDate = "2023-06-15") => ({
-  id: "igdb-1",
-  igdbId: 100,
+  id: "rawg-1",
+  rawgId: 100,
   title,
   rating: 8.0,
   releaseDate,
@@ -77,10 +77,10 @@ function setupFetch({
 } = {}) {
   globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const u = String(url);
-    if (u.includes("/api/config") && !u.includes("/api/igdb")) {
-      return { ok: true, json: async () => ({ igdb: { configured } }) };
+    if (u.includes("/api/config") && !u.includes("/api/rawg")) {
+      return { ok: true, json: async () => ({ rawg: { configured } }) };
     }
-    if (u.includes("/api/igdb/search")) {
+    if (u.includes("/api/rawg/search")) {
       return { ok: true, json: async () => searchResults };
     }
     if (u === "/api/games" && init?.method === "POST" && postHandler) {
@@ -178,30 +178,11 @@ describe("AddGameModal", () => {
     );
   });
 
-  it("requests undated IGDB results when the toggle is enabled", async () => {
-    setupFetch({ searchResults: [makeSearchResult("Elden Ring", "2022-02-25")] });
-    renderModal({ initialQuery: "Elden Ring" });
-    fireEvent.click(screen.getByTestId("open-btn"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Show undated games first")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("switch"));
-
-    await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        expect.stringContaining("includeUndated=true"),
-        expect.any(Object)
-      );
-    });
-  });
-
   it("requests at most 10 games and forwards a valid release year filter", async () => {
     const searchResults = Array.from({ length: 12 }, (_, index) => ({
       ...makeSearchResult(`God of War ${index + 1}`, "2005-03-22"),
-      id: `igdb-${index + 1}`,
-      igdbId: 100 + index,
+      id: `rawg-${index + 1}`,
+      rawgId: 100 + index,
     }));
     setupFetch({ searchResults });
     renderModal({ initialQuery: "God of War" });
@@ -213,7 +194,7 @@ describe("AddGameModal", () => {
     await waitFor(() => {
       const searchCalls = vi
         .mocked(globalThis.fetch)
-        .mock.calls.filter(([url]) => String(url).includes("/api/igdb/search"));
+        .mock.calls.filter(([url]) => String(url).includes("/api/rawg/search"));
       expect(
         searchCalls.some(([url]) => {
           const params = new URL(String(url), "http://localhost").searchParams;
@@ -223,7 +204,7 @@ describe("AddGameModal", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getAllByTestId(/^search-result-igdb-/)).toHaveLength(10);
+      expect(screen.getAllByTestId(/^search-result-rawg-/)).toHaveLength(10);
     });
     expect(screen.queryByText("God of War 11")).not.toBeInTheDocument();
   });
@@ -236,7 +217,7 @@ describe("AddGameModal", () => {
     await screen.findByText("God of War");
     const searchCallsBefore = vi
       .mocked(globalThis.fetch)
-      .mock.calls.filter(([url]) => String(url).includes("/api/igdb/search")).length;
+      .mock.calls.filter(([url]) => String(url).includes("/api/rawg/search")).length;
 
     fireEvent.change(screen.getByLabelText("Release year filter"), {
       target: { value: "20" },
@@ -247,11 +228,11 @@ describe("AddGameModal", () => {
     });
     const searchCallsAfter = vi
       .mocked(globalThis.fetch)
-      .mock.calls.filter(([url]) => String(url).includes("/api/igdb/search")).length;
+      .mock.calls.filter(([url]) => String(url).includes("/api/rawg/search")).length;
     expect(searchCallsAfter).toBe(searchCallsBefore);
   });
 
-  it("seeds a single discovered platform and persists its IGDB pair", async () => {
+  it("seeds a single discovered platform and persists its RAWG pair", async () => {
     setupFetch({
       searchResults: [
         {
@@ -267,7 +248,7 @@ describe("AddGameModal", () => {
     expect(await screen.findByLabelText("Target platform for God of War")).toHaveTextContent(
       "PlayStation 2"
     );
-    fireEvent.click(screen.getByTestId("button-add-igdb-1"));
+    fireEvent.click(screen.getByTestId("button-add-rawg-1"));
 
     await waitFor(() => {
       const postCall = vi
@@ -301,7 +282,7 @@ describe("AddGameModal", () => {
     fireEvent.click(await screen.findByRole("option", { name: "Account default" }));
 
     expect(trigger).toHaveTextContent("Account default");
-    fireEvent.click(screen.getByTestId("button-add-igdb-1"));
+    fireEvent.click(screen.getByTestId("button-add-rawg-1"));
 
     await waitFor(() => {
       const postCall = vi
@@ -315,14 +296,14 @@ describe("AddGameModal", () => {
     });
   });
 
-  it("shows the mobile configuration prompt when IGDB is not configured", async () => {
+  it("shows the mobile configuration prompt when RAWG is not configured", async () => {
     mockIsMobile = true;
     setupFetch({ configured: false });
     renderModal();
 
     fireEvent.click(screen.getByTestId("open-btn"));
 
-    expect(await screen.findByText("IGDB Configuration Required")).toBeInTheDocument();
+    expect(await screen.findByText("RAWG Configuration Required")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Go to Settings" })).toBeInTheDocument();
   });
 
@@ -348,7 +329,7 @@ describe("AddGameModal", () => {
       target: { value: "Collection Game" },
     });
 
-    expect(await screen.findByTestId("search-result-igdb-1")).toBeInTheDocument();
+    expect(await screen.findByTestId("search-result-rawg-1")).toBeInTheDocument();
     expect(screen.getByText("Added")).toBeInTheDocument();
     expect(screen.getByText("2024")).toBeInTheDocument();
   });
@@ -368,7 +349,7 @@ describe("AddGameModal", () => {
     renderModal({ initialQuery: "Pending Game" });
     fireEvent.click(screen.getByTestId("open-btn"));
 
-    const addButton = await screen.findByTestId("button-add-igdb-1");
+    const addButton = await screen.findByTestId("button-add-rawg-1");
     fireEvent.click(addButton);
 
     await waitFor(() => {

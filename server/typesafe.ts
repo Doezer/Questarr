@@ -147,6 +147,8 @@ class TypeSafeClient {
             demo: "A demo or trial version",
             soundtrack: "A game soundtrack or OST",
             other: "None of the above",
+            unknown:
+              "There is not enough information in the release name and metadata to classify it reliably",
           },
         },
         sizeIsPlausible: {

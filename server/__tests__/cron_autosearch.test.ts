@@ -2118,6 +2118,21 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
     });
 
+    it("does not hold back a release the AI classifies as unknown", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
+      mockIsConfigured.mockResolvedValue(true);
+      mockAnalyzeRelease.mockResolvedValue({
+        releaseType: "unknown",
+        releaseTypeConfidence: 0.95,
+        legitimacyScore: null,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockRecordAiAutoDownloadHold).not.toHaveBeenCalled();
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+    });
+
     it("holds back the download when the AI flags the file size as implausible", async () => {
       mockGetUserSettings.mockResolvedValue({
         ...baseSettings,

@@ -12,6 +12,7 @@ export const RELEASE_TYPES = [
   "demo",
   "soundtrack",
   "other",
+  "unknown",
 ] as const;
 
 export type ReleaseType = (typeof RELEASE_TYPES)[number];

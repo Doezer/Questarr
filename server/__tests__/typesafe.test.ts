@@ -168,7 +168,26 @@ describe("TypeSafeClient", () => {
       expect(body.state).toContain("PC");
       expect(body.model).toBe("jev-latest");
       expect(body.questions.releaseType.type).toBe("choice");
+      expect(body.questions.releaseType.criteria.unknown).toContain("not enough information");
       expect(body.questions.sizeIsPlausible.type).toBe("noul");
+    });
+
+    it("accepts unknown when the release cannot be classified reliably", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          model: "jev-1.0.0",
+          answers: {
+            releaseType: { type: "choice", choice: "unknown", confidence: 0.95 },
+          },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      const result = await client.analyzeRelease({ releaseName: "Ambiguous.Release" });
+
+      expect(result?.releaseType).toBe("unknown");
+      expect(result?.releaseTypeConfidence).toBe(0.95);
     });
 
     it("uses a custom model when configure() is given one (e.g. for OpenRouter)", async () => {

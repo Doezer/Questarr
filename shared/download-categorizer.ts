@@ -12,7 +12,8 @@ import type { ReleaseType } from "./typesafe-types.js";
 export type DownloadCategory = "main" | "update" | "dlc" | "extra" | "packs";
 
 // Maps the AI's release-type classification onto the categories this app displays.
-// "other" has no reliable mapping, so it's left out -- the regex-based guess wins.
+// "other" and "unknown" have no reliable mapping, so they're left out -- the
+// regex-based guess wins.
 const AI_RELEASE_TYPE_TO_CATEGORY: Partial<Record<ReleaseType, DownloadCategory>> = {
   full_game: "main",
   repack: "main",

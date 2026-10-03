@@ -42,7 +42,7 @@ export default function MobileBottomNav({
   return (
     <>
       <nav
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-border/80 bg-background/95 px-2 pb-[max(0.375rem,env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-8px_24px_hsl(var(--background)/0.35)] backdrop-blur-lg md:hidden"
         aria-label="Primary"
       >
         <div className="grid grid-cols-5 gap-1">
@@ -54,16 +54,24 @@ export default function MobileBottomNav({
                 type="button"
                 onClick={() => onNavigate(item.url)}
                 className={cn(
-                  "flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-[11px] font-medium transition-colors",
+                  "group flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                   isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
+                    ? "text-primary"
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                 )}
                 aria-current={isActive ? "page" : undefined}
                 aria-label={item.title}
               >
-                <item.icon className="h-4 w-4" aria-hidden="true" />
-                <span className="truncate">{item.title}</span>
+                <span
+                  className={cn(
+                    "flex h-7 min-w-10 items-center justify-center rounded-full px-3 transition-colors",
+                    isActive && "bg-primary/15"
+                  )}
+                  aria-hidden="true"
+                >
+                  <item.icon className="h-5 w-5" />
+                </span>
+                <span className="max-w-full truncate leading-4">{item.title}</span>
               </button>
             );
           })}
@@ -72,22 +80,32 @@ export default function MobileBottomNav({
             type="button"
             onClick={() => setMoreOpen(true)}
             className={cn(
-              "flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-[11px] font-medium transition-colors",
+              "group flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               moreActive
-                ? "bg-primary text-primary-foreground shadow-sm"
+                ? "text-primary"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             )}
             aria-label="More navigation options"
             aria-expanded={moreOpen}
+            aria-controls="mobile-more-navigation"
           >
-            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-            <span>More</span>
+            <span
+              className={cn(
+                "flex h-7 min-w-10 items-center justify-center rounded-full px-3 transition-colors",
+                moreActive && "bg-primary/15"
+              )}
+              aria-hidden="true"
+            >
+              <MoreHorizontal className="h-5 w-5" />
+            </span>
+            <span className="leading-4">More</span>
           </button>
         </div>
       </nav>
 
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
+          id="mobile-more-navigation"
           side="bottom"
           className="max-h-[70svh] overflow-y-auto rounded-t-2xl pb-[calc(1rem+env(safe-area-inset-bottom))]"
         >

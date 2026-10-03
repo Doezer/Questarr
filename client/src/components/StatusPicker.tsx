@@ -27,6 +27,8 @@ interface StatusPickerProps {
   readonly children?: React.ReactElement;
   /** Extra className applied to the default trigger button (e.g. "w-full"). */
   readonly triggerClassName?: string;
+  /** Uses a shorter trigger label where horizontal space is limited. */
+  readonly compact?: boolean;
 }
 
 /**
@@ -44,6 +46,7 @@ export default function StatusPicker({
   "data-testid": testId,
   children,
   triggerClassName,
+  compact = false,
 }: StatusPickerProps) {
   const [open, setOpen] = useState(false);
 
@@ -62,7 +65,8 @@ export default function StatusPicker({
       aria-label={gameTitle ? `Change status for ${gameTitle}` : "Change status"}
       onClick={(e) => e.stopPropagation()}
       className={cn(
-        "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-secondary/40 px-3 text-xs font-medium text-foreground transition-colors",
+        "flex w-full items-center justify-between gap-2 rounded-md border border-border bg-secondary/40 text-xs font-medium text-foreground transition-colors",
+        compact ? "h-8 px-2" : "h-9 px-3",
         "hover:bg-secondary hover:border-primary/50",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         triggerClassName
@@ -73,7 +77,8 @@ export default function StatusPicker({
           <CurrentIcon className={cn("h-3.5 w-3.5 shrink-0", currentIconColorClass)} />
         )}
         <span className="truncate">
-          Status: <span className="font-semibold">{getStatusLabel(currentStatus)}</span>
+          {!compact && "Status: "}
+          <span className="font-semibold">{getStatusLabel(currentStatus)}</span>
         </span>
       </span>
       <ChevronDown

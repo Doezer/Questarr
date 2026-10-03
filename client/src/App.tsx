@@ -202,7 +202,7 @@ function AppShell() {
                 <AppSidebar activeItem={location} onNavigate={navigate} />
                 <div className="flex flex-col flex-1 min-w-0">
                   <Header title={getPageTitle(location)} />
-                  <main className="flex-1 overflow-hidden pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0">
+                  <main className="flex-1 overflow-hidden pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
                     <AppContent />
                   </main>
                 </div>

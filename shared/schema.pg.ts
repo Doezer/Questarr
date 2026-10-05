@@ -251,6 +251,7 @@ export const gameDownloads = pgTable(
     status: text("status").notNull().default("downloading"),
     errorMessage: text("error_message"),
     fileSize: bigint("file_size", { mode: "number" }),
+    category: text("category"),
     addedAt: timestampMs("added_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
     completedAt: timestampMs("completed_at"),
   },

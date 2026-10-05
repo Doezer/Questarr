@@ -4103,6 +4103,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadTitle,
           downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
           status: downloadStatus,
+          category,
         })
       );
 
@@ -4271,6 +4272,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             downloadTitle: item.downloadTitle,
             downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
             status: downloadStatus,
+            category: item.category,
           })
         );
         await storage.updateGameSearchResultsAvailable(resolvedGameId, false);

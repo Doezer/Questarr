@@ -963,7 +963,8 @@ export async function checkDownloadStatus() {
               await recordVersionFromCompletedDownload(
                 storage,
                 download.gameId,
-                download.downloadTitle
+                download.downloadTitle,
+                download.category
               );
 
               // Update Game status to 'owned' (which means we have the files), unless

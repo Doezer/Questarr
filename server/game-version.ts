@@ -11,7 +11,9 @@ import { notifyUser } from "./socket.js";
 const DLC_ONLY = /\b(?:dlc|downloadable content|expansion|season pass)\b/i;
 const BUNDLED_DLC = /(?:\bincl(?:uding)?|\bwith|\+)[\s._-]*(?:all[\s._-]*)?dlcs?\b/gi;
 
-function carriesBaseGameVersion(downloadTitle: string): boolean {
+function carriesBaseGameVersion(downloadTitle: string, pickedCategory: string | null): boolean {
+  // The user's own pick (when claiming a download) beats anything read from the title.
+  if (pickedCategory) return pickedCategory === "main" || pickedCategory === "update";
   const { category } = categorizeDownload(downloadTitle);
   if (category === "main" || category === "update") return true;
   return category === "dlc" && !DLC_ONLY.test(downloadTitle.replace(BUNDLED_DLC, ""));
@@ -23,17 +25,19 @@ function carriesBaseGameVersion(downloadTitle: string): boolean {
  * finishes with post-processing off, or when the import is finalized. Only the full game
  * (editions included) or an update counts (a DLC's version says nothing about the base game),
  * and a known version is only ever moved forward: an older or incomparable release never
- * overwrites what the user has.
+ * overwrites what the user has. `category` is the one the user picked when claiming the
+ * download, if any; otherwise it is inferred from the title.
  * Never throws, so a failure here can't break the download or import flow. Returns the version
  * recorded, if any.
  */
 export async function recordVersionFromCompletedDownload(
   store: Pick<IStorage, "getGame" | "replaceGameInstalledVersion">,
   gameId: string,
-  downloadTitle: string
+  downloadTitle: string,
+  category: string | null = null
 ): Promise<string | null> {
   try {
-    if (!carriesBaseGameVersion(downloadTitle)) return null;
+    if (!carriesBaseGameVersion(downloadTitle, category)) return null;
 
     const detected = extractVersionFromReleaseName(downloadTitle);
     if (!detected) return null;

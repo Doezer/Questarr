@@ -1277,6 +1277,7 @@ export class MemStorage implements IStorage {
       downloadType: insertGameDownload.downloadType || "torrent",
       errorMessage: insertGameDownload.errorMessage ?? null,
       fileSize: insertGameDownload.fileSize ?? null,
+      category: insertGameDownload.category ?? null,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -2825,6 +2826,7 @@ export class DatabaseStorage implements IStorage {
         status: gameDownloads.status,
         errorMessage: gameDownloads.errorMessage,
         fileSize: gameDownloads.fileSize,
+        category: gameDownloads.category,
         addedAt: gameDownloads.addedAt,
         completedAt: gameDownloads.completedAt,
         downloaderName: downloaders.name,

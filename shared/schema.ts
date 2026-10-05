@@ -323,6 +323,9 @@ export const gameDownloads = sqliteTable(
     status: text("status").notNull().default("downloading"),
     errorMessage: text("error_message"),
     fileSize: integer("file_size"),
+    // The category the user picked when claiming the download (main, update, dlc...); null when
+    // it was only ever inferred from the title.
+    category: text("category"),
     addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
       sql`(strftime('%s', 'now') * 1000)`
     ),

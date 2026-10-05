@@ -1,0 +1,1 @@
+ALTER TABLE `game_downloads` ADD `category` text;

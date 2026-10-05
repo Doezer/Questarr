@@ -52,6 +52,18 @@ describe("recordVersionFromCompletedDownload", () => {
     expect(await record(null, "Test.Game.Complete.Edition.v3.1-RUNE")).toBe("v3.1");
   });
 
+  it("trusts the category the user picked over the title", async () => {
+    getGame.mockResolvedValue({ id: "g1", installedVersion: null });
+    // Claimed as DLC although the title reads like the base game.
+    expect(
+      await recordVersionFromCompletedDownload(store, "g1", "Expansion.Name.v5.0", "dlc")
+    ).toBeNull();
+    // Claimed as the main game although the title mentions DLC.
+    expect(
+      await recordVersionFromCompletedDownload(store, "g1", "Game.Season.Pass.DLC.v2.0", "main")
+    ).toBe("v2.0");
+  });
+
   it("does not notify when the version changed before the write", async () => {
     replaceGameInstalledVersion.mockResolvedValue(false);
     expect(await record("v1.0", "Test.Game.Update.v1.1-RUNE")).toBeNull();

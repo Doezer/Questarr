@@ -3110,6 +3110,26 @@ describe("API Routes - Extended Coverage", () => {
       );
     });
 
+    it("stores the category picked for the claimed download", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+      mockSabnzbdClaimTarget();
+      vi.mocked(storage.addGameDownload).mockResolvedValue(undefined as any);
+
+      const res = await request(app).post("/api/downloads/claim").send({
+        downloaderId: "dl-1",
+        downloadHash: USENET_MIXED_CASE_ID,
+        downloadTitle: "Expansion.Name.v5.0",
+        currentStatus: "downloading",
+        category: "dlc",
+        gameId: "game-1",
+      });
+
+      expect(res.status).toBe(200);
+      expect(storage.addGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ category: "dlc" })
+      );
+    });
+
     it("rejects a claim as a duplicate when the mixed-case Usenet id is already tracked", async () => {
       vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(
         new Set([`dl-1:${USENET_MIXED_CASE_ID}`])

@@ -554,7 +554,12 @@ export class ImportManager {
     try {
       const download = await this.storage.getGameDownload(downloadId);
       if (download) {
-        await recordVersionFromCompletedDownload(this.storage, game.id, download.downloadTitle);
+        await recordVersionFromCompletedDownload(
+          this.storage,
+          game.id,
+          download.downloadTitle,
+          download.category
+        );
       }
     } catch (error) {
       logger.warn({ error, downloadId }, "[ImportManager] Could not record the installed version");

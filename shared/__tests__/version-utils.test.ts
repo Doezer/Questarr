@@ -27,6 +27,7 @@ describe("extractVersionFromReleaseName", () => {
     ["Game.Update.1.0.to.1.1-RUNE", "v1.1"], // the same without "v"
     ["Game.Update.v1.0.to.1.1-RUNE", "v1.1"], // or with only one end prefixed
     ["Game.Update.v1.10.20-RUNE", "v1.10.20"], // not the tail "10.20"
+    ["Game.Update.v1.2.Win.11.0-RUNE", "v1.2"], // a number outside a range is not a target
     ["Game.Update.Build.1000.to.Build.1200-RUNE", "Build 1200"], // same for build ranges
     ["Game.Patch.Build.1000.to.Build.1200-RUNE", "Build 1200"], // without the word Update too
     ["Game.Patch.v1.2-RUNE", "v1.2"], // "Patch" names its target like "Update"

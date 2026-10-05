@@ -57,10 +57,10 @@ const QUALIFIED_VERSION = new RegExp(
   "i"
 );
 const BUILD_VERSION_ALL = new RegExp(BUILD_VERSION.source, "gi");
-// "1.1" with no "v", as in the target of "Update.1.0.to.1.1".
-const DOTTED_VERSION_ALL = new RegExp(
-  // Not right after "<digit>.", so the tail of "v1.10.20" isn't read as "10.20".
-  String.raw`(?<![a-z0-9]|\d\.)(\d+(?:\.\d+)+)${VERSION_END}`,
+// The far end of a range, "to.1.1" or "to.v1.1". Without a "v" a number only counts there, so
+// a platform or other number elsewhere ("Game.Update.v1.2.Win.11.0") is never taken for it.
+const RANGE_TARGET_ALL = new RegExp(
+  String.raw`${NOT_PRECEDED_BY_ALNUM}to[\s._-](?:v\s?(\d+(?:\.\d+)*)|(\d+(?:\.\d+)+))${VERSION_END}`,
   "gi"
 );
 const UPDATE_MARKER = new RegExp(
@@ -83,7 +83,7 @@ export function extractVersionFromReleaseName(releaseName: string): string | nul
     const rest = releaseName.slice(update.index);
     const best = highestVVersion(rest, `v${updateVersion}`);
     // Either end of the range may lack the "v" ("Update.1.0.to.1.1", "Update.v1.0.to.1.1").
-    return highestDottedVersion(rest, best);
+    return highestRangeTarget(rest, best);
   }
   // Likewise for builds: "Update.Build.1000.to.Build.1200" brings the game to Build 1200.
   const updateBuild = UPDATE_BUILD_VERSION.exec(releaseName);
@@ -92,9 +92,10 @@ export function extractVersionFromReleaseName(releaseName: string): string | nul
   // ("Game.v1.2.Update"), which says nothing about where it leads; only a range does
   // ("Game.v1.0.to.v1.1.Patch", "Patch.Build.1000.to.Build.1200").
   if (UPDATE_MARKER.test(releaseName)) {
-    const versions =
-      countMatches(releaseName, V_VERSION_ALL) + countMatches(releaseName, DOTTED_VERSION_ALL);
-    if (versions > 1) return highestDottedVersion(releaseName, highestVVersion(releaseName, null));
+    if (countMatches(releaseName, RANGE_TARGET_ALL) > 0) {
+      return highestRangeTarget(releaseName, highestVVersion(releaseName, null));
+    }
+    if (countMatches(releaseName, V_VERSION_ALL) > 1) return highestVVersion(releaseName, null);
     if (countMatches(releaseName, BUILD_VERSION_ALL) > 1) return highestBuild(releaseName);
     return null;
   }
@@ -115,10 +116,10 @@ function highestVVersion(text: string, initial: string | null): string | null {
   return best;
 }
 
-function highestDottedVersion(text: string, initial: string | null): string | null {
+function highestRangeTarget(text: string, initial: string | null): string | null {
   let best = initial;
-  for (const match of text.matchAll(DOTTED_VERSION_ALL)) {
-    const candidate = `v${match[1]}`;
+  for (const match of text.matchAll(RANGE_TARGET_ALL)) {
+    const candidate = `v${match[1] ?? match[2]}`;
     if (best === null || (compareVersions(candidate, best) ?? 0) > 0) best = candidate;
   }
   return best;

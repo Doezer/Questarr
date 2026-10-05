@@ -87,6 +87,7 @@ const UNRAR_LT_OUTPUT = [
   "        Type: File",
   "        Size: 3000000",
   " Packed size: 1048410",
+  "       Ratio: -->",
   "",
   "Archive: /downloads/game.part2.rar",
   "Details: RAR 5, volume 2",
@@ -95,6 +96,7 @@ const UNRAR_LT_OUTPUT = [
   "        Type: File",
   "        Size: 3000000",
   " Packed size: 1048409",
+  "       Ratio: <--",
   "",
   "        Name: Game/link",
   "        Type: Unix symbolic link",
@@ -814,6 +816,34 @@ describe("ArchiveService", () => {
       );
 
       const entries = await service.listEntries("/downloads/dup.rar"); // NOSONAR - mocked fs
+
+      expect(entries).toHaveLength(2);
+    });
+
+    it("keeps unsplit same-named entries that meet at a volume boundary", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(
+        null,
+        [
+          "Archive: /downloads/dup.part1.rar",
+          "",
+          "        Name: a.bin",
+          "        Type: File",
+          "        Size: 10",
+          "       Ratio: 100%",
+          "",
+          "Archive: /downloads/dup.part2.rar",
+          "",
+          "        Name: a.bin",
+          "        Type: File",
+          "        Size: 10",
+          "       Ratio: 100%",
+          "",
+        ].join("\n"),
+        ""
+      );
+
+      const entries = await service.listEntries("/downloads/dup.part1.rar"); // NOSONAR - mocked fs
 
       expect(entries).toHaveLength(2);
     });

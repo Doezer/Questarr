@@ -244,13 +244,12 @@ function parseSevenZipSltListing(stdout: string): ArchiveEntry[] {
 // reported as a link so preflight refuses it.
 function parseUnrarTechnicalListing(stdout: string): ArchiveEntry[] {
   const entries: ArchiveEntry[] = [];
-  let lastOfPreviousVolume: ArchiveEntry | undefined;
-  let firstInVolume = true;
+  // UnRAR prints a header for every volume a file spans. Its `Ratio:` field marks the
+  // pieces: `-->` continues in the next volume, `<->` spans both sides, `<--` ends here.
+  // Only a piece split on both sides of a boundary is a continuation; a genuine
+  // same-named entry has no markers and must still count against the limits.
+  let previous: { entry: ArchiveEntry; splitAfter: boolean } | undefined;
   for (const block of stdout.split(/\r?\n\s*\r?\n/)) {
-    if (/^Archive:\s/m.test(block)) {
-      lastOfPreviousVolume = entries.at(-1);
-      firstInVolume = true;
-    }
     const fields = parseListingFields(block, ": ");
     if (!fields.Name || !fields.Type) continue;
     const isDirectory = fields.Type === "Directory";
@@ -260,12 +259,14 @@ function parseUnrarTechnicalListing(stdout: string): ArchiveEntry[] {
       isDirectory,
       fields.Type !== "File" && !isDirectory
     );
-    const continuesPreviousVolume =
-      firstInVolume &&
-      lastOfPreviousVolume?.name === entry.name &&
-      lastOfPreviousVolume.size === entry.size;
-    firstInVolume = false;
-    if (!continuesPreviousVolume) entries.push(entry);
+    const splitBefore = fields.Ratio === "<--" || fields.Ratio === "<->";
+    const continuesPrevious =
+      splitBefore &&
+      previous?.splitAfter === true &&
+      previous.entry.name === entry.name &&
+      previous.entry.size === entry.size;
+    if (!continuesPrevious) entries.push(entry);
+    previous = { entry, splitAfter: fields.Ratio === "-->" || fields.Ratio === "<->" };
   }
   return entries;
 }

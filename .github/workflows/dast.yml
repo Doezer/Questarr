@@ -3,6 +3,11 @@ name: DAST
 on:
   push:
     branches: [main, release/*]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".github/ISSUE_TEMPLATE/**"
   schedule:
     # Weekly, so newly merged endpoints get scanned even between releases.
     - cron: "0 7 * * 1"

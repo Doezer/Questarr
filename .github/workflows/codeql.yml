@@ -3,12 +3,26 @@ name: CodeQL
 on:
   push:
     branches: [main, release/*]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".github/ISSUE_TEMPLATE/**"
   pull_request:
     branches: [main, release/*]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".github/ISSUE_TEMPLATE/**"
   schedule:
     # Weekly, catches new query-pack findings on unchanged code.
     - cron: "0 7 * * 1"
   workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

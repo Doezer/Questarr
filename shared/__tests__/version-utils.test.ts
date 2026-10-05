@@ -30,6 +30,8 @@ describe("extractVersionFromReleaseName", () => {
     ["Game.Update.v1.2.Win.11.0-RUNE", "v1.2"], // a number outside a range is not a target
     ["Game.Update.Build.1000.to.Build.1200-RUNE", "Build 1200"], // same for build ranges
     ["Game.Patch.Build.1000.to.Build.1200-RUNE", "Build 1200"], // without the word Update too
+    ["Game.Update.Build.1000.to.1200-RUNE", "Build 1200"], // a bare build target
+    ["Game.Build.1000.to.1200.Patch-RUNE", "Build 1200"],
     ["Game.Patch.v1.2-RUNE", "v1.2"], // "Patch" names its target like "Update"
     ["Game.Patch.1.2-RUNE", "v1.2"],
     ["Game.v1.2.Repack-PREDATOR", "v1.2"], // a group name is not a pre-release tag
@@ -105,6 +107,8 @@ describe("inferReleaseCategory", () => {
   it("keeps real DLC and a confident AI classification", () => {
     expect(inferReleaseCategory("Game.Season.Pass.DLC-RUNE")).toBe("dlc");
     expect(inferReleaseCategory("Game_DLC_v5.0")).toBe("dlc"); // "_" separates words too
+    expect(inferReleaseCategory("Game.Season.Pass.v5.0")).toBe("dlc");
+    expect(inferReleaseCategory("Game.Downloadable.Content.v5.0")).toBe("dlc");
     expect(inferReleaseCategory("Expansion.Name.v5.0", "dlc", 0.95)).toBe("dlc");
     expect(inferReleaseCategory("Game.Complete.Edition-GOG", "dlc", 0.95)).toBe("dlc");
   });

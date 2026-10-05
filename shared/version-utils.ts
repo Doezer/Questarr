@@ -63,6 +63,11 @@ const RANGE_TARGET_ALL = new RegExp(
   String.raw`${NOT_PRECEDED_BY_ALNUM}to[\s._-](?:v\s?(\d+(?:\.\d+)*)|(\d+(?:\.\d+)+))${VERSION_END}`,
   "gi"
 );
+// "to.1200" or "to.Build.1200", the far end of a build range.
+const BUILD_RANGE_TARGET_ALL = new RegExp(
+  String.raw`${NOT_PRECEDED_BY_ALNUM}to[\s._-](?:build[\s._-]?)?(\d+)${VERSION_END}`,
+  "gi"
+);
 const UPDATE_MARKER = new RegExp(
   String.raw`${NOT_PRECEDED_BY_ALNUM}(?:update|patch)${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
@@ -96,7 +101,7 @@ export function extractVersionFromReleaseName(releaseName: string): string | nul
       return highestRangeTarget(releaseName, highestVVersion(releaseName, null));
     }
     if (countMatches(releaseName, V_VERSION_ALL) > 1) return highestVVersion(releaseName, null);
-    if (countMatches(releaseName, BUILD_VERSION_ALL) > 1) return highestBuild(releaseName);
+    if (buildNumbers(releaseName).length > 1) return highestBuild(releaseName);
     return null;
   }
   // Otherwise the highest of the versions named, then of the builds.
@@ -125,13 +130,17 @@ function highestRangeTarget(text: string, initial: string | null): string | null
   return best;
 }
 
+// Builds named in `text`, plus, once a build is named, a bare target after "to"
+// ("Build.1000.to.1200").
+function buildNumbers(text: string): number[] {
+  const builds = Array.from(text.matchAll(BUILD_VERSION_ALL), (match) => Number(match[1]));
+  if (builds.length === 0) return builds;
+  return builds.concat(Array.from(text.matchAll(BUILD_RANGE_TARGET_ALL), (m) => Number(m[1])));
+}
+
 function highestBuild(text: string): string | null {
-  let best: number | null = null;
-  for (const match of text.matchAll(BUILD_VERSION_ALL)) {
-    const build = Number(match[1]);
-    if (best === null || build > best) best = build;
-  }
-  return best === null ? null : `Build ${best}`;
+  const builds = buildNumbers(text);
+  return builds.length === 0 ? null : `Build ${Math.max(...builds)}`;
 }
 
 /**
@@ -202,8 +211,9 @@ export function inferReleaseCategory(
   aiReleaseType?: ReleaseType | null,
   aiReleaseTypeConfidence?: number | null
 ): DownloadCategory {
-  // The categorizer's word boundaries don't split on "_" ("Game_DLC_v5.0").
-  const title = downloadTitle.replace(/_/g, " ");
+  // The categorizer matches words, some of them multiword ("season pass"), so release
+  // separators become spaces ("Game_DLC_v5.0", "Game.Season.Pass.v5.0").
+  const title = downloadTitle.replace(/[._-]+/g, " ");
   const byTitle = categorizeDownload(title);
   const result = categorizeDownload(title, aiReleaseType, aiReleaseTypeConfidence);
   const titleDecided =

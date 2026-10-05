@@ -518,3 +518,4 @@ GPL3 License - see [COPYING](COPYING) file for details.
 - UI components from [shadcn/ui](https://ui.shadcn.com/)
 - Security scanning supported by [Snyk](https://snyk.io) through the Snyk Open Source program
 - AI code reviews by [CodeRabbit](https://coderabbit.ai), free for open source
+- This project is tested with [BrowserStack](https://www.browserstack.com/), free for open source

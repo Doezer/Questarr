@@ -114,6 +114,16 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(after.every((g) => g.status === "downloaded")).toBe(true);
     });
 
+    it("replaceGameInstalledVersion writes only over the expected value", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      expect(await storage().replaceGameInstalledVersion(game.id, "v9", "v1.0")).toBe(false);
+      expect(await storage().replaceGameInstalledVersion(game.id, null, "v1.0")).toBe(true);
+      expect(await storage().replaceGameInstalledVersion(game.id, null, "v2.0")).toBe(false);
+      expect(await storage().replaceGameInstalledVersion(game.id, "v1.0", "v1.1")).toBe(true);
+      expect((await storage().getGame(game.id))?.installedVersion).toBe("v1.1");
+    });
+
     it("aggregates come back as numbers, not strings", async () => {
       const [user] = await storage().getAllUsers();
       const status = await storage().getDashboardStatus(user.id);
@@ -167,6 +177,26 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       const big = downloads.find((d) => d.downloadHash === "h1");
       // Postgres `integer` tops out at 2147483647, so this column must be bigint.
       expect(big?.fileSize).toBe(9_663_676_416);
+    });
+
+    it("stores a game file as not overridden, then flags a manual category change", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      const file = await storage().addGameFile({
+        gameId: game.id,
+        downloadId: null,
+        originalName: "Game.Update.zip",
+        storedName: "Game.Update.zip",
+        category: "update",
+        filePath: "/library/Game/Game.Update.zip",
+        fileSize: 1,
+      });
+      expect(file.categoryOverridden).toBe(false);
+
+      const updated = await storage().updateGameFileCategory(file.id, "dlc");
+      expect(updated).toMatchObject({ category: "dlc", categoryOverridden: true });
+      const [stored] = (await storage().getGameFiles(game.id)).filter((f) => f.id === file.id);
+      expect(stored).toMatchObject({ category: "dlc", categoryOverridden: true });
     });
 
     it("resolves a concurrent claim-race unique conflict the same way on both dialects", async () => {

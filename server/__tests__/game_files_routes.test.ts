@@ -249,6 +249,128 @@ describe("Game file routes", () => {
     });
   });
 
+  describe("PATCH /api/games/:gameId/files/category", () => {
+    async function setupGameFile(): Promise<string> {
+      const { libraryRoot, gameDir } = scanFixturePaths(tempRoot);
+      await fs.mkdir(gameDir, { recursive: true });
+      const filePath = path.join(gameDir, "Game.Name.Update.2.zip");
+      await fs.writeFile(filePath, "update");
+      mockScanLibrary(gameDir, libraryRoot);
+      return fs.realpath(filePath);
+    }
+
+    it("records a new file with the chosen category and marks it as overridden", async () => {
+      const filePath = await setupGameFile();
+      vi.mocked(storage.addGameFile).mockResolvedValue({ id: "gf-new" } as GameFile);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/files/category`)
+        .send({ path: filePath, category: "dlc" });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ path: filePath, category: "dlc" });
+      expect(storage.addGameFile).toHaveBeenCalledWith(
+        expect.objectContaining({ gameId, filePath, category: "dlc", downloadId: null })
+      );
+      expect(storage.updateGameFileCategory).toHaveBeenCalledWith("gf-new", "dlc");
+    });
+
+    it("updates the existing record when the file is already tracked", async () => {
+      const filePath = await setupGameFile();
+      vi.mocked(storage.getGameFiles).mockResolvedValueOnce([
+        { id: "gf-1", gameId, filePath, category: "update", categoryOverridden: false } as GameFile,
+      ]);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/files/category`)
+        .send({ path: filePath, category: "main" });
+
+      expect(response.status).toBe(200);
+      expect(storage.addGameFile).not.toHaveBeenCalled();
+      expect(storage.updateGameFileCategory).toHaveBeenCalledWith("gf-1", "main");
+    });
+
+    it("rejects a path outside the game's folder", async () => {
+      await setupGameFile();
+      const outside = path.join(tempRoot, "outside.bin");
+      await fs.writeFile(outside, "x");
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/files/category`)
+        .send({ path: outside, category: "dlc" });
+
+      expect(response.status).toBe(404);
+      expect(storage.updateGameFileCategory).not.toHaveBeenCalled();
+    });
+
+    it("rejects a symlink in the game's folder that points outside it", async () => {
+      const filePath = await setupGameFile();
+      const outside = path.join(tempRoot, "outside.bin");
+      await fs.writeFile(outside, "x");
+      const link = path.join(path.dirname(filePath), "link.bin");
+      await fs.symlink(outside, link);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/files/category`)
+        .send({ path: link, category: "dlc" });
+
+      expect(response.status).toBe(404);
+      expect(storage.updateGameFileCategory).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unknown category", async () => {
+      const filePath = await setupGameFile();
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/files/category`)
+        .send({ path: filePath, category: "unknown" });
+
+      expect(response.status).toBe(400);
+    });
+
+    it("returns 403 when the game belongs to another user", async () => {
+      const filePath = await setupGameFile();
+      vi.mocked(storage.getGame).mockResolvedValue(
+        makeGame({ userId: "someone-else" }) as unknown as Awaited<
+          ReturnType<typeof storage.getGame>
+        >
+      );
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/files/category`)
+        .send({ path: filePath, category: "dlc" });
+
+      expect(response.status).toBe(403);
+    });
+
+    it("makes the scan report the overridden category", async () => {
+      const filePath = await setupGameFile();
+      vi.mocked(storage.getGameFiles).mockResolvedValueOnce([
+        { id: "gf-1", gameId, filePath, category: "dlc", categoryOverridden: true } as GameFile,
+      ]);
+
+      const response = await request(app).get(`/api/games/${gameId}/files`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.files).toEqual([
+        expect.objectContaining({ path: filePath, category: "dlc" }),
+      ]);
+    });
+
+    it("keeps the folder/filename guess for tracked files the user never changed", async () => {
+      const filePath = await setupGameFile();
+      vi.mocked(storage.getGameFiles).mockResolvedValueOnce([
+        { id: "gf-1", gameId, filePath, category: "dlc", categoryOverridden: false } as GameFile,
+      ]);
+
+      const response = await request(app).get(`/api/games/${gameId}/files`);
+
+      expect(response.body.files).toEqual([
+        expect.objectContaining({ path: filePath, category: "update" }),
+      ]);
+    });
+  });
+
   describe("GET /api/games/:gameId/content", () => {
     it("groups game files by category into slots", async () => {
       vi.mocked(storage.getGame).mockResolvedValue(

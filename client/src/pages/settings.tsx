@@ -22,6 +22,7 @@ import {
   Monitor,
   Radio,
   Sparkles,
+  FlaskConical,
   Archive,
   Filter,
 } from "lucide-react";
@@ -1987,10 +1988,18 @@ export default function SettingsPage() {
             {/* TypeSafe (Jev) AI Card */}
             <Card id="typesafe-config">
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Sparkles className="h-5 w-5 text-blue-500" />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <Sparkles className="h-5 w-5 shrink-0 text-blue-500" />
                     <CardTitle className="text-lg">AI Release Analysis (TypeSafe)</CardTitle>
+                    <Badge
+                      variant="outline"
+                      className="gap-1 border-amber-600/50 text-amber-700 in-[.dark]:border-amber-500/50 in-[.dark]:text-amber-500"
+                      title="Experimental feature: behavior and results may change between releases"
+                    >
+                      <FlaskConical className="h-3 w-3" aria-hidden="true" />
+                      Experimental
+                    </Badge>
                   </div>
                   {typesafeSettings?.configured ? (
                     <Badge variant="default">Enabled</Badge>
@@ -2003,7 +2012,11 @@ export default function SettingsPage() {
                   DLC, update, repack...) and flag suspiciously small files in search results.
                   Entirely optional and off by default &mdash; Questarr works normally without it.
                   Bring your own API key and endpoint (TypeSafe, OpenRouter, a self-hosted proxy,
-                  etc.).
+                  etc.).{" "}
+                  <span className="mt-2 block text-amber-700 in-[.dark]:text-amber-500">
+                    Experimental: Jev classifications can be wrong, and how they are used may change
+                    between releases. Check flagged results before relying on them.
+                  </span>
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">

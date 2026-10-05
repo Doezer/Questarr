@@ -13,6 +13,7 @@ import {
   updateGameStatusSchema,
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
+  updateGameInstalledVersionSchema,
   updateGameTargetPlatformSchema,
   insertIndexerSchema,
   insertDownloaderSchema,
@@ -530,6 +531,34 @@ function maskDownloader(downloader: Downloader): Downloader {
  */
 function respondWithZodError(res: Response, error: z.ZodError, message: string): Response {
   return res.status(400).json({ error: message, details: error.issues });
+}
+
+/**
+ * Builds a handler for a PATCH that sets one per-user field on a game: parses the body with
+ * `schema`, applies it through `update` (scoped to the authenticated user) and returns the
+ * updated game, or 404 when the game isn't the user's.
+ */
+function patchOwnGameField<T>(
+  schema: z.ZodType<T>,
+  update: (id: string, userId: string, body: T) => Promise<Game | undefined>,
+  labels: { invalid: string; log: string; failure: string }
+) {
+  return async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const updatedGame = await update(id, req.user!.id, schema.parse(req.body));
+      if (!updatedGame) {
+        return res.status(404).json({ error: "Game not found" });
+      }
+      return res.json(updatedGame);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return respondWithZodError(res, error, labels.invalid);
+      }
+      routesLogger.error({ error }, labels.log);
+      return res.status(500).json({ error: labels.failure });
+    }
+  };
 }
 
 // Helper to parse category query param which might be string, array, or comma-separated
@@ -1840,26 +1869,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     sensitiveEndpointLimiter,
     sanitizeGameId,
     validateRequest,
-    async (req: Request, res: Response) => {
-      try {
-        const { id } = req.params as { id: string };
-        const userId = req.user!.id;
-        const { userRating } = updateGameUserRatingSchema.parse(req.body);
-
-        const updatedGame = await storage.updateGameUserRating(id, userId, userRating);
-        if (!updatedGame) {
-          return res.status(404).json({ error: "Game not found" });
-        }
-
-        return res.json(updatedGame);
-      } catch (error) {
-        if (error instanceof z.ZodError) {
-          return respondWithZodError(res, error, "Invalid user rating data");
-        }
-        routesLogger.error({ error }, "error updating game user rating");
-        return res.status(500).json({ error: "Failed to update user rating" });
+    patchOwnGameField(
+      updateGameUserRatingSchema,
+      (id, userId, { userRating }) => storage.updateGameUserRating(id, userId, userRating),
+      {
+        invalid: "Invalid user rating data",
+        log: "error updating game user rating",
+        failure: "Failed to update user rating",
       }
-    }
+    )
+  );
+
+  // Set the version of the game the user has installed (free text), or null to clear it.
+  // Used to skip "update available" notifications for releases that aren't newer.
+  app.patch(
+    "/api/games/:id/installed-version",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    patchOwnGameField(
+      updateGameInstalledVersionSchema,
+      async (id, userId, { installedVersion }) => {
+        const game = await storage.updateGameInstalledVersion(id, userId, installedVersion);
+        // Lets the user's other tabs refresh their games query, which is otherwise never stale.
+        if (game) (await import("./socket.js")).notifyUser("gameUpdated", game.id);
+        return game;
+      },
+      {
+        invalid: "Invalid installed version data",
+        log: "error updating game installed version",
+        failure: "Failed to update installed version",
+      }
+    )
   );
 
   // Update the per-game download target, or clear it to use the account default.
@@ -2542,6 +2583,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .withMessage("Invalid game file category"),
   ];
 
+  // A missing path, a path that isn't a directory, or a symlink cycle are expected
+  // conditions for a stale/misconfigured library path — treat them as "nothing here".
+  // Anything else (EACCES, EPERM, other I/O failures) is a real failure and should
+  // surface as a 500 rather than silently reporting an empty or partial scan.
+  const isExpectedFsError = (error: unknown): boolean =>
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    ["ENOENT", "ENOTDIR", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "");
+  const realpathOrNull = async (target: string): Promise<string | null> => {
+    try {
+      return await fs.promises.realpath(target);
+    } catch (error) {
+      if (isExpectedFsError(error)) return null;
+      throw error;
+    }
+  };
+  const isContained = (candidate: string, root: string) =>
+    candidate === root || candidate.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
+  /**
+   * Canonical library root and game folder for a game, or null when the game has no
+   * folder or its folder resolves outside the configured library root.
+   */
+  const resolveGameScanRoots = async (
+    game: { libraryPath?: string | null },
+    userId: string
+  ): Promise<{ libraryRoot: string; scanRoot: string } | null> => {
+    if (!game.libraryPath) return null;
+    const importConfig = await storage.getImportConfig(userId);
+    const libraryRoot = await realpathOrNull(importConfig.libraryRoot);
+    const scanRoot = await realpathOrNull(game.libraryPath);
+    if (!libraryRoot || !scanRoot || !isContained(scanRoot, libraryRoot)) return null;
+    return { libraryRoot, scanRoot };
+  };
+
   // Recursively scan a game library folder. This endpoint is read-only; imports are handled separately.
   // The walk is bounded (file count + wall-clock budget) and rate-limited per user,
   // since a very large library tree can otherwise exhaust filesystem I/O and memory.
@@ -2552,38 +2628,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     gameIdParamValidation,
     validateRequest,
     async (req: Request, res: Response) => {
-      // A missing path, a path that isn't a directory, or a symlink cycle are expected
-      // conditions for a stale/misconfigured library path — treat them as "nothing here".
-      // Anything else (EACCES, EPERM, other I/O failures) is a real failure and should
-      // surface as a 500 rather than silently reporting an empty or partial scan.
-      const isExpectedFsError = (error: unknown): boolean =>
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        ["ENOENT", "ENOTDIR", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "");
-      const realpathOrNull = async (target: string): Promise<string | null> => {
-        try {
-          return await fs.promises.realpath(target);
-        } catch (error) {
-          if (isExpectedFsError(error)) return null;
-          throw error;
-        }
-      };
       try {
         const { gameId } = req.params as { gameId: string };
         const game = await resolveOwnedGame(gameId, req.user!.id, res);
         if (!game) return;
-        if (!game.libraryPath) return res.json({ files: [], truncated: false });
 
-        const importConfig = await storage.getImportConfig(req.user!.id);
-        const libraryRoot = await realpathOrNull(importConfig.libraryRoot);
-        const scanRoot = await realpathOrNull(game.libraryPath);
-        const isContained = (candidate: string, root: string) =>
-          candidate === root ||
-          candidate.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
-        if (!libraryRoot || !scanRoot || !isContained(scanRoot, libraryRoot)) {
-          return res.json({ files: [], truncated: false });
-        }
+        const roots = await resolveGameScanRoots(game, req.user!.id);
+        if (!roots) return res.json({ files: [], truncated: false });
+        const { libraryRoot, scanRoot } = roots;
 
         const categoryDirs = new Set<DownloadCategory>(["dlc", "update", "extra", "packs"]);
         const isCategoryDirName = (name: string): name is DownloadCategory =>
@@ -2639,10 +2691,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         };
         await walk(scanRoot);
+        // A category the user picked by hand wins over the folder/filename guess.
+        const overrides = new Map(
+          (await storage.getGameFiles(gameId))
+            .filter((f) => f.categoryOverridden)
+            .map((f) => [f.filePath, f.category])
+        );
+        for (const file of files) {
+          const override = overrides.get(file.path);
+          if (override) file.category = override;
+        }
         return res.json({ files, truncated });
       } catch (error) {
         routesLogger.error({ error }, "error scanning game files");
         return res.status(500).json({ error: "Failed to scan game files" });
+      }
+    }
+  );
+
+  // Override the category of a file found by the library scan. The file stays where it
+  // is on disk; the choice is stored in game_files and applied by later scans.
+  app.patch(
+    "/api/games/:gameId/files/category",
+    authenticateToken,
+    gameIdParamValidation,
+    body("path").isString().notEmpty().withMessage("File path is required"),
+    body("category")
+      .isIn(["main", "dlc", "update", "extra"])
+      .withMessage("Invalid game file category"),
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId } = req.params as { gameId: string };
+        const { path: requestedPath, category } = req.body as {
+          path: string;
+          category: GameFileCategory;
+        };
+        const game = await resolveOwnedGame(gameId, req.user!.id, res);
+        if (!game) return;
+
+        const roots = await resolveGameScanRoots(game, req.user!.id);
+        if (!roots) {
+          return res.status(404).json({ error: "File not found in this game's folder" });
+        }
+        // Check containment on the resolved string before touching the filesystem, then
+        // again on the real path so a symlink can't lead outside the game's folder.
+        const resolvedPath = path.resolve(roots.scanRoot, requestedPath);
+        if (!resolvedPath.startsWith(roots.scanRoot + path.sep)) {
+          return res.status(404).json({ error: "File not found in this game's folder" });
+        }
+        const filePath = await realpathOrNull(resolvedPath);
+        if (!filePath || !isContained(filePath, roots.scanRoot)) {
+          return res.status(404).json({ error: "File not found in this game's folder" });
+        }
+        const stat = await fs.promises.stat(filePath);
+        if (!stat.isFile()) {
+          return res.status(404).json({ error: "File not found in this game's folder" });
+        }
+
+        const existing = (await storage.getGameFiles(gameId)).find((f) => f.filePath === filePath);
+        if (existing) {
+          await storage.updateGameFileCategory(existing.id, category);
+        } else {
+          const created = await storage.addGameFile({
+            gameId,
+            downloadId: null,
+            originalName: path.basename(filePath),
+            storedName: path.basename(filePath),
+            category,
+            filePath,
+            fileSize: stat.size,
+          });
+          await storage.updateGameFileCategory(created.id, category);
+        }
+        return res.json({ path: filePath, category });
+      } catch (error) {
+        routesLogger.error({ error }, "error updating game file category");
+        return res.status(500).json({ error: "Failed to update file category" });
       }
     }
   );
@@ -3982,6 +4107,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadTitle,
           downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
           status: downloadStatus,
+          category,
         })
       );
 
@@ -4150,6 +4276,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             downloadTitle: item.downloadTitle,
             downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
             status: downloadStatus,
+            category: item.category,
           })
         );
         await storage.updateGameSearchResultsAvailable(resolvedGameId, false);
@@ -4228,8 +4355,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { url, title, category, downloadPath, priority, gameId, downloadType, password } =
-          req.body;
+        const {
+          url,
+          title,
+          category,
+          downloadPath,
+          priority,
+          gameId,
+          downloadType,
+          password,
+          releaseCategory,
+        } = req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -4288,6 +4424,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               downloadTitle: title,
               status: "downloading",
               downloadType: downloadType || "torrent",
+              category: releaseCategory ?? null,
             });
 
             // An update/DLC grabbed for a game the user is playing (or has

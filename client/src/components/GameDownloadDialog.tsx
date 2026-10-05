@@ -80,6 +80,7 @@ import {
   groupDownloadsByCategory,
   type DownloadCategory,
 } from "@shared/download-categorizer";
+import { inferReleaseCategory } from "@shared/version-utils";
 import type { ReleaseType } from "@shared/typesafe-types";
 import {
   parseReleaseMetadata,
@@ -543,6 +544,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           title: download.title,
           gameId: game?.id,
           downloadType: isUsenetItem(download) ? "usenet" : "torrent",
+          releaseCategory: inferReleaseCategory(
+            download.title,
+            download.aiReleaseType,
+            download.aiReleaseTypeConfidence
+          ),
         });
         results.push(await response.json());
       }

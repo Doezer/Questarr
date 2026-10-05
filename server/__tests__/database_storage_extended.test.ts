@@ -184,6 +184,13 @@ describe("DatabaseStorage Extended Coverage", () => {
       const ratingUpdated = await storage.updateGameUserRating(game.id, userId, 8.5);
       expect(ratingUpdated?.userRating).toBe(8.5);
 
+      const versionUpdated = await storage.updateGameInstalledVersion(game.id, userId, "v1.2.3");
+      expect(versionUpdated?.installedVersion).toBe("v1.2.3");
+      expect(await storage.updateGameInstalledVersion(game.id, "other-user", "v9")).toBeUndefined();
+      expect(await storage.replaceGameInstalledVersion(game.id, "v1.0", "v1.3")).toBe(false);
+      expect(await storage.replaceGameInstalledVersion(game.id, "v1.2.3", "v1.3")).toBe(true);
+      expect((await storage.getGame(game.id))?.installedVersion).toBe("v1.3");
+
       await storage.updateGameSearchResultsAvailable(game.id, true);
       const refetched = await storage.getGame(game.id);
       expect(refetched?.searchResultsAvailable).toBe(true);

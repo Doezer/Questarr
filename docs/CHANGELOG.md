@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - **Time to Beat** via IGDB's official endpoint (#1063).
 - **Sort menu** on the Library page, plus an indexer-priority sort option for downloads (#980, #963).
 - **DLC & expansions**: games now persist their IGDB expansions and show them in a new DLC tab on the game detail page, with cover art, release year, and a category badge (#1105).
+- **Installed version**: each game records the version you have installed, editable in the game details modal with suggestions from your downloads' release names. It is filled in automatically when a full-game or update download finishes, and update releases that are not newer than it no longer raise "Game Updates Available" (#1142).
 - **xREL**: surfaces a release's nuke reason with a "Nuked" badge (#948).
 - **Screenshot lightbox**: carousel navigation with arrow-key and swipe support, plus an image counter (#804).
 - **Wishlist**: configurable grid column count (#871).
@@ -27,7 +28,7 @@ All notable changes to this project will be documented in this file.
 
 #### Downloads & Import
 
-- **AI release analysis (TypeSafe/Jev)**: [OPTIONAL/BYOK] auto-download can run an AI legitimacy check and hold a suspicious match for manual review (notified over Apprise) instead of downloading it (#1070, #1077, #1078). Uses Jev model from TypeSafe via OpenRouter, with your own API key. [Learn about Jev](<[url](https://share.gemini.google/lrbViMx1ndNB)>)
+- **AI release analysis (TypeSafe/Jev)**: [EXPERIMENTAL/OPTIONAL/BYOK] auto-download can run an AI legitimacy check and hold a suspicious match for manual review (notified over Apprise) instead of downloading it (#1070, #1077, #1078). Uses Jev model from TypeSafe via OpenRouter, with your own API key. [Learn about Jev](<[url](https://share.gemini.google/lrbViMx1ndNB)>)
 - **Packs/Addons** download category (#876).
 - **Password-protected archives** are now routed to manual review with a password prompt, instead of failing (#1033).
 - **SABnzbd**: archive password support for G4U-style releases (#962).

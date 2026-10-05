@@ -170,6 +170,12 @@ describe("download-categorizer", () => {
       expect(categorizeDownload("Game.Name-GROUP", "soundtrack", 0.9).category).toBe("extra");
       expect(categorizeDownload("Game.Name-GROUP", "crack_only", 0.9).category).toBe("extra");
     });
+
+    it("falls back to title categorization for an unknown AI release type", () => {
+      expect(categorizeDownload("Game.Name.Update.2-GROUP", "unknown", 0.99).category).toBe(
+        "update"
+      );
+    });
   });
 
   describe("groupDownloadsByCategory", () => {

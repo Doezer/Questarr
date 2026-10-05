@@ -270,6 +270,7 @@ export class RTorrentClient implements DownloaderClient {
         this.makeXMLRPCRequest("d.message", [id]),
         this.makeXMLRPCRequest("d.directory", [id]),
         this.makeXMLRPCRequest("d.creation_date", [id]),
+        this.makeXMLRPCRequest("d.is_multi_file", [id]),
       ]);
 
       const [
@@ -287,6 +288,7 @@ export class RTorrentClient implements DownloaderClient {
         message,
         directory,
         creationDate,
+        isMultiFile,
       ] = basicInfo;
 
       // Get files using f.multicall
@@ -389,6 +391,9 @@ export class RTorrentClient implements DownloaderClient {
         error: message || undefined,
         hash,
         downloadDir: directory,
+        // For a multi-file torrent (even one holding a single file) d.directory already
+        // is the content folder, whatever its name, and f.path entries are relative to it.
+        contentPath: isMultiFile === 1 || isMultiFile === true ? directory : undefined,
         addedDate: creationDate > 0 ? new Date(creationDate * 1000).toISOString() : undefined,
         files,
         filesSupport: "supported",

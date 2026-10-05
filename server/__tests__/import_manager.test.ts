@@ -36,6 +36,7 @@ describe("ImportManager", () => {
     updateGameDownloadStatus: vi.fn(),
     updateGameStatus: vi.fn(),
     updateGame: vi.fn(),
+    replaceGameInstalledVersion: vi.fn(),
     addNotification: vi.fn().mockResolvedValue(undefined),
     getUserSettings: vi.fn().mockResolvedValue(undefined),
   };
@@ -322,6 +323,42 @@ describe("ImportManager", () => {
       { status: "owned" },
       { preserveCurated: true }
     );
+  });
+
+  it("records the release's version on the game once the import is finalized", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "My.Game.Update.v1.2-RUNE",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "owned",
+      platforms: [6],
+      installedVersion: "v1.1",
+    });
+    storage.getImportConfig.mockResolvedValue({ ...baseConfig, libraryRoot: "/safe/root" });
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await manager.confirmImport("dl-1", {
+      strategy: "pc",
+      originalPath: "/downloads/source-folder",
+      proposedPath: "/safe/root/PC/My Game",
+      needsReview: false,
+      transferMode: "move",
+    });
+
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+    expect(storage.replaceGameInstalledVersion).toHaveBeenCalledWith("g1", "v1.1", "v1.2");
   });
 
   it.each(["playing", "shelved", "completed"])(

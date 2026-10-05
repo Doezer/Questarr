@@ -13,7 +13,7 @@ import {
   reorganizeBySortExtras,
 } from "./ImportStrategies.js";
 import { DownloaderManager } from "../downloaders.js";
-import { resolveDownloadRelativePath, buildRemoteImportPath } from "../downloaders/utils.js";
+import { resolveRemoteImportPath } from "../downloaders/utils.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { parseReleaseMetadata } from "../../shared/title-utils.js";
@@ -26,6 +26,7 @@ import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { notifyUser } from "../socket.js";
+import { recordVersionFromCompletedDownload } from "../game-version.js";
 import { resolvePrefs } from "../notification-prefs.js";
 import { appriseClient } from "../apprise.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
@@ -539,8 +540,29 @@ export class ImportManager {
   ): Promise<void> {
     await this.storage.updateGameDownloadStatus(downloadId, "imported");
     await this.storage.updateGame(game.id, { libraryPath });
+    await this.recordInstalledVersion(downloadId, game);
     if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
       await this.storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
+    }
+  }
+
+  /** Best-effort: a version that can't be recorded must not fail an import that succeeded. */
+  private async recordInstalledVersion(
+    downloadId: string,
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>
+  ): Promise<void> {
+    try {
+      const download = await this.storage.getGameDownload(downloadId);
+      if (download) {
+        await recordVersionFromCompletedDownload(
+          this.storage,
+          game.id,
+          download.downloadTitle,
+          download.category
+        );
+      }
+    } catch (error) {
+      logger.warn({ error, downloadId }, "[ImportManager] Could not record the installed version");
     }
   }
 
@@ -947,10 +969,7 @@ export class ImportManager {
     const details = await DownloaderManager.getDownloadDetails(downloader, download.downloadHash);
     if (!details?.downloadDir) return undefined;
 
-    const remotePath = buildRemoteImportPath(
-      details.downloadDir,
-      resolveDownloadRelativePath(details)
-    );
+    const remotePath = resolveRemoteImportPath({ ...details, downloadDir: details.downloadDir });
     const remoteHost = this.extractRemoteHost(downloader.url);
     return this.pathService.translatePath(remotePath, remoteHost);
   }

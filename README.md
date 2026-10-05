@@ -18,13 +18,14 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 [![maintainability rating](https://sonarcloud.io/api/project_badges/measure?project=Doezer_Questarr&metric=sqale_rating)](https://sonarcloud.io/summary/overall?id=Doezer_Questarr)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13450/baseline)](https://www.bestpractices.dev/projects/13450)
 [![OpenSSF Best Practices Badge](https://www.bestpractices.dev/projects/13450/badge)](https://www.bestpractices.dev/projects/13450)
+[![Secured by Snyk](https://img.shields.io/badge/secured%20by-Snyk-4C4A73?logo=snyk&logoColor=white)](https://snyk.io)
 
 [![CI](https://github.com/Doezer/Questarr/actions/workflows/ci.yml/badge.svg)](https://github.com/Doezer/Questarr/actions/workflows/ci.yml)
 [![Codecov](https://codecov.io/gh/Doezer/Questarr/branch/main/graph/badge.svg)](https://codecov.io/gh/Doezer/Questarr)
 [![Code Scanning](https://github.com/Doezer/Questarr/actions/workflows/sast.yml/badge.svg)](https://github.com/Doezer/Questarr/security/code-scanning)
 [![tests](https://img.shields.io/badge/tests-3200%2B%20passing-brightgreen)](https://github.com/Doezer/Questarr/actions/workflows/ci.yml)
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/Doezer/Questarr/graphs/commit-activity)
-![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Doezer/Questarr?utm_source=oss&utm_medium=github&utm_campaign=Doezer%2FQuestarr&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Doezer/Questarr?utm_source=oss&utm_medium=github&utm_campaign=Doezer%2FQuestarr&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 
 ⭐ Star us on GitHub — your support motivates us a lot! 🙏😊
 
@@ -57,15 +58,15 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | Feature                     | Description                                                                                                                                                                                                                                                                                                                           |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Backlog management**      | Track your collection with status indicators (Wanted, Owned, Playing, Completed, Shelved), ratings, and notes. A dedicated **Playing** page adds journal notes, a milestones checklist, screenshots, and Steam achievements per game, plus Crack status and Time to Beat (via IGDB) on the game detail page and a DLC/expansions tab. |
-| **Game Discovery**          | Browse popular, new, and upcoming titles via IGDB, RSS feeds, and xREL.to, or sync your Steam wishlist directly into the app. A per-platform **Root folder / Scan Disk** discovers games already on disk and reconciles their files. |
-| **Search & Filter**         | Find games by genre, platform, and keyword, with automatic search until a release is found, plus release blacklisting and preferred release groups/platforms. A Platforms setting scopes the whole app to your platform(s) of choice, with optional filters to hide shelved/owned games and age-restricted or erotic content. |
-| **Download Management**     | Integrates with indexers and downloaders with optional auto-download and automatic post-processing import, password-protected archive handling, optional pre-import VirusTotal/ClamAV scanning and optional "Powered by AI" workflow to improve game matches (using Typesafe's Jev, in BYOK) |
-| **Real-time Notifications** | In-app alerts for releases and downloads, plus external notifications to 100+ providers via [Apprise](https://github.com/caronc/apprise). |
-| **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available. |
-| **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧 |
-| **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](docs/SECURITY.md) for the full process. |
-| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧 |
-| **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind. |
+| **Game Discovery**          | Browse popular, new, and upcoming titles via IGDB, RSS feeds, and xREL.to, or sync your Steam wishlist directly into the app. A per-platform **Root folder / Scan Disk** discovers games already on disk and reconciles their files.                                                                                                  |
+| **Search & Filter**         | Find games by genre, platform, and keyword, with automatic search until a release is found, plus release blacklisting and preferred release groups/platforms. A Platforms setting scopes the whole app to your platform(s) of choice, with optional filters to hide shelved/owned games and age-restricted or erotic content.         |
+| **Download Management**     | Integrates with indexers and downloaders with optional auto-download and automatic post-processing import, password-protected archive handling, optional pre-import VirusTotal/ClamAV scanning and optional, experimental "Powered by AI" workflow to improve game matches (using Typesafe's Jev, in BYOK)                            |
+| **Real-time Notifications** | In-app alerts for releases and downloads, plus external notifications to 100+ providers via [Apprise](https://github.com/caronc/apprise).                                                                                                                                                                                             |
+| **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available.                                                                                                                                                                                                                              |
+| **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                                                                                                                                                                                      |
+| **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](docs/SECURITY.md) for the full process.                                                                                                                                                            |
+| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                            |
+| **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                                                                                                                                                                                     |
 
 ### Supported Indexers/Downloaders
 
@@ -515,3 +516,6 @@ GPL3 License - see [COPYING](COPYING) file for details.
 - Inspired by [Sonarr](https://sonarr.tv/) and [GamezServer](https://github.com/05sonicblue/GamezServer)
 - Game metadata powered by [IGDB API](https://www.igdb.com/)
 - UI components from [shadcn/ui](https://ui.shadcn.com/)
+- Security scanning supported by [Snyk](https://snyk.io) through the Snyk Open Source program
+- AI code reviews by [CodeRabbit](https://coderabbit.ai), free for open source
+- This project is tested with BrowserStack

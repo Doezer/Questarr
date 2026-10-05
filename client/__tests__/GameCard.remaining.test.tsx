@@ -159,7 +159,7 @@ describe("GameCard remaining coverage", () => {
     const addedGame = { ...baseGame, id: "library-1", title: "Library Game" } as Game;
     apiRequestMock.mockResolvedValueOnce({ json: async () => addedGame });
 
-    const { container } = render(
+    render(
       <GameCard
         game={{ ...baseGame, id: "igdb-1" }}
         isDiscovery
@@ -201,7 +201,7 @@ describe("GameCard remaining coverage", () => {
     expect(onViewDetails).toHaveBeenCalledWith("igdb-1");
     expect(await screen.findByText("Details for Library Game")).toBeInTheDocument();
 
-    const content = container.querySelector(".p-3.flex.flex-col.flex-1");
+    const content = screen.getByTestId("text-title-igdb-1").parentElement;
     expect(content).toBeTruthy();
     onViewDetails.mockClear();
     fireEvent.click(content!);

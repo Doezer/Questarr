@@ -146,7 +146,12 @@ class TypeSafeClient {
             crack_only: "Just a crack, fix, or bypass -- not the full game",
             demo: "A demo or trial version",
             soundtrack: "A game soundtrack or OST",
-            other: "None of the above",
+            // "other" and "unknown" must not overlap: auto-search holds "other" but not
+            // "unknown", so an ambiguous name has to land on "unknown".
+            other:
+              "Clearly identifiable as some other kind of release (e.g. a mod, trainer, artbook or video) that is none of the above",
+            unknown:
+              "Not enough information in the release name and metadata to tell which of the above it is",
           },
         },
         sizeIsPlausible: {

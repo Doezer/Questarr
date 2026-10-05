@@ -1,0 +1,88 @@
+name: Real stack
+
+# The production build of Questarr against real qBittorrent, Transmission and SABnzbd daemons
+# and a fake Torznab/Newznab indexer: setup, connection tests, a grab from the library, the
+# client's download and the import into the library (tests/stack/).
+
+# Slow (real daemons, a minute per download check), so it runs weekly and on demand, plus on
+# pull requests that change the journey itself.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+  pull_request:
+    branches: [main, release/*]
+    paths:
+      - ".github/workflows/stack.yml"
+      - "playwright.stack.config.ts"
+      - "tests/stack/**"
+
+concurrency:
+  group: stack-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  stack:
+    name: Real-stack journey
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.2.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js 26.x
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26.x
+          # Same accepted cache-poisoning trade-off as ci.yml (single maintainer with push access).
+          cache: "npm" # zizmor: ignore[cache-poisoning]
+
+      # The packaged transmission-daemon starts a system service on 9091 at install time;
+      # the journey runs its own instance with its own profile on that port.
+      - name: Install download clients
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            qbittorrent-nox transmission-daemon sabnzbdplus
+          sudo systemctl stop transmission-daemon || true
+          sudo systemctl disable transmission-daemon || true
+
+      # Lifecycle scripts are required: the server opens a real SQLite file through
+      # better-sqlite3's native binding.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+
+      - name: Run the real-stack journey
+        run: npm run test:stack
+        env:
+          STACK_DIR: ${{ runner.temp }}/questarr-stack
+          QUESTARR_STACK_DATA: ${{ runner.temp }}/questarr-stack-data
+
+      - name: Upload report and logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stack-report
+          path: |
+            playwright-report/
+            test-results/
+            server.log
+            ${{ runner.temp }}/questarr-stack/*.log
+          retention-days: 14

@@ -224,6 +224,7 @@ export const games = sqliteTable("games", {
   isAgeRestricted: integer("is_age_restricted", { mode: "boolean" }).notNull().default(false),
   userRating: real("user_rating"),
   libraryPath: text("library_path"),
+  installedVersion: text("installed_version"),
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
@@ -322,6 +323,9 @@ export const gameDownloads = sqliteTable(
     status: text("status").notNull().default("downloading"),
     errorMessage: text("error_message"),
     fileSize: integer("file_size"),
+    // The category the user picked when claiming the download (main, update, dlc...); null when
+    // it was only ever inferred from the title.
+    category: text("category"),
     addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
       sql`(strftime('%s', 'now') * 1000)`
     ),
@@ -581,6 +585,16 @@ export const updateGameUserRatingSchema = z.object({
       message: "userRating must be in 0.5 increments",
     })
     .nullable(),
+});
+
+export const updateGameInstalledVersionSchema = z.object({
+  // Free text ("v1.2.3", "Build 12345", "1.05 hotfix"...); blank clears it.
+  installedVersion: z
+    .string()
+    .trim()
+    .max(64, "installedVersion must be at most 64 characters")
+    .nullable()
+    .transform((v) => v || null),
 });
 
 export const insertGameJournalEntrySchema = createInsertSchema(gameJournalEntries, {
@@ -1002,6 +1016,11 @@ export interface DownloadDetails extends DownloadStatus {
   addedDate?: string | undefined;
   completedDate?: string | undefined;
   downloadDir?: string | undefined;
+  /**
+   * Full path of the download's content root, set only when the client reports it
+   * unambiguously (rTorrent multi-file torrents, whose file paths are relative to it).
+   */
+  contentPath?: string | undefined;
   comment?: string | undefined;
   creator?: string | undefined;
   files: DownloadFile[];
@@ -1178,6 +1197,11 @@ export const gameFiles = sqliteTable(
     originalName: text("original_name").notNull(),
     storedName: text("stored_name").notNull(),
     category: text("category").notNull().$type<GameFileCategory>(),
+    // True once the user picked the category by hand; a library scan then keeps it
+    // instead of re-deriving it from the folder or file name.
+    categoryOverridden: integer("category_overridden", { mode: "boolean" })
+      .notNull()
+      .default(false),
     filePath: text("file_path").notNull(),
     fileSize: integer("file_size"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
@@ -1194,6 +1218,8 @@ export const insertGameFileSchema = createInsertSchema(gameFiles, {
   category: gameFileCategorySchema,
 }).omit({
   id: true,
+  // Only set through PATCH /api/games/:gameId/files/category.
+  categoryOverridden: true,
   createdAt: true,
 });
 

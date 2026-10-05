@@ -131,7 +131,7 @@ const GameCard = ({
     <Card
       ref={cardRef}
       onClick={handleDetailsClick}
-      className={`group hover-elevate transition-all duration-200 mx-auto w-full max-w-full cursor-pointer flex flex-col h-full sm:max-w-[225px] ${game.hidden ? "opacity-60 grayscale" : ""}`}
+      className={`group hover-elevate transition-all duration-200 mx-auto min-w-0 w-full max-w-full cursor-pointer flex flex-col h-full overflow-hidden sm:max-w-[225px] ${game.hidden ? "opacity-60 grayscale" : ""}`}
       data-testid={`card-game-${game.id}`}
       aria-label={`View details for ${game.title}`}
     >
@@ -146,7 +146,7 @@ const GameCard = ({
           data-testid={`img-cover-${game.id}`}
         />
         <DownloadIndicator summary={downloadSummary} />
-        <div className="absolute top-2 right-2 flex flex-col gap-1">
+        <div className="absolute right-1.5 top-1.5 flex max-w-[calc(100%-0.75rem)] flex-col items-end gap-1 sm:right-2 sm:top-2">
           {!isDiscovery && game.status && <StatusBadge status={game.status} />}
           {game.earlyAccess && (
             <Badge className="text-xs bg-amber-500 border-amber-600 text-white">Early Access</Badge>
@@ -154,7 +154,7 @@ const GameCard = ({
           {game.status === "wanted" && (
             <Badge
               variant={releaseStatus.variant}
-              className={`text-xs ${releaseStatus.className || ""}`}
+              className={`max-w-full truncate text-[10px] sm:text-xs ${releaseStatus.className || ""}`}
             >
               {releaseStatus.label}
             </Badge>
@@ -165,13 +165,20 @@ const GameCard = ({
             </Badge>
           )}
         </div>
-        {!isDiscovery && !isMobile && (
-          <div className="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 pointer-events-none group-hover:pointer-events-auto focus-within:pointer-events-auto">
+        {!isDiscovery && (
+          <div
+            className={`absolute left-1.5 top-1.5 z-10 transition-opacity duration-200 sm:left-2 sm:top-2 ${
+              isMobile
+                ? "opacity-100"
+                : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+            }`}
+          >
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   size="icon"
                   variant="secondary"
+                  className="h-9 w-9 bg-background/80 backdrop-blur-sm"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleToggleHidden();
@@ -220,14 +227,14 @@ const GameCard = ({
           </div>
         )}
       </div>
-      <CardContent className="p-3 flex flex-col flex-1">
+      <CardContent className="flex min-w-0 flex-1 flex-col p-2 sm:p-3">
         <h3
-          className="font-semibold text-sm mb-2 line-clamp-2"
+          className="mb-1.5 line-clamp-2 text-xs font-semibold leading-4 sm:mb-2 sm:text-sm sm:leading-5"
           data-testid={`text-title-${game.id}`}
         >
           {game.title}
         </h3>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+        <div className="mb-2 flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground sm:gap-2 sm:text-xs">
           <Tooltip>
             <TooltipTrigger asChild>
               <div
@@ -282,13 +289,13 @@ const GameCard = ({
           <TagList
             items={game.genres ?? []}
             variant="secondary"
-            maxVisible={2}
+            maxVisible={isMobile ? 1 : 2}
             getTestId={(g) => `tag-genre-${g.toLowerCase()}`}
             emptyText="No genres"
             className="gap-1"
           />
         </div>
-        {isMobile && (
+        {isMobile && isDiscovery && (
           <div
             className="mb-3 flex flex-wrap items-center gap-2"
             onClick={(e) => e.stopPropagation()}
@@ -299,35 +306,21 @@ const GameCard = ({
             aria-label={`Actions for ${game.title}`}
             tabIndex={0}
           >
-            {isDiscovery && (
-              <Button
-                size="icon"
-                variant="default"
-                className={mobileActionButtonClass}
-                onClick={() => void handleDownloadClick()}
-                disabled={addGameMutation.isPending}
-                aria-label={`Download ${game.title}`}
-                data-testid={`button-download-${game.id}`}
-              >
-                {addGameMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-              </Button>
-            )}
-            {!isDiscovery && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className={mobileActionButtonClass}
-                onClick={handleToggleHidden}
-                aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
-                data-testid={`button-toggle-hidden-${game.id}`}
-              >
-                {game.hidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-              </Button>
-            )}
+            <Button
+              size="icon"
+              variant="default"
+              className={mobileActionButtonClass}
+              onClick={() => void handleDownloadClick()}
+              disabled={addGameMutation.isPending}
+              aria-label={`Download ${game.title}`}
+              data-testid={`button-download-${game.id}`}
+            >
+              {addGameMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+            </Button>
           </div>
         )}
         <div className="mt-auto">
@@ -359,6 +352,7 @@ const GameCard = ({
               onStatusChange={(newStatus) => onStatusChange?.(game.id, newStatus)}
               gameTitle={game.title}
               data-testid={`button-status-${game.id}`}
+              compact={isMobile}
               triggerClassName="w-full"
             />
           )}

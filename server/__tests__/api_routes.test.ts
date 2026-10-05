@@ -972,6 +972,63 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  describe("PATCH /api/games/:id/installed-version", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("should set a trimmed version scoped to the authenticated user", async () => {
+      vi.mocked(storage.updateGameInstalledVersion).mockResolvedValue({
+        id: gameId,
+        installedVersion: "v1.2.3",
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/installed-version`)
+        .send({ installedVersion: "  v1.2.3 " });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameInstalledVersion)).toHaveBeenCalledWith(
+        gameId,
+        "user-1",
+        "v1.2.3"
+      );
+      const { notifyUser } = await import("../socket.js");
+      expect(vi.mocked(notifyUser)).toHaveBeenCalledWith("gameUpdated", gameId);
+    });
+
+    it("should clear the version with a blank value", async () => {
+      vi.mocked(storage.updateGameInstalledVersion).mockResolvedValue({
+        id: gameId,
+        installedVersion: null,
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/installed-version`)
+        .send({ installedVersion: "   " });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameInstalledVersion)).toHaveBeenCalledWith(
+        gameId,
+        "user-1",
+        null
+      );
+    });
+
+    it("should reject a version longer than 64 characters", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/installed-version`)
+        .send({ installedVersion: "v".repeat(65) });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid installed version data");
+    });
+
+    it("should return 404 when the game is not the user's", async () => {
+      vi.mocked(storage.updateGameInstalledVersion).mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/installed-version`)
+        .send({ installedVersion: "v1" });
+      expect(response.status).toBe(404);
+    });
+  });
+
   describe("PATCH /api/games/:id/user-rating", () => {
     const gameId = "123e4567-e89b-12d3-a456-426614174000";
 
@@ -3052,6 +3109,26 @@ describe("API Routes - Extended Coverage", () => {
       expect(res.status).toBe(200);
       expect(storage.addGameDownload).toHaveBeenCalledWith(
         expect.objectContaining({ downloadHash: USENET_MIXED_CASE_ID })
+      );
+    });
+
+    it("stores the category picked for the claimed download", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+      mockSabnzbdClaimTarget();
+      vi.mocked(storage.addGameDownload).mockResolvedValue(undefined as any);
+
+      const res = await request(app).post("/api/downloads/claim").send({
+        downloaderId: "dl-1",
+        downloadHash: USENET_MIXED_CASE_ID,
+        downloadTitle: "Expansion.Name.v5.0",
+        currentStatus: "downloading",
+        category: "dlc",
+        gameId: "game-1",
+      });
+
+      expect(res.status).toBe(200);
+      expect(storage.addGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ category: "dlc" })
       );
     });
 

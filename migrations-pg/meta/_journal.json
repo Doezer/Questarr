@@ -50,6 +50,20 @@
       "when": 1790620832882,
       "tag": "0006_flashy_master_chief",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791193363035,
+      "tag": "0007_sticky_thor",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791226213942,
+      "tag": "0008_spotty_celestials",
+      "breakpoints": true
     }
   ]
 }

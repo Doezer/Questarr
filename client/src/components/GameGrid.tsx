@@ -202,7 +202,7 @@ export default function GameGrid({
   return (
     <div
       className={cn(
-        "grid gap-4 transition-opacity duration-200",
+        "grid min-w-0 gap-2 sm:gap-4 transition-opacity duration-200",
         gridColsClass,
         isFetching ? "opacity-50 pointer-events-none" : ""
       )}

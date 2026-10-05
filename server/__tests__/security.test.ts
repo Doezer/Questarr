@@ -182,9 +182,9 @@ describe("Security Headers", () => {
 
   it("should still set X-Robots-Tag on a rate-limited (429) response", async () => {
     const app = await createApp();
-    // generalApiLimiter allows 100 requests/minute per IP before returning 429.
+    // generalApiLimiter allows 600 requests/minute per IP before returning 429.
     let response = await request(app).get("/api/auth/status");
-    for (let attempts = 1; response.status !== 429 && attempts < 101; attempts++) {
+    for (let attempts = 1; response.status !== 429 && attempts < 601; attempts++) {
       response = await request(app).get("/api/auth/status");
     }
 

@@ -9,6 +9,7 @@ import {
   fetchWithMagnetDetection,
   fixNzbUrlEncoding,
   resolveDownloadRelativePath,
+  resolveRemoteImportPath,
 } from "../downloaders/utils.js";
 import { NZBGetClient } from "../downloaders/nzbget.js";
 import { QBittorrentClient } from "../downloaders/qbittorrent.js";
@@ -115,6 +116,40 @@ describe("downloaders utils", () => {
     );
   });
 
+  describe("resolveRemoteImportPath", () => {
+    const file = (name: string) => ({
+      name,
+      size: 1,
+      progress: 100,
+      priority: "normal" as const,
+      wanted: true,
+    });
+
+    it("uses the client-reported content path as is (rTorrent with a custom data path)", () => {
+      expect(
+        resolveRemoteImportPath({
+          name: "Game Release",
+          downloadDir: "/data/custom-folder",
+          contentPath: "/data/custom-folder",
+          files: [file("Data/a.bin"), file("Data/b.bin")],
+        })
+      ).toBe("/data/custom-folder");
+    });
+
+    it("joins downloadDir with the files' shared root folder otherwise", () => {
+      expect(
+        resolveRemoteImportPath({
+          name: "Cataclismo (v1.3.16.0.451 + The Old Kingdom DLC) [FitGirl Repack]",
+          downloadDir: "/downloads/complete/",
+          files: [
+            file("Cataclismo [FitGirl Repack]/setup.exe"),
+            file("Cataclismo [FitGirl Repack]/fg-01.bin"),
+          ],
+        })
+      ).toBe("/downloads/complete/Cataclismo [FitGirl Repack]");
+    });
+  });
+
   describe("resolveDownloadRelativePath", () => {
     it("returns the torrent name when files list is absent", () => {
       expect(resolveDownloadRelativePath({ name: "Game Title NSP" })).toBe("Game Title NSP");
@@ -148,6 +183,79 @@ describe("downloaders utils", () => {
           ],
         })
       ).toBe("Game Title NSP");
+    });
+
+    it("returns the shared root folder when it differs from the torrent name (#968)", () => {
+      // FitGirl magnets carry the version/DLC info in their display name, but the
+      // folder written to disk is shorter.
+      const file = (name: string) => ({
+        name,
+        size: 1,
+        progress: 100,
+        priority: "normal" as const,
+        wanted: true,
+      });
+      expect(
+        resolveDownloadRelativePath({
+          name: "Cataclismo (v1.3.16.0.451 + The Old Kingdom DLC) [FitGirl Repack]",
+          files: [
+            file("Cataclismo [FitGirl Repack]/setup.exe"),
+            file("Cataclismo [FitGirl Repack]/fg-01.bin"),
+          ],
+        })
+      ).toBe("Cataclismo [FitGirl Repack]");
+    });
+
+    it("keeps the torrent name when files don't share a top-level folder", () => {
+      const file = (name: string) => ({
+        name,
+        size: 1,
+        progress: 100,
+        priority: "normal" as const,
+        wanted: true,
+      });
+      expect(
+        resolveDownloadRelativePath({
+          name: "Game Release",
+          files: [file("setup.exe"), file("data/fg-01.bin")],
+        })
+      ).toBe("Game Release");
+    });
+
+    it("uses the shared root folder even when the save path ends with the torrent name", () => {
+      // qBittorrent/Transmission downloadDir is always the parent save directory.
+      const file = (name: string) => ({
+        name,
+        size: 1,
+        progress: 100,
+        priority: "normal" as const,
+        wanted: true,
+      });
+      expect(
+        resolveRemoteImportPath({
+          name: "Game Release",
+          downloadDir: "/downloads/Game Release",
+          files: [file("ShortFolder/a.bin"), file("ShortFolder/b.bin")],
+        })
+      ).toBe("/downloads/Game Release/ShortFolder");
+    });
+
+    it("keeps the shared root even when it repeats the save path's last segment", () => {
+      // qBittorrent save_path "/downloads/Game" holding the torrent folder "Game/".
+      const file = (name: string) => ({
+        name,
+        size: 1,
+        progress: 100,
+        priority: "normal" as const,
+        wanted: true,
+      });
+      expect(
+        resolveRemoteImportPath({
+          name: "Game",
+          downloadDir: "/downloads/Game",
+          files: [file("Game/a.bin"), file("Game/b.bin")],
+        })
+      ).toBe("/downloads/Game/Game");
     });
 
     it("returns the single file name for a bare single-file torrent", () => {

@@ -29,10 +29,16 @@ export function TagList({
   }
 
   return (
-    <div className={cn("flex flex-wrap gap-2", className)}>
+    <div className={cn("flex min-w-0 max-w-full flex-wrap gap-2", className)}>
       {visible.map((item) => (
-        <Badge key={item} variant={variant} data-testid={getTestId?.(item)}>
-          {item}
+        <Badge
+          key={item}
+          variant={variant}
+          className="min-w-0 max-w-full"
+          data-testid={getTestId?.(item)}
+          title={item}
+        >
+          <span className="truncate">{item}</span>
         </Badge>
       ))}
       {overflow > 0 && (

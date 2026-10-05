@@ -1,0 +1,1 @@
+ALTER TABLE `game_files` ADD `category_overridden` integer DEFAULT false NOT NULL;

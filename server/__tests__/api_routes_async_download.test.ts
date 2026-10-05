@@ -142,7 +142,12 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     mockGameRow(opts.gameId, opts.title);
   }
 
-  async function postDownload(payload: { url: string; title: string; gameId: string }) {
+  async function postDownload(payload: {
+    url: string;
+    title: string;
+    gameId: string;
+    releaseCategory?: string;
+  }) {
     const res = await request(app).post("/api/downloads").send(payload);
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -263,6 +268,43 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
         status: "downloading",
       })
     );
+  });
+
+  it("stores the release category the client classified the download as", async () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174002";
+    mockSuccessCase({
+      fallback: {
+        success: true,
+        id: "realhash123",
+        downloaderId: "d-1",
+        downloaderName: "qBittorrent",
+        attemptedDownloaders: ["qBittorrent"],
+      },
+      gdId: "gd-2",
+      gameId,
+      hash: "realhash123",
+      title: "Expansion.Name.v5.0",
+    });
+
+    await postDownload({
+      url: "https://example.com/sync.torrent",
+      title: "Expansion.Name.v5.0",
+      gameId,
+      releaseCategory: "dlc",
+    });
+
+    expect(storage.addGameDownload).toHaveBeenCalledWith(
+      expect.objectContaining({ category: "dlc" })
+    );
+  });
+
+  it("rejects an unknown release category", async () => {
+    const res = await request(app).post("/api/downloads").send({
+      url: "https://example.com/sync.torrent",
+      title: "Game",
+      releaseCategory: "bogus",
+    });
+    expect(res.status).toBe(400);
   });
 
   it("prefers result.id over result.correlationTag when both are present", async () => {

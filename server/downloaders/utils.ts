@@ -198,15 +198,42 @@ export async function fetchWithMagnetDetection(
  * layout) is saved directly in downloadDir under its own filename, which
  * can differ from the torrent's display name — using the torrent name in
  * that case points at a subfolder that never existed.
+ *
+ * The same mismatch happens for multi-file torrents: the display name (e.g. a
+ * magnet's `dn`, "Game (v1.2 + DLC) [FitGirl Repack]") can differ from the
+ * root folder written to disk ("Game [FitGirl Repack]"). When every file
+ * shares one top-level folder, that folder is the real content directory.
+ * (rTorrent's multi-file paths are relative to the content folder instead; it
+ * reports that folder as `contentPath`, see resolveRemoteImportPath().)
  */
 export function resolveDownloadRelativePath(details: {
   name: string;
   files?: DownloadFile[];
 }): string {
-  if (details.files?.length === 1 && details.files[0]?.name) {
-    return details.files[0].name;
+  const files = details.files ?? [];
+  if (files.length === 1 && files[0]?.name) {
+    return files[0].name;
   }
+
+  if (files.length > 1) {
+    const root = commonTopLevelFolder(files.map((file) => file.name));
+    if (root) return root;
+  }
+
   return details.name;
+}
+
+/** Returns the top-level folder shared by every path, or undefined if there is none. */
+function commonTopLevelFolder(paths: string[]): string | undefined {
+  let root: string | undefined;
+  for (const path of paths) {
+    const segments = path.replace(/^[\\/]+/, "").split(/[\\/]/);
+    // A file sitting directly at the torrent root means there's no shared folder.
+    if (segments.length < 2 || !segments[0]) return undefined;
+    if (root === undefined) root = segments[0];
+    else if (root !== segments[0]) return undefined;
+  }
+  return root;
 }
 
 // Query params that commonly carry a secret (API keys, session tokens, passwords),
@@ -395,6 +422,29 @@ export function stripTrailingPathSeparators(value: string): string {
     end--;
   }
   return value.slice(0, end);
+}
+
+/**
+ * Resolves the remote path to import a download from: the client-reported
+ * content root when there is one, otherwise downloadDir joined with the
+ * resolved relative path.
+ */
+export function resolveRemoteImportPath(details: {
+  name: string;
+  files?: DownloadFile[];
+  downloadDir: string;
+  contentPath?: string | undefined;
+}): string {
+  if (details.contentPath) return details.contentPath;
+  const files = details.files ?? [];
+  const sharedRoot =
+    files.length > 1 ? commonTopLevelFolder(files.map((file) => file.name)) : undefined;
+  if (sharedRoot) {
+    // The root comes from the client's own file paths, so downloadDir is its parent:
+    // append it even when downloadDir happens to end with the same name.
+    return `${stripTrailingPathSeparators(details.downloadDir)}/${sharedRoot}`;
+  }
+  return buildRemoteImportPath(details.downloadDir, resolveDownloadRelativePath(details));
 }
 
 export function buildRemoteImportPath(downloadDir: string, relativePath: string): string {

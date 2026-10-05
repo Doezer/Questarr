@@ -9,6 +9,7 @@ import Header from "@/components/Header";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import { getPageTitle } from "@/components/navigation-items";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
+import { useGameUpdatedSocket } from "@/hooks/use-game-updated-socket";
 import { AuthProvider } from "@/lib/auth";
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef } from "react";
 import LoadingFallback from "@/components/LoadingFallback";
@@ -145,6 +146,7 @@ function Router() {
 function AppContent() {
   // Enable background notifications for downloads
   useBackgroundNotifications();
+  useGameUpdatedSocket();
 
   return <Router />;
 }
@@ -202,7 +204,7 @@ function AppShell() {
                 <AppSidebar activeItem={location} onNavigate={navigate} />
                 <div className="flex flex-col flex-1 min-w-0">
                   <Header title={getPageTitle(location)} />
-                  <main className="flex-1 overflow-hidden pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0">
+                  <main className="flex-1 overflow-hidden pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
                     <AppContent />
                   </main>
                 </div>

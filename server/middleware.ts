@@ -88,7 +88,9 @@ export const scanRateLimiter = rateLimit({
 // General API rate limiter (lenient, just to prevent abuse)
 export const generalApiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 100, // limit each IP to 100 requests per minute
+  // The SPA alone can spend ~90 requests in 40 s (library load + download dialogs), so a
+  // lower ceiling throttles normal browsing. Login has its own, much stricter limiter.
+  max: 600, // limit each IP to 600 requests per minute
   message: "Too many requests, please try again later",
   standardHeaders: true,
   legacyHeaders: false,
@@ -498,6 +500,10 @@ export const sanitizeDownloaderDownloadData = [
     .trim()
     .isLength({ max: 100 })
     .withMessage("Category must be at most 100 characters"),
+  body("releaseCategory")
+    .optional()
+    .isIn(["main", "update", "dlc", "extra", "packs"])
+    .withMessage("Invalid release category"),
   body("downloadType")
     .optional()
     .trim()

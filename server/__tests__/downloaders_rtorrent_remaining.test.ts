@@ -288,6 +288,7 @@ describe("rtorrent remaining regression coverage", () => {
       .mockResolvedValueOnce("tracker issue")
       .mockResolvedValueOnce("/downloads/questarr")
       .mockResolvedValueOnce(1704067200)
+      .mockResolvedValueOnce(1)
       .mockResolvedValueOnce([
         ["off.bin", 10, 0, 10, 0],
         ["normal.bin", 20, 10, 10, 1],
@@ -305,6 +306,8 @@ describe("rtorrent remaining regression coverage", () => {
       progress: 50,
       ratio: 1.5,
       addedDate: "2024-01-01T00:00:00.000Z",
+      // Multi-file: d.directory already is the content folder.
+      contentPath: "/downloads/questarr",
       files: [
         expect.objectContaining({ priority: "off", wanted: false, progress: 0 }),
         expect.objectContaining({ priority: "normal", wanted: true, progress: 100 }),
@@ -316,6 +319,31 @@ describe("rtorrent remaining regression coverage", () => {
         expect.objectContaining({ status: "working" }),
         expect.objectContaining({ status: "error", error: "boom" }),
       ],
+    });
+
+    // A multi-file torrent holding a single file: d.is_multi_file, not the file count,
+    // decides that d.directory is the content folder.
+    rpcSpy
+      .mockResolvedValueOnce("hash-one-file")
+      .mockResolvedValueOnce("One File Release")
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(100)
+      .mockResolvedValueOnce(100)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(1000)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("/downloads/One File Release")
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce([["setup.exe", 100, 10, 10, 1]])
+      .mockResolvedValueOnce([]);
+    await expect(client.getDownloadDetails("hash-one-file")).resolves.toMatchObject({
+      contentPath: "/downloads/One File Release",
+      files: [expect.objectContaining({ name: "setup.exe" })],
     });
 
     rpcSpy
@@ -333,10 +361,12 @@ describe("rtorrent remaining regression coverage", () => {
       .mockResolvedValueOnce("")
       .mockResolvedValueOnce("/downloads/completed")
       .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(0)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     await expect(client.getDownloadDetails("hash-completed")).resolves.toMatchObject({
       status: "completed",
+      contentPath: undefined,
     });
 
     rpcSpy.mockRejectedValueOnce(new Error("details failed"));

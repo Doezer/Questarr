@@ -334,11 +334,11 @@ export default function Library() {
   );
 
   return (
-    <div className="h-full overflow-auto p-6" data-testid="layout-dashboard">
+    <div className="h-full overflow-auto px-3 py-4 sm:p-6" data-testid="layout-dashboard">
       <div className="space-y-3">
         {/* Page header */}
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">My Library</h1>
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">My Library</h1>
           {stableLibStats.totalGames > 0 && (
             <div className="hidden sm:flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-sm text-muted-foreground">
               <span>

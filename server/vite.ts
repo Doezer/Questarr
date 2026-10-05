@@ -5,6 +5,7 @@ import { type Server } from "http";
 import { nanoid } from "nanoid";
 import { expressLogger } from "./logger.js";
 import { staticAssetLimiter } from "./middleware.js";
+import { config } from "./config.js";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -76,19 +77,48 @@ export async function setupVite(app: Express, server: Server) {
   }
 }
 
-export async function serveStatic(app: Express) {
-  const distPath = path.resolve(import.meta.dirname, "..", "public");
+/**
+ * The client is built with relative asset URLs ("./assets/...") so one build serves the app
+ * at the root, under QUESTARR_BASE_PATH, or behind a proxy that strips its own prefix. Those
+ * resolve against the page's directory, so a direct load or refresh of a nested route such as
+ * /activity/imports asked for /activity/assets/..., got index.html back instead of the script
+ * and rendered a blank page. A relative <base> that climbs back to the app root fixes that
+ * without the server knowing the external prefix.
+ *
+ * @param appPath - The request path inside the app, without QUESTARR_BASE_PATH or query.
+ */
+export function relativeBaseHref(appPath: string): string {
+  const depth = Math.max(0, (appPath.match(/\//g)?.length ?? 1) - 1);
+  return depth === 0 ? "./" : "../".repeat(depth);
+}
 
+export function withBaseHref(html: string, href: string): string {
+  return html.replace("<head>", `<head>\n    <base href="${href}" />`);
+}
+
+export function serveStatic(
+  app: Express,
+  distPath = path.resolve(import.meta.dirname, "..", "public"),
+  basePath: string = config.server.basePath
+) {
   if (!fs.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
   }
 
-  app.use(express.static(distPath));
+  // index: false sends "/" through the handler below too, so every page gets the <base>.
+  app.use(express.static(distPath, { index: false }));
+
+  const indexHtml = fs.readFileSync(path.resolve(distPath, "index.html"), "utf-8");
 
   // fall through to index.html if the file doesn't exist
-  app.use("*", staticAssetLimiter, (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+  app.use("*", staticAssetLimiter, (req, res) => {
+    const pathname = req.originalUrl.split("?")[0] ?? "/";
+    // Express matches the mount path case-insensitively, so strip it the same way. The bare
+    // mount root ("/Questarr") never gets here: express.static redirects it to "/Questarr/".
+    const mounted = basePath && pathname.toLowerCase().startsWith(basePath.toLowerCase());
+    const appPath = mounted ? pathname.slice(basePath.length) : pathname;
+    res.type("html").send(withBaseHref(indexHtml, relativeBaseHref(appPath || "/")));
   });
 }

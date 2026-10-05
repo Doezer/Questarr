@@ -163,7 +163,7 @@ current password before accepting a new one
 | -------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `authRateLimiter`          | 20 requests / 15 min / IP | `POST /api/auth/login`                                                                                   |
 | `sensitiveEndpointLimiter` | 30 requests / min / IP    | Indexer/downloader writes, password change, IGDB/NexusMods/Discord settings, SSL settings, Prowlarr sync |
-| `generalApiLimiter`        | 100 requests / min / IP   | General fallback                                                                                         |
+| `generalApiLimiter`        | 600 requests / min / IP   | General fallback                                                                                         |
 
 There is no account lockout beyond the IP-based `authRateLimiter` window
 for repeated failed logins.

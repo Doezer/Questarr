@@ -1,0 +1,208 @@
+/** @vitest-environment jsdom */
+import React from "react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createTestQueryClient } from "./test-utils";
+import InstalledVersionField, { getVersionSuggestions } from "@/components/InstalledVersionField";
+
+const mockToast = vi.fn();
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({ toast: mockToast }),
+}));
+
+const apiRequest = vi.fn();
+vi.mock("@/lib/queryClient", () => ({
+  apiRequest: (...args: unknown[]) => apiRequest(...args),
+}));
+
+const gameId = "game-1";
+
+function renderField(installedVersion: string | null, releaseNames: string[] = []) {
+  render(
+    <QueryClientProvider client={createTestQueryClient()}>
+      <InstalledVersionField
+        gameId={gameId}
+        installedVersion={installedVersion}
+        releaseNames={releaseNames}
+      />
+    </QueryClientProvider>
+  );
+  return screen.getByLabelText("Installed version");
+}
+
+describe("getVersionSuggestions", () => {
+  it("lists distinct versions newest first, without the current one", () => {
+    expect(
+      getVersionSuggestions(
+        [
+          "Game.v1.2-RUNE",
+          "Game.Update.v1.10-RUNE",
+          "Game.v1.2-GOG",
+          "Game.Update.v1.3-RUNE",
+          "Game-NoVersion",
+        ],
+        "v1.3"
+      )
+    ).toEqual(["v1.10", "v1.2"]);
+  });
+});
+
+describe("InstalledVersionField", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    apiRequest.mockResolvedValue({ ok: true, json: async () => ({}) });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("shows the stored version", () => {
+    expect(renderField("v1.2.3")).toHaveValue("v1.2.3");
+  });
+
+  it("saves the typed version on Enter", async () => {
+    const input = renderField(null);
+    fireEvent.change(input, { target: { value: " v2.0 " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("PATCH", `/api/games/${gameId}/installed-version`, {
+        installedVersion: "v2.0",
+      })
+    );
+  });
+
+  it("does not save on an Enter that confirms an IME composition", () => {
+    const input = renderField(null);
+    fireEvent.change(input, { target: { value: "v2" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("clears the version when emptied and blurred", async () => {
+    const input = renderField("v1.0");
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("PATCH", `/api/games/${gameId}/installed-version`, {
+        installedVersion: null,
+      })
+    );
+  });
+
+  it("follows a new server value but keeps a draft being edited", () => {
+    const client = createTestQueryClient();
+    const view = (installedVersion: string | null, id = gameId) => (
+      <QueryClientProvider client={client}>
+        <InstalledVersionField gameId={id} installedVersion={installedVersion} releaseNames={[]} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view("v1.0"));
+    const input = screen.getByLabelText("Installed version");
+
+    rerender(view("v1.1"));
+    expect(input).toHaveValue("v1.1");
+
+    fireEvent.change(input, { target: { value: "v2" } });
+    rerender(view("v1.2"));
+    expect(input).toHaveValue("v2");
+
+    rerender(view("v3.0", "game-2"));
+    expect(input).toHaveValue("v3.0");
+  });
+
+  it("does not save when the value did not change", () => {
+    const input = renderField("v1.0");
+    fireEvent.blur(input);
+    expect(apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("applies a suggestion from the game's downloads", async () => {
+    renderField(null, ["Game.Update.v1.4-RUNE"]);
+    fireEvent.click(screen.getByRole("button", { name: "Set installed version to v1.4" }));
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("PATCH", `/api/games/${gameId}/installed-version`, {
+        installedVersion: "v1.4",
+      })
+    );
+  });
+
+  it("keeps focus in the input when a suggestion is pressed", () => {
+    renderField(null, ["Game.Update.v1.4-RUNE"]);
+    const button = screen.getByRole("button", { name: "Set installed version to v1.4" });
+    // A cancelled mousedown means the input never blurs (and never saves its draft) first.
+    expect(fireEvent.mouseDown(button)).toBe(false);
+  });
+
+  it("sends a value typed during a save only after that save settles", async () => {
+    let finishFirst: (value: unknown) => void = () => {};
+    apiRequest.mockReturnValueOnce(new Promise((resolve) => (finishFirst = resolve)));
+    const input = renderField(null);
+    fireEvent.change(input, { target: { value: "v2" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(1));
+    fireEvent.change(input, { target: { value: "v3" } });
+    fireEvent.blur(input);
+    expect(apiRequest).toHaveBeenCalledTimes(1);
+
+    finishFirst({ ok: true, json: async () => ({}) });
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
+    expect(apiRequest).toHaveBeenLastCalledWith("PATCH", `/api/games/${gameId}/installed-version`, {
+      installedVersion: "v3",
+    });
+  });
+
+  it("undoes an in-flight save when the stored value is typed back", async () => {
+    let finishFirst: (value: unknown) => void = () => {};
+    apiRequest.mockReturnValueOnce(new Promise((resolve) => (finishFirst = resolve)));
+    const input = renderField("v1");
+    fireEvent.change(input, { target: { value: "v2" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(1));
+    fireEvent.change(input, { target: { value: "v1" } });
+    fireEvent.blur(input);
+
+    finishFirst({ ok: true, json: async () => ({}) });
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
+    expect(apiRequest).toHaveBeenLastCalledWith("PATCH", `/api/games/${gameId}/installed-version`, {
+      installedVersion: "v1",
+    });
+  });
+
+  it("still saves the stored value typed back while the refetch is pending", async () => {
+    const client = createTestQueryClient();
+    let finishRefetch: () => void = () => {};
+    vi.spyOn(client, "invalidateQueries").mockReturnValueOnce(
+      new Promise<void>((resolve) => (finishRefetch = resolve))
+    );
+    render(
+      <QueryClientProvider client={client}>
+        <InstalledVersionField gameId={gameId} installedVersion="v1" releaseNames={[]} />
+      </QueryClientProvider>
+    );
+    const input = screen.getByLabelText("Installed version");
+    fireEvent.change(input, { target: { value: "v2" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(client.invalidateQueries).toHaveBeenCalled());
+    fireEvent.change(input, { target: { value: "v1" } });
+    fireEvent.blur(input);
+
+    finishRefetch();
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
+    expect(apiRequest).toHaveBeenLastCalledWith("PATCH", `/api/games/${gameId}/installed-version`, {
+      installedVersion: "v1",
+    });
+  });
+
+  it("restores the stored value and warns when saving fails", async () => {
+    apiRequest.mockRejectedValue(new Error("boom"));
+    const input = renderField("v1.0");
+    fireEvent.change(input, { target: { value: "v9" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(mockToast).toHaveBeenCalled());
+    expect(input).toHaveValue("v1.0");
+  });
+});

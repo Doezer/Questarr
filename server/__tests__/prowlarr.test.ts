@@ -98,23 +98,25 @@ describe("ProwlarrClient", () => {
     expect(callUrl).toBe("http://prowlarr:9696/api/v1/indexer");
   });
 
-  // Regression: the feeds share the Prowlarr origin, so a plain-HTTP Prowlarr
-  // must opt its indexers into sending the key over HTTP, or every synced
-  // indexer answers 401.
-  it("allows the API key over HTTP when Prowlarr itself is plain HTTP", async () => {
+  // The key must never go over HTTP on an inferred opt-in (see shared/schema.ts):
+  // only the dialog's explicit choice sets the flag, otherwise it is left out
+  // so an existing indexer keeps its own setting.
+  it("does not infer the insecure LAN opt-in from an HTTP Prowlarr URL", async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => mockProwlarrIndexers });
 
     const indexers = await prowlarrClient.getIndexers("http://prowlarr:9696", "apikey123");
 
-    expect(indexers.map((i) => i.allowInsecureLan)).toEqual([true, true]);
+    expect(indexers.every((i) => !("allowInsecureLan" in i))).toBe(true);
   });
 
-  it("does not opt HTTPS Prowlarr indexers into insecure LAN", async () => {
+  it("applies an explicit insecure LAN opt-in to every indexer", async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => mockProwlarrIndexers });
 
-    const indexers = await prowlarrClient.getIndexers("https://prowlarr.example.com", "apikey123");
+    const indexers = await prowlarrClient.getIndexers("http://prowlarr:9696", "apikey123", {
+      allowInsecureLan: true,
+    });
 
-    expect(indexers.map((i) => i.allowInsecureLan)).toEqual([false, false]);
+    expect(indexers.map((i) => i.allowInsecureLan)).toEqual([true, true]);
   });
 
   it("applies the sync dialog's global settings to every indexer", async () => {

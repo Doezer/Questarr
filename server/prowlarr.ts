@@ -92,12 +92,10 @@ export class ProwlarrClient {
         "Filtered compatible Torznab and Newznab indexers"
       );
 
-      // Every feed lives on the Prowlarr origin itself, and this very request
-      // already sent the Prowlarr API key there. When that origin is plain HTTP
-      // (the usual LAN setup), the feeds can only work if the key is allowed
-      // over HTTP too: without the opt-in every synced indexer answers 401.
-      // The dialog can override this either way.
-      const allowInsecureLan = overrides.allowInsecureLan ?? new URL(baseUrl).protocol === "http:";
+      // Sending the key over plain HTTP needs the user's explicit opt-in from
+      // the sync dialog; it is never inferred from the URL scheme. Left
+      // undefined, an existing indexer keeps whatever it had.
+      const { allowInsecureLan } = overrides;
 
       return compatibleIndexers.map((idx) => {
         // Construct Torznab/Newznab URL
@@ -117,7 +115,7 @@ export class ProwlarrClient {
           priority: overrides.priority ?? idx.priority,
           rssEnabled: true,
           autoSearchEnabled: true,
-          allowInsecureLan,
+          ...(allowInsecureLan === undefined ? {} : { allowInsecureLan }),
           // Categories differ per indexer, so they are only set when the user
           // picked some in the dialog. Leaving them out keeps the categories
           // already chosen on an existing indexer instead of wiping them.

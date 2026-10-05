@@ -128,11 +128,10 @@ export default function IndexersPage() {
   const [isProwlarrDialogOpen, setIsProwlarrDialogOpen] = useState(false);
   const [prowlarrUrl, setProwlarrUrl] = useState("");
   const [prowlarrApiKey, setProwlarrApiKey] = useState("");
-  // null until the user touches the checkbox: it then follows the URL scheme.
-  const [prowlarrInsecureLanChoice, setProwlarrInsecureLanChoice] = useState<boolean | null>(null);
+  const [prowlarrInsecureLan, setProwlarrInsecureLan] = useState(false);
   const [prowlarrPriority, setProwlarrPriority] = useState("");
   const [prowlarrCategories, setProwlarrCategories] = useState<string[]>([]);
-  const prowlarrInsecureLan = prowlarrInsecureLanChoice ?? isPlainHttpUrl(prowlarrUrl);
+  const prowlarrNeedsInsecureLan = isPlainHttpUrl(prowlarrUrl) && !prowlarrInsecureLan;
   const prowlarrPriorityValue =
     prowlarrPriority.trim() === "" ? undefined : Number(prowlarrPriority);
   const prowlarrPriorityInvalid =
@@ -162,7 +161,8 @@ export default function IndexersPage() {
         body: JSON.stringify({
           url: prowlarrUrl,
           apiKey: prowlarrApiKey,
-          allowInsecureLan: prowlarrInsecureLan,
+          // Only an explicit opt-in is sent; unticked keeps each indexer's setting.
+          ...(prowlarrInsecureLan ? { allowInsecureLan: true } : {}),
           ...(prowlarrPriorityValue === undefined ? {} : { priority: prowlarrPriorityValue }),
           ...(prowlarrCategories.length > 0 ? { categories: prowlarrCategories } : {}),
         }),
@@ -911,10 +911,23 @@ export default function IndexersPage() {
                   id="prowlarr-insecure-lan"
                   className="mt-0.5"
                   checked={prowlarrInsecureLan}
-                  onCheckedChange={(checked) => setProwlarrInsecureLanChoice(checked === true)}
+                  onCheckedChange={(checked) => setProwlarrInsecureLan(checked === true)}
+                  aria-describedby={
+                    prowlarrNeedsInsecureLan ? "prowlarr-insecure-lan-warning" : undefined
+                  }
                   data-testid="checkbox-prowlarr-insecure-lan"
                 />
               </div>
+              {prowlarrNeedsInsecureLan && (
+                <p
+                  id="prowlarr-insecure-lan-warning"
+                  className="text-xs text-amber-700 in-[.dark]:text-amber-500"
+                  data-testid="text-prowlarr-insecure-lan-warning"
+                >
+                  This Prowlarr URL uses plain HTTP. Unless you tick the box above, Questarr will
+                  not send the API key and the synced indexers will answer 401.
+                </p>
+              )}
               <div className="space-y-2">
                 <label htmlFor="prowlarr-priority" className="text-sm font-medium leading-none">
                   Priority

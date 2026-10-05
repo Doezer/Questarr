@@ -7,7 +7,19 @@
 #
 # Source repository: https://github.com/actions/dependency-review-action
 name: "Dependency Review"
-on: [pull_request]
+on:
+  pull_request:
+    # The review only looks at manifests (npm, pip requirements, workflow action refs).
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "requirements/**"
+      - ".github/requirements/**"
+      - ".github/workflows/**"
+
+concurrency:
+  group: dependency-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

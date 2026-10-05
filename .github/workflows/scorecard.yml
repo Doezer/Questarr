@@ -13,6 +13,11 @@ on:
     - cron: "44 1 * * 3"
   push:
     branches: ["main"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".github/ISSUE_TEMPLATE/**"
 
 # Declare default permissions as read only.
 permissions:

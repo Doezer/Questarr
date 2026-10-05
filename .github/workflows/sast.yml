@@ -8,6 +8,10 @@ on:
   # Allow manual trigger
   workflow_dispatch:
 
+concurrency:
+  group: sast-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   security-events: write

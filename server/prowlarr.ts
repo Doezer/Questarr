@@ -81,6 +81,12 @@ export class ProwlarrClient {
         "Filtered compatible Torznab and Newznab indexers"
       );
 
+      // Every feed lives on the Prowlarr origin itself, and this very request
+      // already sent the Prowlarr API key there. When that origin is plain HTTP
+      // (the usual LAN setup), the feeds can only work if the key is allowed
+      // over HTTP too: without the opt-in every synced indexer answers 401.
+      const allowInsecureLan = new URL(baseUrl).protocol === "http:";
+
       return compatibleIndexers.map((idx) => {
         // Construct Torznab/Newznab URL
         // Prowlarr exposes Torznab feed at /<indexerId>/api for torrents
@@ -99,6 +105,7 @@ export class ProwlarrClient {
           priority: idx.priority,
           rssEnabled: true,
           autoSearchEnabled: true,
+          allowInsecureLan,
           // We don't sync categories automatically as they differ per indexer
           categories: [],
         };

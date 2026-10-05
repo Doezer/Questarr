@@ -21,6 +21,7 @@ export interface IndexerUpdateFields {
   categories: Indexer["categories"];
   rssEnabled: Indexer["rssEnabled"];
   autoSearchEnabled: Indexer["autoSearchEnabled"];
+  allowInsecureLan?: Indexer["allowInsecureLan"];
   updatedAt: Date;
 }
 
@@ -62,6 +63,9 @@ export function buildIndexerUpdate(
     categories: idx.categories,
     rssEnabled: idx.rssEnabled,
     autoSearchEnabled: idx.autoSearchEnabled,
+    // Left untouched when the sync source has no opinion, so a sync never
+    // revokes an opt-in the user set by hand.
+    ...(idx.allowInsecureLan === undefined ? {} : { allowInsecureLan: idx.allowInsecureLan }),
     updatedAt: now,
   } as IndexerUpdateFields;
 }
@@ -84,6 +88,7 @@ export function buildNewIndexer(
     categories: idx.categories ?? [],
     rssEnabled: idx.rssEnabled ?? true,
     autoSearchEnabled: idx.autoSearchEnabled ?? true,
+    allowInsecureLan: idx.allowInsecureLan ?? false,
     createdAt: now,
     updatedAt: now,
   } as NewIndexerRow;

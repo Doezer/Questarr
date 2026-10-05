@@ -3428,6 +3428,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         categories,
         rssEnabled,
         autoSearchEnabled,
+        allowInsecureLan,
       } = req.body;
 
       if (!url || !apiKey) {
@@ -3452,7 +3453,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         categories: categories || [],
         rssEnabled: rssEnabled ?? true,
         autoSearchEnabled: autoSearchEnabled ?? true,
-        allowInsecureLan: false,
+        // Mirror the form's opt-in, or testing a plain-HTTP LAN indexer always
+        // fails with 401 because the key is withheld.
+        allowInsecureLan: allowInsecureLan === true,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -3575,6 +3578,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           postImportCategory,
           settings,
           allowSelfSignedCertificate,
+          allowInsecureLan,
         } = req.body;
 
         // Check for SSRF
@@ -3603,7 +3607,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           postImportCategory: postImportCategory || null,
           settings: settings || null,
           allowSelfSignedCertificate: allowSelfSignedCertificate ?? false,
-          allowInsecureLan: false,
+          allowInsecureLan: allowInsecureLan === true,
           createdAt: new Date(),
           updatedAt: new Date(),
         };

@@ -2649,6 +2649,28 @@ describe("API Routes - Extended Coverage", () => {
       expect(torznabClient.testConnection).not.toHaveBeenCalled();
     });
 
+    // Regression: the route used to hard-code allowInsecureLan=false, so testing
+    // a plain-HTTP LAN indexer withheld the key and always failed with 401.
+    it("passes the insecure LAN opt-in through to the connection test", async () => {
+      vi.mocked(torznabClient.testConnection).mockResolvedValue({ success: true, message: "ok" });
+      await request(app)
+        .post("/api/indexers/test")
+        .send({ url: "http://192.168.1.10:9696/1/api", apiKey: "key", allowInsecureLan: true });
+      expect(torznabClient.testConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ allowInsecureLan: true })
+      );
+    });
+
+    it("keeps insecure LAN off unless the payload opts in", async () => {
+      vi.mocked(torznabClient.testConnection).mockResolvedValue({ success: true, message: "ok" });
+      await request(app)
+        .post("/api/indexers/test")
+        .send({ url: "http://192.168.1.10:9696/1/api", apiKey: "key", allowInsecureLan: "yes" });
+      expect(torznabClient.testConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ allowInsecureLan: false })
+      );
+    });
+
     it("should default to torznabClient when no protocol is given", async () => {
       vi.mocked(torznabClient.testConnection).mockResolvedValue({ success: true, message: "ok" });
       const response = await request(app)
@@ -2681,6 +2703,19 @@ describe("API Routes - Extended Coverage", () => {
           type: "synology",
           url: "https://example.com",
         })
+      );
+    });
+
+    it("passes the insecure LAN opt-in through to the downloader test", async () => {
+      const response = await request(app).post("/api/downloaders/test").send({
+        type: "synology",
+        url: "http://192.168.1.10:5000",
+        allowInsecureLan: true,
+      });
+
+      expect(response.status).toBe(200);
+      expect(DownloaderManager.testDownloader).toHaveBeenCalledWith(
+        expect.objectContaining({ allowInsecureLan: true })
       );
     });
 

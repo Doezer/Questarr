@@ -500,6 +500,58 @@ describe("DatabaseStorage Integration", () => {
       expect(fetched?.apiKey).toBe("fixture-synced-value");
     });
 
+    // Regression: an HTTP indexer left with allowInsecureLan=false (the
+    // migration default) never receives its key and answers 401. A Prowlarr
+    // re-sync must repair it, and a sync with no opinion must keep the opt-in.
+    it("syncIndexers applies allowInsecureLan to existing indexers and keeps it when omitted", async () => {
+      const existing = await storage.addIndexer({
+        name: "Prowlarr Feed",
+        url: "http://192.168.1.10:9696/1/api",
+        apiKey: "fixture-old-value",
+      });
+      expect(existing.allowInsecureLan).toBe(false);
+
+      const resynced = await storage.syncIndexers([
+        {
+          name: "Prowlarr Feed",
+          url: "http://192.168.1.10:9696/1/api",
+          apiKey: "fixture-prowlarr-value",
+          allowInsecureLan: true,
+        },
+      ]);
+      expect(resynced.updated).toBe(1);
+
+      const afterSync = await storage.getIndexer(existing.id);
+      expect(afterSync?.apiKey).toBe("fixture-prowlarr-value");
+      expect(afterSync?.allowInsecureLan).toBe(true);
+
+      await storage.syncIndexers([
+        {
+          name: "Prowlarr Feed",
+          url: "http://192.168.1.10:9696/1/api",
+          apiKey: "fixture-prowlarr-value",
+        },
+      ]);
+      expect((await storage.getIndexer(existing.id))?.allowInsecureLan).toBe(true);
+    });
+
+    it("syncIndexers stores allowInsecureLan on new indexers", async () => {
+      await storage.syncIndexers([
+        {
+          name: "New Prowlarr Feed",
+          url: "http://192.168.1.10:9696/2/api",
+          apiKey: "fixture-prowlarr-value",
+          allowInsecureLan: true,
+        },
+      ]);
+
+      const [rawRow] = await db
+        .select()
+        .from(indexers)
+        .where(eq(indexers.url, "http://192.168.1.10:9696/2/api"));
+      expect(rawRow.allowInsecureLan).toBe(true);
+    });
+
     it("decrypts apiKey via getEnabledIndexers", async () => {
       await storage.addIndexer({
         name: "Enabled Indexer",

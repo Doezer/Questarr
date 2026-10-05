@@ -97,4 +97,23 @@ describe("ProwlarrClient", () => {
     const callUrl = fetchMock.mock.calls[0][0] as string;
     expect(callUrl).toBe("http://prowlarr:9696/api/v1/indexer");
   });
+
+  // Regression: the feeds share the Prowlarr origin, so a plain-HTTP Prowlarr
+  // must opt its indexers into sending the key over HTTP, or every synced
+  // indexer answers 401.
+  it("allows the API key over HTTP when Prowlarr itself is plain HTTP", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => mockProwlarrIndexers });
+
+    const indexers = await prowlarrClient.getIndexers("http://prowlarr:9696", "apikey123");
+
+    expect(indexers.map((i) => i.allowInsecureLan)).toEqual([true, true]);
+  });
+
+  it("does not opt HTTPS Prowlarr indexers into insecure LAN", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => mockProwlarrIndexers });
+
+    const indexers = await prowlarrClient.getIndexers("https://prowlarr.example.com", "apikey123");
+
+    expect(indexers.map((i) => i.allowInsecureLan)).toEqual([false, false]);
+  });
 });

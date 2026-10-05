@@ -106,7 +106,14 @@ jobs:
             echo "docker=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          changed=$(gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename')
+          # The files API lists at most 3,000 files; build when the PR is bigger or when
+          # either call fails, rather than failing this job or skipping the image.
+          count=$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '.changed_files') || count=""
+          if [ -z "$count" ] || [ "$count" -gt 3000 ] \
+            || ! changed=$(gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename'); then
+            echo "docker=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if echo "$changed" | grep -qE '^(Dockerfile|\.dockerignore|entrypoint\.sh|package(-lock)?\.json|requirements/|migrations(-pg)?/|\.github/workflows/ci\.yml$)'; then
             echo "docker=true" >> "$GITHUB_OUTPUT"
           else

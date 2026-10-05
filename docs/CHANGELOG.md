@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.1-rc1] - 2026-10-xx
+
+### Added
+
+- **Installed version**: each game records the version you have installed, editable in the game details modal with suggestions from your downloads' release names. It is filled in automatically when a full-game or update download finishes, and update releases that are not newer than it no longer raise "Game Updates Available" (#1142).
+
 ## [1.5.0] - 2026-09-xx
 
 ### Added

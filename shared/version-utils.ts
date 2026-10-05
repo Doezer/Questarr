@@ -41,9 +41,11 @@ const UPDATE_BUILD_VERSION = new RegExp(
   "i"
 );
 
-// "v1.2-beta", "1.2.RC1", "v2.0 Preview": a pre-release, which a later stable release of the
-// same number supersedes. Names carrying one are treated as having no readable version.
-const PRERELEASE_VERSION = /\d[\s._-]?(?:alpha|beta|rc|pre|preview|dev)(?![a-z])/i;
+// "v1.2-beta", "1.2.RC1", "v2.0 Preview", "v1.2.Early.Access", "v1.2.Hotfix": a qualifier whose
+// ordering against the bare number ("v1.2") isn't captured by it -- a later stable release or a
+// hotfix of the same number differs. Names carrying one are treated as having no readable version.
+const QUALIFIED_VERSION =
+  /\d[\s._-]?(?:alpha|beta|rc|pre|preview|dev|early[\s._-]?access|hot[\s._-]?fix|fix)(?![a-z])/i;
 const BUILD_VERSION_ALL = new RegExp(BUILD_VERSION.source, "gi");
 
 /**
@@ -51,7 +53,7 @@ const BUILD_VERSION_ALL = new RegExp(BUILD_VERSION.source, "gi");
  * "Build 12345"), or null when the name carries none.
  */
 export function extractVersionFromReleaseName(releaseName: string): string | null {
-  if (PRERELEASE_VERSION.test(releaseName)) return null;
+  if (QUALIFIED_VERSION.test(releaseName)) return null;
   // An update names the version it brings the game to, so what follows "Update" wins over the
   // base version before it ("Game.v1.0.Update.v1.1"), and its highest version wins over its
   // starting one ("Game.Update.v1.0.to.v1.1").
@@ -66,9 +68,8 @@ export function extractVersionFromReleaseName(releaseName: string): string | nul
   // Otherwise the highest of the versions named ("Game.v1.0.to.v1.1" brings the game to v1.1).
   const best = highestVVersion(releaseName, null);
   if (best) return best;
-  const build = BUILD_VERSION.exec(releaseName);
-  if (build?.[1]) return `Build ${build[1]}`;
-  return null;
+  // A build range ("Patch.Build.1000.to.Build.1200") brings the game to its highest build.
+  return highestBuild(releaseName);
 }
 
 function highestVVersion(text: string, initial: string | null): string | null {

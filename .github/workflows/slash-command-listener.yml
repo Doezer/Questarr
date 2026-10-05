@@ -11,8 +11,9 @@ permissions:
 
 jobs:
   dispatch:
-    # Every issue/PR comment triggers this workflow; only start a runner for /deploy.
-    if: startsWith(github.event.comment.body, '/deploy')
+    # Every issue/PR comment triggers this workflow; only start a runner when the comment
+    # mentions /deploy. The script below still checks that the trimmed body starts with it.
+    if: contains(github.event.comment.body, '/deploy')
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)

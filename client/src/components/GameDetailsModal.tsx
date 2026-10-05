@@ -595,17 +595,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
         queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/downloads`] });
       }
     };
-    // A finished download can record a newer installed version on the game itself.
-    const gameHandler = (gameId: string) => {
-      if (gameId === game.id) {
-        queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-      }
-    };
     socket.on("downloadUpdate", handler);
-    socket.on("gameUpdated", gameHandler);
     return () => {
       socket.off("downloadUpdate", handler);
-      socket.off("gameUpdated", gameHandler);
     };
   }, [open, game?.id, queryClient]);
 

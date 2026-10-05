@@ -1,4 +1,3 @@
-import type { Game } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { compareVersions, extractVersionFromReleaseName } from "../shared/version-utils.js";
 import type { IStorage } from "./storage.js";
@@ -15,8 +14,8 @@ import { notifyUser } from "./socket.js";
  * recorded, if any.
  */
 export async function recordVersionFromCompletedDownload(
-  store: Pick<IStorage, "updateGame">,
-  game: Pick<Game, "id" | "installedVersion">,
+  store: Pick<IStorage, "getGame" | "updateGame">,
+  gameId: string,
   downloadTitle: string
 ): Promise<string | null> {
   try {
@@ -26,6 +25,10 @@ export async function recordVersionFromCompletedDownload(
     const detected = extractVersionFromReleaseName(downloadTitle);
     if (!detected) return null;
 
+    // Read the current row: an import can run for minutes, during which the user may have
+    // edited the version or another import may have advanced it.
+    const game = await store.getGame(gameId);
+    if (!game) return null;
     if (game.installedVersion?.trim()) {
       const cmp = compareVersions(detected, game.installedVersion);
       if (cmp === null || cmp <= 0) return null;
@@ -41,7 +44,7 @@ export async function recordVersionFromCompletedDownload(
     return detected;
   } catch (error) {
     logger.warn(
-      { error, gameId: game.id, item: downloadTitle },
+      { error, gameId, item: downloadTitle },
       "Failed to record game version from completed download"
     );
     return null;

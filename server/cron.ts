@@ -960,9 +960,11 @@ export async function checkDownloadStatus() {
               // Update DB - mark as completed
               await storage.updateGameDownloadStatus(download.id, "completed");
               // With post-processing on, the import records it once the files are in place.
-              if (game) {
-                await recordVersionFromCompletedDownload(storage, game, download.downloadTitle);
-              }
+              await recordVersionFromCompletedDownload(
+                storage,
+                download.gameId,
+                download.downloadTitle
+              );
 
               // Update Game status to 'owned' (which means we have the files), unless
               // the user already moved it past that (e.g. an update for a game they're playing).

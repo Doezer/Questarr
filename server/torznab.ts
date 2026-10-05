@@ -3,6 +3,7 @@ import {
   DEFAULT_GAME_CATEGORIES,
   discoverCapsCategories,
   indexerAllowsApiKey,
+  withheldApiKeyHint,
   resolveSearchCategories,
 } from "./indexer-caps.js";
 import { torznabLogger } from "./logger.js";
@@ -128,7 +129,10 @@ export class TorznabClient {
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "No error details available");
-        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+        throw new Error(
+          `HTTP ${response.status}: ${response.statusText} - ${errorText}` +
+            withheldApiKeyHint(indexer, response.status)
+        );
       }
 
       const xmlData = await response.text();
@@ -329,7 +333,10 @@ export class TorznabClient {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "No error details available");
-      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+      throw new Error(
+        `HTTP ${response.status}: ${response.statusText} - ${errorText}` +
+          withheldApiKeyHint(indexer, response.status)
+      );
     }
 
     const xmlData = await response.text();

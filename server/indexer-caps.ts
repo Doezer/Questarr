@@ -80,6 +80,27 @@ export function indexerAllowsApiKey(indexer: Pick<Indexer, "url" | "allowInsecur
 }
 
 /**
+ * Explains an auth failure caused by our own transport policy: when an indexer
+ * has a key but it was withheld because the URL is plain HTTP without the
+ * insecure-LAN opt-in, a bare "401" sends users hunting for a wrong key.
+ *
+ * @returns A sentence to append to the error, or an empty string when the key
+ * was sent (or the failure is not an auth one).
+ */
+export function withheldApiKeyHint(
+  indexer: Pick<Indexer, "url" | "apiKey" | "allowInsecureLan">,
+  status: number
+): string {
+  if ((status !== 401 && status !== 403) || !indexer.apiKey || indexerAllowsApiKey(indexer)) {
+    return "";
+  }
+  return (
+    " The API key was not sent because this indexer uses plain HTTP. Enable" +
+    " 'Allow insecure LAN connection' on the indexer, or switch it to HTTPS."
+  );
+}
+
+/**
  * Build a list of reasonable candidate caps URLs to try in order. Indexers
  * vary in whether their stored base URL already includes the /api path
  * segment, so try both the normalized (`buildApiUrl`) form and the raw

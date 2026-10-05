@@ -9,10 +9,13 @@
 name: "Dependency Review"
 on:
   pull_request:
-    # The review only looks at manifests (npm, pip requirements, workflow action refs).
+    # The review only looks at manifests (npm, pip requirements, NuGet for the Windows
+    # service, workflow action refs).
     paths:
       - "package.json"
       - "package-lock.json"
+      - "**/*.csproj"
+      - "**/packages.lock.json"
       - "requirements/**"
       - ".github/requirements/**"
       - ".github/workflows/**"

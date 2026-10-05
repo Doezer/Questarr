@@ -304,7 +304,8 @@ function validateArchiveEntries(entries: ArchiveEntry[], outputDir: string): voi
 
     const segments = safeEntrySegments(entry.name);
     const resolvedEntry = path.resolve(root, ...segments);
-    if (!resolvedEntry.startsWith(rootPrefix)) {
+    // An explicit "." or "./" entry (tar -cf archive.tar .) names the root itself.
+    if (resolvedEntry !== root && !resolvedEntry.startsWith(rootPrefix)) {
       throw new Error("Archive contains a file path outside the extraction directory.");
     }
 

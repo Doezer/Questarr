@@ -151,7 +151,7 @@ class NewznabClient {
       // key is never altered. A single category is unaffected because it has no
       // separator to encode.
       const encodedCat = new URLSearchParams({ cat: catValue }).toString();
-      const requestUrl = url.toString().replace(encodedCat, `cat=${catValue}`);
+      const requestUrl = url.toString().replace(encodedCat, encodedCat.replaceAll("%2C", ","));
 
       routesLogger.info(
         { indexer: indexer.name, url: requestUrl, params },

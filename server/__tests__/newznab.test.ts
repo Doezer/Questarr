@@ -215,6 +215,29 @@ describe("NewznabClient", () => {
       expect(parsed.searchParams.get("q")).toBe("Hello, World");
       expect(parsed.searchParams.get("apikey")).toBe("key,part");
     });
+
+    it("keeps reserved characters inside a category value encoded", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
+        ok: true,
+        text: async () => mockSearchXml,
+      });
+      const indexer = {
+        ...mockIndexer,
+        url: "https://example.com/api",
+        allowInsecureLan: true,
+        categories: ["4000&t=caps#x", "1000"],
+      };
+
+      await newznabClient.search(indexer, { query: "game" });
+
+      const [url] = (safeFetch as Mock).mock.calls[0] as [string];
+      // Only the separator commas become literal; the value cannot inject a parameter.
+      const parsed = new URL(url);
+      expect(parsed.searchParams.get("t")).toBe("search");
+      expect(parsed.searchParams.get("cat")).toBe("4000&t=caps#x,1000");
+      expect(url).toContain("cat=4000%26t%3Dcaps%23x,1000");
+    });
   });
 
   describe("getCategories", () => {

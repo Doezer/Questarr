@@ -270,6 +270,23 @@ describe("ArchiveService", () => {
       expect(emptyDirMock).not.toHaveBeenCalled();
     });
 
+    it("accepts an explicit root directory entry, as tar -cf archive.tar . produces", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(
+        null,
+        makeSltOutput([
+          { name: ".", size: 0, isDirectory: true },
+          { name: "./game.rom", size: 12 },
+        ]),
+        ""
+      );
+      readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
+
+      const files = await service.extract("/downloads/game.tar", "/tmp/out"); // NOSONAR - mocked fs
+
+      expect(files).toEqual([expect.stringMatching(/tmp[\\/]out[\\/]game\.rom$/)]);
+    });
+
     it("rejects symbolic and hard links before extraction touches the destination", async () => {
       const service = await freshArchiveService();
       mockExecOnce(

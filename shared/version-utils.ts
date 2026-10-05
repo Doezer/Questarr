@@ -57,6 +57,11 @@ const QUALIFIED_VERSION = new RegExp(
   "i"
 );
 const BUILD_VERSION_ALL = new RegExp(BUILD_VERSION.source, "gi");
+// "1.1" with no "v", as in the target of "Update.1.0.to.1.1".
+const DOTTED_VERSION_ALL = new RegExp(
+  String.raw`${NOT_PRECEDED_BY_ALNUM}(\d+(?:\.\d+)+)${VERSION_END}`,
+  "gi"
+);
 const UPDATE_MARKER = new RegExp(
   String.raw`${NOT_PRECEDED_BY_ALNUM}(?:update|patch)${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
@@ -74,7 +79,10 @@ export function extractVersionFromReleaseName(releaseName: string): string | nul
   const update = UPDATE_VERSION.exec(releaseName);
   const updateVersion = update?.[1] ?? update?.[2];
   if (update && updateVersion) {
-    return highestVVersion(releaseName.slice(update.index), `v${updateVersion}`);
+    const rest = releaseName.slice(update.index);
+    const best = highestVVersion(rest, `v${updateVersion}`);
+    // Without a "v" ("Update.1.0.to.1.1"), the range's other end is unprefixed too.
+    return update[1] ? best : highestDottedVersion(rest, best);
   }
   // Likewise for builds: "Update.Build.1000.to.Build.1200" brings the game to Build 1200.
   const updateBuild = UPDATE_BUILD_VERSION.exec(releaseName);
@@ -98,6 +106,15 @@ function countMatches(text: string, pattern: RegExp): number {
 function highestVVersion(text: string, initial: string | null): string | null {
   let best = initial;
   for (const match of text.matchAll(V_VERSION_ALL)) {
+    const candidate = `v${match[1]}`;
+    if (best === null || (compareVersions(candidate, best) ?? 0) > 0) best = candidate;
+  }
+  return best;
+}
+
+function highestDottedVersion(text: string, initial: string | null): string | null {
+  let best = initial;
+  for (const match of text.matchAll(DOTTED_VERSION_ALL)) {
     const candidate = `v${match[1]}`;
     if (best === null || (compareVersions(candidate, best) ?? 0) > 0) best = candidate;
   }
@@ -181,15 +198,13 @@ export function inferReleaseCategory(
   aiReleaseType?: ReleaseType | null,
   aiReleaseTypeConfidence?: number | null
 ): DownloadCategory {
-  const byTitle = categorizeDownload(downloadTitle);
-  const result = categorizeDownload(downloadTitle, aiReleaseType, aiReleaseTypeConfidence);
+  // The categorizer's word boundaries don't split on "_" ("Game_DLC_v5.0").
+  const title = downloadTitle.replace(/_/g, " ");
+  const byTitle = categorizeDownload(title);
+  const result = categorizeDownload(title, aiReleaseType, aiReleaseTypeConfidence);
   const titleDecided =
     result.category === byTitle.category && result.confidence === byTitle.confidence;
-  if (
-    titleDecided &&
-    result.category === "dlc" &&
-    !DLC_ONLY.test(downloadTitle.replace(BUNDLED_DLC, ""))
-  ) {
+  if (titleDecided && result.category === "dlc" && !DLC_ONLY.test(title.replace(BUNDLED_DLC, ""))) {
     return "main";
   }
   return result.category;

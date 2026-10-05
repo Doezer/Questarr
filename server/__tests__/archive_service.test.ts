@@ -270,6 +270,20 @@ describe("ArchiveService", () => {
       expect(emptyDirMock).not.toHaveBeenCalled();
     });
 
+    it("does not treat empty link fields on ordinary entries as links", async () => {
+      const service = await freshArchiveService();
+      mockExecAlways(
+        null,
+        makeSltOutput([{ name: "game.rom", size: 12, extra: "Symbolic Link = \nHard Link = " }]),
+        ""
+      );
+      readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
+
+      const files = await service.extract("/downloads/game.tar", "/tmp/out"); // NOSONAR - mocked fs
+
+      expect(files).toHaveLength(1);
+    });
+
     it("accepts an explicit root directory entry, as tar -cf archive.tar . produces", async () => {
       const service = await freshArchiveService();
       mockExecAlways(

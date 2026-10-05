@@ -225,7 +225,10 @@ function parseSevenZipSltListing(stdout: string): ArchiveEntry[] {
     if (!("Folder" in fields || "Attributes" in fields || "Size" in fields)) continue;
     const attributes = fields.Attributes ?? "";
     const isDirectory = fields.Folder === "+" || attributes.startsWith("D");
-    const isLink = "Symbolic Link" in fields || "Hard Link" in fields || /\blrwx/.test(attributes);
+    // Some formats print empty "Symbolic Link =" / "Hard Link =" fields for every
+    // entry; only a non-empty target marks a link.
+    const isLink =
+      Boolean(fields["Symbolic Link"] || fields["Hard Link"]) || /\blrwx/.test(attributes);
     entries.push(
       makeEntry(fields.Path, parseEntrySize(fields.Size, isDirectory), isDirectory, isLink)
     );

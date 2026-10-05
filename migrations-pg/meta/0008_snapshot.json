@@ -1,5 +1,5 @@
 {
-  "id": "ea184a7e-1f5f-46c6-b1f3-33072994a55b",
+  "id": "961d0664-04d8-4424-82a2-e6864113f154",
   "prevId": "569ebd28-47ce-4be9-9daf-24d98a63ba0e",
   "version": "7",
   "dialect": "postgresql",
@@ -390,6 +390,12 @@
         "file_size": {
           "name": "file_size",
           "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

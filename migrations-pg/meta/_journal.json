@@ -61,15 +61,8 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1791212677241,
-      "tag": "0008_cultured_stephen_strange",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1791216991452,
-      "tag": "0009_spicy_black_bolt",
+      "when": 1791226213942,
+      "tag": "0008_spotty_celestials",
       "breakpoints": true
     }
   ]

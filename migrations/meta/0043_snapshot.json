@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d6f633c9-9943-4e6d-b369-e5bfb84b2c60",
+  "id": "07de75d5-fb0e-439c-a9a9-fb209dd4b3b4",
   "prevId": "eb7a6251-80b1-4ba9-8d4c-12d0d198d3b6",
   "tables": {
     "ai_auto_download_holds": {
@@ -386,6 +386,13 @@
         "file_size": {
           "name": "file_size",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

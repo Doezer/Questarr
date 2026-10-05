@@ -1,1 +1,0 @@
-ALTER TABLE "game_downloads" ADD COLUMN "category" text;

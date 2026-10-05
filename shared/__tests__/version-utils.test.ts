@@ -3,6 +3,7 @@ import {
   compareVersions,
   extractVersionFromReleaseName,
   carriesBaseGameVersion,
+  inferReleaseCategory,
   isReleasePossiblyNewer,
   parseVersion,
 } from "../version-utils";
@@ -24,6 +25,8 @@ describe("extractVersionFromReleaseName", () => {
     ["Game.Update.v1.0.to.v1.1-RUNE", "v1.1"], // an update's target, not its start
     ["Game.Update.Build.1000.to.Build.1200-RUNE", "Build 1200"], // same for build ranges
     ["Game.Patch.Build.1000.to.Build.1200-RUNE", "Build 1200"], // without the word Update too
+    ["Game.Patch.v1.2-RUNE", "v1.2"], // "Patch" names its target like "Update"
+    ["Game.Patch.1.2-RUNE", "v1.2"],
     ["Game.v1.2.Repack-PREDATOR", "v1.2"], // a group name is not a pre-release tag
   ])("finds the version in %s", (name, expected) => {
     expect(extractVersionFromReleaseName(name)).toBe(expected);
@@ -79,6 +82,19 @@ describe("compareVersions", () => {
     expect(compareVersions("Build 200", "v1.2")).toBeNull();
     expect(compareVersions("v20231005", "v1.2")).toBeNull();
     expect(compareVersions("latest", "v1.2")).toBeNull();
+  });
+});
+
+describe("inferReleaseCategory", () => {
+  it("files full-game editions as the main game", () => {
+    expect(inferReleaseCategory("The.Witcher.3.Complete.Edition.v4.04-GOG")).toBe("main");
+    expect(inferReleaseCategory("Game.GOTY.v2.0.incl.DLC-GOG")).toBe("main");
+  });
+
+  it("keeps real DLC and a confident AI classification", () => {
+    expect(inferReleaseCategory("Game.Season.Pass.DLC-RUNE")).toBe("dlc");
+    expect(inferReleaseCategory("Expansion.Name.v5.0", "dlc", 0.95)).toBe("dlc");
+    expect(inferReleaseCategory("Game.Complete.Edition-GOG", "dlc", 0.95)).toBe("dlc");
   });
 });
 

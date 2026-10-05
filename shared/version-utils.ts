@@ -1,4 +1,5 @@
-import { categorizeDownload } from "./download-categorizer.js";
+import { categorizeDownload, type DownloadCategory } from "./download-categorizer.js";
+import type { ReleaseType } from "./typesafe-types.js";
 
 /**
  * Game version helpers: detect a version in a release name, and compare two versions.
@@ -31,15 +32,15 @@ const BUILD_VERSION = new RegExp(
   String.raw`${NOT_PRECEDED_BY_ALNUM}build[\s._-]?(\d+)${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
 );
-// "Update.v2", "Update.1.05", "Update 2.1.3" -- a version right after "Update". Without a "v" it
+// "Update.v2", "Update.1.05", "Patch 2.1.3" -- a version right after "Update" or "Patch". Without a "v" it
 // needs a dot, so "Update 2" (the second update pack) isn't read as version 2.
 const UPDATE_VERSION = new RegExp(
-  String.raw`${NOT_PRECEDED_BY_ALNUM}update[\s._-](?:v\s?(\d+(?:\.\d+)*)|(\d+(?:\.\d+)+))${NOT_FOLLOWED_BY_ALNUM}`,
+  String.raw`${NOT_PRECEDED_BY_ALNUM}(?:update|patch)[\s._-](?:v\s?(\d+(?:\.\d+)*)|(\d+(?:\.\d+)+))${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
 );
 // "Update.Build.5000" -- an update whose target is a build number.
 const UPDATE_BUILD_VERSION = new RegExp(
-  String.raw`${NOT_PRECEDED_BY_ALNUM}update[\s._-]build[\s._-]?(\d+)${NOT_FOLLOWED_BY_ALNUM}`,
+  String.raw`${NOT_PRECEDED_BY_ALNUM}(?:update|patch)[\s._-]build[\s._-]?(\d+)${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
 );
 
@@ -164,16 +165,38 @@ const DLC_ONLY = /\b(?:dlc|downloadable content|expansion|season pass)\b/i;
 const BUNDLED_DLC = /(?:\bincl(?:uding)?|\bwith|\+)[\s._-]*(?:all[\s._-]*)?dlcs?\b/gi;
 
 /**
+ * The category to store with a download grabbed from search results: the categorizer's (title,
+ * or AI classification when more confident), except that a title filed under DLC only for its
+ * edition words ("Complete.Edition", "GOTY.incl.DLC") is the full game.
+ */
+export function inferReleaseCategory(
+  downloadTitle: string,
+  aiReleaseType?: ReleaseType | null,
+  aiReleaseTypeConfidence?: number | null
+): DownloadCategory {
+  const byTitle = categorizeDownload(downloadTitle);
+  const result = categorizeDownload(downloadTitle, aiReleaseType, aiReleaseTypeConfidence);
+  const titleDecided =
+    result.category === byTitle.category && result.confidence === byTitle.confidence;
+  if (
+    titleDecided &&
+    result.category === "dlc" &&
+    !DLC_ONLY.test(downloadTitle.replace(BUNDLED_DLC, ""))
+  ) {
+    return "main";
+  }
+  return result.category;
+}
+
+/**
  * Whether a download's version is the base game's: true for the full game (editions included)
  * and updates, false for DLC, packs and extras. `category` is the one stored with the download
- * (picked by the user, or classified when it was grabbed); without it, the title decides.
+ * (picked by the user, or inferred when it was grabbed); without it, the title decides.
  */
 export function carriesBaseGameVersion(
   downloadTitle: string,
   category: string | null | undefined
 ): boolean {
-  if (category) return category === "main" || category === "update";
-  const byTitle = categorizeDownload(downloadTitle).category;
-  if (byTitle === "main" || byTitle === "update") return true;
-  return byTitle === "dlc" && !DLC_ONLY.test(downloadTitle.replace(BUNDLED_DLC, ""));
+  const effective = category || inferReleaseCategory(downloadTitle);
+  return effective === "main" || effective === "update";
 }

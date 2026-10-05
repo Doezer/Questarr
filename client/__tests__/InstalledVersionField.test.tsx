@@ -75,6 +75,13 @@ describe("InstalledVersionField", () => {
     );
   });
 
+  it("does not save on an Enter that confirms an IME composition", () => {
+    const input = renderField(null);
+    fireEvent.change(input, { target: { value: "v2" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(apiRequest).not.toHaveBeenCalled();
+  });
+
   it("clears the version when emptied and blurred", async () => {
     const input = renderField("v1.0");
     fireEvent.change(input, { target: { value: "" } });

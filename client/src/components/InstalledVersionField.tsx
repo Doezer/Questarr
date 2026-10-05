@@ -113,6 +113,8 @@ export default function InstalledVersionField({
           onBlur={() => save(draft)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
+              // Enter confirming an IME candidate is not a submit.
+              if (e.nativeEvent.isComposing) return;
               e.preventDefault();
               save(draft);
             } else if (e.key === "Escape" && draft !== (installedVersion ?? "")) {

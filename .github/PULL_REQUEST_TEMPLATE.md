@@ -24,5 +24,6 @@ For any UI change (`client/src/**`), include a screenshot or short recording of 
 - [ ] If this PR adds a new actor/integration, external interface, or security-relevant change, I have updated docs/ARCHITECTURE.md, docs/API.md, and/or docs/SECURITY_ASSESSMENT.md accordingly
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] New and existing unit tests pass locally with my changes
+- [ ] If the database schema changed, SQLite and Postgres are both updated: `shared/schema.ts` and `shared/schema.pg.ts` (+ `shared/schema-parity.ts`), migrations generated with `npm run db:generate` and `npm run db:generate:pg` (`migrations-pg/`), and any new table added to `TABLE_ORDER` in `scripts/sqlite-to-pg.ts`
 - [ ] For UI changes, I have included a screenshot or recording of it running
 - [ ] If AI is used to write the code (partially or entirely), provide the full model name (including version) and thinking level.

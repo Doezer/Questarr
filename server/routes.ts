@@ -253,7 +253,7 @@ export function requireAuthenticationForApi(req: Request, res: Response, next: N
   if (isSoftAuthApiRequest(req)) {
     return optionalAuthenticateToken(req, res, next);
   }
-  authenticateToken(req, res, next);
+  void authenticateToken(req, res, next);
 }
 
 // Configure multer for memory storage
@@ -4545,7 +4545,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Ideally notifications are triggered by events, not by API, but this is good for testing.
       const { notifyUser } = await import("./socket.js");
       notifyUser("notification", notification);
-      appriseClient.send(notification);
+      void appriseClient.send(notification);
 
       return res.status(201).json(notification);
     } catch (error) {

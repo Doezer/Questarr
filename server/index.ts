@@ -52,7 +52,7 @@ function handleFatalError(source: "uncaughtException" | "unhandledRejection", er
 process.on("uncaughtException", (err) => handleFatalError("uncaughtException", err));
 process.on("unhandledRejection", (reason) => handleFatalError("unhandledRejection", reason));
 
-(async () => {
+void (async () => {
   try {
     // Ensure database is ready before starting server
     await ensureDatabase();

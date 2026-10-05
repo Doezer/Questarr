@@ -32,7 +32,7 @@ export default function DiscoveryFilters({ onFiltersChange }: DiscoveryFiltersPr
   };
 
   const handleMinYearChange = (year: string) => {
-    const yearNum = year === "any" ? null : parseInt(year);
+    const yearNum = year === "any" ? null : Number.parseInt(year);
     setMinYear(yearNum);
     onFiltersChange({ releaseStatus, minYear: yearNum });
   };

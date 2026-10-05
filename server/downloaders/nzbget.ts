@@ -120,13 +120,13 @@ export class NZBGetClient implements DownloaderClient {
       v && typeof v === "object" && "_text" in v ? (v as Record<string, unknown>)._text : v;
 
     if ("string" in rec) return getValue(rec.string);
-    if ("int" in rec) return parseInt(getValue(rec.int) as string);
-    if ("i4" in rec) return parseInt(getValue(rec.i4) as string);
+    if ("int" in rec) return Number.parseInt(getValue(rec.int) as string);
+    if ("i4" in rec) return Number.parseInt(getValue(rec.i4) as string);
     if ("boolean" in rec) {
       const boolVal = getValue(rec.boolean);
       return boolVal == 1 || boolVal === "1";
     }
-    if ("double" in rec) return parseFloat(getValue(rec.double) as string);
+    if ("double" in rec) return Number.parseFloat(getValue(rec.double) as string);
     if ("base64" in rec) return getValue(rec.base64);
 
     if ("array" in rec) {
@@ -555,7 +555,7 @@ export class NZBGetClient implements DownloaderClient {
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
-      await this.makeXMLRPCRequest("editqueue", ["GroupPause", 0, "", [parseInt(id)]]);
+      await this.makeXMLRPCRequest("editqueue", ["GroupPause", 0, "", [Number.parseInt(id)]]);
       return { success: true, message: "NZB paused" };
     } catch (error) {
       return {
@@ -567,7 +567,7 @@ export class NZBGetClient implements DownloaderClient {
 
   async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
-      await this.makeXMLRPCRequest("editqueue", ["GroupResume", 0, "", [parseInt(id)]]);
+      await this.makeXMLRPCRequest("editqueue", ["GroupResume", 0, "", [Number.parseInt(id)]]);
       return { success: true, message: "NZB resumed" };
     } catch (error) {
       return {
@@ -582,7 +582,7 @@ export class NZBGetClient implements DownloaderClient {
     _deleteFiles?: boolean
   ): Promise<{ success: boolean; message: string }> {
     try {
-      await this.makeXMLRPCRequest("editqueue", ["GroupDelete", 0, "", [parseInt(id)]]);
+      await this.makeXMLRPCRequest("editqueue", ["GroupDelete", 0, "", [Number.parseInt(id)]]);
       return { success: true, message: "NZB removed" };
     } catch (error) {
       return {

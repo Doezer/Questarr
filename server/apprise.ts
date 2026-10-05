@@ -38,6 +38,20 @@ type ExecFileError = Error & {
 
 const APPRISE_CLI_TIMEOUT_MS = 15_000;
 
+class AppriseCliError extends Error {
+  readonly error: unknown;
+  readonly stdout: string;
+  readonly stderr: string;
+
+  constructor(error: unknown, stdout = "", stderr = "") {
+    super(error instanceof Error ? error.message : String(error));
+    this.name = "AppriseCliError";
+    this.error = error;
+    this.stdout = stdout;
+    this.stderr = stderr;
+  }
+}
+
 // Known absolute install locations for the Apprise CLI. Resolving to a fixed, unwriteable
 // path (rather than letting execFile search $PATH for a bare "apprise" command) avoids
 // executing an attacker-controlled binary that could be placed earlier on the PATH.
@@ -138,11 +152,11 @@ function formatCliError(error: unknown, stdout = "", stderr = ""): string {
 function runAppriseCli(args: string[]): Promise<ExecFileResult> {
   const binary = resolveAppriseBinary();
   if (!binary) {
-    return Promise.reject({
-      error: Object.assign(new Error("Apprise CLI binary not found"), { code: "ENOENT" }),
-      stdout: "",
-      stderr: "",
-    });
+    return Promise.reject(
+      new AppriseCliError(
+        Object.assign(new Error("Apprise CLI binary not found"), { code: "ENOENT" })
+      )
+    );
   }
 
   return new Promise((resolve, reject) => {
@@ -157,7 +171,7 @@ function runAppriseCli(args: string[]): Promise<ExecFileResult> {
       },
       (error, stdout, stderr) => {
         if (error) {
-          reject({ error, stdout, stderr });
+          reject(new AppriseCliError(error, stdout, stderr));
           return;
         }
         resolve({ stdout, stderr });
@@ -276,11 +290,8 @@ class AppriseClient {
         type,
       ]);
     } catch (result) {
-      const { error, stdout, stderr } = result as {
-        error: unknown;
-        stdout?: string;
-        stderr?: string;
-      };
+      const { error, stdout, stderr } =
+        result instanceof AppriseCliError ? result : new AppriseCliError(result);
       appriseLogger.warn(
         { error: formatCliError(error, stdout, stderr), title: notification.title },
         "Apprise CLI send error"
@@ -321,11 +332,8 @@ class AppriseClient {
         ]);
         return { success: true };
       } catch (result) {
-        const { error, stdout, stderr } = result as {
-          error: unknown;
-          stdout?: string;
-          stderr?: string;
-        };
+        const { error, stdout, stderr } =
+          result instanceof AppriseCliError ? result : new AppriseCliError(result);
         return { success: false, error: formatCliError(error, stdout, stderr) };
       }
     }

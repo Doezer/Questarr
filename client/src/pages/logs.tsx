@@ -594,7 +594,7 @@ export default function LogsPage() {
 
   const copyText = useCallback(
     (text: string, description: string) => {
-      copyToClipboard(text).then((succeeded) => {
+      void copyToClipboard(text).then((succeeded) => {
         if (succeeded) {
           toast({
             title: "Copied",

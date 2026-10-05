@@ -76,7 +76,7 @@ export default function SendLogsDialog({
 
   const handleCopyCode = useCallback(() => {
     if (!result?.ok) return;
-    copyToClipboard(result.code).then((succeeded) => {
+    void copyToClipboard(result.code).then((succeeded) => {
       if (succeeded) {
         toast({ title: "Copied", description: `Code ${result.code} copied to clipboard` });
       } else {

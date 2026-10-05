@@ -544,7 +544,7 @@ const CompactGameCard = ({
                   )}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDownloadClick();
+                    void handleDownloadClick();
                   }}
                   disabled={addGameMutation.isPending}
                   aria-label={`Download ${game.title}`}

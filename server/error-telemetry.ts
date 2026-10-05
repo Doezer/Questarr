@@ -82,8 +82,7 @@ export function getPendingReport(reportId: string, userId: string): PendingError
 }
 
 type WorkerSendResult =
-  | { ok: true; code: string; issueNumber: number }
-  | { ok: false; message: string };
+  { ok: true; code: string; issueNumber: number } | { ok: false; message: string };
 
 async function sendToSupportWorker(
   logs: string,
@@ -248,7 +247,7 @@ async function dispatchNotification(
 ): Promise<void> {
   const created = await storage.addNotification(notification);
   notifyUser("notification", created);
-  if (ctx.prefs.errorDetected.apprise) appriseClient.send(created);
+  if (ctx.prefs.errorDetected.apprise) void appriseClient.send(created);
 }
 
 /**

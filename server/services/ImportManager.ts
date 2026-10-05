@@ -26,6 +26,7 @@ import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { notifyUser } from "../socket.js";
+import { recordVersionFromCompletedDownload } from "../game-version.js";
 import { resolvePrefs } from "../notification-prefs.js";
 import { appriseClient } from "../apprise.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
@@ -539,8 +540,24 @@ export class ImportManager {
   ): Promise<void> {
     await this.storage.updateGameDownloadStatus(downloadId, "imported");
     await this.storage.updateGame(game.id, { libraryPath });
+    await this.recordInstalledVersion(downloadId, game);
     if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
       await this.storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
+    }
+  }
+
+  /** Best-effort: a version that can't be recorded must not fail an import that succeeded. */
+  private async recordInstalledVersion(
+    downloadId: string,
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>
+  ): Promise<void> {
+    try {
+      const download = await this.storage.getGameDownload(downloadId);
+      if (download) {
+        await recordVersionFromCompletedDownload(this.storage, game, download.downloadTitle);
+      }
+    } catch (error) {
+      logger.warn({ error, downloadId }, "[ImportManager] Could not record the installed version");
     }
   }
 

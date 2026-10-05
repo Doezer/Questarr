@@ -324,6 +324,42 @@ describe("ImportManager", () => {
     );
   });
 
+  it("records the release's version on the game once the import is finalized", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "My.Game.Update.v1.2-RUNE",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "owned",
+      platforms: [6],
+      installedVersion: "v1.1",
+    });
+    storage.getImportConfig.mockResolvedValue({ ...baseConfig, libraryRoot: "/safe/root" });
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await manager.confirmImport("dl-1", {
+      strategy: "pc",
+      originalPath: "/downloads/source-folder",
+      proposedPath: "/safe/root/PC/My Game",
+      needsReview: false,
+      transferMode: "move",
+    });
+
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+    expect(storage.updateGame).toHaveBeenCalledWith("g1", { installedVersion: "v1.2" });
+  });
+
   it.each(["playing", "shelved", "completed"])(
     "keeps a %s game's status when an import finishes for it",
     async (status) => {

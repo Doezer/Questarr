@@ -16,6 +16,10 @@ describe("extractVersionFromReleaseName", () => {
     ["Starfield.Update.v1.7.29-RUNE", "v1.7.29"],
     ["Valheim.Build.12345678-P2P", "Build 12345678"],
     ["Game build_998 Linux", "Build 998"],
+    ["Game.v1.0.Update.v1.1-RUNE", "v1.1"], // the update's target wins
+    ["Game.v1.0.Update.v2-RUNE", "v2"],
+    ["Game.v1.0.to.v1.1.Patch-RUNE", "v1.1"], // highest of several
+    ["Game.v1.4.Update.Build.5000-RUNE", "v1.4"],
   ])("finds the version in %s", (name, expected) => {
     expect(extractVersionFromReleaseName(name)).toBe(expected);
   });

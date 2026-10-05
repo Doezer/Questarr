@@ -23,15 +23,16 @@ const V_VERSION = new RegExp(
   String.raw`${NOT_PRECEDED_BY_ALNUM}v\s?(\d+(?:\.\d+)*)${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
 );
+const V_VERSION_ALL = new RegExp(V_VERSION.source, "gi");
 // "Build 12345", "Build.12345", "build_12345"
 const BUILD_VERSION = new RegExp(
   String.raw`${NOT_PRECEDED_BY_ALNUM}build[\s._-]?(\d+)${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
 );
-// "Update.1.05", "Update 2.1.3" -- a dotted number right after "Update" (one dot minimum, so
-// "Update 2" -- the second update pack -- isn't read as version 2).
+// "Update.v2", "Update.1.05", "Update 2.1.3" -- a version right after "Update". Without a "v" it
+// needs a dot, so "Update 2" (the second update pack) isn't read as version 2.
 const UPDATE_VERSION = new RegExp(
-  String.raw`${NOT_PRECEDED_BY_ALNUM}update[\s._-]v?(\d+(?:\.\d+)+)${NOT_FOLLOWED_BY_ALNUM}`,
+  String.raw`${NOT_PRECEDED_BY_ALNUM}update[\s._-](?:v\s?(\d+(?:\.\d+)*)|(\d+(?:\.\d+)+))${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
 );
 
@@ -40,8 +41,17 @@ const UPDATE_VERSION = new RegExp(
  * "Build 12345"), or null when the name carries none.
  */
 export function extractVersionFromReleaseName(releaseName: string): string | null {
-  const v = V_VERSION.exec(releaseName) ?? UPDATE_VERSION.exec(releaseName);
-  if (v?.[1]) return `v${v[1]}`;
+  // An update names the version it brings the game to ("Game.v1.0.Update.v1.1"), so that one wins.
+  const update = UPDATE_VERSION.exec(releaseName);
+  const updateVersion = update?.[1] ?? update?.[2];
+  if (updateVersion) return `v${updateVersion}`;
+  // Otherwise the highest of the versions named ("Game.v1.0.to.v1.1" brings the game to v1.1).
+  let best: string | null = null;
+  for (const match of releaseName.matchAll(V_VERSION_ALL)) {
+    const candidate = `v${match[1]}`;
+    if (best === null || (compareVersions(candidate, best) ?? 0) > 0) best = candidate;
+  }
+  if (best) return best;
   const build = BUILD_VERSION.exec(releaseName);
   if (build?.[1]) return `Build ${build[1]}`;
   return null;

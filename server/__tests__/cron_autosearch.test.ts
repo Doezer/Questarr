@@ -124,8 +124,7 @@ vi.mock("../xrel.js", () => ({
 
 // Import the function under test
 // We need to use dynamic import or require because of the hoisting of vi.mock
-const { checkAutoSearch, categorizeSearchItems, recordVersionFromCompletedDownload } =
-  await import("../cron.js");
+const { checkAutoSearch, categorizeSearchItems } = await import("../cron.js");
 const { igdbLogger } = await import("../logger.js");
 
 describe("Cron - checkAutoSearch", () => {
@@ -2373,52 +2372,5 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockNotifyUser).toHaveBeenCalledWith("notification", { id: "notif-1" });
       expect(mockAppriseSend).not.toHaveBeenCalled();
     });
-  });
-});
-
-describe("Cron - recordVersionFromCompletedDownload", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("records the version of a finished full-game download when none is known", async () => {
-    const recorded = await recordVersionFromCompletedDownload(
-      { id: "g1", installedVersion: null },
-      "Test.Game.v1.2.3-RUNE"
-    );
-    expect(recorded).toBe("v1.2.3");
-    expect(mockUpdateGame).toHaveBeenCalledWith("g1", { installedVersion: "v1.2.3" });
-  });
-
-  it("moves the version forward on a newer update", async () => {
-    await recordVersionFromCompletedDownload(
-      { id: "g1", installedVersion: "v1.2" },
-      "Test.Game.Update.v1.3-RUNE"
-    );
-    expect(mockUpdateGame).toHaveBeenCalledWith("g1", { installedVersion: "v1.3" });
-  });
-
-  it("never moves the version backwards or across numbering schemes", async () => {
-    await recordVersionFromCompletedDownload(
-      { id: "g1", installedVersion: "v1.5" },
-      "Test.Game.Update.v1.3-RUNE"
-    );
-    await recordVersionFromCompletedDownload(
-      { id: "g1", installedVersion: "Build 1234" },
-      "Test.Game.v1.3-RUNE"
-    );
-    expect(mockUpdateGame).not.toHaveBeenCalled();
-  });
-
-  it("ignores DLC releases and releases without a version", async () => {
-    await recordVersionFromCompletedDownload(
-      { id: "g1", installedVersion: null },
-      "Test.Game.Season.Pass.DLC.v2.0-RUNE"
-    );
-    await recordVersionFromCompletedDownload(
-      { id: "g1", installedVersion: null },
-      "Test.Game-RUNE"
-    );
-    expect(mockUpdateGame).not.toHaveBeenCalled();
   });
 });

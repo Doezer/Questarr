@@ -32,6 +32,7 @@ const mockAddNotification = vi.fn();
 const mockGetUserSettings = vi.fn();
 const mockGetImportConfig = vi.fn();
 const mockGetDownloadsByGameId = vi.fn();
+const mockReplaceGameInstalledVersion = vi.fn();
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -44,6 +45,7 @@ vi.mock("../storage.js", () => ({
     getUserSettings: mockGetUserSettings,
     getImportConfig: mockGetImportConfig,
     getDownloadsByGameId: mockGetDownloadsByGameId,
+    replaceGameInstalledVersion: mockReplaceGameInstalledVersion,
   },
 }));
 
@@ -469,6 +471,46 @@ describe("Cron - checkDownloadStatus", () => {
     );
     expect(mockGetDownloadDetails).not.toHaveBeenCalled();
     expect(mockProcessImport).not.toHaveBeenCalled();
+  });
+
+  it("records the release's version when a download completes with post-processing disabled", async () => {
+    const versioned = { ...baseDownload, downloadTitle: "Test.Game.v1.4.2-RUNE" };
+    mockGetDownloadingGameDownloads.mockResolvedValue([versioned]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetImportConfig.mockResolvedValue({ enablePostProcessing: false });
+    mockGetAllDownloads.mockResolvedValue([
+      {
+        id: "SABnzbd_nzo_abc123",
+        name: versioned.downloadTitle,
+        status: "completed",
+        progress: 100,
+        downloadType: "usenet",
+      },
+    ]);
+
+    await checkDownloadStatus();
+
+    expect(mockReplaceGameInstalledVersion).toHaveBeenCalledWith(versioned.gameId, null, "v1.4.2");
+  });
+
+  it("leaves the version to the import when post-processing is enabled", async () => {
+    const versioned = { ...baseDownload, downloadTitle: "Test.Game.v1.4.2-RUNE" };
+    mockGetDownloadingGameDownloads.mockResolvedValue([versioned]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetImportConfig.mockResolvedValue({ enablePostProcessing: true });
+    mockGetAllDownloads.mockResolvedValue([
+      {
+        id: "SABnzbd_nzo_abc123",
+        name: versioned.downloadTitle,
+        status: "completed",
+        progress: 100,
+        downloadType: "usenet",
+      },
+    ]);
+
+    await checkDownloadStatus();
+
+    expect(mockReplaceGameInstalledVersion).not.toHaveBeenCalled();
   });
 
   it("should keep a playing game's status when its update download completes", async () => {

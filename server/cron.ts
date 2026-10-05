@@ -30,6 +30,8 @@ import {
   type NotificationPreferences,
 } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
+import { isReleasePossiblyNewer } from "../shared/version-utils.js";
+import { recordVersionFromCompletedDownload } from "./game-version.js";
 import {
   releaseMatchesGame,
   normalizeTitle,
@@ -957,6 +959,13 @@ export async function checkDownloadStatus() {
             } else {
               // Update DB - mark as completed
               await storage.updateGameDownloadStatus(download.id, "completed");
+              // With post-processing on, the import records it once the files are in place.
+              await recordVersionFromCompletedDownload(
+                storage,
+                download.gameId,
+                download.downloadTitle,
+                download.category
+              );
 
               // Update Game status to 'owned' (which means we have the files), unless
               // the user already moved it past that (e.g. an update for a game they're playing).
@@ -1442,6 +1451,7 @@ export async function checkAutoSearch() {
                             downloadTitle: item.title,
                             status: "downloading",
                             downloadType: item.downloadType,
+                            category: "main",
                           });
 
                           // Update game status
@@ -1544,7 +1554,12 @@ export async function checkAutoSearch() {
               preferredGroups,
               settings.filterByPreferredGroups ?? false
             );
-            const updateItems = deduplicateByTitle(groupFilteredUpdate, indexerPriorityMap);
+            // Drop update releases whose version is provably not newer than the one the user
+            // has installed, so a game already on v1.5 isn't flagged for a v1.4 patch.
+            const versionFilteredUpdate = groupFilteredUpdate.filter((item) =>
+              isReleasePossiblyNewer(item.title, game.installedVersion)
+            );
+            const updateItems = deduplicateByTitle(versionFilteredUpdate, indexerPriorityMap);
 
             // Packs/add-ons are content for owned games, surfaced like updates.
             const platformFilteredPacks = applyPreferredPlatformFilter(

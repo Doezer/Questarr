@@ -87,6 +87,7 @@ import {
 import { NexusModsIcon } from "./NexusModsIcon";
 import GameJournalTab from "./GameJournalTab";
 import FileCategorySelect from "./FileCategorySelect";
+import InstalledVersionField from "./InstalledVersionField";
 import { getSocket } from "@/lib/socket";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
@@ -97,6 +98,7 @@ import { type XrelGameStatus } from "@shared/xrel-types";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
+import { carriesBaseGameVersion } from "@shared/version-utils";
 
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
@@ -634,6 +636,19 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     enabled: open && !!game?.id && !isDiscoveryId(game.id),
     refetchInterval: 5000,
   });
+
+  const downloadReleaseNames = useMemo(
+    () =>
+      gameDownloads
+        // Only downloads that really landed: a failed or pending one was never installed.
+        .filter(
+          (download) =>
+            (download.status === "completed" || download.status === "imported") &&
+            carriesBaseGameVersion(download.downloadTitle, download.category)
+        )
+        .map((download) => download.downloadTitle),
+    [gameDownloads]
+  );
 
   const {
     data: xrelStatus,
@@ -1240,6 +1255,14 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       Overrides the account platform for automatic release matching.
                     </p>
                   </div>
+                )}
+                {!isDiscoveryId(game.id) && (
+                  <InstalledVersionField
+                    key={game.id}
+                    gameId={game.id}
+                    installedVersion={game.installedVersion ?? null}
+                    releaseNames={downloadReleaseNames}
+                  />
                 )}
               </div>
             </div>

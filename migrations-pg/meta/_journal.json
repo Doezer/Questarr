@@ -57,6 +57,13 @@
       "when": 1791193363035,
       "tag": "0007_sticky_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791226213942,
+      "tag": "0008_spotty_celestials",
+      "breakpoints": true
     }
   ]
 }

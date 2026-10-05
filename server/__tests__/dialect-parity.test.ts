@@ -114,6 +114,16 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(after.every((g) => g.status === "downloaded")).toBe(true);
     });
 
+    it("replaceGameInstalledVersion writes only over the expected value", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      expect(await storage().replaceGameInstalledVersion(game.id, "v9", "v1.0")).toBe(false);
+      expect(await storage().replaceGameInstalledVersion(game.id, null, "v1.0")).toBe(true);
+      expect(await storage().replaceGameInstalledVersion(game.id, null, "v2.0")).toBe(false);
+      expect(await storage().replaceGameInstalledVersion(game.id, "v1.0", "v1.1")).toBe(true);
+      expect((await storage().getGame(game.id))?.installedVersion).toBe("v1.1");
+    });
+
     it("aggregates come back as numbers, not strings", async () => {
       const [user] = await storage().getAllUsers();
       const status = await storage().getDashboardStatus(user.id);

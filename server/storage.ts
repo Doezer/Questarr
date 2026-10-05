@@ -243,6 +243,20 @@ export interface IStorage {
     userId: string,
     userRating: number | null
   ): Promise<Game | undefined>;
+  updateGameInstalledVersion(
+    id: string,
+    userId: string,
+    installedVersion: string | null
+  ): Promise<Game | undefined>;
+  /**
+   * Sets a game's installed version only if it still equals `expected` (null = not set), so a
+   * detected version can't overwrite one written in between. Returns whether it was written.
+   */
+  replaceGameInstalledVersion(
+    id: string,
+    expected: string | null,
+    installedVersion: string
+  ): Promise<boolean>;
   updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void>;
   updateGameSearchResultsByCategory(
     gameId: string,
@@ -675,6 +689,7 @@ export class MemStorage implements IStorage {
       packsSearchResultsAvailable: false,
       userRating: null,
       libraryPath: null,
+      installedVersion: null,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -734,6 +749,30 @@ export class MemStorage implements IStorage {
     const updatedGame: Game = { ...game, userRating };
     this.games.set(id, updatedGame);
     return updatedGame;
+  }
+
+  updateGameInstalledVersion(
+    id: string,
+    userId: string,
+    installedVersion: string | null
+  ): Promise<Game | undefined> {
+    const game = this.games.get(id);
+    if (game?.userId !== userId) return Promise.resolve(undefined);
+
+    const updatedGame: Game = { ...game, installedVersion };
+    this.games.set(id, updatedGame);
+    return Promise.resolve(updatedGame);
+  }
+
+  replaceGameInstalledVersion(
+    id: string,
+    expected: string | null,
+    installedVersion: string
+  ): Promise<boolean> {
+    const game = this.games.get(id);
+    if (!game || (game.installedVersion ?? null) !== expected) return Promise.resolve(false);
+    this.games.set(id, { ...game, installedVersion });
+    return Promise.resolve(true);
   }
 
   async getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]> {
@@ -1238,6 +1277,7 @@ export class MemStorage implements IStorage {
       downloadType: insertGameDownload.downloadType || "torrent",
       errorMessage: insertGameDownload.errorMessage ?? null,
       fileSize: insertGameDownload.fileSize ?? null,
+      category: insertGameDownload.category ?? null,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -2322,6 +2362,33 @@ export class DatabaseStorage implements IStorage {
     return updatedGame || undefined;
   }
 
+  async updateGameInstalledVersion(
+    id: string,
+    userId: string,
+    installedVersion: string | null
+  ): Promise<Game | undefined> {
+    const [updatedGame] = await db
+      .update(games)
+      .set({ installedVersion })
+      .where(and(eq(games.id, id), eq(games.userId, userId)))
+      .returning();
+    return updatedGame || undefined;
+  }
+
+  async replaceGameInstalledVersion(
+    id: string,
+    expected: string | null,
+    installedVersion: string
+  ): Promise<boolean> {
+    const current =
+      expected === null ? isNull(games.installedVersion) : eq(games.installedVersion, expected);
+    const result = await db
+      .update(games)
+      .set({ installedVersion })
+      .where(and(eq(games.id, id), current));
+    return affectedRows(result) > 0;
+  }
+
   async getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]> {
     return db
       .select()
@@ -2759,6 +2826,7 @@ export class DatabaseStorage implements IStorage {
         status: gameDownloads.status,
         errorMessage: gameDownloads.errorMessage,
         fileSize: gameDownloads.fileSize,
+        category: gameDownloads.category,
         addedAt: gameDownloads.addedAt,
         completedAt: gameDownloads.completedAt,
         downloaderName: downloaders.name,

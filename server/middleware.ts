@@ -500,6 +500,10 @@ export const sanitizeDownloaderDownloadData = [
     .trim()
     .isLength({ max: 100 })
     .withMessage("Category must be at most 100 characters"),
+  body("releaseCategory")
+    .optional()
+    .isIn(["main", "update", "dlc", "extra", "packs"])
+    .withMessage("Invalid release category"),
   body("downloadType")
     .optional()
     .trim()

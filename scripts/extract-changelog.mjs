@@ -16,8 +16,15 @@ if (!version) {
 const changelogPath = path.join(repoRoot, "docs", "CHANGELOG.md");
 const lines = fs.readFileSync(changelogPath, "utf8").split("\n");
 
-const headingPattern = new RegExp(`^## \\[${version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`);
-const startIndex = lines.findIndex((line) => headingPattern.test(line));
+const findHeading = (v) => {
+  const pattern = new RegExp(`^## \\[${v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`);
+  return lines.findIndex((line) => pattern.test(line));
+};
+
+// A pre-release ("1.5.0-rc1") without its own entry uses the notes of the version it leads to.
+let startIndex = findHeading(version);
+const baseVersion = version.replace(/-.*$/, "");
+if (startIndex === -1 && baseVersion !== version) startIndex = findHeading(baseVersion);
 
 if (startIndex === -1) {
   console.error(`No CHANGELOG.md entry found for version ${version}`);

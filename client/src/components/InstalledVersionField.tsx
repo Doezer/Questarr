@@ -66,9 +66,9 @@ export default function InstalledVersionField({
         installedVersion: value,
       });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-    },
+    // Stays pending until the games refetch lands: until then `installedVersion` is stale, and
+    // typing the old value back must still count as a change.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/games"] }),
     onError: () => {
       if (queued.current) return; // a newer value is about to be sent
       setDraft(installedVersion ?? "");

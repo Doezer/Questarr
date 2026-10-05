@@ -172,6 +172,31 @@ describe("InstalledVersionField", () => {
     });
   });
 
+  it("still saves the stored value typed back while the refetch is pending", async () => {
+    const client = createTestQueryClient();
+    let finishRefetch: () => void = () => {};
+    vi.spyOn(client, "invalidateQueries").mockReturnValueOnce(
+      new Promise<void>((resolve) => (finishRefetch = resolve))
+    );
+    render(
+      <QueryClientProvider client={client}>
+        <InstalledVersionField gameId={gameId} installedVersion="v1" releaseNames={[]} />
+      </QueryClientProvider>
+    );
+    const input = screen.getByLabelText("Installed version");
+    fireEvent.change(input, { target: { value: "v2" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(client.invalidateQueries).toHaveBeenCalled());
+    fireEvent.change(input, { target: { value: "v1" } });
+    fireEvent.blur(input);
+
+    finishRefetch();
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
+    expect(apiRequest).toHaveBeenLastCalledWith("PATCH", `/api/games/${gameId}/installed-version`, {
+      installedVersion: "v1",
+    });
+  });
+
   it("restores the stored value and warns when saving fails", async () => {
     apiRequest.mockRejectedValue(new Error("boom"));
     const input = renderField("v1.0");

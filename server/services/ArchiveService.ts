@@ -179,6 +179,39 @@ function runUnrar(args: string[]): Promise<ExecFileResult> {
   return runTool(binary, args, "unrar");
 }
 
+// Splits one listing block into its "key<separator>value" fields.
+function parseListingFields(block: string, separator: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const line of block.split(/\r?\n/)) {
+    const separatorIndex = line.indexOf(separator);
+    if (separatorIndex === -1) continue;
+    fields[line.slice(0, separatorIndex).trim()] = line
+      .slice(separatorIndex + separator.length)
+      .trim();
+  }
+  return fields;
+}
+
+// Directories may omit Size; anything else unparseable is -1 so preflight rejects it.
+function parseEntrySize(size: string | undefined, isDirectory: boolean): number {
+  const value = size === undefined && isDirectory ? 0 : Number(size);
+  return Number.isSafeInteger(value) && value >= 0 ? value : -1;
+}
+
+function makeEntry(
+  name: string,
+  size: number,
+  isDirectory: boolean,
+  isLink: boolean
+): ArchiveEntry {
+  return {
+    name,
+    size,
+    ...(isDirectory ? { isDirectory: true } : {}),
+    ...(isLink ? { isLink: true } : {}),
+  };
+}
+
 // Parses `7z l -slt` output: a blank-line-delimited series of "Key = Value" blocks. The
 // archive's own block (the one carrying "Type") is skipped; each other block with a Path
 // describes one entry, including directories, so preflight bounds the filesystem work
@@ -187,29 +220,15 @@ function runUnrar(args: string[]): Promise<ExecFileResult> {
 function parseSevenZipSltListing(stdout: string): ArchiveEntry[] {
   const entries: ArchiveEntry[] = [];
   for (const block of stdout.split(/\r?\n\r?\n/)) {
-    const fields: Record<string, string> = {};
-    for (const line of block.split(/\r?\n/)) {
-      const separatorIndex = line.indexOf(" = ");
-      if (separatorIndex === -1) continue;
-      fields[line.slice(0, separatorIndex).trim()] = line.slice(separatorIndex + 3).trim();
-    }
+    const fields = parseListingFields(block, " = ");
     if (!fields.Path || "Type" in fields) continue;
-    if (!("Folder" in fields) && !("Attributes" in fields) && !("Size" in fields)) continue;
-    const isDirectory = fields.Folder === "+" || /^D/.test(fields.Attributes ?? "");
-    const size = fields.Size === undefined && isDirectory ? 0 : Number(fields.Size);
-    const entry: ArchiveEntry = {
-      name: fields.Path,
-      size: Number.isSafeInteger(size) && size >= 0 ? size : -1,
-      ...(isDirectory ? { isDirectory: true } : {}),
-    };
-    if (
-      "Symbolic Link" in fields ||
-      "Hard Link" in fields ||
-      /\blrwx/.test(fields.Attributes ?? "")
-    ) {
-      entry.isLink = true;
-    }
-    entries.push(entry);
+    if (!("Folder" in fields || "Attributes" in fields || "Size" in fields)) continue;
+    const attributes = fields.Attributes ?? "";
+    const isDirectory = fields.Folder === "+" || attributes.startsWith("D");
+    const isLink = "Symbolic Link" in fields || "Hard Link" in fields || /\blrwx/.test(attributes);
+    entries.push(
+      makeEntry(fields.Path, parseEntrySize(fields.Size, isDirectory), isDirectory, isLink)
+    );
   }
   return entries;
 }
@@ -225,35 +244,45 @@ function parseUnrarTechnicalListing(stdout: string): ArchiveEntry[] {
   let lastOfPreviousVolume: ArchiveEntry | undefined;
   let firstInVolume = true;
   for (const block of stdout.split(/\r?\n\s*\r?\n/)) {
-    const fields: Record<string, string> = {};
-    for (const line of block.split(/\r?\n/)) {
-      if (/^Archive:\s/.test(line)) {
-        lastOfPreviousVolume = entries[entries.length - 1];
-        firstInVolume = true;
-        continue;
-      }
-      const separatorIndex = line.indexOf(": ");
-      if (separatorIndex === -1) continue;
-      fields[line.slice(0, separatorIndex).trim()] = line.slice(separatorIndex + 2).trim();
+    if (/^Archive:\s/m.test(block)) {
+      lastOfPreviousVolume = entries.at(-1);
+      firstInVolume = true;
     }
+    const fields = parseListingFields(block, ": ");
     if (!fields.Name || !fields.Type) continue;
     const isDirectory = fields.Type === "Directory";
-    const size = fields.Size === undefined && isDirectory ? 0 : Number(fields.Size);
-    const entry: ArchiveEntry = {
-      name: fields.Name,
-      size: Number.isSafeInteger(size) && size >= 0 ? size : -1,
-      ...(isDirectory ? { isDirectory: true } : {}),
-      ...(fields.Type !== "File" && !isDirectory ? { isLink: true } : {}),
-    };
+    const entry = makeEntry(
+      fields.Name,
+      parseEntrySize(fields.Size, isDirectory),
+      isDirectory,
+      fields.Type !== "File" && !isDirectory
+    );
     const continuesPreviousVolume =
       firstInVolume &&
-      lastOfPreviousVolume !== undefined &&
-      lastOfPreviousVolume.name === entry.name &&
+      lastOfPreviousVolume?.name === entry.name &&
       lastOfPreviousVolume.size === entry.size;
     firstInVolume = false;
     if (!continuesPreviousVolume) entries.push(entry);
   }
   return entries;
+}
+
+// Splits an archive entry name into path segments, rejecting absolute, drive-letter,
+// NUL-containing, `..` and overly deep names.
+function safeEntrySegments(name: string): string[] {
+  const normalizedName = name.replaceAll("\\", "/");
+  const segments = normalizedName.split("/");
+  if (
+    !normalizedName ||
+    normalizedName.startsWith("/") ||
+    /^[a-z]:/i.test(normalizedName) ||
+    normalizedName.includes("\0") ||
+    segments.includes("..") ||
+    segments.length > MAX_ARCHIVE_PATH_DEPTH
+  ) {
+    throw new Error("Archive contains an unsafe file path.");
+  }
+  return segments;
 }
 
 function validateArchiveEntries(entries: ArchiveEntry[], outputDir: string): void {
@@ -273,19 +302,7 @@ function validateArchiveEntries(entries: ArchiveEntry[], outputDir: string): voi
       throw new Error("Archive contains a symbolic or hard link, which is not extracted.");
     }
 
-    const normalizedName = entry.name.replace(/\\/g, "/");
-    const segments = normalizedName.split("/");
-    if (
-      !normalizedName ||
-      normalizedName.startsWith("/") ||
-      /^[a-z]:/i.test(normalizedName) ||
-      normalizedName.includes("\0") ||
-      segments.includes("..") ||
-      segments.length > MAX_ARCHIVE_PATH_DEPTH
-    ) {
-      throw new Error("Archive contains an unsafe file path.");
-    }
-
+    const segments = safeEntrySegments(entry.name);
     const resolvedEntry = path.resolve(root, ...segments);
     if (!resolvedEntry.startsWith(rootPrefix)) {
       throw new Error("Archive contains a file path outside the extraction directory.");

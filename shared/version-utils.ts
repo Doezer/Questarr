@@ -59,7 +59,8 @@ const QUALIFIED_VERSION = new RegExp(
 const BUILD_VERSION_ALL = new RegExp(BUILD_VERSION.source, "gi");
 // "1.1" with no "v", as in the target of "Update.1.0.to.1.1".
 const DOTTED_VERSION_ALL = new RegExp(
-  String.raw`${NOT_PRECEDED_BY_ALNUM}(\d+(?:\.\d+)+)${VERSION_END}`,
+  // Not right after "<digit>.", so the tail of "v1.10.20" isn't read as "10.20".
+  String.raw`(?<![a-z0-9]|\d\.)(\d+(?:\.\d+)+)${VERSION_END}`,
   "gi"
 );
 const UPDATE_MARKER = new RegExp(
@@ -81,8 +82,8 @@ export function extractVersionFromReleaseName(releaseName: string): string | nul
   if (update && updateVersion) {
     const rest = releaseName.slice(update.index);
     const best = highestVVersion(rest, `v${updateVersion}`);
-    // Without a "v" ("Update.1.0.to.1.1"), the range's other end is unprefixed too.
-    return update[1] ? best : highestDottedVersion(rest, best);
+    // Either end of the range may lack the "v" ("Update.1.0.to.1.1", "Update.v1.0.to.1.1").
+    return highestDottedVersion(rest, best);
   }
   // Likewise for builds: "Update.Build.1000.to.Build.1200" brings the game to Build 1200.
   const updateBuild = UPDATE_BUILD_VERSION.exec(releaseName);

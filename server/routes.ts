@@ -1889,8 +1889,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     patchOwnGameField(
       updateGameInstalledVersionSchema,
-      (id, userId, { installedVersion }) =>
-        storage.updateGameInstalledVersion(id, userId, installedVersion),
+      async (id, userId, { installedVersion }) => {
+        const game = await storage.updateGameInstalledVersion(id, userId, installedVersion);
+        // Lets the user's other tabs refresh their games query, which is otherwise never stale.
+        if (game) (await import("./socket.js")).notifyUser("gameUpdated", game.id);
+        return game;
+      },
       {
         invalid: "Invalid installed version data",
         log: "error updating game installed version",

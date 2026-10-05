@@ -18,13 +18,14 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 [![maintainability rating](https://sonarcloud.io/api/project_badges/measure?project=Doezer_Questarr&metric=sqale_rating)](https://sonarcloud.io/summary/overall?id=Doezer_Questarr)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13450/baseline)](https://www.bestpractices.dev/projects/13450)
 [![OpenSSF Best Practices Badge](https://www.bestpractices.dev/projects/13450/badge)](https://www.bestpractices.dev/projects/13450)
+[![Secured by Snyk](https://img.shields.io/badge/secured%20by-Snyk-4C4A73?logo=snyk&logoColor=white)](https://snyk.io)
 
 [![CI](https://github.com/Doezer/Questarr/actions/workflows/ci.yml/badge.svg)](https://github.com/Doezer/Questarr/actions/workflows/ci.yml)
 [![Codecov](https://codecov.io/gh/Doezer/Questarr/branch/main/graph/badge.svg)](https://codecov.io/gh/Doezer/Questarr)
 [![Code Scanning](https://github.com/Doezer/Questarr/actions/workflows/sast.yml/badge.svg)](https://github.com/Doezer/Questarr/security/code-scanning)
 [![tests](https://img.shields.io/badge/tests-3200%2B%20passing-brightgreen)](https://github.com/Doezer/Questarr/actions/workflows/ci.yml)
 [![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/Doezer/Questarr/graphs/commit-activity)
-![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Doezer/Questarr?utm_source=oss&utm_medium=github&utm_campaign=Doezer%2FQuestarr&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Doezer/Questarr?utm_source=oss&utm_medium=github&utm_campaign=Doezer%2FQuestarr&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 
 ⭐ Star us on GitHub — your support motivates us a lot! 🙏😊
 
@@ -515,3 +516,5 @@ GPL3 License - see [COPYING](COPYING) file for details.
 - Inspired by [Sonarr](https://sonarr.tv/) and [GamezServer](https://github.com/05sonicblue/GamezServer)
 - Game metadata powered by [IGDB API](https://www.igdb.com/)
 - UI components from [shadcn/ui](https://ui.shadcn.com/)
+- Security scanning supported by [Snyk](https://snyk.io) through the Snyk Open Source program
+- AI code reviews by [CodeRabbit](https://coderabbit.ai), free for open source

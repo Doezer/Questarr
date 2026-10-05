@@ -591,7 +591,7 @@ export const updateGameInstalledVersionSchema = z.object({
     .trim()
     .max(64, "installedVersion must be at most 64 characters")
     .nullable()
-    .transform((v) => (v ? v : null)),
+    .transform((v) => v || null),
 });
 
 export const insertGameJournalEntrySchema = createInsertSchema(gameJournalEntries, {

@@ -8,26 +8,32 @@ import { apiRequest } from "@/lib/queryClient";
 import { compareVersions, extractVersionFromReleaseName } from "@shared/version-utils";
 
 interface InstalledVersionFieldProps {
-  gameId: string;
-  installedVersion: string | null;
+  readonly gameId: string;
+  readonly installedVersion: string | null;
   /** Release names of the game's downloads, mined for version suggestions. */
-  releaseNames: string[];
+  readonly releaseNames: readonly string[];
 }
 
 const MAX_SUGGESTIONS = 6;
 
 /** Distinct versions found in release names, newest first when they can be compared. */
-export function getVersionSuggestions(releaseNames: string[], current: string | null): string[] {
+export function getVersionSuggestions(
+  releaseNames: readonly string[],
+  current: string | null
+): string[] {
   const seen = new Map<string, string>();
   for (const name of releaseNames) {
     const version = extractVersionFromReleaseName(name);
     if (version && !seen.has(version.toLowerCase())) seen.set(version.toLowerCase(), version);
   }
   const currentKey = current?.trim().toLowerCase();
-  return Array.from(seen.values())
-    .filter((version) => version.toLowerCase() !== currentKey)
-    .sort((a, b) => compareVersions(b, a) ?? 0)
-    .slice(0, MAX_SUGGESTIONS);
+  return (
+    Array.from(seen.values())
+      .filter((version) => version.toLowerCase() !== currentKey)
+      // Newest first: compare the right-hand version against the left-hand one.
+      .sort((left, right) => compareVersions(right, left) ?? 0)
+      .slice(0, MAX_SUGGESTIONS)
+  );
 }
 
 export default function InstalledVersionField({
@@ -72,6 +78,9 @@ export default function InstalledVersionField({
     mutation.mutate(next);
   };
 
+  const showSaved =
+    !mutation.isPending && mutation.isSuccess && !!draft && draft === (installedVersion ?? "");
+
   return (
     <div data-testid="section-installed-version">
       <label htmlFor="installed-version" className="font-semibold mb-2 flex items-center gap-2">
@@ -103,11 +112,8 @@ export default function InstalledVersionField({
           className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-muted-foreground"
           aria-live="polite"
         >
-          {mutation.isPending ? (
-            <Loader2 className="w-4 h-4 animate-spin" aria-label="Saving" />
-          ) : mutation.isSuccess && draft === (installedVersion ?? "") && draft ? (
-            <Check className="w-4 h-4 text-emerald-500" aria-label="Saved" />
-          ) : null}
+          {mutation.isPending && <Loader2 className="w-4 h-4 animate-spin" aria-label="Saving" />}
+          {showSaved && <Check className="w-4 h-4 text-emerald-500" aria-label="Saved" />}
         </span>
       </div>
       {suggestions.length > 0 && (

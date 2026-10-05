@@ -20,18 +20,18 @@ const NOT_FOLLOWED_BY_ALNUM = "(?![a-z0-9])";
 
 // "v1.2.3", "v123456", "v1.0.2.34567", "v 1.05"
 const V_VERSION = new RegExp(
-  `${NOT_PRECEDED_BY_ALNUM}v\\s?(\\d+(?:\\.\\d+)*)${NOT_FOLLOWED_BY_ALNUM}`,
+  String.raw`${NOT_PRECEDED_BY_ALNUM}v\s?(\d+(?:\.\d+)*)${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
 );
 // "Build 12345", "Build.12345", "build_12345"
 const BUILD_VERSION = new RegExp(
-  `${NOT_PRECEDED_BY_ALNUM}build[\\s._-]?(\\d+)${NOT_FOLLOWED_BY_ALNUM}`,
+  String.raw`${NOT_PRECEDED_BY_ALNUM}build[\s._-]?(\d+)${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
 );
 // "Update.1.05", "Update 2.1.3" -- a dotted number right after "Update" (one dot minimum, so
 // "Update 2" -- the second update pack -- isn't read as version 2).
 const UPDATE_VERSION = new RegExp(
-  `${NOT_PRECEDED_BY_ALNUM}update[\\s._-]v?(\\d+(?:\\.\\d+)+)${NOT_FOLLOWED_BY_ALNUM}`,
+  String.raw`${NOT_PRECEDED_BY_ALNUM}update[\s._-]v?(\d+(?:\.\d+)+)${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
 );
 
@@ -40,9 +40,9 @@ const UPDATE_VERSION = new RegExp(
  * "Build 12345"), or null when the name carries none.
  */
 export function extractVersionFromReleaseName(releaseName: string): string | null {
-  const v = releaseName.match(V_VERSION) ?? releaseName.match(UPDATE_VERSION);
+  const v = V_VERSION.exec(releaseName) ?? UPDATE_VERSION.exec(releaseName);
   if (v?.[1]) return `v${v[1]}`;
-  const build = releaseName.match(BUILD_VERSION);
+  const build = BUILD_VERSION.exec(releaseName);
   if (build?.[1]) return `Build ${build[1]}`;
   return null;
 }
@@ -54,9 +54,9 @@ export function extractVersionFromReleaseName(releaseName: string): string | nul
 export function parseVersion(input: string | null | undefined): ParsedVersion | null {
   const trimmed = input?.trim();
   if (!trimmed) return null;
-  const build = trimmed.match(/^build[\s._-]?(\d+)$/i);
+  const build = /^build[\s._-]?(\d+)$/i.exec(trimmed);
   if (build?.[1]) return { kind: "build", parts: [Number(build[1])] };
-  const version = trimmed.match(/^v?\s?(\d+(?:\.\d+)*)$/i);
+  const version = /^v?\s?(\d+(?:\.\d+)*)$/i.exec(trimmed);
   if (version?.[1]) return { kind: "version", parts: version[1].split(".").map(Number) };
   return null;
 }

@@ -102,6 +102,13 @@ describe("InstalledVersionField", () => {
     );
   });
 
+  it("keeps focus in the input when a suggestion is pressed", () => {
+    renderField(null, ["Game.Update.v1.4-RUNE"]);
+    const button = screen.getByRole("button", { name: "Set installed version to v1.4" });
+    // A cancelled mousedown means the input never blurs (and never saves its draft) first.
+    expect(fireEvent.mouseDown(button)).toBe(false);
+  });
+
   it("restores the stored value and warns when saving fails", async () => {
     apiRequest.mockRejectedValue(new Error("boom"));
     const input = renderField("v1.0");

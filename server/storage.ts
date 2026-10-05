@@ -248,6 +248,15 @@ export interface IStorage {
     userId: string,
     installedVersion: string | null
   ): Promise<Game | undefined>;
+  /**
+   * Sets a game's installed version only if it still equals `expected` (null = not set), so a
+   * detected version can't overwrite one written in between. Returns whether it was written.
+   */
+  replaceGameInstalledVersion(
+    id: string,
+    expected: string | null,
+    installedVersion: string
+  ): Promise<boolean>;
   updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void>;
   updateGameSearchResultsByCategory(
     gameId: string,
@@ -753,6 +762,17 @@ export class MemStorage implements IStorage {
     const updatedGame: Game = { ...game, installedVersion };
     this.games.set(id, updatedGame);
     return updatedGame;
+  }
+
+  async replaceGameInstalledVersion(
+    id: string,
+    expected: string | null,
+    installedVersion: string
+  ): Promise<boolean> {
+    const game = this.games.get(id);
+    if (!game || (game.installedVersion ?? null) !== expected) return false;
+    this.games.set(id, { ...game, installedVersion });
+    return true;
   }
 
   async getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]> {
@@ -2352,6 +2372,20 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(games.id, id), eq(games.userId, userId)))
       .returning();
     return updatedGame || undefined;
+  }
+
+  async replaceGameInstalledVersion(
+    id: string,
+    expected: string | null,
+    installedVersion: string
+  ): Promise<boolean> {
+    const current =
+      expected === null ? isNull(games.installedVersion) : eq(games.installedVersion, expected);
+    const result = await db
+      .update(games)
+      .set({ installedVersion })
+      .where(and(eq(games.id, id), current));
+    return affectedRows(result) > 0;
   }
 
   async getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]> {

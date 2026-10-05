@@ -128,6 +128,9 @@ export default function InstalledVersionField({
               className="h-8 px-2.5 text-xs"
               aria-label={`Set installed version to ${version}`}
               disabled={mutation.isPending}
+              // Keep focus in the input: its blur would otherwise save the typed draft and
+              // disable these buttons before the click lands.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 setDraft(version);
                 save(version);

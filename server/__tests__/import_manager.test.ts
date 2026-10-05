@@ -36,6 +36,7 @@ describe("ImportManager", () => {
     updateGameDownloadStatus: vi.fn(),
     updateGameStatus: vi.fn(),
     updateGame: vi.fn(),
+    replaceGameInstalledVersion: vi.fn(),
     addNotification: vi.fn().mockResolvedValue(undefined),
     getUserSettings: vi.fn().mockResolvedValue(undefined),
   };
@@ -357,7 +358,7 @@ describe("ImportManager", () => {
     });
 
     expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
-    expect(storage.updateGame).toHaveBeenCalledWith("g1", { installedVersion: "v1.2" });
+    expect(storage.replaceGameInstalledVersion).toHaveBeenCalledWith("g1", "v1.1", "v1.2");
   });
 
   it.each(["playing", "shelved", "completed"])(

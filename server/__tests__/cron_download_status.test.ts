@@ -32,7 +32,7 @@ const mockAddNotification = vi.fn();
 const mockGetUserSettings = vi.fn();
 const mockGetImportConfig = vi.fn();
 const mockGetDownloadsByGameId = vi.fn();
-const mockUpdateGame = vi.fn();
+const mockReplaceGameInstalledVersion = vi.fn();
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -45,7 +45,7 @@ vi.mock("../storage.js", () => ({
     getUserSettings: mockGetUserSettings,
     getImportConfig: mockGetImportConfig,
     getDownloadsByGameId: mockGetDownloadsByGameId,
-    updateGame: mockUpdateGame,
+    replaceGameInstalledVersion: mockReplaceGameInstalledVersion,
   },
 }));
 
@@ -490,7 +490,7 @@ describe("Cron - checkDownloadStatus", () => {
 
     await checkDownloadStatus();
 
-    expect(mockUpdateGame).toHaveBeenCalledWith(versioned.gameId, { installedVersion: "v1.4.2" });
+    expect(mockReplaceGameInstalledVersion).toHaveBeenCalledWith(versioned.gameId, null, "v1.4.2");
   });
 
   it("leaves the version to the import when post-processing is enabled", async () => {
@@ -510,7 +510,7 @@ describe("Cron - checkDownloadStatus", () => {
 
     await checkDownloadStatus();
 
-    expect(mockUpdateGame).not.toHaveBeenCalled();
+    expect(mockReplaceGameInstalledVersion).not.toHaveBeenCalled();
   });
 
   it("should keep a playing game's status when its update download completes", async () => {

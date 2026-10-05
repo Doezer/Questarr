@@ -228,7 +228,7 @@ points operators at is on the safe side of the fix.
       role scoping, so any account holder can use every configured
       indexer/downloader (though the API keys/passwords themselves are
       masked in responses and encrypted at rest, per §4).
-- [ ] Run behind HTTPS/a reverse proxy per `.github/SECURITY.md`.
+- [ ] Run behind HTTPS/a reverse proxy per `docs/SECURITY.md`.
 - [ ] Never commit `.env`, `sqlite.db`, or `docker-compose.local.yml`.
 - [ ] If you ran `pg-to-sqlite` on v1.1.0–v1.3.1 and kept the logs, rotate that
       Postgres password — those versions printed the full `DATABASE_URL` (§8).

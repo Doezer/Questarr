@@ -63,7 +63,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Real-time Notifications** | In-app alerts for releases and downloads, plus external notifications to 100+ providers via [Apprise](https://github.com/caronc/apprise). |
 | **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available. |
 | **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧 |
-| **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](.github/SECURITY.md) for the full process. |
+| **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](docs/SECURITY.md) for the full process. |
 | **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧 |
 | **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind. |
 
@@ -492,7 +492,7 @@ If you run into an issue, go to the **Logs** page and click **Send Logs** before
 ## Contributing
 
 - See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.
-- See [MAINTAINERS.md](/.github/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
+- See [MAINTAINERS.md](/docs/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
 
 ### Contributors
 

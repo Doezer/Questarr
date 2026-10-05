@@ -4,7 +4,7 @@ This file is the single entry point for GitHub-facing documentation in this repo
 
 - Product overview and setup: [`README.md`](../README.md)
 - Contribution guide: [`.github/CONTRIBUTING.md`](../.github/CONTRIBUTING.md)
-- Security policy and reporting: [`.github/SECURITY.md`](../.github/SECURITY.md)
+- Security policy and reporting: [`docs/SECURITY.md`](SECURITY.md)
 - API reference: [`docs/API.md`](./API.md), for the REST/Socket.io interface reference
 - Architecture: [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md), for a system architecture and actor overview
 - Changelog: [`docs/CHANGELOG.md`](./CHANGELOG.md)
@@ -22,4 +22,4 @@ This file is the single entry point for GitHub-facing documentation in this repo
   - [`docs/SBOM.md`](./SBOM.md): Every published image ships with a Software Bill of Materials.
   - [`docs/VEX.md`](./VEX.md), for details on the Questar's Vulnerability Exploitability Exchange feed
   - [`docs/DEPENDENCIES.md`](./DEPENDENCIES.md), for how dependencies are selected, obtained, and tracked.
-- `.github/CODE_OF_CONDUCT.md` (community health file)
+- `docs/CODE_OF_CONDUCT.md` (community health file)

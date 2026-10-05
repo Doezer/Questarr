@@ -29,6 +29,7 @@
       {
         "group": "Security",
         "pages": [
+          "SECURITY",
           "SECURITY_ASSESSMENT",
           "THREAT_MODEL",
           "SECRETS",
@@ -44,6 +45,10 @@
       {
         "group": "Project",
         "pages": ["PRD", "TODO", "GITHUB_DOCUMENTATION"]
+      },
+      {
+        "group": "Community",
+        "pages": ["CODE_OF_CONDUCT", "MAINTAINERS", "OPERATIONS"]
       }
     ]
   },

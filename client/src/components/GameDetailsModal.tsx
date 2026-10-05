@@ -640,7 +640,12 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const downloadReleaseNames = useMemo(
     () =>
       gameDownloads
-        .filter((download) => carriesBaseGameVersion(download.downloadTitle, download.category))
+        // Only downloads that really landed: a failed or pending one was never installed.
+        .filter(
+          (download) =>
+            (download.status === "completed" || download.status === "imported") &&
+            carriesBaseGameVersion(download.downloadTitle, download.category)
+        )
         .map((download) => download.downloadTitle),
     [gameDownloads]
   );

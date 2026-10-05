@@ -45,6 +45,8 @@ describe("extractVersionFromReleaseName", () => {
     "Game.Update.v1.2.Hotfix-RUNE",
     "Game.v1.2.Fix-RUNE",
     "Game.Hotfix.v1.2-RUNE", // the qualifier can come first too
+    "Game.Update.v1.2b-RUNE", // a letter-suffixed version is not cut short to v1
+    "Game.v1.2b-RUNE",
     "Game.Beta.v1.2-RUNE",
     "Game.Early.Access.v1.2-RUNE",
     "Game.v1.2.Update-RUNE", // an update whose target isn't named
@@ -120,6 +122,7 @@ describe("isReleasePossiblyNewer", () => {
   it("is true when nothing is known", () => {
     expect(isReleasePossiblyNewer("Game.Update.v1.1-RUNE", null)).toBe(true);
     expect(isReleasePossiblyNewer("Game.Update-RUNE", "v1.2")).toBe(true);
+    expect(isReleasePossiblyNewer("Game.Update.v1.2b-RUNE", "v1")).toBe(true);
     expect(isReleasePossiblyNewer("Game.Update.v1.1-RUNE", "latest")).toBe(true);
   });
 

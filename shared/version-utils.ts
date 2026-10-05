@@ -20,10 +20,13 @@ export interface ParsedVersion {
 // `.`, `-`, `(`, `[` and spaces are all used as separators in release names.
 const NOT_PRECEDED_BY_ALNUM = "(?<![a-z0-9])";
 const NOT_FOLLOWED_BY_ALNUM = "(?![a-z0-9])";
+// A dotted version must also not stop short of a further ".<digit>": otherwise "v1.2b" would
+// backtrack to "v1" (the "." after it satisfies the boundary). Such a version reads as none.
+const VERSION_END = String.raw`(?![a-z0-9]|\.\d)`;
 
 // "v1.2.3", "v123456", "v1.0.2.34567", "v 1.05"
 const V_VERSION = new RegExp(
-  String.raw`${NOT_PRECEDED_BY_ALNUM}v\s?(\d+(?:\.\d+)*)${NOT_FOLLOWED_BY_ALNUM}`,
+  String.raw`${NOT_PRECEDED_BY_ALNUM}v\s?(\d+(?:\.\d+)*)${VERSION_END}`,
   "i"
 );
 const V_VERSION_ALL = new RegExp(V_VERSION.source, "gi");
@@ -35,7 +38,7 @@ const BUILD_VERSION = new RegExp(
 // "Update.v2", "Update.1.05", "Patch 2.1.3" -- a version right after "Update" or "Patch". Without a "v" it
 // needs a dot, so "Update 2" (the second update pack) isn't read as version 2.
 const UPDATE_VERSION = new RegExp(
-  String.raw`${NOT_PRECEDED_BY_ALNUM}(?:update|patch)[\s._-](?:v\s?(\d+(?:\.\d+)*)|(\d+(?:\.\d+)+))${NOT_FOLLOWED_BY_ALNUM}`,
+  String.raw`${NOT_PRECEDED_BY_ALNUM}(?:update|patch)[\s._-](?:v\s?(\d+(?:\.\d+)*)|(\d+(?:\.\d+)+))${VERSION_END}`,
   "i"
 );
 // "Update.Build.5000" -- an update whose target is a build number.

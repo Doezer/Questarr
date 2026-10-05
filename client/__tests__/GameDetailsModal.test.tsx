@@ -489,6 +489,33 @@ describe("GameDetailsModal", () => {
     expect(screen.getByText("Show less")).toBeInTheDocument();
   });
 
+  it("suggests installed versions only from downloads that completed", async () => {
+    const download = (id: string, downloadTitle: string, status: string) => ({
+      id,
+      gameId: "1",
+      downloadTitle,
+      status,
+      category: "main",
+    });
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({
+        "/api/games/1/downloads": [
+          download("a", "Test.Game.v1.1-RUNE", "imported"),
+          download("b", "Test.Game.v1.2-RUNE", "completed"),
+          download("c", "Test.Game.v1.3-RUNE", "failed"),
+          download("d", "Test.Game.v1.4-RUNE", "downloading"),
+        ],
+      })
+    );
+
+    renderComponent();
+
+    expect(await screen.findByTestId("button-version-suggestion-v1.2")).toBeInTheDocument();
+    expect(screen.getByTestId("button-version-suggestion-v1.1")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-version-suggestion-v1.3")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-version-suggestion-v1.4")).not.toBeInTheDocument();
+  });
+
   it("renders the Your rating section", () => {
     renderComponent();
     // Links tab is forceMount-ed; always in DOM

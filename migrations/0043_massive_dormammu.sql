@@ -1,0 +1,1 @@
+ALTER TABLE `games` ADD `installed_version` text;

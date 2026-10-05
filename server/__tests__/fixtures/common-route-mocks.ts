@@ -68,6 +68,7 @@ export function createStorageMock() {
     updateGameStatus: vi.fn(),
     updateGameHidden: vi.fn(),
     updateGameUserRating: vi.fn(),
+    updateGameInstalledVersion: vi.fn(),
     updateGame: vi.fn(),
     getGameJournalEntries: vi.fn().mockResolvedValue([]),
     addGameJournalEntry: vi.fn(),

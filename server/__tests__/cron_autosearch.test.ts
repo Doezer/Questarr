@@ -30,6 +30,7 @@ const mockAddNotification = vi.fn();
 const mockUpdateGameSearchResultsAvailable = vi.fn();
 const mockUpdateGameSearchResultsByCategory = vi.fn();
 const mockUpdateGameStatus = vi.fn();
+const mockUpdateGame = vi.fn();
 const mockAddGameDownload = vi.fn();
 const mockGetEnabledDownloaders = vi.fn().mockResolvedValue([]);
 const mockGetReleaseBlacklistSet = vi.fn();
@@ -48,6 +49,7 @@ vi.mock("../storage.js", () => ({
     updateGameSearchResultsAvailable: mockUpdateGameSearchResultsAvailable,
     updateGameSearchResultsByCategory: mockUpdateGameSearchResultsByCategory,
     updateGameStatus: mockUpdateGameStatus,
+    updateGame: mockUpdateGame,
     addGameDownload: mockAddGameDownload,
     getEnabledDownloaders: mockGetEnabledDownloaders,
     getReleaseBlacklistSet: mockGetReleaseBlacklistSet,
@@ -122,7 +124,8 @@ vi.mock("../xrel.js", () => ({
 
 // Import the function under test
 // We need to use dynamic import or require because of the hoisting of vi.mock
-const { checkAutoSearch, categorizeSearchItems } = await import("../cron.js");
+const { checkAutoSearch, categorizeSearchItems, recordVersionFromCompletedDownload } =
+  await import("../cron.js");
 const { igdbLogger } = await import("../logger.js");
 
 describe("Cron - checkAutoSearch", () => {
@@ -363,6 +366,52 @@ describe("Cron - checkAutoSearch", () => {
         title: "Game Updates Available",
         message: expect.stringContaining(game.title),
       })
+    );
+  });
+
+  it("should not notify updates that are not newer than the installed version", async () => {
+    const game = {
+      ...baseGame,
+      status: "owned" as const,
+      releaseStatus: "released" as const,
+      installedVersion: "v1.2",
+    };
+    const settings = { ...baseSettings, notifyUpdates: true };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+    mockGetUserGames.mockResolvedValue([game]);
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({ items: [UPDATE_ITEM], errors: [], total: 1 });
+
+    await checkAutoSearch();
+
+    expect(mockAddNotification).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Game Updates Available" })
+    );
+    expect(mockUpdateGameSearchResultsByCategory).toHaveBeenCalledWith(
+      game.id,
+      expect.objectContaining({ updates: false })
+    );
+  });
+
+  it("should notify updates newer than the installed version", async () => {
+    const game = {
+      ...baseGame,
+      status: "owned" as const,
+      releaseStatus: "released" as const,
+      installedVersion: "1.0",
+    };
+    const settings = { ...baseSettings, notifyUpdates: true };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+    mockGetUserGames.mockResolvedValue([game]);
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({ items: [UPDATE_ITEM], errors: [], total: 1 });
+
+    await checkAutoSearch();
+
+    expect(mockAddNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Game Updates Available" })
     );
   });
 
@@ -2324,5 +2373,52 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockNotifyUser).toHaveBeenCalledWith("notification", { id: "notif-1" });
       expect(mockAppriseSend).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("Cron - recordVersionFromCompletedDownload", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("records the version of a finished full-game download when none is known", async () => {
+    const recorded = await recordVersionFromCompletedDownload(
+      { id: "g1", installedVersion: null },
+      "Test.Game.v1.2.3-RUNE"
+    );
+    expect(recorded).toBe("v1.2.3");
+    expect(mockUpdateGame).toHaveBeenCalledWith("g1", { installedVersion: "v1.2.3" });
+  });
+
+  it("moves the version forward on a newer update", async () => {
+    await recordVersionFromCompletedDownload(
+      { id: "g1", installedVersion: "v1.2" },
+      "Test.Game.Update.v1.3-RUNE"
+    );
+    expect(mockUpdateGame).toHaveBeenCalledWith("g1", { installedVersion: "v1.3" });
+  });
+
+  it("never moves the version backwards or across numbering schemes", async () => {
+    await recordVersionFromCompletedDownload(
+      { id: "g1", installedVersion: "v1.5" },
+      "Test.Game.Update.v1.3-RUNE"
+    );
+    await recordVersionFromCompletedDownload(
+      { id: "g1", installedVersion: "Build 1234" },
+      "Test.Game.v1.3-RUNE"
+    );
+    expect(mockUpdateGame).not.toHaveBeenCalled();
+  });
+
+  it("ignores DLC releases and releases without a version", async () => {
+    await recordVersionFromCompletedDownload(
+      { id: "g1", installedVersion: null },
+      "Test.Game.Season.Pass.DLC.v2.0-RUNE"
+    );
+    await recordVersionFromCompletedDownload(
+      { id: "g1", installedVersion: null },
+      "Test.Game-RUNE"
+    );
+    expect(mockUpdateGame).not.toHaveBeenCalled();
   });
 });

@@ -57,6 +57,13 @@
       "when": 1791193363035,
       "tag": "0007_sticky_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791212677241,
+      "tag": "0008_cultured_stephen_strange",
+      "breakpoints": true
     }
   ]
 }

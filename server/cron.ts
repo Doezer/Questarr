@@ -31,6 +31,11 @@ import {
 } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import {
+  compareVersions,
+  extractVersionFromReleaseName,
+  isReleasePossiblyNewer,
+} from "../shared/version-utils.js";
+import {
   releaseMatchesGame,
   normalizeTitle,
   cleanReleaseName,
@@ -143,6 +148,35 @@ export async function getAiAutoDownloadHoldReason(
   }
 
   return null;
+}
+
+/**
+ * Records the version carried by a finished download's release name (e.g. "v1.2.3") as the
+ * game's installed version. Only the full game or an update counts (a DLC's version says nothing
+ * about the base game), and a known version is only ever moved forward: an older or
+ * incomparable release never overwrites what the user has. Returns the version recorded, if any.
+ */
+export async function recordVersionFromCompletedDownload(
+  game: Pick<Game, "id" | "installedVersion">,
+  downloadTitle: string
+): Promise<string | null> {
+  const { category } = categorizeDownload(downloadTitle);
+  if (category !== "main" && category !== "update") return null;
+
+  const detected = extractVersionFromReleaseName(downloadTitle);
+  if (!detected) return null;
+
+  if (game.installedVersion?.trim()) {
+    const cmp = compareVersions(detected, game.installedVersion);
+    if (cmp === null || cmp <= 0) return null;
+  }
+
+  await storage.updateGame(game.id, { installedVersion: detected });
+  igdbLogger.info(
+    { gameId: game.id, previous: game.installedVersion, installedVersion: detected },
+    "Recorded game version from completed download"
+  );
+  return detected;
 }
 
 function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
@@ -911,6 +945,17 @@ export async function checkDownloadStatus() {
             const gameTitle = game ? game.title : download.downloadTitle;
             const importConfig = await storage.getImportConfig(game?.userId ?? undefined);
 
+            if (game) {
+              try {
+                await recordVersionFromCompletedDownload(game, download.downloadTitle);
+              } catch (error) {
+                igdbLogger.warn(
+                  { error, gameId: game.id, item: download.downloadTitle },
+                  "Failed to record game version from completed download"
+                );
+              }
+            }
+
             let shouldSendCompletionNotification = true;
 
             if (importConfig.enablePostProcessing) {
@@ -1544,7 +1589,12 @@ export async function checkAutoSearch() {
               preferredGroups,
               settings.filterByPreferredGroups ?? false
             );
-            const updateItems = deduplicateByTitle(groupFilteredUpdate, indexerPriorityMap);
+            // Drop update releases whose version is provably not newer than the one the user
+            // has installed, so a game already on v1.5 isn't flagged for a v1.4 patch.
+            const versionFilteredUpdate = groupFilteredUpdate.filter((item) =>
+              isReleasePossiblyNewer(item.title, game.installedVersion)
+            );
+            const updateItems = deduplicateByTitle(versionFilteredUpdate, indexerPriorityMap);
 
             // Packs/add-ons are content for owned games, surfaced like updates.
             const platformFilteredPacks = applyPreferredPlatformFilter(

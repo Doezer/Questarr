@@ -171,6 +171,7 @@ export const games = pgTable("games", {
   isAgeRestricted: boolean("is_age_restricted").notNull().default(false),
   userRating: doublePrecision("user_rating"),
   libraryPath: text("library_path"),
+  installedVersion: text("installed_version"),
   searchResultsAvailable: boolean("search_results_available").default(false).notNull(),
   searchResultsAvailableAt: timestampMs("search_results_available_at"),
   updateSearchResultsAvailable: boolean("update_search_results_available").default(false).notNull(),

@@ -13,6 +13,7 @@ import {
   updateGameStatusSchema,
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
+  updateGameInstalledVersionSchema,
   updateGameTargetPlatformSchema,
   insertIndexerSchema,
   insertDownloaderSchema,
@@ -1858,6 +1859,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         routesLogger.error({ error }, "error updating game user rating");
         return res.status(500).json({ error: "Failed to update user rating" });
+      }
+    }
+  );
+
+  // Set the version of the game the user has installed (free text), or null to clear it.
+  // Used to skip "update available" notifications for releases that aren't newer.
+  app.patch(
+    "/api/games/:id/installed-version",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params as { id: string };
+        const userId = req.user!.id;
+        const { installedVersion } = updateGameInstalledVersionSchema.parse(req.body);
+
+        const updatedGame = await storage.updateGameInstalledVersion(id, userId, installedVersion);
+        if (!updatedGame) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+
+        return res.json(updatedGame);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid installed version data");
+        }
+        routesLogger.error({ error }, "error updating game installed version");
+        return res.status(500).json({ error: "Failed to update installed version" });
       }
     }
   );

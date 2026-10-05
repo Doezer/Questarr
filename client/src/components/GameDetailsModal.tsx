@@ -87,6 +87,7 @@ import {
 import { NexusModsIcon } from "./NexusModsIcon";
 import GameJournalTab from "./GameJournalTab";
 import FileCategorySelect from "./FileCategorySelect";
+import InstalledVersionField from "./InstalledVersionField";
 import { getSocket } from "@/lib/socket";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
@@ -634,6 +635,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     enabled: open && !!game?.id && !isDiscoveryId(game.id),
     refetchInterval: 5000,
   });
+
+  const downloadReleaseNames = useMemo(
+    () => gameDownloads.map((download) => download.downloadTitle),
+    [gameDownloads]
+  );
 
   const {
     data: xrelStatus,
@@ -1240,6 +1246,14 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       Overrides the account platform for automatic release matching.
                     </p>
                   </div>
+                )}
+                {!isDiscoveryId(game.id) && (
+                  <InstalledVersionField
+                    key={game.id}
+                    gameId={game.id}
+                    installedVersion={game.installedVersion ?? null}
+                    releaseNames={downloadReleaseNames}
+                  />
                 )}
               </div>
             </div>

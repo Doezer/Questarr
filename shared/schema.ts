@@ -224,6 +224,7 @@ export const games = sqliteTable("games", {
   isAgeRestricted: integer("is_age_restricted", { mode: "boolean" }).notNull().default(false),
   userRating: real("user_rating"),
   libraryPath: text("library_path"),
+  installedVersion: text("installed_version"),
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
@@ -581,6 +582,16 @@ export const updateGameUserRatingSchema = z.object({
       message: "userRating must be in 0.5 increments",
     })
     .nullable(),
+});
+
+export const updateGameInstalledVersionSchema = z.object({
+  // Free text ("v1.2.3", "Build 12345", "1.05 hotfix"...); blank clears it.
+  installedVersion: z
+    .string()
+    .trim()
+    .max(64, "installedVersion must be at most 64 characters")
+    .nullable()
+    .transform((v) => (v ? v : null)),
 });
 
 export const insertGameJournalEntrySchema = createInsertSchema(gameJournalEntries, {

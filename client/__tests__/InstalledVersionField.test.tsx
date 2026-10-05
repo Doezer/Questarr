@@ -93,6 +93,27 @@ describe("InstalledVersionField", () => {
     );
   });
 
+  it("follows a new server value but keeps a draft being edited", () => {
+    const client = createTestQueryClient();
+    const view = (installedVersion: string | null, id = gameId) => (
+      <QueryClientProvider client={client}>
+        <InstalledVersionField gameId={id} installedVersion={installedVersion} releaseNames={[]} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view("v1.0"));
+    const input = screen.getByLabelText("Installed version");
+
+    rerender(view("v1.1"));
+    expect(input).toHaveValue("v1.1");
+
+    fireEvent.change(input, { target: { value: "v2" } });
+    rerender(view("v1.2"));
+    expect(input).toHaveValue("v2");
+
+    rerender(view("v3.0", "game-2"));
+    expect(input).toHaveValue("v3.0");
+  });
+
   it("does not save when the value did not change", () => {
     const input = renderField("v1.0");
     fireEvent.blur(input);

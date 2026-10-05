@@ -48,9 +48,16 @@ export default function InstalledVersionField({
   // race and the latest value always lands last.
   const queued = useRef<{ value: string | null } | null>(null);
 
-  // Follow the server value (another tab, a finished download detecting a newer version).
+  // The server value the draft last followed, and for which game.
+  const synced = useRef({ gameId, value: installedVersion ?? "" });
+
+  // Follow the server value (another tab, a finished download detecting a newer version),
+  // unless the user has edited the draft since: a refetch must not wipe what they are typing.
   useEffect(() => {
-    setDraft(installedVersion ?? "");
+    const next = installedVersion ?? "";
+    const previous = synced.current;
+    synced.current = { gameId, value: next };
+    setDraft((draft) => (previous.gameId !== gameId || draft === previous.value ? next : draft));
   }, [gameId, installedVersion]);
 
   const mutation = useMutation<void, Error, string | null>({

@@ -47,8 +47,12 @@ const UPDATE_BUILD_VERSION = new RegExp(
 // "v1.2-beta", "1.2.RC1", "v2.0 Preview", "v1.2.Early.Access", "v1.2.Hotfix": a qualifier whose
 // ordering against the bare number ("v1.2") isn't captured by it -- a later stable release or a
 // hotfix of the same number differs. Names carrying one are treated as having no readable version.
-const QUALIFIED_VERSION =
-  /\d[\s._-]?(?:alpha|beta|rc|pre|preview|dev|early[\s._-]?access|hot[\s._-]?fix|fix)(?![a-z])/i;
+// The qualifier can also come first ("Game.Hotfix.v1.2", "Game.Early.Access.v1.2").
+const QUALIFIER = String.raw`(?:alpha|beta|rc|pre|preview|dev|early[\s._-]?access|hot[\s._-]?fix|fix)`;
+const QUALIFIED_VERSION = new RegExp(
+  String.raw`\d[\s._-]?${QUALIFIER}(?![a-z])|(?<![a-z])${QUALIFIER}[\s._-]?v?\s?\d`,
+  "i"
+);
 const BUILD_VERSION_ALL = new RegExp(BUILD_VERSION.source, "gi");
 const UPDATE_MARKER = new RegExp(
   String.raw`${NOT_PRECEDED_BY_ALNUM}(?:update|patch)${NOT_FOLLOWED_BY_ALNUM}`,

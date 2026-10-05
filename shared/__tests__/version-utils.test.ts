@@ -28,6 +28,7 @@ describe("extractVersionFromReleaseName", () => {
     ["Game.Patch.v1.2-RUNE", "v1.2"], // "Patch" names its target like "Update"
     ["Game.Patch.1.2-RUNE", "v1.2"],
     ["Game.v1.2.Repack-PREDATOR", "v1.2"], // a group name is not a pre-release tag
+    ["Game.Crackfix.v1.2-RUNE", "v1.2"], // "fix" inside a word is no qualifier
   ])("finds the version in %s", (name, expected) => {
     expect(extractVersionFromReleaseName(name)).toBe(expected);
   });
@@ -43,6 +44,9 @@ describe("extractVersionFromReleaseName", () => {
     "Game.v1.2.Early.Access-P2P", // qualifiers that order differently from the bare number
     "Game.Update.v1.2.Hotfix-RUNE",
     "Game.v1.2.Fix-RUNE",
+    "Game.Hotfix.v1.2-RUNE", // the qualifier can come first too
+    "Game.Beta.v1.2-RUNE",
+    "Game.Early.Access.v1.2-RUNE",
     "Game.v1.2.Update-RUNE", // an update whose target isn't named
     "Game.v1.2.Update.2-CODEX",
     "Game.v1.2.Patch-RUNE",

@@ -751,28 +751,28 @@ export class MemStorage implements IStorage {
     return updatedGame;
   }
 
-  async updateGameInstalledVersion(
+  updateGameInstalledVersion(
     id: string,
     userId: string,
     installedVersion: string | null
   ): Promise<Game | undefined> {
     const game = this.games.get(id);
-    if (!game || game.userId !== userId) return undefined;
+    if (game?.userId !== userId) return Promise.resolve(undefined);
 
     const updatedGame: Game = { ...game, installedVersion };
     this.games.set(id, updatedGame);
-    return updatedGame;
+    return Promise.resolve(updatedGame);
   }
 
-  async replaceGameInstalledVersion(
+  replaceGameInstalledVersion(
     id: string,
     expected: string | null,
     installedVersion: string
   ): Promise<boolean> {
     const game = this.games.get(id);
-    if (!game || (game.installedVersion ?? null) !== expected) return false;
+    if (!game || (game.installedVersion ?? null) !== expected) return Promise.resolve(false);
     this.games.set(id, { ...game, installedVersion });
-    return true;
+    return Promise.resolve(true);
   }
 
   async getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]> {

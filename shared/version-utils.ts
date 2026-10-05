@@ -69,7 +69,7 @@ const BUILD_RANGE_TARGET_ALL = new RegExp(
   "gi"
 );
 const UPDATE_MARKER = new RegExp(
-  String.raw`${NOT_PRECEDED_BY_ALNUM}(?:update|patch)${NOT_FOLLOWED_BY_ALNUM}`,
+  `${NOT_PRECEDED_BY_ALNUM}(?:update|patch)${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
 );
 

@@ -35,26 +35,42 @@ const UPDATE_VERSION = new RegExp(
   String.raw`${NOT_PRECEDED_BY_ALNUM}update[\s._-](?:v\s?(\d+(?:\.\d+)*)|(\d+(?:\.\d+)+))${NOT_FOLLOWED_BY_ALNUM}`,
   "i"
 );
+// "Update.Build.5000" -- an update whose target is a build number.
+const UPDATE_BUILD_VERSION = new RegExp(
+  String.raw`${NOT_PRECEDED_BY_ALNUM}update[\s._-]build[\s._-]?(\d+)${NOT_FOLLOWED_BY_ALNUM}`,
+  "i"
+);
 
 /**
  * Finds a version in a release name and returns it in display form ("v1.2.3" or
  * "Build 12345"), or null when the name carries none.
  */
 export function extractVersionFromReleaseName(releaseName: string): string | null {
-  // An update names the version it brings the game to ("Game.v1.0.Update.v1.1"), so that one wins.
+  // An update names the version it brings the game to, so what follows "Update" wins over the
+  // base version before it ("Game.v1.0.Update.v1.1"), and its highest version wins over its
+  // starting one ("Game.Update.v1.0.to.v1.1").
   const update = UPDATE_VERSION.exec(releaseName);
   const updateVersion = update?.[1] ?? update?.[2];
-  if (updateVersion) return `v${updateVersion}`;
-  // Otherwise the highest of the versions named ("Game.v1.0.to.v1.1" brings the game to v1.1).
-  let best: string | null = null;
-  for (const match of releaseName.matchAll(V_VERSION_ALL)) {
-    const candidate = `v${match[1]}`;
-    if (best === null || (compareVersions(candidate, best) ?? 0) > 0) best = candidate;
+  if (update && updateVersion) {
+    return highestVVersion(releaseName.slice(update.index), `v${updateVersion}`);
   }
+  const updateBuild = UPDATE_BUILD_VERSION.exec(releaseName);
+  if (updateBuild?.[1]) return `Build ${updateBuild[1]}`;
+  // Otherwise the highest of the versions named ("Game.v1.0.to.v1.1" brings the game to v1.1).
+  const best = highestVVersion(releaseName, null);
   if (best) return best;
   const build = BUILD_VERSION.exec(releaseName);
   if (build?.[1]) return `Build ${build[1]}`;
   return null;
+}
+
+function highestVVersion(text: string, initial: string | null): string | null {
+  let best = initial;
+  for (const match of text.matchAll(V_VERSION_ALL)) {
+    const candidate = `v${match[1]}`;
+    if (best === null || (compareVersions(candidate, best) ?? 0) > 0) best = candidate;
+  }
+  return best;
 }
 
 /**

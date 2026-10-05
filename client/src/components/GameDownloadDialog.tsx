@@ -77,6 +77,7 @@ import {
 } from "@shared/schema";
 import {
   getCategoryLabel,
+  categorizeDownload,
   groupDownloadsByCategory,
   type DownloadCategory,
 } from "@shared/download-categorizer";
@@ -543,6 +544,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           title: download.title,
           gameId: game?.id,
           downloadType: isUsenetItem(download) ? "usenet" : "torrent",
+          releaseCategory: categorizeDownload(
+            download.title,
+            download.aiReleaseType,
+            download.aiReleaseTypeConfidence
+          ).category,
         });
         results.push(await response.json());
       }

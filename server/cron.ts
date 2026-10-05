@@ -1451,6 +1451,7 @@ export async function checkAutoSearch() {
                             downloadTitle: item.title,
                             status: "downloading",
                             downloadType: item.downloadType,
+                            category: "main",
                           });
 
                           // Update game status

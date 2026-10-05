@@ -98,6 +98,7 @@ import { type XrelGameStatus } from "@shared/xrel-types";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
+import { carriesBaseGameVersion } from "@shared/version-utils";
 
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
@@ -637,7 +638,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   });
 
   const downloadReleaseNames = useMemo(
-    () => gameDownloads.map((download) => download.downloadTitle),
+    () =>
+      gameDownloads
+        .filter((download) => carriesBaseGameVersion(download.downloadTitle, download.category))
+        .map((download) => download.downloadTitle),
     [gameDownloads]
   );
 

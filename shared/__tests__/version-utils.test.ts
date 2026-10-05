@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   compareVersions,
   extractVersionFromReleaseName,
+  carriesBaseGameVersion,
   isReleasePossiblyNewer,
   parseVersion,
 } from "../version-utils";
@@ -39,6 +40,9 @@ describe("extractVersionFromReleaseName", () => {
     "Game.v1.2.Early.Access-P2P", // qualifiers that order differently from the bare number
     "Game.Update.v1.2.Hotfix-RUNE",
     "Game.v1.2.Fix-RUNE",
+    "Game.v1.2.Update-RUNE", // an update whose target isn't named
+    "Game.v1.2.Update.2-CODEX",
+    "Game.v1.2.Patch-RUNE",
   ])("finds nothing in %s", (name) => {
     expect(extractVersionFromReleaseName(name)).toBeNull();
   });
@@ -75,6 +79,20 @@ describe("compareVersions", () => {
     expect(compareVersions("Build 200", "v1.2")).toBeNull();
     expect(compareVersions("v20231005", "v1.2")).toBeNull();
     expect(compareVersions("latest", "v1.2")).toBeNull();
+  });
+});
+
+describe("carriesBaseGameVersion", () => {
+  it("follows the stored category when there is one", () => {
+    expect(carriesBaseGameVersion("Expansion.Name.v5.0", "dlc")).toBe(false);
+    expect(carriesBaseGameVersion("Game.Season.Pass.DLC.v2.0", "update")).toBe(true);
+  });
+
+  it("reads the title otherwise, counting editions as the full game", () => {
+    expect(carriesBaseGameVersion("Game.v1.2-RUNE", null)).toBe(true);
+    expect(carriesBaseGameVersion("Game.GOTY.v2.0.incl.DLC-GOG", null)).toBe(true);
+    expect(carriesBaseGameVersion("Game.Season.Pass.DLC.v5.0-RUNE", null)).toBe(false);
+    expect(carriesBaseGameVersion("Game.OST-RUNE", undefined)).toBe(false);
   });
 });
 

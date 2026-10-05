@@ -1,3 +1,5 @@
+import { categorizeDownload } from "./download-categorizer.js";
+
 /**
  * Game version helpers: detect a version in a release name, and compare two versions.
  *
@@ -47,6 +49,10 @@ const UPDATE_BUILD_VERSION = new RegExp(
 const QUALIFIED_VERSION =
   /\d[\s._-]?(?:alpha|beta|rc|pre|preview|dev|early[\s._-]?access|hot[\s._-]?fix|fix)(?![a-z])/i;
 const BUILD_VERSION_ALL = new RegExp(BUILD_VERSION.source, "gi");
+const UPDATE_MARKER = new RegExp(
+  String.raw`${NOT_PRECEDED_BY_ALNUM}(?:update|patch)${NOT_FOLLOWED_BY_ALNUM}`,
+  "i"
+);
 
 /**
  * Finds a version in a release name and returns it in display form ("v1.2.3" or
@@ -65,11 +71,20 @@ export function extractVersionFromReleaseName(releaseName: string): string | nul
   // Likewise for builds: "Update.Build.1000.to.Build.1200" brings the game to Build 1200.
   const updateBuild = UPDATE_BUILD_VERSION.exec(releaseName);
   if (updateBuild) return highestBuild(releaseName.slice(updateBuild.index));
-  // Otherwise the highest of the versions named ("Game.v1.0.to.v1.1" brings the game to v1.1).
-  const best = highestVVersion(releaseName, null);
-  if (best) return best;
-  // A build range ("Patch.Build.1000.to.Build.1200") brings the game to its highest build.
-  return highestBuild(releaseName);
+  // An update or patch with no target named carries the base game's version at most
+  // ("Game.v1.2.Update"), which says nothing about where it leads; only a range does
+  // ("Game.v1.0.to.v1.1.Patch", "Patch.Build.1000.to.Build.1200").
+  if (UPDATE_MARKER.test(releaseName)) {
+    if (countMatches(releaseName, V_VERSION_ALL) > 1) return highestVVersion(releaseName, null);
+    if (countMatches(releaseName, BUILD_VERSION_ALL) > 1) return highestBuild(releaseName);
+    return null;
+  }
+  // Otherwise the highest of the versions named, then of the builds.
+  return highestVVersion(releaseName, null) ?? highestBuild(releaseName);
+}
+
+function countMatches(text: string, pattern: RegExp): number {
+  return Array.from(text.matchAll(pattern)).length;
 }
 
 function highestVVersion(text: string, initial: string | null): string | null {
@@ -139,4 +154,26 @@ export function isReleasePossiblyNewer(
   if (!releaseVersion) return true;
   const cmp = compareVersions(releaseVersion, installedVersion);
   return cmp === null || cmp > 0;
+}
+
+// The categorizer files edition names ("Deluxe", "GOTY", "Complete") under DLC because those
+// releases bundle DLC, but they are full games and their version is the base game's. Only these
+// words mark a release that is DLC alone, once bundle mentions ("incl.DLC", "+ all DLCs") are
+// set aside.
+const DLC_ONLY = /\b(?:dlc|downloadable content|expansion|season pass)\b/i;
+const BUNDLED_DLC = /(?:\bincl(?:uding)?|\bwith|\+)[\s._-]*(?:all[\s._-]*)?dlcs?\b/gi;
+
+/**
+ * Whether a download's version is the base game's: true for the full game (editions included)
+ * and updates, false for DLC, packs and extras. `category` is the one stored with the download
+ * (picked by the user, or classified when it was grabbed); without it, the title decides.
+ */
+export function carriesBaseGameVersion(
+  downloadTitle: string,
+  category: string | null | undefined
+): boolean {
+  if (category) return category === "main" || category === "update";
+  const byTitle = categorizeDownload(downloadTitle).category;
+  if (byTitle === "main" || byTitle === "update") return true;
+  return byTitle === "dlc" && !DLC_ONLY.test(downloadTitle.replace(BUNDLED_DLC, ""));
 }

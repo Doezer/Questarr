@@ -4351,8 +4351,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { url, title, category, downloadPath, priority, gameId, downloadType, password } =
-          req.body;
+        const {
+          url,
+          title,
+          category,
+          downloadPath,
+          priority,
+          gameId,
+          downloadType,
+          password,
+          releaseCategory,
+        } = req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -4411,6 +4420,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               downloadTitle: title,
               status: "downloading",
               downloadType: downloadType || "torrent",
+              category: releaseCategory ?? null,
             });
 
             // An update/DLC grabbed for a game the user is playing (or has

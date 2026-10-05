@@ -1,23 +1,11 @@
-import { categorizeDownload } from "../shared/download-categorizer.js";
-import { compareVersions, extractVersionFromReleaseName } from "../shared/version-utils.js";
+import {
+  carriesBaseGameVersion,
+  compareVersions,
+  extractVersionFromReleaseName,
+} from "../shared/version-utils.js";
 import type { IStorage } from "./storage.js";
 import { logger } from "./logger.js";
 import { notifyUser } from "./socket.js";
-
-// The categorizer files edition names ("Deluxe", "GOTY", "Complete") under DLC because those
-// releases bundle DLC, but they are full games and their version is the base game's. Only these
-// words mark a release that is DLC alone, once bundle mentions ("incl.DLC", "+ all DLCs") are
-// set aside.
-const DLC_ONLY = /\b(?:dlc|downloadable content|expansion|season pass)\b/i;
-const BUNDLED_DLC = /(?:\bincl(?:uding)?|\bwith|\+)[\s._-]*(?:all[\s._-]*)?dlcs?\b/gi;
-
-function carriesBaseGameVersion(downloadTitle: string, pickedCategory: string | null): boolean {
-  // The user's own pick (when claiming a download) beats anything read from the title.
-  if (pickedCategory) return pickedCategory === "main" || pickedCategory === "update";
-  const { category } = categorizeDownload(downloadTitle);
-  if (category === "main" || category === "update") return true;
-  return category === "dlc" && !DLC_ONLY.test(downloadTitle.replace(BUNDLED_DLC, ""));
-}
 
 /**
  * Records the version carried by an installed download's release name (e.g. "v1.2.3") as the
@@ -25,8 +13,8 @@ function carriesBaseGameVersion(downloadTitle: string, pickedCategory: string | 
  * finishes with post-processing off, or when the import is finalized. Only the full game
  * (editions included) or an update counts (a DLC's version says nothing about the base game),
  * and a known version is only ever moved forward: an older or incomparable release never
- * overwrites what the user has. `category` is the one the user picked when claiming the
- * download, if any; otherwise it is inferred from the title.
+ * overwrites what the user has. `category` is the one stored with the download, if any;
+ * otherwise it is inferred from the title.
  * Never throws, so a failure here can't break the download or import flow. Returns the version
  * recorded, if any.
  */

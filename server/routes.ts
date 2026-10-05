@@ -533,6 +533,34 @@ function respondWithZodError(res: Response, error: z.ZodError, message: string):
   return res.status(400).json({ error: message, details: error.issues });
 }
 
+/**
+ * Builds a handler for a PATCH that sets one per-user field on a game: parses the body with
+ * `schema`, applies it through `update` (scoped to the authenticated user) and returns the
+ * updated game, or 404 when the game isn't the user's.
+ */
+function patchOwnGameField<T>(
+  schema: z.ZodType<T>,
+  update: (id: string, userId: string, body: T) => Promise<Game | undefined>,
+  labels: { invalid: string; log: string; failure: string }
+) {
+  return async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const updatedGame = await update(id, req.user!.id, schema.parse(req.body));
+      if (!updatedGame) {
+        return res.status(404).json({ error: "Game not found" });
+      }
+      return res.json(updatedGame);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return respondWithZodError(res, error, labels.invalid);
+      }
+      routesLogger.error({ error }, labels.log);
+      return res.status(500).json({ error: labels.failure });
+    }
+  };
+}
+
 // Helper to parse category query param which might be string, array, or comma-separated
 export function parseCategories(input: unknown): string[] | undefined {
   if (!input) return undefined;
@@ -1841,26 +1869,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     sensitiveEndpointLimiter,
     sanitizeGameId,
     validateRequest,
-    async (req: Request, res: Response) => {
-      try {
-        const { id } = req.params as { id: string };
-        const userId = req.user!.id;
-        const { userRating } = updateGameUserRatingSchema.parse(req.body);
-
-        const updatedGame = await storage.updateGameUserRating(id, userId, userRating);
-        if (!updatedGame) {
-          return res.status(404).json({ error: "Game not found" });
-        }
-
-        return res.json(updatedGame);
-      } catch (error) {
-        if (error instanceof z.ZodError) {
-          return respondWithZodError(res, error, "Invalid user rating data");
-        }
-        routesLogger.error({ error }, "error updating game user rating");
-        return res.status(500).json({ error: "Failed to update user rating" });
+    patchOwnGameField(
+      updateGameUserRatingSchema,
+      (id, userId, { userRating }) => storage.updateGameUserRating(id, userId, userRating),
+      {
+        invalid: "Invalid user rating data",
+        log: "error updating game user rating",
+        failure: "Failed to update user rating",
       }
-    }
+    )
   );
 
   // Set the version of the game the user has installed (free text), or null to clear it.
@@ -1870,26 +1887,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     sensitiveEndpointLimiter,
     sanitizeGameId,
     validateRequest,
-    async (req: Request, res: Response) => {
-      try {
-        const { id } = req.params as { id: string };
-        const userId = req.user!.id;
-        const { installedVersion } = updateGameInstalledVersionSchema.parse(req.body);
-
-        const updatedGame = await storage.updateGameInstalledVersion(id, userId, installedVersion);
-        if (!updatedGame) {
-          return res.status(404).json({ error: "Game not found" });
-        }
-
-        return res.json(updatedGame);
-      } catch (error) {
-        if (error instanceof z.ZodError) {
-          return respondWithZodError(res, error, "Invalid installed version data");
-        }
-        routesLogger.error({ error }, "error updating game installed version");
-        return res.status(500).json({ error: "Failed to update installed version" });
+    patchOwnGameField(
+      updateGameInstalledVersionSchema,
+      (id, userId, { installedVersion }) =>
+        storage.updateGameInstalledVersion(id, userId, installedVersion),
+      {
+        invalid: "Invalid installed version data",
+        log: "error updating game installed version",
+        failure: "Failed to update installed version",
       }
-    }
+    )
   );
 
   // Update the per-game download target, or clear it to use the account default.

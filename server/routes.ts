@@ -66,6 +66,7 @@ import {
   sanitizeIndexerUpdateData,
   sanitizeDownloaderData,
   sanitizeDownloaderTestData,
+  sanitizeProwlarrSyncData,
   sanitizeDownloaderUpdateData,
   sanitizeDownloaderDownloadData,
   sanitizeIndexerSearchQuery,
@@ -1610,32 +1611,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/api-keys", apiKeysRouter);
 
   // Sync indexers from Prowlarr
-  app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {
-    try {
-      const { url, apiKey } = req.body;
+  app.post(
+    "/api/indexers/prowlarr/sync",
+    sensitiveEndpointLimiter,
+    sanitizeProwlarrSyncData,
+    validateRequest,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { url, apiKey, allowInsecureLan, priority, categories } = req.body;
 
-      if (!url || !apiKey) {
-        return res.status(400).json({ error: "URL and API Key are required" });
+        if (!url || !apiKey) {
+          return res.status(400).json({ error: "URL and API Key are required" });
+        }
+
+        if (!(await isSafeUrl(url))) {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
+        const indexers = await prowlarrClient.getIndexers(url, apiKey, {
+          allowInsecureLan,
+          priority,
+          categories,
+        });
+
+        // ⚡ Bolt: Use batched sync method to handle all indexers in a single transaction
+        const results = await storage.syncIndexers(indexers);
+
+        return res.json({
+          success: true,
+          message: `Synced indexers from Prowlarr: ${results.added} added, ${results.updated} updated`,
+          results,
+        });
+      } catch (error) {
+        return next(error);
       }
-
-      if (!(await isSafeUrl(url))) {
-        return res.status(400).json({ error: "Invalid or unsafe URL" });
-      }
-
-      const indexers = await prowlarrClient.getIndexers(url, apiKey);
-
-      // ⚡ Bolt: Use batched sync method to handle all indexers in a single transaction
-      const results = await storage.syncIndexers(indexers);
-
-      return res.json({
-        success: true,
-        message: `Synced indexers from Prowlarr: ${results.added} added, ${results.updated} updated`,
-        results,
-      });
-    } catch (error) {
-      return next(error);
     }
-  });
+  );
 
   app.get("/api/ready", async (_req, res) => {
     let isHealthy = true;

@@ -38,6 +38,7 @@ import { DownloaderManager } from "../downloaders.js";
 import { torznabClient } from "../torznab.js";
 import { newznabClient } from "../newznab.js";
 import { rssService } from "../rss.js";
+import { prowlarrClient } from "../prowlarr.js";
 import { comparePassword } from "../auth.js";
 import { routesLogger } from "../logger.js";
 import { db } from "../db.js";
@@ -2773,6 +2774,39 @@ describe("API Routes - Extended Coverage", () => {
     it("should return 400 for missing url/apiKey", async () => {
       const response = await request(app).post("/api/indexers/prowlarr/sync").send({});
       expect(response.status).toBe(400);
+    });
+
+    it("passes the dialog's global settings to the Prowlarr client", async () => {
+      vi.spyOn(ssrfModule, "isSafeUrl").mockResolvedValue(true);
+      const response = await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({
+          url: "http://192.168.1.10:9696",
+          apiKey: "key",
+          allowInsecureLan: false,
+          priority: 5,
+          categories: ["4000", "4050"],
+        });
+
+      expect(response.status).toBe(200);
+      expect(prowlarrClient.getIndexers).toHaveBeenCalledWith("http://192.168.1.10:9696", "key", {
+        allowInsecureLan: false,
+        priority: 5,
+        categories: ["4000", "4050"],
+      });
+    });
+
+    it.each([
+      ["a priority out of range", { priority: 0 }],
+      ["a non-boolean insecure LAN flag", { allowInsecureLan: "true" }],
+      ["a non-numeric category", { categories: ["PC"] }],
+    ])("rejects %s", async (_label, extra) => {
+      const response = await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({ url: "http://192.168.1.10:9696", apiKey: "key", ...extra });
+
+      expect(response.status).toBe(400);
+      expect(prowlarrClient.getIndexers).not.toHaveBeenCalled();
     });
   });
 

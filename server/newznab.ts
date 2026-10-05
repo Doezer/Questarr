@@ -406,7 +406,7 @@ class NewznabClient {
         return {
           success: false,
           message:
-            `Connection failed: HTTP ${response.status}.` +
+            `Connection failed: HTTP ${response.status}` +
             withheldApiKeyHint(indexer, response.status),
         };
       }

@@ -95,8 +95,8 @@ export function withheldApiKeyHint(
     return "";
   }
   return (
-    " The API key was not sent because this indexer uses plain HTTP. Enable" +
-    " 'Allow insecure LAN connection' on the indexer, or switch it to HTTPS."
+    " (the API key was not sent because this indexer uses plain HTTP: enable" +
+    " 'Allow insecure LAN connection' on the indexer, or switch it to HTTPS)"
   );
 }
 

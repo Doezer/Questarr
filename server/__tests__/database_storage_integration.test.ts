@@ -535,6 +535,25 @@ describe("DatabaseStorage Integration", () => {
       expect((await storage.getIndexer(existing.id))?.allowInsecureLan).toBe(true);
     });
 
+    it("syncIndexers keeps an indexer's categories when the sync sends none", async () => {
+      const existing = await storage.addIndexer({
+        name: "Prowlarr Feed",
+        url: "http://192.168.1.10:9696/3/api",
+        apiKey: "fixture-old-value",
+        categories: ["4050"],
+      });
+
+      await storage.syncIndexers([
+        {
+          name: "Prowlarr Feed",
+          url: "http://192.168.1.10:9696/3/api",
+          apiKey: "fixture-prowlarr-value",
+        },
+      ]);
+
+      expect((await storage.getIndexer(existing.id))?.categories).toEqual(["4050"]);
+    });
+
     it("syncIndexers stores allowInsecureLan on new indexers", async () => {
       await storage.syncIndexers([
         {

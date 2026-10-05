@@ -42,6 +42,31 @@ import { useToast } from "@/hooks/use-toast";
 import { MultiSelect, type MultiSelectOption } from "@/components/ui/multi-select";
 import PageHeader from "@/components/PageHeader";
 
+// Standard Newznab/Torznab gaming categories offered when syncing from
+// Prowlarr, since no single indexer's caps apply to the whole batch.
+const PROWLARR_SYNC_CATEGORIES: MultiSelectOption[] = [
+  { value: "1000", label: "Console" },
+  { value: "1010", label: "Console > NDS" },
+  { value: "1020", label: "Console > PSP" },
+  { value: "1030", label: "Console > Wii" },
+  { value: "1040", label: "Console > Xbox" },
+  { value: "1050", label: "Console > Xbox 360" },
+  { value: "1080", label: "Console > PS3" },
+  { value: "1110", label: "Console > 3DS" },
+  { value: "1120", label: "Console > PS Vita" },
+  { value: "1130", label: "Console > Wii U" },
+  { value: "1140", label: "Console > Xbox One" },
+  { value: "1180", label: "Console > PS4" },
+  { value: "4000", label: "PC" },
+  { value: "4050", label: "PC > Games" },
+];
+
+function isPlainHttpUrl(url: string): boolean {
+  const trimmed = url.trim().toLowerCase();
+  // The server assumes http:// when no scheme is given.
+  return trimmed !== "" && !trimmed.startsWith("https://");
+}
+
 function PriorityControl({
   id,
   priority,
@@ -103,6 +128,18 @@ export default function IndexersPage() {
   const [isProwlarrDialogOpen, setIsProwlarrDialogOpen] = useState(false);
   const [prowlarrUrl, setProwlarrUrl] = useState("");
   const [prowlarrApiKey, setProwlarrApiKey] = useState("");
+  // null until the user touches the checkbox: it then follows the URL scheme.
+  const [prowlarrInsecureLanChoice, setProwlarrInsecureLanChoice] = useState<boolean | null>(null);
+  const [prowlarrPriority, setProwlarrPriority] = useState("");
+  const [prowlarrCategories, setProwlarrCategories] = useState<string[]>([]);
+  const prowlarrInsecureLan = prowlarrInsecureLanChoice ?? isPlainHttpUrl(prowlarrUrl);
+  const prowlarrPriorityValue =
+    prowlarrPriority.trim() === "" ? undefined : Number(prowlarrPriority);
+  const prowlarrPriorityInvalid =
+    prowlarrPriorityValue !== undefined &&
+    (!Number.isInteger(prowlarrPriorityValue) ||
+      prowlarrPriorityValue < 1 ||
+      prowlarrPriorityValue > 100);
   const [editingIndexer, setEditingIndexer] = useState<Indexer | null>(null);
   const [testingIndexerId, setTestingIndexerId] = useState<string | null>(null);
   const [availableCategories, setAvailableCategories] = useState<MultiSelectOption[]>([]);
@@ -122,11 +159,17 @@ export default function IndexersPage() {
       const response = await apiFetch("/api/indexers/prowlarr/sync", {
         method: "POST",
         headers,
-        body: JSON.stringify({ url: prowlarrUrl, apiKey: prowlarrApiKey }),
+        body: JSON.stringify({
+          url: prowlarrUrl,
+          apiKey: prowlarrApiKey,
+          allowInsecureLan: prowlarrInsecureLan,
+          ...(prowlarrPriorityValue === undefined ? {} : { priority: prowlarrPriorityValue }),
+          ...(prowlarrCategories.length > 0 ? { categories: prowlarrCategories } : {}),
+        }),
       });
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || "Failed to sync from Prowlarr");
+        throw new Error(error.details?.[0]?.msg || error.error || "Failed to sync from Prowlarr");
       }
       return response.json();
     },
@@ -839,6 +882,77 @@ export default function IndexersPage() {
                 onChange={(e) => setProwlarrApiKey(e.target.value)}
               />
             </div>
+            <section
+              aria-labelledby="prowlarr-defaults-heading"
+              className="space-y-3 rounded-lg border p-3"
+            >
+              <div className="space-y-1">
+                <h3 id="prowlarr-defaults-heading" className="text-sm font-medium leading-none">
+                  Apply to all synced indexers
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Leave a field empty to keep what Prowlarr or the existing indexer already has.
+                </p>
+              </div>
+              <div className="flex flex-row items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="prowlarr-insecure-lan"
+                    className="text-sm font-medium leading-none"
+                  >
+                    Allow insecure LAN connection
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Required when Prowlarr is reached over plain HTTP, otherwise the API key is not
+                    sent and every indexer answers 401. Only for a trusted local network.
+                  </p>
+                </div>
+                <Checkbox
+                  id="prowlarr-insecure-lan"
+                  className="mt-0.5"
+                  checked={prowlarrInsecureLan}
+                  onCheckedChange={(checked) => setProwlarrInsecureLanChoice(checked === true)}
+                  data-testid="checkbox-prowlarr-insecure-lan"
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="prowlarr-priority" className="text-sm font-medium leading-none">
+                  Priority
+                </label>
+                <Input
+                  id="prowlarr-priority"
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max="100"
+                  placeholder="Keep Prowlarr's priority"
+                  value={prowlarrPriority}
+                  onChange={(e) => setProwlarrPriority(e.target.value)}
+                  aria-invalid={prowlarrPriorityInvalid}
+                  aria-describedby={prowlarrPriorityInvalid ? "prowlarr-priority-error" : undefined}
+                  data-testid="input-prowlarr-priority"
+                />
+                {prowlarrPriorityInvalid && (
+                  <p id="prowlarr-priority-error" className="text-xs text-destructive">
+                    Priority must be a whole number between 1 and 100.
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <span id="prowlarr-categories-label" className="text-sm font-medium leading-none">
+                  Categories
+                </span>
+                <MultiSelect
+                  options={PROWLARR_SYNC_CATEGORIES}
+                  selected={prowlarrCategories}
+                  onChange={setProwlarrCategories}
+                  placeholder="Keep existing categories"
+                  emptyMessage="No categories available"
+                  aria-labelledby="prowlarr-categories-label"
+                  data-testid="multi-select-prowlarr-categories"
+                />
+              </div>
+            </section>
             <div className="flex justify-end space-x-2">
               <Button
                 variant="outline"
@@ -849,7 +963,12 @@ export default function IndexersPage() {
               </Button>
               <Button
                 onClick={() => syncProwlarrMutation.mutate()}
-                disabled={syncProwlarrMutation.isPending || !prowlarrUrl || !prowlarrApiKey}
+                disabled={
+                  syncProwlarrMutation.isPending ||
+                  !prowlarrUrl ||
+                  !prowlarrApiKey ||
+                  prowlarrPriorityInvalid
+                }
                 data-testid="button-sync-prowlarr-confirm"
               >
                 {syncProwlarrMutation.isPending ? (

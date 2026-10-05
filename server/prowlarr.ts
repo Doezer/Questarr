@@ -25,11 +25,22 @@ interface ProwlarrIndexer {
   apiKey?: string; // Sometimes exposed
 }
 
+/** Settings the user chose in the sync dialog, applied to every imported indexer. */
+export interface ProwlarrSyncOverrides {
+  allowInsecureLan?: boolean | undefined;
+  priority?: number | undefined;
+  categories?: string[] | undefined;
+}
+
 export class ProwlarrClient {
   /**
    * Fetch all indexers from Prowlarr and convert them to Questarr Indexer format
    */
-  async getIndexers(prowlarrUrl: string, apiKey: string): Promise<Partial<Indexer>[]> {
+  async getIndexers(
+    prowlarrUrl: string,
+    apiKey: string,
+    overrides: ProwlarrSyncOverrides = {}
+  ): Promise<Partial<Indexer>[]> {
     // Normalize URL
     let baseUrl = prowlarrUrl.replace(/\/+$/, "");
     if (!baseUrl.startsWith("http")) {
@@ -85,7 +96,8 @@ export class ProwlarrClient {
       // already sent the Prowlarr API key there. When that origin is plain HTTP
       // (the usual LAN setup), the feeds can only work if the key is allowed
       // over HTTP too: without the opt-in every synced indexer answers 401.
-      const allowInsecureLan = new URL(baseUrl).protocol === "http:";
+      // The dialog can override this either way.
+      const allowInsecureLan = overrides.allowInsecureLan ?? new URL(baseUrl).protocol === "http:";
 
       return compatibleIndexers.map((idx) => {
         // Construct Torznab/Newznab URL
@@ -102,12 +114,14 @@ export class ProwlarrClient {
           apiKey: apiKey, // Prowlarr uses the main API key for all indexer feeds by default
           protocol: protocol as "torznab" | "newznab",
           enabled: idx.enable,
-          priority: idx.priority,
+          priority: overrides.priority ?? idx.priority,
           rssEnabled: true,
           autoSearchEnabled: true,
           allowInsecureLan,
-          // We don't sync categories automatically as they differ per indexer
-          categories: [],
+          // Categories differ per indexer, so they are only set when the user
+          // picked some in the dialog. Leaving them out keeps the categories
+          // already chosen on an existing indexer instead of wiping them.
+          ...(overrides.categories?.length ? { categories: overrides.categories } : {}),
         };
       });
     } catch (error) {

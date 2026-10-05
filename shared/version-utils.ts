@@ -92,7 +92,9 @@ export function extractVersionFromReleaseName(releaseName: string): string | nul
   // ("Game.v1.2.Update"), which says nothing about where it leads; only a range does
   // ("Game.v1.0.to.v1.1.Patch", "Patch.Build.1000.to.Build.1200").
   if (UPDATE_MARKER.test(releaseName)) {
-    if (countMatches(releaseName, V_VERSION_ALL) > 1) return highestVVersion(releaseName, null);
+    const versions =
+      countMatches(releaseName, V_VERSION_ALL) + countMatches(releaseName, DOTTED_VERSION_ALL);
+    if (versions > 1) return highestDottedVersion(releaseName, highestVVersion(releaseName, null));
     if (countMatches(releaseName, BUILD_VERSION_ALL) > 1) return highestBuild(releaseName);
     return null;
   }

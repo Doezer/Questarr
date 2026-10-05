@@ -20,7 +20,7 @@ data layer, Socket.io realtime channel, and every external service Questarr talk
 (indexers, download clients, IGDB, Steam, HowLongToBeat, NexusMods, xREL, PCGamingWiki).
 
 **Out of scope:** OS/host hardening, reverse proxy/TLS termination, and Docker deployment
-configuration — those are covered by [`.github/SECURITY.md`](../.github/SECURITY.md)'s
+configuration — those are covered by [`docs/SECURITY.md`](SECURITY.md)'s
 deployment security guide.
 
 **Maintenance rule:** update this document whenever a change adds a new external
@@ -178,8 +178,8 @@ linked file as the source of truth.
   workflow file needed, configured at the repo level)
 - **Supply-chain scoring:** `.github/workflows/scorecard.yml` (OpenSSF Scorecard)
 - **SBOM:** [`docs/SBOM.md`](./SBOM.md) — Syft-generated, attached to Docker releases
-- **Disclosure process / access governance:** [`.github/SECURITY.md`](../.github/SECURITY.md),
-  [`MAINTAINERS.md`](../.github/MAINTAINERS.md)
+- **Disclosure process / access governance:** [`docs/SECURITY.md`](SECURITY.md),
+  [`MAINTAINERS.md`](MAINTAINERS.md)
 - **Test coverage:** `server/__tests__/ssrf.test.ts`, `ssrf_routes.test.ts`,
   `rss-ssrf.test.ts`, `downloaders_ssrf.test.ts`, `security.test.ts`,
   `security_error_handling.test.ts`, `auth-setup-ratelimit.test.ts`,

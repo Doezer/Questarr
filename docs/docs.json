@@ -1,0 +1,73 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Questarr",
+  "description": "Self-hosted video game manager inspired by the *Arr ecosystem.",
+  "colors": {
+    "primary": "#3B82F6",
+    "light": "#60A5FA",
+    "dark": "#2563EB"
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Deployment",
+        "pages": ["HOME_SERVER_APPS", "PROXMOX", "REVERSE_PROXY", "DATABASE", "MIGRATION"]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "API",
+          "ARCHITECTURE",
+          "DOWNLOADERS_COMPATIBILITY",
+          "synology-download-station-api-notes"
+        ]
+      },
+      {
+        "group": "Security",
+        "pages": [
+          "SECURITY",
+          "SECURITY_ASSESSMENT",
+          "THREAT_MODEL",
+          "SECRETS",
+          "VULNERABILITY_MANAGEMENT",
+          "VEX",
+          "SBOM",
+          "DEPENDENCIES",
+          "BEST_PRACTICES",
+          "CVE_FIXES_BY_RELEASE",
+          "CWE_FIXES_BY_RELEASE"
+        ]
+      },
+      {
+        "group": "Project",
+        "pages": ["PRD", "TODO", "GITHUB_DOCUMENTATION"]
+      },
+      {
+        "group": "Community",
+        "pages": ["CODE_OF_CONDUCT", "MAINTAINERS", "OPERATIONS"]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Discord",
+        "href": "https://discord.gg/STkp86wP9F"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/Doezer/Questarr"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/Doezer/Questarr",
+      "discord": "https://discord.gg/STkp86wP9F"
+    }
+  }
+}

@@ -10,13 +10,13 @@ If you discover a security vulnerability within this project, please do not repo
 
 ## Threat Model
 
-See [docs/THREAT_MODEL.md](../docs/THREAT_MODEL.md) for the system's attack surface analysis, trust boundaries, and known residual risks. This is the canonical reference for security-relevant architectural decisions, and should be updated alongside any change that adds a new external integration, trust boundary, or unauthenticated route.
+See [docs/THREAT_MODEL.md](THREAT_MODEL.md) for the system's attack surface analysis, trust boundaries, and known residual risks. This is the canonical reference for security-relevant architectural decisions, and should be updated alongside any change that adds a new external integration, trust boundary, or unauthenticated route.
 
-For a full inventory of how secrets and credentials are stored, accessed, and rotated throughout the codebase, see [docs/SECRETS.md](../docs/SECRETS.md).
+For a full inventory of how secrets and credentials are stored, accessed, and rotated throughout the codebase, see [docs/SECRETS.md](SECRETS.md).
 
-Vulnerabilities reported against a component Questarr ships (an npm dependency or the container base image) that do not actually affect the project are tracked, with an exploitability justification, in the [VEX feed](/docs/VEX.md) rather than silently ignored.
+Vulnerabilities reported against a component Questarr ships (an npm dependency or the container base image) that do not actually affect the project are tracked, with an exploitability justification, in the [VEX feed](VEX.md) rather than silently ignored.
 
-For the policy governing dependency vulnerability/license findings (SCA) and static analysis findings (SAST) — remediation thresholds, triage process, and the automated status checks that enforce them before release — see [docs/VULNERABILITY_MANAGEMENT.md](/docs/VULNERABILITY_MANAGEMENT.md).
+For the policy governing dependency vulnerability/license findings (SCA) and static analysis findings (SAST) — remediation thresholds, triage process, and the automated status checks that enforce them before release — see [docs/VULNERABILITY_MANAGEMENT.md](VULNERABILITY_MANAGEMENT.md).
 
 ## Deployment Security Guide
 
@@ -28,7 +28,7 @@ Never commit your `.env` file to version control. This file contains sensitive i
 
 Ensure you set the following environment variables in your production environment:
 
-- **`JWT_SECRET`**: This is used to sign authentication tokens. Set a long, random string so sessions survive restarts (if unset, one is auto-generated and stored in the database instead — see [docs/SECRETS.md](../docs/SECRETS.md)).
+- **`JWT_SECRET`**: This is used to sign authentication tokens. Set a long, random string so sessions survive restarts (if unset, one is auto-generated and stored in the database instead — see [docs/SECRETS.md](SECRETS.md)).
 - **`SQLITE_DB_PATH`**: Ensure the SQLite database file lives on a volume/path that isn't publicly accessible or served by the web server.
 - **`IGDB_CLIENT_SECRET`**: Your IGDB API secret.
 
@@ -49,7 +49,7 @@ Questarr uses SQLite, not PostgreSQL — the provided `docker-compose.yml` does 
 
 This policy governs how contributors are granted escalated permissions to this repository and its associated infrastructure. It is enforced by repository maintainers/admins for every access request — no escalation may be granted outside this process.
 
-The current list of project members holding escalated access is maintained in [MAINTAINERS.md](/.github/MAINTAINERS.md).
+The current list of project members holding escalated access is maintained in [MAINTAINERS.md](MAINTAINERS.md).
 
 ### Scope
 

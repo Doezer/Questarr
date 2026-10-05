@@ -2,7 +2,7 @@
 
 This file lists the project's participants, their roles and responsibilities, and — for
 those with escalated access — the sensitive resources they can reach, per the
-[Collaborator Access & Escalation Policy](/.github/SECURITY.md#collaborator-access--escalation-policy).
+[Collaborator Access & Escalation Policy](SECURITY.md#collaborator-access--escalation-policy).
 
 ## Roles & Responsibilities
 
@@ -12,10 +12,10 @@ those with escalated access — the sensitive resources they can reach, per the
 - Owns release management: versioning, changelog, and publishing Docker images to
   Docker Hub and GHCR.
 - Triages and responds to security vulnerability reports (see
-  [SECURITY.md](/.github/SECURITY.md)).
+  [SECURITY.md](SECURITY.md)).
 - Reviews and approves (or denies) requests for escalated collaborator access, per the
-  [Collaborator Access & Escalation Policy](/.github/SECURITY.md#collaborator-access--escalation-policy).
-- Enforces the [Code of Conduct](/.github/CODE_OF_CONDUCT.md) as the community leader responsible
+  [Collaborator Access & Escalation Policy](SECURITY.md#collaborator-access--escalation-policy).
+- Enforces the [Code of Conduct](CODE_OF_CONDUCT.md) as the community leader responsible
   for handling reports.
 
 There are currently no other maintainers, reviewers, or triagers with a formal role on
@@ -32,5 +32,5 @@ described in [CONTRIBUTING.md](/.github/CONTRIBUTING.md).
 
 Any change in repository collaborators, org membership, or access to secrets/deployment
 infrastructure must be reflected here as part of the same change, per the
-[Periodic Review & Revocation](/.github/SECURITY.md#periodic-review--revocation) section of the
+[Periodic Review & Revocation](SECURITY.md#periodic-review--revocation) section of the
 security policy.

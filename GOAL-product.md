@@ -107,7 +107,7 @@ Active and growing. Response time is good; structured community artifacts are th
 - [x] GitHub issues responded to promptly
 - [x] Dependabot + grouped dependency updates
 - [x] Contributing guide (`.github/CONTRIBUTING.md`)
-- [x] Security policy (`.github/SECURITY.md`)
+- [x] Security policy (`docs/SECURITY.md`)
 - [x] Issue and PR templates
 - [x] Docker Hub pull milestone: 500k (was 200k at roadmap start)
 - [x] Pre-release testing process for major features

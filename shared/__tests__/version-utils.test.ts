@@ -21,6 +21,8 @@ describe("extractVersionFromReleaseName", () => {
     ["Game.v1.0.to.v1.1.Patch-RUNE", "v1.1"], // highest of several
     ["Game.v1.4.Update.Build.5000-RUNE", "Build 5000"], // the update's build target wins
     ["Game.Update.v1.0.to.v1.1-RUNE", "v1.1"], // an update's target, not its start
+    ["Game.Update.Build.1000.to.Build.1200-RUNE", "Build 1200"], // same for build ranges
+    ["Game.v1.2.Repack-PREDATOR", "v1.2"], // a group name is not a pre-release tag
   ])("finds the version in %s", (name, expected) => {
     expect(extractVersionFromReleaseName(name)).toBe(expected);
   });
@@ -30,6 +32,9 @@ describe("extractVersionFromReleaseName", () => {
     "Some.Game.Update.2-CODEX", // second update pack, not a version
     "Game.x64v2.Edition", // "v2" glued to a word
     "Game.dev1.2.Repack",
+    "Game.Update.v1.2-beta-RUNE", // pre-releases: a stable v1.2 would supersede it
+    "Game.v2.0.RC1-GOG",
+    "Game v1.3 Preview",
   ])("finds nothing in %s", (name) => {
     expect(extractVersionFromReleaseName(name)).toBeNull();
   });

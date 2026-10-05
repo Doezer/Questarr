@@ -109,6 +109,24 @@ describe("InstalledVersionField", () => {
     expect(fireEvent.mouseDown(button)).toBe(false);
   });
 
+  it("sends a value typed during a save only after that save settles", async () => {
+    let finishFirst: (value: unknown) => void = () => {};
+    apiRequest.mockReturnValueOnce(new Promise((resolve) => (finishFirst = resolve)));
+    const input = renderField(null);
+    fireEvent.change(input, { target: { value: "v2" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(1));
+    fireEvent.change(input, { target: { value: "v3" } });
+    fireEvent.blur(input);
+    expect(apiRequest).toHaveBeenCalledTimes(1);
+
+    finishFirst({ ok: true, json: async () => ({}) });
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
+    expect(apiRequest).toHaveBeenLastCalledWith("PATCH", `/api/games/${gameId}/installed-version`, {
+      installedVersion: "v3",
+    });
+  });
+
   it("restores the stored value and warns when saving fails", async () => {
     apiRequest.mockRejectedValue(new Error("boom"));
     const input = renderField("v1.0");

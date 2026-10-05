@@ -41,11 +41,17 @@ const UPDATE_BUILD_VERSION = new RegExp(
   "i"
 );
 
+// "v1.2-beta", "1.2.RC1", "v2.0 Preview": a pre-release, which a later stable release of the
+// same number supersedes. Names carrying one are treated as having no readable version.
+const PRERELEASE_VERSION = /\d[\s._-]?(?:alpha|beta|rc|pre|preview|dev)(?![a-z])/i;
+const BUILD_VERSION_ALL = new RegExp(BUILD_VERSION.source, "gi");
+
 /**
  * Finds a version in a release name and returns it in display form ("v1.2.3" or
  * "Build 12345"), or null when the name carries none.
  */
 export function extractVersionFromReleaseName(releaseName: string): string | null {
+  if (PRERELEASE_VERSION.test(releaseName)) return null;
   // An update names the version it brings the game to, so what follows "Update" wins over the
   // base version before it ("Game.v1.0.Update.v1.1"), and its highest version wins over its
   // starting one ("Game.Update.v1.0.to.v1.1").
@@ -54,8 +60,9 @@ export function extractVersionFromReleaseName(releaseName: string): string | nul
   if (update && updateVersion) {
     return highestVVersion(releaseName.slice(update.index), `v${updateVersion}`);
   }
+  // Likewise for builds: "Update.Build.1000.to.Build.1200" brings the game to Build 1200.
   const updateBuild = UPDATE_BUILD_VERSION.exec(releaseName);
-  if (updateBuild?.[1]) return `Build ${updateBuild[1]}`;
+  if (updateBuild) return highestBuild(releaseName.slice(updateBuild.index));
   // Otherwise the highest of the versions named ("Game.v1.0.to.v1.1" brings the game to v1.1).
   const best = highestVVersion(releaseName, null);
   if (best) return best;
@@ -71,6 +78,15 @@ function highestVVersion(text: string, initial: string | null): string | null {
     if (best === null || (compareVersions(candidate, best) ?? 0) > 0) best = candidate;
   }
   return best;
+}
+
+function highestBuild(text: string): string | null {
+  let best: number | null = null;
+  for (const match of text.matchAll(BUILD_VERSION_ALL)) {
+    const build = Number(match[1]);
+    if (best === null || build > best) best = build;
+  }
+  return best === null ? null : `Build ${best}`;
 }
 
 /**

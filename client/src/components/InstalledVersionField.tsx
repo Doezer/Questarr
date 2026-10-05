@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Tag } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -44,6 +44,9 @@ export default function InstalledVersionField({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(installedVersion ?? "");
+  // A value entered while a save is in flight; sent once that save settles, so saves never
+  // race and the latest value always lands last.
+  const queued = useRef<{ value: string | null } | null>(null);
 
   // Follow the server value (another tab, a finished download detecting a newer version).
   useEffect(() => {
@@ -60,8 +63,14 @@ export default function InstalledVersionField({
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
     },
     onError: () => {
+      if (queued.current) return; // a newer value is about to be sent
       setDraft(installedVersion ?? "");
       toast({ description: "Failed to save the installed version", variant: "destructive" });
+    },
+    onSettled: (_data, _error, sent) => {
+      const next = queued.current;
+      queued.current = null;
+      if (next && next.value !== sent) mutation.mutate(next.value);
     },
   });
 
@@ -73,8 +82,11 @@ export default function InstalledVersionField({
   const save = (value: string) => {
     const next = value.trim() || null;
     if (next === (installedVersion ?? null)) return;
-    // Enter then blur would otherwise send the same value twice before the refetch lands.
-    if (mutation.isPending && mutation.variables === next) return;
+    if (mutation.isPending) {
+      // Enter then blur would otherwise send the same value twice before the refetch lands.
+      queued.current = mutation.variables === next ? null : { value: next };
+      return;
+    }
     mutation.mutate(next);
   };
 

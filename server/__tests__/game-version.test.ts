@@ -70,6 +70,29 @@ describe("recordVersionFromCompletedDownload", () => {
     expect(notifyUser).not.toHaveBeenCalled();
   });
 
+  it("compares again after losing the write to a concurrent older import", async () => {
+    // A v1.2 import wrote between this v1.3 import's read and its write.
+    getGame
+      .mockResolvedValueOnce({ id: "g1", installedVersion: "v1.0" })
+      .mockResolvedValueOnce({ id: "g1", installedVersion: "v1.2" });
+    replaceGameInstalledVersion.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const recorded = await recordVersionFromCompletedDownload(store, "g1", "Game.Update.v1.3-RUNE");
+    expect(recorded).toBe("v1.3");
+    expect(replaceGameInstalledVersion).toHaveBeenLastCalledWith("g1", "v1.2", "v1.3");
+    expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "g1");
+  });
+
+  it("stops when a concurrent import already wrote a newer version", async () => {
+    getGame
+      .mockResolvedValueOnce({ id: "g1", installedVersion: "v1.0" })
+      .mockResolvedValueOnce({ id: "g1", installedVersion: "v1.4" });
+    replaceGameInstalledVersion.mockResolvedValueOnce(false);
+    expect(
+      await recordVersionFromCompletedDownload(store, "g1", "Game.Update.v1.3-RUNE")
+    ).toBeNull();
+    expect(replaceGameInstalledVersion).toHaveBeenCalledTimes(1);
+  });
+
   it("compares against the current row, not the caller's snapshot", async () => {
     // The user moved to v2.0 while the v1.5 import was running.
     expect(await record("v2.0", "Test.Game.v1.5-RUNE")).toBeNull();

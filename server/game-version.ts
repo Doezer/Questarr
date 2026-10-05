@@ -31,22 +31,25 @@ export async function recordVersionFromCompletedDownload(
     if (!detected) return null;
 
     // Read the current row: an import can run for minutes, during which the user may have
-    // edited the version or another import may have advanced it.
-    const game = await store.getGame(gameId);
-    if (!game) return null;
-    if (game.installedVersion?.trim()) {
-      const cmp = compareVersions(detected, game.installedVersion);
-      if (cmp === null || cmp <= 0) return null;
+    // edited the version or another import may have advanced it. The write only lands if the
+    // version is still the one just compared against; if something else wrote first, compare
+    // again against what it wrote, so a concurrent older import can't hold back a newer one.
+    let game: Awaited<ReturnType<typeof store.getGame>>;
+    for (let attempt = 0; ; attempt++) {
+      game = await store.getGame(gameId);
+      if (!game) return null;
+      if (game.installedVersion?.trim()) {
+        const cmp = compareVersions(detected, game.installedVersion);
+        if (cmp === null || cmp <= 0) return null;
+      }
+      const written = await store.replaceGameInstalledVersion(
+        game.id,
+        game.installedVersion ?? null,
+        detected
+      );
+      if (written) break;
+      if (attempt >= 2) return null;
     }
-
-    // Written only if the version is still the one just compared against, so a value the user
-    // saved in between is never overwritten.
-    const written = await store.replaceGameInstalledVersion(
-      game.id,
-      game.installedVersion ?? null,
-      detected
-    );
-    if (!written) return null;
     logger.info(
       { gameId: game.id, previous: game.installedVersion, installedVersion: detected },
       "Recorded game version from completed download"

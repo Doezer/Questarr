@@ -109,6 +109,7 @@ describe("inferReleaseCategory", () => {
     expect(inferReleaseCategory("Game_DLC_v5.0")).toBe("dlc"); // "_" separates words too
     expect(inferReleaseCategory("Game.Season.Pass.v5.0")).toBe("dlc");
     expect(inferReleaseCategory("Game.Downloadable.Content.v5.0")).toBe("dlc");
+    expect(inferReleaseCategory("Game.Add-On.v5.0")).toBe("packs");
     expect(inferReleaseCategory("Expansion.Name.v5.0", "dlc", 0.95)).toBe("dlc");
     expect(inferReleaseCategory("Game.Complete.Edition-GOG", "dlc", 0.95)).toBe("dlc");
   });

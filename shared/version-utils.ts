@@ -211,14 +211,20 @@ export function inferReleaseCategory(
   aiReleaseType?: ReleaseType | null,
   aiReleaseTypeConfidence?: number | null
 ): DownloadCategory {
-  // The categorizer matches words, some of them multiword ("season pass"), so release
-  // separators become spaces ("Game_DLC_v5.0", "Game.Season.Pass.v5.0").
-  const title = downloadTitle.replace(/[._-]+/g, " ");
+  // The categorizer matches words, some multiword ("season pass"), which release separators
+  // hide ("Game_DLC_v5.0", "Game.Season.Pass.v5.0"); a spaced title is tried when the raw one
+  // reads as the full game, so markers spelled with a separator ("Add-On") still match.
+  const spaced = downloadTitle.replace(/[._-]+/g, " ");
+  const title = categorizeDownload(downloadTitle).category === "main" ? spaced : downloadTitle;
   const byTitle = categorizeDownload(title);
   const result = categorizeDownload(title, aiReleaseType, aiReleaseTypeConfidence);
   const titleDecided =
     result.category === byTitle.category && result.confidence === byTitle.confidence;
-  if (titleDecided && result.category === "dlc" && !DLC_ONLY.test(title.replace(BUNDLED_DLC, ""))) {
+  if (
+    titleDecided &&
+    result.category === "dlc" &&
+    !DLC_ONLY.test(spaced.replace(BUNDLED_DLC, ""))
+  ) {
     return "main";
   }
   return result.category;

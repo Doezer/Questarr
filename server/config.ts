@@ -49,10 +49,10 @@ const envSchema = z.object({
   PORT: z
     .string()
     .default("5000")
-    .refine((val) => !isNaN(parseInt(val, 10)) && parseInt(val, 10) > 0, {
+    .refine((val) => !Number.isNaN(Number.parseInt(val, 10)) && Number.parseInt(val, 10) > 0, {
       message: "PORT must be a valid positive integer",
     })
-    .transform((val) => parseInt(val, 10)),
+    .transform((val) => Number.parseInt(val, 10)),
   HOST: z.string().default("0.0.0.0"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("production"),
   DISABLE_HSTS: z

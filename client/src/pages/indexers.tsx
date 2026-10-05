@@ -369,7 +369,7 @@ export default function IndexersPage() {
     });
     setIsDialogOpen(true);
     // Fetch available categories from the indexer
-    fetchCategories(indexer.id);
+    void fetchCategories(indexer.id);
   };
 
   const handleAdd = () => {
@@ -720,7 +720,7 @@ export default function IndexersPage() {
                         min="1"
                         max="100"
                         {...field}
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
+                        onChange={(e) => field.onChange(Number.parseInt(e.target.value) || 1)}
                         data-testid="input-indexer-priority"
                       />
                     </FormControl>

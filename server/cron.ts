@@ -656,7 +656,7 @@ export async function checkGameUpdates() {
         const prefs =
           gameUpdatePrefsCache.get(notification.userId ?? "") ?? DEFAULT_NOTIFICATION_PREFERENCES;
         const eventKey = GAME_UPDATE_TITLE_TO_EVENT[notification.title];
-        if (eventKey && prefs[eventKey].apprise) appriseClient.send(notification);
+        if (eventKey && prefs[eventKey].apprise) void appriseClient.send(notification);
       }
     } catch (error) {
       igdbLogger.error({ error }, "Failed to add notifications in batch");
@@ -1000,7 +1000,7 @@ export async function checkDownloadStatus() {
                 userId: game?.userId ?? undefined,
               });
               notifyUser("notification", notification);
-              if (dlPrefs.downloadCompleted.apprise) appriseClient.send(notification);
+              if (dlPrefs.downloadCompleted.apprise) void appriseClient.send(notification);
             }
           } else {
             // Sync download status with actual status from downloader
@@ -1071,7 +1071,7 @@ export async function checkDownloadStatus() {
                   userId: game?.userId ?? undefined,
                 });
                 notifyUser("notification", notification);
-                if (prefs.downloadFailed.apprise) appriseClient.send(notification);
+                if (prefs.downloadFailed.apprise) void appriseClient.send(notification);
               }
             }
 
@@ -1226,7 +1226,7 @@ export async function checkDownloadStatus() {
               userId: game?.userId ?? undefined,
             });
             if (missedPrefs.downloadFailed.inApp) notifyUser("notification", notification);
-            if (missedPrefs.downloadFailed.apprise) appriseClient.send(notification);
+            if (missedPrefs.downloadFailed.apprise) void appriseClient.send(notification);
           }
 
           igdbLogger.info(
@@ -1421,7 +1421,7 @@ export async function checkAutoSearch() {
                           link: `modal:game:${game.id}`,
                         });
                         if (prefs.multipleResults.inApp) notifyUser("notification", notification);
-                        if (prefs.multipleResults.apprise) appriseClient.send(notification);
+                        if (prefs.multipleResults.apprise) void appriseClient.send(notification);
                       } catch (error) {
                         igdbLogger.warn(
                           { gameTitle: game.title, error },
@@ -1474,7 +1474,7 @@ export async function checkAutoSearch() {
                               link: "/",
                             });
                             notifyUser("notification", notification);
-                            if (prefs.autoDownload.apprise) appriseClient.send(notification);
+                            if (prefs.autoDownload.apprise) void appriseClient.send(notification);
                           }
 
                           igdbLogger.info(
@@ -1502,7 +1502,7 @@ export async function checkAutoSearch() {
                     link: `modal:game:${game.id}`,
                   });
                   notifyUser("notification", notification);
-                  if (prefs.gameAvailable.apprise) appriseClient.send(notification);
+                  if (prefs.gameAvailable.apprise) void appriseClient.send(notification);
                 }
               }
             } else if (mainItems.length > 1 && !wasAvailable && prefs.multipleResults.inApp) {
@@ -1515,7 +1515,7 @@ export async function checkAutoSearch() {
                 link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification);
-              if (prefs.multipleResults.apprise) appriseClient.send(notification);
+              if (prefs.multipleResults.apprise) void appriseClient.send(notification);
             }
           } catch (error) {
             igdbLogger.error({ gameTitle: game.title, error }, "Error searching for game");
@@ -1587,7 +1587,7 @@ export async function checkAutoSearch() {
                 link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification);
-              if (prefs.gameUpdates.apprise) appriseClient.send(notification);
+              if (prefs.gameUpdates.apprise) void appriseClient.send(notification);
             }
 
             if (packsItems.length > 0 && !wasPacksAvailable && prefs.gameUpdates.inApp) {
@@ -1599,7 +1599,7 @@ export async function checkAutoSearch() {
                 link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification);
-              if (prefs.gameUpdates.apprise) appriseClient.send(notification);
+              if (prefs.gameUpdates.apprise) void appriseClient.send(notification);
             }
           } catch (error) {
             igdbLogger.error(
@@ -1724,7 +1724,7 @@ export async function checkXrelReleases() {
               link: `modal:game:${game.id}`,
             });
             notifyUser("notification", notification);
-            if (xrelPrefs.xrelRelease.apprise) appriseClient.send(notification);
+            if (xrelPrefs.xrelRelease.apprise) void appriseClient.send(notification);
           }
           igdbLogger.info(
             { gameTitle: game.title, dirname: rel.dirname },
@@ -1993,7 +1993,7 @@ export async function syncUserSteamWishlist(
         message: `Successfully added ${addedGames.length} games from your Steam Wishlist.`,
       });
       notifyUser("notification", notification);
-      if (steamPrefs.steamSync.apprise) appriseClient.send(notification);
+      if (steamPrefs.steamSync.apprise) void appriseClient.send(notification);
     }
 
     return { success: true, addedCount: addedGames.length, games: addedGames };

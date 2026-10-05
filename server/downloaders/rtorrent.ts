@@ -497,8 +497,8 @@ export class RTorrentClient implements DownloaderClient {
       downloadersLogger.debug({ dfOutput }, "Got df output from rTorrent");
 
       // The output should be just the available bytes
-      const availableBytes = parseInt(dfOutput.toString().trim(), 10);
-      if (!isNaN(availableBytes) && availableBytes > 0) {
+      const availableBytes = Number.parseInt(dfOutput.toString().trim(), 10);
+      if (!Number.isNaN(availableBytes) && availableBytes > 0) {
         return availableBytes;
       }
 
@@ -885,10 +885,10 @@ export class RTorrentClient implements DownloaderClient {
       v && typeof v === "object" && "_text" in v ? (v as Record<string, unknown>)._text : v;
 
     if ("string" in rec) return getText(rec.string);
-    if ("int" in rec) return parseInt(getText(rec.int) as string);
-    if ("i4" in rec) return parseInt(getText(rec.i4) as string);
-    if ("i8" in rec) return parseInt(getText(rec.i8) as string);
-    if ("double" in rec) return parseFloat(getText(rec.double) as string);
+    if ("int" in rec) return Number.parseInt(getText(rec.int) as string);
+    if ("i4" in rec) return Number.parseInt(getText(rec.i4) as string);
+    if ("i8" in rec) return Number.parseInt(getText(rec.i8) as string);
+    if ("double" in rec) return Number.parseFloat(getText(rec.double) as string);
     if ("boolean" in rec) {
       const boolVal = getText(rec.boolean);
       return boolVal == 1 || boolVal === "1";

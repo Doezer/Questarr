@@ -176,7 +176,7 @@ export default function AutoDownloadRulesSettings({
               min="0"
               max="1000"
               value={minSeeders}
-              onChange={(e) => handleMinSeedersChange(parseInt(e.target.value) || 0)}
+              onChange={(e) => handleMinSeedersChange(Number.parseInt(e.target.value) || 0)}
               className="w-full"
               placeholder="0"
             />

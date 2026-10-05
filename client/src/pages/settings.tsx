@@ -1395,7 +1395,9 @@ export default function SettingsPage() {
                         min="1"
                         max="168"
                         value={searchIntervalHours}
-                        onChange={(e) => setSearchIntervalHours(parseInt(e.target.value) || 6)}
+                        onChange={(e) =>
+                          setSearchIntervalHours(Number.parseInt(e.target.value) || 6)
+                        }
                         className="w-32"
                       />
                       <p className="text-xs text-muted-foreground">
@@ -1853,7 +1855,7 @@ export default function SettingsPage() {
                         value={steamSyncIntervalHours}
                         onChange={(e) =>
                           setSteamSyncIntervalHours(
-                            Math.min(168, Math.max(1, parseInt(e.target.value) || 24))
+                            Math.min(168, Math.max(1, Number.parseInt(e.target.value) || 24))
                           )
                         }
                         className="w-32"
@@ -2214,9 +2216,9 @@ export default function SettingsPage() {
                     max="4"
                     value={igdbRateLimitPerSecond}
                     onChange={(e) => {
-                      const parsed = parseInt(e.target.value);
+                      const parsed = Number.parseInt(e.target.value);
                       setIgdbRateLimitPerSecond(
-                        isNaN(parsed) ? 3 : Math.min(4, Math.max(1, parsed))
+                        Number.isNaN(parsed) ? 3 : Math.min(4, Math.max(1, parsed))
                       );
                     }}
                     className="w-32"

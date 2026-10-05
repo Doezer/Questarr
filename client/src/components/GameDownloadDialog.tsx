@@ -1101,7 +1101,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem
                                 onClick={() => {
-                                  copyToClipboard(download.link).then((succeeded) => {
+                                  void copyToClipboard(download.link).then((succeeded) => {
                                     toast({
                                       description: succeeded
                                         ? "Link copied to clipboard"
@@ -1528,7 +1528,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           <AlertDialogAction
             className={buttonVariants({ variant: "outline" })}
             onClick={() => {
-              if (isDirectDownloadMode) handleBundleDirectDownload(false);
+              if (isDirectDownloadMode) void handleBundleDirectDownload(false);
               else handleBundleDownload(false);
             }}
           >
@@ -1536,7 +1536,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           </AlertDialogAction>
           <AlertDialogAction
             onClick={() => {
-              if (isDirectDownloadMode) handleBundleDirectDownload(true);
+              if (isDirectDownloadMode) void handleBundleDirectDownload(true);
               else handleBundleDownload(true);
             }}
             disabled={selectedUpdateIndices.size === 0}

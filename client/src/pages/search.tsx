@@ -797,7 +797,7 @@ export default function SearchPage() {
                         min="1"
                         max="10"
                         {...field}
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 5)}
+                        onChange={(e) => field.onChange(Number.parseInt(e.target.value) || 5)}
                         data-testid="input-download-priority"
                       />
                     </FormControl>

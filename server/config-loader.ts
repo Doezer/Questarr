@@ -53,14 +53,14 @@ export class ConfigLoader {
           const config = result.data;
           // Allow environment variable to override config file for container environments
           if (process.env.SSL_PORT) {
-            config.ssl.port = parseInt(process.env.SSL_PORT, 10);
+            config.ssl.port = Number.parseInt(process.env.SSL_PORT, 10);
           }
           return config;
         } else {
           console.error("Invalid config.yaml format:", result.error);
           return configSchema.parse({
             ssl: {
-              port: process.env.SSL_PORT ? parseInt(process.env.SSL_PORT, 10) : 9898,
+              port: process.env.SSL_PORT ? Number.parseInt(process.env.SSL_PORT, 10) : 9898,
             },
           });
         }
@@ -71,7 +71,7 @@ export class ConfigLoader {
 
     return configSchema.parse({
       ssl: {
-        port: process.env.SSL_PORT ? parseInt(process.env.SSL_PORT, 10) : 9898,
+        port: process.env.SSL_PORT ? Number.parseInt(process.env.SSL_PORT, 10) : 9898,
       },
     });
   }

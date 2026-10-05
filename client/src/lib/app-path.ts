@@ -14,7 +14,11 @@ export function normalizeBasePath(path: string): string {
 }
 
 function trimTrailingSlashes(path: string): string {
-  return path.replace(/\/+$/, "") || "/";
+  let end = path.length;
+  while (end > 0 && path[end - 1] === "/") {
+    end--;
+  }
+  return path.slice(0, end) || "/";
 }
 
 function resolveBasePathFromRuntimeAsset(runtimeAssetHref?: string): string | undefined {

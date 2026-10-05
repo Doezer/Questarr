@@ -105,7 +105,7 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
 
     if (g.releaseDate) {
       // ⚡ Bolt: Use fast string prefix parsing instead of slow new Date() allocation
-      const year = parseInt(g.releaseDate.substring(0, 4), 10);
+      const year = Number.parseInt(g.releaseDate.substring(0, 4), 10);
       if (!Number.isNaN(year)) {
         yearSum += year;
         yearCount++;

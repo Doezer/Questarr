@@ -2,12 +2,6 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.5.1-rc1] - 2026-10-xx
-
-### Added
-
-- **Installed version**: each game records the version you have installed, editable in the game details modal with suggestions from your downloads' release names. It is filled in automatically when a full-game or update download finishes, and update releases that are not newer than it no longer raise "Game Updates Available" (#1142).
-
 ## [1.5.0] - 2026-09-xx
 
 ### Added
@@ -24,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - **Time to Beat** via IGDB's official endpoint (#1063).
 - **Sort menu** on the Library page, plus an indexer-priority sort option for downloads (#980, #963).
 - **DLC & expansions**: games now persist their IGDB expansions and show them in a new DLC tab on the game detail page, with cover art, release year, and a category badge (#1105).
+- **Installed version**: each game records the version you have installed, editable in the game details modal with suggestions from your downloads' release names. It is filled in automatically when a full-game or update download finishes, and update releases that are not newer than it no longer raise "Game Updates Available" (#1142).
 - **xREL**: surfaces a release's nuke reason with a "Nuked" badge (#948).
 - **Screenshot lightbox**: carousel navigation with arrow-key and swipe support, plus an image counter (#804).
 - **Wishlist**: configurable grid column count (#871).

@@ -127,6 +127,23 @@ describe("InstalledVersionField", () => {
     });
   });
 
+  it("undoes an in-flight save when the stored value is typed back", async () => {
+    let finishFirst: (value: unknown) => void = () => {};
+    apiRequest.mockReturnValueOnce(new Promise((resolve) => (finishFirst = resolve)));
+    const input = renderField("v1");
+    fireEvent.change(input, { target: { value: "v2" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(1));
+    fireEvent.change(input, { target: { value: "v1" } });
+    fireEvent.blur(input);
+
+    finishFirst({ ok: true, json: async () => ({}) });
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
+    expect(apiRequest).toHaveBeenLastCalledWith("PATCH", `/api/games/${gameId}/installed-version`, {
+      installedVersion: "v1",
+    });
+  });
+
   it("restores the stored value and warns when saving fails", async () => {
     apiRequest.mockRejectedValue(new Error("boom"));
     const input = renderField("v1.0");

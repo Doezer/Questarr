@@ -81,12 +81,14 @@ export default function InstalledVersionField({
 
   const save = (value: string) => {
     const next = value.trim() || null;
-    if (next === (installedVersion ?? null)) return;
+    // Checked before comparing with the stored value, which is stale while a save is in
+    // flight: going back to it then still needs a save to undo the in-flight one.
     if (mutation.isPending) {
       // Enter then blur would otherwise send the same value twice before the refetch lands.
       queued.current = mutation.variables === next ? null : { value: next };
       return;
     }
+    if (next === (installedVersion ?? null)) return;
     mutation.mutate(next);
   };
 

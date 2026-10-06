@@ -2,7 +2,7 @@
 
 This document describes Questarr's system design: the actors (subsystems and
 external entities that can influence one another) and the data flows between
-them. It complements [`CLAUDE.md`](../CLAUDE.md), which covers code-level
+them. It complements [`CLAUDE.md`](https://github.com/Doezer/Questarr/blob/main/CLAUDE.md), which covers code-level
 conventions rather than system design, and [`docs/API.md`](API.md) /
 [`docs/SECURITY_ASSESSMENT.md`](SECURITY_ASSESSMENT.md), which cover the
 external interface and risk-assessment angles of the same system.
@@ -257,7 +257,7 @@ data flows, and the unauthenticated-route inventory).
 **Questarr is not, and is not planned to become, a multi-user application
 for the foreseeable future.** The supported deployment is one trusted
 operator per instance (see [`docs/PRD.md`](PRD.md) §6 Non-Goals and §8
-Technical Constraints, and [`../GOAL-product.md`](../GOAL-product.md)).
+Technical Constraints, and [`../GOAL-product.md`](https://github.com/Doezer/Questarr/blob/main/GOAL-product.md)).
 
 The schema and auth layer nonetheless have partial multi-account
 _plumbing_, which predates this decision and should not be read as a

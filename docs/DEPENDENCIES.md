@@ -4,7 +4,7 @@ This document describes how Questarr selects, obtains, and tracks its dependenci
 
 ## Selection
 
-Dependencies are added deliberately as part of normal development, via `npm install`, and land in `package.json` alongside the feature or fix that needs them. Preference is given to actively maintained, widely used packages already common in the Node/React ecosystem. New dependencies go through the same pull request review process as any other code change (see [.github/CONTRIBUTING.md](../.github/CONTRIBUTING.md)) before merging to `main`.
+Dependencies are added deliberately as part of normal development, via `npm install`, and land in `package.json` alongside the feature or fix that needs them. Preference is given to actively maintained, widely used packages already common in the Node/React ecosystem. New dependencies go through the same pull request review process as any other code change (see [.github/CONTRIBUTING.md](https://github.com/Doezer/Questarr/blob/main/.github/CONTRIBUTING.md)) before merging to `main`.
 
 ## Obtaining dependencies
 
@@ -25,15 +25,15 @@ Dependencies are added deliberately as part of normal development, via `npm inst
   - `node-gyp`'s `undici` dependency is bumped to `^6.29.0` to patch [CVE-2026-85024](https://github.com/advisories/GHSA-3wwx-pv8p-q78v) (affecting `6.25.0`–`6.28.0`). Scoped to `node-gyp` (reached via the dev-only `@lizenz/checker`) because the app's own direct `undici` dependency already carries the same fix on the 8.x line (8.10.2). Needed because `node-gyp` declares `undici: ^6.25.0`.
   - `eslint-plugin-react`'s `eslint` dependency is bumped to `^10.9.1` to allow ESLint v10 support. Needed because `eslint-plugin-react@7.37.2` officially supports only up to `eslint@^9.7`, but the linting rules in ESLint v10 are stricter and require updating the codebase to comply. This override is temporary — once `eslint-plugin-react` releases a new major version with official ESLint v10 support, it can be removed.
   - All of the above should be revisited (and likely removed) once the upstream packages bump their own internal dependency ranges past the vulnerable versions.
-  - The `check-overrides` CI job (`npm run check:overrides`, see [`scripts/check-overrides.mjs`](../scripts/check-overrides.mjs)) checks this automatically on every PR and fails once an override is no longer needed, so there's no need to track removal manually.
+  - The `check-overrides` CI job (`npm run check:overrides`, see [`scripts/check-overrides.mjs`](https://github.com/Doezer/Questarr/blob/main/scripts/check-overrides.mjs)) checks this automatically on every PR and fails once an override is no longer needed, so there's no need to track removal manually.
 
 ## Tracking and updates
 
-[Dependabot](https://docs.github.com/en/code-security/dependabot) is configured in [`.github/dependabot.yml`](../.github/dependabot.yml) to check for updates weekly (Monday) for both npm dependencies and GitHub Actions used in CI:
+[Dependabot](https://docs.github.com/en/code-security/dependabot) is configured in [`.github/dependabot.yml`](https://github.com/Doezer/Questarr/blob/main/.github/dependabot.yml) to check for updates weekly (Monday) for both npm dependencies and GitHub Actions used in CI:
 
 - Updates are opened as grouped pull requests (e.g. React-related packages, Radix UI components, dev vs. production dependencies, and all GitHub Actions bumps) to keep the PR volume manageable.
 - Semver-major bumps are proposed automatically like any other update rather than excluded, since silently skipping them meant a major-version-only security fix could go unnoticed; they aren't folded into the minor/patch groups, so they still land as their own PR and get individual review.
-- Every dependency-update PR runs through the same CI gate as any other change — lint, type check, the full test suite, and a Docker build (see [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) — before it can be merged.
+- Every dependency-update PR runs through the same CI gate as any other change — lint, type check, the full test suite, and a Docker build (see [`.github/workflows/ci.yml`](https://github.com/Doezer/Questarr/blob/main/.github/workflows/ci.yml)) — before it can be merged.
 
 ## Release-time visibility
 

@@ -368,6 +368,60 @@ describe("Cron - checkAutoSearch", () => {
     );
   });
 
+  it.each([
+    ["shelved", { includeShelved: false }, false],
+    ["completed", { includeCompleted: false }, false],
+    ["shelved", { includeCompleted: false }, true],
+    ["completed", { includeShelved: false }, true],
+    ["owned", { includeShelved: false, includeCompleted: false }, true],
+    ["playing", { includeShelved: false, includeCompleted: false }, true],
+    ["shelved", {}, true],
+    ["completed", {}, true],
+    ["shelved", { includeShelved: true }, true],
+    ["completed", { includeCompleted: true }, true],
+  ] as const)(
+    "respects update and pack notification status preferences for %s with %j",
+    async (status, statusPrefs, shouldNotify) => {
+      const game = { ...baseGame, status };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      mockGetUserGames.mockResolvedValue([game]);
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        notificationPreferences: JSON.stringify({
+          gameUpdates: { inApp: true, apprise: true, ...statusPrefs },
+        }),
+      });
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [UPDATE_ITEM, { ...UPDATE_ITEM, title: "Test Game Content Pack" }],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      // Muting notifications must not stop searching or updating availability badges.
+      expect(mockSearchAllIndexers).toHaveBeenCalled();
+      expect(mockUpdateGameSearchResultsByCategory).toHaveBeenCalledWith(game.id, {
+        updates: true,
+        packs: true,
+      });
+      if (shouldNotify) {
+        expect(mockAddNotification).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Game Updates Available", userId })
+        );
+        expect(mockAddNotification).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Game Packs Available", userId })
+        );
+        expect(mockNotifyUser).toHaveBeenCalledTimes(2);
+        expect(mockAppriseSend).toHaveBeenCalledTimes(2);
+      } else {
+        expect(mockAddNotification).not.toHaveBeenCalled();
+        expect(mockNotifyUser).not.toHaveBeenCalled();
+        expect(mockAppriseSend).not.toHaveBeenCalled();
+      }
+    }
+  );
+
   it("should not notify updates that are not newer than the installed version", async () => {
     const game = {
       ...baseGame,

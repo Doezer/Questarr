@@ -26,7 +26,7 @@ deployment security guide.
 **Maintenance rule:** update this document whenever a change adds a new external
 integration, a new trust boundary, a new unauthenticated route, or materially changes
 authentication/authorization behavior. This is enforced as part of the security-relevant
-test policy in [`.github/CONTRIBUTING.md`](../.github/CONTRIBUTING.md). Bump the "Last
+test policy in [`.github/CONTRIBUTING.md`](https://github.com/Doezer/Questarr/blob/main/.github/CONTRIBUTING.md). Bump the "Last
 reviewed" date above whenever this document is revisited, even if no changes are needed —
 a stale date is the signal that a review is overdue.
 
@@ -169,6 +169,10 @@ linked file as the source of truth.
 - **SQL injection:** not applicable by construction — Drizzle ORM parameterizes all
   application queries; the only raw SQL (`sql.raw`/`sql` template literals in
   `server/migrate.ts`) is hardcoded migration DDL with no user input.
+- **Archive extraction (import):** `server/services/ArchiveService.ts` — preflight listing
+  refuses archives over `ARCHIVE_MAX_ENTRIES` / `ARCHIVE_MAX_EXPANDED_BYTES`, with unsafe paths
+  (absolute, drive letter, `..`, too deep), or with symlinks/hard links; see
+  [`docs/SECRETS.md`](./SECRETS.md) §1
 - **Secrets encryption at rest:** `server/credential-crypto.ts` (AES-256-GCM) — indexer API
   keys and downloader username/passwords; see [`docs/SECRETS.md`](./SECRETS.md) §4 for the
   full mechanism (key resolution, legacy-plaintext-row handling, masked-sentinel rotation)
@@ -232,4 +236,4 @@ Re-review triggers, rather than a calendar chore that tends to get skipped:
 
 Any maintainer or contributor should update this document as part of the PR that triggers
 one of the above — see the testing policy in
-[`.github/CONTRIBUTING.md`](../.github/CONTRIBUTING.md).
+[`.github/CONTRIBUTING.md`](https://github.com/Doezer/Questarr/blob/main/.github/CONTRIBUTING.md).

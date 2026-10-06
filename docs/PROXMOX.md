@@ -114,7 +114,7 @@ vzdump 210 --mode snapshot --compress zstd
 
 ## Configuration
 
-All of the options in [`.env.example`](../.env.example) apply. Edit `/opt/questarr/.env` and restart:
+All of the options in [`.env.example`](https://github.com/Doezer/Questarr/blob/main/.env.example) apply. Edit `/opt/questarr/.env` and restart:
 
 ```bash
 pct exec 210 -- sh -c 'vi /opt/questarr/.env && systemctl restart questarr'

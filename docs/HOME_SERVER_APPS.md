@@ -42,7 +42,7 @@ Umbrel installs third-party apps from a _community app store_ — a Git reposito
 repository's root `umbrel-app-store.yml` (store ID `doezer`) and `doezer-questarr/` directory are
 exactly that; Umbrel requires app IDs to be prefixed with the store ID, hence `doezer-questarr`
 rather than `questarr` (which is already used by the
-[Home Assistant add-on](../README.md#home-assistant-add-on) directory).
+[Home Assistant add-on](https://github.com/Doezer/Questarr/blob/main/README.md#home-assistant-add-on) directory).
 
 1. In umbrelOS, open the **App Store**.
 2. Click the **⋮** menu (top right) → **Community App Stores**.

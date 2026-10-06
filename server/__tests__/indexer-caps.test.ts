@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { indexerAllowsApiKey, resolveSearchCategories } from "../indexer-caps.js";
+import {
+  indexerAllowsApiKey,
+  resolveSearchCategories,
+  withheldApiKeyHint,
+} from "../indexer-caps.js";
 
 describe("indexerAllowsApiKey", () => {
   it.each([
@@ -59,5 +63,30 @@ describe("resolveSearchCategories", () => {
 
   it("prefers explicit request categories over configured ones", () => {
     expect(resolveSearchCategories(["2000"], ["4000", "1000"])).toEqual(["2000"]);
+  });
+});
+
+describe("withheldApiKeyHint", () => {
+  const lanIndexer = { url: "http://192.168.1.10:9696/1/api", apiKey: "key" };
+
+  it("explains a 401 caused by withholding the key over plain HTTP", () => {
+    expect(withheldApiKeyHint({ ...lanIndexer, allowInsecureLan: false }, 401)).toContain(
+      "Allow insecure LAN connection"
+    );
+    expect(withheldApiKeyHint({ ...lanIndexer, allowInsecureLan: false }, 403)).not.toBe("");
+  });
+
+  it("stays silent when the key was actually sent or the failure is not auth", () => {
+    expect(withheldApiKeyHint({ ...lanIndexer, allowInsecureLan: true }, 401)).toBe("");
+    expect(
+      withheldApiKeyHint(
+        { ...lanIndexer, url: "https://idx.example.com/api", allowInsecureLan: false },
+        401
+      )
+    ).toBe("");
+    expect(withheldApiKeyHint({ ...lanIndexer, allowInsecureLan: false }, 500)).toBe("");
+    expect(withheldApiKeyHint({ ...lanIndexer, apiKey: "", allowInsecureLan: false }, 401)).toBe(
+      ""
+    );
   });
 });

@@ -10,10 +10,10 @@ rather than silently ignored.
 
 This is distinct from two adjacent documents:
 
-- [`docs/SBOM.md`](/docs/SBOM.md) — the inventory of components (what's shipped).
+- [`docs/SBOM.md`](./SBOM.md) — the inventory of components (what's shipped).
   The VEX feed makes exploitability statements _about_ entries in that
   inventory.
-- [`docs/SECURITY_ASSESSMENT.md`](/docs/SECURITY_ASSESSMENT.md) — a risk register
+- [`docs/SECURITY_ASSESSMENT.md`](./SECURITY_ASSESSMENT.md) — a risk register
   of Questarr's _own_ architectural/design risks (e.g. session handling,
   SSRF surface). VEX only covers vulnerabilities in third-party
   dependencies (npm packages and the `node:22-alpine` base image), identified
@@ -54,7 +54,7 @@ the published container image), with a `status` of one of:
 ## How the feed gates CI
 
 `npm audit` has no ignore list, so the build gates run
-[`scripts/audit-prod.mjs`](/scripts/audit-prod.mjs) (`npm run audit:prod`)
+[`scripts/audit-prod.mjs`](https://github.com/Doezer/Questarr/blob/main/scripts/audit-prod.mjs) (`npm run audit:prod`)
 instead of calling `npm audit` directly. It runs `npm audit --omit=dev --json`,
 drops an advisory only when a `not_affected` or `fixed` statement in this feed
 names its GHSA ID and covers the installed package version (`products` purl;
@@ -66,7 +66,7 @@ unfixed advisory, and it goes through PR review like any other change.
 
 ## How the feed is generated and kept current
 
-1. **Scanning** — [`.github/workflows/vulnerability-scan.yml`](/.github/workflows/vulnerability-scan.yml)
+1. **Scanning** — [`.github/workflows/vulnerability-scan.yml`](https://github.com/Doezer/Questarr/blob/main/.github/workflows/vulnerability-scan.yml)
    runs on every push to `main`, on a weekly schedule, and on demand. It:
    - Runs `npm audit --omit=dev --json` against the committed
      `package-lock.json`.
@@ -121,4 +121,4 @@ Revisit this document, and add/update statements in the feed, whenever:
   justification no longer holds (re-verify or flip the statement to
   `fixed`).
 - The base image (`node:22-alpine`) digest pinned in
-  [`Dockerfile`](/Dockerfile) is bumped.
+  [`Dockerfile`](https://github.com/Doezer/Questarr/blob/main/Dockerfile) is bumped.

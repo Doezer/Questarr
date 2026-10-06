@@ -10,7 +10,7 @@ glossed over.
 ## 1. Environment variables
 
 All configuration is optional; sensible defaults are used when a variable
-is unset. See [`.env.example`](../.env.example) for the canonical template.
+is unset. See [`.env.example`](https://github.com/Doezer/Questarr/blob/main/.env.example) for the canonical template.
 `.env` is loaded once via `dotenv/config` at `server/index.ts:2` and parsed
 against a Zod schema in `server/config.ts:10-59`. If any variable fails
 validation, the server logs the error and exits (`server/config.ts:64-80`)

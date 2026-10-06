@@ -20,6 +20,6 @@ This file is the single entry point for GitHub-facing documentation in this repo
   - [`docs/VULNERABILITY_MANAGEMENT.md`](./VULNERABILITY_MANAGEMENT.md), for the SCA/SAST remediation policy and release gates
   - [`docs/SECRETS.md`](./SECRETS.md), for details on how API keys, indexer/downloader credentials, and other secrets are stored and managed.
   - [`docs/SBOM.md`](./SBOM.md): Every published image ships with a Software Bill of Materials.
-  - [`docs/VEX.md`](./VEX.md), for details on the Questar's Vulnerability Exploitability Exchange feed
+  - [`docs/VEX.md`](./VEX.md), for details on Questarr's Vulnerability Exploitability Exchange feed
   - [`docs/DEPENDENCIES.md`](./DEPENDENCIES.md), for how dependencies are selected, obtained, and tracked.
 - `docs/CODE_OF_CONDUCT.md` (community health file)

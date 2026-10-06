@@ -4808,6 +4808,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         apiUrl: settings.apiUrl,
         key: settings.key,
         urls: settings.urls,
+        username: settings.username ?? "",
+        password: settings.password ? REDACTED_PLACEHOLDER : "",
       });
     } catch (error) {
       routesLogger.error({ error }, "Failed to fetch Apprise settings");
@@ -4817,11 +4819,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/settings/apprise", async (req, res) => {
     try {
-      const { apiUrl, key, urls } = req.body as {
+      const { apiUrl, key, urls, username, password } = req.body as {
         mode?: string;
         apiUrl?: string;
         key?: string;
         urls?: string;
+        username?: string;
+        password?: string;
       };
       const mode = normalizeAppriseMode(
         typeof req.body?.mode === "string" ? req.body.mode : undefined
@@ -4838,9 +4842,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (
         (apiUrl !== undefined && typeof apiUrl !== "string") ||
         (key !== undefined && typeof key !== "string") ||
-        (urls !== undefined && typeof urls !== "string")
+        (urls !== undefined && typeof urls !== "string") ||
+        (username !== undefined && typeof username !== "string") ||
+        (password !== undefined && typeof password !== "string")
       ) {
         return res.status(400).json({ error: "Invalid request payload types" });
+      }
+
+      // HTTP Basic Auth splits on the first colon, and apprise-api rejects one in APPRISE_USER.
+      if (username?.includes(":")) {
+        return res.status(400).json({ error: "Username cannot contain a colon" });
       }
 
       if (mode === "api") {
@@ -4873,6 +4884,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (urls !== undefined) {
         await storage.setSystemConfig("apprise.urls", urls.trim());
+      }
+      if (username !== undefined) {
+        await storage.setSystemConfig("apprise.username", username.trim());
+      }
+      if (password !== undefined && !isUnchangedSentinel(password)) {
+        await storage.setSystemConfig("apprise.password", await encryptCredential(password));
       }
 
       appriseClient.configure(await readAppriseSettings(storage));

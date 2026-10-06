@@ -332,6 +332,8 @@ describe("SettingsPage", () => {
         apiUrl: "http://apprise:8000",
         key: "",
         urls: "discord://webhook/xyz",
+        username: "",
+        password: "",
       });
     });
   });

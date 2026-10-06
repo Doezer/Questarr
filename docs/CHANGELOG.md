@@ -42,6 +42,7 @@ All notable changes to this project will be documented in this file.
 - **PostgreSQL backend**: [OPTIONAL] Questarr can now run on PostgreSQL instead of SQLite, selected with `DB_DIALECT=postgres` plus `DATABASE_URL` (setting `DATABASE_URL` alone keeps SQLite) (#1046). See `docs/DATABASE.md` if you're looking to migrate from SQLite.
 - **Playnite integration**: API keys, an integration API, and a Playnite extension. See [the extension's README](https://github.com/Doezer/Questarr/blob/main/extensions/playnite-questarr/README.md) for setup (#986).
 - **Steam wishlist**: optional auto-sync on a configurable interval, alongside the existing manual sync (#805).
+- **Apprise API login**: Questarr can send a username and password to an Apprise API server that requires a login (`APPRISE_AUTH_REQUIRED=yes`, Apprise API 2). The password is stored encrypted.
 
 #### Deployment & Admin
 

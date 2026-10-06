@@ -85,6 +85,63 @@ describe("Apprise client", () => {
     );
   });
 
+  it("sends HTTP Basic Auth credentials to a protected Apprise API server", async () => {
+    vi.mocked(safeFetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: vi.fn().mockResolvedValue(""),
+    } as never);
+
+    appriseClient.configure({
+      mode: "api",
+      apiUrl: "http://apprise:8000",
+      key: "config-key",
+      urls: null,
+      username: "admin",
+      password: "s3cret:pass",
+    });
+
+    await expect(appriseClient.test()).resolves.toEqual({ success: true });
+    expect(safeFetch).toHaveBeenCalledWith(
+      "http://apprise:8000/notify/config-key",
+      expect.objectContaining({
+        requireHttps: false,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${Buffer.from("admin:s3cret:pass").toString("base64")}`,
+        },
+      })
+    );
+  });
+
+  it("refuses to let credentials sent to an https server be redirected to http", async () => {
+    vi.mocked(safeFetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: vi.fn().mockResolvedValue(""),
+    } as never);
+
+    appriseClient.configure({
+      mode: "api",
+      apiUrl: "HTTPS://apprise.example.com",
+      key: "config-key",
+      urls: null,
+      username: "admin",
+      password: "secret",
+    });
+
+    await appriseClient.send(notification);
+    expect(safeFetch).toHaveBeenCalledWith(
+      "HTTPS://apprise.example.com/notify/config-key",
+      expect.objectContaining({
+        requireHttps: true,
+        headers: expect.objectContaining({
+          Authorization: `Basic ${Buffer.from("admin:secret").toString("base64")}`,
+        }),
+      })
+    );
+  });
+
   it("sends notifications via Apprise CLI mode using a config file, not argv URLs", async () => {
     let capturedArgs: string[] = [];
     let capturedConfigContent = "";

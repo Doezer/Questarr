@@ -102,6 +102,14 @@ const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: s
   { key: "errorDetected", label: "Error Detected", group: "system" },
 ];
 
+function isHttpUrl(value: string): boolean {
+  try {
+    return new URL(value.trim()).protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 function SettingsToggleRow({
   id,
   label,
@@ -374,6 +382,8 @@ export default function SettingsPage() {
   const [appriseApiUrl, setAppriseApiUrl] = useState("");
   const [appriseKey, setAppriseKey] = useState("");
   const [appriseUrls, setAppriseUrls] = useState("");
+  const [appriseUsername, setAppriseUsername] = useState("");
+  const [apprisePassword, setApprisePassword] = useState("");
   const appriseLoadedRef = useRef(false);
   const settingsLoadedRef = useRef(false);
 
@@ -531,6 +541,8 @@ export default function SettingsPage() {
     apiUrl: string | null;
     key: string | null;
     urls: string | null;
+    username?: string;
+    password?: string;
   }>({
     queryKey: ["/api/settings/apprise"],
     queryFn: () => apiRequest("GET", "/api/settings/apprise").then((r) => r.json()),
@@ -542,6 +554,8 @@ export default function SettingsPage() {
       if (appriseSettings.apiUrl !== undefined) setAppriseApiUrl(appriseSettings.apiUrl ?? "");
       if (appriseSettings.key !== undefined) setAppriseKey(appriseSettings.key ?? "");
       if (appriseSettings.urls !== undefined) setAppriseUrls(appriseSettings.urls ?? "");
+      setAppriseUsername(appriseSettings.username ?? "");
+      setApprisePassword(appriseSettings.password ?? "");
       appriseLoadedRef.current = true;
     }
   }, [appriseSettings]);
@@ -560,6 +574,8 @@ export default function SettingsPage() {
       apiUrl?: string;
       key?: string;
       urls?: string;
+      username?: string;
+      password?: string;
     }) => {
       const res = await apiRequest("POST", "/api/settings/apprise", data);
       return res.json();
@@ -1655,6 +1671,50 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 )}
+                {appriseMode === "api" && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="apprise-username">
+                        Username{" "}
+                        <span className="text-xs text-muted-foreground font-normal">
+                          (optional)
+                        </span>
+                      </Label>
+                      <Input
+                        id="apprise-username"
+                        type="text"
+                        autoComplete="off"
+                        value={appriseUsername}
+                        onChange={(e) => setAppriseUsername(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="apprise-password">
+                        Password{" "}
+                        <span className="text-xs text-muted-foreground font-normal">
+                          (optional)
+                        </span>
+                      </Label>
+                      <Input
+                        id="apprise-password"
+                        type="password"
+                        autoComplete="new-password"
+                        value={apprisePassword}
+                        onChange={(e) => setApprisePassword(e.target.value)}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground sm:col-span-2">
+                      Only needed when your Apprise API server requires a login:{" "}
+                      <code className="px-1">APPRISE_AUTH_REQUIRED=yes</code>.
+                    </p>
+                    {(appriseUsername.trim() || apprisePassword) && isHttpUrl(appriseApiUrl) && (
+                      <p className="text-xs text-amber-700 in-[.dark]:text-amber-500 sm:col-span-2">
+                        This API URL uses http://, so the login is sent unencrypted. Use https://
+                        unless Apprise runs on a network you trust.
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label htmlFor="apprise-urls">
                     Notification URLs{" "}
@@ -1694,6 +1754,8 @@ export default function SettingsPage() {
                               apiUrl: appriseApiUrl.trim(),
                               key: appriseKey.trim(),
                               urls: appriseUrls.trim(),
+                              username: appriseUsername.trim(),
+                              password: apprisePassword,
                             }
                       )
                     }

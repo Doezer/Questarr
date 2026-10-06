@@ -41,7 +41,8 @@ import { rssService } from "../rss.js";
 import { comparePassword } from "../auth.js";
 import { routesLogger } from "../logger.js";
 import { db } from "../db.js";
-import { appriseClient } from "../apprise.js";
+import { appriseClient, readAppriseSettings } from "../apprise.js";
+import { decryptCredential } from "../credential-crypto.js";
 import * as ssrfModule from "../ssrf.js";
 import fsExtra from "fs-extra";
 import { normalizeTitle } from "../../shared/title-utils.js";
@@ -140,6 +141,16 @@ vi.mock("../middleware.js", async () => {
 });
 
 vi.mock("../config.js", () => ({ config: mockConfig }));
+// The real encryptCredential would load its key through the mocked db module.
+vi.mock("../credential-crypto.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("../credential-crypto.js")>("../credential-crypto.js");
+  return {
+    ...actual,
+    encryptCredential: vi.fn(async (value: string) => `enc:v1:${value}`),
+    decryptCredential: vi.fn(async (value: string) => value),
+  };
+});
 vi.mock("../config-loader.js", () => ({ configLoader: createConfigLoaderMock() }));
 vi.mock("../socket.js", () => createSocketMock());
 
@@ -3943,6 +3954,74 @@ describe("API Routes - Extended Coverage", () => {
       expect(storage.setSystemConfig).toHaveBeenCalledWith("apprise.urls", "discord://webhook");
       expect(appriseClient.configure).toHaveBeenCalled();
       expect(appriseState["apprise.mode"]).toBe("cli");
+    });
+
+    it("should mask a saved API password and return the username", async () => {
+      appriseState["apprise.username"] = "admin";
+      appriseState["apprise.password"] = "secret";
+
+      const response = await request(app).get("/api/settings/apprise");
+
+      expect(response.status).toBe(200);
+      expect(response.body.username).toBe("admin");
+      expect(response.body.password).toBe("********");
+    });
+
+    it("should store API credentials encrypted and keep the password on a masked resubmit", async () => {
+      const response = await request(app).post("/api/settings/apprise").send({
+        mode: "api",
+        apiUrl: "http://apprise:8000",
+        key: "config-key",
+        username: " admin ",
+        password: "secret",
+      });
+
+      expect(response.status).toBe(200);
+      expect(appriseState["apprise.username"]).toBe("admin");
+      expect(appriseState["apprise.password"]).toBe("enc:v1:secret");
+
+      const resubmit = await request(app).post("/api/settings/apprise").send({
+        mode: "api",
+        apiUrl: "http://apprise:8000",
+        key: "config-key",
+        username: "admin",
+        password: "********",
+      });
+
+      expect(resubmit.status).toBe(200);
+      expect(appriseState["apprise.password"]).toBe("enc:v1:secret");
+    });
+
+    it("should not decrypt the API password in CLI mode", async () => {
+      appriseState["apprise.mode"] = "cli";
+      appriseState["apprise.password"] = "enc:v1:secret";
+      vi.mocked(decryptCredential).mockClear();
+
+      const settings = await readAppriseSettings(storage);
+
+      expect(settings.password).toBeNull();
+      expect(decryptCredential).not.toHaveBeenCalled();
+    });
+
+    it("should still report a saved API password while CLI mode is active", async () => {
+      appriseState["apprise.mode"] = "cli";
+      appriseState["apprise.password"] = "enc:v1:secret";
+
+      const response = await request(app).get("/api/settings/apprise");
+
+      expect(response.status).toBe(200);
+      expect(response.body.password).toBe("********");
+    });
+
+    it("should reject a username containing a colon", async () => {
+      const response = await request(app).post("/api/settings/apprise").send({
+        mode: "api",
+        apiUrl: "http://apprise:8000",
+        key: "config-key",
+        username: "ad:min",
+      });
+
+      expect(response.status).toBe(400);
     });
 
     it("should reject an invalid mode", async () => {

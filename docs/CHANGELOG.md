@@ -28,7 +28,7 @@ All notable changes to this project will be documented in this file.
 
 #### Downloads & Import
 
-- **AI release analysis (TypeSafe/Jev)**: [EXPERIMENTAL/OPTIONAL/BYOK] auto-download can run an AI legitimacy check and hold a suspicious match for manual review (notified over Apprise) instead of downloading it (#1070, #1077, #1078). Uses Jev model from TypeSafe via OpenRouter, with your own API key. [Learn about Jev](<[url](https://share.gemini.google/lrbViMx1ndNB)>)
+- **AI release analysis (TypeSafe/Jev)**: [EXPERIMENTAL/OPTIONAL/BYOK] auto-download can run an AI legitimacy check and hold a suspicious match for manual review (notified over Apprise) instead of downloading it (#1070, #1077, #1078). Uses Jev model from TypeSafe via OpenRouter, with your own API key. [Learn about Jev](https://share.gemini.google/lrbViMx1ndNB)
 - **Packs/Addons** download category (#876).
 - **Password-protected archives** are now routed to manual review with a password prompt, instead of failing (#1033).
 - **SABnzbd**: archive password support for G4U-style releases (#962).
@@ -40,7 +40,7 @@ All notable changes to this project will be documented in this file.
 #### Integrations
 
 - **PostgreSQL backend**: [OPTIONAL] Questarr can now run on PostgreSQL instead of SQLite, selected with `DB_DIALECT=postgres` plus `DATABASE_URL` (setting `DATABASE_URL` alone keeps SQLite) (#1046). See `docs/DATABASE.md` if you're looking to migrate from SQLite.
-- **Playnite integration**: API keys, an integration API, and a Playnite extension. See [the extension's README](../extensions/playnite-questarr/README.md) for setup (#986).
+- **Playnite integration**: API keys, an integration API, and a Playnite extension. See [the extension's README](https://github.com/Doezer/Questarr/blob/main/extensions/playnite-questarr/README.md) for setup (#986).
 - **Steam wishlist**: optional auto-sync on a configurable interval, alongside the existing manual sync (#805).
 
 #### Deployment & Admin
@@ -195,7 +195,7 @@ Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.d
   database would have silently skipped the rest — and it continued past
   per-table failures while still reporting `Migration completed.` Operators
   still migrating a pre-v1.1 PostgreSQL installation should use the archived
-  **v1.4.2** release — see [MIGRATION.md](./MIGRATION.md), which now inlines the
+  **v1.4.2** release — see [MIGRATION.md](https://github.com/Doezer/Questarr/blob/main/docs/MIGRATION.md), which now inlines the
   pinned compose file, links the sources by tag permalink, and spells out how to
   verify the result.
 

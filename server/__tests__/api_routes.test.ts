@@ -4003,6 +4003,16 @@ describe("API Routes - Extended Coverage", () => {
       expect(decryptCredential).not.toHaveBeenCalled();
     });
 
+    it("should still report a saved API password while CLI mode is active", async () => {
+      appriseState["apprise.mode"] = "cli";
+      appriseState["apprise.password"] = "enc:v1:secret";
+
+      const response = await request(app).get("/api/settings/apprise");
+
+      expect(response.status).toBe(200);
+      expect(response.body.password).toBe("********");
+    });
+
     it("should reject a username containing a colon", async () => {
       const response = await request(app).post("/api/settings/apprise").send({
         mode: "api",

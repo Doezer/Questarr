@@ -4809,7 +4809,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         key: settings.key,
         urls: settings.urls,
         username: settings.username ?? "",
-        password: settings.password ? REDACTED_PLACEHOLDER : "",
+        // Based on the stored value, not the decrypted one: CLI mode never decrypts the
+        // password, and the masked field must still round-trip when switching back to API.
+        password: (await storage.getSystemConfig("apprise.password")) ? REDACTED_PLACEHOLDER : "",
       });
     } catch (error) {
       routesLogger.error({ error }, "Failed to fetch Apprise settings");

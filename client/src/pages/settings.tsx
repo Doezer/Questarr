@@ -1696,8 +1696,8 @@ export default function SettingsPage() {
                       />
                     </div>
                     <p className="text-xs text-muted-foreground sm:col-span-2">
-                      Only needed when your Apprise API server requires a login (
-                      <code className="px-1">APPRISE_AUTH_REQUIRED=yes</code>).
+                      Only needed when your Apprise API server requires a login:{" "}
+                      <code className="px-1">APPRISE_AUTH_REQUIRED=yes</code>.
                     </p>
                   </div>
                 )}

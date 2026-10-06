@@ -122,7 +122,7 @@ describe("error-telemetry", () => {
     const notification = storageMock.addNotification.mock.calls[0][0] as InsertNotification;
     expect(notification.title).toBe("An error occurred");
     expect(notification.link).toMatch(/^error-report:/);
-    expect(notifyUserMock).toHaveBeenCalledWith("notification", expect.anything());
+    expect(notifyUserMock).toHaveBeenCalledWith("notification", expect.anything(), userOne.id);
   });
 
   it("auto-sends and creates an info notification when telemetryEnabled is true", async () => {

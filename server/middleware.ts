@@ -1,4 +1,4 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { body, param, query, validationResult } from "express-validator";
 import type { Request, Response, NextFunction } from "express";
 import { TORRENT_DOWNLOADER_TYPES, USENET_DOWNLOADER_TYPES } from "../shared/downloader-types.js";
@@ -77,7 +77,7 @@ export const scanRateLimiter = rateLimit({
   keyGenerator: (req: Request) => {
     const userId = req.user?.id;
     if (userId) return `user:${userId}`;
-    return req.ip ?? "unknown";
+    return ipKeyGenerator(req.ip ?? "unknown");
   },
   message: "Too many scan requests, please try again later",
   standardHeaders: true,

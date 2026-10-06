@@ -652,7 +652,7 @@ export async function checkGameUpdates() {
     try {
       const addedNotifications = await storage.addNotificationsBatch(notificationsToSend);
       for (const notification of addedNotifications) {
-        notifyUser("notification", notification);
+        notifyUser("notification", notification, notification.userId);
         const prefs =
           gameUpdatePrefsCache.get(notification.userId ?? "") ?? DEFAULT_NOTIFICATION_PREFERENCES;
         const eventKey = GAME_UPDATE_TITLE_TO_EVENT[notification.title];
@@ -948,7 +948,7 @@ export async function checkDownloadStatus() {
                     link: "/downloads",
                     userId: game?.userId ?? undefined,
                   });
-                  notifyUser("notification", notification);
+                  notifyUser("notification", notification, notification.userId);
                 } catch (notifErr) {
                   igdbLogger.error(
                     { notifErr, downloadId: download.id },
@@ -999,7 +999,7 @@ export async function checkDownloadStatus() {
                 link: "/",
                 userId: game?.userId ?? undefined,
               });
-              notifyUser("notification", notification);
+              notifyUser("notification", notification, notification.userId);
               if (dlPrefs.downloadCompleted.apprise) void appriseClient.send(notification);
             }
           } else {
@@ -1070,7 +1070,7 @@ export async function checkDownloadStatus() {
                   link: `modal:game:${download.gameId}`,
                   userId: game?.userId ?? undefined,
                 });
-                notifyUser("notification", notification);
+                notifyUser("notification", notification, notification.userId);
                 if (prefs.downloadFailed.apprise) void appriseClient.send(notification);
               }
             }
@@ -1225,7 +1225,8 @@ export async function checkDownloadStatus() {
               link: `modal:game:${download.gameId}`,
               userId: game?.userId ?? undefined,
             });
-            if (missedPrefs.downloadFailed.inApp) notifyUser("notification", notification);
+            if (missedPrefs.downloadFailed.inApp)
+              notifyUser("notification", notification, notification.userId);
             if (missedPrefs.downloadFailed.apprise) void appriseClient.send(notification);
           }
 
@@ -1420,7 +1421,8 @@ export async function checkAutoSearch() {
                           message: `${game.title}: ${aiHoldReason}. Please review and choose.`,
                           link: `modal:game:${game.id}`,
                         });
-                        if (prefs.multipleResults.inApp) notifyUser("notification", notification);
+                        if (prefs.multipleResults.inApp)
+                          notifyUser("notification", notification, notification.userId);
                         if (prefs.multipleResults.apprise) void appriseClient.send(notification);
                       } catch (error) {
                         igdbLogger.warn(
@@ -1473,7 +1475,7 @@ export async function checkAutoSearch() {
                               message: `Started downloading ${game.title}${groupSuffix} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
                               link: "/",
                             });
-                            notifyUser("notification", notification);
+                            notifyUser("notification", notification, notification.userId);
                             if (prefs.autoDownload.apprise) void appriseClient.send(notification);
                           }
 
@@ -1501,7 +1503,7 @@ export async function checkAutoSearch() {
                     message: `${game.title} is now available for download`,
                     link: `modal:game:${game.id}`,
                   });
-                  notifyUser("notification", notification);
+                  notifyUser("notification", notification, notification.userId);
                   if (prefs.gameAvailable.apprise) void appriseClient.send(notification);
                 }
               }
@@ -1514,7 +1516,7 @@ export async function checkAutoSearch() {
                 message: `${mainItems.length} result(s) found for ${game.title}. Please review and choose.`,
                 link: `modal:game:${game.id}`,
               });
-              notifyUser("notification", notification);
+              notifyUser("notification", notification, notification.userId);
               if (prefs.multipleResults.apprise) void appriseClient.send(notification);
             }
           } catch (error) {
@@ -1586,7 +1588,7 @@ export async function checkAutoSearch() {
                 message: `${updateItems.length} update(s) found for ${game.title}`,
                 link: `modal:game:${game.id}`,
               });
-              notifyUser("notification", notification);
+              notifyUser("notification", notification, notification.userId);
               if (prefs.gameUpdates.apprise) void appriseClient.send(notification);
             }
 
@@ -1598,7 +1600,7 @@ export async function checkAutoSearch() {
                 message: `${packsItems.length} pack/add-on result(s) found for ${game.title}`,
                 link: `modal:game:${game.id}`,
               });
-              notifyUser("notification", notification);
+              notifyUser("notification", notification, notification.userId);
               if (prefs.gameUpdates.apprise) void appriseClient.send(notification);
             }
           } catch (error) {
@@ -1723,7 +1725,7 @@ export async function checkXrelReleases() {
               message,
               link: `modal:game:${game.id}`,
             });
-            notifyUser("notification", notification);
+            notifyUser("notification", notification, notification.userId);
             if (xrelPrefs.xrelRelease.apprise) void appriseClient.send(notification);
           }
           igdbLogger.info(
@@ -1992,7 +1994,7 @@ export async function syncUserSteamWishlist(
         title: "Steam Wishlist Synced",
         message: `Successfully added ${addedGames.length} games from your Steam Wishlist.`,
       });
-      notifyUser("notification", notification);
+      notifyUser("notification", notification, notification.userId);
       if (steamPrefs.steamSync.apprise) void appriseClient.send(notification);
     }
 

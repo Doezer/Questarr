@@ -10,6 +10,8 @@ type ExecFileResult = { stdout: string; stderr: string };
 export interface ArchiveEntry {
   name: string;
   size: number;
+  isDirectory?: boolean;
+  isLink?: boolean;
 }
 
 function escapeRegExp(value: string): string {
@@ -18,6 +20,22 @@ function escapeRegExp(value: string): string {
 
 const EXEC_TIMEOUT_MS = 30 * 60_000;
 const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
+const DEFAULT_ARCHIVE_MAX_ENTRIES = 50_000;
+const DEFAULT_ARCHIVE_MAX_EXPANDED_BYTES = 250 * 1024 ** 3;
+const MAX_ARCHIVE_PATH_DEPTH = 64;
+
+function configuredLimit(name: string, fallback: number): number {
+  const configured = process.env[name];
+  if (configured === undefined) return fallback;
+  const value = Number(configured);
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+const ARCHIVE_MAX_ENTRIES = configuredLimit("ARCHIVE_MAX_ENTRIES", DEFAULT_ARCHIVE_MAX_ENTRIES);
+const ARCHIVE_MAX_EXPANDED_BYTES = configuredLimit(
+  "ARCHIVE_MAX_EXPANDED_BYTES",
+  DEFAULT_ARCHIVE_MAX_EXPANDED_BYTES
+);
 
 // A download client marking a transfer "complete" doesn't guarantee the file is fully
 // synced/renamed into its final location yet — e.g. NFS/SMB write-back lag between the
@@ -161,25 +179,147 @@ function runUnrar(args: string[]): Promise<ExecFileResult> {
   return runTool(binary, args, "unrar");
 }
 
+// Splits one listing block into its "key<separator>value" fields.
+function parseListingFields(block: string, separator: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const line of block.split(/\r?\n/)) {
+    const separatorIndex = line.indexOf(separator);
+    if (separatorIndex === -1) continue;
+    fields[line.slice(0, separatorIndex).trim()] = line
+      .slice(separatorIndex + separator.length)
+      .trim();
+  }
+  return fields;
+}
+
+// Directories may omit Size; anything else unparseable is -1 so preflight rejects it.
+function parseEntrySize(size: string | undefined, isDirectory: boolean): number {
+  const value = size === undefined && isDirectory ? 0 : Number(size);
+  return Number.isSafeInteger(value) && value >= 0 ? value : -1;
+}
+
+function makeEntry(
+  name: string,
+  size: number,
+  isDirectory: boolean,
+  isLink: boolean
+): ArchiveEntry {
+  return {
+    name,
+    size,
+    ...(isDirectory ? { isDirectory: true } : {}),
+    ...(isLink ? { isLink: true } : {}),
+  };
+}
+
 // Parses `7z l -slt` output: a blank-line-delimited series of "Key = Value" blocks. The
-// first block describes the archive itself (no "Folder" field) and is skipped; each
-// following block describes one entry, with "Folder = +" marking a directory (excluded —
-// only leaf files are returned, matching listEntries' contract).
+// archive's own block (the one carrying "Type") is skipped; each other block with a Path
+// describes one entry, including directories, so preflight bounds the filesystem work
+// caused by both files and directory trees. Zip-like formats flag directories with
+// "Folder = +", while 7z archives omit Folder and mark them with a "D" attribute.
 function parseSevenZipSltListing(stdout: string): ArchiveEntry[] {
   const entries: ArchiveEntry[] = [];
   for (const block of stdout.split(/\r?\n\r?\n/)) {
-    const fields: Record<string, string> = {};
-    for (const line of block.split(/\r?\n/)) {
-      const separatorIndex = line.indexOf(" = ");
-      if (separatorIndex === -1) continue;
-      fields[line.slice(0, separatorIndex).trim()] = line.slice(separatorIndex + 3).trim();
-    }
-    if (!("Folder" in fields) || !fields.Path) continue;
-    if (fields.Folder === "+") continue;
-    const size = Number(fields.Size);
-    entries.push({ name: fields.Path, size: Number.isFinite(size) ? size : 0 });
+    const fields = parseListingFields(block, " = ");
+    if (!fields.Path || "Type" in fields) continue;
+    if (!("Folder" in fields || "Attributes" in fields || "Size" in fields)) continue;
+    const attributes = fields.Attributes ?? "";
+    const isDirectory = fields.Folder === "+" || attributes.startsWith("D");
+    // Some formats print empty "Symbolic Link =" / "Hard Link =" fields for every
+    // entry; only a non-empty target marks a link.
+    const isLink =
+      Boolean(fields["Symbolic Link"] || fields["Hard Link"]) || /\blrwx/.test(attributes);
+    entries.push(
+      makeEntry(fields.Path, parseEntrySize(fields.Size, isDirectory), isDirectory, isLink)
+    );
   }
   return entries;
+}
+
+// Parses `unrar lt -v` output. Each "Archive:" line opens a volume; each blank-line-
+// delimited block with a "Name:" field describes one entry. A file split across volumes
+// is listed once per volume it spans: as the last entry of one volume and again as the
+// first entry of the next, so that continuation is dropped instead of counted twice.
+// Any type other than File or Directory (symbolic link, hard link, file copy, ...) is
+// reported as a link so preflight refuses it.
+function parseUnrarTechnicalListing(stdout: string): ArchiveEntry[] {
+  const entries: ArchiveEntry[] = [];
+  // UnRAR prints a header for every volume a file spans. Its `Ratio:` field marks the
+  // pieces: `-->` continues in the next volume, `<->` spans both sides, `<--` ends here.
+  // Only a piece split on both sides of a boundary is a continuation; a genuine
+  // same-named entry has no markers and must still count against the limits.
+  let previous: { entry: ArchiveEntry; splitAfter: boolean } | undefined;
+  for (const block of stdout.split(/\r?\n\s*\r?\n/)) {
+    const fields = parseListingFields(block, ": ");
+    if (!fields.Name || !fields.Type) continue;
+    const isDirectory = fields.Type === "Directory";
+    const entry = makeEntry(
+      fields.Name,
+      parseEntrySize(fields.Size, isDirectory),
+      isDirectory,
+      fields.Type !== "File" && !isDirectory
+    );
+    const splitBefore = fields.Ratio === "<--" || fields.Ratio === "<->";
+    const continuesPrevious =
+      splitBefore &&
+      previous?.splitAfter === true &&
+      previous.entry.name === entry.name &&
+      previous.entry.size === entry.size;
+    if (!continuesPrevious) entries.push(entry);
+    previous = { entry, splitAfter: fields.Ratio === "-->" || fields.Ratio === "<->" };
+  }
+  return entries;
+}
+
+// Splits an archive entry name into path segments, rejecting absolute, drive-letter,
+// NUL-containing, `..` and overly deep names.
+function safeEntrySegments(name: string): string[] {
+  const normalizedName = name.replaceAll("\\", "/");
+  const segments = normalizedName.split("/");
+  if (
+    !normalizedName ||
+    normalizedName.startsWith("/") ||
+    /^[a-z]:/i.test(normalizedName) ||
+    normalizedName.includes("\0") ||
+    segments.includes("..") ||
+    segments.length > MAX_ARCHIVE_PATH_DEPTH
+  ) {
+    throw new Error("Archive contains an unsafe file path.");
+  }
+  return segments;
+}
+
+function validateArchiveEntries(entries: ArchiveEntry[], outputDir: string): void {
+  if (entries.length > ARCHIVE_MAX_ENTRIES) {
+    throw new Error(`Archive contains too many entries (limit: ${ARCHIVE_MAX_ENTRIES}).`);
+  }
+
+  const root = path.resolve(outputDir);
+  const rootPrefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+  let expandedBytes = 0;
+
+  for (const entry of entries) {
+    if (!Number.isSafeInteger(entry.size) || entry.size < 0) {
+      throw new Error("Archive contains an entry with an invalid uncompressed size.");
+    }
+    if (entry.isLink) {
+      throw new Error("Archive contains a symbolic or hard link, which is not extracted.");
+    }
+
+    const segments = safeEntrySegments(entry.name);
+    const resolvedEntry = path.resolve(root, ...segments);
+    // An explicit "." or "./" entry (tar -cf archive.tar .) names the root itself.
+    if (resolvedEntry !== root && !resolvedEntry.startsWith(rootPrefix)) {
+      throw new Error("Archive contains a file path outside the extraction directory.");
+    }
+
+    if (entry.size > ARCHIVE_MAX_EXPANDED_BYTES - expandedBytes) {
+      throw new Error(
+        `Archive expands beyond the configured size limit (${ARCHIVE_MAX_EXPANDED_BYTES} bytes).`
+      );
+    }
+    expandedBytes += entry.size;
+  }
 }
 
 export class ArchiveService {
@@ -196,6 +336,29 @@ export class ArchiveService {
     } else {
       await runSevenZip(["t", "-y", ...(password ? [`-p${password}`] : []), "--", filePath]);
     }
+  }
+
+  private async listEntriesForExtraction(
+    filePath: string,
+    password?: string
+  ): Promise<ArchiveEntry[]> {
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= ARCHIVE_TEST_MAX_ATTEMPTS; attempt++) {
+      try {
+        return await this.listEntries(filePath, password);
+      } catch (err) {
+        this.classifyNonRetryableFailure(err, password);
+        lastErr = err;
+        if (attempt < ARCHIVE_TEST_MAX_ATTEMPTS) {
+          logger.warn(
+            { err, filePath, attempt },
+            "Archive listing failed — retrying in case the file is still settling on disk"
+          );
+          await delay(ARCHIVE_TEST_RETRY_DELAYS_MS[attempt - 1] ?? 3_000);
+        }
+      }
+    }
+    throw lastErr;
   }
 
   // Some failures short-circuit the retry loop entirely because retrying can never change the
@@ -324,8 +487,11 @@ export class ArchiveService {
     const tool = resolveTool(filePath);
     logger.debug({ filePath, outputDir, tool, hasPassword: !!password }, "Extracting archive");
 
-    // Validate before touching the filesystem, so a failing/unsupported archive never
-    // leaves behind an empty output directory.
+    // Inspect and bound attacker-controlled metadata before running the integrity check,
+    // which may decompress every entry. Validate before touching the filesystem, so a
+    // failing/unsupported archive never leaves behind an empty output directory.
+    const entries = await this.listEntriesForExtraction(filePath, password);
+    validateArchiveEntries(entries, outputDir);
     await this.testArchive(filePath, tool, password);
 
     // Always start from a clean output directory: a prior extraction attempt that was
@@ -394,20 +560,22 @@ export class ArchiveService {
   }
 
   /**
-   * Lists an archive's file entries without extracting it. Directory entries
-   * are excluded — only leaf files are returned.
+   * Lists an archive's file and directory entries without extracting it.
    *
-   * Always shells out to 7-Zip, even for .rar (which extraction routes to
-   * unrar instead): 7-Zip's `-slt` mode has a stable, unambiguous
-   * block-per-entry format regardless of archive type, whereas unrar's own
-   * listing commands (`l`/`v`/`lb`) are column-aligned text tables whose
-   * exact layout isn't safe to assume across the unrar builds this may run
-   * against. 7-Zip has read-only support for RAR (including RAR5) built in,
-   * so this works without needing unrar at all for the listing case.
+   * RAR archives are listed with unrar's technical listing (`lt`): the Alpine 7-Zip
+   * build the image ships is compiled without the RAR codec, so it cannot open them.
+   * Every other format goes through 7-Zip's `-slt` mode, a stable block-per-entry
+   * format regardless of archive type.
    */
-  async listEntries(filePath: string): Promise<ArchiveEntry[]> {
+  async listEntries(filePath: string, password?: string): Promise<ArchiveEntry[]> {
     logger.debug({ filePath }, "Listing archive contents");
-    const { stdout } = await runSevenZip(["l", "-slt", "-p-", "--", filePath]);
+    const passwordArg = password ? `-p${password}` : "-p-";
+    if (resolveTool(filePath) === "unrar") {
+      // -v lists every volume of a multi-volume set, not just the first.
+      const { stdout } = await runUnrar(["lt", "-v", passwordArg, "--", filePath]);
+      return parseUnrarTechnicalListing(stdout);
+    }
+    const { stdout } = await runSevenZip(["l", "-slt", passwordArg, "--", filePath]);
     return parseSevenZipSltListing(stdout);
   }
 
@@ -416,7 +584,7 @@ export class ArchiveService {
    * file (same relative path and size) under baseDir — i.e. the archive has
    * already been extracted alongside itself by something upstream (a
    * download client's own post-processing, for example). Listing failures
-   * (unsupported/unreadable archive for 7-Zip's listing path) are treated as
+   * (unsupported or unreadable archive) are treated as
    * "can't tell" rather than propagated — this check is purely an
    * optimization to skip redundant extraction, never load-bearing for
    * correctness, so a failure here should fall through to a normal
@@ -433,10 +601,11 @@ export class ArchiveService {
       );
       return false;
     }
-    if (entries.length === 0) return false;
+    const files = entries.filter((entry) => !entry.isDirectory);
+    if (files.length === 0) return false;
 
     const resolvedBaseDir = path.resolve(baseDir);
-    for (const entry of entries) {
+    for (const entry of files) {
       const normalizedName = entry.name.split(/[/\\]+/).join(path.sep);
       const candidatePath = path.resolve(baseDir, normalizedName);
       // entry.name comes from the archive's own (attacker-controllable) listing, not from

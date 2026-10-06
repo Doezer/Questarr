@@ -8,6 +8,9 @@ import { AUTH_COOKIE_NAME, parseCookies } from "./security.js";
 
 let io: Server | undefined;
 
+/** Room prefix that binds a socket to the authenticated user it belongs to. */
+const USER_ROOM_PREFIX = "user:";
+
 export function setupSocketIO(httpServer: HttpServer) {
   if (!io) {
     io = new Server({
@@ -40,6 +43,9 @@ export function setupSocketIO(httpServer: HttpServer) {
         return next(new Error("Authentication required"));
       }
       socket.data.userId = user.id;
+      // Join during the handshake rather than in the connection handler, so a
+      // notification fired right after connect cannot miss the room.
+      void socket.join(`${USER_ROOM_PREFIX}${user.id}`);
       return next();
     });
 
@@ -140,8 +146,17 @@ export function getIO() {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function notifyUser(type: string, payload: any) {
-  if (io) {
-    io.emit(type, payload);
+export function notifyUser(type: string, payload: any, userId?: string | null) {
+  if (!io) {
+    return;
   }
+
+  if (userId) {
+    // Owner known: reach only that user's sockets.
+    io.to(`${USER_ROOM_PREFIX}${userId}`).emit(type, payload);
+    return;
+  }
+
+  // No owner (app-wide event): broadcast, as before.
+  io.emit(type, payload);
 }

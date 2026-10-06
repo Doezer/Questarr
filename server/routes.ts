@@ -4544,7 +4544,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // or just import it at top if safe.
       // Ideally notifications are triggered by events, not by API, but this is good for testing.
       const { notifyUser } = await import("./socket.js");
-      notifyUser("notification", notification);
+      notifyUser("notification", notification, notification.userId);
       void appriseClient.send(notification);
 
       return res.status(201).json(notification);

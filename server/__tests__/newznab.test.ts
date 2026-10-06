@@ -178,8 +178,66 @@ describe("NewznabClient", () => {
         const [url] = (safeFetch as Mock).mock.calls[0] as [string];
         const expected = resolveSearchCategories(requested, configured).join(",");
         expect(new URL(url).searchParams.get("cat")).toBe(expected);
+        // Regression: assert against the raw request URL, not a decoded view.
+        // URLSearchParams would percent-encode the separator commas (`%2C`),
+        // and Newznab indexers that split `cat` without URL-decoding see that
+        // as a single opaque category instead of a list.
+        expect(url).toContain(`cat=${expected}`);
       }
     );
+
+    it("scopes the comma-literal fix to cat: q and apikey commas stay URL-encoded", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
+        ok: true,
+        text: async () => mockSearchXml,
+      });
+      const indexer = {
+        ...mockIndexer,
+        url: "https://example.com/api",
+        apiKey: "key,part",
+        allowInsecureLan: true,
+        categories: ["4000", "1000"],
+      };
+
+      await newznabClient.search(indexer, { query: "Hello, World" });
+
+      const [url] = (safeFetch as Mock).mock.calls[0] as [string];
+      // cat separators must be literal so indexers that split on "," see both IDs...
+      expect(url).toContain("cat=4000,1000");
+      // ...but commas in other params must keep their normal encoding. The fix is
+      // scoped to cat and must not rewrite q or the credential.
+      expect(url).toContain("q=Hello%2C+World");
+      expect(url).toContain("apikey=key%2Cpart");
+      expect(url).not.toContain("q=Hello,+World");
+      expect(url).not.toContain("apikey=key,part");
+      const parsed = new URL(url);
+      expect(parsed.searchParams.get("q")).toBe("Hello, World");
+      expect(parsed.searchParams.get("apikey")).toBe("key,part");
+    });
+
+    it("keeps reserved characters inside a category value encoded", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
+        ok: true,
+        text: async () => mockSearchXml,
+      });
+      const indexer = {
+        ...mockIndexer,
+        url: "https://example.com/api",
+        allowInsecureLan: true,
+        categories: ["4000&t=caps#x", "1000"],
+      };
+
+      await newznabClient.search(indexer, { query: "game" });
+
+      const [url] = (safeFetch as Mock).mock.calls[0] as [string];
+      // Only the separator commas become literal; the value cannot inject a parameter.
+      const parsed = new URL(url);
+      expect(parsed.searchParams.get("t")).toBe("search");
+      expect(parsed.searchParams.get("cat")).toBe("4000&t=caps#x,1000");
+      expect(url).toContain("cat=4000%26t%3Dcaps%23x,1000");
+    });
   });
 
   describe("getCategories", () => {

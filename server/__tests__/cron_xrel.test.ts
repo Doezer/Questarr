@@ -3,7 +3,7 @@ import { checkXrelReleases } from "../cron.js";
 import { storage } from "../storage.js";
 import { xrelClient, type XrelReleaseListItem } from "../xrel.js";
 import { notifyUser } from "../socket.js";
-import type { Game, UserSettings } from "../../shared/schema.js";
+import type { Game, Notification, UserSettings } from "../../shared/schema.js";
 
 // Mock dependencies
 vi.mock("../storage.js");
@@ -86,6 +86,9 @@ describe("checkXrelReleases", () => {
       xrelP2pReleases: false,
     } as unknown as UserSettings);
     vi.mocked(storage.hasXrelNotifiedRelease).mockResolvedValue(false);
+    vi.mocked(storage.addNotification).mockImplementation(
+      async (n) => ({ ...n, id: `notif-${n.title}` }) as unknown as Notification
+    );
 
     // Execute
     await checkXrelReleases();
@@ -99,6 +102,8 @@ describe("checkXrelReleases", () => {
     );
     expect(storage.addNotification).toHaveBeenCalledTimes(2);
     expect(notifyUser).toHaveBeenCalledTimes(2);
+    // Each notification goes only to the owner of the matching game.
+    expect(notifyUser).toHaveBeenCalledWith("notification", expect.anything(), "user-1");
   });
 
   it("should respect user preferences for scene/p2p releases", async () => {

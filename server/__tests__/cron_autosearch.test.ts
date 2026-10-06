@@ -2369,7 +2369,7 @@ describe("Cron - checkAutoSearch", () => {
 
       await checkAutoSearch();
 
-      expect(mockNotifyUser).toHaveBeenCalledWith("notification", { id: "notif-1" });
+      expect(mockNotifyUser).toHaveBeenCalledWith("notification", { id: "notif-1" }, undefined);
       expect(mockAppriseSend).not.toHaveBeenCalled();
     });
   });

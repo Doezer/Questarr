@@ -141,6 +141,9 @@ export default function IndexersPage() {
   const [prowlarrUrl, setProwlarrUrl] = useState("");
   const [prowlarrApiKey, setProwlarrApiKey] = useState("");
   const [prowlarrInsecureLan, setProwlarrInsecureLan] = useState(false);
+  // Set once the user toggles the box: from then on its state is a decision
+  // to apply, including unticking to revoke an earlier opt-in.
+  const [prowlarrInsecureLanTouched, setProwlarrInsecureLanTouched] = useState(false);
   const [prowlarrPriority, setProwlarrPriority] = useState("");
   const [prowlarrCategories, setProwlarrCategories] = useState<string[]>([]);
   const prowlarrNeedsInsecureLan = isPlainHttpUrl(prowlarrUrl) && !prowlarrInsecureLan;
@@ -171,6 +174,7 @@ export default function IndexersPage() {
   useEffect(() => {
     if (!isProwlarrDialogOpen) {
       setProwlarrPrefilled(false);
+      setProwlarrInsecureLanTouched(false);
       return;
     }
     if (prowlarrPrefilled || !savedProwlarrSettings) return;
@@ -208,8 +212,11 @@ export default function IndexersPage() {
         body: JSON.stringify({
           url: prowlarrUrl,
           apiKey: prowlarrApiKey,
-          // Only an explicit opt-in is sent; unticked keeps each indexer's setting.
-          ...(prowlarrInsecureLan ? { allowInsecureLan: true } : {}),
+          // A box left untouched and unticked keeps each indexer's own setting;
+          // ticking opts in, and unticking it revokes the opt-in.
+          ...(prowlarrInsecureLan || prowlarrInsecureLanTouched
+            ? { allowInsecureLan: prowlarrInsecureLan }
+            : {}),
           ...(prowlarrPriorityValue === undefined ? {} : { priority: prowlarrPriorityValue }),
           ...(prowlarrCategories.length > 0 ? { categories: prowlarrCategories } : {}),
         }),
@@ -967,7 +974,10 @@ export default function IndexersPage() {
                   id="prowlarr-insecure-lan"
                   className="mt-0.5"
                   checked={prowlarrInsecureLan}
-                  onCheckedChange={(checked) => setProwlarrInsecureLan(checked === true)}
+                  onCheckedChange={(checked) => {
+                    setProwlarrInsecureLan(checked === true);
+                    setProwlarrInsecureLanTouched(true);
+                  }}
                   aria-describedby={
                     prowlarrNeedsInsecureLan ? "prowlarr-insecure-lan-warning" : undefined
                   }

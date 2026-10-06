@@ -27,6 +27,8 @@ rather than starting with an invalid configuration.
 | `NODE_ENV`                              | `development` \| `production` \| `test`                       | No (defaults to `production`)                                                                                                                                                                                                 |
 | `SQLITE_DB_PATH`                        | Path to the SQLite database file                              | No (default `sqlite.db`)                                                                                                                                                                                                      |
 | `CREDENTIALS_ENCRYPTION_KEY`            | AES-256 key encrypting indexer/downloader credentials at rest | No — auto-generated (32 random bytes) and persisted to the DB if unset; must be a 64-char hex string if provided (§4)                                                                                                         |
+| `ARCHIVE_MAX_ENTRIES`                   | Max entries an archive may list before import extraction      | No (default `50000`). Archives listing more entries are refused before extraction. See [Archive extraction limits](#archive-extraction-limits) |
+| `ARCHIVE_MAX_EXPANDED_BYTES`            | Max total declared uncompressed size of an archive, in bytes  | No (default `268435456000`, 250 GiB). Archives declaring more are refused before extraction. See [Archive extraction limits](#archive-extraction-limits) |
 
 A legacy hardcoded default, `"questarr-default-secret-change-me"`, is
 explicitly rejected by a Zod `.refine()` (`server/config.ts:18-24`) so the
@@ -35,6 +37,38 @@ app can never silently run with that well-known value.
 The `.env` file itself is git-ignored (see `.gitignore`) and must never be
 committed. `docker-compose*.local.yml` and `gha-creds-*.json` are ignored
 for the same reason.
+
+### Archive extraction limits
+
+When an import finds an archive (`.rar`, `.zip`, `.7z`, and so on), Questarr
+lists its contents and checks every entry before extracting anything. RAR
+archives are listed with `unrar lt -v`; other formats use 7-Zip. Questarr
+refuses the archive, and the import fails with an error, if any of these is
+true:
+
+| Check                                                                                         | Error message                                                         |
+| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| More entries than `ARCHIVE_MAX_ENTRIES`                                                       | `Archive contains too many entries (limit: N).`                       |
+| Total declared uncompressed size above `ARCHIVE_MAX_EXPANDED_BYTES`                           | `Archive expands beyond the configured size limit (N bytes).`         |
+| An entry with an absolute path, a drive letter (`C:`), a `..` segment, or more than 64 levels | `Archive contains an unsafe file path.`                               |
+| An entry that would resolve outside the extraction directory                                  | `Archive contains a file path outside the extraction directory.`      |
+| A symbolic link or hard link                                                                  | `Archive contains a symbolic or hard link, which is not extracted.`   |
+| An entry with a missing or invalid uncompressed size                                          | `Archive contains an entry with an invalid uncompressed size.`        |
+
+The path and link checks always apply. If a legitimate release is refused
+for size or entry count, raise the matching limit and restart the server:
+
+```bash
+# .env
+ARCHIVE_MAX_ENTRIES=200000
+ARCHIVE_MAX_EXPANDED_BYTES=536870912000 # 500 GiB
+```
+
+Both values must be positive whole numbers. Questarr reads them at startup,
+outside the Zod schema above, so an empty, zero, negative, or non-numeric
+value is ignored and the default applies instead of stopping the server.
+See [`docs/SECURITY_ASSESSMENT.md`](SECURITY_ASSESSMENT.md) for why these
+checks exist.
 
 ## 2. Authentication secret (`JWT_SECRET`)
 

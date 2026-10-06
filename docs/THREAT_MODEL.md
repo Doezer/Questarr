@@ -169,6 +169,10 @@ linked file as the source of truth.
 - **SQL injection:** not applicable by construction — Drizzle ORM parameterizes all
   application queries; the only raw SQL (`sql.raw`/`sql` template literals in
   `server/migrate.ts`) is hardcoded migration DDL with no user input.
+- **Archive extraction (import):** `server/services/ArchiveService.ts` — preflight listing
+  refuses archives over `ARCHIVE_MAX_ENTRIES` / `ARCHIVE_MAX_EXPANDED_BYTES`, with unsafe paths
+  (absolute, drive letter, `..`, too deep), or with symlinks/hard links; see
+  [`docs/SECRETS.md`](./SECRETS.md) §1
 - **Secrets encryption at rest:** `server/credential-crypto.ts` (AES-256-GCM) — indexer API
   keys and downloader username/passwords; see [`docs/SECRETS.md`](./SECRETS.md) §4 for the
   full mechanism (key resolution, legacy-plaintext-row handling, masked-sentinel rotation)

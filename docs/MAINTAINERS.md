@@ -20,7 +20,7 @@ those with escalated access — the sensitive resources they can reach, per the
 
 There are currently no other maintainers, reviewers, or triagers with a formal role on
 the project; all other contributions come from the community via pull requests as
-described in [CONTRIBUTING.md](/.github/CONTRIBUTING.md).
+described in [CONTRIBUTING.md](https://github.com/Doezer/Questarr/blob/main/.github/CONTRIBUTING.md).
 
 ## Sensitive Access
 

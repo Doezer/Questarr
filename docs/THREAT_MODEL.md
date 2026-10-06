@@ -26,7 +26,7 @@ deployment security guide.
 **Maintenance rule:** update this document whenever a change adds a new external
 integration, a new trust boundary, a new unauthenticated route, or materially changes
 authentication/authorization behavior. This is enforced as part of the security-relevant
-test policy in [`.github/CONTRIBUTING.md`](../.github/CONTRIBUTING.md). Bump the "Last
+test policy in [`.github/CONTRIBUTING.md`](https://github.com/Doezer/Questarr/blob/main/.github/CONTRIBUTING.md). Bump the "Last
 reviewed" date above whenever this document is revisited, even if no changes are needed —
 a stale date is the signal that a review is overdue.
 
@@ -232,4 +232,4 @@ Re-review triggers, rather than a calendar chore that tends to get skipped:
 
 Any maintainer or contributor should update this document as part of the PR that triggers
 one of the above — see the testing policy in
-[`.github/CONTRIBUTING.md`](../.github/CONTRIBUTING.md).
+[`.github/CONTRIBUTING.md`](https://github.com/Doezer/Questarr/blob/main/.github/CONTRIBUTING.md).

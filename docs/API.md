@@ -309,7 +309,7 @@ router), both behind the global auth gate plus explicit `authenticateToken`.
 
 This is the one part of the API that accepts a long-lived **integration API
 key** in addition to a JWT, for machine clients that cannot run the interactive
-login flow — the [Playnite extension](../extensions/playnite-questarr/README.md),
+login flow — the [Playnite extension](https://github.com/Doezer/Questarr/blob/main/extensions/playnite-questarr/README.md),
 scripts, other self-hosted tools. The key is presented as `X-Api-Key: <key>` or
 `Authorization: Bearer <key>` (keys are recognised by their `qsr_` prefix, so a
 Bearer header is unambiguous between a key and a JWT).

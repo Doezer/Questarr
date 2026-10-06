@@ -1580,6 +1580,14 @@ export async function checkAutoSearch() {
               packs: packsItems.length > 0,
             });
 
+            // Keep availability badges current even when this status is muted.
+            if (
+              (game.status === "shelved" && prefs.gameUpdates.includeShelved === false) ||
+              (game.status === "completed" && prefs.gameUpdates.includeCompleted === false)
+            ) {
+              continue;
+            }
+
             if (updateItems.length > 0 && !wasUpdateAvailable && prefs.gameUpdates.inApp) {
               const notification = await storage.addNotification({
                 userId,

@@ -96,7 +96,7 @@ const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: s
   { key: "autoDownload", label: "Auto-Download Started", group: "downloads" },
   { key: "gameAvailable", label: "Game Found on Indexer", group: "downloads" },
   { key: "multipleResults", label: "Multiple Releases Found", group: "downloads" },
-  { key: "gameUpdates", label: "Game Updates Available", group: "downloads" },
+  { key: "gameUpdates", label: "Game Updates and New Packs/Add-ons", group: "downloads" },
   { key: "xrelRelease", label: "Scene/P2P Release (xREL)", group: "integrations" },
   { key: "steamSync", label: "Steam Wishlist Synced", group: "integrations" },
   { key: "errorDetected", label: "Error Detected", group: "system" },
@@ -598,7 +598,7 @@ export default function SettingsPage() {
 
   const handleNotifPrefChange = (
     key: NotificationEvent,
-    channel: "inApp" | "apprise",
+    channel: "inApp" | "apprise" | "includeShelved" | "includeCompleted",
     checked: boolean
   ) => {
     const updated = { ...notifPrefs, [key]: { ...notifPrefs[key], [channel]: checked } };
@@ -1777,6 +1777,35 @@ export default function SettingsPage() {
                       })}
                     </tbody>
                   </table>
+                </div>
+                <div className="mt-6 space-y-4 border-t pt-4">
+                  <div>
+                    <h3 className="text-sm font-medium">Game updates and new packs/add-ons</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Choose whether shelved and completed games send these notifications. Applies
+                      to both In-App and Apprise. Games are still checked for available content.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <Label htmlFor="notify-updates-shelved">Notify for shelved games</Label>
+                    <Switch
+                      id="notify-updates-shelved"
+                      checked={notifPrefs.gameUpdates.includeShelved !== false}
+                      onCheckedChange={(checked) =>
+                        handleNotifPrefChange("gameUpdates", "includeShelved", checked)
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <Label htmlFor="notify-updates-completed">Notify for completed games</Label>
+                    <Switch
+                      id="notify-updates-completed"
+                      checked={notifPrefs.gameUpdates.includeCompleted !== false}
+                      onCheckedChange={(checked) =>
+                        handleNotifPrefChange("gameUpdates", "includeCompleted", checked)
+                      }
+                    />
+                  </div>
                 </div>
               </CardContent>
             </Card>

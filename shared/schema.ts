@@ -900,7 +900,15 @@ export type NotificationEvent =
 export type NotificationPreferences = Record<
   NotificationEvent,
   { inApp: boolean; apprise: boolean }
->;
+> & {
+  gameUpdates: {
+    inApp: boolean;
+    apprise: boolean;
+    // Optional so preferences saved before these controls retain notifications.
+    includeShelved?: boolean;
+    includeCompleted?: boolean;
+  };
+};
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   gameReleased: { inApp: true, apprise: true },
@@ -910,7 +918,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   autoDownload: { inApp: true, apprise: true },
   gameAvailable: { inApp: true, apprise: true },
   multipleResults: { inApp: true, apprise: true },
-  gameUpdates: { inApp: true, apprise: true },
+  gameUpdates: { inApp: true, apprise: true, includeShelved: true, includeCompleted: true },
   xrelRelease: { inApp: true, apprise: true },
   steamSync: { inApp: true, apprise: false },
   errorDetected: { inApp: true, apprise: false },

@@ -262,6 +262,7 @@ export default function CalendarPage() {
                   currentDate={currentDate}
                   gamesByDate={gamesByDate}
                   onGameClick={handleGameClick}
+                  today={today}
                 />
               )}
               {viewMode === "month" && (
@@ -305,13 +306,17 @@ function YearView({
   currentDate,
   gamesByDate,
   onGameClick,
+  today,
 }: {
   currentDate: Date;
   gamesByDate: GamesByDate;
   onGameClick: (game: Game) => void;
+  today: Date;
 }) {
   const year = currentDate.getFullYear();
   const months = Array.from({ length: 12 }, (_, i) => i);
+  const todayKey = formatDate(today);
+  const currentMonthPrefix = todayKey.slice(0, 8);
 
   // Pre-calculate entries once outside the render loop
   const allGamesEntries = useMemo(() => Object.entries(gamesByDate), [gamesByDate]);
@@ -332,8 +337,16 @@ function YearView({
           }
         }
 
+        const isPastMonth = monthPrefix < currentMonthPrefix;
+
         return (
-          <div key={month} className="bg-card border rounded-lg p-4">
+          <div
+            key={month}
+            className={cn(
+              "bg-card border rounded-lg p-4",
+              isPastMonth && "opacity-50 grayscale-[0.3]"
+            )}
+          >
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold">{getMonthName(month)}</h3>
               {gameCount > 0 && (
@@ -353,7 +366,12 @@ function YearView({
                       })}
                     </div>
                     {games.map((game) => (
-                      <GameBadge key={game.id} game={game} onClick={() => onGameClick(game)} />
+                      <GameBadge
+                        key={game.id}
+                        game={game}
+                        muted={!isPastMonth && date < todayKey}
+                        onClick={() => onGameClick(game)}
+                      />
                     ))}
                   </div>
                 ))

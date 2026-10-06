@@ -144,6 +144,27 @@ describe("CalendarPage", () => {
     });
   });
 
+  it("greys out past months and past releases in the year view", async () => {
+    mockGamesFetch([
+      { ...baseGame, id: "game-5", title: "April Game", releaseDate: "2026-04-10" },
+      { ...baseGame, id: "game-6", title: "Early May Game", releaseDate: "2026-05-03" },
+      { ...baseGame, id: "game-7", title: "June Game", releaseDate: "2026-06-02" },
+    ]);
+
+    renderPage();
+
+    const aprilGame = await screen.findByText("April Game");
+    const aprilCard = screen.getByRole("heading", { name: "April" }).closest(".bg-card");
+    const juneCard = screen.getByRole("heading", { name: "June" }).closest(".bg-card");
+
+    expect(aprilCard).toHaveClass("opacity-50");
+    expect(juneCard).not.toHaveClass("opacity-50");
+    // Inside a past month the card is already dimmed, so its badges stay as-is.
+    expect(aprilGame.closest("button")).not.toHaveClass("opacity-50");
+    expect(screen.getByText("Early May Game").closest("button")).toHaveClass("opacity-50");
+    expect(screen.getByText("June Game").closest("button")).not.toHaveClass("opacity-50");
+  });
+
   it("switches to week view and opens the download dialog from a visible game", async () => {
     mockGamesFetch([{ ...baseGame, id: "game-4", title: "Week Hero", releaseDate: "2026-05-29" }]);
 

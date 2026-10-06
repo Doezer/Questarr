@@ -170,7 +170,9 @@ export default function IndexersPage() {
   const [prowlarrPrefilled, setProwlarrPrefilled] = useState(false);
 
   // Prefill the dialog once per opening with the last successful sync, so
-  // later refetches never overwrite what the user is typing.
+  // later refetches never overwrite what the user is typing. Any edit made
+  // before the saved settings arrive also counts as "done": the user's input
+  // wins over a slow response.
   useEffect(() => {
     if (!isProwlarrDialogOpen) {
       setProwlarrPrefilled(false);
@@ -190,6 +192,7 @@ export default function IndexersPage() {
 
   const handleProwlarrUrlChange = useCallback(
     (value: string) => {
+      setProwlarrPrefilled(true);
       setProwlarrUrl(value);
       // The saved key is only valid for the saved URL; ask for it again elsewhere.
       if (prowlarrApiKey === SAVED_KEY_PLACEHOLDER && value !== savedProwlarrSettings?.url) {
@@ -934,7 +937,10 @@ export default function IndexersPage() {
                 type="password"
                 placeholder="Enter Prowlarr API Key"
                 value={prowlarrApiKey}
-                onChange={(e) => setProwlarrApiKey(e.target.value)}
+                onChange={(e) => {
+                  setProwlarrPrefilled(true);
+                  setProwlarrApiKey(e.target.value);
+                }}
                 aria-describedby={
                   prowlarrApiKey === SAVED_KEY_PLACEHOLDER ? "prowlarr-apikey-saved" : undefined
                 }
@@ -977,6 +983,7 @@ export default function IndexersPage() {
                   onCheckedChange={(checked) => {
                     setProwlarrInsecureLan(checked === true);
                     setProwlarrInsecureLanTouched(true);
+                    setProwlarrPrefilled(true);
                   }}
                   aria-describedby={
                     prowlarrNeedsInsecureLan ? "prowlarr-insecure-lan-warning" : undefined
@@ -1006,7 +1013,10 @@ export default function IndexersPage() {
                   max="100"
                   placeholder="Keep Prowlarr's priority"
                   value={prowlarrPriority}
-                  onChange={(e) => setProwlarrPriority(e.target.value)}
+                  onChange={(e) => {
+                    setProwlarrPrefilled(true);
+                    setProwlarrPriority(e.target.value);
+                  }}
                   aria-invalid={prowlarrPriorityInvalid}
                   aria-describedby={prowlarrPriorityInvalid ? "prowlarr-priority-error" : undefined}
                   data-testid="input-prowlarr-priority"
@@ -1024,7 +1034,10 @@ export default function IndexersPage() {
                 <MultiSelect
                   options={PROWLARR_SYNC_CATEGORIES}
                   selected={prowlarrCategories}
-                  onChange={setProwlarrCategories}
+                  onChange={(selected) => {
+                    setProwlarrPrefilled(true);
+                    setProwlarrCategories(selected);
+                  }}
                   placeholder="Keep existing categories"
                   emptyMessage="No categories available"
                   aria-labelledby="prowlarr-categories-label"

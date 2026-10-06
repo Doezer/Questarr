@@ -509,7 +509,7 @@ Questarr is a self-hosted game manager designed solely for organizing, tracking,
 
 ## License
 
-GPL3 License - see [COPYING](COPYING) file for details.
+GPL-3.0-only - see [COPYING](COPYING) for the full license text.
 
 ## Acknowledgments
 

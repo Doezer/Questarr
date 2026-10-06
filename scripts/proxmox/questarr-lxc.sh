@@ -14,7 +14,7 @@
 #   STORAGE=local-lvm NET=dhcp UNPRIVILEGED=1 QUESTARR_PORT=5000 \
 #     bash -c "$(curl -fsSL .../questarr-lxc.sh)" -- --yes
 #
-# Copyright (C) Doezer — GPL-3.0-or-later
+# Copyright (C) Doezer — GPL-3.0-only
 
 set -Eeuo pipefail
 

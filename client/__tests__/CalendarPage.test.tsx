@@ -149,6 +149,7 @@ describe("CalendarPage", () => {
       { ...baseGame, id: "game-5", title: "April Game", releaseDate: "2026-04-10" },
       { ...baseGame, id: "game-6", title: "Early May Game", releaseDate: "2026-05-03" },
       { ...baseGame, id: "game-7", title: "June Game", releaseDate: "2026-06-02" },
+      { ...baseGame, id: "game-8", title: "Datetime Game", releaseDate: "2026-05-10T12:00:00Z" },
     ]);
 
     renderPage();
@@ -163,6 +164,7 @@ describe("CalendarPage", () => {
     expect(aprilGame.closest("button")).not.toHaveClass("opacity-50");
     expect(screen.getByText("Early May Game").closest("button")).toHaveClass("opacity-50");
     expect(screen.getByText("June Game").closest("button")).not.toHaveClass("opacity-50");
+    expect(screen.getByText("Datetime Game").closest("button")).toHaveClass("opacity-50");
   });
 
   it("switches to week view and opens the download dialog from a visible game", async () => {

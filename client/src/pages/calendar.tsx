@@ -32,6 +32,12 @@ export function formatDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+// Release dates are usually date-only ("YYYY-MM-DD"), but a claimed download can carry a full
+// ISO datetime. Map those to the viewer's local calendar day before comparing with today.
+function toLocalDateKey(releaseDate: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(releaseDate) ? releaseDate : formatDate(new Date(releaseDate));
+}
+
 function getMonthName(month: number): string {
   return new Date(2000, month, 1).toLocaleDateString(undefined, { month: "long" });
 }
@@ -369,7 +375,7 @@ function YearView({
                       <GameBadge
                         key={game.id}
                         game={game}
-                        muted={!isPastMonth && date < todayKey}
+                        muted={!isPastMonth && toLocalDateKey(date) < todayKey}
                         onClick={() => onGameClick(game)}
                       />
                     ))}

@@ -24,7 +24,7 @@ All notable changes to this project will be documented in this file.
 - **Wishlist**: configurable grid column count (#871).
 - **Content filtering**: filters to hide erotic and age-restricted (ESRB AO / PEGI 18) games from the library, search, and discovery pages (#808).
 - **Windows 2000 style mode**: a retro cosmetic theme (#807).
-- **Sidebar**: moved the xREL and RSS pages under Discover (#1086). Wishlist moved into Library group alongside Playing; on mobile, Playing replaced Wishlist in the pinned bottom-nav slots (Wishlist stays reachable via "More") (#1080).
+- **Sidebar**: moved the xREL and RSS pages under Discover (#1086). Wishlist moved into Library group alongside Playing; on mobile, Playing replaced Wishlist in the pinned bottom-nav slots (Wishlist stays reachable via "More") (#1080). All Games and Playing now show their game counts like Wishlist, Playing in its cyan status color.
 
 #### Downloads & Import
 

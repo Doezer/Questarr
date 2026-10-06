@@ -123,7 +123,7 @@ describe("Apprise client", () => {
 
     appriseClient.configure({
       mode: "api",
-      apiUrl: "https://apprise.example.com",
+      apiUrl: "HTTPS://apprise.example.com",
       key: "config-key",
       urls: null,
       username: "admin",
@@ -132,8 +132,13 @@ describe("Apprise client", () => {
 
     await appriseClient.send(notification);
     expect(safeFetch).toHaveBeenCalledWith(
-      "https://apprise.example.com/notify/config-key",
-      expect.objectContaining({ requireHttps: true })
+      "HTTPS://apprise.example.com/notify/config-key",
+      expect.objectContaining({
+        requireHttps: true,
+        headers: expect.objectContaining({
+          Authorization: `Basic ${Buffer.from("admin:secret").toString("base64")}`,
+        }),
+      })
     );
   });
 

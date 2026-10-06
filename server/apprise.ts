@@ -130,18 +130,38 @@ export async function readAppriseSettings(storage: {
     storage.getSystemConfig("apprise.password"),
   ]);
 
-  // Loaded lazily: credential-crypto pulls in the database module, which modules that
-  // only send notifications through appriseClient should not have to initialize.
-  const { decryptCredential } = await import("./credential-crypto.js");
-
+  const normalizedMode = normalizeAppriseMode(mode);
   return {
-    mode: normalizeAppriseMode(mode),
+    mode: normalizedMode,
     apiUrl: trimToNull(apiUrl),
     key: trimToNull(key),
     urls: trimToNull(urls),
     username: trimToNull(username),
-    password: (await decryptCredential(password)) || null,
+    // CLI mode never uses the API password, so a value that no longer decrypts must not block it.
+    password: normalizedMode === "api" ? await readApiPassword(password) : null,
   };
+}
+
+async function readApiPassword(stored: string | undefined): Promise<string | null> {
+  if (!stored) return null;
+  try {
+    // Loaded lazily: credential-crypto pulls in the database module, which modules that
+    // only send notifications through appriseClient should not have to initialize.
+    const { decryptCredential } = await import("./credential-crypto.js");
+    return (await decryptCredential(stored)) || null;
+  } catch (error) {
+    appriseLogger.warn({ error }, "Could not decrypt the saved Apprise API password");
+    return null;
+  }
+}
+
+function isHttpsUrl(value: string | null): boolean {
+  if (!value) return false;
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function formatCliError(error: unknown, stdout = "", stderr = ""): string {
@@ -251,7 +271,7 @@ class AppriseClient {
   // Once credentials are configured against an https:// server, never let a redirect
   // downgrade the request (and its Authorization header) to plaintext http.
   private requiresHttps(): boolean {
-    return this.hasApiCredentials() && this.settings.apiUrl?.startsWith("https://") === true;
+    return this.hasApiCredentials() && isHttpsUrl(this.settings.apiUrl);
   }
 
   private buildApiRequest(

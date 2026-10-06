@@ -41,7 +41,8 @@ import { rssService } from "../rss.js";
 import { comparePassword } from "../auth.js";
 import { routesLogger } from "../logger.js";
 import { db } from "../db.js";
-import { appriseClient } from "../apprise.js";
+import { appriseClient, readAppriseSettings } from "../apprise.js";
+import { decryptCredential } from "../credential-crypto.js";
 import * as ssrfModule from "../ssrf.js";
 import fsExtra from "fs-extra";
 import { normalizeTitle } from "../../shared/title-utils.js";
@@ -3989,6 +3990,17 @@ describe("API Routes - Extended Coverage", () => {
 
       expect(resubmit.status).toBe(200);
       expect(appriseState["apprise.password"]).toBe("enc:v1:secret");
+    });
+
+    it("should not decrypt the API password in CLI mode", async () => {
+      appriseState["apprise.mode"] = "cli";
+      appriseState["apprise.password"] = "enc:v1:secret";
+      vi.mocked(decryptCredential).mockClear();
+
+      const settings = await readAppriseSettings(storage);
+
+      expect(settings.password).toBeNull();
+      expect(decryptCredential).not.toHaveBeenCalled();
     });
 
     it("should reject a username containing a colon", async () => {

@@ -102,6 +102,14 @@ const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: s
   { key: "errorDetected", label: "Error Detected", group: "system" },
 ];
 
+function isHttpUrl(value: string): boolean {
+  try {
+    return new URL(value.trim()).protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 function SettingsToggleRow({
   id,
   label,
@@ -1699,13 +1707,12 @@ export default function SettingsPage() {
                       Only needed when your Apprise API server requires a login:{" "}
                       <code className="px-1">APPRISE_AUTH_REQUIRED=yes</code>.
                     </p>
-                    {(appriseUsername.trim() || apprisePassword) &&
-                      appriseApiUrl.trim().toLowerCase().startsWith("http://") && (
-                        <p className="text-xs text-amber-700 in-[.dark]:text-amber-500 sm:col-span-2">
-                          This API URL uses http://, so the login is sent unencrypted. Use https://
-                          unless Apprise runs on a network you trust.
-                        </p>
-                      )}
+                    {(appriseUsername.trim() || apprisePassword) && isHttpUrl(appriseApiUrl) && (
+                      <p className="text-xs text-amber-700 in-[.dark]:text-amber-500 sm:col-span-2">
+                        This API URL uses http://, so the login is sent unencrypted. Use https://
+                        unless Apprise runs on a network you trust.
+                      </p>
+                    )}
                   </div>
                 )}
                 <div className="space-y-2">

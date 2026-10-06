@@ -1699,6 +1699,13 @@ export default function SettingsPage() {
                       Only needed when your Apprise API server requires a login:{" "}
                       <code className="px-1">APPRISE_AUTH_REQUIRED=yes</code>.
                     </p>
+                    {(appriseUsername.trim() || apprisePassword) &&
+                      appriseApiUrl.trim().toLowerCase().startsWith("http://") && (
+                        <p className="text-xs text-amber-700 in-[.dark]:text-amber-500 sm:col-span-2">
+                          This API URL uses http://, so the login is sent unencrypted. Use https://
+                          unless Apprise runs on a network you trust.
+                        </p>
+                      )}
                   </div>
                 )}
                 <div className="space-y-2">

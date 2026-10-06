@@ -105,11 +105,35 @@ describe("Apprise client", () => {
     expect(safeFetch).toHaveBeenCalledWith(
       "http://apprise:8000/notify/config-key",
       expect.objectContaining({
+        requireHttps: false,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Basic ${Buffer.from("admin:s3cret:pass").toString("base64")}`,
         },
       })
+    );
+  });
+
+  it("refuses to let credentials sent to an https server be redirected to http", async () => {
+    vi.mocked(safeFetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: vi.fn().mockResolvedValue(""),
+    } as never);
+
+    appriseClient.configure({
+      mode: "api",
+      apiUrl: "https://apprise.example.com",
+      key: "config-key",
+      urls: null,
+      username: "admin",
+      password: "secret",
+    });
+
+    await appriseClient.send(notification);
+    expect(safeFetch).toHaveBeenCalledWith(
+      "https://apprise.example.com/notify/config-key",
+      expect.objectContaining({ requireHttps: true })
     );
   });
 

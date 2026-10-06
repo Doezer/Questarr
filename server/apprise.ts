@@ -237,11 +237,21 @@ class AppriseClient {
 
   private buildApiHeaders(): Record<string, string> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.settings.username || this.settings.password) {
+    if (this.hasApiCredentials()) {
       const credentials = `${this.settings.username ?? ""}:${this.settings.password ?? ""}`;
       headers.Authorization = `Basic ${Buffer.from(credentials, "utf8").toString("base64")}`;
     }
     return headers;
+  }
+
+  private hasApiCredentials(): boolean {
+    return !!(this.settings.username || this.settings.password);
+  }
+
+  // Once credentials are configured against an https:// server, never let a redirect
+  // downgrade the request (and its Authorization header) to plaintext http.
+  private requiresHttps(): boolean {
+    return this.hasApiCredentials() && this.settings.apiUrl?.startsWith("https://") === true;
   }
 
   private buildApiRequest(
@@ -282,6 +292,7 @@ class AppriseClient {
       const res = await safeFetch(request.endpoint, {
         method: "POST",
         allowPrivate: true,
+        requireHttps: this.requiresHttps(),
         headers: this.buildApiHeaders(),
         body: JSON.stringify(request.payload),
       });
@@ -372,6 +383,7 @@ class AppriseClient {
       const res = await safeFetch(request.endpoint, {
         method: "POST",
         allowPrivate: true,
+        requireHttps: this.requiresHttps(),
         headers: this.buildApiHeaders(),
         body: JSON.stringify(request.payload),
       });

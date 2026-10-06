@@ -3,7 +3,7 @@ name: questarr
 description: Questarr — an *Arr-inspired game manager that helps you discover, track, and automatically download the games you want.
 type: application
 # Chart version — bump on every chart change (SemVer).
-version: 0.1.0
+version: 0.1.1
 # Version of Questarr shipped by default (the image tag when image.tag is empty).
 appVersion: "1.4.3"
 kubeVersion: ">=1.23.0-0"

@@ -16,7 +16,7 @@
 #   QUESTARR_HOST    Bind address                 (default: 0.0.0.0)
 #   NODE_MAJOR       Node.js major version        (default: 22)
 #
-# Copyright (C) Doezer — GPL-3.0-or-later
+# Copyright (C) Doezer — GPL-3.0-only
 
 set -euo pipefail
 

@@ -22,4 +22,4 @@ maintainers:
     url: https://github.com/Doezer
 annotations:
   category: MediaManagement
-  licenses: GPL-3.0-or-later
+  licenses: GPL-3.0-only

@@ -418,5 +418,23 @@ for the full actor/data-flow explanation. Summary:
 | `notification`   | `cron.ts` (game updates, download completion, auto-search results, xREL matches) and `routes.ts` | `Notification` object | `client/src/components/NotificationCenter.tsx` |
 | `downloadUpdate` | `cron.ts::checkDownloadStatus`                                                                   | `gameId: string`      | `client/src/components/GameDetailsModal.tsx`   |
 
-Both events are broadcast to every connected socket (`io.emit`) — there are
-no per-user rooms yet.
+Every authenticated socket joins a per-user room, `user:<id>`, during the
+handshake. Delivery depends on whether the event has an owner:
+
+- `notification` events that carry a `userId` go only to that user's
+  sockets (`io.to("user:<id>")`). Other accounts on the same instance don't
+  receive them.
+- Ownerless notifications and app-wide events (`downloadUpdate`,
+  `importTaskUpdate`, `gameUpdated`, `library-scan-progress`, `logLine`) are
+  broadcast to every authenticated socket (`io.emit`).
+
+Clients don't need to join rooms themselves. Connect with the auth cookie (or
+a bearer token in `auth.token`) and the server assigns the room:
+
+```ts
+import { io } from "socket.io-client";
+
+const socket = io({ withCredentials: true });
+socket.on("notification", (n) => console.log("for me:", n));
+socket.on("downloadUpdate", (gameId) => console.log("download changed:", gameId));
+```

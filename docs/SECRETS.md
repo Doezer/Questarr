@@ -164,6 +164,12 @@ current password before accepting a new one
 | `authRateLimiter`          | 20 requests / 15 min / IP | `POST /api/auth/login`                                                                                   |
 | `sensitiveEndpointLimiter` | 30 requests / min / IP    | Indexer/downloader writes, password change, IGDB/NexusMods/Discord settings, SSL settings, Prowlarr sync |
 | `generalApiLimiter`        | 600 requests / min / IP   | General fallback                                                                                         |
+| `scanRateLimiter`          | 10 requests / min / user  | `GET /api/games/:gameId/files` (on-disk file scan for a game)                                            |
+
+`scanRateLimiter` keys on the authenticated user ID. For unauthenticated
+requests it falls back to the client IP, grouping IPv6 addresses by subnet
+so a single client can't bypass the limit by rotating addresses within its
+prefix.
 
 There is no account lockout beyond the IP-based `authRateLimiter` window
 for repeated failed logins.

@@ -42,7 +42,7 @@ of the system — by writing data, triggering a request, or emitting an event.
 | SQLite database                                                                                                                                              | Persists all app state                                                                     | Read by every server module via `storage.ts`                                                                                                                              |
 | Server — `ssrf.ts` (`safeFetch`)                                                                                                                             | Validates and pins outbound URLs                                                           | Every outbound HTTP(S) call to indexers, downloaders, and most metadata services                                                                                          |
 | Server — `cron.ts` (scheduler)                                                                                                                               | Runs unattended background jobs                                                            | Storage, IGDB, indexers (via `search.ts`), downloaders, Socket.io                                                                                                         |
-| Server — `socket.ts` (Socket.io)                                                                                                                             | Pushes real-time events                                                                    | Client SPA (broadcast to authenticated sockets)                                                                                                                           |
+| Server — `socket.ts` (Socket.io)                                                                                                                             | Pushes real-time events                                                                    | Client SPA (owner's `user:<id>` room for notifications, broadcast to authenticated sockets otherwise)                                                                   |
 | Server — `search.ts`                                                                                                                                         | Orchestrates indexer search, applies filtering/dedup                                       | Torznab/Newznab indexers (read), routes/cron (results)                                                                                                                    |
 | Server — `downloaders.ts` (`DownloaderManager`)                                                                                                              | Abstracts the 5 download-client integrations                                               | qBittorrent/Transmission/rTorrent/SABnzbd/NZBGet (write: submit; read: status)                                                                                            |
 | Server — `library-scanner.ts` / `root-folders.ts`                                                                                                            | Discovers games already on disk in user-configured root folders (outside the library root) | Reads the local filesystem directly (not via `safeFetch` — local paths, not URLs); queries IGDB for matching; writes `games`/`game_files`/`root_folders` via `storage.ts` |
@@ -168,16 +168,30 @@ the only module importing the Drizzle `db` client for application data.
 ## 6. Out-of-band channel: Socket.io
 
 `server/socket.ts` gates every connection with an `io.use` handshake check
-(`server/socket.ts:29-44`): the socket must carry the auth cookie (from a
+(`server/socket.ts:32-50`): the socket must carry the auth cookie (from a
 trusted Origin) or a bearer token that `verifyAuthToken` accepts, otherwise
-the handshake is rejected with "Authentication required". Once connected,
-`notifyUser(type, payload)` (`server/socket.ts:143-147`) calls
-`io.emit(type, payload)` — a broadcast to every authenticated socket, with
-no per-user rooms (a `TODO` in `cron.ts` flags this — see
-`server/cron.ts:978,1045`; tracked in #1081). This is consistent with §9:
-Questarr's supported deployment is one trusted operator per instance, so a
-cross-account broadcast is not a hardened boundary today and isn't being
-prioritized as one. Two event types are emitted today:
+the handshake is rejected with "Authentication required". On a successful
+handshake the socket joins a per-user room, `user:<id>`, before the
+connection completes, so a notification fired right after connect can't miss
+it.
+
+`notifyUser(type, payload, userId?)` (`server/socket.ts:149-162`) routes
+events in one of two ways:
+
+- **With an owner** (`userId` set): `io.to("user:<id>").emit(type, payload)`.
+  Only that user's sockets receive the event. Every `notification` emit
+  passes the notification's `userId`, so in-app notifications reach only the
+  account that owns them.
+- **Without an owner** (`userId` omitted or null): `io.emit(type, payload)`,
+  a broadcast to every authenticated socket. Ownerless notifications and
+  app-wide events (`downloadUpdate`, `importTaskUpdate`, `gameUpdated`,
+  `library-scan-progress`, and the `logLine` log stream) still go to
+  everyone.
+
+The remaining broadcasts are consistent with §9: Questarr's supported
+deployment is one trusted operator per instance, so cross-account
+broadcast of app-wide state is not a hardened boundary today. The main
+event types are:
 
 - `"notification"` — emitted from both `cron.ts` (game updates, download
   completion, auto-search results, xREL matches) and `routes.ts`; consumed by
@@ -262,8 +276,10 @@ to eliminate wholesale:
   `routes.ts`, and the igdbId-reuse checks before reusing an existing game
   record), because getting those specific paths right also happens to be
   good practice regardless of user count.
-- Others intentionally don't: `notifyUser()` broadcasts Socket.io events to
-  every connected client (§6); `library-scanner.ts`'s scan state
+- Others intentionally don't: `notifyUser()` still broadcasts app-wide
+  Socket.io events (download, import, and scan progress) to every connected
+  client, though owned notifications go only to their user's room (§6);
+  `library-scanner.ts`'s scan state
   (`getAllUnmatched`, `getAllScanProgress`) is global, matching `root_folders`
   being global; download clients and indexers are shared instance
   configuration, not per-user.

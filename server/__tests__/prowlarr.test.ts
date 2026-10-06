@@ -97,4 +97,50 @@ describe("ProwlarrClient", () => {
     const callUrl = fetchMock.mock.calls[0][0] as string;
     expect(callUrl).toBe("http://prowlarr:9696/api/v1/indexer");
   });
+
+  // The key must never go over HTTP on an inferred opt-in (see shared/schema.ts):
+  // only the dialog's explicit choice sets the flag, otherwise it is left out
+  // so an existing indexer keeps its own setting.
+  it("does not infer the insecure LAN opt-in from an HTTP Prowlarr URL", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => mockProwlarrIndexers });
+
+    const indexers = await prowlarrClient.getIndexers("http://prowlarr:9696", "apikey123");
+
+    expect(indexers.every((i) => !("allowInsecureLan" in i))).toBe(true);
+  });
+
+  it("applies an explicit insecure LAN opt-in to every indexer", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => mockProwlarrIndexers });
+
+    const indexers = await prowlarrClient.getIndexers("http://prowlarr:9696", "apikey123", {
+      allowInsecureLan: true,
+    });
+
+    expect(indexers.map((i) => i.allowInsecureLan)).toEqual([true, true]);
+  });
+
+  it("applies the sync dialog's global settings to every indexer", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => mockProwlarrIndexers });
+
+    const indexers = await prowlarrClient.getIndexers("http://prowlarr:9696", "apikey123", {
+      allowInsecureLan: false,
+      priority: 7,
+      categories: ["4050"],
+    });
+
+    for (const indexer of indexers) {
+      expect(indexer.allowInsecureLan).toBe(false);
+      expect(indexer.priority).toBe(7);
+      expect(indexer.categories).toEqual(["4050"]);
+    }
+  });
+
+  it("leaves categories out when none were chosen, so a re-sync keeps them", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => mockProwlarrIndexers });
+
+    const indexers = await prowlarrClient.getIndexers("http://prowlarr:9696", "apikey123");
+
+    expect(indexers.every((i) => !("categories" in i))).toBe(true);
+    expect(indexers.map((i) => i.priority)).toEqual([1, 2]);
+  });
 });

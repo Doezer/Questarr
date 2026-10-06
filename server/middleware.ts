@@ -419,6 +419,25 @@ export const sanitizeDownloaderData = [
   downloaderAllowSelfSignedCertificate(),
 ];
 
+// Optional settings applied to every indexer a Prowlarr sync imports. Omitted
+// fields fall back to the sync's own defaults (see ProwlarrClient.getIndexers).
+export const sanitizeProwlarrSyncData = [
+  optionalBoolean("allowInsecureLan", "Allow insecure LAN connection"),
+  body("priority")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage("Priority must be an integer between 1 and 100")
+    .toInt(),
+  body("categories")
+    .optional()
+    .isArray({ max: 100 })
+    .withMessage("Categories must be an array of at most 100 entries"),
+  body("categories.*")
+    .isString()
+    .matches(/^\d{1,6}$/)
+    .withMessage("Each category must be a numeric Torznab/Newznab category id"),
+];
+
 // Sanitization rules for POST /api/downloaders/test -- validates the full
 // request body before it's used to build a temporary Downloader and test a
 // live connection, rather than only checking allowSelfSignedCertificate's

@@ -4,6 +4,7 @@ import {
   DEFAULT_GAME_CATEGORIES,
   discoverCapsCategories,
   indexerAllowsApiKey,
+  withheldApiKeyHint,
   resolveSearchCategories,
 } from "./indexer-caps.js";
 import { normalizeReleaseTitle } from "../shared/title-utils.js";
@@ -170,7 +171,10 @@ class NewznabClient {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(
+          `HTTP ${response.status}: ${response.statusText}` +
+            withheldApiKeyHint(indexer, response.status)
+        );
       }
 
       const xmlText = await response.text();
@@ -412,7 +416,9 @@ class NewznabClient {
       if (!response.ok) {
         return {
           success: false,
-          message: `Connection failed: HTTP ${response.status}`,
+          message:
+            `Connection failed: HTTP ${response.status}` +
+            withheldApiKeyHint(indexer, response.status),
         };
       }
 
@@ -504,7 +510,7 @@ class NewznabClient {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      throw new Error(`HTTP ${response.status}` + withheldApiKeyHint(indexer, response.status));
     }
 
     const xmlText = await response.text();

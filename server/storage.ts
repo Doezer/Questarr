@@ -1048,6 +1048,7 @@ export class MemStorage implements IStorage {
             categories: idx.categories || existing.categories,
             rssEnabled: idx.rssEnabled ?? existing.rssEnabled,
             autoSearchEnabled: idx.autoSearchEnabled ?? existing.autoSearchEnabled,
+            allowInsecureLan: idx.allowInsecureLan ?? existing.allowInsecureLan,
             updatedAt: new Date(),
           };
           this.indexers.set(existing.id, updatedIndexer);

@@ -38,6 +38,8 @@ import { DownloaderManager } from "../downloaders.js";
 import { torznabClient } from "../torznab.js";
 import { newznabClient } from "../newznab.js";
 import { rssService } from "../rss.js";
+import { prowlarrClient } from "../prowlarr.js";
+import { loadProwlarrSyncSettings, saveProwlarrSyncSettings } from "../prowlarr-settings.js";
 import { comparePassword } from "../auth.js";
 import { routesLogger } from "../logger.js";
 import { db } from "../db.js";
@@ -58,6 +60,10 @@ vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
 vi.mock("../torznab.js", () => ({ torznabClient: createTorznabMock() }));
 vi.mock("../newznab.js", () => ({ newznabClient: createNewznabMock() }));
 vi.mock("../prowlarr.js", () => ({ prowlarrClient: createProwlarrMock() }));
+vi.mock("../prowlarr-settings.js", () => ({
+  loadProwlarrSyncSettings: vi.fn().mockResolvedValue(null),
+  saveProwlarrSyncSettings: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("../xrel.js", () => createXrelMock());
 vi.mock("../apprise.js", async () => createAppriseMock());
 vi.mock("../downloaders.js", () => ({ DownloaderManager: createDownloaderManagerMock() }));
@@ -2660,6 +2666,28 @@ describe("API Routes - Extended Coverage", () => {
       expect(torznabClient.testConnection).not.toHaveBeenCalled();
     });
 
+    // Regression: the route used to hard-code allowInsecureLan=false, so testing
+    // a plain-HTTP LAN indexer withheld the key and always failed with 401.
+    it("passes the insecure LAN opt-in through to the connection test", async () => {
+      vi.mocked(torznabClient.testConnection).mockResolvedValue({ success: true, message: "ok" });
+      await request(app)
+        .post("/api/indexers/test")
+        .send({ url: "http://192.168.1.10:9696/1/api", apiKey: "key", allowInsecureLan: true });
+      expect(torznabClient.testConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ allowInsecureLan: true })
+      );
+    });
+
+    it("keeps insecure LAN off unless the payload opts in", async () => {
+      vi.mocked(torznabClient.testConnection).mockResolvedValue({ success: true, message: "ok" });
+      await request(app)
+        .post("/api/indexers/test")
+        .send({ url: "http://192.168.1.10:9696/1/api", apiKey: "key", allowInsecureLan: "yes" });
+      expect(torznabClient.testConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ allowInsecureLan: false })
+      );
+    });
+
     it("should default to torznabClient when no protocol is given", async () => {
       vi.mocked(torznabClient.testConnection).mockResolvedValue({ success: true, message: "ok" });
       const response = await request(app)
@@ -2692,6 +2720,19 @@ describe("API Routes - Extended Coverage", () => {
           type: "synology",
           url: "https://example.com",
         })
+      );
+    });
+
+    it("passes the insecure LAN opt-in through to the downloader test", async () => {
+      const response = await request(app).post("/api/downloaders/test").send({
+        type: "synology",
+        url: "http://192.168.1.10:5000",
+        allowInsecureLan: true,
+      });
+
+      expect(response.status).toBe(200);
+      expect(DownloaderManager.testDownloader).toHaveBeenCalledWith(
+        expect.objectContaining({ allowInsecureLan: true })
       );
     });
 
@@ -2749,6 +2790,106 @@ describe("API Routes - Extended Coverage", () => {
     it("should return 400 for missing url/apiKey", async () => {
       const response = await request(app).post("/api/indexers/prowlarr/sync").send({});
       expect(response.status).toBe(400);
+    });
+
+    it("passes the dialog's global settings to the Prowlarr client", async () => {
+      vi.spyOn(ssrfModule, "isSafeUrl").mockResolvedValue(true);
+      const response = await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({
+          url: "http://192.168.1.10:9696",
+          apiKey: "key",
+          allowInsecureLan: false,
+          priority: 5,
+          categories: ["4000", "4050"],
+        });
+
+      expect(response.status).toBe(200);
+      expect(prowlarrClient.getIndexers).toHaveBeenCalledWith("http://192.168.1.10:9696", "key", {
+        allowInsecureLan: false,
+        priority: 5,
+        categories: ["4000", "4050"],
+      });
+    });
+
+    const savedSettings = {
+      url: "http://192.168.1.10:9696",
+      apiKey: "saved-key",
+      allowInsecureLan: true,
+      priority: 5,
+      categories: ["4050"],
+    };
+
+    it("remembers the dialog values after a successful sync", async () => {
+      vi.spyOn(ssrfModule, "isSafeUrl").mockResolvedValue(true);
+      await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({
+          url: "http://192.168.1.10:9696",
+          apiKey: "key",
+          allowInsecureLan: true,
+          priority: 5,
+          categories: ["4050"],
+        });
+
+      expect(saveProwlarrSyncSettings).toHaveBeenCalledWith({
+        url: "http://192.168.1.10:9696",
+        apiKey: "key",
+        allowInsecureLan: true,
+        priority: 5,
+        categories: ["4050"],
+      });
+    });
+
+    it("returns the saved settings without the API key", async () => {
+      vi.mocked(loadProwlarrSyncSettings).mockResolvedValueOnce(savedSettings);
+
+      const response = await request(app).get("/api/indexers/prowlarr/settings");
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ ...savedSettings, apiKey: "********" });
+      expect(JSON.stringify(response.body)).not.toContain("saved-key");
+    });
+
+    it("uses the saved key when the dialog sends the placeholder for the saved URL", async () => {
+      vi.spyOn(ssrfModule, "isSafeUrl").mockResolvedValue(true);
+      vi.mocked(loadProwlarrSyncSettings).mockResolvedValueOnce(savedSettings);
+
+      const response = await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({ url: "http://192.168.1.10:9696", apiKey: "********" });
+
+      expect(response.status).toBe(200);
+      expect(prowlarrClient.getIndexers).toHaveBeenCalledWith(
+        "http://192.168.1.10:9696",
+        "saved-key",
+        expect.anything()
+      );
+    });
+
+    it("never sends the saved key to a different URL", async () => {
+      vi.spyOn(ssrfModule, "isSafeUrl").mockResolvedValue(true);
+      vi.mocked(loadProwlarrSyncSettings).mockResolvedValueOnce(savedSettings);
+
+      const response = await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({ url: "http://attacker.example:9696", apiKey: "********" });
+
+      expect(response.status).toBe(400);
+      expect(prowlarrClient.getIndexers).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["a priority out of range", { priority: 0 }],
+      ["a non-boolean insecure LAN flag", { allowInsecureLan: "true" }],
+      ["a non-numeric category", { categories: ["PC"] }],
+    ])("rejects %s", async (_label, extra) => {
+      const response = await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({ url: "http://192.168.1.10:9696", apiKey: "key", ...extra });
+
+      expect(response.status).toBe(400);
+      expect(prowlarrClient.getIndexers).not.toHaveBeenCalled();
     });
   });
 

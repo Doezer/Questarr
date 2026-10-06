@@ -83,6 +83,7 @@ import {
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
 import { prowlarrClient } from "./prowlarr.js";
+import { loadProwlarrSyncSettings, saveProwlarrSyncSettings } from "./prowlarr-settings.js";
 import { isSafeUrl, safeFetch, resolveSafeAddress, normalizeHostname } from "./ssrf.js";
 import {
   hashPassword,
@@ -1610,6 +1611,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/integration", integrationRouter);
   app.use("/api/api-keys", apiKeysRouter);
 
+  // Last-used Prowlarr sync settings, to prefill the sync dialog. The stored
+  // API key never leaves the server: only the redaction placeholder does.
+  app.get("/api/indexers/prowlarr/settings", async (_req, res, next) => {
+    try {
+      const saved = await loadProwlarrSyncSettings();
+      if (!saved) return res.json(null);
+      return res.json({
+        url: saved.url,
+        apiKey: REDACTED_PLACEHOLDER,
+        allowInsecureLan: saved.allowInsecureLan,
+        priority: saved.priority ?? null,
+        categories: saved.categories,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   // Sync indexers from Prowlarr
   app.post(
     "/api/indexers/prowlarr/sync",
@@ -1618,10 +1637,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const { url, apiKey, allowInsecureLan, priority, categories } = req.body;
+        const { url, allowInsecureLan, priority, categories } = req.body;
+        let { apiKey } = req.body;
 
         if (!url || !apiKey) {
           return res.status(400).json({ error: "URL and API Key are required" });
+        }
+
+        // The prefilled dialog sends the placeholder for "use the saved key".
+        // It is only honoured for the saved URL, so the stored key can never
+        // be sent to a different host.
+        if (isUnchangedSentinel(apiKey)) {
+          const saved = await loadProwlarrSyncSettings();
+          if (!saved?.apiKey || saved.url !== url) {
+            return res.status(400).json({ error: "Enter the Prowlarr API key again for this URL" });
+          }
+          apiKey = saved.apiKey;
         }
 
         if (!(await isSafeUrl(url))) {
@@ -1636,6 +1667,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // ⚡ Bolt: Use batched sync method to handle all indexers in a single transaction
         const results = await storage.syncIndexers(indexers);
+
+        // Remembering the dialog is a convenience: a failure here must not
+        // report a sync that already happened as failed.
+        try {
+          await saveProwlarrSyncSettings({
+            url,
+            apiKey,
+            allowInsecureLan: allowInsecureLan === true,
+            priority,
+            categories: categories ?? [],
+          });
+        } catch (error) {
+          routesLogger.warn({ error }, "failed to save Prowlarr sync settings");
+        }
 
         return res.json({
           success: true,

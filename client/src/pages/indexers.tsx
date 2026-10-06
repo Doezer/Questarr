@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiFetch, queryClient, clearSearchCache } from "@/lib/queryClient";
 import { refreshIndexerQueries } from "@/lib/indexers-cache";
@@ -60,6 +60,18 @@ const PROWLARR_SYNC_CATEGORIES: MultiSelectOption[] = [
   { value: "4000", label: "PC" },
   { value: "4050", label: "PC > Games" },
 ];
+
+// Marker the server sends instead of the saved Prowlarr API key; sending it
+// back means "use the saved key" (only accepted for the saved URL).
+const SAVED_KEY_PLACEHOLDER = "********";
+
+interface SavedProwlarrSettings {
+  url: string;
+  apiKey: string;
+  allowInsecureLan: boolean;
+  priority: number | null;
+  categories: string[];
+}
 
 function isPlainHttpUrl(url: string): boolean {
   const trimmed = url.trim().toLowerCase();
@@ -148,6 +160,41 @@ export default function IndexersPage() {
     queryKey: ["/api/indexers"],
   });
 
+  const { data: savedProwlarrSettings } = useQuery<SavedProwlarrSettings | null>({
+    queryKey: ["/api/indexers/prowlarr/settings"],
+    enabled: isProwlarrDialogOpen,
+  });
+  const [prowlarrPrefilled, setProwlarrPrefilled] = useState(false);
+
+  // Prefill the dialog once per opening with the last successful sync, so
+  // later refetches never overwrite what the user is typing.
+  useEffect(() => {
+    if (!isProwlarrDialogOpen) {
+      setProwlarrPrefilled(false);
+      return;
+    }
+    if (prowlarrPrefilled || !savedProwlarrSettings) return;
+    setProwlarrUrl(savedProwlarrSettings.url);
+    setProwlarrApiKey(savedProwlarrSettings.apiKey);
+    setProwlarrInsecureLan(savedProwlarrSettings.allowInsecureLan);
+    setProwlarrPriority(
+      savedProwlarrSettings.priority === null ? "" : String(savedProwlarrSettings.priority)
+    );
+    setProwlarrCategories(savedProwlarrSettings.categories);
+    setProwlarrPrefilled(true);
+  }, [isProwlarrDialogOpen, prowlarrPrefilled, savedProwlarrSettings]);
+
+  const handleProwlarrUrlChange = useCallback(
+    (value: string) => {
+      setProwlarrUrl(value);
+      // The saved key is only valid for the saved URL; ask for it again elsewhere.
+      if (prowlarrApiKey === SAVED_KEY_PLACEHOLDER && value !== savedProwlarrSettings?.url) {
+        setProwlarrApiKey("");
+      }
+    },
+    [prowlarrApiKey, savedProwlarrSettings]
+  );
+
   const sortedIndexers = useMemo(() => {
     return [...indexers].sort(compareEnabledPriorityName);
   }, [indexers]);
@@ -175,6 +222,7 @@ export default function IndexersPage() {
     },
     onSuccess: (data) => {
       void refreshIndexerQueries(queryClient);
+      void queryClient.invalidateQueries({ queryKey: ["/api/indexers/prowlarr/settings"] });
       clearSearchCache();
       setIsProwlarrDialogOpen(false);
       toast({
@@ -867,7 +915,7 @@ export default function IndexersPage() {
                 id="prowlarr-url"
                 placeholder="http://localhost:9696"
                 value={prowlarrUrl}
-                onChange={(e) => setProwlarrUrl(e.target.value)}
+                onChange={(e) => handleProwlarrUrlChange(e.target.value)}
               />
             </div>
             <div className="space-y-2">
@@ -880,7 +928,15 @@ export default function IndexersPage() {
                 placeholder="Enter Prowlarr API Key"
                 value={prowlarrApiKey}
                 onChange={(e) => setProwlarrApiKey(e.target.value)}
+                aria-describedby={
+                  prowlarrApiKey === SAVED_KEY_PLACEHOLDER ? "prowlarr-apikey-saved" : undefined
+                }
               />
+              {prowlarrApiKey === SAVED_KEY_PLACEHOLDER && (
+                <p id="prowlarr-apikey-saved" className="text-xs text-muted-foreground">
+                  Using the saved key. Type a new one to replace it.
+                </p>
+              )}
             </div>
             <section
               aria-labelledby="prowlarr-defaults-heading"

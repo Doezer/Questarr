@@ -39,6 +39,7 @@ import { torznabClient } from "../torznab.js";
 import { newznabClient } from "../newznab.js";
 import { rssService } from "../rss.js";
 import { prowlarrClient } from "../prowlarr.js";
+import { loadProwlarrSyncSettings, saveProwlarrSyncSettings } from "../prowlarr-settings.js";
 import { comparePassword } from "../auth.js";
 import { routesLogger } from "../logger.js";
 import { db } from "../db.js";
@@ -58,6 +59,10 @@ vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
 vi.mock("../torznab.js", () => ({ torznabClient: createTorznabMock() }));
 vi.mock("../newznab.js", () => ({ newznabClient: createNewznabMock() }));
 vi.mock("../prowlarr.js", () => ({ prowlarrClient: createProwlarrMock() }));
+vi.mock("../prowlarr-settings.js", () => ({
+  loadProwlarrSyncSettings: vi.fn().mockResolvedValue(null),
+  saveProwlarrSyncSettings: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("../xrel.js", () => createXrelMock());
 vi.mock("../apprise.js", async () => createAppriseMock());
 vi.mock("../downloaders.js", () => ({ DownloaderManager: createDownloaderManagerMock() }));
@@ -2794,6 +2799,73 @@ describe("API Routes - Extended Coverage", () => {
         priority: 5,
         categories: ["4000", "4050"],
       });
+    });
+
+    const savedSettings = {
+      url: "http://192.168.1.10:9696",
+      apiKey: "saved-key",
+      allowInsecureLan: true,
+      priority: 5,
+      categories: ["4050"],
+    };
+
+    it("remembers the dialog values after a successful sync", async () => {
+      vi.spyOn(ssrfModule, "isSafeUrl").mockResolvedValue(true);
+      await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({
+          url: "http://192.168.1.10:9696",
+          apiKey: "key",
+          allowInsecureLan: true,
+          priority: 5,
+          categories: ["4050"],
+        });
+
+      expect(saveProwlarrSyncSettings).toHaveBeenCalledWith({
+        url: "http://192.168.1.10:9696",
+        apiKey: "key",
+        allowInsecureLan: true,
+        priority: 5,
+        categories: ["4050"],
+      });
+    });
+
+    it("returns the saved settings without the API key", async () => {
+      vi.mocked(loadProwlarrSyncSettings).mockResolvedValueOnce(savedSettings);
+
+      const response = await request(app).get("/api/indexers/prowlarr/settings");
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ ...savedSettings, apiKey: "********" });
+      expect(JSON.stringify(response.body)).not.toContain("saved-key");
+    });
+
+    it("uses the saved key when the dialog sends the placeholder for the saved URL", async () => {
+      vi.spyOn(ssrfModule, "isSafeUrl").mockResolvedValue(true);
+      vi.mocked(loadProwlarrSyncSettings).mockResolvedValueOnce(savedSettings);
+
+      const response = await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({ url: "http://192.168.1.10:9696", apiKey: "********" });
+
+      expect(response.status).toBe(200);
+      expect(prowlarrClient.getIndexers).toHaveBeenCalledWith(
+        "http://192.168.1.10:9696",
+        "saved-key",
+        expect.anything()
+      );
+    });
+
+    it("never sends the saved key to a different URL", async () => {
+      vi.spyOn(ssrfModule, "isSafeUrl").mockResolvedValue(true);
+      vi.mocked(loadProwlarrSyncSettings).mockResolvedValueOnce(savedSettings);
+
+      const response = await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({ url: "http://attacker.example:9696", apiKey: "********" });
+
+      expect(response.status).toBe(400);
+      expect(prowlarrClient.getIndexers).not.toHaveBeenCalled();
     });
 
     it.each([

@@ -685,11 +685,16 @@ export const sanitizeUnmatchedMatchData = [
 
 export const sanitizeUnmatchedSearchData = [
   body("rootFolderId")
+    .isString()
     .trim()
     .isLength({ min: 1, max: 200 })
     .withMessage("rootFolderId is required"),
-  body("folderName").trim().isLength({ min: 1, max: 1000 }).withMessage("folderName is required"),
-  body("query").trim().isLength({ min: 1, max: 200 }).withMessage("query is required"),
+  body("folderName")
+    .isString()
+    .trim()
+    .isLength({ min: 1, max: 1000 })
+    .withMessage("folderName is required"),
+  body("query").isString().trim().isLength({ min: 1, max: 200 }).withMessage("query is required"),
 ];
 
 // 🛡️ Sentinel: Global error handler middleware

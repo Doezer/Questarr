@@ -4555,6 +4555,15 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.status).toBe(400);
     });
 
+    it("rejects a search query that is not a string", async () => {
+      const response = await request(app)
+        .post("/api/library/scan/unmatched/search")
+        .send({ ...validBody, query: { $gt: "" } });
+
+      expect(response.status).toBe(400);
+      expect(searchUnmatchedFolder).not.toHaveBeenCalled();
+    });
+
     it("returns 404 when the folder is no longer awaiting review", async () => {
       vi.mocked(searchUnmatchedFolder).mockRejectedValue(
         new Error("No matching unmatched entry for this root folder")

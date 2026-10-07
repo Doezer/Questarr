@@ -6,6 +6,7 @@ import {
   __testing,
   matchUnmatchedFolder,
   searchUnmatchedFolder,
+  clearUnmatched,
   rescanRootFolderById,
   rescanAllEnabledRootFolders,
   scanRootFolderById,
@@ -138,6 +139,29 @@ describe("scanRootFolderById concurrency guard", () => {
     // Unblock the first scan so it can finish and release the guard.
     resolveGetRootFolder(mockRootFolder);
     await first;
+  });
+
+  it("keeps a failing follow-up scan from failing the scan that queued it", async () => {
+    const { storage } = await import("../storage.js");
+    const disabled: RootFolder = { ...mockRootFolder, id: "rf-followup", enabled: false };
+    let resolveGetRootFolder!: (v: RootFolder) => void;
+    vi.mocked(storage.getRootFolder).mockReset();
+    vi.mocked(storage.getRootFolder)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveGetRootFolder = resolve;
+          })
+      )
+      // The folder was deleted before the follow-up scan looked it up.
+      .mockResolvedValue(undefined);
+
+    const first = scanRootFolderById("rf-followup", "user-1");
+    await rescanRootFolderById("rf-followup", "user-1");
+    resolveGetRootFolder(disabled);
+
+    await expect(first).resolves.toBeUndefined();
+    expect(storage.getRootFolder).toHaveBeenCalledTimes(2);
   });
 
   it("queues one more scan when a rescan is requested while one is running", async () => {
@@ -568,6 +592,19 @@ describe("matchUnmatchedFolder with release-style folder names", () => {
     // The searched result replaces the scan's guesses, so it can now be matched.
     const result = await matchUnmatchedFolder("rf-release-search", folderName, 777, "user-1");
     expect(result.gameId).toBe("game-777");
+  });
+
+  it("drops search results when a rescan rebuilt the entry meanwhile", async () => {
+    const igdbClient = await scanReleaseFolder("rf-release-race");
+    vi.mocked(igdbClient.searchGames).mockImplementation(async () => {
+      // A rescan clears and rebuilds the review list while IGDB answers.
+      clearUnmatched("rf-release-race", folderName);
+      return [{ id: 777, name: "Absolum" }] as never;
+    });
+
+    await expect(searchUnmatchedFolder("rf-release-race", folderName, "Absolum")).rejects.toThrow(
+      /no matching unmatched entry/i
+    );
   });
 
   it("refuses to search for a folder that is not awaiting review", async () => {

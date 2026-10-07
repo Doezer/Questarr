@@ -365,6 +365,11 @@ export async function searchUnmatchedFolder(
   const entry = getUnmatchedEntry(rootFolderId, folderName);
   if (!entry) throw new Error("No matching unmatched entry for this root folder");
   const results = await igdbClient.searchGames(query, 5);
+  // A rescan may have rebuilt the review list while IGDB answered; candidates
+  // stored on the old entry would never be offered for matching.
+  if (getUnmatchedEntry(rootFolderId, folderName) !== entry) {
+    throw new Error("No matching unmatched entry for this root folder");
+  }
   entry.candidates = toUnmatchedCandidates(results);
   return entry.candidates;
 }
@@ -470,7 +475,12 @@ export async function scanRootFolderById(rootFolderId: string, userId: string): 
       rescanRequested.delete(rootFolderId);
       const finished = progressByFolder.get(rootFolderId);
       if (finished) markQueued(rootFolderId, finished.rootFolderPath);
-      await scanRootFolderById(rootFolderId, rescanUserId);
+      // Never let the follow-up scan's failure replace this scan's own error.
+      try {
+        await scanRootFolderById(rootFolderId, rescanUserId);
+      } catch (err) {
+        routesLogger.error({ err, rootFolderId }, "deferred root folder rescan failed");
+      }
     }
   }
 }

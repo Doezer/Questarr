@@ -355,7 +355,8 @@ async function assignFilesToGame(
 /**
  * Search IGDB with a name the user typed for a folder awaiting review, when
  * none of the scan's candidates is right. The results replace the entry's
- * candidates, so `matchUnmatchedFolder` accepts exactly what was offered.
+ * candidates shown in the list; every id offered so far stays accepted, so a
+ * second tab still showing an earlier list can match from it.
  */
 export async function searchUnmatchedFolder(
   rootFolderId: string,
@@ -370,7 +371,9 @@ export async function searchUnmatchedFolder(
   if (getUnmatchedEntry(rootFolderId, folderName) !== entry) {
     throw new Error("No matching unmatched entry for this root folder");
   }
+  const accepted = offeredIds(entry);
   entry.candidates = toUnmatchedCandidates(results);
+  for (const c of entry.candidates) accepted.add(c.igdbId);
   return entry.candidates;
 }
 
@@ -401,7 +404,7 @@ export async function matchUnmatchedFolder(
   // then fetch it by id. Re-searching IGDB here with the raw folder name (the
   // scan searches with the cleaned release name) returned a different list for
   // names like "Absolum v1.01 [CUSA53342] [EUR]", so every pick was rejected.
-  if (!entry.candidates.some((c) => c.igdbId === igdbId)) {
+  if (!offeredIds(entry).has(igdbId)) {
     throw new Error("Selected IGDB game not found in top candidates");
   }
   const igdb = await igdbClient.getGameById(igdbId);
@@ -506,7 +509,8 @@ async function recordMatchedCandidate(
   cand: FolderCandidate,
   best: IGDBGame,
   userId: string,
-  files: Array<{ absolutePath: string; size: number }>
+  files: Array<{ absolutePath: string; size: number }>,
+  progress: ScanProgress
 ): Promise<void> {
   let game = await storage.getGameByIgdbId(best.id);
   if (!game) {
@@ -522,7 +526,23 @@ async function recordMatchedCandidate(
       await storage.updateGame(game.id, { libraryPath: cand.absolutePath });
     }
   }
+  // The game row is now written; clients must refresh even if the file
+  // assignment below throws and the candidate is not counted as matched.
+  gamesChangedByScan.add(progress);
   await assignFilesToGame(game.id, files);
+}
+
+// Every IGDB id offered for an entry (scan candidates plus each name search),
+// kept off the entry itself so the review list API does not expose it.
+const offeredIdsByEntry = new WeakMap<UnmatchedEntry, Set<number>>();
+
+function offeredIds(entry: UnmatchedEntry): Set<number> {
+  let ids = offeredIdsByEntry.get(entry);
+  if (!ids) {
+    ids = new Set(entry.candidates.map((c) => c.igdbId));
+    offeredIdsByEntry.set(entry, ids);
+  }
+  return ids;
 }
 
 function toUnmatchedCandidates(igdbCandidates: IGDBGame[]): UnmatchedEntry["candidates"] {
@@ -555,6 +575,10 @@ function recordUnmatchedCandidate(
 
 const AUTO_MATCH_THRESHOLD = 0.85;
 
+// Scans that wrote at least one game row, whether or not the candidate then
+// finished matching.
+const gamesChangedByScan = new WeakSet<ScanProgress>();
+
 /** Classify and (auto-)resolve a single scan candidate, updating `progress` in place. */
 async function processCandidate(
   rootFolder: RootFolderRow,
@@ -570,7 +594,7 @@ async function processCandidate(
   const { best, candidates: igdbCandidates, score } = await bestIgdbMatch(cand.folderName);
 
   if (best && score >= AUTO_MATCH_THRESHOLD) {
-    await recordMatchedCandidate(cand, best, userId, files);
+    await recordMatchedCandidate(cand, best, userId, files, progress);
     progress.matched += 1;
   } else {
     recordUnmatchedCandidate(rootFolder, cand, igdbCandidates);
@@ -619,7 +643,7 @@ async function runScan(
   // Auto-matched games were added or updated, even if the scan failed later.
   // Tell every open client to refresh its games list, since only the Discover
   // tab watches scan progress.
-  if (progress.matched > 0) notifyUser("gameUpdated", rootFolderId);
+  if (gamesChangedByScan.has(progress)) notifyUser("gameUpdated", rootFolderId);
 }
 
 /**

@@ -332,6 +332,17 @@ describe("scanRootFolderById full scan", () => {
     expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "rf-1");
   });
 
+  it("refreshes clients when a game was written but its files failed", async () => {
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getGameFiles).mockRejectedValue(new Error("db locked"));
+
+    await scanRootFolderById("rf-1", "user-1");
+
+    expect(getScanProgress("rf-1")?.matched).toBe(0);
+    const { notifyUser } = await import("../socket.js");
+    expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "rf-1");
+  });
+
   it("scanAllEnabledRootFolders scans every enabled folder", async () => {
     const tmpDir2 = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-scan-2-"));
     const folderA: RootFolder = { ...mockRootFolder, id: "rf-1", path: tmpDir };
@@ -592,6 +603,17 @@ describe("matchUnmatchedFolder with release-style folder names", () => {
     // The searched result replaces the scan's guesses, so it can now be matched.
     const result = await matchUnmatchedFolder("rf-release-search", folderName, 777, "user-1");
     expect(result.gameId).toBe("game-777");
+  });
+
+  it("still accepts a candidate offered before a later name search", async () => {
+    // Another tab still shows the scan's list after this one searched a name.
+    const igdbClient = await scanReleaseFolder("rf-release-two-tabs");
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([{ id: 777, name: "Absolum" }] as never);
+    await searchUnmatchedFolder("rf-release-two-tabs", folderName, "Absolum");
+
+    const result = await matchUnmatchedFolder("rf-release-two-tabs", folderName, 314, "user-1");
+
+    expect(result.gameId).toBe("game-314");
   });
 
   it("drops search results when a rescan rebuilt the entry meanwhile", async () => {

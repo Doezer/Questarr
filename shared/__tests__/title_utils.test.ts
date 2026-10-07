@@ -148,6 +148,11 @@ describe("title-utils", () => {
     it("does not read a dotted version number as a sequel", () => {
       expect(releaseMatchesGame("Dishonored.2.0-GROUP", "Dishonored")).toBe(true);
     });
+
+    it("still matches numbered updates and DLC of the game", () => {
+      expect(releaseMatchesGame("Dishonored.Update.2-GROUP", "Dishonored")).toBe(true);
+      expect(releaseMatchesGame("Hades.DLC.3-GROUP", "Hades")).toBe(true);
+    });
   });
 
   describe("parseReleaseMetadata", () => {

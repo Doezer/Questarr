@@ -189,15 +189,18 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
   // First try matching against the cleaned release name
   const cleaned = cleanReleaseName(releaseName);
   // A sequel of the wanted game must not get through the word-based fallback below either.
-  // The raw name is checked too, since cleanup can drop the number ("Dishonored-2" reads as
-  // a group suffix), and so are stopword-free forms: indexers often drop the "The".
+  // This reads the raw name: cleanup drops tags that sit between the title and a number
+  // ("Dishonored.Update.2" would read as "Dishonored 2") and can drop the number itself
+  // ("Dishonored-2" looks like a group suffix). Stopword-free forms are checked too, since
+  // indexers often drop the "The".
+  const normRelease = normalizeTitle(releaseName);
   const normGame = normalizeTitle(gameTitle);
-  const isSequel = [normalizeTitle(cleaned), normalizeTitle(releaseName)].some(
-    (normRelease) =>
-      isSequelOf(normRelease, normGame) ||
-      isSequelOf(withoutStopWords(normRelease), withoutStopWords(normGame))
-  );
-  if (isSequel) return false;
+  if (
+    isSequelOf(normRelease, normGame) ||
+    isSequelOf(withoutStopWords(normRelease), withoutStopWords(normGame))
+  ) {
+    return false;
+  }
   if (titleMatches(cleaned, gameTitle)) return true;
 
   // Fallback: Check if the normalized game title words are all present in the release name

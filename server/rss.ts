@@ -40,7 +40,21 @@ export class RssService {
     }
   }
 
-  async refreshFeeds() {
+  private refreshInFlight: Promise<void> | null = null;
+
+  /**
+   * Refreshes every enabled feed. A call made while a refresh is running (the hourly cron
+   * tick and the Refresh button) joins it instead of starting another one: the GUID
+   * de-duplication is a read then an insert, so two overlapping runs could add an item twice.
+   */
+  refreshFeeds(): Promise<void> {
+    this.refreshInFlight ??= this.refreshAllFeeds().finally(() => {
+      this.refreshInFlight = null;
+    });
+    return this.refreshInFlight;
+  }
+
+  private async refreshAllFeeds() {
     const feeds = await storage.getAllRssFeeds();
     const enabledFeeds = feeds.filter((f) => f.enabled);
 

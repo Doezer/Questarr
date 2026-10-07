@@ -206,7 +206,12 @@ describe("evaluateRelease built-in rules", () => {
     expect(evaluateRelease(torrent("Dishonored.exe-CODEX"), ctx).rejections).toContainEqual({
       code: "risky_file",
     });
-    for (const tagged of ["Dishonored.exe-CODEX[rarbg]", "Dishonored.exe-CODEX [rarbg] [eztv]"]) {
+    for (const tagged of [
+      "Dishonored.exe-CODEX[rarbg]",
+      "Dishonored.exe-CODEX [rarbg] [eztv]",
+      "Dishonored [setup.exe]",
+      "Dishonored-CODEX [setup.exe] [rarbg]",
+    ]) {
       expect(evaluateRelease(torrent(tagged), ctx).rejections).toContainEqual({
         code: "risky_file",
       });

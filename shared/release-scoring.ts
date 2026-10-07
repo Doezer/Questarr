@@ -539,15 +539,21 @@ const RISKY_FILE_PATTERNS = [
   /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b/i,
 ];
 
-/** Drops indexer tags such as "[rarbg]" from the end of a release name. */
-function withoutTrailingTags(title: string): string {
-  let rest = title.trim();
-  while (rest.endsWith("]")) {
-    const open = rest.lastIndexOf("[");
+/** Splits indexer tags such as "[rarbg]" off the end of a release name. */
+function splitTrailingTags(title: string): { name: string; tags: string[] } {
+  let name = title.trim();
+  const tags: string[] = [];
+  while (name.endsWith("]")) {
+    const open = name.lastIndexOf("[");
     if (open === -1) break;
-    rest = rest.slice(0, open).trimEnd();
+    tags.push(name.slice(open + 1, -1).trim());
+    name = name.slice(0, open).trimEnd();
   }
-  return rest;
+  return { name, tags };
+}
+
+function withoutTrailingTags(title: string): string {
+  return splitTrailingTags(title).name;
 }
 
 export const BUILT_IN_RULE_IDS = [
@@ -693,8 +699,11 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
     rejection: "risky_file",
     locked: true,
     applies: (f) => {
-      const title = withoutTrailingTags(f.input.title);
-      return RISKY_FILE_PATTERNS.some((pattern) => pattern.test(title));
+      // the name and each tag on its own: "Game [setup.exe]" hides the file in a tag
+      const { name, tags } = splitTrailingTags(f.input.title);
+      return [name, ...tags].some((part) =>
+        RISKY_FILE_PATTERNS.some((pattern) => pattern.test(part))
+      );
     },
   },
 ];

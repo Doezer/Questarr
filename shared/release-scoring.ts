@@ -574,7 +574,9 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
   {
     id: "title_spinoff",
     label: "Title continues past the game name (possible spinoff)",
-    points: -60,
+    // outweighs every positive built-in rule but the title ones, so a spinoff stays below
+    // the default minimum score whatever bonuses it collects
+    points: -150,
     applies: (f) => f.titleMatch === "spinoff",
   },
   {

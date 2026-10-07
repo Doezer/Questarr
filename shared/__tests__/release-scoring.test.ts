@@ -135,9 +135,19 @@ describe("evaluateRelease built-in rules", () => {
   it("penalizes a spinoff below the default minimum score, without a hard rejection", () => {
     const spinoff = torrent("Dishonored.Death.of.the.Outsider-CODEX");
     const result = evaluateRelease(spinoff, ctx);
-    expect(result.lines.find((l) => l.ruleId === "title_spinoff")?.points).toBe(-60);
-    expect(result.rejections).toEqual([{ code: "below_min_score", detail: "-40" }]);
-    expect(evaluateRelease(spinoff, ctx, profile({ minScore: -100 })).accepted).toBe(true);
+    expect(result.lines.find((l) => l.ruleId === "title_spinoff")?.points).toBe(-150);
+    expect(result.rejections).toEqual([{ code: "below_min_score", detail: "-130" }]);
+    expect(evaluateRelease(spinoff, ctx, profile({ minScore: -200 })).accepted).toBe(true);
+  });
+
+  it("keeps a spinoff below the minimum score even with every bonus stacked", () => {
+    const stacked = evaluateRelease(
+      torrent("DOOM.Eternal.NSW.Repack-VENOM", { category: ["1000"] }),
+      { gameTitle: "DOOM", platform: "Switch" }
+    );
+    expect(stacked.titleMatch).toBe("spinoff");
+    expect(stacked.accepted).toBe(false);
+    expect(stacked.rejections.map((r) => r.code)).toEqual(["below_min_score"]);
   });
 
   it("rejects non-game categories but not unknown ones", () => {

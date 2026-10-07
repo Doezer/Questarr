@@ -2163,6 +2163,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // download-import pipeline.
   // ==========================================================================
 
+  // Fire-and-forget; progress is available via GET /api/library/scan/status
+  const startRootFolderScan = (rootFolderId: string, userId: string): void => {
+    scanRootFolderById(rootFolderId, userId).catch((err) =>
+      routesLogger.error({ err }, "scanRootFolderById crashed")
+    );
+  };
+
   app.get("/api/root-folders", authenticateToken, async (_req: Request, res: Response) => {
     try {
       const folders = await storage.getAllRootFolders();
@@ -2208,6 +2215,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           diskTotalBytes: probe.diskTotalBytes,
         });
 
+        // Scan right away so games already in the folder show up without a
+        // separate "Scan" click. Fire-and-forget, like POST /api/library/scan.
+        if (folder.enabled) startRootFolderScan(folder.id, req.user!.id);
+
         return res.status(201).json(withHealth ?? folder);
       } catch (error) {
         if (error instanceof z.ZodError) {
@@ -2230,6 +2241,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const { id } = req.params as { id: string };
         const updates = updateRootFolderSchema.parse(req.body);
+        const before = await storage.getRootFolder(id);
+        if (!before) return res.status(404).json({ error: "Root folder not found" });
+        // Rescan when a folder is switched on or pointed at a new path, so the
+        // Discover list reflects what is on disk there without a manual scan.
+        const shouldScan = (folder: { enabled: boolean; path: string }) =>
+          folder.enabled && (!before.enabled || folder.path !== before.path);
 
         if (updates.path) {
           // Same canonicalization as the create route — resolve before the
@@ -2257,11 +2274,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             diskFreeBytes: probe.diskFreeBytes,
             diskTotalBytes: probe.diskTotalBytes,
           });
+          if (shouldScan(folder)) startRootFolderScan(folder.id, req.user!.id);
           return res.json(withHealth ?? folder);
         }
 
         const folder = await storage.updateRootFolder(id, updates);
         if (!folder) return res.status(404).json({ error: "Root folder not found" });
+        if (shouldScan(folder)) startRootFolderScan(folder.id, req.user!.id);
         return res.json(folder);
       } catch (error) {
         if (error instanceof z.ZodError) {
@@ -2337,10 +2356,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (rootFolderId) {
           const folder = await storage.getRootFolder(rootFolderId);
           if (!folder) return res.status(404).json({ error: "Root folder not found" });
-          // Fire-and-forget; progress is available via GET /api/library/scan/status
-          scanRootFolderById(rootFolderId, userId).catch((err) =>
-            routesLogger.error({ err }, "scanRootFolderById crashed")
-          );
+          startRootFolderScan(rootFolderId, userId);
           return res.status(202).json({ accepted: true, rootFolderId });
         }
         scanAllEnabledRootFolders(userId).catch((err) =>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -99,6 +99,18 @@ export function RootFolderDiscovery() {
     refetchInterval: anyScanning(scanProgress) ? 1500 : false,
   });
 
+  // The unmatched list only polls while a scan runs, so its last poll can land
+  // before the final folders are queued. Refetch whenever a scan's counts or
+  // status change, which also catches the running → completed transition.
+  const scanSnapshot = useMemo(
+    () => scanProgress.map((p) => `${p.rootFolderId}:${p.status}:${p.unmatched}`).join("|"),
+    [scanProgress]
+  );
+  useEffect(() => {
+    if (!scanSnapshot) return;
+    queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
+  }, [scanSnapshot, queryClient]);
+
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] });
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/status"] });
@@ -113,11 +125,11 @@ export function RootFolderDiscovery() {
       });
     },
     onSuccess: () => {
-      toast({ title: "Root Folder Added" });
+      toast({ title: "Root Folder Added", description: "Scanning it for games now." });
       setIsDialogOpen(false);
       setNewPath("");
       setNewName("");
-      queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] });
+      invalidateAll();
     },
     onError: (error: Error) => {
       toast({ title: "Could Not Add Folder", description: error.message, variant: "destructive" });
@@ -128,7 +140,8 @@ export function RootFolderDiscovery() {
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
       await apiRequest("PATCH", `/api/root-folders/${id}`, { enabled });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] }),
+    // Enabling a folder starts a scan server-side, so refresh progress too.
+    onSuccess: () => invalidateAll(),
   });
 
   const allowDeleteMutation = useMutation({

@@ -47,6 +47,7 @@ vi.mock("../socket.js", () => ({
 vi.mock("../igdb.js", () => ({
   igdbClient: {
     searchGames: vi.fn().mockResolvedValue([]),
+    getGameById: vi.fn().mockResolvedValue(null),
   },
 }));
 
@@ -302,8 +303,10 @@ describe("same-basename standalone files stay independently resolvable", () => {
     );
 
     const { igdbClient } = await import("../igdb.js");
-    // No strong match for either — both land in the unmatched queue.
-    vi.mocked(igdbClient.searchGames).mockResolvedValue([]);
+    // Only a weak match for either — both land in the unmatched queue with id 99 offered.
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 99, name: "Totally Unrelated Title" },
+    ] as never);
 
     await scanRootFolderById("rf-basename", "user-1");
 
@@ -312,9 +315,10 @@ describe("same-basename standalone files stay independently resolvable", () => {
     expect(new Set(beforeMatch.map((e) => e.absolutePath)).size).toBe(2);
 
     // Resolving Game.iso must not clear Game.zip's queued entry too.
-    vi.mocked(igdbClient.searchGames).mockResolvedValueOnce([
-      { id: 99, name: "Some Game" },
-    ] as never);
+    vi.mocked(igdbClient.getGameById).mockResolvedValueOnce({
+      id: 99,
+      name: "Totally Unrelated Title",
+    } as never);
     await matchUnmatchedFolder("rf-basename", "Game.iso", 99, "user-1");
 
     const afterMatch = getAllUnmatched().filter((e) => e.rootFolderId === "rf-basename");
@@ -393,5 +397,64 @@ describe("existing game libraryPath handling", () => {
     expect(storage.updateGame).toHaveBeenCalledWith("playing-game", {
       libraryPath: path.join(tmpDir, "Portal 2"),
     });
+  });
+});
+
+describe("matchUnmatchedFolder with release-style folder names", () => {
+  const folderName = "Absolum v1.01 [CUSA53342] [EUR]";
+
+  async function scanReleaseFolder(rootFolderId: string) {
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-release-"));
+    await fs.promises.mkdir(path.join(tmpDir, folderName));
+    await fs.promises.writeFile(path.join(tmpDir, folderName, "game.pkg"), "x");
+    const rootFolder: RootFolder = { ...mockRootFolder, id: rootFolderId, path: tmpDir };
+
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getRootFolder).mockResolvedValue(rootFolder);
+    vi.mocked(storage.getGameFiles).mockResolvedValue([]);
+    vi.mocked(storage.addGameFile).mockResolvedValue(undefined as never);
+    vi.mocked(storage.updateGame).mockResolvedValue(undefined as never);
+    vi.mocked(storage.touchRootFolderScanned).mockResolvedValue(undefined);
+    vi.mocked(storage.getGameByIgdbId).mockResolvedValue(undefined);
+    vi.mocked(storage.addGame).mockImplementation(
+      async (g) => ({ id: `game-${g.igdbId}`, ...g }) as unknown as Game
+    );
+
+    const { igdbClient } = await import("../igdb.js");
+    // IGDB only knows the game under its cleaned title; the raw release name
+    // finds nothing, which is what happened in production.
+    vi.mocked(igdbClient.searchGames).mockImplementation(async (query: string) =>
+      query === folderName ? [] : ([{ id: 314, name: "Absolum Deluxe Something" }] as never)
+    );
+    vi.mocked(igdbClient.getGameById).mockResolvedValue({
+      id: 314,
+      name: "Absolum Deluxe Something",
+    } as never);
+
+    await scanRootFolderById(rootFolderId, "user-1");
+    const entry = getAllUnmatched().find(
+      (e) => e.rootFolderId === rootFolderId && e.folderName === folderName
+    );
+    expect(entry?.candidates.map((c) => c.igdbId)).toEqual([314]);
+    return igdbClient;
+  }
+
+  it("accepts a candidate the scan offered even when the raw name finds nothing", async () => {
+    await scanReleaseFolder("rf-release-ok");
+
+    const result = await matchUnmatchedFolder("rf-release-ok", folderName, 314, "user-1");
+
+    expect(result.gameId).toBe("game-314");
+    expect(getAllUnmatched().some((e) => e.rootFolderId === "rf-release-ok")).toBe(false);
+  });
+
+  it("rejects an IGDB id the scan did not offer for that folder", async () => {
+    const igdbClient = await scanReleaseFolder("rf-release-bad");
+    vi.mocked(igdbClient.getGameById).mockClear();
+
+    await expect(matchUnmatchedFolder("rf-release-bad", folderName, 999, "user-1")).rejects.toThrow(
+      /not found in top candidates/i
+    );
+    expect(igdbClient.getGameById).not.toHaveBeenCalled();
   });
 });

@@ -23,7 +23,7 @@ import {
   createSocketMock,
 } from "./fixtures/common-route-mocks.js";
 import { registerRoutes, parseCategories } from "../routes.js";
-import { matchUnmatchedFolder } from "../library-scanner.js";
+import { matchUnmatchedFolder, scanRootFolderById } from "../library-scanner.js";
 import { storage } from "../storage.js";
 import { searchAllIndexers } from "../search.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
@@ -4425,6 +4425,7 @@ describe("API Routes - Extended Coverage", () => {
 
     it("canonicalizes the path before checking uniqueness on update", async () => {
       const folderId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getRootFolder).mockResolvedValue(makeRootFolder({ id: folderId }));
       vi.mocked(storage.getRootFolderByPath).mockResolvedValue(undefined);
       vi.mocked(storage.updateRootFolder).mockResolvedValue(makeRootFolder({ id: folderId }));
       vi.mocked(storage.updateRootFolderHealth).mockResolvedValue(makeRootFolder({ id: folderId }));
@@ -4438,6 +4439,89 @@ describe("API Routes - Extended Coverage", () => {
         folderId,
         expect.objectContaining({ path: path.resolve("/mnt/games") })
       );
+    });
+
+    describe("automatic scan", () => {
+      const folderId = "123e4567-e89b-12d3-a456-426614174000";
+
+      it("scans a newly added enabled folder", async () => {
+        vi.mocked(storage.getRootFolderByPath).mockResolvedValue(undefined);
+        vi.mocked(storage.addRootFolder).mockResolvedValue(makeRootFolder({ id: folderId }));
+        vi.mocked(storage.updateRootFolderHealth).mockResolvedValue(
+          makeRootFolder({ id: folderId })
+        );
+
+        const res = await request(app).post("/api/root-folders").send({ path: "/mnt/games" });
+
+        expect(res.status).toBe(201);
+        expect(scanRootFolderById).toHaveBeenCalledWith(folderId, expect.any(String));
+      });
+
+      it("does not scan a folder added disabled", async () => {
+        vi.mocked(storage.getRootFolderByPath).mockResolvedValue(undefined);
+        vi.mocked(storage.addRootFolder).mockResolvedValue(
+          makeRootFolder({ id: folderId, enabled: false })
+        );
+        vi.mocked(storage.updateRootFolderHealth).mockResolvedValue(
+          makeRootFolder({ id: folderId, enabled: false })
+        );
+
+        await request(app).post("/api/root-folders").send({ path: "/mnt/games", enabled: false });
+
+        expect(scanRootFolderById).not.toHaveBeenCalled();
+      });
+
+      it("scans a folder when it is switched on", async () => {
+        vi.mocked(storage.getRootFolder).mockResolvedValue(
+          makeRootFolder({ id: folderId, enabled: false })
+        );
+        vi.mocked(storage.updateRootFolder).mockResolvedValue(makeRootFolder({ id: folderId }));
+
+        const res = await request(app)
+          .patch(`/api/root-folders/${folderId}`)
+          .send({ enabled: true });
+
+        expect(res.status).toBe(200);
+        expect(scanRootFolderById).toHaveBeenCalledWith(folderId, expect.any(String));
+      });
+
+      it("does not rescan when an unrelated setting changes", async () => {
+        vi.mocked(storage.getRootFolder).mockResolvedValue(makeRootFolder({ id: folderId }));
+        vi.mocked(storage.updateRootFolder).mockResolvedValue(
+          makeRootFolder({ id: folderId, allowDelete: true })
+        );
+
+        await request(app).patch(`/api/root-folders/${folderId}`).send({ allowDelete: true });
+
+        expect(scanRootFolderById).not.toHaveBeenCalled();
+      });
+
+      it("rescans an enabled folder whose path changed", async () => {
+        vi.mocked(storage.getRootFolder).mockResolvedValue(makeRootFolder({ id: folderId }));
+        vi.mocked(storage.getRootFolderByPath).mockResolvedValue(undefined);
+        vi.mocked(storage.updateRootFolder).mockResolvedValue(
+          makeRootFolder({ id: folderId, path: "/mnt/games" })
+        );
+        vi.mocked(storage.updateRootFolderHealth).mockResolvedValue(
+          makeRootFolder({ id: folderId, path: "/mnt/games" })
+        );
+
+        await request(app).patch(`/api/root-folders/${folderId}`).send({ path: "/mnt/games" });
+
+        expect(scanRootFolderById).toHaveBeenCalledWith(folderId, expect.any(String));
+      });
+
+      it("returns 404 without scanning when the folder does not exist", async () => {
+        vi.mocked(storage.getRootFolder).mockResolvedValue(undefined);
+
+        const res = await request(app)
+          .patch(`/api/root-folders/${folderId}`)
+          .send({ enabled: true });
+
+        expect(res.status).toBe(404);
+        expect(storage.updateRootFolder).not.toHaveBeenCalled();
+        expect(scanRootFolderById).not.toHaveBeenCalled();
+      });
     });
   });
 

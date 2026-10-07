@@ -339,8 +339,14 @@ export async function matchUnmatchedFolder(
   const isFile = stat.isFile();
   const standaloneSize = isFile ? stat.size : 0;
 
-  const candidates = await igdbClient.searchGames(folderName, 10);
-  const igdb = candidates.find((c) => c.id === igdbId);
+  // Only accept one of the candidates the scan itself offered for this folder,
+  // then fetch it by id. Re-searching IGDB here with the raw folder name (the
+  // scan searches with the cleaned release name) returned a different list for
+  // names like "Absolum v1.01 [CUSA53342] [EUR]", so every pick was rejected.
+  if (!entry.candidates.some((c) => c.igdbId === igdbId)) {
+    throw new Error("Selected IGDB game not found in top candidates");
+  }
+  const igdb = await igdbClient.getGameById(igdbId);
   if (!igdb) throw new Error("Selected IGDB game not found in top candidates");
 
   let game = await storage.getGameByIgdbId(igdbId);

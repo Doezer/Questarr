@@ -57,6 +57,8 @@ describe("classifyTitleMatch", () => {
     ["英雄伝説.II-GOG", "英雄伝説", "sequel"],
     ["Pokemon.Legends-GOG", "Pokémon Legends", "exact"],
     ["Dishonored-CODEX [rarbg]", "Dishonored", "exact"],
+    ["Dishonored-CODEX [1337x.to]", "Dishonored", "exact"],
+    ["DOOM [Eternal]", "DOOM", "spinoff"],
     ["DOOM-CODEX", "DOOM", "exact"],
     ["Hades-FitGirl", "Hades", "exact"],
     ["Hades-Razor1911", "Hades", "exact"],
@@ -164,6 +166,18 @@ describe("evaluateRelease built-in rules", () => {
   it("rejects video, music and book releases", () => {
     const result = evaluateRelease(torrent("Dishonored.Gameplay.1080p.x264-GRP"), ctx);
     expect(result.rejections).toContainEqual({ code: "non_game_media" });
+    for (const media of [
+      "Dishonored.Soundtrack-FLT",
+      "Dishonored.OST-GRP",
+      "Dishonored.Artbook-CODEX",
+    ]) {
+      expect(evaluateRelease(torrent(media), ctx).rejections).toContainEqual({
+        code: "non_game_media",
+      });
+    }
+    // a soundtrack bundled with the game is not a music release
+    const bundled = evaluateRelease(torrent("Dishonored.Deluxe.Edition.incl.OST-GOG"), ctx);
+    expect(bundled.rejections.map((r) => r.code)).not.toContain("non_game_media");
   });
 
   it("checks the platform when one is wanted", () => {
@@ -213,6 +227,7 @@ describe("evaluateRelease built-in rules", () => {
       "Dishonored-CODEX [setup.exe] [rarbg]",
       "Dishonored.exe.MULTi8-CODEX",
       "Dishonored setup.msi CODEX",
+      "Dishonored.cmd.MULTi8-CODEX",
     ]) {
       expect(evaluateRelease(torrent(tagged), ctx).rejections).toContainEqual({
         code: "risky_file",

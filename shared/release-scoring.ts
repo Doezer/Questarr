@@ -529,6 +529,8 @@ const NON_GAME_MEDIA_PATTERNS = [
   /\b(mkv|avi|mp4|flac|mp3)\b/i, // video and music files
   /\b(epub|mobi|pdf|cbr|cbz)\b/i, // books and comics
   /\bs\d{2}e\d{2}\b/i, // TV episodes
+  // soundtracks and artbooks on their own, not bundled ("Deluxe.Edition.incl.OST")
+  /(?<!\b(?:incl|including|with|plus)[ ._-]?)\b(ost|soundtrack|artbook)\b/i,
 ];
 const REPACKERS = ["fitgirl", "dodi", "elamigos", "kaos", "xatab", "tinyrepacks"];
 const REPACK_PATTERN = new RegExp(String.raw`\b(repack|${REPACKERS.join("|")})\b`, "i");
@@ -539,7 +541,7 @@ const SIZE_MISMATCH_RATIO = 0.5;
 const RISKY_FILE_PATTERNS = [
   /\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk|ps1)(-\w+)?$/i, // with or without a -GROUP suffix
   // unambiguous ones anywhere as a dotted part, even before metadata: Game.exe.MULTi8-CODEX
-  /\.(exe|scr|bat|vbs|jar|msi|lnk|ps1)(?=[.\s_-]|$)/i,
+  /\.(exe|scr|bat|cmd|vbs|jar|msi|lnk|ps1)(?=[.\s_-]|$)/i,
   /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b/i,
 ];
 
@@ -556,8 +558,15 @@ function splitTrailingTags(title: string): { name: string; tags: string[] } {
   return { name, tags };
 }
 
+// "[rarbg]", "[1337x.to]", "[EZTV]": one word, single-case or with a digit or a dot. A tag like
+// "[Eternal]" may be part of the title and is kept.
+const INDEXER_TAG = /^(?:[a-z0-9.]+|[A-Z0-9.]+|\S*[\d.]\S*)$/;
+
+/** The release name without the trailing tags that look like indexer annotations. */
 function withoutTrailingTags(title: string): string {
-  return splitTrailingTags(title).name;
+  const { name, tags } = splitTrailingTags(title);
+  const kept = tags.filter((tag) => !INDEXER_TAG.test(tag)).reverse();
+  return kept.length > 0 ? `${name} ${kept.map((tag) => `[${tag}]`).join(" ")}` : name;
 }
 
 export const BUILT_IN_RULE_IDS = [

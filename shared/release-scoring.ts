@@ -529,13 +529,15 @@ const NON_GAME_MEDIA_PATTERNS = [
   /\bs\d{2}e\d{2}\b/i, // TV episodes
 ];
 const REPACKERS = ["fitgirl", "dodi", "elamigos", "kaos", "xatab", "tinyrepacks"];
-const REPACK_PATTERN = new RegExp(`\\b(repack|${REPACKERS.join("|")})\\b`, "i");
+const REPACK_PATTERN = new RegExp(String.raw`\b(repack|${REPACKERS.join("|")})\b`, "i");
 // Suffixes that parseReleaseMetadata reads as a group but that name a store or a repacker
 const NON_SCENE_GROUPS = new Set(["gog", "steam", "epic", ...REPACKERS]);
 const SIZE_MISMATCH_RATIO = 0.5;
 // An executable or script as the release itself, or hidden behind a media extension
 const RISKY_FILE_PATTERNS = [
   /\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk|ps1)(-\w+)?$/i, // with or without a -GROUP suffix
+  // unambiguous ones anywhere as a dotted part, even before metadata: Game.exe.MULTi8-CODEX
+  /\.(exe|scr|bat|vbs|jar|msi|lnk|ps1)(?=[.\s_-]|$)/i,
   /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b/i,
 ];
 

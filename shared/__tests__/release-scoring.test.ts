@@ -211,6 +211,8 @@ describe("evaluateRelease built-in rules", () => {
       "Dishonored.exe-CODEX [rarbg] [eztv]",
       "Dishonored [setup.exe]",
       "Dishonored-CODEX [setup.exe] [rarbg]",
+      "Dishonored.exe.MULTi8-CODEX",
+      "Dishonored setup.msi CODEX",
     ]) {
       expect(evaluateRelease(torrent(tagged), ctx).rejections).toContainEqual({
         code: "risky_file",

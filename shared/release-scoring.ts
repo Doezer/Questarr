@@ -434,6 +434,22 @@ function classifyAgainstTitle(
 }
 
 /**
+ * The release group, only when the suffix really looks like one. In a name like DOOM-Eternal the
+ * hyphen is the only separator, so the last word is part of the title unless it reads as a group
+ * (all caps or digits like CODEX or Razor1911, or a known repacker).
+ */
+function releaseGroup(releaseName: string): string | undefined {
+  const { group } = parseReleaseMetadata(releaseName);
+  if (!group) return undefined;
+  const dash = releaseName.lastIndexOf("-");
+  if (dash === -1) return group; // a [GROUP] prefix
+  const sceneLike = /[ ._]/.test(releaseName.slice(0, dash).trim());
+  const looksLikeGroup =
+    /^[A-Z0-9]+$/.test(group) || /\d/.test(group) || NON_SCENE_GROUPS.has(group.toLowerCase());
+  return sceneLike || looksLikeGroup ? group : undefined;
+}
+
+/**
  * Classifies how a release name relates to the wanted game, trying the main title and any
  * alternative titles and keeping the best result.
  */
@@ -442,7 +458,7 @@ export function classifyTitleMatch(
   gameTitle: string,
   alternativeTitles: readonly string[] = []
 ): TitleMatch {
-  const { group } = parseReleaseMetadata(releaseName);
+  const group = releaseGroup(releaseName);
   let best: TitleMatch = "mismatch";
   for (const title of [gameTitle, ...alternativeTitles]) {
     if (!title) continue;
@@ -660,7 +676,10 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
 
 /** User regexes are capped in length, and only ever run on this much of a title. */
 export const MAX_FORMAT_REGEX_LENGTH = 200;
-const MAX_REGEX_INPUT_LENGTH = 500;
+const MAX_REGEX_INPUT_LENGTH = 256;
+// Each open-ended repeat (*, +, {n,m}) multiplies the backtracking work: three in a row, as in
+// a*a*a*b or .*a.*a.*b, already take seconds on a 500-character title.
+const MAX_REGEX_REPEATS = 2;
 
 /**
  * True when a group that repeats itself repeats, branches or has an optional part inside, as in
@@ -686,6 +705,22 @@ function hasNestedQuantifier(pattern: string): boolean {
     }
   }
   return false;
+}
+
+/** Counts the open-ended repeats in a pattern: *, + and {n,m}, but not an exact {n}. */
+function countRepeats(pattern: string): number {
+  const chars = structuralChars(pattern);
+  let count = 0;
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    if (char === "*" || char === "+") {
+      count++;
+    } else if (char === "{") {
+      const close = chars.indexOf("}", i);
+      if (close !== -1 && chars.slice(i + 1, close).includes(",")) count++;
+    }
+  }
+  return count;
 }
 
 function markLast(groups: boolean[]): void {
@@ -722,6 +757,9 @@ function regexProblem(pattern: string): string | null {
   }
   if (hasNestedQuantifier(pattern)) {
     return "Regex repeats a group that repeats or branches, which can freeze matching";
+  }
+  if (countRepeats(pattern) > MAX_REGEX_REPEATS) {
+    return `Regex has more than ${MAX_REGEX_REPEATS} open-ended repeats (*, +, {n,m}), which can freeze matching`;
   }
   try {
     new RegExp(pattern, "i");

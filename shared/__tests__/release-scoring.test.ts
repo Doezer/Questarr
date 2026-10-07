@@ -52,6 +52,10 @@ describe("classifyTitleMatch", () => {
     ["The.Witcher.3-GOG", "The Witcher", "sequel"],
     ["Dishonored.Death.of.the.Outsider-CODEX", "Dishonored", "spinoff"],
     ["DOOM.Eternal-CODEX", "DOOM", "spinoff"],
+    ["DOOM-Eternal", "DOOM", "spinoff"],
+    ["DOOM-CODEX", "DOOM", "exact"],
+    ["Hades-FitGirl", "Hades", "exact"],
+    ["Hades-Razor1911", "Hades", "exact"],
     ["Elden.Ring.Shadow.of.the.Erdtree-RUNE", "Elden Ring", "spinoff"],
     // not the game
     ["F1.23-RUNE", "F1 24", "mismatch"],
@@ -446,6 +450,25 @@ describe("custom formats", () => {
       );
     }
   );
+
+  it.each(["^a*a*a*a*a*a*a*a*b$", ".*a.*a.*b", "\\w+\\w+\\w+x", "a{1,9}a{1,9}a{1,9}b"])(
+    "refuses more than two open-ended repeats in %s",
+    (value) => {
+      expect(validateFormatSpec({ field: "title", mode: "regex", value })).toMatch(
+        /open-ended repeats/
+      );
+      const terms = profile({ ignoredTerms: [`/${value}/`], minScore: -1000 });
+      const title = `Dishonored.${"a".repeat(5000)}!`;
+      const started = Date.now();
+      evaluateRelease(torrent(title), { gameTitle: "Dishonored" }, terms);
+      expect(Date.now() - started).toBeLessThan(1000);
+    }
+  );
+
+  it("allows two open-ended repeats and exact counts", () => {
+    expect(validateFormatSpec({ field: "title", mode: "regex", value: ".*multi.*" })).toBeNull();
+    expect(validateFormatSpec({ field: "title", mode: "regex", value: "\\d{4}.*x+" })).toBeNull();
+  });
 
   it("keeps a plain regex usable", () => {
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "multi\\d+" })).toBeNull();

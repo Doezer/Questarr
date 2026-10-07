@@ -601,7 +601,12 @@ export async function rescanAllEnabledRootFolders(userId: string): Promise<void>
     if (!activeScans.has(folder.id)) markQueued(folder.id, folder.path);
   }
   for (const folder of folders) {
-    await rescanRootFolderById(folder.id, userId);
+    // One folder failing (e.g. deleted mid-batch) must not stop the rest.
+    try {
+      await rescanRootFolderById(folder.id, userId);
+    } catch (err) {
+      routesLogger.error({ err, rootFolderId: folder.id }, "root folder scan failed");
+    }
   }
 }
 
@@ -611,7 +616,12 @@ export async function scanAllEnabledRootFolders(userId: string): Promise<void> {
     if (!activeScans.has(folder.id)) markQueued(folder.id, folder.path);
   }
   for (const folder of folders) {
-    await scanRootFolderById(folder.id, userId);
+    // One folder failing (e.g. deleted mid-batch) must not stop the rest.
+    try {
+      await scanRootFolderById(folder.id, userId);
+    } catch (err) {
+      routesLogger.error({ err, rootFolderId: folder.id }, "root folder scan failed");
+    }
   }
 }
 

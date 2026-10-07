@@ -6,6 +6,7 @@ import {
   __testing,
   matchUnmatchedFolder,
   rescanRootFolderById,
+  rescanAllEnabledRootFolders,
   scanRootFolderById,
   scanAllEnabledRootFolders,
   getScanProgress,
@@ -338,6 +339,21 @@ describe("scanRootFolderById full scan", () => {
     // When folder A completes, folder B is already waiting, not missing.
     expect(statusesOfB[0]).toBe("queued");
     expect(getScanProgress("rf-batch-b")?.status).toBe("completed");
+  });
+
+  it("keeps scanning the rest of a batch when one folder is gone", async () => {
+    const { storage } = await import("../storage.js");
+    const gone: RootFolder = { ...mockRootFolder, id: "rf-gone", path: "/mnt/gone" };
+    const kept: RootFolder = { ...mockRootFolder, id: "rf-1", path: tmpDir };
+    vi.mocked(storage.getEnabledRootFolders).mockResolvedValue([gone, kept]);
+    // The first folder was deleted after the batch listed it.
+    vi.mocked(storage.getRootFolder).mockImplementation(async (id: string) =>
+      id === "rf-gone" ? undefined : kept
+    );
+
+    await rescanAllEnabledRootFolders("user-1");
+
+    expect(getScanProgress("rf-1")?.status).toBe("completed");
   });
 
   it("restores a folder's previous status when its queued scan does not run", async () => {

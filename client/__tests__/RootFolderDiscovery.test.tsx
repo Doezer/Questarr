@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient, getRequestUrl } from "./test-utils";
 import { RootFolderDiscovery } from "../src/components/RootFolderDiscovery";
 import type { RootFolder } from "@shared/schema";
+
+const mockSocket = vi.hoisted(() => ({ on: vi.fn(), off: vi.fn() }));
+vi.mock("@/lib/socket", () => ({
+  getSocket: () => mockSocket,
+}));
 
 const mockToast = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
@@ -135,6 +140,33 @@ describe("RootFolderDiscovery", () => {
 
     await waitFor(() => expect(statusCalls).toBeGreaterThan(1), { timeout: 4000 });
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/games"] }));
+  });
+
+  it("shows scan progress pushed by the server without waiting for a poll", async () => {
+    mockFetch([folder]);
+    renderComponent();
+    await screen.findByText("/mnt/old-library");
+
+    const handler = mockSocket.on.mock.calls.find(
+      ([event]) => event === "library-scan-progress"
+    )?.[1];
+    expect(handler).toBeDefined();
+    act(() => {
+      handler({
+        rootFolderId: "rf-1",
+        rootFolderPath: "/mnt/scan-pushed",
+        startedAt: new Date().toISOString(),
+        status: "running",
+        totalCandidates: 4,
+        processedCandidates: 1,
+        matched: 1,
+        unmatched: 0,
+        errors: 0,
+      });
+    });
+
+    expect(await screen.findByText("/mnt/scan-pushed")).toBeInTheDocument();
+    expect(screen.getByText("running")).toBeInTheDocument();
   });
 
   it("shows an empty state when there are no root folders", async () => {

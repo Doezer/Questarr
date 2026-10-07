@@ -36,6 +36,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { getSocket } from "@/lib/socket";
 import type { RootFolder } from "@shared/schema";
 import { FileBrowser } from "./FileBrowser";
 
@@ -111,6 +112,23 @@ export function RootFolderDiscovery({
         ? 1500
         : false,
   });
+
+  // The server pushes every progress change, so a scan that starts after the
+  // kickoff grace period still shows up and restarts polling.
+  useEffect(() => {
+    const socket = getSocket();
+    const handleScanProgress = (progress: ScanProgress) => {
+      queryClient.setQueryData<ScanProgress[]>(["/api/library/scan/status"], (current = []) =>
+        current.some((p) => p.rootFolderId === progress.rootFolderId)
+          ? current.map((p) => (p.rootFolderId === progress.rootFolderId ? progress : p))
+          : [...current, progress]
+      );
+    };
+    socket.on("library-scan-progress", handleScanProgress);
+    return () => {
+      socket.off("library-scan-progress", handleScanProgress);
+    };
+  }, [queryClient]);
 
   const { data: unmatched = [] } = useQuery<UnmatchedEntry[]>({
     queryKey: ["/api/library/scan/unmatched"],

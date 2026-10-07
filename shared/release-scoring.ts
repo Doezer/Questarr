@@ -493,15 +493,22 @@ interface ReleaseFacts {
   indexerCategory: IndexerCategoryClass;
 }
 
-const NON_GAME_MEDIA_PATTERN =
-  /\b(480p|720p|1080p|2160p|x264|x265|h264|h265|hevc|bluray|bdrip|brrip|webrip|web-dl|hdtv|dvdrip|mkv|avi|mp4|flac|mp3|epub|mobi|pdf|cbr|cbz|s\d{2}e\d{2})\b/i;
+const NON_GAME_MEDIA_PATTERNS = [
+  /\b(480p|720p|1080p|2160p|x26[45]|h26[45]|hevc)\b/i, // video
+  /\b(bluray|bdrip|brrip|webrip|web-dl|hdtv|dvdrip)\b/i, // video sources
+  /\b(mkv|avi|mp4|flac|mp3)\b/i, // video and music files
+  /\b(epub|mobi|pdf|cbr|cbz)\b/i, // books and comics
+  /\bs\d{2}e\d{2}\b/i, // TV episodes
+];
 const REPACK_PATTERN = /\b(repack|fitgirl|dodi|elamigos|kaos|xatab|tinyrepacks)\b/i;
 // Suffixes that parseReleaseMetadata reads as a group but that name a store or a repacker
 const NON_SCENE_GROUPS = new Set(["gog", "steam", "epic", "fitgirl", "dodi", "elamigos", "kaos"]);
 const SIZE_MISMATCH_RATIO = 0.5;
 // An executable or script as the release itself, or hidden behind a media extension
-const RISKY_FILE_PATTERN =
-  /(\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk|ps1)$|\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b)/i;
+const RISKY_FILE_PATTERNS = [
+  /\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk|ps1)$/i,
+  /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b/i,
+];
 
 export const BUILT_IN_RULE_IDS = [
   "title_exact",
@@ -588,7 +595,7 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
     label: "Looks like video, music or a book",
     points: -120,
     rejection: "non_game_media",
-    applies: (f) => NON_GAME_MEDIA_PATTERN.test(f.input.title),
+    applies: (f) => NON_GAME_MEDIA_PATTERNS.some((pattern) => pattern.test(f.input.title)),
   },
   {
     id: "platform_match",
@@ -643,7 +650,7 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
     points: -1000,
     rejection: "risky_file",
     locked: true,
-    applies: (f) => RISKY_FILE_PATTERN.test(f.input.title.trim()),
+    applies: (f) => RISKY_FILE_PATTERNS.some((pattern) => pattern.test(f.input.title.trim())),
   },
 ];
 
@@ -794,26 +801,13 @@ function termMatcher(term: string): ((title: string) => boolean) | null {
   return (title) => normalizeTerm(title).includes(normalized);
 }
 
-/**
- * Scores one release. Pass formats compiled with compileCustomFormats (once per batch), or
- * use evaluateReleases for a whole result list.
- */
-export function evaluateRelease(
-  input: ReleaseInput,
+function applyBuiltInRules(
+  facts: ReleaseFacts,
   ctx: ReleaseContext,
-  profile: ReleaseProfile = DEFAULT_RELEASE_PROFILE,
-  formats: CompiledCustomFormats = { formats: [], errors: [] }
-): ReleaseEvaluation {
-  const facts: ReleaseFacts = {
-    input,
-    metadata: parseReleaseMetadata(input.title),
-    titleMatch: classifyTitleMatch(input.title, ctx.gameTitle, ctx.alternativeTitles),
-    indexerCategory: classifyIndexerCategories(input.category),
-  };
-
-  const lines: ScoreLine[] = [];
-  const rejections: Rejection[] = [];
-
+  profile: ReleaseProfile,
+  lines: ScoreLine[],
+  rejections: Rejection[]
+): void {
   for (const rule of BUILT_IN_RULES) {
     const override = profile.builtInOverrides[rule.id];
     if (override?.enabled === false && !rule.locked) continue;
@@ -821,7 +815,16 @@ export function evaluateRelease(
     lines.push({ ruleId: rule.id, label: rule.label, points: override?.points ?? rule.points });
     if (rule.rejection) rejections.push({ code: rule.rejection });
   }
+}
 
+/** Adds the lines of matching custom formats and returns their ids. */
+function applyCustomFormats(
+  facts: ReleaseFacts,
+  profile: ReleaseProfile,
+  formats: CompiledCustomFormats,
+  lines: ScoreLine[],
+  rejections: Rejection[]
+): string[] {
   const matchedFormats: string[] = [];
   for (const compiled of formats.formats) {
     if (!formatMatches(compiled, facts)) continue;
@@ -833,7 +836,12 @@ export function evaluateRelease(
       rejections.push({ code: "custom_format_reject", detail: format.name });
     }
   }
+  return matchedFormats;
+}
 
+/** The profile's term, seeder and size checks, which reject without scoring. */
+function checkProfileLimits(input: ReleaseInput, profile: ReleaseProfile): Rejection[] {
+  const rejections: Rejection[] = [];
   const required = profile.requiredTerms
     .map((term) => ({ term, matches: termMatcher(term) }))
     .filter((entry) => entry.matches !== null);
@@ -863,6 +871,34 @@ export function evaluateRelease(
   if (profile.maxSizeBytes != null && input.size != null && input.size > profile.maxSizeBytes) {
     rejections.push({ code: "max_size", detail: String(input.size) });
   }
+
+  return rejections;
+}
+
+const NO_FORMATS: CompiledCustomFormats = { formats: [], errors: [] };
+
+/**
+ * Scores one release. Pass formats compiled with compileCustomFormats (once per batch), or
+ * use evaluateReleases for a whole result list.
+ */
+export function evaluateRelease(
+  input: ReleaseInput,
+  ctx: ReleaseContext,
+  profile: ReleaseProfile = DEFAULT_RELEASE_PROFILE,
+  formats: CompiledCustomFormats = NO_FORMATS
+): ReleaseEvaluation {
+  const facts: ReleaseFacts = {
+    input,
+    metadata: parseReleaseMetadata(input.title),
+    titleMatch: classifyTitleMatch(input.title, ctx.gameTitle, ctx.alternativeTitles),
+    indexerCategory: classifyIndexerCategories(input.category),
+  };
+
+  const lines: ScoreLine[] = [];
+  const rejections: Rejection[] = [];
+  applyBuiltInRules(facts, ctx, profile, lines, rejections);
+  const matchedFormats = applyCustomFormats(facts, profile, formats, lines, rejections);
+  rejections.push(...checkProfileLimits(input, profile));
 
   const score = lines.reduce((total, line) => total + line.points, 0);
   if (score < profile.minScore) {

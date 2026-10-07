@@ -45,6 +45,7 @@ import { setAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game
 import { useDownloadSummary } from "@/hooks/use-download-summary";
 import GameFilterPills from "./GameFilterPills";
 import PendingImportsCard from "./PendingImportsCard";
+import BacklogRoulette from "./BacklogRoulette";
 import { LIBRARY_SORT_OPTIONS, sortLibraryGames, type LibrarySortOption } from "@/lib/game-sort";
 
 function LabeledSwitch({
@@ -431,6 +432,13 @@ export default function Library() {
           }}
           actions={
             <>
+              <BacklogRoulette
+                games={filteredGames}
+                loading={isFetching || searchQuery !== debouncedSearchQuery}
+                onStartPlaying={async (gameId) => {
+                  await statusMutation.mutateAsync({ gameId, status: "playing" });
+                }}
+              />
               <div className="flex sm:hidden items-center gap-2">
                 <GameFilterPills
                   showSearchResultsOnly={showSearchResultsOnly}

@@ -68,8 +68,8 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                            |
 | **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                                                                                                                                                                                     |
 
-Can't decide what to play? [Backlog roulette](docs/BACKLOG_ROULETTE.md) picks a game
-from your owned collection, with optional genre and platform filters.
+Can't decide what to play? Click **Pick a game** in your Library for
+[Backlog roulette](docs/BACKLOG_ROULETTE.md): draw a game, roll again, or start playing.
 
 ### Supported Indexers/Downloaders
 

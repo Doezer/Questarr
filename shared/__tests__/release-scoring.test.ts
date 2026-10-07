@@ -484,38 +484,29 @@ describe("custom formats", () => {
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "\\(a+\\)+" })).toBeNull();
   });
 
-  it.each(["(a+)+$", "(\\w*\\s?)*x", "(a|aa){2,}b", "([a-z]+\\.)+exe", "(dis|dish)+", "^(a?b?)+$"])(
-    "refuses the nested quantifier %s",
-    (value) => {
-      expect(validateFormatSpec({ field: "title", mode: "regex", value })).toMatch(
-        /repeats a group/
-      );
-      // as a profile term it falls back to plain text, so it cannot hang matching
-      const terms = profile({ ignoredTerms: [`/${value}/`], minScore: -1000 });
-      const title = `Dishonored.${"a".repeat(5000)}!`;
-      expect(evaluateRelease(torrent(title), { gameTitle: "Dishonored" }, terms).accepted).toBe(
-        true
-      );
-    }
-  );
+  it.each([
+    "(a+)+$",
+    "(\\w*\\s?)*x",
+    "(a|aa){2,}b",
+    "([a-z]+\\.)+exe",
+    "(dis|dish)+",
+    "^(a?b?)+$",
+    "^a*a*a*a*a*a*a*a*b$",
+    ".*a.*a.*b",
+    "\\w+\\w+\\w+x",
+    `^${"(a|aa)".repeat(25)}b$`,
+  ])("matches the backtracking trap %s in linear time", (value) => {
+    expect(validateFormatSpec({ field: "title", mode: "regex", value })).toBeNull();
+    const terms = profile({ ignoredTerms: [`/${value}/`], minScore: -1000 });
+    const title = `Dishonored.${"a".repeat(5000)}!`;
+    const started = Date.now();
+    evaluateRelease(torrent(title), { gameTitle: "Dishonored" }, terms);
+    expect(Date.now() - started).toBeLessThan(500);
+  });
 
-  it.each(["^a*a*a*a*a*a*a*a*b$", ".*a.*a.*b", "\\w+\\w+\\w+x", "a{1,9}a{1,9}a{1,9}b"])(
-    "refuses more than two open-ended repeats in %s",
-    (value) => {
-      expect(validateFormatSpec({ field: "title", mode: "regex", value })).toMatch(
-        /open-ended repeats/
-      );
-      const terms = profile({ ignoredTerms: [`/${value}/`], minScore: -1000 });
-      const title = `Dishonored.${"a".repeat(5000)}!`;
-      const started = Date.now();
-      evaluateRelease(torrent(title), { gameTitle: "Dishonored" }, terms);
-      expect(Date.now() - started).toBeLessThan(1000);
-    }
-  );
-
-  it("allows two open-ended repeats and exact counts", () => {
-    expect(validateFormatSpec({ field: "title", mode: "regex", value: ".*multi.*" })).toBeNull();
-    expect(validateFormatSpec({ field: "title", mode: "regex", value: "\\d{4}.*x+" })).toBeNull();
+  it("reports syntax RE2 does not support", () => {
+    expect(validateFormatSpec({ field: "title", mode: "regex", value: "(?<=a)b" })).not.toBeNull();
+    expect(validateFormatSpec({ field: "title", mode: "regex", value: "(a)\\1" })).not.toBeNull();
   });
 
   it("keeps a plain regex usable", () => {

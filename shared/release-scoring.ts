@@ -11,6 +11,8 @@
  * can override, so default weights can change without a data migration.
  */
 
+import { RE2JS } from "re2js";
+
 import { categorizeDownload, type DownloadCategory } from "./download-categorizer.js";
 import {
   isSequelOf,
@@ -714,95 +716,24 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
 // Custom formats
 // ---------------------------------------------------------------------------
 
-/** User regexes are capped in length, and only ever run on this much of a title. */
-export const MAX_FORMAT_REGEX_LENGTH = 200;
-const MAX_REGEX_INPUT_LENGTH = 256;
-// Each open-ended repeat (*, +, {n,m}) multiplies the backtracking work: three in a row, as in
-// a*a*a*b or .*a.*a.*b, already take seconds on a 500-character title.
-const MAX_REGEX_REPEATS = 2;
-
 /**
- * True when a group that repeats itself repeats, branches or has an optional part inside, as in
- * (a+)+, (a?b?)+ or (a|aa)*: the shapes behind catastrophic backtracking, refused outright since
- * scoring runs synchronously. A single pass; escapes and character classes are skipped.
+ * User regexes run on RE2 (re2js), which matches in linear time: no pattern a user types can
+ * freeze scoring through catastrophic backtracking. RE2 has no lookarounds or backreferences;
+ * such patterns are reported as invalid.
  */
-function hasNestedQuantifier(pattern: string): boolean {
-  const chars = structuralChars(pattern);
-  const groups: boolean[] = []; // per open group: does it repeat or branch inside?
-  for (let i = 0; i < chars.length; i++) {
-    const char = chars[i] ?? "";
-    if (char === "(") {
-      groups.push(false);
-    } else if (char === ")") {
-      const inner = groups.pop() ?? false;
-      const repeated = "+*{".includes(chars[i + 1] ?? "_");
-      if (inner && repeated) return true;
-      // the closed group counts as a repeat inside its parent
-      if (inner || repeated) markLast(groups);
-    } else if ("+*{|".includes(char) || (char === "?" && chars[i - 1] !== "(")) {
-      // "?" right after "(" opens a special group like (?:...), it is not a quantifier
-      markLast(groups);
-    }
-  }
-  return false;
+export const MAX_FORMAT_REGEX_LENGTH = 200;
+
+function compileUserRegex(pattern: string): RE2JS {
+  return RE2JS.compile(pattern, RE2JS.CASE_INSENSITIVE);
 }
 
-/** Counts the open-ended repeats in a pattern: *, + and {n,m}, but not an exact {n}. */
-function countRepeats(pattern: string): number {
-  const chars = structuralChars(pattern);
-  let count = 0;
-  for (let i = 0; i < chars.length; i++) {
-    const char = chars[i];
-    if (char === "*" || char === "+") {
-      count++;
-    } else if (char === "{") {
-      const close = chars.indexOf("}", i);
-      if (close !== -1 && chars.slice(i + 1, close).includes(",")) count++;
-    }
-  }
-  return count;
-}
-
-function markLast(groups: boolean[]): void {
-  if (groups.length > 0) groups[groups.length - 1] = true;
-}
-
-/** The pattern's characters with escapes and character classes reduced to a plain "x". */
-function structuralChars(pattern: string): string[] {
-  const chars: string[] = [];
-  let inClass = false;
-  for (let i = 0; i < pattern.length; i++) {
-    const char = pattern[i];
-    if (char === "\\") {
-      i++;
-      if (!inClass) chars.push("x");
-    } else if (inClass) {
-      if (char === "]") {
-        inClass = false;
-        chars.push("x");
-      }
-    } else if (char === "[") {
-      inClass = true;
-    } else if (char !== undefined) {
-      chars.push(char);
-    }
-  }
-  return chars;
-}
-
-/** Returns why a user regex cannot be used, or null when it is safe to compile. */
+/** Returns why a user regex cannot be used, or null when it compiles. */
 function regexProblem(pattern: string): string | null {
   if (pattern.length > MAX_FORMAT_REGEX_LENGTH) {
     return `Regex is longer than ${MAX_FORMAT_REGEX_LENGTH} characters`;
   }
-  if (hasNestedQuantifier(pattern)) {
-    return "Regex repeats a group that repeats or branches, which can freeze matching";
-  }
-  if (countRepeats(pattern) > MAX_REGEX_REPEATS) {
-    return `Regex has more than ${MAX_REGEX_REPEATS} open-ended repeats (*, +, {n,m}), which can freeze matching`;
-  }
   try {
-    new RegExp(pattern, "i");
+    compileUserRegex(pattern);
     return null;
   } catch (error) {
     return error instanceof Error ? error.message : "Invalid regex";
@@ -810,8 +741,8 @@ function regexProblem(pattern: string): string | null {
 }
 
 function regexTester(pattern: string): (value: string) => boolean {
-  const regex = new RegExp(pattern, "i");
-  return (value) => regex.test(value.slice(0, MAX_REGEX_INPUT_LENGTH));
+  const regex = compileUserRegex(pattern);
+  return (value) => regex.matcher(value).find();
 }
 
 /** Returns why a spec is invalid, or null when it can be used. */

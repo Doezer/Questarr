@@ -658,22 +658,40 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
 // Custom formats
 // ---------------------------------------------------------------------------
 
-/** User regexes are capped to keep catastrophic backtracking out of reach. */
+/** User regexes are capped in length, and only ever run on this much of a title. */
 export const MAX_FORMAT_REGEX_LENGTH = 200;
+const MAX_REGEX_INPUT_LENGTH = 500;
+
+// A repeated group that itself repeats or branches, as in (a+)+ or (a|aa)*: the shapes behind
+// catastrophic backtracking, refused outright since scoring runs synchronously.
+const NESTED_QUANTIFIER_PATTERN = /\((?:[^()\\]|\\.)*[+*}|](?:[^()\\]|\\.)*\)[+*{]/;
+
+/** Returns why a user regex cannot be used, or null when it is safe to compile. */
+function regexProblem(pattern: string): string | null {
+  if (pattern.length > MAX_FORMAT_REGEX_LENGTH) {
+    return `Regex is longer than ${MAX_FORMAT_REGEX_LENGTH} characters`;
+  }
+  if (NESTED_QUANTIFIER_PATTERN.test(pattern)) {
+    return "Regex repeats a group that repeats or branches, which can freeze matching";
+  }
+  try {
+    new RegExp(pattern, "i");
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "Invalid regex";
+  }
+}
+
+function regexTester(pattern: string): (value: string) => boolean {
+  const regex = new RegExp(pattern, "i");
+  return (value) => regex.test(value.slice(0, MAX_REGEX_INPUT_LENGTH));
+}
 
 /** Returns why a spec is invalid, or null when it can be used. */
 export function validateFormatSpec(spec: FormatSpec): string | null {
   if (!spec.value.trim()) return "Value is empty";
   if (spec.mode !== "regex") return null;
-  if (spec.value.length > MAX_FORMAT_REGEX_LENGTH) {
-    return `Regex is longer than ${MAX_FORMAT_REGEX_LENGTH} characters`;
-  }
-  try {
-    new RegExp(spec.value, "i");
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error.message : "Invalid regex";
-  }
+  return regexProblem(spec.value);
 }
 
 interface CompiledSpec {
@@ -698,8 +716,7 @@ function compileSpec(spec: FormatSpec): CompiledSpec {
   const needle = spec.value.trim().toLowerCase();
   let test: (value: string) => boolean;
   if (spec.mode === "regex") {
-    const regex = new RegExp(spec.value, "i");
-    test = (value) => regex.test(value);
+    test = regexTester(spec.value);
   } else if (spec.mode === "exact") {
     test = (value) => value.toLowerCase() === needle;
   } else {
@@ -783,18 +800,13 @@ function normalizeTerm(value: string): string {
 
 /**
  * Builds a matcher for a required or ignored term: `/pattern/` is a case-insensitive regex
- * (capped like custom formats; an invalid one is read as plain text), anything else a word
+ * (checked like custom formats; an unusable one is read as plain text), anything else a word
  * sequence matched without regard to dots, dashes or case.
  */
 function termMatcher(term: string): ((title: string) => boolean) | null {
   const regexTerm = /^\/(.+)\/i?$/.exec(term.trim());
-  if (regexTerm?.[1] && regexTerm[1].length <= MAX_FORMAT_REGEX_LENGTH) {
-    try {
-      const regex = new RegExp(regexTerm[1], "i");
-      return (title) => regex.test(title);
-    } catch {
-      // fall through to plain text
-    }
+  if (regexTerm?.[1] && regexProblem(regexTerm[1]) === null) {
+    return regexTester(regexTerm[1]);
   }
   const normalized = normalizeTerm(term);
   if (!normalized) return null;

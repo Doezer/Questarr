@@ -413,6 +413,27 @@ describe("custom formats", () => {
     ).toMatch(/longer than/);
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "[" })).not.toBeNull();
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "^dis" })).toBeNull();
+    expect(validateFormatSpec({ field: "title", mode: "regex", value: "(gog|steam)$" })).toBeNull();
+    expect(validateFormatSpec({ field: "title", mode: "regex", value: "\\(a+\\)+" })).toBeNull();
+  });
+
+  it.each(["(a+)+$", "(\\w*\\s?)*x", "(a|aa){2,}b", "([a-z]+\\.)+exe", "(dis|dish)+"])(
+    "refuses the nested quantifier %s",
+    (value) => {
+      expect(validateFormatSpec({ field: "title", mode: "regex", value })).toMatch(
+        /repeats a group/
+      );
+      // as a profile term it falls back to plain text, so it cannot hang matching
+      const terms = profile({ ignoredTerms: [`/${value}/`], minScore: -1000 });
+      const title = `Dishonored.${"a".repeat(5000)}!`;
+      expect(evaluateRelease(torrent(title), { gameTitle: "Dishonored" }, terms).accepted).toBe(
+        true
+      );
+    }
+  );
+
+  it("keeps a plain regex usable", () => {
+    expect(validateFormatSpec({ field: "title", mode: "regex", value: "multi\\d+" })).toBeNull();
   });
 });
 

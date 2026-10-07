@@ -169,6 +169,49 @@ describe("RootFolderDiscovery", () => {
     expect(screen.getByText("running")).toBeInTheDocument();
   });
 
+  it("lets the user search IGDB under their own name when no candidate fits", async () => {
+    const { apiRequest } = await import("@/lib/queryClient");
+    mockFetch(
+      [folder],
+      [],
+      [
+        {
+          rootFolderId: "rf-1",
+          rootFolderPath: "/mnt/old-library",
+          folderName: "Absolum v1.01 [CUSA53342] [EUR]",
+          absolutePath: "/mnt/old-library/Absolum v1.01 [CUSA53342] [EUR]",
+          candidates: [{ igdbId: 314, name: "Wrong Game", releaseYear: 2001 }],
+        },
+      ]
+    );
+    vi.mocked(apiRequest).mockResolvedValueOnce({
+      json: async () => [{ igdbId: 777, name: "Absolum", releaseYear: 2025 }],
+    } as Response);
+    renderComponent();
+
+    const input = await screen.findByLabelText("Search IGDB for Absolum v1.01 [CUSA53342] [EUR]");
+    fireEvent.change(input, { target: { value: "Absolum" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("POST", "/api/library/scan/unmatched/search", {
+        rootFolderId: "rf-1",
+        folderName: "Absolum v1.01 [CUSA53342] [EUR]",
+        query: "Absolum",
+      })
+    );
+    // The searched result replaces the scan's guess and can be picked.
+    fireEvent.click(await screen.findByRole("button", { name: "Absolum (2025)" }));
+    expect(screen.queryByRole("button", { name: "Wrong Game (2001)" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("POST", "/api/library/scan/unmatched/match", {
+        rootFolderId: "rf-1",
+        folderName: "Absolum v1.01 [CUSA53342] [EUR]",
+        igdbId: 777,
+      })
+    );
+  });
+
   it("shows an empty state when there are no root folders", async () => {
     renderComponent();
     expect(await screen.findByText("No root folders configured yet")).toBeInTheDocument();

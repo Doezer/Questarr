@@ -352,6 +352,23 @@ async function assignFilesToGame(
 // ---------- Public API ----------
 
 /** Force-assign an unmatched folder to a specific IGDB game (user override). */
+/**
+ * Search IGDB with a name the user typed for a folder awaiting review, when
+ * none of the scan's candidates is right. The results replace the entry's
+ * candidates, so `matchUnmatchedFolder` accepts exactly what was offered.
+ */
+export async function searchUnmatchedFolder(
+  rootFolderId: string,
+  folderName: string,
+  query: string
+): Promise<UnmatchedEntry["candidates"]> {
+  const entry = getUnmatchedEntry(rootFolderId, folderName);
+  if (!entry) throw new Error("No matching unmatched entry for this root folder");
+  const results = await igdbClient.searchGames(query, 5);
+  entry.candidates = toUnmatchedCandidates(results);
+  return entry.candidates;
+}
+
 export async function matchUnmatchedFolder(
   rootFolderId: string,
   folderName: string,
@@ -498,6 +515,16 @@ async function recordMatchedCandidate(
   await assignFilesToGame(game.id, files);
 }
 
+function toUnmatchedCandidates(igdbCandidates: IGDBGame[]): UnmatchedEntry["candidates"] {
+  return igdbCandidates.slice(0, 5).map((c) => ({
+    igdbId: c.id,
+    name: c.name,
+    releaseYear: c.first_release_date
+      ? new Date(c.first_release_date * 1000).getUTCFullYear()
+      : null,
+  }));
+}
+
 /** Queue a weakly matched (or unmatched) candidate for manual review. */
 function recordUnmatchedCandidate(
   rootFolder: RootFolderRow,
@@ -511,13 +538,7 @@ function recordUnmatchedCandidate(
     rootFolderPath: rootFolder.path,
     folderName: cand.folderName,
     absolutePath: cand.absolutePath,
-    candidates: igdbCandidates.slice(0, 5).map((c) => ({
-      igdbId: c.id,
-      name: c.name,
-      releaseYear: c.first_release_date
-        ? new Date(c.first_release_date * 1000).getUTCFullYear()
-        : null,
-    })),
+    candidates: toUnmatchedCandidates(igdbCandidates),
   });
   unmatchedByFolder.set(rootFolderId, list);
 }

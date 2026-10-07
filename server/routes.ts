@@ -79,6 +79,7 @@ import {
   sanitizeRootFolderId,
   sanitizeLibraryScanData,
   sanitizeUnmatchedMatchData,
+  sanitizeUnmatchedSearchData,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
@@ -306,6 +307,7 @@ import {
   getAllScanProgress,
   getAllUnmatched,
   matchUnmatchedFolder,
+  searchUnmatchedFolder,
 } from "./library-scanner.js";
 import { integrationRouter } from "./routes/integration.js";
 import { apiKeysRouter } from "./routes/api-keys.js";
@@ -2400,6 +2402,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (error) {
         routesLogger.error({ error }, "error reading unmatched list");
         res.status(500).json({ error: "Failed to read unmatched list" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/library/scan/unmatched/search",
+    authenticateToken,
+    igdbRateLimiter,
+    sanitizeUnmatchedSearchData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { rootFolderId, folderName, query } = req.body as {
+          rootFolderId: string;
+          folderName: string;
+          query: string;
+        };
+        res.json(await searchUnmatchedFolder(rootFolderId, folderName, query));
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        routesLogger.error({ error }, "error searching IGDB for unmatched folder");
+        const notFound = msg === "No matching unmatched entry for this root folder";
+        res.status(notFound ? 404 : 500).json({ error: notFound ? msg : "IGDB search failed" });
       }
     }
   );

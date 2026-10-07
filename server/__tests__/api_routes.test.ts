@@ -23,7 +23,11 @@ import {
   createSocketMock,
 } from "./fixtures/common-route-mocks.js";
 import { registerRoutes, parseCategories } from "../routes.js";
-import { matchUnmatchedFolder, rescanRootFolderById } from "../library-scanner.js";
+import {
+  matchUnmatchedFolder,
+  rescanRootFolderById,
+  searchUnmatchedFolder,
+} from "../library-scanner.js";
 import { storage } from "../storage.js";
 import { searchAllIndexers } from "../search.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
@@ -132,6 +136,7 @@ vi.mock("../library-scanner.js", () => ({
   getAllScanProgress: vi.fn().mockReturnValue([]),
   getAllUnmatched: vi.fn().mockReturnValue([]),
   matchUnmatchedFolder: vi.fn(),
+  searchUnmatchedFolder: vi.fn(),
 }));
 
 // Neutralize the IP-keyed rate limiters so cumulative requests across this large
@@ -4523,6 +4528,54 @@ describe("API Routes - Extended Coverage", () => {
         expect(storage.updateRootFolder).not.toHaveBeenCalled();
         expect(rescanRootFolderById).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe("POST /api/library/scan/unmatched/search", () => {
+    const validBody = { rootFolderId: "rf-1", folderName: "Some Game", query: "Real Name" };
+
+    it("returns the new candidates for the typed name", async () => {
+      const candidates = [{ igdbId: 7, name: "Real Name", releaseYear: 2020 }];
+      vi.mocked(searchUnmatchedFolder).mockResolvedValue(candidates);
+
+      const response = await request(app)
+        .post("/api/library/scan/unmatched/search")
+        .send(validBody);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(candidates);
+      expect(searchUnmatchedFolder).toHaveBeenCalledWith("rf-1", "Some Game", "Real Name");
+    });
+
+    it("rejects an empty search", async () => {
+      const response = await request(app)
+        .post("/api/library/scan/unmatched/search")
+        .send({ ...validBody, query: "   " });
+
+      expect(response.status).toBe(400);
+    });
+
+    it("returns 404 when the folder is no longer awaiting review", async () => {
+      vi.mocked(searchUnmatchedFolder).mockRejectedValue(
+        new Error("No matching unmatched entry for this root folder")
+      );
+
+      const response = await request(app)
+        .post("/api/library/scan/unmatched/search")
+        .send(validBody);
+
+      expect(response.status).toBe(404);
+    });
+
+    it("returns 500 without internals when IGDB fails", async () => {
+      vi.mocked(searchUnmatchedFolder).mockRejectedValue(new Error("socket hang up"));
+
+      const response = await request(app)
+        .post("/api/library/scan/unmatched/search")
+        .send(validBody);
+
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: "IGDB search failed" });
     });
   });
 

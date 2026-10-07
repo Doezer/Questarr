@@ -683,6 +683,15 @@ export const sanitizeUnmatchedMatchData = [
   body("igdbId").isInt({ min: 1 }).withMessage("igdbId must be a positive integer").toInt(),
 ];
 
+export const sanitizeUnmatchedSearchData = [
+  body("rootFolderId")
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("rootFolderId is required"),
+  body("folderName").trim().isLength({ min: 1, max: 1000 }).withMessage("folderName is required"),
+  body("query").trim().isLength({ min: 1, max: 200 }).withMessage("query is required"),
+];
+
 // 🛡️ Sentinel: Global error handler middleware
 // Standardizes error responses and prevents leakage of sensitive details in production
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

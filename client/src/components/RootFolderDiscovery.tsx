@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -507,41 +507,121 @@ export function RootFolderDiscovery({
               Needs Review ({unmatched.length})
             </p>
             {unmatched.map((entry) => (
-              <div
+              <UnmatchedEntryCard
                 key={`${entry.rootFolderId}:${entry.folderName}`}
-                className="rounded-md border p-3 space-y-2"
-              >
-                <p className="text-sm font-medium">{entry.folderName}</p>
-                <p className="text-xs text-muted-foreground font-mono">{entry.absolutePath}</p>
-                {entry.candidates.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No IGDB matches found.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {entry.candidates.map((c) => (
-                      <Button
-                        key={c.igdbId}
-                        variant="outline"
-                        size="sm"
-                        disabled={matchMutation.isPending}
-                        onClick={() =>
-                          matchMutation.mutate({
-                            rootFolderId: entry.rootFolderId,
-                            folderName: entry.folderName,
-                            igdbId: c.igdbId,
-                          })
-                        }
-                      >
-                        {c.name}
-                        {c.releaseYear ? ` (${c.releaseYear})` : ""}
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                entry={entry}
+                matchPending={matchMutation.isPending}
+                onMatch={(igdbId) =>
+                  matchMutation.mutate({
+                    rootFolderId: entry.rootFolderId,
+                    folderName: entry.folderName,
+                    igdbId,
+                  })
+                }
+              />
             ))}
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+interface UnmatchedEntryCardProps {
+  entry: UnmatchedEntry;
+  matchPending: boolean;
+  onMatch: (igdbId: number) => void;
+}
+
+/**
+ * One folder awaiting review: pick one of the scan's IGDB guesses, or search
+ * IGDB under another name when none of them is the right game.
+ */
+function UnmatchedEntryCard({ entry, matchPending, onMatch }: UnmatchedEntryCardProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const searchId = useId();
+  const [query, setQuery] = useState("");
+
+  const searchMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiRequest("POST", "/api/library/scan/unmatched/search", {
+        rootFolderId: entry.rootFolderId,
+        folderName: entry.folderName,
+        query: name,
+      });
+      return (await res.json()) as UnmatchedEntry["candidates"];
+    },
+    onSuccess: (candidates) => {
+      queryClient.setQueryData<UnmatchedEntry[]>(["/api/library/scan/unmatched"], (current = []) =>
+        current.map((e) =>
+          e.rootFolderId === entry.rootFolderId && e.folderName === entry.folderName
+            ? { ...e, candidates }
+            : e
+        )
+      );
+    },
+    onError: (error: Error) => {
+      toast({ title: "Search Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = query.trim();
+    if (name) searchMutation.mutate(name);
+  };
+
+  return (
+    <div className="rounded-md border p-3 space-y-2">
+      <p className="text-sm font-medium">{entry.folderName}</p>
+      <p className="text-xs text-muted-foreground font-mono">{entry.absolutePath}</p>
+      {entry.candidates.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {searchMutation.isSuccess ? "No IGDB matches for that name." : "No IGDB matches found."}
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {entry.candidates.map((c) => (
+            <Button
+              key={c.igdbId}
+              variant="outline"
+              size="sm"
+              disabled={matchPending}
+              onClick={() => onMatch(c.igdbId)}
+            >
+              {c.name}
+              {c.releaseYear ? ` (${c.releaseYear})` : ""}
+            </Button>
+          ))}
+        </div>
+      )}
+      <form className="flex gap-2" onSubmit={handleSearch}>
+        <Label htmlFor={searchId} className="sr-only">
+          Search IGDB for {entry.folderName}
+        </Label>
+        <Input
+          id={searchId}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Not listed? Search IGDB by name"
+          className="h-9"
+        />
+        <Button
+          type="submit"
+          variant="secondary"
+          size="sm"
+          className="h-9 shrink-0"
+          disabled={!query.trim() || searchMutation.isPending}
+        >
+          {searchMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Search className="h-4 w-4" />
+          )}
+          <span className="ml-1">Search</span>
+        </Button>
+      </form>
+    </div>
   );
 }

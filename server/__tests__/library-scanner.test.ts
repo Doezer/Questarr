@@ -5,6 +5,7 @@ import path from "path";
 import {
   __testing,
   matchUnmatchedFolder,
+  searchUnmatchedFolder,
   rescanRootFolderById,
   rescanAllEnabledRootFolders,
   scanRootFolderById,
@@ -540,5 +541,27 @@ describe("matchUnmatchedFolder with release-style folder names", () => {
       /not found in top candidates/i
     );
     expect(igdbClient.getGameById).not.toHaveBeenCalled();
+  });
+
+  it("matches a game the user found by searching a name of their own", async () => {
+    const igdbClient = await scanReleaseFolder("rf-release-search");
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 777, name: "Absolum", first_release_date: 1735689600 },
+    ] as never);
+    vi.mocked(igdbClient.getGameById).mockResolvedValue({ id: 777, name: "Absolum" } as never);
+
+    const candidates = await searchUnmatchedFolder("rf-release-search", folderName, "Absolum");
+
+    expect(igdbClient.searchGames).toHaveBeenLastCalledWith("Absolum", 5);
+    expect(candidates).toEqual([{ igdbId: 777, name: "Absolum", releaseYear: 2025 }]);
+    // The searched result replaces the scan's guesses, so it can now be matched.
+    const result = await matchUnmatchedFolder("rf-release-search", folderName, 777, "user-1");
+    expect(result.gameId).toBe("game-777");
+  });
+
+  it("refuses to search for a folder that is not awaiting review", async () => {
+    await expect(searchUnmatchedFolder("rf-unknown", "Nope", "Absolum")).rejects.toThrow(
+      /no matching unmatched entry/i
+    );
   });
 });

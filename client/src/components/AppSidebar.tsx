@@ -28,6 +28,7 @@ import {
   type AppNavItem,
 } from "@/components/navigation-items";
 import { withBasePath } from "@/lib/app-path";
+import { cn } from "@/lib/utils";
 
 interface AppSidebarProps {
   activeItem?: string;
@@ -35,7 +36,7 @@ interface AppSidebarProps {
 }
 
 // Stable reference for useQuery's no-data fallback so `games` doesn't change
-// identity on every render (which would otherwise defeat wishlistCount's memo).
+// identity on every render (which would otherwise defeat the count memos).
 const EMPTY_GAMES: Game[] = [];
 
 export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<AppSidebarProps>) {
@@ -58,12 +59,14 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
   // once and allocates an intermediate array that's immediately discarded.
   // Memoized so heavily re-rendered components like this sidebar don't recompute
   // on every render.
-  const wishlistCount = useMemo(() => {
-    let count = 0;
+  const { wishlistCount, playingCount } = useMemo(() => {
+    let wanted = 0;
+    let playing = 0;
     for (const game of games) {
-      if (game.status === "wanted") count++;
+      if (game.status === "wanted") wanted++;
+      else if (game.status === "playing") playing++;
     }
-    return count;
+    return { wishlistCount: wanted, playingCount: playing };
   }, [games]);
 
   const activeDownloadsCount = useMemo(() => {
@@ -78,17 +81,35 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
 
   type NavItemWithBadge = Omit<AppNavItem, "children"> & {
     badge?: string | undefined;
+    badgeClassName?: string | undefined;
+    badgeVariant?: "secondary" | "outline" | undefined;
     children?: NavItemWithBadge[] | undefined;
   };
 
   const withBadge = (item: AppNavItem): NavItemWithBadge => {
     let badge: string | undefined;
-    if (item.title === "Wishlist" && wishlistCount > 0) {
+    let badgeClassName: string | undefined;
+    let badgeVariant: NavItemWithBadge["badgeVariant"];
+    if (item.title === "All Games" && games.length > 0) {
+      // Neutral outline so the library total doesn't compete with the status counts.
+      badge = games.length.toString();
+      badgeVariant = "outline";
+    } else if (item.title === "Wishlist" && wishlistCount > 0) {
       badge = wishlistCount.toString();
+    } else if (item.title === "Playing" && playingCount > 0) {
+      // Same cyan as the Playing status badge (see StatusBadge).
+      badge = playingCount.toString();
+      badgeClassName = "border-transparent bg-cyan-600 text-white";
     } else if (item.title === "Downloads" && activeDownloadsCount > 0) {
       badge = activeDownloadsCount.toString();
     }
-    return { ...item, badge, children: item.children?.map(withBadge) };
+    return {
+      ...item,
+      badge,
+      badgeClassName,
+      badgeVariant,
+      children: item.children?.map(withBadge),
+    };
   };
 
   const navigation = primaryNavigation.map(withBadge);
@@ -145,7 +166,9 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
                                   onClick={() => handleNavigation(child.url)}
                                   className="flex items-center justify-between w-full"
                                   aria-label={
-                                    child.badge ? `${child.title}, ${child.badge} items` : undefined
+                                    child.badge
+                                      ? `${child.title}, ${child.badge} ${child.badge === "1" ? "game" : "games"}`
+                                      : undefined
                                   }
                                 >
                                   <div className="flex items-center gap-2">
@@ -154,9 +177,10 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
                                   </div>
                                   {child.badge && (
                                     <Badge
-                                      variant="secondary"
-                                      className="ml-auto text-xs"
+                                      variant={child.badgeVariant ?? "secondary"}
+                                      className={cn("ml-auto text-xs", child.badgeClassName)}
                                       aria-hidden="true"
+                                      data-testid={`badge-${child.title.toLowerCase().replace(/\s+/g, "-")}`}
                                     >
                                       {child.badge}
                                     </Badge>

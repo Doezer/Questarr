@@ -578,6 +578,9 @@ async function runScan(
     progress.finishedAt = new Date().toISOString();
     progress.currentCandidate = undefined;
     emitProgress(progress);
+    // Auto-matched games were added or updated. Tell every open client to
+    // refresh its games list, since only the Discover tab watches scan progress.
+    if (progress.matched > 0) notifyUser("gameUpdated", rootFolderId);
   } catch (err) {
     progress.status = "failed";
     progress.finishedAt = new Date().toISOString();

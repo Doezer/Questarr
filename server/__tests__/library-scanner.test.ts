@@ -289,6 +289,10 @@ describe("scanRootFolderById full scan", () => {
 
     // The IGDB-less ignored folder was never queried.
     expect(igdbClient.searchGames).not.toHaveBeenCalledWith("IgnoredOnly", 5);
+
+    // Clients refresh their games list once the scan has added games.
+    const { notifyUser } = await import("../socket.js");
+    expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "rf-1");
   });
 
   it("scanAllEnabledRootFolders scans every enabled folder", async () => {

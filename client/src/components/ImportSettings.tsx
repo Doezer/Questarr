@@ -90,6 +90,8 @@ export default function ImportSettings() {
   // Local State
   const [localConfig, setLocalConfig] = useState<ImportConfig | null>(null);
   const [libraryBrowserOpen, setLibraryBrowserOpen] = useState(false);
+  // When a save here starts a scan, tells the Discover tab to keep polling for it.
+  const [scanKickoffAt, setScanKickoffAt] = useState(0);
 
   useEffect(() => {
     if (config) setLocalConfig(config);
@@ -116,6 +118,7 @@ export default function ImportSettings() {
       queryClient.invalidateQueries({ queryKey: ["/api/imports/config"] });
       queryClient.invalidateQueries({ queryKey: ["/api/imports/hardlink/check"] });
       if (scanStarted) {
+        setScanKickoffAt(Date.now());
         queryClient.invalidateQueries({ queryKey: ["/api/library/scan/status"] });
         queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
       }
@@ -391,7 +394,7 @@ export default function ImportSettings() {
         </TabsContent>
 
         <TabsContent value="discover" className="space-y-4">
-          <RootFolderDiscovery />
+          <RootFolderDiscovery scanKickoffAt={scanKickoffAt} />
         </TabsContent>
 
         <TabsContent value="help" className="space-y-4">

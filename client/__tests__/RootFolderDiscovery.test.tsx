@@ -97,6 +97,46 @@ describe("RootFolderDiscovery", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/library/scan/unmatched"] });
   });
 
+  it("keeps polling scan status after a scan started by saving import settings", async () => {
+    // The first status fetch lands before the server registers the scan.
+    let statusCalls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
+      const u = getRequestUrl(url);
+      if (u.includes("/api/library/scan/status")) {
+        statusCalls += 1;
+        return createJsonResponse(
+          statusCalls === 1
+            ? []
+            : [
+                {
+                  rootFolderId: "rf-1",
+                  rootFolderPath: "/mnt/old-library",
+                  startedAt: new Date().toISOString(),
+                  status: "running",
+                  totalCandidates: 3,
+                  processedCandidates: 1,
+                  matched: 1,
+                  unmatched: 0,
+                  errors: 0,
+                },
+              ]
+        );
+      }
+      if (u.includes("/api/root-folders")) return createJsonResponse([folder]);
+      return createJsonResponse([]);
+    });
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    render(
+      <QueryClientProvider client={client}>
+        <RootFolderDiscovery scanKickoffAt={Date.now()} />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(statusCalls).toBeGreaterThan(1), { timeout: 4000 });
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/games"] }));
+  });
+
   it("shows an empty state when there are no root folders", async () => {
     renderComponent();
     expect(await screen.findByText("No root folders configured yet")).toBeInTheDocument();

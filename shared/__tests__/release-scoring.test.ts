@@ -189,7 +189,13 @@ describe("evaluateRelease built-in rules", () => {
     expect(evaluateRelease(torrent("Dishonored.exe-CODEX"), ctx).rejections).toContainEqual({
       code: "risky_file",
     });
+    for (const tagged of ["Dishonored.exe-CODEX[rarbg]", "Dishonored.exe-CODEX [rarbg] [eztv]"]) {
+      expect(evaluateRelease(torrent(tagged), ctx).rejections).toContainEqual({
+        code: "risky_file",
+      });
+    }
     expect(evaluateRelease(torrent("Dishonored-CODEX"), ctx).accepted).toBe(true);
+    expect(evaluateRelease(torrent("Dishonored-CODEX[rarbg]"), ctx).accepted).toBe(true);
   });
 
   it("penalizes a size far from the expected one", () => {
@@ -245,6 +251,14 @@ describe("evaluateRelease profile checks", () => {
     expect(
       evaluateRelease(torrent("Dishonored [Crack]-GRP"), ctx, noCrack).rejections
     ).toContainEqual({ code: "ignored_term", detail: "crack" });
+  });
+
+  it("matches terms in any script and without accents", () => {
+    const japanese = profile({ requiredTerms: ["日本語"] });
+    expect(evaluateRelease(torrent("Dishonored-CODEX"), ctx, japanese).accepted).toBe(false);
+    expect(evaluateRelease(torrent("Dishonored.日本語-CODEX"), ctx, japanese).accepted).toBe(true);
+    const french = profile({ requiredTerms: ["Français"], minScore: -1000 });
+    expect(evaluateRelease(torrent("Dishonored.FRANCAIS-CODEX"), ctx, french).accepted).toBe(true);
   });
 
   it("reads /pattern/ terms as regexes", () => {

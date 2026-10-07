@@ -458,11 +458,12 @@ export function classifyTitleMatch(
   gameTitle: string,
   alternativeTitles: readonly string[] = []
 ): TitleMatch {
-  const group = releaseGroup(releaseName);
+  const name = withoutTrailingTags(releaseName);
+  const group = releaseGroup(name);
   let best: TitleMatch = "mismatch";
   for (const title of [gameTitle, ...alternativeTitles]) {
     if (!title) continue;
-    const match = classifyAgainstTitle(releaseName, title, group);
+    const match = classifyAgainstTitle(name, title, group);
     if (TITLE_MATCH_RANK[match] > TITLE_MATCH_RANK[best]) best = match;
     if (best === "exact") break;
   }
@@ -525,6 +526,17 @@ const RISKY_FILE_PATTERNS = [
   /\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk|ps1)(-\w+)?$/i, // with or without a -GROUP suffix
   /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b/i,
 ];
+
+/** Drops indexer tags such as "[rarbg]" from the end of a release name. */
+function withoutTrailingTags(title: string): string {
+  let rest = title.trim();
+  while (rest.endsWith("]")) {
+    const open = rest.lastIndexOf("[");
+    if (open === -1) break;
+    rest = rest.slice(0, open).trimEnd();
+  }
+  return rest;
+}
 
 export const BUILT_IN_RULE_IDS = [
   "title_exact",
@@ -668,7 +680,10 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
     points: -1000,
     rejection: "risky_file",
     locked: true,
-    applies: (f) => RISKY_FILE_PATTERNS.some((pattern) => pattern.test(f.input.title.trim())),
+    applies: (f) => {
+      const title = withoutTrailingTags(f.input.title);
+      return RISKY_FILE_PATTERNS.some((pattern) => pattern.test(title));
+    },
   },
 ];
 
@@ -881,9 +896,13 @@ function formatMatches(compiled: CompiledCustomFormat, facts: ReleaseFacts): boo
 // ---------------------------------------------------------------------------
 
 function normalizeTerm(value: string): string {
+  // any script counts as letters ("日本語", "русский"); accents are dropped so "Français"
+  // matches "Francais"
   return value
+    .normalize("NFD")
+    .replaceAll(/\p{M}/gu, "")
     .toLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, " ")
+    .replaceAll(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
 

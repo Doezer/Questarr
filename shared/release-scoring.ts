@@ -663,9 +663,9 @@ export const MAX_FORMAT_REGEX_LENGTH = 200;
 const MAX_REGEX_INPUT_LENGTH = 500;
 
 /**
- * True when a group that repeats itself repeats or branches inside, as in (a+)+ or (a|aa)*:
- * the shapes behind catastrophic backtracking, refused outright since scoring runs
- * synchronously. A single pass over the pattern; escapes and character classes are skipped.
+ * True when a group that repeats itself repeats, branches or has an optional part inside, as in
+ * (a+)+, (a?b?)+ or (a|aa)*: the shapes behind catastrophic backtracking, refused outright since
+ * scoring runs synchronously. A single pass; escapes and character classes are skipped.
  */
 function hasNestedQuantifier(pattern: string): boolean {
   const chars = structuralChars(pattern);
@@ -680,7 +680,8 @@ function hasNestedQuantifier(pattern: string): boolean {
       if (inner && repeated) return true;
       // the closed group counts as a repeat inside its parent
       if (inner || repeated) markLast(groups);
-    } else if ("+*{|".includes(char)) {
+    } else if ("+*{|".includes(char) || (char === "?" && chars[i - 1] !== "(")) {
+      // "?" right after "(" opens a special group like (?:...), it is not a quantifier
       markLast(groups);
     }
   }

@@ -416,10 +416,11 @@ describe("custom formats", () => {
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "(gog|steam)$" })).toBeNull();
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "([+*|])+" })).toBeNull();
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "((ab)c)+" })).toBeNull();
+    expect(validateFormatSpec({ field: "title", mode: "regex", value: "(?:ab)+" })).toBeNull();
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "\\(a+\\)+" })).toBeNull();
   });
 
-  it.each(["(a+)+$", "(\\w*\\s?)*x", "(a|aa){2,}b", "([a-z]+\\.)+exe", "(dis|dish)+"])(
+  it.each(["(a+)+$", "(\\w*\\s?)*x", "(a|aa){2,}b", "([a-z]+\\.)+exe", "(dis|dish)+", "^(a?b?)+$"])(
     "refuses the nested quantifier %s",
     (value) => {
       expect(validateFormatSpec({ field: "title", mode: "regex", value })).toMatch(

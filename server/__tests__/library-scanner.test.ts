@@ -297,6 +297,17 @@ describe("scanRootFolderById full scan", () => {
     expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "rf-1");
   });
 
+  it("still refreshes clients when the scan fails after adding games", async () => {
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.touchRootFolderScanned).mockRejectedValue(new Error("db locked"));
+
+    await scanRootFolderById("rf-1", "user-1");
+
+    expect(getScanProgress("rf-1")?.status).toBe("failed");
+    const { notifyUser } = await import("../socket.js");
+    expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "rf-1");
+  });
+
   it("scanAllEnabledRootFolders scans every enabled folder", async () => {
     const tmpDir2 = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-scan-2-"));
     const folderA: RootFolder = { ...mockRootFolder, id: "rf-1", path: tmpDir };

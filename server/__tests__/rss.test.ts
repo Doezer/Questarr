@@ -265,4 +265,31 @@ describe("RssService", () => {
     await rssService.refreshFeeds();
     expect(storage.getAllRssFeeds).toHaveBeenCalledTimes(2);
   });
+
+  it("runs a single-feed refresh only after a full refresh already running", async () => {
+    let release: (feeds: never[]) => void = () => {};
+    vi.mocked(storage.getAllRssFeeds).mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+    vi.mocked(storage.updateRssFeed).mockResolvedValue(
+      undefined as unknown as import("../../shared/schema").RssFeed
+    );
+    const feed = {
+      id: "feed-new",
+      name: "New Feed",
+      url: "http://test.com/new",
+      enabled: true,
+    } as import("../../shared/schema").RssFeed;
+
+    const all = rssService.refreshFeeds();
+    const single = rssService.refreshFeed(feed);
+    await Promise.resolve();
+    expect(mocks.safeFetch).not.toHaveBeenCalled();
+
+    release([]);
+    await Promise.all([all, single]);
+    expect(mocks.safeFetch).toHaveBeenCalledTimes(1);
+  });
 });

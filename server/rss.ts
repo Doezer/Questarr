@@ -40,18 +40,31 @@ export class RssService {
     }
   }
 
-  private refreshInFlight: Promise<void> | null = null;
+  // Every refresh runs through this queue, one at a time: the GUID de-duplication in
+  // fetchFeed is a read then an insert, so two overlapping runs could add an item twice.
+  private refreshQueue: Promise<unknown> = Promise.resolve();
+  private pendingRefreshAll: Promise<void> | null = null;
+
+  private enqueueRefresh<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.refreshQueue.then(task, task);
+    this.refreshQueue = run.catch(() => undefined);
+    return run;
+  }
 
   /**
-   * Refreshes every enabled feed. A call made while a refresh is running (the hourly cron
-   * tick and the Refresh button) joins it instead of starting another one: the GUID
-   * de-duplication is a read then an insert, so two overlapping runs could add an item twice.
+   * Refreshes every enabled feed. A call made while a full refresh is queued or running (the
+   * hourly cron tick and the Refresh button) joins it instead of queueing another one.
    */
   refreshFeeds(): Promise<void> {
-    this.refreshInFlight ??= this.refreshAllFeeds().finally(() => {
-      this.refreshInFlight = null;
+    this.pendingRefreshAll ??= this.enqueueRefresh(() => this.refreshAllFeeds()).finally(() => {
+      this.pendingRefreshAll = null;
     });
-    return this.refreshInFlight;
+    return this.pendingRefreshAll;
+  }
+
+  /** Refreshes one feed (e.g. right after it is added), after any refresh already running. */
+  refreshFeed(feed: RssFeed): Promise<void> {
+    return this.enqueueRefresh(() => this.fetchFeed(feed));
   }
 
   private async refreshAllFeeds() {
@@ -62,7 +75,7 @@ export class RssService {
 
     for (const feed of enabledFeeds) {
       try {
-        await this.refreshFeed(feed);
+        await this.fetchFeed(feed);
       } catch (error) {
         rssLogger.error({ feedId: feed.id, error }, `Failed to refresh feed ${feed.name}`);
         await storage.updateRssFeed(feed.id, {
@@ -74,7 +87,7 @@ export class RssService {
     }
   }
 
-  async refreshFeed(feed: RssFeed) {
+  private async fetchFeed(feed: RssFeed) {
     rssLogger.debug(`Fetching feed: ${feed.name} (${feed.url})`);
 
     // Use safeFetch instead of directly parsing the URL to prevent DNS rebinding

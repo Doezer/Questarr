@@ -545,6 +545,11 @@ const RISKY_FILE_PATTERNS = [
   /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b/i,
 ];
 
+/** "_" is a word character for \b, so Game_1080p_x264 would hide every marker. */
+function withSpacedUnderscores(title: string): string {
+  return title.replaceAll("_", " ");
+}
+
 /** Splits indexer tags such as "[rarbg]" off the end of a release name. */
 function splitTrailingTags(title: string): { name: string; tags: string[] } {
   let name = title.trim();
@@ -656,7 +661,10 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
     label: "Looks like video, music or a book",
     points: -120,
     rejection: "non_game_media",
-    applies: (f) => NON_GAME_MEDIA_PATTERNS.some((pattern) => pattern.test(f.input.title)),
+    applies: (f) => {
+      const title = withSpacedUnderscores(f.input.title);
+      return NON_GAME_MEDIA_PATTERNS.some((pattern) => pattern.test(title));
+    },
   },
   {
     id: "platform_match",
@@ -686,7 +694,7 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
     id: "repack",
     label: "Repack",
     points: 8,
-    applies: (f) => REPACK_PATTERN.test(f.input.title),
+    applies: (f) => REPACK_PATTERN.test(withSpacedUnderscores(f.input.title)),
   },
   {
     id: "storefront_source",

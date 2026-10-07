@@ -53,6 +53,10 @@ describe("classifyTitleMatch", () => {
     ["Dishonored.Death.of.the.Outsider-CODEX", "Dishonored", "spinoff"],
     ["DOOM.Eternal-CODEX", "DOOM", "spinoff"],
     ["DOOM-Eternal", "DOOM", "spinoff"],
+    ["英雄伝説-GOG", "英雄伝説", "exact"],
+    ["英雄伝説.II-GOG", "英雄伝説", "sequel"],
+    ["Pokemon.Legends-GOG", "Pokémon Legends", "exact"],
+    ["Dishonored-CODEX [rarbg]", "Dishonored", "exact"],
     ["DOOM-CODEX", "DOOM", "exact"],
     ["Hades-FitGirl", "Hades", "exact"],
     ["Hades-Razor1911", "Hades", "exact"],
@@ -179,6 +183,19 @@ describe("evaluateRelease built-in rules", () => {
     expect(unmarked.accepted).toBe(true);
   });
 
+  it("scores the group title matching validated, ignoring trailing tags", () => {
+    const eternal = evaluateRelease(torrent("DOOM-Eternal"), { gameTitle: "DOOM" });
+    expect(eternal.lines.some((l) => l.ruleId === "scene_release")).toBe(false);
+    const tagged = evaluateRelease(torrent("Dishonored-CODEX [rarbg]"), ctx);
+    expect(tagged.lines.some((l) => l.ruleId === "scene_release")).toBe(true);
+  });
+
+  it("gives repackers the repack bonus but not the scene one", () => {
+    const xatab = evaluateRelease(torrent("Dishonored-Xatab"), ctx);
+    expect(xatab.lines.map((l) => l.ruleId)).toContain("repack");
+    expect(xatab.lines.map((l) => l.ruleId)).not.toContain("scene_release");
+  });
+
   it("rejects executables and disguised files", () => {
     expect(evaluateRelease(torrent("Dishonored.exe"), ctx).rejections).toContainEqual({
       code: "risky_file",
@@ -254,7 +271,7 @@ describe("evaluateRelease profile checks", () => {
   });
 
   it("matches terms in any script and without accents", () => {
-    const japanese = profile({ requiredTerms: ["日本語"] });
+    const japanese = profile({ requiredTerms: ["日本語"], minScore: -1000 });
     expect(evaluateRelease(torrent("Dishonored-CODEX"), ctx, japanese).accepted).toBe(false);
     expect(evaluateRelease(torrent("Dishonored.日本語-CODEX"), ctx, japanese).accepted).toBe(true);
     const french = profile({ requiredTerms: ["Français"], minScore: -1000 });

@@ -15,7 +15,6 @@ import { categorizeDownload, type DownloadCategory } from "./download-categorize
 import {
   isSequelOf,
   matchesPlatformFilter,
-  normalizeTitle,
   parseReleaseMetadata,
   TITLE_STOP_WORDS,
   withoutStopWords,
@@ -343,7 +342,7 @@ const METADATA_TOKENS = new Set([
 
 const METADATA_TOKEN_PATTERNS = [
   /^\d+$/, // versions, years, build and update numbers
-  /^v\d+$/, // v1, v2 (normalizeTitle splits v1.0 into "v1" "0")
+  /^v\d+$/, // v1, v2 (normalization splits v1.0 into "v1" "0")
   /^b\d+$/, // build numbers
   /^multi\d+$/,
   /^x(64|86)$/,
@@ -359,12 +358,13 @@ function isMetadataToken(token: string): boolean {
 }
 
 /**
- * normalizeTitle, plus two fixes for how release names spell titles: apostrophes are dropped
+ * Lowercase words in any script, without accents ("Pokémon" -> "pokemon"; "英雄伝説" stays a
+ * word), plus two fixes for how release names spell titles: apostrophes are dropped
  * ("Tom Clancy's" -> "tom clancys") and runs of single letters are joined
  * ("S.T.A.L.K.E.R." -> "stalker").
  */
 function normalizeForMatch(title: string): string {
-  const words = normalizeTitle(title.replaceAll(/['’`]/g, "")).split(" ");
+  const words = normalizeTerm(title.replaceAll(/['’`]/g, "")).split(" ");
   const joined: string[] = [];
   let letters = "";
   for (const word of words) {
@@ -450,6 +450,17 @@ function releaseGroup(releaseName: string): string | undefined {
 }
 
 /**
+ * parseReleaseMetadata on the name without trailing indexer tags, keeping the group only when
+ * it really looks like one, so title matching and scoring agree on it.
+ */
+function releaseMetadata(releaseName: string): ReleaseMetadata {
+  const name = withoutTrailingTags(releaseName);
+  const metadata = parseReleaseMetadata(name);
+  const group = releaseGroup(name);
+  return { ...metadata, group, isScene: metadata.isScene && group !== undefined };
+}
+
+/**
  * Classifies how a release name relates to the wanted game, trying the main title and any
  * alternative titles and keeping the best result.
  */
@@ -517,9 +528,10 @@ const NON_GAME_MEDIA_PATTERNS = [
   /\b(epub|mobi|pdf|cbr|cbz)\b/i, // books and comics
   /\bs\d{2}e\d{2}\b/i, // TV episodes
 ];
-const REPACK_PATTERN = /\b(repack|fitgirl|dodi|elamigos|kaos|xatab|tinyrepacks)\b/i;
+const REPACKERS = ["fitgirl", "dodi", "elamigos", "kaos", "xatab", "tinyrepacks"];
+const REPACK_PATTERN = new RegExp(`\\b(repack|${REPACKERS.join("|")})\\b`, "i");
 // Suffixes that parseReleaseMetadata reads as a group but that name a store or a repacker
-const NON_SCENE_GROUPS = new Set(["gog", "steam", "epic", "fitgirl", "dodi", "elamigos", "kaos"]);
+const NON_SCENE_GROUPS = new Set(["gog", "steam", "epic", ...REPACKERS]);
 const SIZE_MISMATCH_RATIO = 0.5;
 // An executable or script as the release itself, or hidden behind a media extension
 const RISKY_FILE_PATTERNS = [
@@ -1010,7 +1022,7 @@ export function evaluateRelease(
 ): ReleaseEvaluation {
   const facts: ReleaseFacts = {
     input,
-    metadata: parseReleaseMetadata(input.title),
+    metadata: releaseMetadata(input.title),
     titleMatch: classifyTitleMatch(input.title, ctx.gameTitle, ctx.alternativeTitles),
     indexerCategory: classifyIndexerCategories(input.category),
   };

@@ -172,6 +172,9 @@ describe("evaluateRelease built-in rules", () => {
     expect(evaluateRelease(torrent("Dishonored.mkv.exe"), ctx).rejections).toContainEqual({
       code: "risky_file",
     });
+    expect(evaluateRelease(torrent("Dishonored.exe-CODEX"), ctx).rejections).toContainEqual({
+      code: "risky_file",
+    });
     expect(evaluateRelease(torrent("Dishonored-CODEX"), ctx).accepted).toBe(true);
   });
 
@@ -219,6 +222,15 @@ describe("evaluateRelease profile checks", () => {
     expect(
       evaluateRelease(torrent("Dishonored.Crack.Only-GOG"), ctx, strict).rejections
     ).toContainEqual({ code: "ignored_term", detail: "crack only" });
+  });
+
+  it("matches plain terms as whole words", () => {
+    const noCrack = profile({ ignoredTerms: ["crack"], minScore: -1000 });
+    const crackdown: ReleaseInput = { title: "Crackdown-CODEX", downloadType: "torrent" };
+    expect(evaluateRelease(crackdown, { gameTitle: "Crackdown" }, noCrack).accepted).toBe(true);
+    expect(
+      evaluateRelease(torrent("Dishonored [Crack]-GRP"), ctx, noCrack).rejections
+    ).toContainEqual({ code: "ignored_term", detail: "crack" });
   });
 
   it("reads /pattern/ terms as regexes", () => {

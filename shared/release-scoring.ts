@@ -506,7 +506,7 @@ const NON_SCENE_GROUPS = new Set(["gog", "steam", "epic", "fitgirl", "dodi", "el
 const SIZE_MISMATCH_RATIO = 0.5;
 // An executable or script as the release itself, or hidden behind a media extension
 const RISKY_FILE_PATTERNS = [
-  /\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk|ps1)$/i,
+  /\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk|ps1)(-\w+)?$/i, // with or without a -GROUP suffix
   /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b/i,
 ];
 
@@ -843,14 +843,14 @@ function formatMatches(compiled: CompiledCustomFormat, facts: ReleaseFacts): boo
 function normalizeTerm(value: string): string {
   return value
     .toLowerCase()
-    .replaceAll(/[._\s-]+/g, " ")
+    .replaceAll(/[^a-z0-9]+/g, " ")
     .trim();
 }
 
 /**
  * Builds a matcher for a required or ignored term: `/pattern/` is a case-insensitive regex
  * (checked like custom formats; an unusable one is read as plain text), anything else a word
- * sequence matched without regard to dots, dashes or case.
+ * sequence matched as whole words, without regard to punctuation or case.
  */
 function termMatcher(term: string): ((title: string) => boolean) | null {
   const regexTerm = /^\/(.+)\/i?$/.exec(term.trim());
@@ -859,7 +859,8 @@ function termMatcher(term: string): ((title: string) => boolean) | null {
   }
   const normalized = normalizeTerm(term);
   if (!normalized) return null;
-  return (title) => normalizeTerm(title).includes(normalized);
+  // whole words only: "crack" must not match "Crackdown"
+  return (title) => ` ${normalizeTerm(title)} `.includes(` ${normalized} `);
 }
 
 function applyBuiltInRules(

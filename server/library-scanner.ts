@@ -547,6 +547,18 @@ async function runScan(
   }
 }
 
+/**
+ * Scan every enabled root folder after a settings change (post-processing
+ * switched on). Uses `rescanRootFolderById`, so a folder already being scanned
+ * gets one more pass instead of being skipped.
+ */
+export async function rescanAllEnabledRootFolders(userId: string): Promise<void> {
+  const folders = await storage.getEnabledRootFolders();
+  for (const folder of folders) {
+    await rescanRootFolderById(folder.id, userId);
+  }
+}
+
 export async function scanAllEnabledRootFolders(userId: string): Promise<void> {
   const folders = await storage.getEnabledRootFolders();
   for (const folder of folders) {

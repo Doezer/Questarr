@@ -104,10 +104,21 @@ export default function ImportSettings() {
       const { importPlatformIds: _unused, ...rest } = data;
       await apiRequest("PATCH", "/api/imports/config", rest);
     },
-    onSuccess: () => {
-      toast({ title: "Settings Saved", description: "Import configuration updated." });
+    onSuccess: (_data, saved) => {
+      // Switching post-processing on starts a scan of every enabled root folder.
+      const scanStarted = saved.enablePostProcessing && !config?.enablePostProcessing;
+      toast({
+        title: "Settings Saved",
+        description: scanStarted
+          ? "Import configuration updated. Scanning your root folders for games now."
+          : "Import configuration updated.",
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/imports/config"] });
       queryClient.invalidateQueries({ queryKey: ["/api/imports/hardlink/check"] });
+      if (scanStarted) {
+        queryClient.invalidateQueries({ queryKey: ["/api/library/scan/status"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
+      }
     },
     onError: () => {
       if (config) setLocalConfig(config);

@@ -43,8 +43,12 @@ vi.mock("../services/index.js", () => ({
   platformMappingService: mockPlatformMappingService,
 }));
 vi.mock("fs-extra", () => ({ default: fsMock }));
+vi.mock("../library-scanner.js", () => ({
+  rescanAllEnabledRootFolders: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { importRouter } from "../routes/import.js";
+import { rescanAllEnabledRootFolders } from "../library-scanner.js";
 import { makeImportConfig, createImportTestApp } from "./helpers/import-test-helpers.js";
 
 const createApp = (withUser = true) => createImportTestApp(importRouter, withUser);
@@ -491,5 +495,41 @@ describe("POST /api/imports/:id/confirm — Source path error", () => {
     });
 
     expect(res.status).toBe(500);
+  });
+});
+
+describe("PATCH /api/imports/config — root folder scan on enabling post-processing", () => {
+  beforeEach(() => {
+    mockStorage.getUserSettings.mockResolvedValue({ userId: "user-1" });
+    mockStorage.updateUserSettings.mockResolvedValue(undefined);
+  });
+
+  it("scans every enabled root folder when post-processing is switched on", async () => {
+    mockStorage.getImportConfig.mockResolvedValue(
+      makeImportConfig({ enablePostProcessing: false })
+    );
+
+    const res = await request(createApp())
+      .patch("/api/imports/config")
+      .send({ enablePostProcessing: true });
+
+    expect(res.status).toBe(200);
+    expect(rescanAllEnabledRootFolders).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not scan when post-processing was already on", async () => {
+    mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ enablePostProcessing: true }));
+
+    await request(createApp()).patch("/api/imports/config").send({ autoUnpack: true });
+
+    expect(rescanAllEnabledRootFolders).not.toHaveBeenCalled();
+  });
+
+  it("does not scan when post-processing is switched off", async () => {
+    mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ enablePostProcessing: true }));
+
+    await request(createApp()).patch("/api/imports/config").send({ enablePostProcessing: false });
+
+    expect(rescanAllEnabledRootFolders).not.toHaveBeenCalled();
   });
 });

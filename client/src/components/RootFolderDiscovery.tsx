@@ -115,7 +115,10 @@ export function RootFolderDiscovery() {
   const scanSnapshot = useMemo(
     () =>
       scanProgress
-        .map((p) => `${p.rootFolderId}:${p.status}:${p.unmatched}:${p.matched}`)
+        .map(
+          (p) =>
+            `${p.rootFolderId}:${p.startedAt}:${p.finishedAt ?? ""}:${p.status}:${p.unmatched}:${p.matched}`
+        )
         .join("|"),
     [scanProgress]
   );

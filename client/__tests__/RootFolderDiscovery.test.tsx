@@ -67,6 +67,36 @@ describe("RootFolderDiscovery", () => {
     vi.restoreAllMocks();
   });
 
+  it("refreshes the library and Needs Review list once scan progress is known", async () => {
+    mockFetch(
+      [folder],
+      [
+        {
+          rootFolderId: "rf-1",
+          rootFolderPath: "/mnt/old-library",
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          status: "completed",
+          totalCandidates: 3,
+          processedCandidates: 3,
+          matched: 2,
+          unmatched: 1,
+          errors: 0,
+        },
+      ]
+    );
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    render(
+      <QueryClientProvider client={client}>
+        <RootFolderDiscovery />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/games"] }));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/library/scan/unmatched"] });
+  });
+
   it("shows an empty state when there are no root folders", async () => {
     renderComponent();
     expect(await screen.findByText("No root folders configured yet")).toBeInTheDocument();

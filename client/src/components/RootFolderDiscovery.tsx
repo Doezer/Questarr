@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,6 +74,9 @@ function formatBytes(bytes: number | null): string {
   return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+// How long to keep polling scan status after starting a scan, until it shows up.
+const SCAN_KICKOFF_GRACE_MS = 5000;
+
 export function RootFolderDiscovery() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -89,9 +92,16 @@ export function RootFolderDiscovery() {
   const anyScanning = (progress?: ScanProgress[]) =>
     (progress ?? []).some((p) => p.status === "running");
 
+  // A scan is started fire-and-forget, so the first status fetch after starting
+  // one can come back before the server has registered it. Keep polling for a
+  // short grace period after each kickoff so that first "running" is not missed.
+  const scanKickoffAt = useRef(0);
   const { data: scanProgress = [] } = useQuery<ScanProgress[]>({
     queryKey: ["/api/library/scan/status"],
-    refetchInterval: (query) => (anyScanning(query.state.data) ? 1500 : false),
+    refetchInterval: (query) =>
+      anyScanning(query.state.data) || Date.now() - scanKickoffAt.current < SCAN_KICKOFF_GRACE_MS
+        ? 1500
+        : false,
   });
 
   const { data: unmatched = [] } = useQuery<UnmatchedEntry[]>({
@@ -103,15 +113,21 @@ export function RootFolderDiscovery() {
   // before the final folders are queued. Refetch whenever a scan's counts or
   // status change, which also catches the running → completed transition.
   const scanSnapshot = useMemo(
-    () => scanProgress.map((p) => `${p.rootFolderId}:${p.status}:${p.unmatched}`).join("|"),
+    () =>
+      scanProgress
+        .map((p) => `${p.rootFolderId}:${p.status}:${p.unmatched}:${p.matched}`)
+        .join("|"),
     [scanProgress]
   );
   useEffect(() => {
     if (!scanSnapshot) return;
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
+    // Auto-matched games are added to the library during the scan.
+    queryClient.invalidateQueries({ queryKey: ["/api/games"] });
   }, [scanSnapshot, queryClient]);
 
   const invalidateAll = () => {
+    scanKickoffAt.current = Date.now();
     queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] });
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/status"] });
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });

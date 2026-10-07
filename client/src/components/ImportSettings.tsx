@@ -21,7 +21,6 @@ import type { ImportConfig, UserSettings } from "@shared/schema";
 import { selectedPlatformNames as resolveSelectedPlatformNames } from "@shared/platforms";
 import { PathMappingSettings } from "./PathMappingSettings";
 import { FileBrowser } from "./FileBrowser";
-import { RootFolderDiscovery } from "./RootFolderDiscovery";
 import SecurityScanSettings from "./SecurityScanSettings";
 
 type HardlinkPairCheck = {
@@ -90,8 +89,6 @@ export default function ImportSettings() {
   // Local State
   const [localConfig, setLocalConfig] = useState<ImportConfig | null>(null);
   const [libraryBrowserOpen, setLibraryBrowserOpen] = useState(false);
-  // When a save here starts a scan, tells the Discover tab to keep polling for it.
-  const [scanKickoffAt, setScanKickoffAt] = useState(0);
 
   useEffect(() => {
     if (config) setLocalConfig(config);
@@ -118,7 +115,6 @@ export default function ImportSettings() {
       queryClient.invalidateQueries({ queryKey: ["/api/imports/config"] });
       queryClient.invalidateQueries({ queryKey: ["/api/imports/hardlink/check"] });
       if (scanStarted) {
-        setScanKickoffAt(Date.now());
         queryClient.invalidateQueries({ queryKey: ["/api/library/scan/status"] });
         queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
       }
@@ -148,7 +144,6 @@ export default function ImportSettings() {
           <TabsTrigger value="config">General Config</TabsTrigger>
           <TabsTrigger value="paths">Path Mappings</TabsTrigger>
           <TabsTrigger value="security">Security & Scanning</TabsTrigger>
-          <TabsTrigger value="discover">Discover</TabsTrigger>
           <TabsTrigger value="help">Help</TabsTrigger>
         </TabsList>
 
@@ -391,10 +386,6 @@ export default function ImportSettings() {
 
         <TabsContent value="security" className="space-y-4">
           <SecurityScanSettings />
-        </TabsContent>
-
-        <TabsContent value="discover" className="space-y-4">
-          <RootFolderDiscovery scanKickoffAt={scanKickoffAt} />
         </TabsContent>
 
         <TabsContent value="help" className="space-y-4">

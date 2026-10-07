@@ -4,6 +4,7 @@ import {
   Compass,
   Database,
   Download,
+  FolderInput,
   Gamepad2,
   HardDrive,
   Home,
@@ -36,6 +37,7 @@ export const primaryNavigation: AppNavItem[] = [
       { title: "All Games", url: "/", icon: Home },
       { title: "Wishlist", url: "/wishlist", icon: Star },
       { title: "Playing", url: "/playing", icon: Gamepad2 },
+      { title: "Library Import", url: "/library-import", icon: FolderInput },
     ],
   },
   {

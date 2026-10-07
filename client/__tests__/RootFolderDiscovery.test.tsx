@@ -102,7 +102,7 @@ describe("RootFolderDiscovery", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/library/scan/unmatched"] });
   });
 
-  it("keeps polling scan status after a scan started by saving import settings", async () => {
+  it("keeps polling scan status after Scan All even if the first status is empty", async () => {
     // The first status fetch lands before the server registers the scan.
     let statusCalls = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
@@ -134,9 +134,10 @@ describe("RootFolderDiscovery", () => {
     const invalidate = vi.spyOn(client, "invalidateQueries");
     render(
       <QueryClientProvider client={client}>
-        <RootFolderDiscovery scanKickoffAt={Date.now()} />
+        <RootFolderDiscovery />
       </QueryClientProvider>
     );
+    fireEvent.click(await screen.findByRole("button", { name: /scan all/i }));
 
     await waitFor(() => expect(statusCalls).toBeGreaterThan(1), { timeout: 4000 });
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/games"] }));

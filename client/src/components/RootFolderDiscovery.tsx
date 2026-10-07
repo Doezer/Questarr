@@ -78,14 +78,7 @@ function formatBytes(bytes: number | null): string {
 // How long to keep polling scan status after starting a scan, until it shows up.
 const SCAN_KICKOFF_GRACE_MS = 5000;
 
-interface RootFolderDiscoveryProps {
-  /** When a scan was started outside this component, such as by saving import settings. */
-  scanKickoffAt?: number;
-}
-
-export function RootFolderDiscovery({
-  scanKickoffAt: externalKickoffAt = 0,
-}: RootFolderDiscoveryProps) {
+export function RootFolderDiscovery() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -107,8 +100,7 @@ export function RootFolderDiscovery({
   const { data: scanProgress = [] } = useQuery<ScanProgress[]>({
     queryKey: ["/api/library/scan/status"],
     refetchInterval: (query) =>
-      anyScanning(query.state.data) ||
-      Date.now() - Math.max(scanKickoffAt.current, externalKickoffAt) < SCAN_KICKOFF_GRACE_MS
+      anyScanning(query.state.data) || Date.now() - scanKickoffAt.current < SCAN_KICKOFF_GRACE_MS
         ? 1500
         : false,
   });
@@ -269,7 +261,7 @@ export function RootFolderDiscovery({
             <CardTitle>Discover Existing Games</CardTitle>
             <CardDescription>
               Scan extra folders on disk for games you already own but haven&apos;t imported yet —
-              separate from the Library Root above.
+              separate from the Library Root set in Import settings.
             </CardDescription>
           </div>
           <div className="flex gap-2">

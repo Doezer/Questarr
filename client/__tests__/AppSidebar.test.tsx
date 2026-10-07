@@ -60,4 +60,10 @@ describe("AppSidebar library counts", () => {
     expect(screen.queryByTestId("badge-playing")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Playing" })).toBeInTheDocument();
   });
+
+  it("lists Library Import under Library", () => {
+    renderSidebar([]);
+
+    expect(screen.getByRole("button", { name: "Library Import" })).toBeInTheDocument();
+  });
 });

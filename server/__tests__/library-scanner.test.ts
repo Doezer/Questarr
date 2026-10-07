@@ -332,6 +332,18 @@ describe("scanRootFolderById full scan", () => {
     expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "rf-1");
   });
 
+  it("refreshes clients when a game was added but setting its path failed", async () => {
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.updateGame).mockRejectedValue(new Error("db locked"));
+
+    await scanRootFolderById("rf-1", "user-1");
+
+    expect(storage.addGame).toHaveBeenCalled();
+    expect(getScanProgress("rf-1")?.matched).toBe(0);
+    const { notifyUser } = await import("../socket.js");
+    expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "rf-1");
+  });
+
   it("refreshes clients when a game was written but its files failed", async () => {
     const { storage } = await import("../storage.js");
     vi.mocked(storage.getGameFiles).mockRejectedValue(new Error("db locked"));

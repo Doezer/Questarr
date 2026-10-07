@@ -512,6 +512,10 @@ async function recordMatchedCandidate(
   files: Array<{ absolutePath: string; size: number }>,
   progress: ScanProgress
 ): Promise<void> {
+  // Flag before the first write: any of the writes below can succeed before a
+  // later one throws, and clients must still refresh. An extra refresh when
+  // nothing ended up written is harmless.
+  gamesChangedByScan.add(progress);
   let game = await storage.getGameByIgdbId(best.id);
   if (!game) {
     game = await storage.addGame(igdbToInsertGame(best, userId));
@@ -526,9 +530,6 @@ async function recordMatchedCandidate(
       await storage.updateGame(game.id, { libraryPath: cand.absolutePath });
     }
   }
-  // The game row is now written; clients must refresh even if the file
-  // assignment below throws and the candidate is not counted as matched.
-  gamesChangedByScan.add(progress);
   await assignFilesToGame(game.id, files);
 }
 

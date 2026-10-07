@@ -147,6 +147,7 @@ describe("title-utils", () => {
 
     it("does not read a dotted version number as a sequel", () => {
       expect(releaseMatchesGame("Dishonored.2.0-GROUP", "Dishonored")).toBe(true);
+      expect(releaseMatchesGame("Hades.II.2.0-GROUP", "Hades")).toBe(false);
     });
 
     it("still matches numbered updates and DLC of the game", () => {

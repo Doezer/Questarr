@@ -122,6 +122,7 @@ const TITLE_STOP_WORDS = new Set([
   "with",
 ]);
 
+/** Drops stopwords from an already normalized title ("the witcher 3" -> "witcher 3"). */
 function withoutStopWords(normalized: string): string {
   return normalized
     .split(" ")
@@ -133,6 +134,7 @@ function withoutStopWords(normalized: string): string {
 const SEQUEL_NUMBER_REGEX = /^([2-9]|[1-9]\d)$/;
 const SEQUEL_ROMAN_REGEX = /^(?!i$)x{0,3}(ix|iv|v?i{0,3})$/;
 
+/** True for a word that reads as a sequel number: "2" to "99", or a roman numeral from II. */
 function isSequelMarker(token: string | undefined): boolean {
   if (!token) return false;
   return SEQUEL_NUMBER_REGEX.test(token) || SEQUEL_ROMAN_REGEX.test(token);
@@ -152,7 +154,11 @@ function isSequelOf(longer: string, shorter: string): boolean {
     if (!shortWords.every((word, j) => longWords[i + j] === word)) continue;
     const next = longWords[i + shortWords.length];
     const afterNext = longWords[i + shortWords.length + 1];
-    if (isSequelMarker(next) && !(afterNext && /^\d+$/.test(afterNext))) return true;
+    if (!isSequelMarker(next)) continue;
+    // "game 2 0" is a version; "hades ii 2 0" is still the sequel at version 2.0
+    const isVersion =
+      /^\d+$/.test(next ?? "") && afterNext !== undefined && /^\d+$/.test(afterNext);
+    if (!isVersion) return true;
   }
   return false;
 }

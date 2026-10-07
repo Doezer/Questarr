@@ -414,6 +414,8 @@ describe("custom formats", () => {
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "[" })).not.toBeNull();
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "^dis" })).toBeNull();
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "(gog|steam)$" })).toBeNull();
+    expect(validateFormatSpec({ field: "title", mode: "regex", value: "([+*|])+" })).toBeNull();
+    expect(validateFormatSpec({ field: "title", mode: "regex", value: "((ab)c)+" })).toBeNull();
     expect(validateFormatSpec({ field: "title", mode: "regex", value: "\\(a+\\)+" })).toBeNull();
   });
 

@@ -662,16 +662,48 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
 export const MAX_FORMAT_REGEX_LENGTH = 200;
 const MAX_REGEX_INPUT_LENGTH = 500;
 
-// A repeated group that itself repeats or branches, as in (a+)+ or (a|aa)*: the shapes behind
-// catastrophic backtracking, refused outright since scoring runs synchronously.
-const NESTED_QUANTIFIER_PATTERN = /\((?:[^()\\]|\\.)*[+*}|](?:[^()\\]|\\.)*\)[+*{]/;
+/**
+ * True when a group that repeats itself repeats or branches inside, as in (a+)+ or (a|aa)*:
+ * the shapes behind catastrophic backtracking, refused outright since scoring runs
+ * synchronously. A single pass over the pattern; escapes and character classes are skipped.
+ */
+function hasNestedQuantifier(pattern: string): boolean {
+  const groups: boolean[] = []; // per open group: does it repeat or branch inside?
+  let inClass = false;
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i];
+    if (char === "\\") {
+      i++;
+      continue;
+    }
+    if (inClass) {
+      if (char === "]") inClass = false;
+      continue;
+    }
+    if (char === "[") {
+      inClass = true;
+    } else if (char === "(") {
+      groups.push(false);
+    } else if (char === ")") {
+      const inner = groups.pop() ?? false;
+      const next = pattern[i + 1];
+      const repeated = next === "+" || next === "*" || next === "{";
+      if (inner && repeated) return true;
+      // the closed group counts as a repeat inside its parent
+      if ((inner || repeated) && groups.length > 0) groups[groups.length - 1] = true;
+    } else if ("+*{|".includes(char ?? "") && groups.length > 0) {
+      groups[groups.length - 1] = true;
+    }
+  }
+  return false;
+}
 
 /** Returns why a user regex cannot be used, or null when it is safe to compile. */
 function regexProblem(pattern: string): string | null {
   if (pattern.length > MAX_FORMAT_REGEX_LENGTH) {
     return `Regex is longer than ${MAX_FORMAT_REGEX_LENGTH} characters`;
   }
-  if (NESTED_QUANTIFIER_PATTERN.test(pattern)) {
+  if (hasNestedQuantifier(pattern)) {
     return "Regex repeats a group that repeats or branches, which can freeze matching";
   }
   try {

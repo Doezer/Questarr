@@ -167,6 +167,7 @@ describe("evaluateRelease built-in rules", () => {
     const result = evaluateRelease(torrent("Dishonored.Gameplay.1080p.x264-GRP"), ctx);
     expect(result.rejections).toContainEqual({ code: "non_game_media" });
     for (const media of [
+      "Dishonored_1080p_x264-GRP",
       "Dishonored.Soundtrack-FLT",
       "Dishonored.OST-GRP",
       "Dishonored.Artbook-CODEX",

@@ -308,6 +308,44 @@ describe("scanRootFolderById full scan", () => {
     expect(getScanProgress("rf-1")?.status).toBe("completed");
     expect(getScanProgress("rf-2")?.status).toBe("completed");
   });
+
+  it("shows the rest of a batch as queued so status never looks idle between folders", async () => {
+    const tmpDir2 = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-scan-2-"));
+    const folderA: RootFolder = { ...mockRootFolder, id: "rf-1", path: tmpDir };
+    const folderB: RootFolder = { ...mockRootFolder, id: "rf-batch-b", path: tmpDir2 };
+
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getEnabledRootFolders).mockResolvedValue([folderA, folderB]);
+    vi.mocked(storage.getRootFolder).mockImplementation(async (id: string) =>
+      id === "rf-batch-b" ? folderB : folderA
+    );
+    // Snapshot folder B's status each time folder A reports progress.
+    const statusesOfB: Array<string | undefined> = [];
+    const { notifyUser } = await import("../socket.js");
+    vi.mocked(notifyUser).mockImplementation(() => {
+      if (getScanProgress("rf-1")?.status === "completed") {
+        statusesOfB.push(getScanProgress("rf-batch-b")?.status);
+      }
+    });
+
+    await scanAllEnabledRootFolders("user-1");
+    vi.mocked(notifyUser).mockReset();
+
+    // When folder A completes, folder B is already waiting, not missing.
+    expect(statusesOfB[0]).toBe("queued");
+    expect(getScanProgress("rf-batch-b")?.status).toBe("completed");
+  });
+
+  it("restores a folder's previous status when its queued scan does not run", async () => {
+    const disabled: RootFolder = { ...mockRootFolder, id: "rf-off", enabled: false };
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getEnabledRootFolders).mockResolvedValue([disabled]);
+    vi.mocked(storage.getRootFolder).mockResolvedValue(disabled);
+
+    await scanAllEnabledRootFolders("user-1");
+
+    expect(getScanProgress("rf-off")).toBeUndefined();
+  });
 });
 
 describe("same-basename standalone files stay independently resolvable", () => {

@@ -44,7 +44,7 @@ interface ScanProgress {
   rootFolderPath: string;
   startedAt: string;
   finishedAt?: string;
-  status: "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed";
   totalCandidates: number;
   processedCandidates: number;
   matched: number;
@@ -97,7 +97,7 @@ export function RootFolderDiscovery({
   });
 
   const anyScanning = (progress?: ScanProgress[]) =>
-    (progress ?? []).some((p) => p.status === "running");
+    (progress ?? []).some((p) => p.status === "running" || p.status === "queued");
 
   // A scan is started fire-and-forget, so the first status fetch after starting
   // one can come back before the server has registered it. Keep polling for a
@@ -410,7 +410,11 @@ export function RootFolderDiscovery({
                         variant="ghost"
                         size="icon"
                         aria-label={`Scan ${folder.path}`}
-                        disabled={!folder.enabled || progress?.status === "running"}
+                        disabled={
+                          !folder.enabled ||
+                          progress?.status === "running" ||
+                          progress?.status === "queued"
+                        }
                         onClick={() => scanMutation.mutate(folder.id)}
                       >
                         <Search className="h-4 w-4" />

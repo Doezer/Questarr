@@ -34,7 +34,8 @@ export interface ScanProgress {
   rootFolderPath: string;
   startedAt: string;
   finishedAt?: string;
-  status: "running" | "completed" | "failed";
+  // "queued": waiting behind another scan in the same batch or a requested rescan.
+  status: "queued" | "running" | "completed" | "failed";
   totalCandidates: number;
   processedCandidates: number;
   matched: number;
@@ -91,6 +92,38 @@ const activeScans = new Set<string>();
 // Root folders whose settings changed while a scan of them was running. The
 // running scan captured the old path, so they get one more scan when it ends.
 const rescanRequested = new Map<string, string>(); // rootFolderId -> userId
+// What a "queued" entry replaced, restored if the queued scan never starts.
+const progressBeforeQueued = new Map<string, ScanProgress | undefined>();
+
+/**
+ * Show a folder as waiting for its scan, so scan status never looks idle
+ * between two folders of a batch or before a requested rescan starts.
+ */
+function markQueued(rootFolderId: string, rootFolderPath: string): void {
+  const previous = progressByFolder.get(rootFolderId);
+  if (previous?.status !== "queued") progressBeforeQueued.set(rootFolderId, previous);
+  const queued: ScanProgress = {
+    rootFolderId,
+    rootFolderPath,
+    startedAt: new Date().toISOString(),
+    status: "queued",
+    totalCandidates: 0,
+    processedCandidates: 0,
+    matched: 0,
+    unmatched: 0,
+    errors: 0,
+  };
+  progressByFolder.set(rootFolderId, queued);
+  emitProgress(queued);
+}
+
+/** Put back what a "queued" entry replaced when its scan did not run. */
+function clearQueued(rootFolderId: string): void {
+  if (progressByFolder.get(rootFolderId)?.status !== "queued") return;
+  const previous = progressBeforeQueued.get(rootFolderId);
+  if (previous) progressByFolder.set(rootFolderId, previous);
+  else progressByFolder.delete(rootFolderId);
+}
 
 export function getAllScanProgress(): ScanProgress[] {
   return Array.from(progressByFolder.values());
@@ -406,15 +439,20 @@ export async function scanRootFolderById(rootFolderId: string, userId: string): 
       errors: 0,
     };
     progressByFolder.set(rootFolderId, progress);
+    progressBeforeQueued.delete(rootFolderId);
     unmatchedByFolder.set(rootFolderId, []);
     emitProgress(progress);
 
     await runScan(rootFolder, progress, userId);
   } finally {
     activeScans.delete(rootFolderId);
+    // A missing or disabled folder never replaces its "queued" entry.
+    clearQueued(rootFolderId);
     const rescanUserId = rescanRequested.get(rootFolderId);
     if (rescanUserId !== undefined) {
       rescanRequested.delete(rootFolderId);
+      const finished = progressByFolder.get(rootFolderId);
+      if (finished) markQueued(rootFolderId, finished.rootFolderPath);
       await scanRootFolderById(rootFolderId, rescanUserId);
     }
   }
@@ -533,11 +571,13 @@ async function runScan(
       emitProgress(progress);
     }
 
+    // Record the scan time first: the next folder of a batch is already
+    // "queued", so nothing waits on I/O between this completion and its start.
+    await storage.touchRootFolderScanned(rootFolderId);
     progress.status = "completed";
     progress.finishedAt = new Date().toISOString();
     progress.currentCandidate = undefined;
     emitProgress(progress);
-    await storage.touchRootFolderScanned(rootFolderId);
   } catch (err) {
     progress.status = "failed";
     progress.finishedAt = new Date().toISOString();
@@ -555,12 +595,18 @@ async function runScan(
 export async function rescanAllEnabledRootFolders(userId: string): Promise<void> {
   const folders = await storage.getEnabledRootFolders();
   for (const folder of folders) {
+    if (!activeScans.has(folder.id)) markQueued(folder.id, folder.path);
+  }
+  for (const folder of folders) {
     await rescanRootFolderById(folder.id, userId);
   }
 }
 
 export async function scanAllEnabledRootFolders(userId: string): Promise<void> {
   const folders = await storage.getEnabledRootFolders();
+  for (const folder of folders) {
+    if (!activeScans.has(folder.id)) markQueued(folder.id, folder.path);
+  }
   for (const folder of folders) {
     await scanRootFolderById(folder.id, userId);
   }

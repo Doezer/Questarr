@@ -93,6 +93,12 @@ describe("title-utils", () => {
       expect(titleMatches("Game A", "Game B")).toBe(false);
     });
 
+    it("does not treat a sequel as the same title", () => {
+      expect(titleMatches("Dishonored 2", "Dishonored")).toBe(false);
+      expect(titleMatches("Hades", "Hades II")).toBe(false);
+      expect(titleMatches("The Witcher 3", "The Witcher 3: Wild Hunt")).toBe(true);
+    });
+
     it("should require exact match for short titles", () => {
       expect(titleMatches("It", "It Follows")).toBe(false);
       expect(titleMatches("Sty", "Style")).toBe(false);
@@ -113,6 +119,31 @@ describe("title-utils", () => {
     it("should not match if meaningful words are missing", () => {
       expect(releaseMatchesGame("Witcher.2-GROUP", "Stalker 2")).toBe(false);
       expect(releaseMatchesGame("Game.Name-GROUP", "Other Game")).toBe(false);
+    });
+
+    it("rejects a numbered or roman-numeral sequel of the wanted game", () => {
+      expect(releaseMatchesGame("Dishonored.2-CODEX", "Dishonored")).toBe(false);
+      expect(releaseMatchesGame("Hades.II.v1.0-RUNE", "Hades")).toBe(false);
+      expect(releaseMatchesGame("DOOM.3.BFG.Edition-GOG", "DOOM")).toBe(false);
+      expect(releaseMatchesGame("The.Witcher.3.Wild.Hunt-GOG", "The Witcher")).toBe(false);
+      expect(releaseMatchesGame("Grand.Theft.Auto.V-RELOADED", "Grand Theft Auto")).toBe(false);
+    });
+
+    it("still matches the game itself, its editions and numbered titles", () => {
+      expect(releaseMatchesGame("Dishonored-CODEX", "Dishonored")).toBe(true);
+      expect(releaseMatchesGame("Dishonored.Definitive.Edition-GOG", "Dishonored")).toBe(true);
+      expect(releaseMatchesGame("Dishonored.2-CODEX", "Dishonored 2")).toBe(true);
+      expect(releaseMatchesGame("Hades.II.v1.0-RUNE", "Hades II")).toBe(true);
+      expect(releaseMatchesGame("DOOM.2016.MULTi10-FitGirl", "DOOM")).toBe(true);
+      expect(releaseMatchesGame("Hades.v1.38290-GOG", "Hades")).toBe(true);
+      expect(releaseMatchesGame("Cyberpunk.2077.Phantom.Liberty-RUNE", "Cyberpunk 2077")).toBe(
+        true
+      );
+      expect(releaseMatchesGame("Fallout.76-RUNE", "Fallout 76")).toBe(true);
+    });
+
+    it("does not read a dotted version number as a sequel", () => {
+      expect(releaseMatchesGame("Dishonored.2.0-GROUP", "Dishonored")).toBe(true);
     });
   });
 

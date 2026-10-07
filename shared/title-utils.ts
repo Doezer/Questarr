@@ -105,6 +105,34 @@ export function cleanReleaseName(releaseName: string): string {
   return cleaned.replaceAll(/[[\]]/g, " ").replaceAll(/\s+/g, " ").trim();
 }
 
+// "2"-"99" or a roman numeral from II to XXXIX ("I" alone is too often a word).
+const SEQUEL_NUMBER_REGEX = /^([2-9]|[1-9]\d)$/;
+const SEQUEL_ROMAN_REGEX = /^(?!i$)x{0,3}(ix|iv|v?i{0,3})$/;
+
+function isSequelMarker(token: string | undefined): boolean {
+  if (!token) return false;
+  return SEQUEL_NUMBER_REGEX.test(token) || SEQUEL_ROMAN_REGEX.test(token);
+}
+
+/**
+ * True when `longer` contains `shorter` (both normalized) and the word right after it is a
+ * sequel number: "dishonored 2" for "dishonored", "hades ii" for "hades". Word containment
+ * alone would accept those, and auto-search downloads a lone match on its own.
+ * A number followed by another number ("game 2 0") reads as a version, not a sequel.
+ */
+function isSequelOf(longer: string, shorter: string): boolean {
+  if (!longer || !shorter || longer === shorter) return false;
+  const longWords = longer.split(" ");
+  const shortWords = shorter.split(" ");
+  for (let i = 0; i + shortWords.length <= longWords.length; i++) {
+    if (!shortWords.every((word, j) => longWords[i + j] === word)) continue;
+    const next = longWords[i + shortWords.length];
+    const afterNext = longWords[i + shortWords.length + 1];
+    if (isSequelMarker(next) && !(afterNext && /^\d+$/.test(afterNext))) return true;
+  }
+  return false;
+}
+
 /**
  * Checks if two titles match loosely.
  * Can be used to match a known game title against an xREL title or a cleaned release name.
@@ -118,6 +146,9 @@ export function titleMatches(a: string, b: string): boolean {
 
   // For very short titles, require exact match after normalization
   if (normA.length < 5 || normB.length < 5) return normA === normB;
+
+  // "Dishonored 2" contains "Dishonored" but is another game
+  if (isSequelOf(normA, normB) || isSequelOf(normB, normA)) return false;
 
   // Check if one contains the other (e.g. "The Witcher 3" vs "The Witcher 3: Wild Hunt")
   // We check for word boundaries to avoid matching "Fable" with "Fabletown"
@@ -133,6 +164,8 @@ export function titleMatches(a: string, b: string): boolean {
 export function releaseMatchesGame(releaseName: string, gameTitle: string): boolean {
   // First try matching against the cleaned release name
   const cleaned = cleanReleaseName(releaseName);
+  // A sequel of the wanted game must not get through the word-based fallback below either
+  if (isSequelOf(normalizeTitle(cleaned), normalizeTitle(gameTitle))) return false;
   if (titleMatches(cleaned, gameTitle)) return true;
 
   // Fallback: Check if the normalized game title words are all present in the release name

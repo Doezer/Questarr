@@ -126,6 +126,9 @@ describe("title-utils", () => {
       expect(releaseMatchesGame("Hades.II.v1.0-RUNE", "Hades")).toBe(false);
       expect(releaseMatchesGame("DOOM.3.BFG.Edition-GOG", "DOOM")).toBe(false);
       expect(releaseMatchesGame("The.Witcher.3.Wild.Hunt-GOG", "The Witcher")).toBe(false);
+      expect(releaseMatchesGame("Witcher.3.Wild.Hunt-GOG", "The Witcher")).toBe(false);
+      expect(releaseMatchesGame("Dishonored-2", "Dishonored")).toBe(false);
+      expect(releaseMatchesGame("Dishonored (2)", "Dishonored")).toBe(false);
       expect(releaseMatchesGame("Grand.Theft.Auto.V-RELOADED", "Grand Theft Auto")).toBe(false);
     });
 

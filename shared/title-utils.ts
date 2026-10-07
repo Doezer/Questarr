@@ -105,6 +105,30 @@ export function cleanReleaseName(releaseName: string): string {
   return cleaned.replaceAll(/[[\]]/g, " ").replaceAll(/\s+/g, " ").trim();
 }
 
+const TITLE_STOP_WORDS = new Set([
+  "the",
+  "of",
+  "and",
+  "in",
+  "on",
+  "at",
+  "to",
+  "a",
+  "an",
+  "is",
+  "by",
+  "or",
+  "for",
+  "with",
+]);
+
+function withoutStopWords(normalized: string): string {
+  return normalized
+    .split(" ")
+    .filter((w) => !TITLE_STOP_WORDS.has(w))
+    .join(" ");
+}
+
 // "2"-"99" or a roman numeral from II to XXXIX ("I" alone is too often a word).
 const SEQUEL_NUMBER_REGEX = /^([2-9]|[1-9]\d)$/;
 const SEQUEL_ROMAN_REGEX = /^(?!i$)x{0,3}(ix|iv|v?i{0,3})$/;
@@ -164,8 +188,16 @@ export function titleMatches(a: string, b: string): boolean {
 export function releaseMatchesGame(releaseName: string, gameTitle: string): boolean {
   // First try matching against the cleaned release name
   const cleaned = cleanReleaseName(releaseName);
-  // A sequel of the wanted game must not get through the word-based fallback below either
-  if (isSequelOf(normalizeTitle(cleaned), normalizeTitle(gameTitle))) return false;
+  // A sequel of the wanted game must not get through the word-based fallback below either.
+  // The raw name is checked too, since cleanup can drop the number ("Dishonored-2" reads as
+  // a group suffix), and so are stopword-free forms: indexers often drop the "The".
+  const normGame = normalizeTitle(gameTitle);
+  const isSequel = [normalizeTitle(cleaned), normalizeTitle(releaseName)].some(
+    (normRelease) =>
+      isSequelOf(normRelease, normGame) ||
+      isSequelOf(withoutStopWords(normRelease), withoutStopWords(normGame))
+  );
+  if (isSequel) return false;
   if (titleMatches(cleaned, gameTitle)) return true;
 
   // Fallback: Check if the normalized game title words are all present in the release name
@@ -174,30 +206,13 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
   // 2. Filter common stopwords
   // 3. Require at least one "meaningful" word (> 2 chars or specific) to avoid matching "Stalker 2" against "Witcher 2" (via "2")
 
-  const stopWords = new Set([
-    "the",
-    "of",
-    "and",
-    "in",
-    "on",
-    "at",
-    "to",
-    "a",
-    "an",
-    "is",
-    "by",
-    "or",
-    "for",
-    "with",
-  ]);
-
   const gameWords = normalizeTitle(gameTitle)
     .split(" ")
     .filter((w) => {
       // Keep if it's a number (length 1 allowed) OR length > 1
       if (w.length < 2 && isNaN(Number(w))) return false;
       // Filter stopwords
-      if (stopWords.has(w)) return false;
+      if (TITLE_STOP_WORDS.has(w)) return false;
       return true;
     });
 

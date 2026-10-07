@@ -7,6 +7,11 @@ vi.mock("../socket.js");
 vi.mock("../rss.js", () => ({
   rssService: { refreshFeeds: vi.fn().mockResolvedValue(undefined) },
 }));
+// the startup xREL check must not reach the network
+vi.mock("../xrel.js", () => ({
+  DEFAULT_XREL_BASE: "https://xrel-api.nfos.to",
+  xrelClient: { getLatestReleases: vi.fn().mockResolvedValue({ list: [] }) },
+}));
 vi.mock("../logger.js", () => {
   const mockLogger = {
     info: vi.fn(),

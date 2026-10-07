@@ -95,6 +95,7 @@ describe("title-utils", () => {
 
     it("does not treat a sequel as the same title", () => {
       expect(titleMatches("Dishonored 2", "Dishonored")).toBe(false);
+      expect(titleMatches("Dishonored 2 2017", "Dishonored")).toBe(false);
       expect(titleMatches("Hades", "Hades II")).toBe(false);
       expect(titleMatches("The Witcher 3", "The Witcher 3: Wild Hunt")).toBe(true);
     });
@@ -148,6 +149,7 @@ describe("title-utils", () => {
     it("does not read a dotted version number as a sequel", () => {
       expect(releaseMatchesGame("Dishonored.2.0-GROUP", "Dishonored")).toBe(true);
       expect(releaseMatchesGame("Hades.II.2.0-GROUP", "Hades")).toBe(false);
+      expect(releaseMatchesGame("Dishonored.2.2017-GROUP", "Dishonored")).toBe(false);
     });
 
     it("still matches numbered updates and DLC of the game", () => {

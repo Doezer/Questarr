@@ -155,9 +155,10 @@ function isSequelOf(longer: string, shorter: string): boolean {
     const next = longWords[i + shortWords.length];
     const afterNext = longWords[i + shortWords.length + 1];
     if (!isSequelMarker(next)) continue;
-    // "game 2 0" is a version; "hades ii 2 0" is still the sequel at version 2.0
+    // "game 2 0" is a version; "hades ii 2 0" is still the sequel at version 2.0, and a year
+    // ("game 2 2017") is not a version component
     const isVersion =
-      /^\d+$/.test(next ?? "") && afterNext !== undefined && /^\d+$/.test(afterNext);
+      /^\d+$/.test(next ?? "") && afterNext !== undefined && /^\d{1,3}$/.test(afterNext);
     if (!isVersion) return true;
   }
   return false;

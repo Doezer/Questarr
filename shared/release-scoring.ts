@@ -52,11 +52,17 @@ export type RejectionCode =
   | "min_seeders"
   | "max_size"
   | "below_min_score"
-  | "custom_format_reject";
+  | "custom_format_reject"
+  | "risky_file";
 
 export interface Rejection {
   code: RejectionCode;
   detail?: string;
+  /**
+   * Set when the rejection can clear on its own (too few seeders right now). Auto-search
+   * should try the release again later instead of treating it as unwanted.
+   */
+  temporary?: boolean;
 }
 
 export interface ScoreLine {
@@ -69,17 +75,23 @@ export interface ScoreLine {
 export type FormatField = "title" | "group" | "uploader" | "category" | "protocol" | "indexer";
 export type FormatMatchMode = "contains" | "exact" | "regex";
 
-/** One condition of a custom format. `negate` inverts it ("group is not X"). */
+/**
+ * One condition of a custom format. `negate` inverts it ("group is not X"); `required`
+ * makes it mandatory within its field (see CustomFormat).
+ */
 export interface FormatSpec {
   field: FormatField;
   mode: FormatMatchMode;
   value: string;
   negate?: boolean;
+  required?: boolean;
 }
 
 /**
- * A user-defined rule. It matches when every spec matches, then adds `score`; with
- * `hardReject` a match also rejects the release.
+ * A user-defined rule, combined like a Radarr/Sonarr custom format: specs on the same field
+ * are alternatives (one is enough, "group is A or B") unless marked `required`, which must
+ * all hold; every field used must be satisfied. A match adds the score (the profile's
+ * `formatScores` entry when it has one, else `score`); with `hardReject` it also rejects.
  */
 export interface CustomFormat {
   id: string;
@@ -101,14 +113,19 @@ export interface ReleaseProfile {
   /** Releases scoring below this are rejected. */
   minScore: number;
   protocolPreference: ProtocolPreference;
-  /** Every term must appear in the release name (case-insensitive). */
+  /**
+   * When non-empty, at least one term must appear in the release name. Terms are
+   * case-insensitive words, or a regex written `/pattern/` (as in Radarr).
+   */
   requiredTerms: string[];
-  /** No term may appear in the release name (case-insensitive). */
+  /** No term may appear in the release name. Same syntax as requiredTerms. */
   ignoredTerms: string[];
   /** Torrents with fewer seeders are rejected. 0 disables the check. */
   minSeeders: number;
   maxSizeBytes: number | null;
   builtInOverrides: Partial<Record<BuiltInRuleId, BuiltInOverride>>;
+  /** Per-profile score of a custom format, by format id; overrides the format's own score. */
+  formatScores: Record<string, number>;
 }
 
 export const DEFAULT_RELEASE_PROFILE: ReleaseProfile = {
@@ -119,6 +136,7 @@ export const DEFAULT_RELEASE_PROFILE: ReleaseProfile = {
   minSeeders: 0,
   maxSizeBytes: null,
   builtInOverrides: {},
+  formatScores: {},
 };
 
 /** What the evaluation knows about the wanted game. */
@@ -140,6 +158,8 @@ export interface ReleaseInput {
   seeders?: number | undefined;
   category?: string[] | undefined;
   indexerName?: string | undefined;
+  /** Lower is preferred, as in the indexer settings. Only breaks ties. */
+  indexerPriority?: number | undefined;
   poster?: string | undefined;
   aiReleaseType?: ReleaseType | undefined;
   aiReleaseTypeConfidence?: number | undefined;
@@ -155,6 +175,8 @@ export interface ReleaseEvaluation {
   category: DownloadCategory;
   /** Ids of the custom formats that matched. */
   matchedFormats: string[];
+  /** False when the profile prefers the other protocol. Only breaks ties. */
+  preferredProtocol: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +499,9 @@ const REPACK_PATTERN = /\b(repack|fitgirl|dodi|elamigos|kaos|xatab|tinyrepacks)\
 // Suffixes that parseReleaseMetadata reads as a group but that name a store or a repacker
 const NON_SCENE_GROUPS = new Set(["gog", "steam", "epic", "fitgirl", "dodi", "elamigos", "kaos"]);
 const SIZE_MISMATCH_RATIO = 0.5;
+// An executable or script as the release itself, or hidden behind a media extension
+const RISKY_FILE_PATTERN =
+  /(\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk|ps1)$|\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b)/i;
 
 export const BUILT_IN_RULE_IDS = [
   "title_exact",
@@ -492,8 +517,8 @@ export const BUILT_IN_RULE_IDS = [
   "scene_release",
   "repack",
   "storefront_source",
-  "protocol_preference",
   "size_mismatch",
+  "risky_file",
 ] as const;
 
 export type BuiltInRuleId = (typeof BUILT_IN_RULE_IDS)[number];
@@ -602,14 +627,6 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
     applies: (f) => !!f.metadata.drm,
   },
   {
-    id: "protocol_preference",
-    label: "Not the preferred protocol",
-    points: -35,
-    applies: (f, _ctx, profile) =>
-      profile.protocolPreference !== "either" &&
-      f.input.downloadType !== profile.protocolPreference,
-  },
-  {
     id: "size_mismatch",
     label: "Size far from the expected size",
     points: -50,
@@ -619,6 +636,14 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
       if (!expected || !size) return false;
       return Math.abs(size - expected) / expected > SIZE_MISMATCH_RATIO;
     },
+  },
+  {
+    id: "risky_file",
+    label: "Executable or disguised file",
+    points: -1000,
+    rejection: "risky_file",
+    locked: true,
+    applies: (f) => RISKY_FILE_PATTERN.test(f.input.title.trim()),
   },
 ];
 
@@ -647,6 +672,7 @@ export function validateFormatSpec(spec: FormatSpec): string | null {
 interface CompiledSpec {
   field: FormatField;
   negate: boolean;
+  required: boolean;
   test: (value: string) => boolean;
 }
 
@@ -672,7 +698,12 @@ function compileSpec(spec: FormatSpec): CompiledSpec {
   } else {
     test = (value) => value.toLowerCase().includes(needle);
   }
-  return { field: spec.field, negate: spec.negate === true, test };
+  return {
+    field: spec.field,
+    negate: spec.negate === true,
+    required: spec.required === true,
+    test,
+  };
 }
 
 /**
@@ -717,10 +748,19 @@ function fieldValues(field: FormatField, facts: ReleaseFacts): string[] {
 }
 
 function formatMatches(compiled: CompiledCustomFormat, facts: ReleaseFacts): boolean {
-  return compiled.specs.every((spec) => {
-    const matched = fieldValues(spec.field, facts).some((value) => spec.test(value));
-    return spec.negate ? !matched : matched;
-  });
+  const byField = new Map<FormatField, { required: boolean[]; optional: boolean[] }>();
+  for (const spec of compiled.specs) {
+    const found = fieldValues(spec.field, facts).some((value) => spec.test(value));
+    const holds = spec.negate ? !found : found;
+    const group = byField.get(spec.field) ?? { required: [], optional: [] };
+    (spec.required ? group.required : group.optional).push(holds);
+    byField.set(spec.field, group);
+  }
+  for (const { required, optional } of byField.values()) {
+    if (!required.every(Boolean)) return false;
+    if (optional.length > 0 && !optional.some(Boolean)) return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -732,6 +772,26 @@ function normalizeTerm(value: string): string {
     .toLowerCase()
     .replaceAll(/[._\s-]+/g, " ")
     .trim();
+}
+
+/**
+ * Builds a matcher for a required or ignored term: `/pattern/` is a case-insensitive regex
+ * (capped like custom formats; an invalid one is read as plain text), anything else a word
+ * sequence matched without regard to dots, dashes or case.
+ */
+function termMatcher(term: string): ((title: string) => boolean) | null {
+  const regexTerm = /^\/(.+)\/i?$/.exec(term.trim());
+  if (regexTerm?.[1] && regexTerm[1].length <= MAX_FORMAT_REGEX_LENGTH) {
+    try {
+      const regex = new RegExp(regexTerm[1], "i");
+      return (title) => regex.test(title);
+    } catch {
+      // fall through to plain text
+    }
+  }
+  const normalized = normalizeTerm(term);
+  if (!normalized) return null;
+  return (title) => normalizeTerm(title).includes(normalized);
 }
 
 /**
@@ -767,22 +827,24 @@ export function evaluateRelease(
     if (!formatMatches(compiled, facts)) continue;
     const { format } = compiled;
     matchedFormats.push(format.id);
-    lines.push({ ruleId: `cf:${format.id}`, label: format.name, points: format.score });
+    const points = profile.formatScores[format.id] ?? format.score;
+    lines.push({ ruleId: `cf:${format.id}`, label: format.name, points });
     if (format.hardReject) {
       rejections.push({ code: "custom_format_reject", detail: format.name });
     }
   }
 
-  const title = normalizeTerm(input.title);
-  for (const term of profile.requiredTerms) {
-    const normalized = normalizeTerm(term);
-    if (normalized && !title.includes(normalized)) {
-      rejections.push({ code: "required_term_missing", detail: term });
-    }
+  const required = profile.requiredTerms
+    .map((term) => ({ term, matches: termMatcher(term) }))
+    .filter((entry) => entry.matches !== null);
+  if (required.length > 0 && !required.some((entry) => entry.matches?.(input.title))) {
+    rejections.push({
+      code: "required_term_missing",
+      detail: required.map((entry) => entry.term).join(", "),
+    });
   }
   for (const term of profile.ignoredTerms) {
-    const normalized = normalizeTerm(term);
-    if (normalized && title.includes(normalized)) {
+    if (termMatcher(term)?.(input.title)) {
       rejections.push({ code: "ignored_term", detail: term });
     }
   }
@@ -792,7 +854,11 @@ export function evaluateRelease(
     input.downloadType === "torrent" &&
     (input.seeders ?? 0) < profile.minSeeders
   ) {
-    rejections.push({ code: "min_seeders", detail: String(input.seeders ?? 0) });
+    rejections.push({
+      code: "min_seeders",
+      detail: String(input.seeders ?? 0),
+      temporary: true,
+    });
   }
   if (profile.maxSizeBytes != null && input.size != null && input.size > profile.maxSizeBytes) {
     rejections.push({ code: "max_size", detail: String(input.size) });
@@ -818,6 +884,8 @@ export function evaluateRelease(
     indexerCategory: facts.indexerCategory,
     category,
     matchedFormats,
+    preferredProtocol:
+      profile.protocolPreference === "either" || input.downloadType === profile.protocolPreference,
   };
 }
 
@@ -826,15 +894,34 @@ export interface EvaluatedRelease<T extends ReleaseInput> {
   evaluation: ReleaseEvaluation;
 }
 
-/** Orders accepted releases first, then by score. Ties keep their order (stable sort). */
-export function compareEvaluations(a: ReleaseEvaluation, b: ReleaseEvaluation): number {
-  if (a.accepted !== b.accepted) return a.accepted ? -1 : 1;
-  return b.score - a.score;
+/**
+ * Orders releases the way Radarr's DownloadDecisionComparer does, adapted: accepted first,
+ * then score, preferred protocol, indexer priority, and torrent health (seeders by order of
+ * magnitude, so 900 and 1000 seeders tie). Remaining ties keep their order (stable sort).
+ */
+export function compareEvaluatedReleases<T extends ReleaseInput>(
+  a: EvaluatedRelease<T>,
+  b: EvaluatedRelease<T>
+): number {
+  const ea = a.evaluation;
+  const eb = b.evaluation;
+  if (ea.accepted !== eb.accepted) return ea.accepted ? -1 : 1;
+  if (ea.score !== eb.score) return eb.score - ea.score;
+  if (ea.preferredProtocol !== eb.preferredProtocol) return ea.preferredProtocol ? -1 : 1;
+  const pa = a.item.indexerPriority ?? Number.MAX_SAFE_INTEGER;
+  const pb = b.item.indexerPriority ?? Number.MAX_SAFE_INTEGER;
+  if (pa !== pb) return pa - pb;
+  return seederMagnitude(b.item) - seederMagnitude(a.item);
+}
+
+function seederMagnitude(item: ReleaseInput): number {
+  if (item.downloadType !== "torrent" || !item.seeders || item.seeders < 1) return -1;
+  return Math.floor(Math.log10(item.seeders));
 }
 
 /**
- * Scores a result list with one compilation of the custom formats and returns it sorted:
- * accepted first, then by score. Rejected releases stay in the list so a manual search can
+ * Scores a result list with one compilation of the custom formats and returns it sorted
+ * with compareEvaluatedReleases. Rejected releases stay in the list so a manual search can
  * show why they were rejected.
  */
 export function evaluateReleases<T extends ReleaseInput>(
@@ -846,5 +933,5 @@ export function evaluateReleases<T extends ReleaseInput>(
   const compiled = compileCustomFormats(formats);
   return items
     .map((item) => ({ item, evaluation: evaluateRelease(item, ctx, profile, compiled) }))
-    .sort((a, b) => compareEvaluations(a.evaluation, b.evaluation));
+    .sort(compareEvaluatedReleases);
 }

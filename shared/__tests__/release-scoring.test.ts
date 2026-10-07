@@ -165,11 +165,14 @@ describe("evaluateRelease built-in rules", () => {
     expect(unmarked.accepted).toBe(true);
   });
 
-  it("penalizes the other protocol when one is preferred", () => {
-    const usenetOnly = profile({ protocolPreference: "usenet" });
-    const result = evaluateRelease(torrent("Dishonored-CODEX"), ctx, usenetOnly);
-    expect(result.lines.find((l) => l.ruleId === "protocol_preference")?.points).toBe(-35);
-    expect(result.accepted).toBe(true);
+  it("rejects executables and disguised files", () => {
+    expect(evaluateRelease(torrent("Dishonored.exe"), ctx).rejections).toContainEqual({
+      code: "risky_file",
+    });
+    expect(evaluateRelease(torrent("Dishonored.mkv.exe"), ctx).rejections).toContainEqual({
+      code: "risky_file",
+    });
+    expect(evaluateRelease(torrent("Dishonored-CODEX"), ctx).accepted).toBe(true);
   });
 
   it("penalizes a size far from the expected one", () => {
@@ -205,23 +208,36 @@ describe("evaluateRelease built-in rules", () => {
 describe("evaluateRelease profile checks", () => {
   const ctx = { gameTitle: "Dishonored" };
 
-  it("rejects missing required terms and present ignored terms", () => {
-    const strict = profile({ requiredTerms: ["GOG"], ignoredTerms: ["crack only"] });
+  it("needs at least one required term and no ignored term", () => {
+    const strict = profile({ requiredTerms: ["GOG", "DRM Free"], ignoredTerms: ["crack only"] });
     expect(evaluateRelease(torrent("Dishonored-GOG"), ctx, strict).accepted).toBe(true);
+    expect(evaluateRelease(torrent("Dishonored.DRM-Free-X"), ctx, strict).accepted).toBe(true);
     expect(evaluateRelease(torrent("Dishonored-CODEX"), ctx, strict).rejections).toContainEqual({
       code: "required_term_missing",
-      detail: "GOG",
+      detail: "GOG, DRM Free",
     });
     expect(
       evaluateRelease(torrent("Dishonored.Crack.Only-GOG"), ctx, strict).rejections
     ).toContainEqual({ code: "ignored_term", detail: "crack only" });
   });
 
+  it("reads /pattern/ terms as regexes", () => {
+    const regexTerms = profile({ requiredTerms: ["/multi\\d+/"], ignoredTerms: ["/^\\[.*\\]/"] });
+    expect(evaluateRelease(torrent("Dishonored.MULTi8-GOG"), ctx, regexTerms).accepted).toBe(true);
+    expect(evaluateRelease(torrent("Dishonored.MULTi-GOG"), ctx, regexTerms).accepted).toBe(false);
+    expect(
+      evaluateRelease(torrent("[Tag] Dishonored MULTi8"), ctx, regexTerms).rejections
+    ).toContainEqual({ code: "ignored_term", detail: "/^\\[.*\\]/" });
+    // an invalid regex is read as plain text
+    const broken = profile({ requiredTerms: ["/(unclosed/"] });
+    expect(evaluateRelease(torrent("Dishonored-GOG"), ctx, broken).accepted).toBe(false);
+  });
+
   it("rejects torrents under the seeder minimum, never usenet", () => {
     const seeded = profile({ minSeeders: 5 });
     expect(
       evaluateRelease(torrent("Dishonored-CODEX", { seeders: 2 }), ctx, seeded).rejections
-    ).toContainEqual({ code: "min_seeders", detail: "2" });
+    ).toContainEqual({ code: "min_seeders", detail: "2", temporary: true });
     expect(evaluateRelease(torrent("Dishonored-CODEX", { seeders: 5 }), ctx, seeded).accepted).toBe(
       true
     );
@@ -275,14 +291,54 @@ describe("custom formats", () => {
     expect(other?.evaluation.matchedFormats).toEqual([]);
   });
 
-  it("requires every spec to match and honours negate", () => {
+  it("accepts any spec on the same field, unless marked required", () => {
+    const either = format({
+      specs: [
+        { field: "group", mode: "exact", value: "CODEX" },
+        { field: "group", mode: "exact", value: "GOG" },
+      ],
+      score: 10,
+    });
+    const both = format({
+      id: "f2",
+      specs: [
+        { field: "title", mode: "contains", value: "dishonored" },
+        { field: "group", mode: "exact", value: "GOG" },
+      ],
+      score: 1,
+    });
+    const run = (title: string) =>
+      evaluateReleases([torrent(title)], ctx, DEFAULT_RELEASE_PROFILE, [either, both])[0]
+        ?.evaluation.matchedFormats;
+    expect(run("Dishonored-CODEX")).toEqual(["f1"]);
+    expect(run("Dishonored-GOG")).toEqual(["f1", "f2"]);
+    expect(run("Dishonored-RUNE")).toEqual([]);
+  });
+
+  it("uses the profile's score for a format when it has one", () => {
+    const gog = format({ specs: [{ field: "group", mode: "exact", value: "GOG" }], score: 50 });
+    const result = evaluateReleases(
+      [torrent("Dishonored-GOG")],
+      ctx,
+      profile({ formatScores: { f1: -10000 } }),
+      [gog]
+    );
+    expect(result[0]?.evaluation.lines).toContainEqual({
+      ruleId: "cf:f1",
+      label: "Format",
+      points: -10000,
+    });
+    expect(result[0]?.evaluation.accepted).toBe(false);
+  });
+
+  it("combines negated required specs into a rejection list", () => {
     // "a group that is neither CODEX nor GOG" rejects everything else
     const onlyPreferred = format({
       name: "Not a preferred group",
       hardReject: true,
       specs: [
-        { field: "group", mode: "exact", value: "CODEX", negate: true },
-        { field: "group", mode: "exact", value: "GOG", negate: true },
+        { field: "group", mode: "exact", value: "CODEX", negate: true, required: true },
+        { field: "group", mode: "exact", value: "GOG", negate: true, required: true },
       ],
     });
     const compiled = compileCustomFormats([onlyPreferred]);
@@ -374,6 +430,40 @@ describe("evaluateReleases", () => {
       ["Dishonored-CODEX", true],
       ["Dishonored-GOG", true],
       ["Dishonored.2-CODEX", false],
+    ]);
+  });
+
+  it("breaks score ties by protocol preference, indexer priority, then seeders", () => {
+    const ctx = { gameTitle: "Dishonored" };
+    const usenet: ReleaseInput = { title: "Dishonored-AAA", downloadType: "usenet" };
+    const preferUsenet = profile({ protocolPreference: "usenet" });
+    const byProtocol = evaluateReleases([torrent("Dishonored-BBB"), usenet], ctx, preferUsenet);
+    expect(byProtocol.map((r) => r.item.title)).toEqual(["Dishonored-AAA", "Dishonored-BBB"]);
+    expect(byProtocol[1]?.evaluation.preferredProtocol).toBe(false);
+    expect(byProtocol[1]?.evaluation.accepted).toBe(true);
+
+    const byPriority = evaluateReleases(
+      [
+        torrent("Dishonored-AAA", { indexerPriority: 2, seeders: 5000 }),
+        torrent("Dishonored-BBB", { indexerPriority: 1, seeders: 5 }),
+      ],
+      ctx
+    );
+    expect(byPriority.map((r) => r.item.title)).toEqual(["Dishonored-BBB", "Dishonored-AAA"]);
+
+    const bySeeders = evaluateReleases(
+      [
+        torrent("Dishonored-AAA", { seeders: 900 }),
+        torrent("Dishonored-BBB", { seeders: 1000 }),
+        torrent("Dishonored-CCC", { seeders: 950 }),
+      ],
+      ctx
+    );
+    // 1000 is a higher order of magnitude; 900 and 950 tie and keep their order
+    expect(bySeeders.map((r) => r.item.title)).toEqual([
+      "Dishonored-BBB",
+      "Dishonored-AAA",
+      "Dishonored-CCC",
     ]);
   });
 

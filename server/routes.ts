@@ -301,6 +301,7 @@ import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 import { probeRootFolder, isWithinDeletableRootFolder, isStrictlyInside } from "./root-folders.js";
 import {
   scanRootFolderById,
+  rescanRootFolderById,
   scanAllEnabledRootFolders,
   getAllScanProgress,
   getAllUnmatched,
@@ -2163,9 +2164,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // download-import pipeline.
   // ==========================================================================
 
-  // Fire-and-forget; progress is available via GET /api/library/scan/status
-  const startRootFolderScan = (rootFolderId: string, userId: string): void => {
-    scanRootFolderById(rootFolderId, userId).catch((err) =>
+  // Fire-and-forget; progress is available via GET /api/library/scan/status.
+  // `queueIfRunning` is for settings changes: a scan already running for the
+  // folder still uses its old path, so another one is queued behind it.
+  const startRootFolderScan = (
+    rootFolderId: string,
+    userId: string,
+    { queueIfRunning = false }: { queueIfRunning?: boolean } = {}
+  ): void => {
+    const scan = queueIfRunning ? rescanRootFolderById : scanRootFolderById;
+    scan(rootFolderId, userId).catch((err) =>
       routesLogger.error({ err }, "scanRootFolderById crashed")
     );
   };
@@ -2217,7 +2225,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Scan right away so games already in the folder show up without a
         // separate "Scan" click. Fire-and-forget, like POST /api/library/scan.
-        if (folder.enabled) startRootFolderScan(folder.id, req.user!.id);
+        if (folder.enabled) startRootFolderScan(folder.id, req.user!.id, { queueIfRunning: true });
 
         return res.status(201).json(withHealth ?? folder);
       } catch (error) {
@@ -2274,13 +2282,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             diskFreeBytes: probe.diskFreeBytes,
             diskTotalBytes: probe.diskTotalBytes,
           });
-          if (shouldScan(folder)) startRootFolderScan(folder.id, req.user!.id);
+          if (shouldScan(folder)) {
+            startRootFolderScan(folder.id, req.user!.id, { queueIfRunning: true });
+          }
           return res.json(withHealth ?? folder);
         }
 
         const folder = await storage.updateRootFolder(id, updates);
         if (!folder) return res.status(404).json({ error: "Root folder not found" });
-        if (shouldScan(folder)) startRootFolderScan(folder.id, req.user!.id);
+        if (shouldScan(folder)) {
+          startRootFolderScan(folder.id, req.user!.id, { queueIfRunning: true });
+        }
         return res.json(folder);
       } catch (error) {
         if (error instanceof z.ZodError) {

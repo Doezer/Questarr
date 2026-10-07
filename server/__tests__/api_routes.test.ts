@@ -23,7 +23,7 @@ import {
   createSocketMock,
 } from "./fixtures/common-route-mocks.js";
 import { registerRoutes, parseCategories } from "../routes.js";
-import { matchUnmatchedFolder, scanRootFolderById } from "../library-scanner.js";
+import { matchUnmatchedFolder, rescanRootFolderById } from "../library-scanner.js";
 import { storage } from "../storage.js";
 import { searchAllIndexers } from "../search.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
@@ -127,6 +127,7 @@ vi.mock("../root-folders.js", async () => {
 });
 vi.mock("../library-scanner.js", () => ({
   scanRootFolderById: vi.fn().mockResolvedValue(undefined),
+  rescanRootFolderById: vi.fn().mockResolvedValue(undefined),
   scanAllEnabledRootFolders: vi.fn().mockResolvedValue(undefined),
   getAllScanProgress: vi.fn().mockReturnValue([]),
   getAllUnmatched: vi.fn().mockReturnValue([]),
@@ -4454,7 +4455,7 @@ describe("API Routes - Extended Coverage", () => {
         const res = await request(app).post("/api/root-folders").send({ path: "/mnt/games" });
 
         expect(res.status).toBe(201);
-        expect(scanRootFolderById).toHaveBeenCalledWith(folderId, expect.any(String));
+        expect(rescanRootFolderById).toHaveBeenCalledWith(folderId, expect.any(String));
       });
 
       it("does not scan a folder added disabled", async () => {
@@ -4468,7 +4469,7 @@ describe("API Routes - Extended Coverage", () => {
 
         await request(app).post("/api/root-folders").send({ path: "/mnt/games", enabled: false });
 
-        expect(scanRootFolderById).not.toHaveBeenCalled();
+        expect(rescanRootFolderById).not.toHaveBeenCalled();
       });
 
       it("scans a folder when it is switched on", async () => {
@@ -4482,7 +4483,7 @@ describe("API Routes - Extended Coverage", () => {
           .send({ enabled: true });
 
         expect(res.status).toBe(200);
-        expect(scanRootFolderById).toHaveBeenCalledWith(folderId, expect.any(String));
+        expect(rescanRootFolderById).toHaveBeenCalledWith(folderId, expect.any(String));
       });
 
       it("does not rescan when an unrelated setting changes", async () => {
@@ -4493,7 +4494,7 @@ describe("API Routes - Extended Coverage", () => {
 
         await request(app).patch(`/api/root-folders/${folderId}`).send({ allowDelete: true });
 
-        expect(scanRootFolderById).not.toHaveBeenCalled();
+        expect(rescanRootFolderById).not.toHaveBeenCalled();
       });
 
       it("rescans an enabled folder whose path changed", async () => {
@@ -4508,7 +4509,7 @@ describe("API Routes - Extended Coverage", () => {
 
         await request(app).patch(`/api/root-folders/${folderId}`).send({ path: "/mnt/games" });
 
-        expect(scanRootFolderById).toHaveBeenCalledWith(folderId, expect.any(String));
+        expect(rescanRootFolderById).toHaveBeenCalledWith(folderId, expect.any(String));
       });
 
       it("returns 404 without scanning when the folder does not exist", async () => {
@@ -4520,7 +4521,7 @@ describe("API Routes - Extended Coverage", () => {
 
         expect(res.status).toBe(404);
         expect(storage.updateRootFolder).not.toHaveBeenCalled();
-        expect(scanRootFolderById).not.toHaveBeenCalled();
+        expect(rescanRootFolderById).not.toHaveBeenCalled();
       });
     });
   });

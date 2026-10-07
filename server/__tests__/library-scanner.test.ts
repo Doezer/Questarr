@@ -5,6 +5,7 @@ import path from "path";
 import {
   __testing,
   matchUnmatchedFolder,
+  rescanRootFolderById,
   scanRootFolderById,
   scanAllEnabledRootFolders,
   getScanProgress,
@@ -135,6 +136,31 @@ describe("scanRootFolderById concurrency guard", () => {
     // Unblock the first scan so it can finish and release the guard.
     resolveGetRootFolder(mockRootFolder);
     await first;
+  });
+
+  it("queues one more scan when a rescan is requested while one is running", async () => {
+    const { storage } = await import("../storage.js");
+    const disabled: RootFolder = { ...mockRootFolder, id: "rf-queue", enabled: false };
+    let resolveGetRootFolder!: (v: RootFolder) => void;
+    vi.mocked(storage.getRootFolder).mockReset();
+    vi.mocked(storage.getRootFolder)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveGetRootFolder = resolve;
+          })
+      )
+      .mockResolvedValue(disabled);
+
+    const first = scanRootFolderById("rf-queue", "user-1");
+    // Two requests while the first scan runs collapse into a single follow-up.
+    await rescanRootFolderById("rf-queue", "user-1");
+    await rescanRootFolderById("rf-queue", "user-1");
+    expect(storage.getRootFolder).toHaveBeenCalledTimes(1);
+
+    resolveGetRootFolder(disabled);
+    await first;
+    expect(storage.getRootFolder).toHaveBeenCalledTimes(2);
   });
 });
 

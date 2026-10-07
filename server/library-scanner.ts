@@ -88,6 +88,9 @@ function isIgnoredFile(filename: string): boolean {
 const progressByFolder = new Map<string, ScanProgress>();
 const unmatchedByFolder = new Map<string, UnmatchedEntry[]>();
 const activeScans = new Set<string>();
+// Root folders whose settings changed while a scan of them was running. The
+// running scan captured the old path, so they get one more scan when it ends.
+const rescanRequested = new Map<string, string>(); // rootFolderId -> userId
 
 export function getAllScanProgress(): ScanProgress[] {
   return Array.from(progressByFolder.values());
@@ -409,7 +412,26 @@ export async function scanRootFolderById(rootFolderId: string, userId: string): 
     await runScan(rootFolder, progress, userId);
   } finally {
     activeScans.delete(rootFolderId);
+    const rescanUserId = rescanRequested.get(rootFolderId);
+    if (rescanUserId !== undefined) {
+      rescanRequested.delete(rootFolderId);
+      await scanRootFolderById(rootFolderId, rescanUserId);
+    }
   }
+}
+
+/**
+ * Scan a root folder after its settings changed (added, enabled, path edited).
+ * Unlike a plain `scanRootFolderById`, a scan already running for this folder
+ * does not swallow the request: one more scan runs once it finishes, so a new
+ * path is never left unscanned.
+ */
+export async function rescanRootFolderById(rootFolderId: string, userId: string): Promise<void> {
+  if (activeScans.has(rootFolderId)) {
+    rescanRequested.set(rootFolderId, userId);
+    return;
+  }
+  await scanRootFolderById(rootFolderId, userId);
 }
 
 type RootFolderRow = NonNullable<Awaited<ReturnType<typeof storage.getRootFolder>>>;

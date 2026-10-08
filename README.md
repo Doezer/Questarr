@@ -69,7 +69,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                                                                                                                                                                                     |
 
 Can't decide what to play? Click **Pick a game** in your Library for
-[Backlog roulette](docs/BACKLOG_ROULETTE.md): draw a game, roll again, or start playing.
+[Backlog roulette](docs/BACKLOG_ROULETTE.md): draw a game, roll again, or mark it as Playing.
 
 ### Supported Indexers/Downloaders
 

@@ -201,7 +201,7 @@ export default function BacklogRoulette({
                     ) : (
                       <Gamepad2 className="h-4 w-4 mr-2" />
                     )}
-                    Start playing
+                    Mark as Playing
                   </Button>
                 )}
               </>

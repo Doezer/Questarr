@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { seedGame, uniqueId } from "./helpers";
 
 test.describe("Backlog roulette", () => {
-  test("draws owned games, rerolls, opens details and saves Start playing", async ({ page }) => {
+  test("draws owned games, rerolls, opens details and saves Mark as Playing", async ({ page }) => {
     const id = uniqueId();
     const prefix = `Roulette ${id}`;
     await page.goto("/");
@@ -45,7 +45,7 @@ test.describe("Backlog roulette", () => {
         body: JSON.stringify({ error: "Test failure" }),
       })
     );
-    await dialog.getByRole("button", { name: "Start playing" }).click();
+    await dialog.getByRole("button", { name: "Mark as Playing" }).click();
     await expect(page.getByText("Failed to update game status")).toBeVisible();
     await expect(dialog.getByTestId("roulette-title")).toHaveText(startedTitle!);
     await page.unroute(statusUrl);
@@ -54,7 +54,7 @@ test.describe("Backlog roulette", () => {
         response.url().endsWith(`/api/games/${started.id}/status`) &&
         response.request().method() === "PATCH"
     );
-    await dialog.getByRole("button", { name: "Start playing" }).click();
+    await dialog.getByRole("button", { name: "Mark as Playing" }).click();
     expect((await saved).ok()).toBe(true);
     await expect(dialog).not.toBeVisible();
     await page.goto("/playing");
@@ -83,7 +83,7 @@ test.describe("Backlog roulette", () => {
     await expect(dialog.getByTestId("roulette-title")).toHaveText(title);
     await expect(dialog.getByText("Chosen from 1 matching game.")).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Roll again" })).toBeDisabled();
-    await expect(dialog.getByRole("button", { name: "Start playing" })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Mark as Playing" })).toHaveCount(0);
     const bounds = await dialog.boundingBox();
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);

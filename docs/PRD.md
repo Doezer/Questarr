@@ -2,7 +2,7 @@
 
 **Version:** 1.0  
 **Date:** 2026-06-07  
-**Author:** Doezer
+**Author:** Doezer  
 **Audience:** Project owner, AI coding agents, open source contributors  
 **Horizon:** 6 months (Q3–Q4 2026)
 

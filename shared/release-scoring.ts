@@ -450,10 +450,18 @@ function classifyAgainstTitle(
   if (start === -1) return "mismatch";
 
   const groupWord = group ? normalizeForMatch(group) : undefined;
-  const isExtraWord = (word: string, index: number, words: readonly string[]) =>
-    word !== groupWord && !isMetadataToken(word) && !isMetadataNumber(words, index);
-  const before = releaseWords.slice(0, start).filter(isExtraWord);
-  const after = releaseWords.slice(start + gameWords.length).filter(isExtraWord);
+  const end = start + gameWords.length;
+  const extraWords = (from: number, to: number) => {
+    const extra: string[] = [];
+    for (let index = from; index < to; index++) {
+      const word = releaseWords[index] as string;
+      if (word === groupWord || isMetadataToken(word)) continue;
+      if (!isMetadataNumber(releaseWords, index)) extra.push(word);
+    }
+    return extra;
+  };
+  const before = extraWords(0, start);
+  const after = extraWords(end, releaseWords.length);
 
   if (before.length === 0 && after.length === 0) return "exact";
   // A title that already carries a number is usually followed by its official subtitle

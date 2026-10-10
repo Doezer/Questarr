@@ -83,7 +83,11 @@ test.describe("v1.5 release feature journeys", () => {
       const settingsAfterPlatform = await page.request.get("/api/settings");
       expect((await settingsAfterPlatform.json()).preferredPlatform).toBe("PS5");
     } finally {
-      await patchUserSettings(page, initialSettings);
+      await patchUserSettings(page, {
+        hideAdultContent: initialSettings.hideAdultContent,
+        hideAgeRestrictedContent: initialSettings.hideAgeRestrictedContent,
+        preferredPlatform: initialSettings.preferredPlatform,
+      });
     }
   });
 

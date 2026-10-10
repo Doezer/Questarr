@@ -194,8 +194,6 @@ const METADATA_TOKENS = new Set([
   // editions
   "edition",
   "goty",
-  "game",
-  "year",
   "deluxe",
   "complete",
   "gold",
@@ -400,6 +398,11 @@ const TITLE_MATCH_RANK: Record<TitleMatch, number> = {
   mismatch: 0,
 };
 
+/** "Game of the Year" is an edition; "game" and "year" alone can be part of another title. */
+function withGotyPhrase(normalized: string): string {
+  return normalized.replaceAll(/\bgame of the year\b/g, "goty");
+}
+
 function classifyAgainstTitle(
   releaseName: string,
   gameTitle: string,
@@ -409,8 +412,8 @@ function classifyAgainstTitle(
     group && releaseName.endsWith(`-${group}`)
       ? releaseName.slice(0, -(group.length + 1))
       : releaseName;
-  const release = normalizeForMatch(titleName);
-  const game = normalizeForMatch(gameTitle);
+  const release = withGotyPhrase(normalizeForMatch(titleName));
+  const game = withGotyPhrase(normalizeForMatch(gameTitle));
   if (!release || !game) return "mismatch";
   if (release === game) return "exact";
 

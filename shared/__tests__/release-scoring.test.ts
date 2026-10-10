@@ -52,6 +52,8 @@ describe("classifyTitleMatch", () => {
     ["The.Witcher.3-GOG", "The Witcher", "sequel"],
     ["Dishonored.Death.of.the.Outsider-CODEX", "Dishonored", "spinoff"],
     ["DOOM.Eternal-CODEX", "DOOM", "spinoff"],
+    ["Squid.Game-CODEX", "Squid", "spinoff"],
+    ["Squid.Game.of.the.Year.Edition-CODEX", "Squid", "exact"],
     ["DOOM-Eternal", "DOOM", "ambiguous"],
     ["DOOM-ETERNAL", "DOOM", "ambiguous"],
     ["Final.Fantasy-Tactics", "Final Fantasy", "ambiguous"],

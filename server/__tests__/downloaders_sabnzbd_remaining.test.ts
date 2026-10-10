@@ -267,6 +267,35 @@ describe("sabnzbd remaining regression coverage", () => {
     });
   });
 
+  it.each([
+    { requestCategory: undefined, configuredCategory: "my-games", expectedCategory: "my-games" },
+    { requestCategory: "", configuredCategory: "my-games", expectedCategory: "my-games" },
+    { requestCategory: "one-off", configuredCategory: "my-games", expectedCategory: "one-off" },
+    { requestCategory: undefined, configuredCategory: null, expectedCategory: "games" },
+    { requestCategory: undefined, configuredCategory: "", expectedCategory: "games" },
+  ])(
+    "sends SABnzbd category $expectedCategory for request=$requestCategory and configured=$configuredCategory",
+    async ({ requestCategory, configuredCategory, expectedCategory }) => {
+      safeFetchMock
+        .mockResolvedValueOnce(new Response("nzb"))
+        .mockResolvedValueOnce(Response.json({ status: true, nzo_ids: ["sab-category"] }));
+      const client = new SABnzbdClient(createDownloader({ category: configuredCategory }));
+
+      const result = await client.addDownload({
+        url: "http://indexer.local/game.nzb",
+        title: "Game",
+        category: requestCategory,
+      });
+
+      expect(result).toMatchObject({ success: true, id: "sab-category" });
+      const [url, options] = safeFetchMock.mock.calls[1];
+      const params = new URL(url).searchParams;
+      expect(params.get("mode")).toBe("addfile");
+      expect(params.get("cat")).toBe(expectedCategory);
+      expect(options.method).toBe("POST");
+    }
+  );
+
   it("passes the request password, falling back to the downloader's default archive password", async () => {
     safeFetchMock.mockResolvedValue({
       ok: true,

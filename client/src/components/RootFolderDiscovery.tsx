@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +36,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { getSocket } from "@/lib/socket";
 import type { RootFolder } from "@shared/schema";
 import { FileBrowser } from "./FileBrowser";
 
@@ -44,7 +45,7 @@ interface ScanProgress {
   rootFolderPath: string;
   startedAt: string;
   finishedAt?: string;
-  status: "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed";
   totalCandidates: number;
   processedCandidates: number;
   matched: number;
@@ -74,6 +75,9 @@ function formatBytes(bytes: number | null): string {
   return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+// How long to keep polling scan status after starting a scan, until it shows up.
+const SCAN_KICKOFF_GRACE_MS = 5000;
+
 export function RootFolderDiscovery() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -87,19 +91,80 @@ export function RootFolderDiscovery() {
   });
 
   const anyScanning = (progress?: ScanProgress[]) =>
-    (progress ?? []).some((p) => p.status === "running");
+    (progress ?? []).some((p) => p.status === "running" || p.status === "queued");
 
+  // A scan is started fire-and-forget, so the first status fetch after starting
+  // one can come back before the server has registered it. Keep polling for a
+  // short grace period after each kickoff so that first "running" is not missed.
+  const scanKickoffAt = useRef(0);
   const { data: scanProgress = [] } = useQuery<ScanProgress[]>({
     queryKey: ["/api/library/scan/status"],
-    refetchInterval: (query) => (anyScanning(query.state.data) ? 1500 : false),
+    refetchInterval: (query) =>
+      anyScanning(query.state.data) || Date.now() - scanKickoffAt.current < SCAN_KICKOFF_GRACE_MS
+        ? 1500
+        : false,
   });
+
+  // The server pushes every progress change, so a scan that starts after the
+  // kickoff grace period still shows up and restarts polling.
+  useEffect(() => {
+    const socket = getSocket();
+    const handleScanProgress = (progress: ScanProgress) => {
+      queryClient.setQueryData<ScanProgress[]>(["/api/library/scan/status"], (current = []) =>
+        current.some((p) => p.rootFolderId === progress.rootFolderId)
+          ? current.map((p) => (p.rootFolderId === progress.rootFolderId ? progress : p))
+          : [...current, progress]
+      );
+    };
+    socket.on("library-scan-progress", handleScanProgress);
+    return () => {
+      socket.off("library-scan-progress", handleScanProgress);
+    };
+  }, [queryClient]);
 
   const { data: unmatched = [] } = useQuery<UnmatchedEntry[]>({
     queryKey: ["/api/library/scan/unmatched"],
     refetchInterval: anyScanning(scanProgress) ? 1500 : false,
   });
 
+  // The unmatched list only polls while a scan runs, so its last poll can land
+  // before the final folders are queued. Refetch whenever a scan's counts or
+  // status change, which also catches the running → completed transition.
+  const scanSnapshot = useMemo(
+    () =>
+      scanProgress
+        .map(
+          (p) =>
+            `${p.rootFolderId}:${p.startedAt}:${p.finishedAt ?? ""}:${p.status}:${p.unmatched}:${p.matched}`
+        )
+        .join("|"),
+    [scanProgress]
+  );
+  useEffect(() => {
+    if (!scanSnapshot) return;
+    queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
+  }, [scanSnapshot, queryClient]);
+
+  const previousGameProgress = useRef(new Map<string, ScanProgress>());
+  useEffect(() => {
+    const previous = previousGameProgress.current;
+    const refreshGames = scanProgress.some((progress) => {
+      const last = previous.get(progress.rootFolderId);
+      const sameScan = last?.startedAt === progress.startedAt;
+      const gainedMatch = progress.matched > (sameScan ? last.matched : 0);
+      // A failed scan can still have persisted game changes before failing.
+      const finished = progress.status === "completed" || progress.status === "failed";
+      const justFinished =
+        finished &&
+        (!sameScan || last.status !== progress.status || last.finishedAt !== progress.finishedAt);
+      return gainedMatch || justFinished;
+    });
+    previousGameProgress.current = new Map(scanProgress.map((p) => [p.rootFolderId, p]));
+    if (refreshGames) queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+  }, [scanProgress, queryClient]);
+
   const invalidateAll = () => {
+    scanKickoffAt.current = Date.now();
     queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] });
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/status"] });
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
@@ -113,11 +178,11 @@ export function RootFolderDiscovery() {
       });
     },
     onSuccess: () => {
-      toast({ title: "Root Folder Added" });
+      toast({ title: "Root Folder Added", description: "Scanning it for games now." });
       setIsDialogOpen(false);
       setNewPath("");
       setNewName("");
-      queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] });
+      invalidateAll();
     },
     onError: (error: Error) => {
       toast({ title: "Could Not Add Folder", description: error.message, variant: "destructive" });
@@ -128,7 +193,8 @@ export function RootFolderDiscovery() {
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
       await apiRequest("PATCH", `/api/root-folders/${id}`, { enabled });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] }),
+    // Enabling a folder starts a scan server-side, so refresh progress too.
+    onSuccess: () => invalidateAll(),
   });
 
   const allowDeleteMutation = useMutation({
@@ -211,7 +277,7 @@ export function RootFolderDiscovery() {
             <CardTitle>Discover Existing Games</CardTitle>
             <CardDescription>
               Scan extra folders on disk for games you already own but haven&apos;t imported yet —
-              separate from the Library Root above.
+              separate from the Library Root set in Import settings.
             </CardDescription>
           </div>
           <div className="flex gap-2">
@@ -370,7 +436,11 @@ export function RootFolderDiscovery() {
                         variant="ghost"
                         size="icon"
                         aria-label={`Scan ${folder.path}`}
-                        disabled={!folder.enabled || progress?.status === "running"}
+                        disabled={
+                          !folder.enabled ||
+                          progress?.status === "running" ||
+                          progress?.status === "queued"
+                        }
                         onClick={() => scanMutation.mutate(folder.id)}
                       >
                         <Search className="h-4 w-4" />
@@ -445,41 +515,121 @@ export function RootFolderDiscovery() {
               Needs Review ({unmatched.length})
             </p>
             {unmatched.map((entry) => (
-              <div
+              <UnmatchedEntryCard
                 key={`${entry.rootFolderId}:${entry.folderName}`}
-                className="rounded-md border p-3 space-y-2"
-              >
-                <p className="text-sm font-medium">{entry.folderName}</p>
-                <p className="text-xs text-muted-foreground font-mono">{entry.absolutePath}</p>
-                {entry.candidates.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No IGDB matches found.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {entry.candidates.map((c) => (
-                      <Button
-                        key={c.igdbId}
-                        variant="outline"
-                        size="sm"
-                        disabled={matchMutation.isPending}
-                        onClick={() =>
-                          matchMutation.mutate({
-                            rootFolderId: entry.rootFolderId,
-                            folderName: entry.folderName,
-                            igdbId: c.igdbId,
-                          })
-                        }
-                      >
-                        {c.name}
-                        {c.releaseYear ? ` (${c.releaseYear})` : ""}
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                entry={entry}
+                matchPending={matchMutation.isPending}
+                onMatch={(igdbId) =>
+                  matchMutation.mutate({
+                    rootFolderId: entry.rootFolderId,
+                    folderName: entry.folderName,
+                    igdbId,
+                  })
+                }
+              />
             ))}
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+interface UnmatchedEntryCardProps {
+  entry: UnmatchedEntry;
+  matchPending: boolean;
+  onMatch: (igdbId: number) => void;
+}
+
+/**
+ * One folder awaiting review: pick one of the scan's IGDB guesses, or search
+ * IGDB under another name when none of them is the right game.
+ */
+function UnmatchedEntryCard({ entry, matchPending, onMatch }: UnmatchedEntryCardProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const searchId = useId();
+  const [query, setQuery] = useState("");
+
+  const searchMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiRequest("POST", "/api/library/scan/unmatched/search", {
+        rootFolderId: entry.rootFolderId,
+        folderName: entry.folderName,
+        query: name,
+      });
+      return (await res.json()) as UnmatchedEntry["candidates"];
+    },
+    onSuccess: (candidates) => {
+      queryClient.setQueryData<UnmatchedEntry[]>(["/api/library/scan/unmatched"], (current = []) =>
+        current.map((e) =>
+          e.rootFolderId === entry.rootFolderId && e.folderName === entry.folderName
+            ? { ...e, candidates }
+            : e
+        )
+      );
+    },
+    onError: (error: Error) => {
+      toast({ title: "Search Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = query.trim();
+    if (name) searchMutation.mutate(name);
+  };
+
+  return (
+    <div className="rounded-md border p-3 space-y-2">
+      <p className="text-sm font-medium">{entry.folderName}</p>
+      <p className="text-xs text-muted-foreground font-mono">{entry.absolutePath}</p>
+      {entry.candidates.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {searchMutation.isSuccess ? "No IGDB matches for that name." : "No IGDB matches found."}
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {entry.candidates.map((c) => (
+            <Button
+              key={c.igdbId}
+              variant="outline"
+              size="sm"
+              disabled={matchPending}
+              onClick={() => onMatch(c.igdbId)}
+            >
+              {c.name}
+              {c.releaseYear ? ` (${c.releaseYear})` : ""}
+            </Button>
+          ))}
+        </div>
+      )}
+      <form className="flex gap-2" onSubmit={handleSearch}>
+        <Label htmlFor={searchId} className="sr-only">
+          Search IGDB for {entry.folderName}
+        </Label>
+        <Input
+          id={searchId}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Not listed? Search IGDB by name"
+          className="h-9"
+        />
+        <Button
+          type="submit"
+          variant="secondary"
+          size="sm"
+          className="h-9 shrink-0"
+          disabled={!query.trim() || searchMutation.isPending}
+        >
+          {searchMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Search className="h-4 w-4" />
+          )}
+          <span className="ml-1">Search</span>
+        </Button>
+      </form>
+    </div>
   );
 }

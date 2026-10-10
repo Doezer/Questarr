@@ -45,6 +45,7 @@ import { setAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game
 import { useDownloadSummary } from "@/hooks/use-download-summary";
 import GameFilterPills from "./GameFilterPills";
 import PendingImportsCard from "./PendingImportsCard";
+import BacklogRoulette from "./BacklogRoulette";
 import { LIBRARY_SORT_OPTIONS, sortLibraryGames, type LibrarySortOption } from "@/lib/game-sort";
 
 function LabeledSwitch({
@@ -68,6 +69,7 @@ function LabeledSwitch({
   );
 }
 
+/** Display the user's collection with search, filters and status actions. */
 export default function Library() {
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -333,6 +335,11 @@ export default function Library() {
     [setSortBy]
   );
 
+  /** Persist the roulette choice using the Library's existing status feedback. */
+  async function markRouletteGameAsPlaying(gameId: string) {
+    await statusMutation.mutateAsync({ gameId, status: "playing" });
+  }
+
   return (
     <div className="h-full overflow-auto px-3 py-4 sm:p-6" data-testid="layout-dashboard">
       <div className="space-y-3">
@@ -431,6 +438,11 @@ export default function Library() {
           }}
           actions={
             <>
+              <BacklogRoulette
+                games={filteredGames}
+                loading={isFetching || searchQuery !== debouncedSearchQuery}
+                onStartPlaying={markRouletteGameAsPlaying}
+              />
               <div className="flex sm:hidden items-center gap-2">
                 <GameFilterPills
                   showSearchResultsOnly={showSearchResultsOnly}

@@ -34,7 +34,8 @@ export interface ScanProgress {
   rootFolderPath: string;
   startedAt: string;
   finishedAt?: string;
-  status: "running" | "completed" | "failed";
+  // "queued": waiting behind another scan in the same batch or a requested rescan.
+  status: "queued" | "running" | "completed" | "failed";
   totalCandidates: number;
   processedCandidates: number;
   matched: number;
@@ -88,6 +89,41 @@ function isIgnoredFile(filename: string): boolean {
 const progressByFolder = new Map<string, ScanProgress>();
 const unmatchedByFolder = new Map<string, UnmatchedEntry[]>();
 const activeScans = new Set<string>();
+// Root folders whose settings changed while a scan of them was running. The
+// running scan captured the old path, so they get one more scan when it ends.
+const rescanRequested = new Map<string, string>(); // rootFolderId -> userId
+// What a "queued" entry replaced, restored if the queued scan never starts.
+const progressBeforeQueued = new Map<string, ScanProgress | undefined>();
+
+/**
+ * Show a folder as waiting for its scan, so scan status never looks idle
+ * between two folders of a batch or before a requested rescan starts.
+ */
+function markQueued(rootFolderId: string, rootFolderPath: string): void {
+  const previous = progressByFolder.get(rootFolderId);
+  if (previous?.status !== "queued") progressBeforeQueued.set(rootFolderId, previous);
+  const queued: ScanProgress = {
+    rootFolderId,
+    rootFolderPath,
+    startedAt: new Date().toISOString(),
+    status: "queued",
+    totalCandidates: 0,
+    processedCandidates: 0,
+    matched: 0,
+    unmatched: 0,
+    errors: 0,
+  };
+  progressByFolder.set(rootFolderId, queued);
+  emitProgress(queued);
+}
+
+/** Put back what a "queued" entry replaced when its scan did not run. */
+function clearQueued(rootFolderId: string): void {
+  if (progressByFolder.get(rootFolderId)?.status !== "queued") return;
+  const previous = progressBeforeQueued.get(rootFolderId);
+  if (previous) progressByFolder.set(rootFolderId, previous);
+  else progressByFolder.delete(rootFolderId);
+}
 
 export function getAllScanProgress(): ScanProgress[] {
   return Array.from(progressByFolder.values());
@@ -316,6 +352,31 @@ async function assignFilesToGame(
 // ---------- Public API ----------
 
 /** Force-assign an unmatched folder to a specific IGDB game (user override). */
+/**
+ * Search IGDB with a name the user typed for a folder awaiting review, when
+ * none of the scan's candidates is right. The results replace the entry's
+ * candidates shown in the list; every id offered so far stays accepted, so a
+ * second tab still showing an earlier list can match from it.
+ */
+export async function searchUnmatchedFolder(
+  rootFolderId: string,
+  folderName: string,
+  query: string
+): Promise<UnmatchedEntry["candidates"]> {
+  const entry = getUnmatchedEntry(rootFolderId, folderName);
+  if (!entry) throw new Error("No matching unmatched entry for this root folder");
+  const results = await igdbClient.searchGames(query, 5);
+  // A rescan may have rebuilt the review list while IGDB answered; candidates
+  // stored on the old entry would never be offered for matching.
+  if (getUnmatchedEntry(rootFolderId, folderName) !== entry) {
+    throw new Error("No matching unmatched entry for this root folder");
+  }
+  const accepted = offeredIds(entry);
+  entry.candidates = toUnmatchedCandidates(results);
+  for (const c of entry.candidates) accepted.add(c.igdbId);
+  return entry.candidates;
+}
+
 export async function matchUnmatchedFolder(
   rootFolderId: string,
   folderName: string,
@@ -339,8 +400,14 @@ export async function matchUnmatchedFolder(
   const isFile = stat.isFile();
   const standaloneSize = isFile ? stat.size : 0;
 
-  const candidates = await igdbClient.searchGames(folderName, 10);
-  const igdb = candidates.find((c) => c.id === igdbId);
+  // Only accept one of the candidates the scan itself offered for this folder,
+  // then fetch it by id. Re-searching IGDB here with the raw folder name (the
+  // scan searches with the cleaned release name) returned a different list for
+  // names like "Absolum v1.01 [CUSA53342] [EUR]", so every pick was rejected.
+  if (!offeredIds(entry).has(igdbId)) {
+    throw new Error("Selected IGDB game not found in top candidates");
+  }
+  const igdb = await igdbClient.getGameById(igdbId);
   if (!igdb) throw new Error("Selected IGDB game not found in top candidates");
 
   let game = await storage.getGameByIgdbId(igdbId);
@@ -397,13 +464,42 @@ export async function scanRootFolderById(rootFolderId: string, userId: string): 
       errors: 0,
     };
     progressByFolder.set(rootFolderId, progress);
+    progressBeforeQueued.delete(rootFolderId);
     unmatchedByFolder.set(rootFolderId, []);
     emitProgress(progress);
 
     await runScan(rootFolder, progress, userId);
   } finally {
     activeScans.delete(rootFolderId);
+    // A missing or disabled folder never replaces its "queued" entry.
+    clearQueued(rootFolderId);
+    const rescanUserId = rescanRequested.get(rootFolderId);
+    if (rescanUserId !== undefined) {
+      rescanRequested.delete(rootFolderId);
+      const finished = progressByFolder.get(rootFolderId);
+      if (finished) markQueued(rootFolderId, finished.rootFolderPath);
+      // Never let the follow-up scan's failure replace this scan's own error.
+      try {
+        await scanRootFolderById(rootFolderId, rescanUserId);
+      } catch (err) {
+        routesLogger.error({ err, rootFolderId }, "deferred root folder rescan failed");
+      }
+    }
   }
+}
+
+/**
+ * Scan a root folder after its settings changed (added, enabled, path edited).
+ * Unlike a plain `scanRootFolderById`, a scan already running for this folder
+ * does not swallow the request: one more scan runs once it finishes, so a new
+ * path is never left unscanned.
+ */
+export async function rescanRootFolderById(rootFolderId: string, userId: string): Promise<void> {
+  if (activeScans.has(rootFolderId)) {
+    rescanRequested.set(rootFolderId, userId);
+    return;
+  }
+  await scanRootFolderById(rootFolderId, userId);
 }
 
 type RootFolderRow = NonNullable<Awaited<ReturnType<typeof storage.getRootFolder>>>;
@@ -413,8 +509,13 @@ async function recordMatchedCandidate(
   cand: FolderCandidate,
   best: IGDBGame,
   userId: string,
-  files: Array<{ absolutePath: string; size: number }>
+  files: Array<{ absolutePath: string; size: number }>,
+  progress: ScanProgress
 ): Promise<void> {
+  // Flag before the first write: any of the writes below can succeed before a
+  // later one throws, and clients must still refresh. An extra refresh when
+  // nothing ended up written is harmless.
+  gamesChangedByScan.add(progress);
   let game = await storage.getGameByIgdbId(best.id);
   if (!game) {
     game = await storage.addGame(igdbToInsertGame(best, userId));
@@ -432,6 +533,29 @@ async function recordMatchedCandidate(
   await assignFilesToGame(game.id, files);
 }
 
+// Every IGDB id offered for an entry (scan candidates plus each name search),
+// kept off the entry itself so the review list API does not expose it.
+const offeredIdsByEntry = new WeakMap<UnmatchedEntry, Set<number>>();
+
+function offeredIds(entry: UnmatchedEntry): Set<number> {
+  let ids = offeredIdsByEntry.get(entry);
+  if (!ids) {
+    ids = new Set(entry.candidates.map((c) => c.igdbId));
+    offeredIdsByEntry.set(entry, ids);
+  }
+  return ids;
+}
+
+function toUnmatchedCandidates(igdbCandidates: IGDBGame[]): UnmatchedEntry["candidates"] {
+  return igdbCandidates.slice(0, 5).map((c) => ({
+    igdbId: c.id,
+    name: c.name,
+    releaseYear: c.first_release_date
+      ? new Date(c.first_release_date * 1000).getUTCFullYear()
+      : null,
+  }));
+}
+
 /** Queue a weakly matched (or unmatched) candidate for manual review. */
 function recordUnmatchedCandidate(
   rootFolder: RootFolderRow,
@@ -445,18 +569,16 @@ function recordUnmatchedCandidate(
     rootFolderPath: rootFolder.path,
     folderName: cand.folderName,
     absolutePath: cand.absolutePath,
-    candidates: igdbCandidates.slice(0, 5).map((c) => ({
-      igdbId: c.id,
-      name: c.name,
-      releaseYear: c.first_release_date
-        ? new Date(c.first_release_date * 1000).getUTCFullYear()
-        : null,
-    })),
+    candidates: toUnmatchedCandidates(igdbCandidates),
   });
   unmatchedByFolder.set(rootFolderId, list);
 }
 
 const AUTO_MATCH_THRESHOLD = 0.85;
+
+// Scans that wrote at least one game row, whether or not the candidate then
+// finished matching.
+const gamesChangedByScan = new WeakSet<ScanProgress>();
 
 /** Classify and (auto-)resolve a single scan candidate, updating `progress` in place. */
 async function processCandidate(
@@ -473,7 +595,7 @@ async function processCandidate(
   const { best, candidates: igdbCandidates, score } = await bestIgdbMatch(cand.folderName);
 
   if (best && score >= AUTO_MATCH_THRESHOLD) {
-    await recordMatchedCandidate(cand, best, userId, files);
+    await recordMatchedCandidate(cand, best, userId, files, progress);
     progress.matched += 1;
   } else {
     recordUnmatchedCandidate(rootFolder, cand, igdbCandidates);
@@ -505,11 +627,13 @@ async function runScan(
       emitProgress(progress);
     }
 
+    // Record the scan time first: the next folder of a batch is already
+    // "queued", so nothing waits on I/O between this completion and its start.
+    await storage.touchRootFolderScanned(rootFolderId);
     progress.status = "completed";
     progress.finishedAt = new Date().toISOString();
     progress.currentCandidate = undefined;
     emitProgress(progress);
-    await storage.touchRootFolderScanned(rootFolderId);
   } catch (err) {
     progress.status = "failed";
     progress.finishedAt = new Date().toISOString();
@@ -517,12 +641,44 @@ async function runScan(
     emitProgress(progress);
     routesLogger.error({ err, rootFolderId }, "library scan failed");
   }
+  // Auto-matched games were added or updated, even if the scan failed later.
+  // Tell every open client to refresh its games list, since only the Discover
+  // tab watches scan progress.
+  if (gamesChangedByScan.has(progress)) notifyUser("gameUpdated", rootFolderId);
+}
+
+/**
+ * Scan every enabled root folder after a settings change (post-processing
+ * switched on). Uses `rescanRootFolderById`, so a folder already being scanned
+ * gets one more pass instead of being skipped.
+ */
+export async function rescanAllEnabledRootFolders(userId: string): Promise<void> {
+  const folders = await storage.getEnabledRootFolders();
+  for (const folder of folders) {
+    if (!activeScans.has(folder.id)) markQueued(folder.id, folder.path);
+  }
+  for (const folder of folders) {
+    // One folder failing (e.g. deleted mid-batch) must not stop the rest.
+    try {
+      await rescanRootFolderById(folder.id, userId);
+    } catch (err) {
+      routesLogger.error({ err, rootFolderId: folder.id }, "root folder scan failed");
+    }
+  }
 }
 
 export async function scanAllEnabledRootFolders(userId: string): Promise<void> {
   const folders = await storage.getEnabledRootFolders();
   for (const folder of folders) {
-    await scanRootFolderById(folder.id, userId);
+    if (!activeScans.has(folder.id)) markQueued(folder.id, folder.path);
+  }
+  for (const folder of folders) {
+    // One folder failing (e.g. deleted mid-batch) must not stop the rest.
+    try {
+      await scanRootFolderById(folder.id, userId);
+    } catch (err) {
+      routesLogger.error({ err, rootFolderId: folder.id }, "root folder scan failed");
+    }
   }
 }
 

@@ -83,7 +83,11 @@ test.describe("v1.5 release feature journeys", () => {
       const settingsAfterPlatform = await page.request.get("/api/settings");
       expect((await settingsAfterPlatform.json()).preferredPlatform).toBe("PS5");
     } finally {
-      await patchUserSettings(page, initialSettings);
+      await patchUserSettings(page, {
+        hideAdultContent: initialSettings.hideAdultContent,
+        hideAgeRestrictedContent: initialSettings.hideAgeRestrictedContent,
+        preferredPlatform: initialSettings.preferredPlatform,
+      });
     }
   });
 
@@ -164,12 +168,7 @@ test.describe("v1.5 release feature journeys", () => {
       await route.fulfill({ status: 202, json: { accepted: true, rootFolderId: rootFolder.id } });
     });
 
-    await page.goto("/settings");
-    await page.getByRole("tab", { name: "Import" }).click();
-    await page
-      .getByRole("tabpanel", { name: "Import" })
-      .getByRole("tab", { name: "Discover" })
-      .click();
+    await page.goto("/library-import");
     await page.getByRole("button", { name: "Add Folder" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Path").fill(rootFolder.path);

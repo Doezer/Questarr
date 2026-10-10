@@ -119,6 +119,7 @@ vi.mock("../middleware.js", () => ({
   sanitizeRootFolderId: [],
   sanitizeLibraryScanData: [],
   sanitizeUnmatchedMatchData: [],
+  sanitizeUnmatchedSearchData: [],
   sanitizeJournalEntryId: [],
   sanitizeMilestoneId: [],
   sanitizeScreenshotId: [],

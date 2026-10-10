@@ -32,6 +32,7 @@ import {
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isReleasePossiblyNewer } from "../shared/version-utils.js";
 import { recordVersionFromCompletedDownload } from "./game-version.js";
+import { rssService } from "./rss.js";
 import {
   releaseMatchesGame,
   normalizeTitle,
@@ -60,6 +61,7 @@ const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interval gates actual sync)
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 const CLIENT_VERSION_LOG_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const RSS_REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 // Every status where the user already has the game, so update/pack searches
 // keep running while it's being played or shelved too.
 const OWNED_STATUSES = new Set<string>([...ACQUIRED_GAME_STATUSES, "downloading"]);
@@ -386,6 +388,7 @@ export function startCronJobs() {
       downloadStatus: `every ${DOWNLOAD_CHECK_INTERVAL_MS / 1000} seconds`,
       autoSearch: `every ${AUTO_SEARCH_CHECK_INTERVAL_MS / 1000 / 60} minutes`,
       steamSync: `every ${STEAM_SYNC_CHECK_INTERVAL_MS / 1000 / 60} minutes (per-user interval gated)`,
+      rssFeeds: `every ${RSS_REFRESH_INTERVAL_MS / 1000 / 60} minutes`,
     },
     "Cron job intervals configured"
   );
@@ -399,6 +402,7 @@ export function startCronJobs() {
     checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
     checkSteamWishlist().catch((err) => igdbLogger.error({ err }, "Error in checkSteamWishlist"));
     logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
+    rssService.refreshFeeds().catch((err) => igdbLogger.error({ err }, "Error in refreshFeeds"));
   }, 10000);
 
   // Schedule periodic checks
@@ -425,6 +429,10 @@ export function startCronJobs() {
   setInterval(() => {
     logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
   }, CLIENT_VERSION_LOG_INTERVAL_MS);
+
+  setInterval(() => {
+    rssService.refreshFeeds().catch((err) => igdbLogger.error({ err }, "Error in refreshFeeds"));
+  }, RSS_REFRESH_INTERVAL_MS);
 
   const IMPORT_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
   const runImportTaskCleanup = () => {

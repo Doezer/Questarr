@@ -245,4 +245,51 @@ describe("RssService", () => {
     expect(igdbClient.searchGames).toHaveBeenCalledTimes(1);
     expect(storage.addRssFeedItem).toHaveBeenCalledTimes(2);
   });
+
+  it("joins a refresh that is already running instead of starting another", async () => {
+    let release: (feeds: never[]) => void = () => {};
+    vi.mocked(storage.getAllRssFeeds).mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+
+    const first = rssService.refreshFeeds();
+    const second = rssService.refreshFeeds();
+    release([]);
+    await Promise.all([first, second]);
+
+    expect(storage.getAllRssFeeds).toHaveBeenCalledTimes(1);
+
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValueOnce([]);
+    await rssService.refreshFeeds();
+    expect(storage.getAllRssFeeds).toHaveBeenCalledTimes(2);
+  });
+
+  it("runs a single-feed refresh only after a full refresh already running", async () => {
+    let release: (feeds: never[]) => void = () => {};
+    vi.mocked(storage.getAllRssFeeds).mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+    vi.mocked(storage.updateRssFeed).mockResolvedValue(
+      undefined as unknown as import("../../shared/schema").RssFeed
+    );
+    const feed = {
+      id: "feed-new",
+      name: "New Feed",
+      url: "http://test.com/new",
+      enabled: true,
+    } as import("../../shared/schema").RssFeed;
+
+    const all = rssService.refreshFeeds();
+    const single = rssService.refreshFeed(feed);
+    await Promise.resolve();
+    expect(mocks.safeFetch).not.toHaveBeenCalled();
+
+    release([]);
+    await Promise.all([all, single]);
+    expect(mocks.safeFetch).toHaveBeenCalledTimes(1);
+  });
 });

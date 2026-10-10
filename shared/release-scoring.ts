@@ -655,6 +655,8 @@ const SIZE_MISMATCH_RATIO = 0.5;
 const RISKY_FILE_PATTERNS = [
   /\.ps1$/i, // PS1 before release metadata is a platform marker
   /\.ps1[\])]/i, // but an enclosed "[setup.ps1]" is a file
+  // and so is a payload-named file anywhere, for the extensions that are ambiguous elsewhere
+  /\b(setup|install|installer|launcher|run|start|crack|keygen)\.(ps1|sh|com)\b/i,
   // .com is left out: "[www.site.com]" indexer tags and site names are far more common than
   // COM payloads, and the rule is locked
   /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk|sh)(-\w+)?$/i, // with or without a -GROUP suffix

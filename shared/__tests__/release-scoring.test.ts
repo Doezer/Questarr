@@ -290,6 +290,9 @@ describe("evaluateRelease built-in rules", () => {
       "Dishonored.(setup.js)-CODEX",
       "Dishonored.sh-CODEX",
       "Dishonored.[setup.ps1]-CODEX",
+      "Dishonored.setup.ps1-CODEX",
+      "Dishonored.setup.ps1.MULTi8-CODEX",
+      "Dishonored.install.sh.MULTi8-CODEX",
     ]) {
       expect(evaluateRelease(torrent(tagged), ctx).rejections).toContainEqual({
         code: "risky_file",

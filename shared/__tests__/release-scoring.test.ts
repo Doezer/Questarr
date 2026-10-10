@@ -55,6 +55,7 @@ describe("classifyTitleMatch", () => {
     ["Squid.Game-CODEX", "Squid", "spinoff"],
     ["Sons.of.the.Forest-CODEX", "The Forest", "spinoff"],
     ["Final.Fantasy-CODEX", "Fantasy", "spinoff"],
+    ["Assassin.s.Creed.II-CODEX", "Assassin's Creed II", "exact"],
     ["Pac-Man.256-CODEX", "Pac-Man", "spinoff"],
     ["Pac-Man.2014-CODEX", "Pac-Man", "exact"],
     ["Pac-Man.v1.0.5-CODEX", "Pac-Man", "exact"],
@@ -286,6 +287,7 @@ describe("evaluateRelease built-in rules", () => {
       "Dishonored.[setup.exe]-CODEX",
       "Dishonored.(setup.js)-CODEX",
       "Dishonored.sh-CODEX",
+      "Dishonored.[setup.ps1]-CODEX",
     ]) {
       expect(evaluateRelease(torrent(tagged), ctx).rejections).toContainEqual({
         code: "risky_file",

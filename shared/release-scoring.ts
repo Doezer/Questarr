@@ -383,7 +383,7 @@ function isMetadataToken(token: string): boolean {
 /**
  * Lowercase words in any script, without accents ("Pokémon" -> "pokemon"; "英雄伝説" stays a
  * word), plus two fixes for how release names spell titles: apostrophes are dropped
- * ("Tom Clancy's" -> "tom clancys") and runs of single letters are joined
+ * ("Tom Clancy's" -> "tom clancys", as is "Assassin.s") and runs of single letters are joined
  * ("S.T.A.L.K.E.R." -> "stalker").
  */
 function normalizeForMatch(title: string): string {
@@ -391,6 +391,11 @@ function normalizeForMatch(title: string): string {
   const joined: string[] = [];
   let letters = "";
   for (const word of words) {
+    // "Assassin.s.Creed": an apostrophe the indexer turned into a separator
+    if (word === "s" && !letters && joined.length > 0) {
+      joined[joined.length - 1] += "s";
+      continue;
+    }
     if (/^[a-z]$/.test(word)) {
       letters += word;
       continue;
@@ -638,6 +643,7 @@ const SIZE_MISMATCH_RATIO = 0.5;
 // An executable or script as the release itself, or hidden behind a media extension
 const RISKY_FILE_PATTERNS = [
   /\.ps1$/i, // PS1 before release metadata is a platform marker
+  /\.ps1[\])]/i, // but an enclosed "[setup.ps1]" is a file
   // .com is left out: "[www.site.com]" indexer tags and site names are far more common than
   // COM payloads, and the rule is locked
   /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk|sh)(-\w+)?$/i, // with or without a -GROUP suffix

@@ -142,7 +142,52 @@ Transmission, rTorrent, sabnzbd, nzbget).
     `credentials_encryption_key`, then auto-generated (32 random bytes) and
     persisted (`server/credential-crypto.ts:getCredentialsEncryptionKey`).
     Losing this key (e.g. wiping `system_config` without also setting the
-    env var) makes previously encrypted rows undecryptable.
+    env var) makes previously encrypted rows undecryptable. This includes
+    the saved Prowlarr API key (`prowlarr.apiKey`, see below). After a key
+    loss, re-enter the Prowlarr API key in the sync dialog.
+- **Saved Prowlarr sync settings:** after a successful
+  `POST /api/indexers/prowlarr/sync`, Questarr saves the dialog values in
+  `system_config` so the next sync starts prefilled. `prowlarr.url` holds
+  the Prowlarr URL. `prowlarr.apiKey` holds the API key, encrypted as
+  `enc:v1:` with the same credentials encryption key as indexer rows.
+  `prowlarr.syncDefaults` holds the insecure-LAN opt-in, priority, and
+  categories. A failure to save these values is logged and does not fail
+  the sync.
+  - `GET /api/indexers/prowlarr/settings` returns the saved URL and options,
+    but returns `"********"` in place of the API key. The stored key never
+    leaves the server.
+  - When the sync request sends `"********"` as `apiKey`, the route swaps in
+    the saved key only if `url` exactly matches the saved `prowlarr.url`.
+    Otherwise it returns `400` with
+    `"Enter the Prowlarr API key again for this URL"`. This prevents the
+    saved key from being sent to a different host.
+
+  ```json
+  POST /api/indexers/prowlarr/sync
+  {
+    "url": "http://prowlarr.lan:9696",
+    "apiKey": "********",
+    "allowInsecureLan": true
+  }
+  ```
+- **Insecure-LAN opt-in (`allowInsecureLan`):** Questarr sends an indexer's
+  API key only to `https://` URLs, or to `http://` URLs when the indexer has
+  the per-indexer "Allow insecure LAN connection" opt-in. Over plain HTTP
+  without the opt-in, the request goes out without the key.
+  - The Prowlarr sync dialog can set the opt-in in bulk for every synced
+    indexer. The checkbox is unticked by default, and Questarr never infers
+    it from the URL scheme. When the request omits `allowInsecureLan`,
+    existing indexers keep their current value.
+  - When an indexer answers `401` or `403` and the key was withheld for this
+    reason, the error message says so and tells you to enable "Allow
+    insecure LAN connection" on the indexer or switch it to HTTPS.
+  - The indexer and downloader `/test` endpoints honor `allowInsecureLan`,
+    so a connection test behaves the same way as real searches and
+    downloads.
+  - Migration `0033` adds the `allow_insecure_lan` column with a default of
+    `0`. Indexers that existed before the upgrade, including ones added by
+    hand, stay opted out. Enable the opt-in on each indexer, or re-sync from
+    Prowlarr with the checkbox ticked.
 - **In transit to the indexer/download client:** the storage layer decrypts
   transparently, so `server/downloaders/*.ts` and `server/search.ts` receive
   plaintext exactly as before — HTTP Basic Auth (base64, not encryption) for

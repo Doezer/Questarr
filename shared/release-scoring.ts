@@ -436,19 +436,16 @@ function classifyAgainstTitle(
 }
 
 /**
- * The release group, only when the suffix really looks like one. In a name like DOOM-Eternal the
- * hyphen is the only separator, so the last word is part of the title unless it reads as a group
- * (all caps or digits like CODEX or Razor1911, or a known repacker).
+ * A bracketed prefix or a known group suffix identifies the release group. Separators in the
+ * title, uppercase letters and digits alone cannot distinguish a group from a subtitle.
+ * Unknown suffixes stay in the title rather than hiding a possible spinoff.
  */
 function releaseGroup(releaseName: string): string | undefined {
   const { group } = parseReleaseMetadata(releaseName);
   if (!group) return undefined;
   const dash = releaseName.lastIndexOf("-");
   if (dash === -1) return group; // a [GROUP] prefix
-  const sceneLike = /[ ._]/.test(releaseName.slice(0, dash).trim());
-  const looksLikeGroup =
-    /^[A-Z0-9]+$/.test(group) || /\d/.test(group) || NON_SCENE_GROUPS.has(group.toLowerCase());
-  return sceneLike || looksLikeGroup ? group : undefined;
+  return KNOWN_RELEASE_GROUPS.has(group.toLowerCase()) ? group : undefined;
 }
 
 /**
@@ -529,19 +526,58 @@ const NON_GAME_MEDIA_PATTERNS = [
   /\b(mkv|avi|mp4|flac|mp3)\b/i, // video and music files
   /\b(epub|mobi|pdf|cbr|cbz)\b/i, // books and comics
   /\bs\d{2}e\d{2}\b/i, // TV episodes
-  // soundtracks and artbooks on their own, not bundled ("Deluxe.Edition.incl.OST")
-  /(?<!\b(?:incl|including|with|plus)[ ._-]?)\b(ost|soundtrack|artbook)\b/i,
 ];
 const REPACKERS = ["fitgirl", "dodi", "elamigos", "kaos", "xatab", "tinyrepacks"];
 const REPACK_PATTERN = new RegExp(String.raw`\b(repack|${REPACKERS.join("|")})\b`, "i");
 // Suffixes that parseReleaseMetadata reads as a group but that name a store or a repacker
 const NON_SCENE_GROUPS = new Set(["gog", "steam", "epic", ...REPACKERS]);
+const KNOWN_RELEASE_GROUPS = new Set([
+  ...NON_SCENE_GROUPS,
+  "masquerade",
+  "empress",
+  "codex",
+  "rune",
+  "flt",
+  "tenoke",
+  "skidrow",
+  "reloaded",
+  "plaza",
+  "razor1911",
+  "cpy",
+  "hoodlum",
+  "darksiders",
+  "venom",
+  "goldberg",
+  "tinyiso",
+  "ali213",
+  "3dm",
+  "p2p",
+  "gls",
+  "initial",
+  "rarbg",
+  "crack",
+]);
+
+/** A bundle introducer covers its whole metadata list, including "OST and Artbook". */
+function hasStandaloneExtra(title: string): boolean {
+  let bundled = false;
+  for (const word of normalizeTerm(title).split(" ")) {
+    if (["incl", "including", "with", "plus"].includes(word)) {
+      bundled = true;
+    } else if (["ost", "soundtrack", "artbook"].includes(word)) {
+      if (!bundled) return true;
+    } else if (!isMetadataToken(word)) {
+      bundled = false;
+    }
+  }
+  return false;
+}
 const SIZE_MISMATCH_RATIO = 0.5;
 // An executable or script as the release itself, or hidden behind a media extension
 const RISKY_FILE_PATTERNS = [
   /\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk|ps1)(-\w+)?$/i, // with or without a -GROUP suffix
   // unambiguous ones anywhere as a dotted part, even before metadata: Game.exe.MULTi8-CODEX
-  /\.(exe|scr|bat|cmd|vbs|jar|msi|lnk|ps1)(?=[.\s_-]|$)/i,
+  /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk|ps1)(?=[.\s_-]|$)/i,
   /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b/i,
 ];
 
@@ -570,7 +606,10 @@ const INDEXER_TAG = /^(?:[a-z0-9.]+|[A-Z0-9.]+|\S*[\d.]\S*)$/;
 /** The release name without the trailing tags that look like indexer annotations. */
 function withoutTrailingTags(title: string): string {
   const { name, tags } = splitTrailingTags(title);
-  const kept = tags.filter((tag) => !INDEXER_TAG.test(tag)).reverse();
+  // Preserve numbers and Roman numerals: "Hades [II]" names a sequel, not an indexer.
+  const kept = tags
+    .filter((tag) => /^\d+$|^[ivxlcdm]+$/i.test(tag) || !INDEXER_TAG.test(tag))
+    .reverse();
   return kept.length > 0 ? `${name} ${kept.map((tag) => `[${tag}]`).join(" ")}` : name;
 }
 
@@ -663,7 +702,9 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
     rejection: "non_game_media",
     applies: (f) => {
       const title = withSpacedUnderscores(f.input.title);
-      return NON_GAME_MEDIA_PATTERNS.some((pattern) => pattern.test(title));
+      return (
+        NON_GAME_MEDIA_PATTERNS.some((pattern) => pattern.test(title)) || hasStandaloneExtra(title)
+      );
     },
   },
   {

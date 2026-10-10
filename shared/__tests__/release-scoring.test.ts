@@ -37,7 +37,7 @@ describe("classifyTitleMatch", () => {
     ["Fallout.76-P2P", "Fallout 76", "exact"],
     ["Elden Ring [FitGirl Repack]", "Elden Ring", "exact"],
     ["Stardew Valley v1.6.9 MULTi12 [DODI Repack]", "Stardew Valley", "exact"],
-    ["Dishonored.Update.2-GROUP", "Dishonored", "exact"],
+    ["Dishonored.Update.2-CODEX", "Dishonored", "exact"],
     // spelling differences between IGDB titles and release names
     ["STALKER.Shadow.of.Chernobyl-GOG", "S.T.A.L.K.E.R.: Shadow of Chernobyl", "exact"],
     ["Tom.Clancys.Rainbow.Six.Siege-CODEX", "Tom Clancy's Rainbow Six Siege", "exact"],
@@ -53,6 +53,13 @@ describe("classifyTitleMatch", () => {
     ["Dishonored.Death.of.the.Outsider-CODEX", "Dishonored", "spinoff"],
     ["DOOM.Eternal-CODEX", "DOOM", "spinoff"],
     ["DOOM-Eternal", "DOOM", "spinoff"],
+    ["DOOM-ETERNAL", "DOOM", "spinoff"],
+    ["Final.Fantasy-Tactics", "Final Fantasy", "spinoff"],
+    ["Final Fantasy-TACTICS", "Final Fantasy", "spinoff"],
+    ["Hades [II]", "Hades", "sequel"],
+    ["Hades [II] [rarbg]", "Hades", "sequel"],
+    ["Dishonored [2]", "Dishonored", "sequel"],
+    ["Dishonored [2]", "Dishonored 2", "exact"],
     ["英雄伝説-GOG", "英雄伝説", "exact"],
     ["英雄伝説.II-GOG", "英雄伝説", "sequel"],
     ["Pokemon.Legends-GOG", "Pokémon Legends", "exact"],
@@ -138,6 +145,28 @@ describe("evaluateRelease built-in rules", () => {
     expect(other.rejections).toContainEqual({ code: "title_mismatch" });
   });
 
+  it.each([
+    ["Hades [II]", "Hades"],
+    ["Dishonored [2]", "Dishonored"],
+  ])("keeps the locked sequel rejection for %s", (title, gameTitle) => {
+    const result = evaluateRelease(torrent(title), { gameTitle }, profile({ minScore: -2000 }));
+    expect(result.titleMatch).toBe("sequel");
+    expect(result.accepted).toBe(false);
+    expect(result.rejections).toContainEqual({ code: "title_sequel" });
+  });
+
+  it.each([
+    ["DOOM-ETERNAL", "DOOM"],
+    ["Final.Fantasy-Tactics", "Final Fantasy"],
+    ["Final.Fantasy-TACTICS", "Final Fantasy"],
+    ["Dishonored-Mystery123", "Dishonored"],
+  ])("does not score a distinguishing suffix in %s as a scene group", (title, gameTitle) => {
+    const result = evaluateRelease(torrent(title), { gameTitle });
+    expect(result.titleMatch).toBe("spinoff");
+    expect(result.accepted).toBe(false);
+    expect(result.lines.some((line) => line.ruleId === "scene_release")).toBe(false);
+  });
+
   it("penalizes a spinoff below the default minimum score, without a hard rejection", () => {
     const spinoff = torrent("Dishonored.Death.of.the.Outsider-CODEX");
     const result = evaluateRelease(spinoff, ctx);
@@ -179,6 +208,21 @@ describe("evaluateRelease built-in rules", () => {
     // a soundtrack bundled with the game is not a music release
     const bundled = evaluateRelease(torrent("Dishonored.Deluxe.Edition.incl.OST-GOG"), ctx);
     expect(bundled.rejections.map((r) => r.code)).not.toContain("non_game_media");
+  });
+
+  it.each(["incl.Soundtrack.and.Artbook", "including.OST.and.Artbook", "with.OST.plus.Artbook"])(
+    "accepts a game bundled with %s",
+    (extras) => {
+      const result = evaluateRelease(torrent(`Dishonored.Deluxe.Edition.${extras}-GOG`), ctx);
+      expect(result.titleMatch).toBe("exact");
+      expect(result.accepted).toBe(true);
+      expect(result.rejections.map((r) => r.code)).not.toContain("non_game_media");
+    }
+  );
+
+  it("still rejects a standalone soundtrack that itself includes an artbook", () => {
+    const result = evaluateRelease(torrent("Dishonored.Soundtrack.incl.Artbook-GOG"), ctx);
+    expect(result.rejections).toContainEqual({ code: "non_game_media" });
   });
 
   it("checks the platform when one is wanted", () => {
@@ -246,6 +290,16 @@ describe("evaluateRelease built-in rules", () => {
     expect(close.lines.map((l) => l.ruleId)).not.toContain("size_mismatch");
   });
 
+  it.each([
+    "Dishonored.js.MULTi8-CODEX",
+    "Dishonored.js.MULTi8-CODEX [rarbg]",
+    "Dishonored [setup.js.MULTi8]",
+  ])("keeps script payloads rejected even with a permissive profile: %s", (title) => {
+    const result = evaluateRelease(torrent(title), ctx, profile({ minScore: -2000 }));
+    expect(result.accepted).toBe(false);
+    expect(result.rejections).toContainEqual({ code: "risky_file" });
+  });
+
   it("applies built-in overrides, except disabling a locked rule", () => {
     const tuned = profile({
       builtInOverrides: {
@@ -274,7 +328,7 @@ describe("evaluateRelease profile checks", () => {
   it("needs at least one required term and no ignored term", () => {
     const strict = profile({ requiredTerms: ["GOG", "DRM Free"], ignoredTerms: ["crack only"] });
     expect(evaluateRelease(torrent("Dishonored-GOG"), ctx, strict).accepted).toBe(true);
-    expect(evaluateRelease(torrent("Dishonored.DRM-Free-X"), ctx, strict).accepted).toBe(true);
+    expect(evaluateRelease(torrent("Dishonored.DRM-Free-CODEX"), ctx, strict).accepted).toBe(true);
     expect(evaluateRelease(torrent("Dishonored-CODEX"), ctx, strict).rejections).toContainEqual({
       code: "required_term_missing",
       detail: "GOG, DRM Free",
@@ -549,42 +603,42 @@ describe("evaluateReleases", () => {
 
   it("breaks score ties by protocol preference, indexer priority, then seeders", () => {
     const ctx = { gameTitle: "Dishonored" };
-    const usenet: ReleaseInput = { title: "Dishonored-AAA", downloadType: "usenet" };
+    const usenet: ReleaseInput = { title: "Dishonored-CODEX", downloadType: "usenet" };
     const preferUsenet = profile({ protocolPreference: "usenet" });
-    const byProtocol = evaluateReleases([torrent("Dishonored-BBB"), usenet], ctx, preferUsenet);
-    expect(byProtocol.map((r) => r.item.title)).toEqual(["Dishonored-AAA", "Dishonored-BBB"]);
+    const byProtocol = evaluateReleases([torrent("Dishonored-RUNE"), usenet], ctx, preferUsenet);
+    expect(byProtocol.map((r) => r.item.title)).toEqual(["Dishonored-CODEX", "Dishonored-RUNE"]);
     expect(byProtocol[1]?.evaluation.preferredProtocol).toBe(false);
     expect(byProtocol[1]?.evaluation.accepted).toBe(true);
 
     const byPriority = evaluateReleases(
       [
-        torrent("Dishonored-AAA", { indexerPriority: 2, seeders: 5000 }),
-        torrent("Dishonored-BBB", { indexerPriority: 1, seeders: 5 }),
+        torrent("Dishonored-CODEX", { indexerPriority: 2, seeders: 5000 }),
+        torrent("Dishonored-RUNE", { indexerPriority: 1, seeders: 5 }),
       ],
       ctx
     );
-    expect(byPriority.map((r) => r.item.title)).toEqual(["Dishonored-BBB", "Dishonored-AAA"]);
+    expect(byPriority.map((r) => r.item.title)).toEqual(["Dishonored-RUNE", "Dishonored-CODEX"]);
 
     const bySeeders = evaluateReleases(
       [
-        torrent("Dishonored-AAA", { seeders: 900 }),
-        torrent("Dishonored-BBB", { seeders: 1000 }),
-        torrent("Dishonored-CCC", { seeders: 950 }),
+        torrent("Dishonored-CODEX", { seeders: 900 }),
+        torrent("Dishonored-RUNE", { seeders: 1000 }),
+        torrent("Dishonored-TENOKE", { seeders: 950 }),
       ],
       ctx
     );
     // 1000 is a higher order of magnitude; 900 and 950 tie and keep their order
     expect(bySeeders.map((r) => r.item.title)).toEqual([
-      "Dishonored-BBB",
-      "Dishonored-AAA",
-      "Dishonored-CCC",
+      "Dishonored-RUNE",
+      "Dishonored-CODEX",
+      "Dishonored-TENOKE",
     ]);
   });
 
   it("keeps the input order for equal scores", () => {
-    const sorted = evaluateReleases([torrent("Dishonored-AAA"), torrent("Dishonored-BBB")], {
+    const sorted = evaluateReleases([torrent("Dishonored-CODEX"), torrent("Dishonored-RUNE")], {
       gameTitle: "Dishonored",
     });
-    expect(sorted.map((r) => r.item.title)).toEqual(["Dishonored-AAA", "Dishonored-BBB"]);
+    expect(sorted.map((r) => r.item.title)).toEqual(["Dishonored-CODEX", "Dishonored-RUNE"]);
   });
 });

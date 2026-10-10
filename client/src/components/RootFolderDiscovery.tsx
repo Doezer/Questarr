@@ -143,9 +143,25 @@ export function RootFolderDiscovery() {
   useEffect(() => {
     if (!scanSnapshot) return;
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
-    // Auto-matched games are added to the library during the scan.
-    queryClient.invalidateQueries({ queryKey: ["/api/games"] });
   }, [scanSnapshot, queryClient]);
+
+  const previousGameProgress = useRef(new Map<string, ScanProgress>());
+  useEffect(() => {
+    const previous = previousGameProgress.current;
+    const refreshGames = scanProgress.some((progress) => {
+      const last = previous.get(progress.rootFolderId);
+      const sameScan = last?.startedAt === progress.startedAt;
+      const gainedMatch = progress.matched > (sameScan ? last.matched : 0);
+      // A failed scan can still have persisted game changes before failing.
+      const finished = progress.status === "completed" || progress.status === "failed";
+      const justFinished =
+        finished &&
+        (!sameScan || last.status !== progress.status || last.finishedAt !== progress.finishedAt);
+      return gainedMatch || justFinished;
+    });
+    previousGameProgress.current = new Map(scanProgress.map((p) => [p.rootFolderId, p]));
+    if (refreshGames) queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+  }, [scanProgress, queryClient]);
 
   const invalidateAll = () => {
     scanKickoffAt.current = Date.now();

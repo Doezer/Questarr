@@ -102,6 +102,77 @@ describe("RootFolderDiscovery", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/library/scan/unmatched"] });
   });
 
+  it("refreshes Needs Review independently of games and refreshes games on matches or completion", async () => {
+    mockFetch([folder]);
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    render(
+      <QueryClientProvider client={client}>
+        <RootFolderDiscovery />
+      </QueryClientProvider>
+    );
+    await screen.findByText("/mnt/old-library");
+    const progress = {
+      rootFolderId: "rf-1",
+      rootFolderPath: "/mnt/old-library",
+      startedAt: "2026-10-10T10:00:00Z",
+      status: "running",
+      totalCandidates: 100,
+      processedCandidates: 0,
+      matched: 0,
+      unmatched: 0,
+      errors: 0,
+    };
+    const gameRefreshes = () =>
+      invalidate.mock.calls.filter(([options]) => options?.queryKey?.[0] === "/api/games").length;
+    const reviewRefreshes = () =>
+      invalidate.mock.calls.filter(
+        ([options]) => options?.queryKey?.[0] === "/api/library/scan/unmatched"
+      ).length;
+    const update = async (changes: Partial<typeof progress> & { finishedAt?: string }) => {
+      Object.assign(progress, changes);
+      await act(async () => {
+        client.setQueryData(["/api/library/scan/status"], [{ ...progress }]);
+      });
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            `${progress.processedCandidates}/${progress.totalCandidates} scanned · ${progress.matched} matched · ${progress.unmatched} need review · ${progress.errors} errors`
+          )
+        ).toBeInTheDocument()
+      );
+    };
+    await update({});
+    const initialReviews = reviewRefreshes();
+    await update({ processedCandidates: 1, unmatched: 1 });
+    await update({ processedCandidates: 2, unmatched: 2 });
+    expect(reviewRefreshes()).toBeGreaterThan(initialReviews);
+    expect(gameRefreshes()).toBe(0);
+
+    await update({ processedCandidates: 3, matched: 1 });
+    expect(gameRefreshes()).toBe(1);
+    await update({ processedCandidates: 4, unmatched: 3 });
+    expect(gameRefreshes()).toBe(1);
+    await update({ status: "completed", finishedAt: "2026-10-10T10:01:00Z" });
+    expect(gameRefreshes()).toBe(2);
+    await update({});
+    expect(gameRefreshes()).toBe(2);
+
+    // A new run starts from zero and must not inherit the last run's match count.
+    await update({
+      startedAt: "2026-10-10T10:02:00Z",
+      status: "running",
+      matched: 0,
+      unmatched: 0,
+      finishedAt: undefined,
+    });
+    expect(gameRefreshes()).toBe(2);
+    await update({ matched: 1 });
+    expect(gameRefreshes()).toBe(3);
+    await update({ status: "failed", finishedAt: "2026-10-10T10:03:00Z" });
+    expect(gameRefreshes()).toBe(4);
+  });
+
   it("keeps polling scan status after Scan All even if the first status is empty", async () => {
     // The first status fetch lands before the server registers the scan.
     let statusCalls = 0;

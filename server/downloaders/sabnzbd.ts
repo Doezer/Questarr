@@ -384,7 +384,7 @@ export class SABnzbdClient implements DownloaderClient {
 
       const url = this.getApiUrl("addfile", {
         nzbname: request.title,
-        cat: request.category || "games",
+        cat: request.category || this.downloader.category || "games",
         priority: (request.priority || 0).toString(),
         ...(password ? { password } : {}),
       });

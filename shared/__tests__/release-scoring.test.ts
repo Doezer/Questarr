@@ -53,6 +53,11 @@ describe("classifyTitleMatch", () => {
     ["Dishonored.Death.of.the.Outsider-CODEX", "Dishonored", "spinoff"],
     ["DOOM.Eternal-CODEX", "DOOM", "spinoff"],
     ["Squid.Game-CODEX", "Squid", "spinoff"],
+    ["Sons.of.the.Forest-CODEX", "The Forest", "spinoff"],
+    ["Pac-Man.256-CODEX", "Pac-Man", "spinoff"],
+    ["Pac-Man.2014-CODEX", "Pac-Man", "exact"],
+    ["Pac-Man.v1.0.5-CODEX", "Pac-Man", "exact"],
+    ["Pac-Man.Update.256-CODEX", "Pac-Man", "exact"],
     ["Squid.Game.of.the.Year.Edition-CODEX", "Squid", "exact"],
     ["DOOM-Eternal", "DOOM", "ambiguous"],
     ["DOOM-ETERNAL", "DOOM", "ambiguous"],
@@ -212,15 +217,17 @@ describe("evaluateRelease built-in rules", () => {
     expect(bundled.rejections.map((r) => r.code)).not.toContain("non_game_media");
   });
 
-  it.each(["incl.Soundtrack.and.Artbook", "including.OST.and.Artbook", "with.OST.plus.Artbook"])(
-    "accepts a game bundled with %s",
-    (extras) => {
-      const result = evaluateRelease(torrent(`Dishonored.Deluxe.Edition.${extras}-GOG`), ctx);
-      expect(result.titleMatch).toBe("exact");
-      expect(result.accepted).toBe(true);
-      expect(result.rejections.map((r) => r.code)).not.toContain("non_game_media");
-    }
-  );
+  it.each([
+    "incl.Soundtrack.and.Artbook",
+    "including.OST.and.Artbook",
+    "with.OST.plus.Artbook",
+    "incl.Update.3.and.OST",
+  ])("accepts a game bundled with %s", (extras) => {
+    const result = evaluateRelease(torrent(`Dishonored.Deluxe.Edition.${extras}-GOG`), ctx);
+    expect(result.titleMatch).toBe("exact");
+    expect(result.accepted).toBe(true);
+    expect(result.rejections.map((r) => r.code)).not.toContain("non_game_media");
+  });
 
   it("still rejects a standalone soundtrack that itself includes an artbook", () => {
     const result = evaluateRelease(torrent("Dishonored.Soundtrack.incl.Artbook-GOG"), ctx);
@@ -277,6 +284,7 @@ describe("evaluateRelease built-in rules", () => {
       "Dishonored.cmd.MULTi8-CODEX",
       "Dishonored.[setup.exe]-CODEX",
       "Dishonored.(setup.js)-CODEX",
+      "Dishonored.sh-CODEX",
     ]) {
       expect(evaluateRelease(torrent(tagged), ctx).rejections).toContainEqual({
         code: "risky_file",

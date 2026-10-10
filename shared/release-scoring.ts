@@ -342,13 +342,30 @@ const METADATA_TOKENS = new Set([
 ]);
 
 const METADATA_TOKEN_PATTERNS = [
-  /^\d+$/, // versions, years, build and update numbers
   /^v\d+$/, // v1, v2 (normalization splits v1.0 into "v1" "0")
   /^b\d+$/, // build numbers
   /^multi\d+$/,
   /^x(64|86)$/,
   /^win(32|64)$/,
 ];
+
+const VERSION_MARKERS = new Set(["update", "patch", "hotfix", "build", "version"]);
+const YEAR = /^(19|20)\d\d$/;
+
+/**
+ * A bare number is release metadata only in context: a year, part of a dotted version
+ * ("1.0.5", "v1.2"), or after a version marker ("Update.3"). On its own it can name another
+ * game ("Pac-Man.256").
+ */
+function isMetadataNumber(words: readonly string[], index: number): boolean {
+  const isNumber = (word: string | undefined) => word !== undefined && /^\d+$/.test(word);
+  const word = words[index];
+  if (!isNumber(word)) return false;
+  if (YEAR.test(word as string)) return true;
+  const previous = words[index - 1];
+  if (isNumber(previous) || isNumber(words[index + 1])) return true;
+  return previous !== undefined && (VERSION_MARKERS.has(previous) || /^[vb]\d+$/.test(previous));
+}
 
 function isMetadataToken(token: string): boolean {
   return (
@@ -433,14 +450,18 @@ function classifyAgainstTitle(
   if (start === -1) return "mismatch";
 
   const groupWord = group ? normalizeForMatch(group) : undefined;
-  const isExtraWord = (word: string) => word !== groupWord && !isMetadataToken(word);
+  const isExtraWord = (word: string, index: number, words: readonly string[]) =>
+    word !== groupWord && !isMetadataToken(word) && !isMetadataNumber(words, index);
   const before = releaseWords.slice(0, start).filter(isExtraWord);
   const after = releaseWords.slice(start + gameWords.length).filter(isExtraWord);
 
   if (before.length === 0 && after.length === 0) return "exact";
   // A title that already carries a number is usually followed by its official subtitle
   // ("The Witcher 3" -> "Wild Hunt"); an unnumbered one by another game ("DOOM Eternal").
-  if (after.length > 0 && !gameWords.some((word) => /\d/.test(word))) return "spinoff";
+  // "Sons of the Forest" for "The Forest": a distinguishing prefix names another game too
+  if (after.length + before.length > 0 && !gameWords.some((word) => /\d/.test(word))) {
+    return "spinoff";
+  }
   return "contains";
 }
 
@@ -593,7 +614,7 @@ function hasStandaloneExtra(title: string): boolean {
       bundled = true;
     } else if (["ost", "soundtrack", "artbook"].includes(word)) {
       if (!bundled) return true;
-    } else if (!isMetadataToken(word)) {
+    } else if (!isMetadataToken(word) && !/^\d+$/.test(word)) {
       bundled = false;
     }
   }
@@ -605,7 +626,7 @@ const RISKY_FILE_PATTERNS = [
   /\.ps1$/i, // PS1 before release metadata is a platform marker
   // .com is left out: "[www.site.com]" indexer tags and site names are far more common than
   // COM payloads, and the rule is locked
-  /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk)(-\w+)?$/i, // with or without a -GROUP suffix
+  /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk|sh)(-\w+)?$/i, // with or without a -GROUP suffix
   // unambiguous ones anywhere as a dotted part, even before metadata: Game.exe.MULTi8-CODEX
   /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk)(?=[.\s_\])-]|$)/i,
   /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|com|lnk)\b/i,

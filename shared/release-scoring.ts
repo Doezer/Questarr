@@ -191,7 +191,7 @@ export interface ReleaseEvaluation {
  * spinoff or a longer title rather than the game itself.
  */
 // Edition words also start other titles ("Final Fantasy", "Ultimate Chicken Horse"), so they only
-// count as metadata after the game name.
+// count as metadata after the game name; the same goes for content and store words.
 const EDITION_TOKENS = new Set([
   "edition",
   "goty",
@@ -224,8 +224,8 @@ const EDITION_TOKENS = new Set([
   "extended",
 ]);
 
-const METADATA_TOKENS = new Set([
-  ...EDITION_TOKENS,
+// Content and store words also start other titles ("DLC Quest", "Epic Mickey").
+const CONTENT_TOKENS = new Set([
   // content
   "dlc",
   "dlcs",
@@ -264,6 +264,10 @@ const METADATA_TOKENS = new Set([
   "free",
   "rip",
   "iso",
+]);
+
+// Platform, language and scene words describe a release wherever they appear.
+const RELEASE_TOKENS = new Set([
   // platforms
   "pc",
   "win",
@@ -346,6 +350,8 @@ const METADATA_TOKENS = new Set([
   "scene",
 ]);
 
+const METADATA_TOKENS = new Set([...EDITION_TOKENS, ...CONTENT_TOKENS, ...RELEASE_TOKENS]);
+
 const METADATA_TOKEN_PATTERNS = [
   /^v\d+$/, // v1, v2 (normalization splits v1.0 into "v1" "0")
   /^b\d+$/, // build numbers
@@ -370,6 +376,10 @@ function isMetadataNumber(words: readonly string[], index: number): boolean {
   const previous = words[index - 1];
   if (isNumber(previous) || isNumber(words[index + 1])) return true;
   return previous !== undefined && (VERSION_MARKERS.has(previous) || /^[vb]\d+$/.test(previous));
+}
+
+function isPrefixMetadata(token: string): boolean {
+  return RELEASE_TOKENS.has(token) || TITLE_STOP_WORDS.has(token);
 }
 
 function isMetadataToken(token: string): boolean {
@@ -466,7 +476,8 @@ function classifyAgainstTitle(
     for (let index = from; index < to; index++) {
       const word = releaseWords[index] as string;
       if (word === groupWord) continue;
-      if (isMetadataToken(word) && (index >= start || !EDITION_TOKENS.has(word))) continue;
+      // before the game name only words that never start a title are metadata
+      if (index >= start ? isMetadataToken(word) : isPrefixMetadata(word)) continue;
       if (!isMetadataNumber(releaseWords, index)) extra.push(word);
     }
     return extra;

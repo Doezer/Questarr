@@ -55,6 +55,8 @@ describe("classifyTitleMatch", () => {
     ["Squid.Game-CODEX", "Squid", "spinoff"],
     ["Sons.of.the.Forest-CODEX", "The Forest", "spinoff"],
     ["Final.Fantasy-CODEX", "Fantasy", "spinoff"],
+    ["DLC.Quest-CODEX", "Quest", "spinoff"],
+    ["[PC] Dishonored-CODEX", "Dishonored", "exact"],
     ["Assassin.s.Creed.II-CODEX", "Assassin's Creed II", "exact"],
     ["Pac-Man.256-CODEX", "Pac-Man", "spinoff"],
     ["Pac-Man.2014-CODEX", "Pac-Man", "exact"],

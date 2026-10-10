@@ -9,6 +9,7 @@ vi.mock("@/components/GameDetailsModal", () => ({
   default: ({ game, onOpenChange }: { game: Game; onOpenChange: (open: boolean) => void }) => (
     <div role="dialog" aria-label="Game details">
       <h2>{game.title}</h2>
+      <p>Rating: {game.userRating}</p>
       <button onClick={() => onOpenChange(false)}>Close details</button>
     </div>
   ),
@@ -112,6 +113,26 @@ describe("Backlog roulette", () => {
     );
     expect(screen.queryByRole("dialog", { name: "Backlog roulette" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+    expect(screen.queryByRole("dialog", { name: "Game details" })).not.toBeInTheDocument();
+  });
+
+  it("keeps open details synchronized with refreshed Library data", async () => {
+    const props = {
+      games: [{ ...game("a"), userRating: 3 }],
+      loading: false,
+      onStartPlaying: vi.fn(),
+    };
+    const { rerender } = render(<BacklogRoulette {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    fireEvent.click(screen.getByRole("button", { name: "View game" }));
+    expect(await screen.findByRole("dialog", { name: "Game details" })).toHaveTextContent(
+      "Rating: 3"
+    );
+    rerender(<BacklogRoulette {...props} games={[{ ...game("a"), userRating: 5 }]} />);
+    expect(screen.getByRole("dialog", { name: "Game details" })).toHaveTextContent("Rating: 5");
+    rerender(<BacklogRoulette {...props} games={[]} />);
+    expect(screen.queryByRole("dialog", { name: "Game details" })).not.toBeInTheDocument();
+    rerender(<BacklogRoulette {...props} />);
     expect(screen.queryByRole("dialog", { name: "Game details" })).not.toBeInTheDocument();
   });
 

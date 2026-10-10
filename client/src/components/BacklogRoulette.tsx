@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState } from "react";
+import React, { lazy, Suspense, useEffect, useState } from "react";
 import { Dices, Gamepad2, Loader2 } from "lucide-react";
 import type { Game } from "@shared/schema";
 import { coverSrc } from "@/lib/cover";
@@ -38,12 +38,18 @@ export default function BacklogRoulette({
   const [open, setOpen] = useState(false);
   const [pool, setPool] = useState<Pool>("owned");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detailsGame, setDetailsGame] = useState<Game | null>(null);
+  const [detailsGameId, setDetailsGameId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const candidates = games.filter(
     (game) => !game.hidden && (pool === "all" || game.status === pool)
   );
   const selected = candidates.find((game) => game.id === selectedId);
+  const detailsGame = games.find((game) => game.id === detailsGameId);
+
+  // Read the latest query data, and close details if a refresh removes the game.
+  useEffect(() => {
+    if (detailsGameId && !detailsGame) setDetailsGameId(null);
+  }, [detailsGameId, detailsGame]);
 
   /** Draw uniformly from the chosen pool, skipping the previous game when possible. */
   function roll(nextPool = pool) {
@@ -197,7 +203,7 @@ export default function BacklogRoulette({
                   variant="outline"
                   disabled={starting || loading}
                   onClick={() => {
-                    setDetailsGame(selected);
+                    setDetailsGameId(selected.id);
                     setOpen(false);
                   }}
                 >
@@ -228,7 +234,7 @@ export default function BacklogRoulette({
             game={detailsGame}
             open
             onOpenChange={(value) => {
-              if (!value) setDetailsGame(null);
+              if (!value) setDetailsGameId(null);
             }}
           />
         </Suspense>

@@ -52,10 +52,10 @@ describe("classifyTitleMatch", () => {
     ["The.Witcher.3-GOG", "The Witcher", "sequel"],
     ["Dishonored.Death.of.the.Outsider-CODEX", "Dishonored", "spinoff"],
     ["DOOM.Eternal-CODEX", "DOOM", "spinoff"],
-    ["DOOM-Eternal", "DOOM", "spinoff"],
-    ["DOOM-ETERNAL", "DOOM", "spinoff"],
-    ["Final.Fantasy-Tactics", "Final Fantasy", "spinoff"],
-    ["Final Fantasy-TACTICS", "Final Fantasy", "spinoff"],
+    ["DOOM-Eternal", "DOOM", "ambiguous"],
+    ["DOOM-ETERNAL", "DOOM", "ambiguous"],
+    ["Final.Fantasy-Tactics", "Final Fantasy", "ambiguous"],
+    ["Final Fantasy-TACTICS", "Final Fantasy", "ambiguous"],
     ["Hades [II]", "Hades", "sequel"],
     ["Hades [II] [rarbg]", "Hades", "sequel"],
     ["Dishonored [2]", "Dishonored", "sequel"],
@@ -162,8 +162,8 @@ describe("evaluateRelease built-in rules", () => {
     ["Dishonored-Mystery123", "Dishonored"],
   ])("does not score a distinguishing suffix in %s as a scene group", (title, gameTitle) => {
     const result = evaluateRelease(torrent(title), { gameTitle });
-    expect(result.titleMatch).toBe("spinoff");
-    expect(result.accepted).toBe(false);
+    expect(result.titleMatch).toBe("ambiguous");
+    expect(result.score).toBe(0);
     expect(result.lines.some((line) => line.ruleId === "scene_release")).toBe(false);
   });
 
@@ -273,6 +273,8 @@ describe("evaluateRelease built-in rules", () => {
       "Dishonored.exe.MULTi8-CODEX",
       "Dishonored setup.msi CODEX",
       "Dishonored.cmd.MULTi8-CODEX",
+      "Dishonored.[setup.exe]-CODEX",
+      "Dishonored.(setup.js)-CODEX",
     ]) {
       expect(evaluateRelease(torrent(tagged), ctx).rejections).toContainEqual({
         code: "risky_file",
@@ -280,6 +282,32 @@ describe("evaluateRelease built-in rules", () => {
     }
     expect(evaluateRelease(torrent("Dishonored-CODEX"), ctx).accepted).toBe(true);
     expect(evaluateRelease(torrent("Dishonored-CODEX[rarbg]"), ctx).accepted).toBe(true);
+  });
+
+  it.each(["PROPHET", "DOGE", "SiMPLEX", "ANOMALY", "I_KnoW"])(
+    "recognizes established group %s",
+    (group) => {
+      const result = evaluateRelease(torrent(`Dishonored-${group}`), ctx);
+      expect(result.titleMatch).toBe("exact");
+      expect(result.accepted).toBe(true);
+    }
+  );
+
+  it.each(["Final.Fantasy.VII.PS1.USA-CODEX", "Final.Fantasy.VII.PS1-CODEX"])(
+    "does not mistake the PS1 platform for a payload: %s",
+    (title) => {
+      const result = evaluateRelease(torrent(title), {
+        gameTitle: "Final Fantasy VII",
+        platform: "PS1",
+      });
+      expect(result.rejections).not.toContainEqual({ code: "risky_file" });
+    }
+  );
+
+  it("still rejects a terminal PowerShell file extension", () => {
+    expect(
+      evaluateRelease(torrent("Dishonored.ps1"), ctx, profile({ minScore: -2000 })).rejections
+    ).toContainEqual({ code: "risky_file" });
   });
 
   it("penalizes a size far from the expected one", () => {
@@ -294,6 +322,7 @@ describe("evaluateRelease built-in rules", () => {
     "Dishonored.js.MULTi8-CODEX",
     "Dishonored.js.MULTi8-CODEX [rarbg]",
     "Dishonored [setup.js.MULTi8]",
+    "Dishonored.[setup.exe]-CODEX",
   ])("keeps script payloads rejected even with a permissive profile: %s", (title) => {
     const result = evaluateRelease(torrent(title), ctx, profile({ minScore: -2000 }));
     expect(result.accepted).toBe(false);
@@ -405,6 +434,21 @@ describe("custom formats", () => {
     hardReject: false,
     enabled: true,
     ...overrides,
+  });
+
+  it("preserves an unknown suffix for group custom formats without awarding title or scene bonuses", () => {
+    const result = evaluateRelease(
+      torrent("Dishonored-NewGroup123"),
+      ctx,
+      DEFAULT_RELEASE_PROFILE,
+      compileCustomFormats([
+        format({ score: 25, specs: [{ field: "group", mode: "exact", value: "NewGroup123" }] }),
+      ])
+    );
+    expect(result.titleMatch).toBe("ambiguous");
+    expect(result.score).toBe(25);
+    expect(result.matchedFormats).toEqual(["f1"]);
+    expect(result.lines.map((line) => line.ruleId)).toEqual(["cf:f1"]);
   });
 
   it("adds the score of a matching format", () => {

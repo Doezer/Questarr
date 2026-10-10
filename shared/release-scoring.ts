@@ -34,10 +34,11 @@ import type { ReleaseType } from "./typesafe-types.js";
  * - contains: the game title plus other words, for a title that is already numbered or has a
  *   prefix ("The.Witcher.3.Wild.Hunt" for "The Witcher 3")
  * - spinoff: the game title followed by other words ("DOOM.Eternal" for "DOOM")
+ * - ambiguous: an otherwise matching name ends in an unverified group/subtitle suffix
  * - sequel: the game title followed by a sequel number ("Dishonored.2" for "Dishonored")
  * - mismatch: the game title is not in the release name
  */
-export type TitleMatch = "exact" | "contains" | "spinoff" | "sequel" | "mismatch";
+export type TitleMatch = "exact" | "contains" | "ambiguous" | "spinoff" | "sequel" | "mismatch";
 
 /** Indexer category family: Newznab 1xxx/4000/4050 are games, 2xxx/3xxx/5xxx-7xxx are not. */
 export type IndexerCategoryClass = "game" | "non_game" | "unknown";
@@ -393,6 +394,7 @@ function findSequence(haystack: string[], needle: string[]): number {
 const TITLE_MATCH_RANK: Record<TitleMatch, number> = {
   exact: 4,
   contains: 3,
+  ambiguous: 2.5,
   spinoff: 2,
   sequel: 1,
   mismatch: 0,
@@ -403,7 +405,11 @@ function classifyAgainstTitle(
   gameTitle: string,
   group: string | undefined
 ): TitleMatch {
-  const release = normalizeForMatch(releaseName);
+  const titleName =
+    group && releaseName.endsWith(`-${group}`)
+      ? releaseName.slice(0, -(group.length + 1))
+      : releaseName;
+  const release = normalizeForMatch(titleName);
   const game = normalizeForMatch(gameTitle);
   if (!release || !game) return "mismatch";
   if (release === game) return "exact";
@@ -438,7 +444,8 @@ function classifyAgainstTitle(
 /**
  * A bracketed prefix or a known group suffix identifies the release group. Separators in the
  * title, uppercase letters and digits alone cannot distinguish a group from a subtitle.
- * Unknown suffixes stay in the title rather than hiding a possible spinoff.
+ * Unknown suffixes stay in the title; title classification treats an otherwise exact
+ * match as ambiguous rather than awarding a bonus or assuming a spinoff.
  */
 function releaseGroup(releaseName: string): string | undefined {
   const { group } = parseReleaseMetadata(releaseName);
@@ -449,14 +456,13 @@ function releaseGroup(releaseName: string): string | undefined {
 }
 
 /**
- * parseReleaseMetadata on the name without trailing indexer tags, keeping the group only when
- * it really looks like one, so title matching and scoring agree on it.
+ * Preserve the raw group for custom formats, but only verified groups earn scene points.
  */
 function releaseMetadata(releaseName: string): ReleaseMetadata {
   const name = withoutTrailingTags(releaseName);
   const metadata = parseReleaseMetadata(name);
   const group = releaseGroup(name);
-  return { ...metadata, group, isScene: metadata.isScene && group !== undefined };
+  return { ...metadata, isScene: metadata.isScene && group !== undefined };
 }
 
 /**
@@ -473,7 +479,20 @@ export function classifyTitleMatch(
   let best: TitleMatch = "mismatch";
   for (const title of [gameTitle, ...alternativeTitles]) {
     if (!title) continue;
-    const match = classifyAgainstTitle(name, title, group);
+    let match = classifyAgainstTitle(name, title, group);
+    // A lone unverified dash suffix could be a new group or a subtitle. Neither
+    // uppercase spelling nor title separators resolve that ambiguity.
+    if (!group && (match === "spinoff" || match === "contains")) {
+      const rawGroup = parseReleaseMetadata(name).group;
+      const dash = name.lastIndexOf("-");
+      if (
+        rawGroup &&
+        dash !== -1 &&
+        classifyAgainstTitle(name.slice(0, dash), title, undefined) === "exact"
+      ) {
+        match = "ambiguous";
+      }
+    }
     if (TITLE_MATCH_RANK[match] > TITLE_MATCH_RANK[best]) best = match;
     if (best === "exact") break;
   }
@@ -556,6 +575,11 @@ const KNOWN_RELEASE_GROUPS = new Set([
   "initial",
   "rarbg",
   "crack",
+  "prophet",
+  "doge",
+  "simplex",
+  "anomaly",
+  "i_know",
 ]);
 
 /** A bundle introducer covers its whole metadata list, including "OST and Artbook". */
@@ -575,9 +599,10 @@ function hasStandaloneExtra(title: string): boolean {
 const SIZE_MISMATCH_RATIO = 0.5;
 // An executable or script as the release itself, or hidden behind a media extension
 const RISKY_FILE_PATTERNS = [
-  /\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk|ps1)(-\w+)?$/i, // with or without a -GROUP suffix
+  /\.ps1$/i, // PS1 before release metadata is a platform marker
+  /\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk)(-\w+)?$/i, // with or without a -GROUP suffix
   // unambiguous ones anywhere as a dotted part, even before metadata: Game.exe.MULTi8-CODEX
-  /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk|ps1)(?=[.\s_-]|$)/i,
+  /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk)(?=[.\s_\])-]|$)/i,
   /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b/i,
 ];
 

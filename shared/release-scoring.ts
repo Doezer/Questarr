@@ -190,8 +190,9 @@ export interface ReleaseEvaluation {
  * languages, scene and repack tags. Leftover words outside this list make a title a
  * spinoff or a longer title rather than the game itself.
  */
-const METADATA_TOKENS = new Set([
-  // editions
+// Edition words also start other titles ("Final Fantasy", "Ultimate Chicken Horse"), so they only
+// count as metadata after the game name.
+const EDITION_TOKENS = new Set([
   "edition",
   "goty",
   "deluxe",
@@ -221,6 +222,10 @@ const METADATA_TOKENS = new Set([
   "redux",
   "final",
   "extended",
+]);
+
+const METADATA_TOKENS = new Set([
+  ...EDITION_TOKENS,
   // content
   "dlc",
   "dlcs",
@@ -455,7 +460,8 @@ function classifyAgainstTitle(
     const extra: string[] = [];
     for (let index = from; index < to; index++) {
       const word = releaseWords[index] as string;
-      if (word === groupWord || isMetadataToken(word)) continue;
+      if (word === groupWord) continue;
+      if (isMetadataToken(word) && (index >= start || !EDITION_TOKENS.has(word))) continue;
       if (!isMetadataNumber(releaseWords, index)) extra.push(word);
     }
     return extra;

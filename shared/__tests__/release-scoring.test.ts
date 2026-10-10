@@ -54,6 +54,7 @@ describe("classifyTitleMatch", () => {
     ["DOOM.Eternal-CODEX", "DOOM", "spinoff"],
     ["Squid.Game-CODEX", "Squid", "spinoff"],
     ["Sons.of.the.Forest-CODEX", "The Forest", "spinoff"],
+    ["Final.Fantasy-CODEX", "Fantasy", "spinoff"],
     ["Pac-Man.256-CODEX", "Pac-Man", "spinoff"],
     ["Pac-Man.2014-CODEX", "Pac-Man", "exact"],
     ["Pac-Man.v1.0.5-CODEX", "Pac-Man", "exact"],

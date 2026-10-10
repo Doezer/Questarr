@@ -21,7 +21,6 @@ import type { ImportConfig, UserSettings } from "@shared/schema";
 import { selectedPlatformNames as resolveSelectedPlatformNames } from "@shared/platforms";
 import { PathMappingSettings } from "./PathMappingSettings";
 import { FileBrowser } from "./FileBrowser";
-import { RootFolderDiscovery } from "./RootFolderDiscovery";
 import SecurityScanSettings from "./SecurityScanSettings";
 
 type HardlinkPairCheck = {
@@ -104,10 +103,21 @@ export default function ImportSettings() {
       const { importPlatformIds: _unused, ...rest } = data;
       await apiRequest("PATCH", "/api/imports/config", rest);
     },
-    onSuccess: () => {
-      toast({ title: "Settings Saved", description: "Import configuration updated." });
+    onSuccess: (_data, saved) => {
+      // Switching post-processing on starts a scan of every enabled root folder.
+      const scanStarted = saved.enablePostProcessing && !config?.enablePostProcessing;
+      toast({
+        title: "Settings Saved",
+        description: scanStarted
+          ? "Import configuration updated. Scanning your root folders for games now."
+          : "Import configuration updated.",
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/imports/config"] });
       queryClient.invalidateQueries({ queryKey: ["/api/imports/hardlink/check"] });
+      if (scanStarted) {
+        queryClient.invalidateQueries({ queryKey: ["/api/library/scan/status"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
+      }
     },
     onError: () => {
       if (config) setLocalConfig(config);
@@ -134,7 +144,6 @@ export default function ImportSettings() {
           <TabsTrigger value="config">General Config</TabsTrigger>
           <TabsTrigger value="paths">Path Mappings</TabsTrigger>
           <TabsTrigger value="security">Security & Scanning</TabsTrigger>
-          <TabsTrigger value="discover">Discover</TabsTrigger>
           <TabsTrigger value="help">Help</TabsTrigger>
         </TabsList>
 
@@ -377,10 +386,6 @@ export default function ImportSettings() {
 
         <TabsContent value="security" className="space-y-4">
           <SecurityScanSettings />
-        </TabsContent>
-
-        <TabsContent value="discover" className="space-y-4">
-          <RootFolderDiscovery />
         </TabsContent>
 
         <TabsContent value="help" className="space-y-4">

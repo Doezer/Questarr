@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient, getRequestUrl } from "./test-utils";
 import { RootFolderDiscovery } from "../src/components/RootFolderDiscovery";
 import type { RootFolder } from "@shared/schema";
+
+const mockSocket = vi.hoisted(() => ({ on: vi.fn(), off: vi.fn() }));
+vi.mock("@/lib/socket", () => ({
+  getSocket: () => mockSocket,
+}));
 
 const mockToast = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
@@ -65,6 +70,218 @@ describe("RootFolderDiscovery", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("refreshes the library and Needs Review list once scan progress is known", async () => {
+    mockFetch(
+      [folder],
+      [
+        {
+          rootFolderId: "rf-1",
+          rootFolderPath: "/mnt/old-library",
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          status: "completed",
+          totalCandidates: 3,
+          processedCandidates: 3,
+          matched: 2,
+          unmatched: 1,
+          errors: 0,
+        },
+      ]
+    );
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    render(
+      <QueryClientProvider client={client}>
+        <RootFolderDiscovery />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/games"] }));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/library/scan/unmatched"] });
+  });
+
+  it("refreshes Needs Review independently of games and refreshes games on matches or completion", async () => {
+    mockFetch([folder]);
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    render(
+      <QueryClientProvider client={client}>
+        <RootFolderDiscovery />
+      </QueryClientProvider>
+    );
+    await screen.findByText("/mnt/old-library");
+    const progress = {
+      rootFolderId: "rf-1",
+      rootFolderPath: "/mnt/old-library",
+      startedAt: "2026-10-10T10:00:00Z",
+      status: "running",
+      totalCandidates: 100,
+      processedCandidates: 0,
+      matched: 0,
+      unmatched: 0,
+      errors: 0,
+    };
+    const gameRefreshes = () =>
+      invalidate.mock.calls.filter(([options]) => options?.queryKey?.[0] === "/api/games").length;
+    const reviewRefreshes = () =>
+      invalidate.mock.calls.filter(
+        ([options]) => options?.queryKey?.[0] === "/api/library/scan/unmatched"
+      ).length;
+    const update = async (changes: Partial<typeof progress> & { finishedAt?: string }) => {
+      Object.assign(progress, changes);
+      await act(async () => {
+        client.setQueryData(["/api/library/scan/status"], [{ ...progress }]);
+      });
+      await waitFor(() =>
+        expect(
+          screen.getByText(
+            `${progress.processedCandidates}/${progress.totalCandidates} scanned · ${progress.matched} matched · ${progress.unmatched} need review · ${progress.errors} errors`
+          )
+        ).toBeInTheDocument()
+      );
+    };
+    await update({});
+    const initialReviews = reviewRefreshes();
+    await update({ processedCandidates: 1, unmatched: 1 });
+    await update({ processedCandidates: 2, unmatched: 2 });
+    expect(reviewRefreshes()).toBeGreaterThan(initialReviews);
+    expect(gameRefreshes()).toBe(0);
+
+    await update({ processedCandidates: 3, matched: 1 });
+    expect(gameRefreshes()).toBe(1);
+    await update({ processedCandidates: 4, unmatched: 3 });
+    expect(gameRefreshes()).toBe(1);
+    await update({ status: "completed", finishedAt: "2026-10-10T10:01:00Z" });
+    expect(gameRefreshes()).toBe(2);
+    await update({});
+    expect(gameRefreshes()).toBe(2);
+
+    // A new run starts from zero and must not inherit the last run's match count.
+    await update({
+      startedAt: "2026-10-10T10:02:00Z",
+      status: "running",
+      matched: 0,
+      unmatched: 0,
+      finishedAt: undefined,
+    });
+    expect(gameRefreshes()).toBe(2);
+    await update({ matched: 1 });
+    expect(gameRefreshes()).toBe(3);
+    await update({ status: "failed", finishedAt: "2026-10-10T10:03:00Z" });
+    expect(gameRefreshes()).toBe(4);
+  });
+
+  it("keeps polling scan status after Scan All even if the first status is empty", async () => {
+    // The first status fetch lands before the server registers the scan.
+    let statusCalls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
+      const u = getRequestUrl(url);
+      if (u.includes("/api/library/scan/status")) {
+        statusCalls += 1;
+        return createJsonResponse(
+          statusCalls === 1
+            ? []
+            : [
+                {
+                  rootFolderId: "rf-1",
+                  rootFolderPath: "/mnt/old-library",
+                  startedAt: new Date().toISOString(),
+                  status: "running",
+                  totalCandidates: 3,
+                  processedCandidates: 1,
+                  matched: 1,
+                  unmatched: 0,
+                  errors: 0,
+                },
+              ]
+        );
+      }
+      if (u.includes("/api/root-folders")) return createJsonResponse([folder]);
+      return createJsonResponse([]);
+    });
+    const client = createTestQueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    render(
+      <QueryClientProvider client={client}>
+        <RootFolderDiscovery />
+      </QueryClientProvider>
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /scan all/i }));
+
+    await waitFor(() => expect(statusCalls).toBeGreaterThan(1), { timeout: 4000 });
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["/api/games"] }));
+  });
+
+  it("shows scan progress pushed by the server without waiting for a poll", async () => {
+    mockFetch([folder]);
+    renderComponent();
+    await screen.findByText("/mnt/old-library");
+
+    const handler = mockSocket.on.mock.calls.find(
+      ([event]) => event === "library-scan-progress"
+    )?.[1];
+    expect(handler).toBeDefined();
+    act(() => {
+      handler({
+        rootFolderId: "rf-1",
+        rootFolderPath: "/mnt/scan-pushed",
+        startedAt: new Date().toISOString(),
+        status: "running",
+        totalCandidates: 4,
+        processedCandidates: 1,
+        matched: 1,
+        unmatched: 0,
+        errors: 0,
+      });
+    });
+
+    expect(await screen.findByText("/mnt/scan-pushed")).toBeInTheDocument();
+    expect(screen.getByText("running")).toBeInTheDocument();
+  });
+
+  it("lets the user search IGDB under their own name when no candidate fits", async () => {
+    const { apiRequest } = await import("@/lib/queryClient");
+    mockFetch(
+      [folder],
+      [],
+      [
+        {
+          rootFolderId: "rf-1",
+          rootFolderPath: "/mnt/old-library",
+          folderName: "Absolum v1.01 [CUSA53342] [EUR]",
+          absolutePath: "/mnt/old-library/Absolum v1.01 [CUSA53342] [EUR]",
+          candidates: [{ igdbId: 314, name: "Wrong Game", releaseYear: 2001 }],
+        },
+      ]
+    );
+    vi.mocked(apiRequest).mockResolvedValueOnce({
+      json: async () => [{ igdbId: 777, name: "Absolum", releaseYear: 2025 }],
+    } as Response);
+    renderComponent();
+
+    const input = await screen.findByLabelText("Search IGDB for Absolum v1.01 [CUSA53342] [EUR]");
+    fireEvent.change(input, { target: { value: "Absolum" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("POST", "/api/library/scan/unmatched/search", {
+        rootFolderId: "rf-1",
+        folderName: "Absolum v1.01 [CUSA53342] [EUR]",
+        query: "Absolum",
+      })
+    );
+    // The searched result replaces the scan's guess and can be picked.
+    fireEvent.click(await screen.findByRole("button", { name: "Absolum (2025)" }));
+    expect(screen.queryByRole("button", { name: "Wrong Game (2001)" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("POST", "/api/library/scan/unmatched/match", {
+        rootFolderId: "rf-1",
+        folderName: "Absolum v1.01 [CUSA53342] [EUR]",
+        igdbId: 777,
+      })
+    );
   });
 
   it("shows an empty state when there are no root folders", async () => {

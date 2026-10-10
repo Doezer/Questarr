@@ -284,6 +284,17 @@ describe("evaluateRelease built-in rules", () => {
     expect(evaluateRelease(torrent("Dishonored-CODEX[rarbg]"), ctx).accepted).toBe(true);
   });
 
+  it("keeps site-name tags but catches a COM file behind a media extension", () => {
+    for (const title of ["Dishonored-CODEX [www.site.com]", "Dishonored-CODEX [site.com]"]) {
+      expect(evaluateRelease(torrent(title), ctx).rejections).not.toContainEqual({
+        code: "risky_file",
+      });
+    }
+    expect(evaluateRelease(torrent("Dishonored.mkv.com"), ctx).rejections).toContainEqual({
+      code: "risky_file",
+    });
+  });
+
   it.each(["PROPHET", "DOGE", "SiMPLEX", "ANOMALY", "I_KnoW"])(
     "recognizes established group %s",
     (group) => {

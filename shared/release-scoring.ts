@@ -600,10 +600,12 @@ const SIZE_MISMATCH_RATIO = 0.5;
 // An executable or script as the release itself, or hidden behind a media extension
 const RISKY_FILE_PATTERNS = [
   /\.ps1$/i, // PS1 before release metadata is a platform marker
-  /\.(exe|scr|bat|cmd|com|vbs|js|jar|msi|lnk)(-\w+)?$/i, // with or without a -GROUP suffix
+  // .com is left out: "[www.site.com]" indexer tags and site names are far more common than
+  // COM payloads, and the rule is locked
+  /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk)(-\w+)?$/i, // with or without a -GROUP suffix
   // unambiguous ones anywhere as a dotted part, even before metadata: Game.exe.MULTi8-CODEX
   /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk)(?=[.\s_\])-]|$)/i,
-  /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|lnk)\b/i,
+  /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|com|lnk)\b/i,
 ];
 
 /** "_" is a word character for \b, so Game_1080p_x264 would hide every marker. */
@@ -626,16 +628,21 @@ function splitTrailingTags(title: string): { name: string; tags: string[] } {
 
 // "[rarbg]", "[1337x.to]", "[EZTV]": one word, single-case or with a digit or a dot. A tag like
 // "[Eternal]" may be part of the title and is kept.
-const INDEXER_TAG = /^(?:[a-z0-9.]+|[A-Z0-9.]+|\S*[\d.]\S*)$/;
+function isIndexerTag(tag: string): boolean {
+  if (!/^\S+$/.test(tag)) return false;
+  return /^[a-z0-9.]+$/.test(tag) || /^[A-Z0-9.]+$/.test(tag) || /[\d.]/.test(tag);
+}
 
 /** The release name without the trailing tags that look like indexer annotations. */
 function withoutTrailingTags(title: string): string {
   const { name, tags } = splitTrailingTags(title);
   // Preserve numbers and Roman numerals: "Hades [II]" names a sequel, not an indexer.
   const kept = tags
-    .filter((tag) => /^\d+$|^[ivxlcdm]+$/i.test(tag) || !INDEXER_TAG.test(tag))
+    .filter((tag) => /^\d+$|^[ivxlcdm]+$/i.test(tag) || !isIndexerTag(tag))
     .reverse();
-  return kept.length > 0 ? `${name} ${kept.map((tag) => `[${tag}]`).join(" ")}` : name;
+  if (kept.length === 0) return name;
+  const suffix = kept.map((tag) => "[" + tag + "]").join(" ");
+  return `${name} ${suffix}`;
 }
 
 export const BUILT_IN_RULE_IDS = [

@@ -25,6 +25,7 @@ import LazyModalFallback from "./LazyModalFallback";
 const GameDetailsModal = lazy(() => import("./GameDetailsModal"));
 type Pool = "owned" | "playing" | "all";
 
+/** Draw from the filtered Library and let users inspect or mark a game as Playing. */
 export default function BacklogRoulette({
   games,
   loading,
@@ -44,15 +45,27 @@ export default function BacklogRoulette({
   );
   const selected = candidates.find((game) => game.id === selectedId);
 
+  /** Draw uniformly from the chosen pool, skipping the previous game when possible. */
   function roll(nextPool = pool) {
     const eligible = games.filter(
       (game) => !game.hidden && (nextPool === "all" || game.status === nextPool)
     );
     const choices =
       eligible.length > 1 ? eligible.filter((game) => game.id !== selectedId) : eligible;
-    setSelectedId(choices[Math.floor(Math.random() * choices.length)]?.id ?? null);
+    if (!choices.length) {
+      setSelectedId(null);
+      return;
+    }
+    // Reject the remainder of the uint32 range so modulo does not bias the draw.
+    const limit = Math.floor(2 ** 32 / choices.length) * choices.length;
+    let draw;
+    do {
+      [draw = 0] = crypto.getRandomValues(new Uint32Array(1));
+    } while (draw >= limit);
+    setSelectedId(choices[draw % choices.length]?.id ?? null);
   }
 
+  /** Save the selected game's status; keep the dialog open if the save fails. */
   async function startPlaying() {
     if (!selected) return;
     setStarting(true);

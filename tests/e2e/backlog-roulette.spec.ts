@@ -46,7 +46,7 @@ test.describe("Backlog roulette", () => {
       })
     );
     await dialog.getByRole("button", { name: "Mark as Playing" }).click();
-    await expect(page.getByText("Failed to update game status")).toBeVisible();
+    await expect(page.getByText("Failed to update game status", { exact: true })).toBeVisible();
     await expect(dialog.getByTestId("roulette-title")).toHaveText(startedTitle!);
     await page.unroute(statusUrl);
     const saved = page.waitForResponse(

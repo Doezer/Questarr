@@ -45,24 +45,22 @@ interface QBittorrentTorrent {
  *
  * qBittorrent before 4.4 ignores the `tag` filter and returns every torrent, so the
  * first entry is not necessarily the one we tagged. Match on each torrent's own
- * comma-separated `tags` field instead. `tagsUnsupported` is set when the client
- * returned torrents but none of them reports a `tags` field at all (too old to know
- * about tags), so a caller can fall back to other heuristics rather than wait forever.
+ * comma-separated `tags` field instead. `filterIgnored` is set when the response lists
+ * a torrent without our tag: the client did not apply the filter, and if it is older
+ * than 4.3.3 it also never set the tag on the add, so a caller should fall back to
+ * other heuristics rather than wait for a tag that will never appear.
  */
 function findTaggedTorrent<T extends { hash?: string; tags?: unknown }>(
   torrents: T[],
   tag: string
-): { match: T | undefined; tagsUnsupported: boolean } {
-  const match = torrents.find(
-    (t) =>
-      typeof t.tags === "string" &&
-      t.tags
-        .split(",")
-        .map((value) => value.trim())
-        .includes(tag)
-  );
-  const tagsUnsupported = torrents.length > 0 && !torrents.some((t) => typeof t.tags === "string");
-  return { match, tagsUnsupported };
+): { match: T | undefined; filterIgnored: boolean } {
+  const carriesTag = (t: T) =>
+    typeof t.tags === "string" &&
+    t.tags
+      .split(",")
+      .map((value) => value.trim())
+      .includes(tag);
+  return { match: torrents.find(carriesTag), filterIgnored: !torrents.every(carriesTag) };
 }
 
 /**
@@ -209,13 +207,13 @@ export class QBittorrentClient implements DownloaderClient {
             `/api/v2/torrents/info?tag=${encodeURIComponent(options.correlationTag)}`
           );
           const tagged = (await taggedResponse.json()) as QBittorrentTorrent[];
-          const { match, tagsUnsupported } = findTaggedTorrent(tagged, options.correlationTag);
-          if (!tagsUnsupported) {
-            return match?.hash ? { hash: match.hash, name: match.name } : null;
-          }
+          const { match, filterIgnored } = findTaggedTorrent(tagged, options.correlationTag);
+          if (match?.hash) return { hash: match.hash, name: match.name };
+          if (!filterIgnored) return null;
           downloadersLogger.debug(
             { correlationTag: options.correlationTag },
-            "qBittorrent does not report torrent tags; falling back to title/recency matching"
+            "qBittorrent ignored the tag filter and no torrent carries the tag; " +
+              "falling back to title/recency matching"
           );
         }
 

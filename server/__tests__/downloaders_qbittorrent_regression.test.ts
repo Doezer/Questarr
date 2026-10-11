@@ -639,6 +639,22 @@ describe("qbittorrent regression coverage", () => {
         message: "Download added successfully",
       });
     });
+
+    // qBittorrent 4.2.x to 4.3.2 report a `tags` string on every torrent but ignore
+    // the `tags` parameter on add, so our tag never shows up on the new torrent.
+    it("falls back to title matching when tags are reported but the add tag was not applied", async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const result = await runUrlAdd(() => [
+        { hash: "other-hash", name: "Other Game", added_on: now, tags: "" },
+        { hash: "wanted-hash", name: "Wanted.Game-GRP", added_on: now - 60, tags: "" },
+      ]);
+
+      expect(result).toEqual({
+        success: true,
+        id: "wanted-hash",
+        message: "Download added successfully",
+      });
+    });
   });
 
   it("removes the correlation tag when a non-magnet URL add already existed", async () => {

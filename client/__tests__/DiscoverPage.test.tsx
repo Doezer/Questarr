@@ -186,4 +186,27 @@ describe("DiscoverPage", () => {
 
     expect(await screen.findByText("Discover")).toBeInTheDocument();
   });
+
+  it("refreshes its library list when game queries are invalidated", async () => {
+    vi.mocked(apiRequest).mockImplementation((_method: string, url: string) => {
+      if (url.includes("/api/games?includeHidden=true")) {
+        return Promise.resolve({ json: async () => [] } as Response);
+      }
+      return Promise.resolve({ json: async () => ({ configured: true }) } as Response);
+    });
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DiscoverPage />
+      </QueryClientProvider>
+    );
+    const libraryFetches = () =>
+      vi.mocked(apiRequest).mock.calls.filter(([, url]) => url === "/api/games?includeHidden=true")
+        .length;
+
+    await waitFor(() => expect(libraryFetches()).toBe(1));
+    // Every game mutation (hide, status change, add) invalidates ["/api/games"].
+    await queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    await waitFor(() => expect(libraryFetches()).toBe(2));
+  });
 });

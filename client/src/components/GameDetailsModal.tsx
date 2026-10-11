@@ -98,6 +98,7 @@ import { type XrelGameStatus } from "@shared/xrel-types";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
+import { addDiscoveryGameToLibrary, hideDiscoveryGame } from "@/lib/discover-hidden-mutation";
 import { carriesBaseGameVersion } from "@shared/version-utils";
 
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
@@ -694,6 +695,24 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     staleTime: 60 * 60 * 1000,
   });
 
+  // Discover and search results carry a temporary "igdb-<id>" id that the
+  // game endpoints reject. Look up the library row for the same IGDB game so
+  // Hide, Remove and the rating act on it instead.
+  const isDiscoveryGame = isDiscoveryId(game?.id);
+  const { data: libraryGames } = useQuery<Game[]>({
+    queryKey: ["/api/games", "", true],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/games?includeHidden=true");
+      return res.json();
+    },
+    enabled: open && isDiscoveryGame,
+  });
+  const libraryGame = useMemo(() => {
+    if (!isDiscoveryGame) return game ?? undefined;
+    if (!game?.igdbId) return undefined;
+    return libraryGames?.find((g) => g.igdbId === game.igdbId);
+  }, [isDiscoveryGame, game, libraryGames]);
+
   const removeGameMutation = useMutation({
     mutationFn: async ({
       gameId,
@@ -747,7 +766,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     { gameId: string; userRating: number | null }
   >({
     mutationFn: async ({ gameId, userRating }) => {
-      await apiRequest("PATCH", `/api/games/${gameId}/user-rating`, { userRating });
+      // Rating a Discover game that isn't in the library yet adds it as wanted,
+      // like downloading it does.
+      const targetId =
+        isDiscoveryId(gameId) && game ? (await addDiscoveryGameToLibrary(game)).id : gameId;
+      await apiRequest("PATCH", `/api/games/${targetId}/user-rating`, { userRating });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
@@ -792,6 +815,14 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     unhiddenSuccessMessage: "Game unhidden",
     errorMessage: "Failed to update game visibility",
   });
+
+  const discoveryHiddenMutation = useHiddenMutation<Game>({
+    mutationFn: (discoveryGame) => hideDiscoveryGame(discoveryGame, libraryGame?.id),
+    hiddenSuccessMessage: "Game hidden from discovery",
+    errorMessage: "Failed to hide game",
+  });
+  const isHidden = !!libraryGame?.hidden;
+  const isHiddenPending = hiddenMutation.isPending || discoveryHiddenMutation.isPending;
 
   const removeDownloadMutation = useMutation({
     mutationFn: async (downloadId: string) => {
@@ -861,7 +892,16 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   }
 
   const handleUserRatingChange = (rating: number | null) => {
-    userRatingMutation.mutate({ gameId: game.id, userRating: rating });
+    userRatingMutation.mutate({ gameId: libraryGame?.id ?? game.id, userRating: rating });
+  };
+
+  const handleToggleHidden = () => {
+    if (isDiscoveryGame && !isHidden) {
+      // Hiding drops the game from Discover, so close the card it was opened from.
+      discoveryHiddenMutation.mutate(game, { onSuccess: () => onOpenChange(false) });
+    } else if (libraryGame) {
+      hiddenMutation.mutate({ gameId: libraryGame.id, hidden: !isHidden });
+    }
   };
 
   const SUMMARY_LIMIT = 280;
@@ -881,7 +921,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   // Optimistic display: show pending value immediately while the mutation is in flight.
   const currentUserRating = userRatingMutation.isPending
     ? (userRatingMutation.variables?.userRating ?? null)
-    : (game.userRating ?? null);
+    : (libraryGame?.userRating ?? null);
 
   const detailsBody = (
     <>
@@ -999,39 +1039,42 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => hiddenMutation.mutate({ gameId: game.id, hidden: !game.hidden })}
-                disabled={hiddenMutation.isPending}
+                onClick={handleToggleHidden}
+                disabled={isHiddenPending}
                 className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
-                aria-label={game.hidden ? "Unhide" : "Hide"}
+                aria-label={isHidden ? "Unhide" : "Hide"}
                 data-testid={`button-toggle-hidden-quick-${game.id}`}
               >
-                {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                {isHidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                 <span className="hidden sm:inline">
-                  {hiddenMutation.isPending ? "Updating..." : game.hidden ? "Unhide" : "Hide"}
+                  {isHiddenPending ? "Updating..." : isHidden ? "Unhide" : "Hide"}
                 </span>
               </Button>
             </TooltipTrigger>
-            <TooltipContent className="sm:hidden">{game.hidden ? "Unhide" : "Hide"}</TooltipContent>
+            <TooltipContent className="sm:hidden">{isHidden ? "Unhide" : "Hide"}</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setShowRemoveConfirm(true)}
-                disabled={removeGameMutation.isPending}
-                className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
-                aria-label="Remove"
-                data-testid={`button-remove-game-quick-${game.id}`}
-              >
-                <X className="w-4 h-4" />
-                <span className="hidden sm:inline">
-                  {removeGameMutation.isPending ? "Removing..." : "Remove"}
-                </span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent className="sm:hidden">Remove</TooltipContent>
-          </Tooltip>
+          {/* A Discover game that isn't in the library has nothing to remove. */}
+          {libraryGame && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setShowRemoveConfirm(true)}
+                  disabled={removeGameMutation.isPending}
+                  className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
+                  aria-label="Remove"
+                  data-testid={`button-remove-game-quick-${game.id}`}
+                >
+                  <X className="w-4 h-4" />
+                  <span className="hidden sm:inline">
+                    {removeGameMutation.isPending ? "Removing..." : "Remove"}
+                  </span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="sm:hidden">Remove</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </DialogHeader>
 
@@ -2003,9 +2046,16 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() =>
-                removeGameMutation.mutate({ gameId: game!.id, removeFromClient, deleteFiles })
-              }
+              onClick={() => {
+                if (!libraryGame) return;
+                // The file and download-client options above are only offered for
+                // library games; from a Discover card, remove the library row alone.
+                removeGameMutation.mutate(
+                  isDiscoveryGame
+                    ? { gameId: libraryGame.id, removeFromClient: false, deleteFiles: false }
+                    : { gameId: libraryGame.id, removeFromClient, deleteFiles }
+                );
+              }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Remove

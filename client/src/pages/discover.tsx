@@ -8,7 +8,7 @@ import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
-import { hideDiscoveryGame } from "@/lib/discover-hidden-mutation";
+import { addDiscoveryGameToLibrary, hideDiscoveryGame } from "@/lib/discover-hidden-mutation";
 import {
   Select,
   SelectContent,
@@ -108,7 +108,9 @@ export default function DiscoverPage() {
 
   // Fetch local games to filter hidden ones
   const { data: localGames = EMPTY_GAMES } = useQuery<Game[]>({
-    queryKey: ["/api/games?includeHidden=true"], // We need all games to know which are hidden
+    // Same key as Library and Stats with hidden games shown: it sits under
+    // ["/api/games"], so every game mutation's invalidation refreshes it.
+    queryKey: ["/api/games", "", true], // We need all games to know which are hidden
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/games?includeHidden=true");
       return response.json();
@@ -341,16 +343,11 @@ export default function DiscoverPage() {
 
         return response.json();
       } else {
-        // Add new game with status
-
-        const gameData = mapGameToInsertGame(game);
-
-        const response = await apiRequest("POST", "/api/games", {
-          ...gameData,
-
-          status,
-        });
-
+        // Add new game with status. If it is already in the library (the
+        // local list was stale), update that row's status instead.
+        const added = await addDiscoveryGameToLibrary(game, status);
+        if (added.status === status) return added;
+        const response = await apiRequest("PATCH", `/api/games/${added.id}/status`, { status });
         return response.json();
       }
     },

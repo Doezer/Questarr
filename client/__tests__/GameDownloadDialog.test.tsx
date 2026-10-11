@@ -12,6 +12,15 @@ import { createTestQueryClient, getRequestUrl } from "./test-utils";
 
 // Route apiRequest through globalThis.fetch so test mocks capture mutation calls
 vi.mock("@/lib/queryClient", () => ({
+  ApiError: class ApiError extends Error {
+    constructor(
+      public status: number,
+      message: string,
+      public data?: unknown
+    ) {
+      super(message);
+    }
+  },
   apiRequest: async (method: string, url: string, data?: unknown) => {
     const headers: Record<string, string> = data ? { "Content-Type": "application/json" } : {};
     const res = await globalThis.fetch(url, {
@@ -203,12 +212,12 @@ globalThis.fetch = vi.fn();
 let queryClient: QueryClient;
 const mockOnOpenChange = vi.fn();
 
-const renderComponent = (onOpenChange = mockOnOpenChange) => {
+const renderComponent = (onOpenChange = mockOnOpenChange, game = mockGame) => {
   queryClient = createTestQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <GameDownloadDialog game={mockGame} open={true} onOpenChange={onOpenChange} />
+        <GameDownloadDialog game={game} open={true} onOpenChange={onOpenChange} />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
@@ -538,6 +547,69 @@ describe("GameDownloadDialog", () => {
 
     // Dialog should remain open (onOpenChange should NOT be called with false)
     expect(mockOnOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("adds a Discover game to the library before downloading it", async () => {
+    const libraryId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const baseFetch = createFetchMock();
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (getRequestUrl(url) === "/api/games" && init?.method === "POST") {
+        return { ok: true, json: async () => ({ ...mockGame, id: libraryId }) };
+      }
+      return baseFetch(url, init);
+    }) as typeof fetch;
+    const discoveryGame = { ...mockGame, id: "igdb-123" } as unknown as typeof mockGame;
+    renderComponent(mockOnOpenChange, discoveryGame);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("icon-download").length).toBeGreaterThan(0);
+    });
+    const downloadButton = screen.getAllByTestId("icon-download")[0].closest("button");
+    if (!downloadButton) throw new Error("Download button not found");
+    fireEvent.click(downloadButton);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/downloads",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining(`"gameId":"${libraryId}"`),
+        })
+      );
+    });
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/games",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("blacklists from a Discover game under its library id and searches with it", async () => {
+    const libraryId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const baseFetch = createFetchMock();
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (getRequestUrl(url) === "/api/games" && init?.method === "POST") {
+        return { ok: true, json: async () => ({ ...mockGame, id: libraryId }) };
+      }
+      return baseFetch(url, init);
+    }) as typeof fetch;
+    const discoveryGame = { ...mockGame, id: "igdb-123" } as unknown as typeof mockGame;
+    renderComponent(mockOnOpenChange, discoveryGame);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Blacklist release").length).toBeGreaterThan(0);
+    });
+    fireEvent.click(screen.getAllByText("Blacklist release")[0]);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        `/api/games/${libraryId}/blacklist`,
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+    await waitFor(() => {
+      const urls = vi.mocked(globalThis.fetch).mock.calls.map(([url]) => getRequestUrl(url));
+      expect(urls).toContainEqual(expect.stringContaining(`gameId=${libraryId}`));
+    });
   });
 
   it("shows destructive toast when download API returns success:false", async () => {

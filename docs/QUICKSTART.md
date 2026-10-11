@@ -12,7 +12,8 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 ```
 
 For Windows, download `QuestarrSetup-<version>-windows-x64.exe` from the
-[latest release](https://github.com/Doezer/Questarr/releases/latest). The installer
+[releases](https://github.com/Doezer/Questarr/releases). Choose a 1.5.0 or later
+release with the Windows installer attached. The installer
 sets up a Windows service and starts Questarr automatically.
 
 Open `http://localhost:5000` and follow the initial setup wizard. Keep the Docker

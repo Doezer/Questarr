@@ -56,6 +56,7 @@ export class ProwlarrClient {
           "User-Agent": "Questarr/1.0",
         },
         signal: AbortSignal.timeout(30000),
+        requireHttps: overrides.allowInsecureLan !== true,
       });
 
       if (!response.ok) {

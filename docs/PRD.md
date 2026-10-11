@@ -160,13 +160,13 @@ The following will not be built within this roadmap and are not planned:
 
 ### Quality
 
-- Zero regressions on post-processing pipeline at launch
+- No regressions in the shipped post-processing pipeline
 - Test coverage maintained or improved (no coverage cliff from new features)
 - No open P0/P1 bugs older than 30 days
 
 ### Community
 
-- Pre-release testing by users for major features (post-processing, smart backlog)
+- Pre-release testing by users for upcoming major features (automatic upgrades, direct downloads)
 - Active engagement on Reddit posts and GitHub issues
 - Feature requests acknowledged within 48 hours
 

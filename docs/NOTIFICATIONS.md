@@ -14,8 +14,9 @@ searches and badges active. Existing installations keep both enabled by default.
 ## Apprise
 
 Choose CLI mode for notification URLs, or API mode for an Apprise API server.
-In API mode, enter the server URL and configuration key. If the server requires
-a login, also enter its username and password, then save the configuration.
+In API mode, enter the API URL and either a configuration key or notification
+URLs. If the server requires a login, also enter its username and password, then
+save the configuration.
 
 The password is encrypted and shown as a mask after saving. Keep the masked
 value to preserve it, or enter a new password to replace it. API login fields

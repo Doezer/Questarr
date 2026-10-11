@@ -144,8 +144,8 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 
 Prefer running Questarr as a native Windows service instead of Docker? Download
 `QuestarrSetup-<version>-windows-x64.exe` from the
-[latest GitHub release](https://github.com/Doezer/Questarr/releases/latest) and
-run it. The installer bundles Node.js, installs Questarr as a Windows service
+[GitHub releases](https://github.com/Doezer/Questarr/releases), choosing a 1.5.0
+or later release with the installer attached, and run it. The installer bundles Node.js, installs Questarr as a Windows service
 (`Questarr.Service.exe`), and starts it automatically — open
 `http://localhost:5000` once it finishes.
 

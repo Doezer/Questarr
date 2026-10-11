@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [1.5.0] - 2026-10-11
 
+### Before you upgrade
+
+- **Sign in again once**: sessions moved to httpOnly cookies, so the first page load after upgrading asks for your password again.
+- **Plain-HTTP indexers and download clients**: credentials are now only sent over plain HTTP to indexers and download clients that have **Allow insecure LAN** turned on. Every one you already use over `http://` is opted in automatically during the upgrade, so it keeps working; new ones added over HTTP need the option ticked, or HTTPS (#1022, #1061, #1175).
+- **Forgotten password in Docker**: the image has no `npm`, so run the reset script with `docker exec -it questarr su-exec questarr node dist/scripts/reset-password.js <username>` (replace `questarr` with your container name). Outside Docker, `npm run reset-password -- <username>` still works.
+
 ### Added
 
 #### Library & Discovery
@@ -21,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - **Sort menu** on the Library page, plus an indexer-priority sort option for downloads (#980, #963).
 - **DLC & expansions**: games now persist their IGDB expansions and show them in a new DLC tab on the game detail page, with cover art, release year, and a category badge (#1105).
 - **Installed version**: each game records the version you have installed, editable in the game details modal with suggestions from your downloads' release names. It is filled in automatically when a full-game or update download finishes, and update releases that are not newer than it no longer raise "Game Updates Available" (#1142).
+- **File categories**: change the category of a file in a game's Files tab; your choice survives later rescans (#1140).
 - **xREL**: surfaces a release's nuke reason with a "Nuked" badge (#948).
 - **Screenshot lightbox**: carousel navigation with arrow-key and swipe support, plus an image counter (#804).
 - **Wishlist**: configurable grid column count (#871).
@@ -56,7 +63,7 @@ All notable changes to this project will be documented in this file.
 - **`/api/status`**: new dashboard endpoint (#984).
 - **Debug logging**: optional logging of full downloader responses (#927).
 - **Telemetry**: [OPTIONAL] automatic reporting of unhandled server errors (#924). This uses the same function as the "Send Logs" button in the logs page and allows maintainers to proactively analyze errors not necessarily raised by users.
-- **Password reset**: `npm run reset-password` CLI script for a forgotten admin password (#860).
+- **Password reset**: `npm run reset-password -- <username>` CLI script for a forgotten admin password; in Docker, see _Before you upgrade_ (#860).
 
 ### Fixed
 
@@ -68,6 +75,8 @@ All notable changes to this project will be documented in this file.
 - **Import**: `modeUsed` was only reporting the last per-file fallback (#931).
 - **Import**: a download that disappeared from the client (e.g. pruned after a seed-ratio limit) was silently marked owned without importing anything; now routed to manual review (#837). A failed import used to dead-end with no retry path; failures now go to Pending Manual Imports so they can be adjusted and retried (#840).
 - **Import**: a single-file torrent saved outside a subfolder produced a 500 instead of importing (#856).
+- **Import**: auto-import failed when a torrent's name differed from its folder, as with FitGirl repacks; Questarr now uses the files' common root folder (#968, #1141).
+- **Library Import**: linking a Needs Review folder to a game failed with "Selected IGDB game not found in top candidates" for many release names; each entry can now also be searched on IGDB by name (#1163).
 - **SABnzbd**: fixed the manual Confirm Import path resolution and a history lookup that missed archived/failed downloads (#940, #1044); manual Confirm Import could also build a duplicated source path (`.../release/release`) (#937).
 - **SABnzbd categories**: use the downloader's configured category when an add request does not specify one (#1169).
 - **NZBGet**: the configured category was never applied to new downloads (#851); completed downloads with a non-`SUCCESS/ALL` history status were reported as aborted (#855); `downloadDir` was never populated on completion, so successful downloads never reached import (#932).
@@ -82,6 +91,7 @@ All notable changes to this project will be documented in this file.
 - **Prowlarr**: download links no longer double-wrapped when the proxy URL comes back on a container IP (#1007).
 - **Prowlarr HTTP credentials**: Honor the insecure-LAN choice and explain when credentials are withheld over HTTP.
 - **Newznab/Torznab categories**: Fix searches using multiple categories.
+- **Release titles**: a download was rejected with "Validation failed" when an indexer returned a title spread over several lines (#1119).
 - **Release matching**: Avoid matching sequels when searching for the original game, while accepting updates to the intended game.
 - **Indexers**: search categories outside 40xx/10xx were being dropped; hardened Newznab/Torznab caps discovery (#1058, #951).
 - **Downloaders**: credential policy now validates the resolved URL, not just `useSsl` (#1061).
@@ -98,6 +108,8 @@ All notable changes to this project will be documented in this file.
 #### UI & Misc
 
 - **Clipboard**: copy buttons now work on non-secure (HTTP) contexts (#961).
+- **Direct links**: reloading or bookmarking a nested page such as `/activity/imports` showed a blank page (#1135).
+- **Login**: the Login button could stay disabled after a session expired (#1122).
 - **Calendar**: follow-up fixes to the year view's date filtering.
 - **Calendar year view**: grey out past months and releases, comparing datetime releases by their local calendar day.
 - **Release notifications**: no longer sent for games added with a release date already in the past (#874).
@@ -125,9 +137,12 @@ All notable changes to this project will be documented in this file.
 #### Mobile
 
 - **Mobile**: personal notes collapse behind an Edit button; the Settings tab strip gets scroll-fade hints (#993, #969).
+- **Game cards and navigation**: larger touch targets on mobile (the hide toggle stays 36px), plus responsive and accessibility fixes for cards, tags and the sidebar (#1130).
 
 #### Other
 
+- **API rate limit**: the general `/api` limit is raised to 600 requests per minute so busy libraries and the Downloads page no longer hit 429 errors (#1136).
+- **AI release analysis**: Jev can classify a release as `unknown`; TypeSafe, the categorizer and auto-search treat it separately from `other` instead of dropping or mislabeling it (#1129).
 - **License metadata**: align package, Helm, and deployment declarations on `GPL-3.0-only` without changing the project license.
 - **Release packaging**: align the Helm app version and Home Assistant add-on version with 1.5.0; Helm chart version is 0.1.2.
 - **Dependencies**: update bundled Apprise and its locked Python dependencies; refresh `http-cache-semantics` and `source-map-js` in the npm lockfile.
@@ -140,6 +155,7 @@ All notable changes to this project will be documented in this file.
 
 - **API auth**: added a default-deny boundary and fixed an unauthenticated `GET /api/config` (#953).
 - **Real-time channel**: the Socket.IO connection now requires the same session as the REST API. Before, anyone who could reach the port could open it and receive the live server log stream, notifications and download progress. A handshake that relies on the session cookie must also come from Questarr's own origin (reverse proxies that set `X-Forwarded-Host` work unchanged; otherwise list the public URL in `ALLOWED_ORIGINS` or `APP_URL`).
+- **Per-user events**: notifications and download progress are sent only to the signed-in user's own Socket.IO room instead of every connected client (#1081, #1149).
 - **Apprise login transport**: authenticated HTTPS requests cannot be redirected to plaintext HTTP or another origin. HTTP URLs with a configured login show an unencrypted-credentials warning. The masked saved password survives CLI/API mode switches.
 - **Delete with files**: deleting a game whose library path is the library root (or an opted-in root folder) itself no longer removes that whole folder.
 - **Auth**: failed login attempts are now logged for brute-force/credential-stuffing detection (#858); fixed an IDOR letting any user modify or delete another user's games, and strengthened the password policy to 8+ characters with a letter and a digit (#859).

@@ -33,3 +33,12 @@ for optional PostgreSQL and data migration.
 For other installation options, see [home server deployments](HOME_SERVER_APPS.md)
 and [Proxmox](PROXMOX.md). See [reverse proxy setup](REVERSE_PROXY.md) before
 publishing Questarr behind a proxy, and [the changelog](CHANGELOG.md) when upgrading.
+
+## Forgot your password
+
+Questarr has no email reset. Run the reset script on the machine that hosts it;
+it prompts for a new password.
+
+- Docker: `docker exec -it questarr su-exec questarr node dist/scripts/reset-password.js <username>`
+  (replace `questarr` with your container name; the image has no `npm`).
+- From source: `npm run reset-password -- <username>`.

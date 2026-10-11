@@ -61,7 +61,7 @@ import { ArchiveService } from "../services/ArchiveService.js";
 // hold everywhere: a bare CI runner or dev machine can genuinely have a system 7-Zip
 // installed (p7zip is a common preinstall), which made this exact test flaky in CI.
 // The directory extract() unpacks into before merging into outputDir.
-function staging(outputDir: string, archiveName: string): string {
+function staging(outputDir: string): string {
   return path.join(outputDir, `.questarr-extract-test`);
 }
 
@@ -262,7 +262,7 @@ describe("ArchiveService", () => {
         "-bso0",
         "-bsp0",
         "-y",
-        `-o${staging("/tmp/out", "game.zip")}`,
+        `-o${staging("/tmp/out")}`,
         "--",
         "/downloads/game.zip",
       ]);
@@ -403,7 +403,7 @@ describe("ArchiveService", () => {
         "-bso0",
         "-bsp0",
         "-y",
-        `-o${staging("/tmp/settling-out", "settling.zip")}`,
+        `-o${staging("/tmp/settling-out")}`,
         "--",
         "/downloads/settling.zip",
       ]);
@@ -454,13 +454,13 @@ describe("ArchiveService", () => {
       const service = await freshArchiveService();
       mockExecAlways(null, "", "");
       readdirMock.mockImplementation(async (dir: string) => {
-        if (dir === staging("/tmp/nested-out", "nested.zip")) {
+        if (dir === staging("/tmp/nested-out")) {
           return [
             { name: "level1", isDirectory: () => true },
             { name: "root.cfg", isDirectory: () => false },
           ] as never;
         }
-        if (dir === path.join(staging("/tmp/nested-out", "nested.zip"), "level1")) {
+        if (dir === path.join(staging("/tmp/nested-out"), "level1")) {
           return [{ name: "deep.rom", isDirectory: () => false }] as never;
         }
         return [];
@@ -502,7 +502,7 @@ describe("ArchiveService", () => {
         "-p-",
         "--",
         "/downloads/game.rar",
-        staging("/tmp/rar-out", "game.rar") + path.sep,
+        staging("/tmp/rar-out") + path.sep,
       ]);
       expect(mkdtempMock).toHaveBeenCalledWith(path.join("/tmp/rar-out", ".questarr-extract-"));
     });
@@ -646,7 +646,7 @@ describe("ArchiveService", () => {
           "-phunter2",
           "--",
           "/downloads/game.rar",
-          staging("/tmp/rar-out", "game.rar") + path.sep,
+          staging("/tmp/rar-out") + path.sep,
         ],
       ],
       [
@@ -660,7 +660,7 @@ describe("ArchiveService", () => {
           "-bsp0",
           "-y",
           "-phunter2",
-          `-o${staging("/tmp/out", "game.zip")}`,
+          `-o${staging("/tmp/out")}`,
           "--",
           "/downloads/game.zip",
         ],

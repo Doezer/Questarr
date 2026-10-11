@@ -1,31 +1,68 @@
-# GitHub Documentation Map (Canonical)
+# Documentation Map
 
-This file is the single entry point for GitHub-facing documentation in this repository.
+This map follows the groups and page order in the Mintlify sidebar configured in
+[docs.json](docs.json). All sidebar pages are listed below; repository resources
+outside the documentation site are linked at the end.
 
-- Getting started: [QUICKSTART.md](QUICKSTART.md)
-- Library imports, settings, manual review, and history: [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md)
-- Picking a game: [BACKLOG_ROULETTE.md](BACKLOG_ROULETTE.md)
-- Indexers and Prowlarr: [INDEXERS.md](INDEXERS.md)
-- RSS feeds: [RSS.md](RSS.md)
-- Notification preferences and Apprise: [NOTIFICATIONS.md](NOTIFICATIONS.md)
-- Product overview and setup: [`README.md`](https://github.com/Doezer/Questarr/blob/main/README.md)
-- Contribution guide: [`.github/CONTRIBUTING.md`](https://github.com/Doezer/Questarr/blob/main/.github/CONTRIBUTING.md)
-- Security policy and reporting: [`docs/SECURITY.md`](SECURITY.md)
-- API reference: [`docs/API.md`](./API.md), for the REST/Socket.io interface reference
-- Architecture: [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md), for a system architecture and actor overview
-- Changelog: [`docs/CHANGELOG.md`](https://github.com/Doezer/Questarr/blob/main/docs/CHANGELOG.md)
-- Migration notes: [`docs/MIGRATION.md`](./MIGRATION.md), for migration from PostgreSQL to SQLite in v1.1
-- Database: [`docs/DATABASE.md`](./DATABASE.md), for running Questarr on the optional PostgreSQL backend instead of SQLite
-- Reverse proxy / subdirectory deployment: [`docs/REVERSE_PROXY.md`](./REVERSE_PROXY.md), for serving Questarr from a path like `/Questarr` behind nginx/Traefik/Caddy
-- Proxmox VE deployment: [`docs/PROXMOX.md`](./PROXMOX.md), for deploying Questarr into a Proxmox LXC container without Docker
-- Home server app definitions: [`docs/HOME_SERVER_APPS.md`](./HOME_SERVER_APPS.md), for the UNRAID/CasaOS/Umbrel/Cosmos Cloud/Home Assistant install definitions
-- Playnite extension: [`extensions/playnite-questarr/README.md`](https://github.com/Doezer/Questarr/blob/main/extensions/playnite-questarr/README.md), for syncing your Playnite library and requesting games from the couch
-- Security model and operations:
-  - [`docs/THREAT_MODEL.md`](./THREAT_MODEL.md), for the attack surface analysis and security architecture
-  - [`docs/SECURITY_ASSESSMENT.md`](./SECURITY_ASSESSMENT.md), security risk assessment.
-  - [`docs/VULNERABILITY_MANAGEMENT.md`](./VULNERABILITY_MANAGEMENT.md), for the SCA/SAST remediation policy and release gates
-  - [`docs/SECRETS.md`](./SECRETS.md), for details on how API keys, indexer/downloader credentials, and other secrets are stored and managed.
-  - [`docs/SBOM.md`](./SBOM.md): Every published image ships with a Software Bill of Materials.
-  - [`docs/VEX.md`](./VEX.md), for details on Questarr's Vulnerability Exploitability Exchange feed
-  - [`docs/DEPENDENCIES.md`](./DEPENDENCIES.md), for how dependencies are selected, obtained, and tracked.
-- `docs/CODE_OF_CONDUCT.md` (community health file)
+## Getting started
+
+- [Install and get started](QUICKSTART.md)
+
+## Library
+
+- [Library imports, settings, manual review, and history](LIBRARY_IMPORT.md)
+- [Pick your next game](BACKLOG_ROULETTE.md)
+
+## Discovery & notifications
+
+- [Indexers and Prowlarr](INDEXERS.md)
+- [RSS feeds](RSS.md)
+- [Notifications and Apprise](NOTIFICATIONS.md)
+
+## Deployment
+
+- [Home server app deployments](HOME_SERVER_APPS.md)
+- [Proxmox LXC deployment](PROXMOX.md)
+- [Reverse proxy and subdirectory setup](REVERSE_PROXY.md)
+- [SQLite and optional PostgreSQL](DATABASE.md)
+- [Legacy PostgreSQL-to-SQLite migration](MIGRATION.md)
+
+## Reference
+
+- [REST and Socket.IO API](API.md)
+- [System architecture](ARCHITECTURE.md)
+- [Downloader compatibility](DOWNLOADERS_COMPATIBILITY.md)
+- [Synology Download Station API notes](synology-download-station-api-notes.md)
+
+## Security
+
+- [Security policy and reporting](SECURITY.md)
+- [Security risk assessment](SECURITY_ASSESSMENT.md)
+- [Threat model](THREAT_MODEL.md)
+- [Credentials and secrets](SECRETS.md)
+- [Vulnerability management and release gates](VULNERABILITY_MANAGEMENT.md)
+- [Vulnerability Exploitability Exchange](VEX.md)
+- [Software Bill of Materials](SBOM.md)
+- [Dependency management](DEPENDENCIES.md)
+- [Security best practices](BEST_PRACTICES.md)
+- [CVE fixes by release](CVE_FIXES_BY_RELEASE.md)
+- [CWE fixes by release](CWE_FIXES_BY_RELEASE.md)
+
+## Project
+
+- [Changelog](CHANGELOG.md)
+- [Product requirements and remaining roadmap](PRD.md)
+- [Development priorities](TODO.md)
+- [Documentation map](GITHUB_DOCUMENTATION.md)
+
+## Community
+
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Maintainers](MAINTAINERS.md)
+- [Operational procedures and Windows release assets](OPERATIONS.md)
+
+## Repository resources
+
+- [Product overview and installation](https://github.com/Doezer/Questarr/blob/main/README.md)
+- [Contribution guide](https://github.com/Doezer/Questarr/blob/main/.github/CONTRIBUTING.md)
+- [Playnite extension](https://github.com/Doezer/Questarr/blob/main/extensions/playnite-questarr/README.md)

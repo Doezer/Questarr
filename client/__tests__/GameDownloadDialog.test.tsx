@@ -583,6 +583,35 @@ describe("GameDownloadDialog", () => {
     );
   });
 
+  it("blacklists from a Discover game under its library id and searches with it", async () => {
+    const libraryId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const baseFetch = createFetchMock();
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (getRequestUrl(url) === "/api/games" && init?.method === "POST") {
+        return { ok: true, json: async () => ({ ...mockGame, id: libraryId }) };
+      }
+      return baseFetch(url, init);
+    }) as typeof fetch;
+    const discoveryGame = { ...mockGame, id: "igdb-123" } as unknown as typeof mockGame;
+    renderComponent(mockOnOpenChange, discoveryGame);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Blacklist release").length).toBeGreaterThan(0);
+    });
+    fireEvent.click(screen.getAllByText("Blacklist release")[0]);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        `/api/games/${libraryId}/blacklist`,
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+    await waitFor(() => {
+      const urls = vi.mocked(globalThis.fetch).mock.calls.map(([url]) => getRequestUrl(url));
+      expect(urls).toContainEqual(expect.stringContaining(`gameId=${libraryId}`));
+    });
+  });
+
   it("shows destructive toast when download API returns success:false", async () => {
     globalThis.fetch = createFetchMock({
       downloads: { success: false, message: "Downloader offline" },

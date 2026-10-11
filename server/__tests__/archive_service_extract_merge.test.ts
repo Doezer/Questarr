@@ -167,3 +167,46 @@ describe("ArchiveService.extract into a non-empty destination", () => {
     expect(await fs.readFile(path.join(gameDir, "Data", "level1.pak"), "utf8")).toBe("level1");
   });
 });
+
+describe("ArchiveService.extract conflict checks", () => {
+  it("checks every conflict before replacing any file", async () => {
+    const gameDir = await tempDir();
+    await fs.outputFile(path.join(gameDir, "a.pak"), "a-old");
+    await fs.outputFile(path.join(gameDir, "z", "keep.txt"), "keep");
+    const archive = path.join(await tempDir(), "update.zip");
+    await fs.writeFile(archive, "zip-bytes");
+
+    // a.pak would merge fine, but "z" clashes with an existing directory.
+    const { service } = makeService({ "a.pak": "a-new", z: "file" });
+
+    await expect(service.extract(archive, gameDir)).rejects.toThrow("existing directory");
+    expect(await fs.readFile(path.join(gameDir, "a.pak"), "utf8")).toBe("a-old");
+  });
+
+  it("refuses to descend into a symlinked directory in the destination", async () => {
+    const gameDir = await tempDir();
+    const outside = await tempDir();
+    await fs.outputFile(path.join(outside, "victim.txt"), "untouched");
+    await fs.symlink(outside, path.join(gameDir, "Data"), "dir");
+    const archive = path.join(await tempDir(), "update.zip");
+    await fs.writeFile(archive, "zip-bytes");
+
+    const { service } = makeService({ "Data/victim.txt": "overwritten" });
+
+    await expect(service.extract(archive, gameDir)).rejects.toThrow("symbolic link");
+    expect(await fs.readFile(path.join(outside, "victim.txt"), "utf8")).toBe("untouched");
+  });
+
+  it("rejects an archive entry named like the staging directory", async () => {
+    const gameDir = await tempDir();
+    const archive = path.join(await tempDir(), "foo.zip");
+    await fs.writeFile(archive, "zip-bytes");
+
+    const { service } = makeService({ ".questarr-extract-foo.zip/game.exe": "exe" });
+
+    // The archive's own folder lands inside the real staging dir, so its top-level
+    // entry is the reserved name.
+    await expect(service.extract(archive, gameDir)).rejects.toThrow("reserved");
+    expect(await fs.readdir(gameDir)).toEqual([]);
+  });
+});

@@ -421,39 +421,57 @@ export class ArchiveService {
   /**
    * Moves everything under stagingDir into destDir, merging directories and replacing
    * same-named files, and leaves every other file already in destDir untouched.
-   * Refuses to replace a file with a directory or a directory with a file rather than
-   * deleting what is there.
+   *
+   * Every conflict is checked before the first file moves, so a refused merge leaves
+   * destDir exactly as it was: a file and a directory at the same path, an existing
+   * symlink where the archive has a directory (descending into it would write outside
+   * destDir), or a top-level entry using the staging directory's reserved name.
    * @returns Final paths (under destDir) of the files moved.
    */
   private async mergeExtracted(stagingDir: string, destDir: string): Promise<string[]> {
-    const results: string[] = [];
-    const walk = async (srcDir: string, targetDir: string): Promise<void> => {
+    const dirsToCreate: string[] = [];
+    const filesToMove: Array<{ from: string; to: string }> = [];
+
+    const plan = async (srcDir: string, targetDir: string): Promise<void> => {
       const entries = await fs.readdir(srcDir, { withFileTypes: true });
       for (const entry of entries) {
         const srcPath = path.join(srcDir, entry.name);
         const targetPath = path.join(targetDir, entry.name);
-        const existing = await fs.stat(targetPath).catch(() => undefined);
+        if (srcDir === stagingDir && entry.name.startsWith(EXTRACT_STAGING_PREFIX)) {
+          throw new Error(
+            `Archive contains "${entry.name}", a name reserved for Questarr's extraction staging directory`
+          );
+        }
+        const existing = await fs.lstat(targetPath).catch(() => undefined);
         if (entry.isDirectory()) {
+          if (existing?.isSymbolicLink()) {
+            throw new Error(
+              `Cannot extract into ${targetPath}: it is a symbolic link — replace it with a real directory and retry`
+            );
+          }
           if (existing && !existing.isDirectory()) {
             throw new Error(
               `Cannot extract directory over existing file ${targetPath} — move or delete it and retry`
             );
           }
-          if (!existing) await fs.ensureDir(targetPath);
-          await walk(srcPath, targetPath);
+          if (!existing) dirsToCreate.push(targetPath);
+          await plan(srcPath, targetPath);
         } else {
           if (existing?.isDirectory()) {
             throw new Error(
               `Cannot extract file over existing directory ${targetPath} — move or delete it and retry`
             );
           }
-          await fs.move(srcPath, targetPath, { overwrite: true });
-          results.push(targetPath);
+          // A symlink at a file's path is replaced by the rename itself, never followed.
+          filesToMove.push({ from: srcPath, to: targetPath });
         }
       }
     };
-    await walk(stagingDir, destDir);
-    return results;
+    await plan(stagingDir, destDir);
+
+    for (const dir of dirsToCreate) await fs.ensureDir(dir);
+    for (const { from, to } of filesToMove) await fs.move(from, to, { overwrite: true });
+    return filesToMove.map(({ to }) => to);
   }
 
   private async extractWithUnrar(

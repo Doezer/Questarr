@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { ensureDirMock, moveMock, readdirMock, statMock, removeMock, loggerMocks } = vi.hoisted(
-  () => ({
+const { ensureDirMock, moveMock, lstatMock, readdirMock, statMock, removeMock, loggerMocks } =
+  vi.hoisted(() => ({
     ensureDirMock: vi.fn().mockResolvedValue(undefined),
     moveMock: vi.fn().mockResolvedValue(undefined),
+    lstatMock: vi.fn(),
     readdirMock: vi.fn().mockResolvedValue([]),
     statMock: vi.fn(),
     removeMock: vi.fn().mockResolvedValue(undefined),
@@ -17,8 +18,7 @@ const { ensureDirMock, moveMock, readdirMock, statMock, removeMock, loggerMocks 
       warn: vi.fn(),
       error: vi.fn(),
     },
-  })
-);
+  }));
 
 vi.mock("fs-extra", () => ({
   default: {
@@ -26,6 +26,7 @@ vi.mock("fs-extra", () => ({
     move: moveMock,
     readdir: readdirMock,
     stat: statMock,
+    lstat: lstatMock,
     remove: removeMock,
   },
 }));
@@ -157,7 +158,7 @@ describe("ArchiveService", () => {
     ensureDirMock.mockResolvedValue(undefined);
     moveMock.mockResolvedValue(undefined);
     // Nothing exists at the merge destination unless a test says otherwise.
-    statMock.mockRejectedValue(new Error("ENOENT"));
+    lstatMock.mockRejectedValue(new Error("ENOENT"));
     readdirMock.mockResolvedValue([]);
     removeMock.mockResolvedValue(undefined);
     process.env.SEVENZIP_PATH = fakeSevenZipPath;

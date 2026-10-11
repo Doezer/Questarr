@@ -16,7 +16,8 @@ final base URL.
 
 Use HTTPS whenever possible. For a trusted LAN server using HTTP, explicitly
 select **Allow insecure LAN connection** before syncing. Clearing this choice
-revokes permission to send credentials over HTTP. If a request reports that its
+revokes the saved permission and matching synced indexers' HTTP permission even
+if the sync cannot proceed. Switch to HTTPS to sync with the choice cleared. If a request reports that its
 API key was withheld, check the URL and this setting before trying again.
 
 See [SECRETS.md](SECRETS.md) for credential handling and [API.md](API.md) for the

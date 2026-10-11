@@ -4,6 +4,8 @@ const config = new Map<string, string>();
 
 vi.mock("../storage.js", () => ({
   storage: {
+    getAllIndexers: vi.fn(async () => []),
+    updateIndexer: vi.fn(),
     getSystemConfig: vi.fn(async (key: string) => config.get(key)),
     setSystemConfigBatch: vi.fn(async (entries: { key: string; value: string }[]) => {
       for (const { key, value } of entries) config.set(key, value);
@@ -16,10 +18,20 @@ vi.mock("../credential-crypto.js", () => ({
   decryptCredential: vi.fn(async (value: string) => value.replace(/^enc:v1:/, "")),
 }));
 
-import { loadProwlarrSyncSettings, saveProwlarrSyncSettings } from "../prowlarr-settings.js";
+import {
+  loadProwlarrSyncSettings,
+  saveProwlarrSyncSettings,
+  revokeProwlarrHttpOptIn,
+} from "../prowlarr-settings.js";
+import { storage } from "../storage.js";
+import type { Indexer } from "../../shared/schema.js";
 
 describe("Prowlarr sync settings", () => {
-  beforeEach(() => config.clear());
+  beforeEach(() => {
+    config.clear();
+    vi.clearAllMocks();
+    vi.mocked(storage.getAllIndexers).mockResolvedValue([]);
+  });
 
   it("returns null before any sync was saved", async () => {
     expect(await loadProwlarrSyncSettings()).toBeNull();
@@ -52,5 +64,61 @@ describe("Prowlarr sync settings", () => {
       priority: undefined,
       categories: [],
     });
+  });
+});
+
+describe("Prowlarr HTTP consent revocation", () => {
+  const saved = {
+    url: "http://prowlarr:9696/base",
+    apiKey: "saved-key",
+    allowInsecureLan: true,
+    priority: 4,
+    categories: ["4050"],
+  };
+  const rows = [
+    { id: "matching", url: `${saved.url}/1/api`, apiKey: saved.apiKey, allowInsecureLan: true },
+    {
+      id: "other-host",
+      url: "http://another:9696/base/1/api",
+      apiKey: saved.apiKey,
+      allowInsecureLan: true,
+    },
+    {
+      id: "other-base",
+      url: "http://prowlarr:9696/elsewhere/1/api",
+      apiKey: saved.apiKey,
+      allowInsecureLan: true,
+    },
+    { id: "other-key", url: `${saved.url}/2/api`, apiKey: "another-key", allowInsecureLan: true },
+    { id: "invalid", url: "not-a-url", apiKey: saved.apiKey, allowInsecureLan: true },
+  ] as Indexer[];
+
+  beforeEach(async () => {
+    config.clear();
+    vi.clearAllMocks();
+    await saveProwlarrSyncSettings(saved);
+    vi.mocked(storage.getAllIndexers).mockResolvedValue(rows);
+  });
+
+  it("persists revocation without changing credentials/defaults or unrelated indexers", async () => {
+    await revokeProwlarrHttpOptIn(saved.url);
+    expect(await loadProwlarrSyncSettings()).toEqual({ ...saved, allowInsecureLan: false });
+    expect(storage.updateIndexer).toHaveBeenCalledExactlyOnceWith("matching", {
+      allowInsecureLan: false,
+    });
+  });
+
+  it("leaves another connection untouched", async () => {
+    await revokeProwlarrHttpOptIn("http://another:9696");
+    expect(await loadProwlarrSyncSettings()).toEqual(saved);
+    expect(storage.updateIndexer).not.toHaveBeenCalled();
+  });
+
+  it("can retry indexer revocation after a storage failure", async () => {
+    vi.mocked(storage.updateIndexer).mockRejectedValueOnce(new Error("Storage failure"));
+    await expect(revokeProwlarrHttpOptIn(saved.url)).rejects.toThrow("Storage failure");
+    expect((await loadProwlarrSyncSettings())?.allowInsecureLan).toBe(false);
+    await revokeProwlarrHttpOptIn(saved.url);
+    expect(storage.updateIndexer).toHaveBeenCalledTimes(2);
   });
 });

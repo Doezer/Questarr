@@ -84,7 +84,11 @@ import {
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
 import { prowlarrClient } from "./prowlarr.js";
-import { loadProwlarrSyncSettings, saveProwlarrSyncSettings } from "./prowlarr-settings.js";
+import {
+  loadProwlarrSyncSettings,
+  saveProwlarrSyncSettings,
+  revokeProwlarrHttpOptIn,
+} from "./prowlarr-settings.js";
 import { isSafeUrl, safeFetch, resolveSafeAddress, normalizeHostname } from "./ssrf.js";
 import {
   hashPassword,
@@ -1661,6 +1665,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!(await isSafeUrl(url))) {
           return res.status(400).json({ error: "Invalid or unsafe URL" });
         }
+
+        // Revocation is local: it must survive a refused or failed network sync.
+        if (allowInsecureLan === false) await revokeProwlarrHttpOptIn(url);
 
         const indexers = await prowlarrClient.getIndexers(url, apiKey, {
           allowInsecureLan,

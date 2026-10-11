@@ -1,4 +1,5 @@
 import { storage } from "./storage.js";
+import { normalizeProwlarrUrl } from "./url-utils.js";
 import { decryptCredential, encryptCredential } from "./credential-crypto.js";
 
 /**
@@ -76,7 +77,7 @@ export async function revokeProwlarrHttpOptIn(url: string): Promise<void> {
   const saved = await loadProwlarrSyncSettings();
   if (!saved || saved.url !== url) return;
 
-  const base = new URL(saved.url);
+  const base = new URL(normalizeProwlarrUrl(saved.url));
   const prefix = `${base.pathname.replace(/\/+$/, "")}/`;
   await saveProwlarrSyncSettings({ ...saved, allowInsecureLan: false });
   for (const indexer of await storage.getAllIndexers()) {

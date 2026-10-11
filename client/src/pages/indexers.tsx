@@ -231,14 +231,19 @@ export default function IndexersPage() {
       return response.json();
     },
     onSuccess: (data) => {
-      void refreshIndexerQueries(queryClient);
-      void queryClient.invalidateQueries({ queryKey: ["/api/indexers/prowlarr/settings"] });
       clearSearchCache();
       setIsProwlarrDialogOpen(false);
       toast({
         title: "Sync successful",
         description: data.message,
       });
+    },
+    onSettled: async () => {
+      // A failed sync can still persist HTTP consent revocation locally.
+      await Promise.all([
+        refreshIndexerQueries(queryClient),
+        queryClient.invalidateQueries({ queryKey: ["/api/indexers/prowlarr/settings"] }),
+      ]);
     },
     onError: (error) => {
       toast({

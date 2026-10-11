@@ -67,6 +67,7 @@ vi.mock("../prowlarr.js", () => ({ prowlarrClient: createProwlarrMock() }));
 vi.mock("../prowlarr-settings.js", () => ({
   loadProwlarrSyncSettings: vi.fn().mockResolvedValue(null),
   saveProwlarrSyncSettings: vi.fn().mockResolvedValue(undefined),
+  revokeProwlarrHttpOptIn: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../xrel.js", () => createXrelMock());
 vi.mock("../apprise.js", async () => createAppriseMock());

@@ -355,6 +355,54 @@ test.describe("v1.5 changes since RC1", () => {
     await expect(dialog.getByLabel("Prowlarr URL")).toHaveValue(saved.url);
   });
 
+  test("keeps HTTP consent revoked after a failed sync and reopening the dialog", async ({
+    page,
+  }, testInfo) => {
+    const saved = {
+      url: "http://prowlarr:9696",
+      apiKey: "********",
+      allowInsecureLan: true,
+      priority: 3,
+      categories: ["4050"],
+    };
+    let settingsReads = 0;
+    let indexerReads = 0;
+    let syncAttempts = 0;
+    await page.route("/api/indexers/prowlarr/settings", (route) => {
+      settingsReads++;
+      return route.fulfill({ json: saved });
+    });
+    await page.route("/api/indexers", (route) => {
+      indexerReads++;
+      return route.fulfill({ json: [] });
+    });
+    await page.route("/api/indexers/prowlarr/sync", async (route) => {
+      syncAttempts++;
+      expect(route.request().postDataJSON().allowInsecureLan).not.toBe(true);
+      saved.allowInsecureLan = false;
+      await route.fulfill({ status: 500, json: { error: "HTTP credentials require HTTPS" } });
+    });
+    await page.goto("/indexers");
+    await page.getByTestId("button-sync-prowlarr").click();
+    const consent = page.getByTestId("checkbox-prowlarr-insecure-lan");
+    await expect(consent).toBeChecked();
+    await consent.click();
+    const initialIndexerReads = indexerReads;
+    await page.getByTestId("button-sync-prowlarr-confirm").click();
+    await expect(page.getByText("Sync failed", { exact: true })).toBeVisible();
+    await expect.poll(() => settingsReads).toBe(2);
+    await expect.poll(() => indexerReads).toBeGreaterThan(initialIndexerReads);
+    await page.getByTestId("button-cancel-prowlarr").click();
+    await page.getByTestId("button-sync-prowlarr").click();
+    await expect(consent).not.toBeChecked();
+    await expect(page.getByTestId("text-prowlarr-insecure-lan-warning")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("prowlarr-revocation.png") });
+    // A subsequent attempt must not silently send the previous opt-in again.
+    await page.getByTestId("button-sync-prowlarr-confirm").click();
+    await expect.poll(() => syncAttempts).toBe(2);
+    await expect(consent).not.toBeChecked();
+  });
+
   test("round-trips masked Apprise login credentials and warns about HTTP", async ({ page }) => {
     const saved = {
       configured: true,

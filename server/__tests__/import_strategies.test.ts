@@ -29,6 +29,17 @@ afterEach(async () => {
 });
 
 describe("ImportStrategies", () => {
+  it("skips extraction staging directories when gathering a game folder's files", async () => {
+    // Another import may still be unpacking into (or an interrupted one may have left) a
+    // .questarr-extract-* directory inside the game folder; its files are not game content.
+    const gameDir = tempDir();
+    await fs.outputFile(path.join(gameDir, "game.exe"), "exe");
+    await fs.outputFile(path.join(gameDir, ".questarr-extract-AbC123", "partial.bin"), "half");
+    await fs.outputFile(path.join(gameDir, ".questarr-extract-AbC123.bak", "0"), "old");
+
+    expect(await gatherFiles(gameDir)).toEqual([path.join(gameDir, "game.exe")]);
+  });
+
   it.each(["EXDEV", "EPERM", "EACCES", "ENOTSUP", "EOPNOTSUPP"])(
     "falls back to copy when hardlink fails with %s",
     async (code) => {

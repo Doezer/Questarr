@@ -3,6 +3,7 @@ import { accessSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
 import fs from "fs-extra";
 import { logger } from "../logger.js";
+import { EXTRACT_STAGING_PREFIX } from "./extract-staging.js";
 
 type ArchiveTool = "7zip" | "unrar";
 type ExecFileResult = { stdout: string; stderr: string };
@@ -46,10 +47,6 @@ const ARCHIVE_MAX_EXPANDED_BYTES = configuredLimit(
 // itself is bad — cheap for a real failure (which fails fast, as seen in practice), and
 // turns a spurious "corrupt" report into a successful import if it was just a timing race.
 const ARCHIVE_TEST_MAX_ATTEMPTS = 3;
-// Name prefix of the per-run staging directory extract() unpacks into before merging. Kept
-// short and free of the archive name so long release names never exceed the filesystem's
-// 255-byte name limit.
-const EXTRACT_STAGING_PREFIX = ".questarr-extract-";
 const ARCHIVE_TEST_RETRY_DELAYS_MS = [3_000, 8_000];
 
 function delay(ms: number): Promise<void> {

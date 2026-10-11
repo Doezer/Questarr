@@ -4,6 +4,7 @@ import fs from "fs-extra";
 import path from "node:path";
 import { logger } from "../logger.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
+import { EXTRACT_STAGING_PREFIX } from "./extract-staging.js";
 export type TransferMode = "copy" | "move" | "hardlink" | "symlink";
 
 export function sanitizeFsName(name: string | null | undefined): string {
@@ -106,6 +107,7 @@ async function walkRelative(rootPath: string): Promise<string[]> {
     for (const entry of entries) {
       const entryRel = rel ? path.join(rel, entry.name) : entry.name;
       if (entry.isDirectory()) {
+        if (entry.name.startsWith(EXTRACT_STAGING_PREFIX)) continue;
         stack.push(entryRel);
       } else {
         collected.push(entryRel);

@@ -56,14 +56,28 @@ describe("Prowlarr sync credential transport", () => {
     expect(undiciFetch).not.toHaveBeenCalled();
   });
 
-  it("blocks an HTTPS-to-HTTP redirect before forwarding the key", async () => {
-    httpsFetch.mockResolvedValueOnce(
-      new Response(null, { status: 302, headers: { Location: "http://192.168.1.2:9696/indexers" } })
-    );
-    await expect(prowlarrClient.getIndexers("https://192.168.1.2:9696", key)).rejects.toThrow(
-      "Refusing to send a credential-bearing request over a non-HTTPS connection"
-    );
-    expect(httpsFetch).toHaveBeenCalledTimes(1);
-    expect(undiciFetch).not.toHaveBeenCalled();
-  });
+  it.each([
+    ["https", false, "http://192.168.1.2:9696/indexers"],
+    ["https", true, "http://192.168.1.2:9696/indexers"],
+    ["https", true, "https://192.168.1.3:9696/indexers"],
+    ["http", true, "http://192.168.1.3:9696/indexers"],
+    ["http", true, "https://192.168.1.3:9696/indexers"],
+  ])(
+    "does not forward the key on a redirect from %s with opt-in %s to %s",
+    async (scheme, optIn, target) => {
+      const transport = scheme === "https" ? httpsFetch : vi.mocked(undiciFetch);
+      transport.mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { Location: target } })
+      );
+      await expect(
+        prowlarrClient.getIndexers(`${scheme}://192.168.1.2:9696`, key, { allowInsecureLan: optIn })
+      ).rejects.toThrow("Failed to fetch indexers from Prowlarr");
+      expect(transport).toHaveBeenCalledTimes(1);
+      expect(transport).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ redirect: "manual" })
+      );
+      expect(scheme === "https" ? undiciFetch : httpsFetch).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -57,6 +57,8 @@ export class ProwlarrClient {
         },
         signal: AbortSignal.timeout(30000),
         requireHttps: overrides.allowInsecureLan !== true,
+        // The key is scoped to this configured endpoint, even when HTTP is opted in.
+        redirect: "manual",
       });
 
       if (!response.ok) {

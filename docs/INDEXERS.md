@@ -11,7 +11,8 @@ Open **Indexers** to add a Torznab, Newznab, or G4U indexer, or choose
 
 Questarr remembers the last successful connection and defaults. The stored API
 key is encrypted and shown as a mask; leave it unchanged to reuse it. Enter a
-new key when changing the URL.
+new key when changing the URL. Sync does not follow redirects; enter the server's
+final base URL.
 
 Use HTTPS whenever possible. For a trusted LAN server using HTTP, explicitly
 select **Allow insecure LAN connection** before syncing. Clearing this choice

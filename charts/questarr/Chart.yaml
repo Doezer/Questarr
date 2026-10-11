@@ -4,7 +4,7 @@ description: Questarr — an *Arr-inspired game manager that helps you discover,
 type: application
 # Chart version — bump on every chart change (SemVer).
 version: 0.1.2
-# Version of Questarr shipped by default (the image tag when image.tag is empty).
+# Version of Questarr shipped by default (image tag adds the v release prefix).
 appVersion: "1.5.0"
 kubeVersion: ">=1.23.0-0"
 home: https://github.com/Doezer/questarr

@@ -128,7 +128,7 @@ All notable changes to this project will be documented in this file.
 
 - **License metadata**: align package, Helm, and deployment declarations on `GPL-3.0-only` without changing the project license.
 - **Release packaging**: align the Helm app version and Home Assistant add-on version with 1.5.0; Helm chart version is 0.1.2.
-- **Dependencies**: update bundled Apprise and its locked Python dependencies; refresh the npm lockfile's development-only `http-cache-semantics` dependency.
+- **Dependencies**: update bundled Apprise and its locked Python dependencies; refresh `http-cache-semantics` and `source-map-js` in the npm lockfile.
 - **Logs page**: history limit raised from 200 to 1000 lines (#928).
 - Dependency updates: `undici` 7.29.0 → 8.9.0 (direct dependency, used by the SSRF-safe fetch wrapper in `server/ssrf.ts`). No vulnerability fix — see `docs/CVE_FIXES_BY_RELEASE.md` for verification. Major version bump; undici 8.9.0 requires Node `>=22.19.0`, so Questarr's own `engines.node` floor is raised from `>=20` to `>=22.19.0` to match — this only formalizes existing practice, since CI (`node-version: 26.x`) and the production Docker image (`node:26-alpine`) were already on Node 26. Full test suite and `server/__tests__/ssrf.test.ts` verified green against the new version.
 

@@ -15,7 +15,9 @@ const DISABLED_VALUES = new Set(["", "false", "0", "no", "off"]);
 function isValidProxyEntry(entry: string): boolean {
   if (NAMED_SUBNETS.has(entry)) return true;
   const [address, prefix, ...rest] = entry.split("/");
-  if (!address || rest.length > 0) return false;
+  // Zone IDs (fe80::1%eth0) are not supported: list the subnet instead
+  // (e.g. fe80::/10, or "linklocal").
+  if (!address || rest.length > 0 || address.includes("%")) return false;
   const version = isIP(address);
   if (version === 0) return false;
   if (prefix === undefined) return true;

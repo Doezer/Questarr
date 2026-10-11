@@ -14,6 +14,10 @@ const VT_LOOKUP_TIMEOUT_MS = 10_000;
 // trickling bytes back and forth for an arbitrarily long time.
 const CLAMAV_SCAN_TIMEOUT_MS = 5 * 60 * 1000;
 const CLAMAV_CHUNK_SIZE = 64 * 1024;
+// Budget for scanning every file of one download. A slow but responsive clamd never
+// trips the per-file deadline, so without it a large download could hold the import
+// for hours; past it the download is held for manual review as not fully scanned.
+export const CLAMAV_TOTAL_SCAN_BUDGET_MS = 30 * 60 * 1000;
 // Without a limit, a pathological download with an enormous number of loose files
 // would serialize that many sequential ClamAV round-trips before an import could
 // proceed. Set well above the file count of an extracted game install, so that a
@@ -454,7 +458,21 @@ export class SecurityScanService {
         };
       }
 
+      const scanStartedAt = Date.now();
       for (const file of files) {
+        if (Date.now() - scanStartedAt > CLAMAV_TOTAL_SCAN_BUDGET_MS) {
+          securityScanLogger.warn(
+            { localPath, budgetMs: CLAMAV_TOTAL_SCAN_BUDGET_MS },
+            "ClamAV scan ran out of time; holding the import for manual review"
+          );
+          return {
+            blocked: false,
+            incomplete: true,
+            source: "clamav",
+            reason:
+              "ClamAV ran out of time before scanning every file. Review it before importing.",
+          };
+        }
         const verdict = await scanFileWithClamAv(file, connectAddress, clamAvSettings.port);
         if (verdict.status === "infected") {
           return {

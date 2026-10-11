@@ -106,6 +106,7 @@ import {
   readClamAvSettings,
   SecurityScanService,
   MAX_CLAMAV_SCAN_FILES,
+  CLAMAV_TOTAL_SCAN_BUDGET_MS,
 } from "../security-scan.js";
 
 function mockStorage(config: Record<string, string | undefined>) {
@@ -394,6 +395,33 @@ describe("SecurityScanService.scan", () => {
     const result = await service.scan(dir);
     expect(result.blocked).toBe(true);
     expect(clamAvTestState.createdSockets).toHaveLength(2);
+  });
+
+  it("reports the download as incomplete once the total scan budget runs out", async () => {
+    const dir = path.join(tmpDir, "release-slow-clamd");
+    fs.mkdirSync(dir);
+    for (const name of ["a.bin", "b.bin", "c.bin"]) {
+      fs.writeFileSync(path.join(dir, name), "x");
+    }
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
+    clamAvTestState.responseQueue = ["stream: OK\0", "stream: OK\0", "stream: OK\0"];
+    // Each file takes longer than the whole budget, as with a slow but responsive clamd.
+    let now = 0;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => {
+      now += CLAMAV_TOTAL_SCAN_BUDGET_MS;
+      return now;
+    });
+    try {
+      const service = new SecurityScanService(
+        mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
+      );
+      const result = await service.scan(dir);
+      expect(result.blocked).toBe(false);
+      expect(result.incomplete).toBe(true);
+      expect(clamAvTestState.createdSockets.length).toBeLessThan(3);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("scans every file in a directory download", async () => {

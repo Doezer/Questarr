@@ -37,7 +37,31 @@ describe("ImportStrategies", () => {
     await fs.outputFile(path.join(gameDir, ".questarr-extract-AbC123", "partial.bin"), "half");
     await fs.outputFile(path.join(gameDir, ".questarr-extract-AbC123.bak", "0"), "old");
 
-    expect(await gatherFiles(gameDir)).toEqual([path.join(gameDir, "game.exe")]);
+    expect(await gatherFiles(gameDir, { skipExtractStaging: true })).toEqual([
+      path.join(gameDir, "game.exe"),
+    ]);
+  });
+
+  it("moves a source directory named like a staging directory into the library", async () => {
+    // Only library folders skip staging names; in a download they are ordinary content,
+    // and move mode deletes the source afterwards.
+    const root = tempDir();
+    const source = path.join(root, "downloads", "Game");
+    const destination = path.join(root, "library", "PC", "Game");
+    await fs.outputFile(path.join(source, "game.exe"), "exe");
+    await fs.outputFile(path.join(source, ".questarr-extract-data", "level.pak"), "pak");
+
+    expect(await gatherFiles(source)).toContain(
+      path.join(source, ".questarr-extract-data", "level.pak")
+    );
+    await new PCImportStrategy().executeImport(
+      { needsReview: false, originalPath: source, proposedPath: destination, strategy: "pc" },
+      "move"
+    );
+
+    expect(
+      await fs.readFile(path.join(destination, ".questarr-extract-data", "level.pak"), "utf8")
+    ).toBe("pak");
   });
 
   it.each(["EXDEV", "EPERM", "EACCES", "ENOTSUP", "EOPNOTSUPP"])(

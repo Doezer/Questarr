@@ -323,7 +323,7 @@ export class ImportManager {
 
     return {
       destDir,
-      filesPlaced: await gatherFiles(destDir),
+      filesPlaced: await gatherFiles(destDir, { skipExtractStaging: true }),
       modeUsed,
       conflictsResolved: [],
     };
@@ -376,7 +376,7 @@ export class ImportManager {
 
     return {
       destDir,
-      filesPlaced: await gatherFiles(destDir),
+      filesPlaced: await gatherFiles(destDir, { skipExtractStaging: true }),
       modeUsed,
       conflictsResolved: [],
     };

@@ -4,7 +4,6 @@
 
 import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
-import { config } from "./config.js";
 
 export const AUTH_COOKIE_NAME = "questarr_auth";
 export const CSRF_COOKIE_NAME = "questarr_csrf";
@@ -40,14 +39,10 @@ function cookieOptions(req: Request, httpOnly: boolean) {
   return {
     httpOnly,
     sameSite: "lax" as const,
-    // "trust proxy" is only enabled in production (see app.ts), where
-    // req.secure already correctly reflects X-Forwarded-Proto from that
-    // trusted proxy hop -- so the manual header check below is redundant
-    // there. Outside production there is no trusted proxy configured, so an
-    // untrusted client could set X-Forwarded-Proto directly; only honor the
-    // header when we know Express is actually trusting a proxy for it.
-    secure:
-      req.secure || (config.server.isProduction && req.headers["x-forwarded-proto"] === "https"),
+    // With TRUST_PROXY set (see app.ts), req.secure reflects the trusted
+    // proxy's X-Forwarded-Proto; otherwise that header is client-controlled
+    // and ignored.
+    secure: req.secure,
     path: "/",
   };
 }

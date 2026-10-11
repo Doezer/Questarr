@@ -67,7 +67,7 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { cn, copyToClipboard, safeUrl } from "@/lib/utils";
+import { cn, copyToClipboard, safeUrl, isDiscoveryId, mapGameToInsertGame } from "@/lib/utils";
 import {
   type Game,
   type Indexer,
@@ -142,7 +142,7 @@ function formatDate(dateString: string): string {
   }
 }
 
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useDebounce } from "@/hooks/use-debounce";
 import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -231,6 +231,38 @@ function ReleaseMetadataBadges({
 export default function GameDownloadDialog({ game, open, onOpenChange }: GameDownloadDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Discover and search results carry a temporary "igdb-<id>" id, which the
+  // download and blacklist endpoints reject. Add such a game to the library
+  // on first use and send its real id instead.
+  const [libraryGameId, setLibraryGameId] = useState<string | null>(null);
+  useEffect(() => {
+    setLibraryGameId(null);
+  }, [game?.id]);
+
+  const ensureLibraryGameId = useCallback(async (): Promise<string | undefined> => {
+    if (!game) return undefined;
+    if (!isDiscoveryId(game.id)) return game.id;
+    if (libraryGameId) return libraryGameId;
+    let added: Game;
+    try {
+      const response = await apiRequest("POST", "/api/games", {
+        ...mapGameToInsertGame(game),
+        status: "wanted",
+      });
+      added = (await response.json()) as Game;
+    } catch (error) {
+      const existing =
+        error instanceof ApiError && error.status === 409
+          ? (error.data as { game?: Game } | undefined)?.game
+          : undefined;
+      if (!existing) throw error;
+      added = existing;
+    }
+    setLibraryGameId(added.id);
+    queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    return added.id;
+  }, [game, libraryGameId, queryClient]);
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -537,12 +569,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   const downloadMutation = useMutation({
     mutationFn: async (downloads: DownloadItem[]) => {
+      const gameId = await ensureLibraryGameId();
       const results = [];
       for (const download of downloads) {
         const response = await apiRequest("POST", "/api/downloads", {
           url: download.link,
           title: download.title,
-          gameId: game?.id,
+          gameId,
           downloadType: isUsenetItem(download) ? "usenet" : "torrent",
           releaseCategory: inferReleaseCategory(
             download.title,
@@ -609,10 +642,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       downloaderId: string;
       downloaderName: string;
     }) => {
+      const gameId = await ensureLibraryGameId();
       const response = await apiRequest("POST", `/api/downloaders/${downloaderId}/downloads`, {
         url: download.link,
         title: download.title,
-        gameId: game?.id,
+        gameId,
         downloadType: isUsenetItem(download) ? "usenet" : "torrent",
       });
       return response.json();
@@ -640,8 +674,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   const blacklistMutation = useMutation({
     mutationFn: async (item: DownloadItem) => {
-      if (!game) throw new Error("No game context");
-      await apiRequest("POST", `/api/games/${game.id}/blacklist`, {
+      const gameId = await ensureLibraryGameId();
+      if (!gameId) throw new Error("No game context");
+      await apiRequest("POST", `/api/games/${gameId}/blacklist`, {
         releaseTitle: item.title,
         indexerName: item.indexerName ?? null,
       });

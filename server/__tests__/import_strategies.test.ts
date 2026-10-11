@@ -984,6 +984,9 @@ describe("ImportStrategies", () => {
       expect(categorizeRelativeFiles([p("Update v1.2", "setup.exe")])).toEqual([
         { name: p("Update v1.2", "setup.exe"), category: "update" },
       ]);
+      expect(categorizeRelativeFiles([p("Game.GOTY.Edition.Update.v1.2", "setup.exe")])).toEqual([
+        { name: p("Game.GOTY.Edition.Update.v1.2", "setup.exe"), category: "update" },
+      ]);
       expect(categorizeRelativeFiles([p("Bonus Soundtrack", "01.flac")])).toEqual([
         { name: p("Bonus Soundtrack", "01.flac"), category: "extra" },
       ]);

@@ -459,10 +459,13 @@ export class SecurityScanService {
           };
         }
         if (verdict.status === "error") {
+          // Stop at the first failure: with thousands of files, a clamd that stopped
+          // answering would otherwise cost a full per-file timeout for each of them.
           securityScanLogger.warn(
             { file, error: verdict.error },
-            "ClamAV scan failed for file, proceeding without a verdict"
+            "ClamAV scan failed, proceeding without a verdict"
           );
+          break;
         }
       }
     } catch (error) {

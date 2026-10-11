@@ -350,13 +350,21 @@ const SORT_EXTRAS_RESERVED_DIRS = new Set(["dlc", "update", "extra", "packs"]);
 // Loose files a release folder commonly ships next to its single content directory.
 // Their presence alone doesn't make that directory anything other than a wrapper.
 const RELEASE_METADATA_FILE = /\.(nfo|sfv|md5|sha1|diz|txt|url|jpe?g|png)$/i;
-// Edition names ("Foo.GOTY.Edition") trip the DLC patterns but name the whole game.
-const EDITION_NAME = /\b(goty|deluxe|complete|edition|repack)\b/i;
+// Edition words ("Foo.GOTY.Edition") trip the DLC patterns but name the whole game.
+const EDITION_WORDS = /\b(goty|deluxe|complete|edition|repack)\b/gi;
 
 /** Whether a release's only directory is a plain wrapper rather than an extra in itself. */
 function isWrapperDirectory(name: string): boolean {
   if (SORT_EXTRAS_RESERVED_DIRS.has(name.toLowerCase())) return false;
-  return EDITION_NAME.test(name) || categorizeDownload(name).category === "main";
+  return categorizeItemName(name) === "main";
+}
+
+/**
+ * An item's category from its name, ignoring edition words so an explicit type
+ * still wins: "Game.GOTY.Edition.Update.v1.2" is an update, "Foo.GOTY.Edition" main.
+ */
+function categorizeItemName(name: string): DownloadCategory {
+  return categorizeDownload(name.replace(EDITION_WORDS, " ")).category;
 }
 
 /**
@@ -402,7 +410,7 @@ export function categorizeRelativeFiles(relFiles: string[]): FileCategoryEntry[]
       // An item already named after a category folder is left where it is.
       category = SORT_EXTRAS_RESERVED_DIRS.has(item.toLowerCase())
         ? "main"
-        : categorizeDownload(item).category;
+        : categorizeItemName(item);
       categoryByItem.set(item, category);
     }
     return { name, category };

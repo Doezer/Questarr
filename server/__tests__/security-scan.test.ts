@@ -362,6 +362,21 @@ describe("SecurityScanService.scan", () => {
     await expect(service.scan(filePath)).resolves.toEqual({ blocked: false });
   });
 
+  it("stops scanning a directory at the first ClamAV failure instead of retrying every file", async () => {
+    const dir = path.join(tmpDir, "release-unreachable");
+    fs.mkdirSync(dir);
+    for (const name of ["a.bin", "b.bin", "c.bin"]) {
+      fs.writeFileSync(path.join(dir, name), "x");
+    }
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
+    clamAvTestState.forceConnectError = "ETIMEDOUT";
+    const service = new SecurityScanService(
+      mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
+    );
+    await expect(service.scan(dir)).resolves.toEqual({ blocked: false });
+    expect(clamAvTestState.createdSockets).toHaveLength(1);
+  });
+
   it("scans every file in a directory download", async () => {
     const dir = path.join(tmpDir, "release");
     fs.mkdirSync(dir);

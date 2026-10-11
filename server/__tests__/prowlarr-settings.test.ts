@@ -149,8 +149,46 @@ describe("Prowlarr HTTP consent revocation", () => {
   it("can retry indexer revocation after a storage failure", async () => {
     vi.mocked(storage.updateIndexer).mockRejectedValueOnce(new Error("Storage failure"));
     await expect(revokeProwlarrHttpOptIn(saved.url)).rejects.toThrow("Storage failure");
-    expect((await loadProwlarrSyncSettings())?.allowInsecureLan).toBe(false);
+    expect(await loadProwlarrSyncSettings()).toEqual(saved);
     await revokeProwlarrHttpOptIn(saved.url);
+    expect((await loadProwlarrSyncSettings())?.allowInsecureLan).toBe(false);
     expect(storage.updateIndexer).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps saved consent enabled after a partial failure and retries the remaining indexer", async () => {
+    const matching = [{ ...rows[0]! }, { ...rows[0]!, id: "second", url: `${saved.url}/2/api` }];
+    vi.mocked(storage.getAllIndexers).mockResolvedValue(matching);
+    vi.mocked(storage.updateIndexer)
+      .mockImplementationOnce(async (id, update) => {
+        const indexer = matching.find((row) => row.id === id)!;
+        Object.assign(indexer, update);
+        return indexer;
+      })
+      .mockRejectedValueOnce(new Error("Storage failure"));
+
+    await expect(revokeProwlarrHttpOptIn(saved.url)).rejects.toThrow("Storage failure");
+    expect(await loadProwlarrSyncSettings()).toEqual(saved);
+    expect(matching.map((row) => row.allowInsecureLan)).toEqual([false, true]);
+
+    vi.mocked(storage.updateIndexer).mockImplementationOnce(async (id, update) => {
+      const indexer = matching.find((row) => row.id === id)!;
+      Object.assign(indexer, update);
+      return indexer;
+    });
+    await revokeProwlarrHttpOptIn(saved.url);
+    expect(matching.map((row) => row.allowInsecureLan)).toEqual([false, false]);
+    expect(await loadProwlarrSyncSettings()).toEqual({ ...saved, allowInsecureLan: false });
+    expect(vi.mocked(storage.updateIndexer).mock.calls.map(([id]) => id)).toEqual([
+      "matching",
+      "second",
+      "second",
+    ]);
+  });
+
+  it("does not report saved consent as revoked when reading indexers fails", async () => {
+    vi.mocked(storage.getAllIndexers).mockRejectedValueOnce(new Error("Storage failure"));
+    await expect(revokeProwlarrHttpOptIn(saved.url)).rejects.toThrow("Storage failure");
+    expect(await loadProwlarrSyncSettings()).toEqual(saved);
+    expect(storage.updateIndexer).not.toHaveBeenCalled();
   });
 });

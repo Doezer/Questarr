@@ -81,7 +81,6 @@ export async function revokeProwlarrHttpOptIn(url: string): Promise<void> {
   const requested = new URL(normalizeProwlarrUrl(url));
   if (base.href !== requested.href) return;
   const prefix = base.pathname.endsWith("/") ? base.pathname : `${base.pathname}/`;
-  await saveProwlarrSyncSettings({ ...saved, allowInsecureLan: false });
   for (const indexer of await storage.getAllIndexers()) {
     if (!indexer.allowInsecureLan || indexer.apiKey !== saved.apiKey) continue;
     let target: URL;
@@ -98,4 +97,8 @@ export async function revokeProwlarrHttpOptIn(url: string): Promise<void> {
       await storage.updateIndexer(indexer.id, { allowInsecureLan: false });
     }
   }
+  // Publish the saved opt-out only after every matching indexer was revoked.
+  // On failure the refreshed dialog keeps consent enabled, so users can retry
+  // by unticking it again rather than mistaking a partial update for success.
+  await saveProwlarrSyncSettings({ ...saved, allowInsecureLan: false });
 }

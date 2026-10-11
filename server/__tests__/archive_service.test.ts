@@ -62,7 +62,7 @@ import { ArchiveService } from "../services/ArchiveService.js";
 // installed (p7zip is a common preinstall), which made this exact test flaky in CI.
 // The directory extract() unpacks into before merging into outputDir.
 function staging(outputDir: string, archiveName: string): string {
-  return path.join(outputDir, `.questarr-extract-${archiveName}-test`);
+  return path.join(outputDir, `.questarr-extract-test`);
 }
 
 const NONEXISTENT_BINARY_PATH = "/definitely/does/not/exist/questarr-archive-tool-test";
@@ -266,9 +266,7 @@ describe("ArchiveService", () => {
         "--",
         "/downloads/game.zip",
       ]);
-      expect(mkdtempMock).toHaveBeenCalledWith(
-        path.join("/tmp/out", ".questarr-extract-game.zip-")
-      );
+      expect(mkdtempMock).toHaveBeenCalledWith(path.join("/tmp/out", ".questarr-extract-"));
     });
 
     it("resolves with an empty array and warns when extraction produces no files", async () => {
@@ -506,9 +504,7 @@ describe("ArchiveService", () => {
         "/downloads/game.rar",
         staging("/tmp/rar-out", "game.rar") + path.sep,
       ]);
-      expect(mkdtempMock).toHaveBeenCalledWith(
-        path.join("/tmp/rar-out", ".questarr-extract-game.rar-")
-      );
+      expect(mkdtempMock).toHaveBeenCalledWith(path.join("/tmp/rar-out", ".questarr-extract-"));
     });
 
     it("does not create the output directory when the RAR integrity test fails on every attempt", async () => {

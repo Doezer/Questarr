@@ -244,4 +244,35 @@ describe("ArchiveService.extract rollback", () => {
     expect(await fs.readFile(path.join(gameDir, "b.pak"), "utf8")).toBe("b-old");
     expect((await fs.readdir(gameDir)).sort()).toEqual(["a.pak", "b.pak"]);
   });
+
+  it("never removes a file another import put at a new path when its own move fails", async () => {
+    const gameDir = await tempDir();
+    const archive = path.join(await tempDir(), "update.zip");
+    await fs.writeFile(archive, "zip-bytes");
+
+    const { service } = makeService({ "new.txt": "ours" });
+    const realMove = fs.move.bind(fs);
+    vi.spyOn(fs, "move").mockImplementation((async (src: string, dest: string, opts?: object) => {
+      if (dest === path.join(gameDir, "new.txt")) {
+        // A concurrent import lands the same path first.
+        await fs.writeFile(dest, "theirs");
+        throw new Error("EEXIST: file already exists");
+      }
+      return realMove(src, dest, opts);
+    }) as never);
+
+    await expect(service.extract(archive, gameDir)).rejects.toThrow("EEXIST");
+    expect(await fs.readFile(path.join(gameDir, "new.txt"), "utf8")).toBe("theirs");
+  });
+
+  it("uses a short staging name so long archive names still extract", async () => {
+    const gameDir = await tempDir();
+    const archive = path.join(await tempDir(), `${"A".repeat(240)}.zip`);
+    await fs.writeFile(archive, "zip-bytes");
+
+    const { service } = makeService({ "game.exe": "exe" });
+    await service.extract(archive, gameDir);
+
+    expect(await fs.readdir(gameDir)).toEqual(["game.exe"]);
+  });
 });

@@ -46,7 +46,9 @@ const ARCHIVE_MAX_EXPANDED_BYTES = configuredLimit(
 // itself is bad — cheap for a real failure (which fails fast, as seen in practice), and
 // turns a spurious "corrupt" report into a successful import if it was just a timing race.
 const ARCHIVE_TEST_MAX_ATTEMPTS = 3;
-// Name prefix of the per-archive staging directory extract() unpacks into before merging.
+// Name prefix of the per-run staging directory extract() unpacks into before merging. Kept
+// short and free of the archive name so long release names never exceed the filesystem's
+// 255-byte name limit.
 const EXTRACT_STAGING_PREFIX = ".questarr-extract-";
 const ARCHIVE_TEST_RETRY_DELAYS_MS = [3_000, 8_000];
 
@@ -475,24 +477,35 @@ export class ArchiveService {
     };
     await plan(stagingDir, destDir);
 
+    // Rollback only ever touches what this merge itself put in place: a file is recorded
+    // as done after its own move lands, and a replaced file's backup is restored if the
+    // move meant to supersede it fails. A path another import created in the meantime is
+    // left alone.
     const done: Array<{ to: string; backup: string | undefined }> = [];
+    let pendingBackup: { to: string; backup: string } | undefined;
     try {
       for (const dir of dirsToCreate) await fs.ensureDir(dir);
       if (filesToMove.some(({ replaces }) => replaces)) await fs.ensureDir(backupDir);
       for (const [index, { from, to, replaces }] of filesToMove.entries()) {
         const backup = replaces ? path.join(backupDir, String(index)) : undefined;
-        if (backup) await fs.move(to, backup);
-        done.push({ to, backup });
+        if (backup) {
+          await fs.move(to, backup);
+          pendingBackup = { to, backup };
+        }
         await fs.move(from, to);
+        pendingBackup = undefined;
+        done.push({ to, backup });
       }
     } catch (err) {
-      for (const { to, backup } of done.reverse()) {
+      const restore = async (to: string, backup: string | undefined): Promise<void> => {
         await (backup ? fs.move(backup, to, { overwrite: true }) : fs.remove(to)).catch(
           (rollbackErr: unknown) => {
             logger.error({ err: rollbackErr, path: to }, "Could not roll back extracted file");
           }
         );
-      }
+      };
+      if (pendingBackup) await restore(pendingBackup.to, pendingBackup.backup);
+      for (const { to, backup } of done.reverse()) await restore(to, backup);
       for (const dir of [...dirsToCreate].reverse()) {
         await fs.rmdir(dir).catch(() => undefined);
       }
@@ -571,9 +584,7 @@ export class ArchiveService {
     // same-filesystem rename, and its reserved name can't collide with the archive volumes
     // the move/copy modes relocate into outputDir before extracting.
     await fs.ensureDir(outputDir);
-    const stagingDir = await fs.mkdtemp(
-      path.join(outputDir, `${EXTRACT_STAGING_PREFIX}${path.basename(filePath)}-`)
-    );
+    const stagingDir = await fs.mkdtemp(path.join(outputDir, EXTRACT_STAGING_PREFIX));
     const backupDir = `${stagingDir}.bak`;
 
     let extractedFiles: string[];

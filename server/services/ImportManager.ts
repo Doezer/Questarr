@@ -1130,8 +1130,15 @@ export class ImportManager {
       throw new Error(scanResult.reason ?? "Flagged by security scan");
     }
     if (scanResult.incomplete) {
-      // processImport already held this download for review on the same grounds;
-      // confirming it is the user's decision to import it anyway.
+      const reason = scanResult.reason ?? "Security scan could not examine every file";
+      // Importing an incompletely scanned download needs the user to have seen why.
+      // processImport records the reason on the pending import; when this
+      // confirmation is the first scan (e.g. right after linking a game), record it
+      // now and stop, so the next confirmation is an informed one.
+      if (download.status !== "manual_review_required" || download.errorMessage !== reason) {
+        await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required", reason);
+        throw new Error(reason);
+      }
       logger.warn(
         { downloadId, reason: scanResult.reason },
         "[ImportManager] Importing a download the security scan could not fully examine, as confirmed by the user"

@@ -974,6 +974,21 @@ describe("ImportStrategies", () => {
       ]);
     });
 
+    it("keeps the category of a release's only directory when its name marks an extra", () => {
+      expect(
+        categorizeRelativeFiles([p("Update v1.2", "setup.exe"), p("Bonus Soundtrack", "01.flac")])
+      ).toEqual([
+        { name: p("Update v1.2", "setup.exe"), category: "update" },
+        { name: p("Bonus Soundtrack", "01.flac"), category: "extra" },
+      ]);
+      expect(categorizeRelativeFiles([p("Update v1.2", "setup.exe")])).toEqual([
+        { name: p("Update v1.2", "setup.exe"), category: "update" },
+      ]);
+      expect(categorizeRelativeFiles([p("Bonus Soundtrack", "01.flac")])).toEqual([
+        { name: p("Bonus Soundtrack", "01.flac"), category: "extra" },
+      ]);
+    });
+
     it("leaves items already named after a category folder where they are", () => {
       expect(categorizeRelativeFiles([p("update", "Game DLC Patch.nsp"), "base.nsp"])).toEqual([
         { name: p("update", "Game DLC Patch.nsp"), category: "main" },

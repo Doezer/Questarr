@@ -350,6 +350,14 @@ const SORT_EXTRAS_RESERVED_DIRS = new Set(["dlc", "update", "extra", "packs"]);
 // Loose files a release folder commonly ships next to its single content directory.
 // Their presence alone doesn't make that directory anything other than a wrapper.
 const RELEASE_METADATA_FILE = /\.(nfo|sfv|md5|sha1|diz|txt|url|jpe?g|png)$/i;
+// Edition names ("Foo.GOTY.Edition") trip the DLC patterns but name the whole game.
+const EDITION_NAME = /\b(goty|deluxe|complete|edition|repack)\b/i;
+
+/** Whether a release's only directory is a plain wrapper rather than an extra in itself. */
+function isWrapperDirectory(name: string): boolean {
+  if (SORT_EXTRAS_RESERVED_DIRS.has(name.toLowerCase())) return false;
+  return EDITION_NAME.test(name) || categorizeDownload(name).category === "main";
+}
 
 /**
  * Assigns a Sort Extras category to every file of a release, given its paths
@@ -360,7 +368,8 @@ const RELEASE_METADATA_FILE = /\.(nfo|sfv|md5|sha1|diz|txt|url|jpe?g|png)$/i;
  * folder name ("Foo.GOTY.Edition/") or a game's internal layout ("Data/Patch/x.pak")
  * pull files out of the game and break it. A release wrapped in a single directory
  * (optionally next to .nfo/.sfv-style files) is descended into first, so the items
- * judged are the ones inside it rather than the wrapper itself.
+ * judged are the ones inside it rather than the wrapper itself, unless that
+ * directory's own name marks it as an extra ("Update v1.2/", "Bonus Soundtrack/").
  */
 export function categorizeRelativeFiles(relFiles: string[]): FileCategoryEntry[] {
   const split = relFiles.map((name) => ({ name, segments: name.split(path.sep) }));
@@ -378,7 +387,7 @@ export function categorizeRelativeFiles(relFiles: string[]): FileCategoryEntry[]
     const wrapper = dirs.length === 1 ? dirs[0] : undefined;
     if (
       wrapper === undefined ||
-      SORT_EXTRAS_RESERVED_DIRS.has(wrapper.toLowerCase()) ||
+      !isWrapperDirectory(wrapper) ||
       !files.every((file) => RELEASE_METADATA_FILE.test(file))
     ) {
       break;

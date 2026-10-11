@@ -51,44 +51,52 @@ test.describe("v1.5 changes since RC1", () => {
     await expect(row.getByRole("switch")).toBeChecked();
   });
 
-  test("year calendar mutes past months and releases by the viewer's local day", async ({
-    page,
-  }) => {
-    await page.clock.setFixedTime(new Date("2026-05-29T12:00:00Z"));
-    const base = {
-      status: "wanted",
-      addedAt: "2026-01-01",
-      platforms: [],
-      genres: [],
-      hidden: false,
-    };
-    await page.route("/api/games*", (route) =>
-      route.fulfill({
-        json: [
-          { ...base, id: "past-month", title: "April Release", releaseDate: "2026-04-10" },
-          {
-            ...base,
-            id: "past-day",
-            title: "Yesterday Release",
-            releaseDate: "2026-05-28T12:00:00Z",
-          },
-          { ...base, id: "today", title: "Today Release", releaseDate: "2026-05-29T08:00:00Z" },
-          { ...base, id: "future", title: "Future Release", releaseDate: "2026-06-10" },
-        ],
-      })
-    );
-    await page.goto("/calendar");
-    await expect(
-      page.getByRole("heading", { name: "April", exact: true }).locator("../..")
-    ).toHaveClass(/opacity-50/);
-    await expect(page.getByRole("button", { name: /Yesterday Release/ })).toHaveClass(/opacity-50/);
-    await expect(page.getByRole("button", { name: /Today Release/ })).not.toHaveClass(/opacity-50/);
-    await expect(page.getByRole("button", { name: /Future Release/ })).not.toHaveClass(
-      /opacity-50/
-    );
-    await expect(
-      page.getByRole("heading", { name: "June", exact: true }).locator("../..")
-    ).not.toHaveClass(/opacity-50/);
+  test.describe("viewer timezone", () => {
+    test.use({ timezoneId: "Pacific/Honolulu" });
+
+    test("year calendar mutes past months and releases by the viewer's local day", async ({
+      page,
+    }) => {
+      await page.clock.setFixedTime(new Date("2026-05-29T12:00:00Z"));
+      const base = {
+        status: "wanted",
+        addedAt: "2026-01-01",
+        platforms: [],
+        genres: [],
+        hidden: false,
+      };
+      await page.route("/api/games*", (route) =>
+        route.fulfill({
+          json: [
+            { ...base, id: "past-month", title: "April Release", releaseDate: "2026-04-10" },
+            {
+              ...base,
+              id: "past-day",
+              title: "Yesterday Release",
+              releaseDate: "2026-05-29T08:00:00Z",
+            },
+            { ...base, id: "today", title: "Today Release", releaseDate: "2026-05-30T01:00:00Z" },
+            { ...base, id: "future", title: "Future Release", releaseDate: "2026-06-10" },
+          ],
+        })
+      );
+      await page.goto("/calendar");
+      await expect(
+        page.getByRole("heading", { name: "April", exact: true }).locator("../..")
+      ).toHaveClass(/opacity-50/);
+      await expect(page.getByRole("button", { name: /Yesterday Release/ })).toHaveClass(
+        /opacity-50/
+      );
+      await expect(page.getByRole("button", { name: /Today Release/ })).not.toHaveClass(
+        /opacity-50/
+      );
+      await expect(page.getByRole("button", { name: /Future Release/ })).not.toHaveClass(
+        /opacity-50/
+      );
+      await expect(
+        page.getByRole("heading", { name: "June", exact: true }).locator("../..")
+      ).not.toHaveClass(/opacity-50/);
+    });
   });
 
   test("Library Import scans on add, enable, path change and enabling post-processing", async ({

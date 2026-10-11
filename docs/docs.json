@@ -14,8 +14,16 @@
   "navigation": {
     "groups": [
       {
-        "group": "Using Questarr",
-        "pages": ["LIBRARY_IMPORT", "BACKLOG_ROULETTE", "CHANGELOG", "RELEASE_1.5.0"]
+        "group": "Getting started",
+        "pages": ["QUICKSTART"]
+      },
+      {
+        "group": "Library",
+        "pages": ["LIBRARY_IMPORT", "BACKLOG_ROULETTE"]
+      },
+      {
+        "group": "Discovery & notifications",
+        "pages": ["INDEXERS", "RSS", "NOTIFICATIONS"]
       },
       {
         "group": "Deployment",
@@ -48,7 +56,7 @@
       },
       {
         "group": "Project",
-        "pages": ["PRD", "TODO", "GITHUB_DOCUMENTATION"]
+        "pages": ["CHANGELOG", "PRD", "TODO", "GITHUB_DOCUMENTATION"]
       },
       {
         "group": "Community",

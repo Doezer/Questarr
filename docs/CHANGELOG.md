@@ -2,18 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.5.0] - Unreleased
-
-Includes the features in `v1.5.0-rc1` and the changes since RC1. See the
-[release verification checklist](RELEASE_1.5.0.md) for coverage and upgrade checks.
+## [1.5.0] - 2026-10-11
 
 ### Added
 
 #### Library & Discovery
 
 - **Root folder / Scan Disk**: discover games already present on disk, plus safe recursive file discovery within a game's own folder to reconcile files already there (#943, #892, #938).
-- **Library Import**: a dedicated page under Library for extra root folders, scan progress, and folders awaiting review. Adding or enabling a folder, changing its path, or switching post-processing on starts a scan automatically; changes during a running scan queue a rescan. Search IGDB by another name when the initial folder matches are wrong, then confirm a candidate to add the game as owned.
-- **Backlog roulette**: Library's **Pick a game** draws from owned, currently playing, or all visible games using the current search and filters. Reroll without immediately repeating a game, open its details, or persist **Mark as Playing** (#1165).
+- **Library Import**: [Discover games on disk](LIBRARY_IMPORT.md), follow scan progress, and review unmatched folders by searching IGDB.
+- **Backlog roulette**: [Pick your next game](BACKLOG_ROULETTE.md) from the Library, reroll, or mark it as Playing (#1165).
 - **Platforms setting**: one Settings > Platforms list to always only see your platform of choice by default across Library, Discover, Add Game, and download search (#1018, #1104).
 - **Per-game target platforms** for automatic downloads (#1048).
 - **Platform and release year filters** on game search (#897).
@@ -47,10 +44,10 @@ Includes the features in `v1.5.0-rc1` and the changes since RC1. See the
 - **PostgreSQL backend**: [OPTIONAL] Questarr can now run on PostgreSQL instead of SQLite, selected with `DB_DIALECT=postgres` plus `DATABASE_URL` (setting `DATABASE_URL` alone keeps SQLite) (#1046). See `docs/DATABASE.md` if you're looking to migrate from SQLite.
 - **Playnite integration**: API keys, an integration API, and a Playnite extension. See [the extension's README](https://github.com/Doezer/Questarr/blob/main/extensions/playnite-questarr/README.md) for setup (#986).
 - **Steam wishlist**: optional auto-sync on a configurable interval, alongside the existing manual sync (#805).
-- **RSS refresh schedule**: enabled feeds refresh shortly after startup and hourly. Scheduled, manual, and newly added feed refreshes are serialized; overlapping full refreshes share one run instead of duplicating items.
-- **Prowlarr sync defaults**: remember the last successful URL, encrypted API key, insecure-LAN choice, priority, and categories. Apply optional priority/category/connection defaults to every synced indexer; the saved key is masked and can only be reused for the saved URL.
-- **Apprise API login**: Questarr can send a username and password to an Apprise API server that requires a login (`APPRISE_AUTH_REQUIRED=yes`, Apprise API 2). The password is stored encrypted.
-- **Update notification controls**: independently mute update and pack/add-on notifications for Shelved and Completed games in Settings → Notifications. Both In-App and Apprise follow these choices; availability searches and badges remain active, and existing preferences keep notifications enabled by default.
+- **RSS refresh schedule**: Enabled feeds refresh automatically at startup and hourly.
+- **Prowlarr sync defaults**: Remember the connection and apply optional priority and category defaults to synced indexers.
+- **Apprise API login**: Support authenticated Apprise API servers with an optional username and password.
+- **Update notification controls**: Mute update and add-on alerts independently for Shelved and Completed games.
 
 #### Deployment & Admin
 
@@ -71,7 +68,6 @@ Includes the features in `v1.5.0-rc1` and the changes since RC1. See the
 - **Import**: a single-file torrent saved outside a subfolder produced a 500 instead of importing (#856).
 - **SABnzbd**: fixed the manual Confirm Import path resolution and a history lookup that missed archived/failed downloads (#940, #1044); manual Confirm Import could also build a duplicated source path (`.../release/release`) (#937).
 - **SABnzbd categories**: use the downloader's configured category when an add request does not specify one (#1169).
-- **Root-folder scanning**: recognize release-named folders more reliably, keep earlier IGDB guesses available for review, preserve progress across multi-folder batches, and refresh Library/Discover after game writes and completed or failed scans. Progress updates no longer repeatedly refetch games when no match has changed.
 - **NZBGet**: the configured category was never applied to new downloads (#851); completed downloads with a non-`SUCCESS/ALL` history status were reported as aborted (#855); `downloadDir` was never populated on completion, so successful downloads never reached import (#932).
 - **Usenet**: download ids (e.g. SABnzbd's `nzo_id`) were incorrectly lowercased on claim/scan routes, breaking case-sensitive status lookups (#1055).
 - **Nintendo Switch**: fixed silent import failures for NSP/XCI releases (#1021).
@@ -81,9 +77,9 @@ Includes the features in `v1.5.0-rc1` and the changes since RC1. See the
 
 - **qBittorrent**: v5+ downloads not tracked when the API returns an async `pending_count`; v5.2+ torrent-upload success not recognized; a fallback for v2.0.2 (#1015, #926, #869).
 - **Prowlarr**: download links no longer double-wrapped when the proxy URL comes back on a container IP (#1007).
-- **Prowlarr HTTP credentials**: preserve the explicit insecure-LAN opt-in on synced indexers and explain 401 failures caused by a withheld API key. Sync requires consent before sending a key over HTTP; unticking the connection option revokes the opt-in, and late settings responses no longer overwrite dialog edits.
-- **Newznab/Torznab categories**: send category lists with literal separator commas while keeping each category value encoded.
-- **Release matching**: reject numbered and Roman-numeral sequels when searching for the original game, while still accepting numbered updates and versions after a sequel number. A release year after a sequel number is no longer mistaken for a version.
+- **Prowlarr HTTP credentials**: Honor the insecure-LAN choice and explain when credentials are withheld over HTTP.
+- **Newznab/Torznab categories**: Fix searches using multiple categories.
+- **Release matching**: Avoid matching sequels when searching for the original game, while accepting updates to the intended game.
 - **Indexers**: search categories outside 40xx/10xx were being dropped; hardened Newznab/Torznab caps discovery (#1058, #951).
 - **Downloaders**: credential policy now validates the resolved URL, not just `useSsl` (#1061).
 - **IGDB**: validated the rate-limit setting's range; canonicalized/deduped game editions in search results (#1020, #950).
@@ -141,7 +137,6 @@ Includes the features in `v1.5.0-rc1` and the changes since RC1. See the
 
 - **API auth**: added a default-deny boundary and fixed an unauthenticated `GET /api/config` (#953).
 - **Real-time channel**: the Socket.IO connection now requires the same session as the REST API. Before, anyone who could reach the port could open it and receive the live server log stream, notifications and download progress. A handshake that relies on the session cookie must also come from Questarr's own origin (reverse proxies that set `X-Forwarded-Host` work unchanged; otherwise list the public URL in `ALLOWED_ORIGINS` or `APP_URL`).
-- **Notification isolation**: notifications now reach only the owning user's Socket.IO room; shared download, import, scan, and log events remain app-wide for authenticated clients.
 - **Apprise login transport**: authenticated HTTPS requests cannot be redirected to plaintext HTTP or another origin. HTTP URLs with a configured login show an unencrypted-credentials warning. The masked saved password survives CLI/API mode switches.
 - **Delete with files**: deleting a game whose library path is the library root (or an opted-in root folder) itself no longer removes that whole folder.
 - **Auth**: failed login attempts are now logged for brute-force/credential-stuffing detection (#858); fixed an IDOR letting any user modify or delete another user's games, and strengthened the password policy to 8+ characters with a letter and a digit (#859).
@@ -161,7 +156,7 @@ Includes the features in `v1.5.0-rc1` and the changes since RC1. See the
 
 - **Scan Disk endpoint**: limited recursive traversal with a max file count and time budget, and added rate limiting, reducing DoS exposure on large directory trees (#1069).
 - **IPv6 scan limiter**: group requests by IPv6 subnet so rotating addresses within a subnet cannot bypass scan limits.
-- **Archive extraction limits**: bound untrusted archive expansion by file count, unpacked bytes, compression ratio, timeout, and nesting depth; reject unsafe paths and links before extraction, and deduplicate split RAR volume continuations. Limits can be configured with the documented `ARCHIVE_*` environment variables in [SECRETS.md](SECRETS.md).
+- **Archive extraction limits**: bound untrusted archive expansion by file count, unpacked bytes, timeout, and nesting depth; reject unsafe paths and links before extraction, and deduplicate split RAR volume continuations. Limits can be configured with the documented `ARCHIVE_*` environment variables in [SECRETS.md](SECRETS.md).
 - **Logging**: production no longer hardcodes the debug log level, and secrets are now redacted from logs; API keys/tokens are also redacted before logs are sent to support (#952, #960).
 - **Search engines**: `/robots.txt` no longer bypasses security headers, and instances are kept out of search-engine indexes (#941, #939).
 

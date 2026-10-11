@@ -41,8 +41,5 @@ Every published Docker image ships with a generated Software Bill of Materials l
 
 ## Previously blocked updates
 
-The July 2026 `release/1.4.0` notes recorded blocked upgrades for
-`@hookform/resolvers` 5 and React 19. Those blockers no longer describe 1.5.0:
-`package.json` now uses `@hookform/resolvers` 5, Zod 4, React 19 and matching
-React type packages. Use the current manifest and lockfile when assessing
-compatibility rather than reapplying the old Zod 3 / React 18 assumptions.
+Resolved in 1.5.0: React 19, matching React type packages, Zod 4, and
+`@hookform/resolvers` 5 are supported.

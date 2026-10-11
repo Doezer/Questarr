@@ -1,14 +1,12 @@
 # Questarr — Product Requirements Document
 
-**Version:** 1.0  
-**Date:** 2026-06-07  
+**Version:** 1.5.0
+
+**Date:** 2026-10-11
+
 **Author:** Doezer  
 **Audience:** Project owner, AI coding agents, open source contributors  
-**Horizon:** 6 months (Q3–Q4 2026)
-
-This is the June 2026 planning baseline. Its "What Exists Today" and roadmap
-sections reflect that date, not the 1.5.0 release. For current shipped behavior,
-see [CHANGELOG.md](CHANGELOG.md) and the [1.5.0 checklist](RELEASE_1.5.0.md).
+**Horizon:** Remaining priorities after the 1.5.0 release
 
 ---
 
@@ -50,190 +48,91 @@ A user who wants to automate ROM downloads for retro gaming, feeding tools like 
 
 ---
 
-## 4. What Exists Today
+## 4. Shipped in 1.5.0
 
-Questarr is a working, production-ready application. The features below are live in the current release.
+### Library and discovery
 
-### Library Management
+- IGDB discovery and metadata, Steam wishlist import and scheduled sync, RSS
+  feeds refreshed at startup and hourly, and xREL release monitoring.
+- Wanted, Owned, Playing, Completed, and Shelved statuses, ratings, notes,
+  platform/content filters, sorting, and Backlog roulette.
+- Playing journal, milestones, screenshots, and Steam achievements; game details
+  include DLC/expansions, crack status, Time to Beat, PCGamingWiki, and NexusMods.
+- Root-folder discovery with scan progress, automatic rescans, and IGDB review
+  for unmatched folders. Existing files stay in place.
+- Installed-version tracking, populated from completed downloads or edited in
+  game details. Older update releases do not produce newer-version alerts.
 
-- Add games manually, via IGDB search, or by importing from Steam wishlist
-- Game detail modal: cover art, metadata, user rating (0.5–10), hidden flag
-- Filter, sort, and search the library
-- Per-game status tracking (wanted, downloading, downloaded, etc.)
-- Platform detection (from release title, IGDB data, fallback to PC)
+### Search and downloads
 
-### Discovery
+- Torznab, Newznab, and G4U indexers, plus Prowlarr synchronization with saved
+  connection, category, and priority defaults.
+- Manual and scheduled searches, auto-download, release blacklisting, preferred
+  release groups, source-page links, and per-game target platforms.
+- qBittorrent, Transmission, rTorrent, Deluge, Synology Download Station,
+  SABnzbd, and NZBGet integrations with live download progress.
+- Optional experimental AI release analysis using TypeSafe/Jev through
+  OpenRouter with the user's API key.
 
-- IGDB-powered game discovery and metadata enrichment
-- Steam App ID resolution + PCGamingWiki integration
-- NexusMods trending mods per game
+### Import pipeline
 
-### Search & Indexers
+- Configurable library root, rename pattern, copy/move/hardlink transfer,
+  hardlink fallback, archive extraction, path mappings, and add-on organization.
+- Manual review for failed or ambiguous imports, archive passwords, and orphaned
+  downloads; import history records task results.
+- Optional VirusTotal and ClamAV checks quarantine detected files before import.
+- Playing, Shelved, and Completed statuses survive download and import updates.
 
-- Torznab and Newznab indexer aggregation
-- Manual search with per-release download triggers
-- Release blacklisting
-- Preferred release groups setting
+### Notifications and administration
 
-### Download Client Integration
-
-- qBittorrent, Transmission, rTorrent, SABnzbd, NZBGet
-- Download status tracking and progress via WebSocket
-- Auto-delete completed downloads setting
-
-### Automation
-
-- Scheduled auto-search for wanted games
-- Download completion checks (cron)
-- xREL release monitoring with direct "add to library" from release list
-- RSS feed monitoring
-
-### Calendar
-
-- Release calendar for tracked games
-
-### Stats
-
-- Library and download statistics dashboard
-
-### Settings & Config
-
-- Per-user settings (preferred release groups, Steam sync)
-- Indexer and downloader configuration UI
-- System logs page
+- Release calendar with past dates muted in the year view; library/download
+  statistics and Discord sharing.
+- In-app and Apprise notifications, authenticated Apprise API connections, and
+  independent update/add-on notification controls for Shelved and Completed games.
+- Settings, system logs, password-reset CLI, optional error telemetry, and
+  Playnite library sync/game requests through dedicated integration API keys.
 
 ### Infrastructure
 
-- JWT authentication (single-user)
-- SQLite database (Drizzle ORM)
-- Docker-first deployment
-- Socket.io real-time updates
-- SSRF-protected outbound fetch
-- React 18 SPA + Express REST API + TypeScript strict mode throughout
+- Single-user self-hosting with httpOnly cookie authentication, CSRF protection,
+  bearer-token compatibility, and authenticated Socket.IO updates.
+- SQLite by default; optional PostgreSQL with documented migration tooling.
+- React 19, Express, Drizzle ORM, and strict TypeScript.
+- Docker images for amd64/arm64, native Windows installer, Home Assistant add-on,
+  Helm, Proxmox LXC, and Unraid/CasaOS/Umbrel/Cosmos deployment definitions.
+- Runtime reverse-proxy subdirectory support and protected outbound requests.
 
 ---
 
-## 5. Six-Month Roadmap
+## 5. Remaining Roadmap
 
-Features are ordered by current priority. Each section includes the user value and the scope.
+The post-processing pipeline, local filesystem discovery, Playnite integration,
+indexer page links, and optional PostgreSQL support are shipped. Further work
+builds on those capabilities rather than treating them as pending features.
 
----
+### Smart backlog
 
-### P0 — Post-Processing Pipeline _(in progress)_
+Installed-version tracking and update notification filtering are available.
+Continue improving version comparison and configurable automatic upgrades.
 
-**Problem:** After a download completes, files land wherever the download client puts them. Users currently manage file organization manually or with external scripts.
+### Direct downloads
 
-**Feature:** A configurable pipeline that runs after a download is marked complete:
+Add a debrid downloader integration, such as Real-Debrid or AllDebrid, to resolve
+releases into direct downloads within the existing downloader workflow.
 
-- Copy or move files to a user-defined destination path
-- Support variable tokens in paths (e.g. `{game.title}`, `{platform}`)
-- Extract archives (`.rar`, `.zip`, nested subdirs)
-- Optional: run a custom post-processing script (hook)
-- Show post-processing status per download
+### External library sync
 
-**Why now:** This is the single most-requested feature. Without it, the "set it and forget it" promise is incomplete — users still have to manually move files.
+Extend the existing Steam wishlist, local filesystem, and Playnite workflows to
+Steam owned-library and GOG import, with source tracking and periodic resync.
 
----
+### External integrations
 
-### P1 — Smart Game Backlog (Version-Aware Updates)
+Playnite is available. RomM, Gameyfin, and generic event webhooks remain planned.
 
-**Problem:** Once a game is downloaded, Questarr forgets about it. Users have no way to know when a newer version (patch, repack, upgrade) becomes available on indexers.
+### Ongoing quality
 
-**Feature:**
-
-- Track the last downloaded version per game (parsed from release title)
-- On each scheduled search, compare new results against the stored version
-- Notify the user only when a strictly higher version is found (e.g. v1.0 → v1.1)
-- Option to auto-download upgrades
-
-**Why:** Moves Questarr from "download once" to "keep library current" — the full \*Arr experience.
-
----
-
-### P2 — Direct Download Support (Real-Debrid and similar)
-
-**Problem:** Some users prefer direct download services (Real-Debrid, AllDebrid, etc.) over traditional torrent/usenet pipelines — no seeding required.
-
-**Feature:**
-
-- New downloader type: "direct download / debrid service"
-- Resolve magnet links or torrent files through the debrid API into direct HTTP links
-- Trigger download to a local downloader or direct to server path
-- Surface in the existing downloader configuration UI
-
-**Why:** Expands the user base to those who don't run a torrent client, and complements the existing pipeline without replacing it.
-
----
-
-### P3 — External Library Sync
-
-**Problem:** Users own games on Steam, GOG, and other platforms. Questarr currently only imports from Steam wishlists, not the actual library.
-
-**Feature:**
-
-- Import owned games from Steam library (via Steam API)
-- Import from GOG (if API available, otherwise file-based)
-- Filesystem scanner: detect games installed on a local path and add them to the library as "owned"
-- Mark synced games with their source; avoid duplicates across sources
-- Periodic background re-sync
-
-**Why:** Serves the Library Centralizer persona and makes Questarr useful even for users who don't download anything.
-
----
-
-### P4 — Integrations with External Tools
-
-**Problem:** Self-hosters already use tools like Playnite, Gameyfin, and RomM. Questarr should fit into those ecosystems rather than compete with them.
-
-**Integrations:**
-
-- **Playnite** ✅ Shipped — a Playnite extension (`extensions/playnite-questarr/`) syncs the local library up to Questarr (matched by Steam App ID, then normalized title), can promote installed games from `wanted` to `owned`, and can request a game from Playnite's right-click menu, which adds it as `wanted` and hands it to the existing auto-search pipeline. Backed by a dedicated integration API (`/api/integration`, see `docs/API.md`) authenticated with a long-lived API key minted in Settings → Integrations, kept separate from the interactive JWT session so a leaked key cannot manage other keys or reach the rest of the app.
-- **RomM** (planned): Tag ROMs with metadata from Questarr; trigger ROM downloads via Questarr pipeline
-- **Gameyfin** (planned): Notify or sync when a new game is added/downloaded
-- **Generic webhook** (planned): POST to a user-defined URL on events (game added, download complete, post-processing done) — enables any integration not explicitly supported
-
-**Why:** Lowers switching cost and increases stickiness for users already in the self-hosted ecosystem.
-
----
-
-### P5 — Indexer Page Links
-
-**Problem:** When a user wants more context about a specific release (description, NFO, comments), they have to manually navigate to the indexer.
-
-**Feature:**
-
-- Store and display a direct link to the release page on the indexer
-- Surface as a "View on indexer" button in the download/search result UI
-
-**Why:** Small lift, high user request frequency. Reduces tab-switching for power users who want to inspect releases before committing.
-
----
-
-### P6 — PostgreSQL Support (Re-introduction)
-
-**Problem:** SQLite is limiting for users running Questarr in containerized or NAS environments where a shared DB or larger datasets are needed. PostgreSQL was previously supported and removed.
-
-**Feature:**
-
-- Re-introduce PostgreSQL as an optional database backend
-- Maintain SQLite as the default (zero-config)
-- Abstract the Drizzle schema to work cleanly on both dialects
-- Document migration path from SQLite to PostgreSQL
-
-**Why:** Enables production-grade deployments and unblocks potential multi-user or multi-instance scenarios.
-
----
-
-### Ongoing — Quality of Life, Design & UX
-
-Not features but a standing priority for all 6 months. In line with the project philosophy: a well-maintained side project that is useful and pleasant to use beats a bloated one.
-
-- Mobile responsiveness: thumb-first navigation, touch-safe density, progressive disclosure on small screens
-- Notification system improvements (granular per-event control)
-- Search UX improvements (better result ranking, release group filtering)
-- Performance: reduce unnecessary re-renders, paginate heavy lists
-- Accessibility: aria-labels on all interactive elements, semantic HTML throughout
-- Visual polish: consistent spacing, cover art quality, status color clarity
+Improve mobile usability, accessibility, result ranking, large-library performance,
+and regression coverage for downloader and import workflows.
 
 ---
 
@@ -275,9 +174,9 @@ The following will not be built within this roadmap and are not planned:
 
 ## 8. Technical Constraints & Principles
 
-- **Docker-first**: All features must work in a standard Docker container without host-level dependencies (except mapped volumes).
+- **Supported deployments**: Features must work in Docker and the native Windows distribution; filesystem access must respect configured paths.
 - **SQLite by default**: New features must not require PostgreSQL to function. Postgres is additive.
-- **Single-user**: No multi-tenant data isolation required. JWT auth is sufficient for current scope.
+- **Single-user**: Single-user is the supported configuration. Preserve cookie authentication, CSRF protection, and authenticated real-time connections.
 - **TypeScript strict**: No `any`, no untyped escape hatches introduced by new features.
 - **SSRF protection**: All outbound HTTP calls (new integrations, debrid APIs) must go through `ssrf.ts` validation.
 - **Backward compatibility**: Settings, config, and the database schema must migrate cleanly. No silent breaking changes.
@@ -291,4 +190,3 @@ The following will not be built within this roadmap and are not planned:
 | -------------------------------------- | -------------------------------------------------------------------- |
 | Which debrid API to support first?     | Real-Debrid has the largest user base in the community               |
 | GOG library import — API or file scan? | GOG's public API is limited; may need to read the GOG Galaxy DB file |
-| PostgreSQL migration tooling           | Provide an official migration script or leave it to the user?        |

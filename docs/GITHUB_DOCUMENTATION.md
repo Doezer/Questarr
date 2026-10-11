@@ -2,6 +2,12 @@
 
 This file is the single entry point for GitHub-facing documentation in this repository.
 
+- Getting started: [QUICKSTART.md](QUICKSTART.md)
+- Library imports, settings, manual review, and history: [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md)
+- Picking a game: [BACKLOG_ROULETTE.md](BACKLOG_ROULETTE.md)
+- Indexers and Prowlarr: [INDEXERS.md](INDEXERS.md)
+- RSS feeds: [RSS.md](RSS.md)
+- Notification preferences and Apprise: [NOTIFICATIONS.md](NOTIFICATIONS.md)
 - Product overview and setup: [`README.md`](https://github.com/Doezer/Questarr/blob/main/README.md)
 - Contribution guide: [`.github/CONTRIBUTING.md`](https://github.com/Doezer/Questarr/blob/main/.github/CONTRIBUTING.md)
 - Security policy and reporting: [`docs/SECURITY.md`](SECURITY.md)

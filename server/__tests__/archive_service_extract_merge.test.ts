@@ -375,4 +375,27 @@ describe("ArchiveService.extract rollback", () => {
       expect.stringContaining("backup directory")
     );
   });
+
+  it("names the extracted files it could not remove when rolling back", async () => {
+    const gameDir = await tempDir();
+    await fs.outputFile(path.join(gameDir, "b.pak"), "b-old");
+    const archive = path.join(await tempDir(), "update.zip");
+    await fs.writeFile(archive, "zip-bytes");
+
+    const { service } = makeService({ "a.pak": "a-new", "b.pak": "b-new" });
+    const added = path.join(gameDir, "a.pak");
+    vi.spyOn(fs, "rename").mockRejectedValue(new Error("EIO: i/o error"));
+    const realRemove = fs.remove.bind(fs);
+    vi.spyOn(fs, "remove").mockImplementation((async (target: string) => {
+      if (target === added) throw new Error("EACCES: permission denied");
+      return realRemove(target);
+    }) as never);
+
+    const error = await service.extract(archive, gameDir).catch((err: Error) => err);
+
+    expect(String(error)).toMatch(/rollback incomplete/);
+    expect(String(error)).toContain(added);
+    expect(String(error)).not.toMatch(/kept in/);
+    expect(await fs.readFile(path.join(gameDir, "b.pak"), "utf8")).toBe("b-old");
+  });
 });

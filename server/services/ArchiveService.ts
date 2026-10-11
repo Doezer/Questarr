@@ -528,10 +528,12 @@ export class ArchiveService {
         }
       }
     } catch (err) {
-      let rollbackComplete = true;
+      let unrestored = 0;
+      const leftovers: string[] = [];
       const restore = async (to: string, backup: string | undefined): Promise<void> => {
         await (backup ? fs.rename(backup, to) : fs.remove(to)).catch((rollbackErr: unknown) => {
-          rollbackComplete = false;
+          if (backup) unrestored++;
+          else leftovers.push(to);
           logger.error(
             { err: rollbackErr, path: to, backup },
             "Could not roll back extracted file"
@@ -542,12 +544,17 @@ export class ArchiveService {
       for (const dir of [...dirsToCreate].reverse()) {
         await fs.rmdir(dir).catch(() => undefined);
       }
-      if (!rollbackComplete) {
+      if (unrestored > 0 || leftovers.length > 0) {
         const detail = err instanceof Error ? err.message : String(err);
-        throw new Error(
-          `${detail} (rollback incomplete: original files that could not be restored are kept in ${backupDir})`,
-          { cause: err }
-        );
+        const problems = [
+          unrestored > 0 &&
+            `${unrestored} original file(s) that could not be restored are kept in ${backupDir}`,
+          leftovers.length > 0 &&
+            `extracted file(s) that could not be removed: ${leftovers.join(", ")}`,
+        ].filter(Boolean);
+        throw new Error(`${detail} (rollback incomplete: ${problems.join("; ")})`, {
+          cause: err,
+        });
       }
       throw err;
     }

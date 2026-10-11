@@ -425,12 +425,18 @@ export class ArchiveService {
    * Every conflict is checked before the first file moves, so a refused merge leaves
    * destDir exactly as it was: a file and a directory at the same path, an existing
    * symlink where the archive has a directory (descending into it would write outside
-   * destDir), or a top-level entry using the staging directory's reserved name.
+   * destDir), or a top-level entry using the staging directory's reserved name. A file
+   * being replaced is first set aside in backupDir, so an I/O failure part-way through
+   * the moves restores every file already replaced and removes every file already added.
    * @returns Final paths (under destDir) of the files moved.
    */
-  private async mergeExtracted(stagingDir: string, destDir: string): Promise<string[]> {
+  private async mergeExtracted(
+    stagingDir: string,
+    destDir: string,
+    backupDir: string
+  ): Promise<string[]> {
     const dirsToCreate: string[] = [];
-    const filesToMove: Array<{ from: string; to: string }> = [];
+    const filesToMove: Array<{ from: string; to: string; replaces: boolean }> = [];
 
     const plan = async (srcDir: string, targetDir: string): Promise<void> => {
       const entries = await fs.readdir(srcDir, { withFileTypes: true });
@@ -463,14 +469,35 @@ export class ArchiveService {
             );
           }
           // A symlink at a file's path is replaced by the rename itself, never followed.
-          filesToMove.push({ from: srcPath, to: targetPath });
+          filesToMove.push({ from: srcPath, to: targetPath, replaces: !!existing });
         }
       }
     };
     await plan(stagingDir, destDir);
 
-    for (const dir of dirsToCreate) await fs.ensureDir(dir);
-    for (const { from, to } of filesToMove) await fs.move(from, to, { overwrite: true });
+    const done: Array<{ to: string; backup: string | undefined }> = [];
+    try {
+      for (const dir of dirsToCreate) await fs.ensureDir(dir);
+      if (filesToMove.some(({ replaces }) => replaces)) await fs.ensureDir(backupDir);
+      for (const [index, { from, to, replaces }] of filesToMove.entries()) {
+        const backup = replaces ? path.join(backupDir, String(index)) : undefined;
+        if (backup) await fs.move(to, backup);
+        done.push({ to, backup });
+        await fs.move(from, to);
+      }
+    } catch (err) {
+      for (const { to, backup } of done.reverse()) {
+        await (backup ? fs.move(backup, to, { overwrite: true }) : fs.remove(to)).catch(
+          (rollbackErr: unknown) => {
+            logger.error({ err: rollbackErr, path: to }, "Could not roll back extracted file");
+          }
+        );
+      }
+      for (const dir of [...dirsToCreate].reverse()) {
+        await fs.rmdir(dir).catch(() => undefined);
+      }
+      throw err;
+    }
     return filesToMove.map(({ to }) => to);
   }
 
@@ -538,15 +565,16 @@ export class ArchiveService {
     // folder in the library (ImportManager extracts straight into the destination), so it
     // can already hold an installed copy of the game — a patch or update being imported
     // over it must only add or replace the files it ships, never wipe the install.
-    // Staging also keeps a failed extraction from half-overwriting that install, and gives
-    // each run a clean slate: a leftover staging directory from an attempt killed before
-    // its own cleanup (e.g. a container restart) is removed first, so stale files never
-    // get reported as extracted. The staging directory sits inside outputDir so the merge
-    // is a same-filesystem rename, and its name is per-archive so it can't collide with
-    // the archive volumes the move/copy modes relocate into outputDir before extracting.
-    const stagingDir = path.join(outputDir, `${EXTRACT_STAGING_PREFIX}${path.basename(filePath)}`);
-    await fs.remove(stagingDir);
-    await fs.ensureDir(stagingDir);
+    // Staging also keeps a failed extraction from half-overwriting that install. Each run
+    // gets its own uniquely named staging directory, so two imports into the same folder
+    // can't delete or mix each other's output. It sits inside outputDir so the merge is a
+    // same-filesystem rename, and its reserved name can't collide with the archive volumes
+    // the move/copy modes relocate into outputDir before extracting.
+    await fs.ensureDir(outputDir);
+    const stagingDir = await fs.mkdtemp(
+      path.join(outputDir, `${EXTRACT_STAGING_PREFIX}${path.basename(filePath)}-`)
+    );
+    const backupDir = `${stagingDir}.bak`;
 
     let extractedFiles: string[];
     try {
@@ -555,14 +583,16 @@ export class ArchiveService {
       } else {
         await this.extractWith7zip(filePath, stagingDir, password);
       }
-      extractedFiles = await this.mergeExtracted(stagingDir, outputDir);
+      extractedFiles = await this.mergeExtracted(stagingDir, outputDir, backupDir);
     } catch (err) {
       logger.error({ err, filePath, tool }, "Extraction failed");
       throw err;
     } finally {
-      await fs.remove(stagingDir).catch((err: unknown) => {
-        logger.warn({ err, stagingDir }, "Could not remove extraction staging directory");
-      });
+      for (const dir of [stagingDir, backupDir]) {
+        await fs.remove(dir).catch((err: unknown) => {
+          logger.warn({ err, dir }, "Could not remove extraction staging directory");
+        });
+      }
     }
 
     if (extractedFiles.length === 0) {

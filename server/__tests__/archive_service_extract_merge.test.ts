@@ -142,17 +142,20 @@ describe("ArchiveService.extract into a non-empty destination", () => {
     expect(toolSpy.mock.calls[0]?.[1]).not.toBe(gameDir);
   });
 
-  it("clears a staging directory left behind by an interrupted extraction", async () => {
+  it("gives concurrent extractions into the same folder separate staging directories", async () => {
     const gameDir = await tempDir();
     const archive = path.join(await tempDir(), "game.zip");
     await fs.writeFile(archive, "zip-bytes");
-    await fs.outputFile(path.join(gameDir, ".questarr-extract-game.zip", "stale.tmp"), "stale");
 
-    const { service } = makeService({ "game.exe": "exe" });
-    const files = await service.extract(archive, gameDir);
+    const first = makeService({ "a.txt": "a" });
+    const second = makeService({ "b.txt": "b" });
+    await Promise.all([
+      first.service.extract(archive, gameDir),
+      second.service.extract(archive, gameDir),
+    ]);
 
-    expect(files).toEqual([path.join(gameDir, "game.exe")]);
-    expect(await fs.readdir(gameDir)).toEqual(["game.exe"]);
+    expect(first.toolSpy.mock.calls[0]?.[1]).not.toBe(second.toolSpy.mock.calls[0]?.[1]);
+    expect((await fs.readdir(gameDir)).sort()).toEqual(["a.txt", "b.txt"]);
   });
 
   it("refuses to replace an existing directory with a file of the same name", async () => {
@@ -208,5 +211,37 @@ describe("ArchiveService.extract conflict checks", () => {
     // entry is the reserved name.
     await expect(service.extract(archive, gameDir)).rejects.toThrow("reserved");
     expect(await fs.readdir(gameDir)).toEqual([]);
+  });
+});
+
+describe("ArchiveService.extract rollback", () => {
+  it("restores replaced files and removes added ones when a move fails part-way", async () => {
+    const gameDir = await tempDir();
+    await fs.outputFile(path.join(gameDir, "a.pak"), "a-old");
+    await fs.outputFile(path.join(gameDir, "b.pak"), "b-old");
+    const archive = path.join(await tempDir(), "update.zip");
+    await fs.writeFile(archive, "zip-bytes");
+
+    const { service } = makeService({
+      "a.pak": "a-new",
+      "new/added.txt": "added",
+      "b.pak": "b-new",
+    });
+    const realMove = fs.move.bind(fs);
+    let failed = false;
+    vi.spyOn(fs, "move").mockImplementation((async (src: string, dest: string, opts?: object) => {
+      // Fail the staged b.pak landing once; the rollback's own move back must still work.
+      if (!failed && dest === path.join(gameDir, "b.pak")) {
+        failed = true;
+        throw new Error("EIO: i/o error");
+      }
+      return realMove(src, dest, opts);
+    }) as never);
+
+    await expect(service.extract(archive, gameDir)).rejects.toThrow("EIO");
+
+    expect(await fs.readFile(path.join(gameDir, "a.pak"), "utf8")).toBe("a-old");
+    expect(await fs.readFile(path.join(gameDir, "b.pak"), "utf8")).toBe("b-old");
+    expect((await fs.readdir(gameDir)).sort()).toEqual(["a.pak", "b.pak"]);
   });
 });

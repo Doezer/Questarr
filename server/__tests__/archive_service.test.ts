@@ -4,21 +4,30 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { ensureDirMock, moveMock, lstatMock, readdirMock, statMock, removeMock, loggerMocks } =
-  vi.hoisted(() => ({
-    ensureDirMock: vi.fn().mockResolvedValue(undefined),
-    moveMock: vi.fn().mockResolvedValue(undefined),
-    lstatMock: vi.fn(),
-    readdirMock: vi.fn().mockResolvedValue([]),
-    statMock: vi.fn(),
-    removeMock: vi.fn().mockResolvedValue(undefined),
-    loggerMocks: {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    },
-  }));
+const {
+  ensureDirMock,
+  moveMock,
+  lstatMock,
+  mkdtempMock,
+  readdirMock,
+  statMock,
+  removeMock,
+  loggerMocks,
+} = vi.hoisted(() => ({
+  ensureDirMock: vi.fn().mockResolvedValue(undefined),
+  moveMock: vi.fn().mockResolvedValue(undefined),
+  lstatMock: vi.fn(),
+  mkdtempMock: vi.fn(async (prefix: string) => `${prefix}test`),
+  readdirMock: vi.fn().mockResolvedValue([]),
+  statMock: vi.fn(),
+  removeMock: vi.fn().mockResolvedValue(undefined),
+  loggerMocks: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
 
 vi.mock("fs-extra", () => ({
   default: {
@@ -27,6 +36,7 @@ vi.mock("fs-extra", () => ({
     readdir: readdirMock,
     stat: statMock,
     lstat: lstatMock,
+    mkdtemp: mkdtempMock,
     remove: removeMock,
   },
 }));
@@ -52,7 +62,7 @@ import { ArchiveService } from "../services/ArchiveService.js";
 // installed (p7zip is a common preinstall), which made this exact test flaky in CI.
 // The directory extract() unpacks into before merging into outputDir.
 function staging(outputDir: string, archiveName: string): string {
-  return path.join(outputDir, `.questarr-extract-${archiveName}`);
+  return path.join(outputDir, `.questarr-extract-${archiveName}-test`);
 }
 
 const NONEXISTENT_BINARY_PATH = "/definitely/does/not/exist/questarr-archive-tool-test";
@@ -256,7 +266,9 @@ describe("ArchiveService", () => {
         "--",
         "/downloads/game.zip",
       ]);
-      expect(ensureDirMock).toHaveBeenCalledWith(staging("/tmp/out", "game.zip"));
+      expect(mkdtempMock).toHaveBeenCalledWith(
+        path.join("/tmp/out", ".questarr-extract-game.zip-")
+      );
     });
 
     it("resolves with an empty array and warns when extraction produces no files", async () => {
@@ -494,7 +506,9 @@ describe("ArchiveService", () => {
         "/downloads/game.rar",
         staging("/tmp/rar-out", "game.rar") + path.sep,
       ]);
-      expect(ensureDirMock).toHaveBeenCalledWith(staging("/tmp/rar-out", "game.rar"));
+      expect(mkdtempMock).toHaveBeenCalledWith(
+        path.join("/tmp/rar-out", ".questarr-extract-game.rar-")
+      );
     });
 
     it("does not create the output directory when the RAR integrity test fails on every attempt", async () => {

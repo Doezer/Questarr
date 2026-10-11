@@ -340,7 +340,13 @@ function scanFileWithClamAv(
       } else if (reply.includes("OK")) {
         finish({ status: "clean" });
       } else {
-        finish({ status: "error", error: reply || "Empty response from ClamAV" });
+        // A refusal names its reason; a connection closed with no reply means clamd
+        // itself is broken or restarting, which is an outage like a socket error.
+        finish(
+          reply
+            ? { status: "error", error: reply }
+            : { status: "error", error: "Empty response from ClamAV", outage: true }
+        );
       }
     });
   });

@@ -424,6 +424,21 @@ describe("SecurityScanService.scan", () => {
     }
   });
 
+  it("stops scanning when clamd closes the connection without a reply", async () => {
+    const dir = path.join(tmpDir, "release-empty-reply");
+    fs.mkdirSync(dir);
+    for (const name of ["a.bin", "b.bin", "c.bin"]) {
+      fs.writeFileSync(path.join(dir, name), "x");
+    }
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
+    clamAvTestState.responseQueue = ["", "stream: OK\0", "stream: OK\0"];
+    const service = new SecurityScanService(
+      mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
+    );
+    await expect(service.scan(dir)).resolves.toEqual({ blocked: false });
+    expect(clamAvTestState.createdSockets).toHaveLength(1);
+  });
+
   it("scans every file in a directory download", async () => {
     const dir = path.join(tmpDir, "release");
     fs.mkdirSync(dir);

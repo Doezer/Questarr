@@ -120,6 +120,26 @@ describe("Prowlarr HTTP consent revocation", () => {
     }
   );
 
+  it.each(["http://prowlarr:9696/base/", "http://PROWLARR:9696/base///", "prowlarr:9696/base"])(
+    "revokes an equivalent spelling of the saved URL: %s",
+    async (url) => {
+      await revokeProwlarrHttpOptIn(url);
+      expect((await loadProwlarrSyncSettings())?.allowInsecureLan).toBe(false);
+      expect(storage.updateIndexer).toHaveBeenCalledExactlyOnceWith("matching", {
+        allowInsecureLan: false,
+      });
+    }
+  );
+
+  it.each(["http://prowlarr:9696/other", "https://prowlarr:9696/base"])(
+    "does not revoke a different connection identity: %s",
+    async (url) => {
+      await revokeProwlarrHttpOptIn(url);
+      expect(await loadProwlarrSyncSettings()).toEqual(saved);
+      expect(storage.updateIndexer).not.toHaveBeenCalled();
+    }
+  );
+
   it("leaves another connection untouched", async () => {
     await revokeProwlarrHttpOptIn("http://another:9696");
     expect(await loadProwlarrSyncSettings()).toEqual(saved);

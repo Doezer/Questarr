@@ -307,7 +307,7 @@ Manage your wanted games and when they release.
 
 ### Discover Games
 
-Browse and find new games to add to your collection.
+Browse and find new games to add to your collection. Download from a game’s details to add it as Wanted and send a release to your downloader.
 
 <a href="images/Screenshots/discover.png"><img src="images/Screenshots/discover.png" /></a>
 

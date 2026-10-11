@@ -60,6 +60,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Discover downloads**: downloading, sending to a downloader, or blacklisting from a game’s details adds it to the library as Wanted first, or reuses its existing record (#1174).
+
 #### Import & Archives
 
 - **Hardlink import**: falls back to copy when hardlinks are unsupported, including for multi-file downloads (#873, #978).

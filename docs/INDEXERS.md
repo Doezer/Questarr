@@ -22,3 +22,14 @@ API key was withheld, check the URL and this setting before trying again.
 
 See [SECRETS.md](SECRETS.md) for credential handling and [API.md](API.md) for the
 indexer API.
+
+## Download and blacklist from Discover
+
+Open a Discover game's details, choose **Download**, and select a release.
+Downloading or choosing **Send to downloader** adds the game to your library as
+**Wanted** before sending it; a game already in your library uses its existing
+record. Configure a compatible [downloader](DOWNLOADERS_COMPATIBILITY.md) first.
+
+**Blacklist release** also adds the game if needed, then hides that release from
+its download search. Future searches use the library game's blacklist. This
+applies to search results as well as Discover games.

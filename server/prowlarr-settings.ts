@@ -75,10 +75,12 @@ export async function saveProwlarrSyncSettings(settings: ProwlarrSyncSettings): 
 /** Revokes saved HTTP consent locally, before any credential-bearing sync request. */
 export async function revokeProwlarrHttpOptIn(url: string): Promise<void> {
   const saved = await loadProwlarrSyncSettings();
-  if (!saved || saved.url !== url) return;
+  if (!saved) return;
 
   const base = new URL(normalizeProwlarrUrl(saved.url));
-  const prefix = `${base.pathname.replace(/\/+$/, "")}/`;
+  const requested = new URL(normalizeProwlarrUrl(url));
+  if (base.href !== requested.href) return;
+  const prefix = base.pathname.endsWith("/") ? base.pathname : `${base.pathname}/`;
   await saveProwlarrSyncSettings({ ...saved, allowInsecureLan: false });
   for (const indexer of await storage.getAllIndexers()) {
     if (!indexer.allowInsecureLan || indexer.apiKey !== saved.apiKey) continue;

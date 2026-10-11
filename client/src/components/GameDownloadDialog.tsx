@@ -235,27 +235,30 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   // Discover and search results carry a temporary "igdb-<id>" id, which the
   // download and blacklist endpoints reject. Add such a game to the library
   // on first use and send its real id instead.
-  const [libraryGameId, setLibraryGameId] = useState<string | null>(null);
-  // Mirrors libraryGameId for mutation callbacks, which run before the re-render.
-  const libraryGameIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    setLibraryGameId(null);
-    libraryGameIdRef.current = null;
+  // Every cached value is keyed by the dialog game's id, so a result for one
+  // game can never be used for the next one.
+  type ResolvedId = { forId: string; id: string };
+  const [resolvedGame, setResolvedGame] = useState<ResolvedId | null>(null);
+  const libraryGameId = resolvedGame && resolvedGame.forId === game?.id ? resolvedGame.id : null;
+  // Mirrors resolvedGame for mutation callbacks, which run before the re-render.
+  const resolvedGameRef = useRef<ResolvedId | null>(null);
+  const currentGameId = useCallback(() => {
+    const resolved = resolvedGameRef.current;
+    return resolved && resolved.forId === game?.id ? resolved.id : game?.id;
   }, [game?.id]);
-  const currentGameId = useCallback(() => libraryGameIdRef.current ?? game?.id, [game?.id]);
 
   // Shared by actions fired before the first add returns, so they don't each
   // POST the game and create duplicate library rows.
-  const pendingLibraryGameRef = useRef<Promise<string> | null>(null);
-  useEffect(() => {
-    pendingLibraryGameRef.current = null;
-  }, [game?.id]);
+  const pendingAddRef = useRef<{ forId: string; promise: Promise<string> } | null>(null);
 
   const ensureLibraryGameId = useCallback(async (): Promise<string | undefined> => {
     if (!game) return undefined;
     if (!isDiscoveryId(game.id)) return game.id;
-    if (libraryGameIdRef.current) return libraryGameIdRef.current;
-    pendingLibraryGameRef.current ??= (async () => {
+    const forId = game.id;
+    if (resolvedGameRef.current?.forId === forId) return resolvedGameRef.current.id;
+    if (pendingAddRef.current?.forId === forId) return pendingAddRef.current.promise;
+
+    const promise = (async () => {
       let added: Game;
       try {
         const response = await apiRequest("POST", "/api/games", {
@@ -271,14 +274,16 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         if (!existing) throw error;
         added = existing;
       }
-      libraryGameIdRef.current = added.id;
-      setLibraryGameId(added.id);
+      const resolved = { forId, id: added.id };
+      resolvedGameRef.current = resolved;
+      setResolvedGame(resolved);
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       return added.id;
     })().finally(() => {
-      pendingLibraryGameRef.current = null;
+      if (pendingAddRef.current?.forId === forId) pendingAddRef.current = null;
     });
-    return pendingLibraryGameRef.current;
+    pendingAddRef.current = { forId, promise };
+    return promise;
   }, [game, queryClient]);
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");

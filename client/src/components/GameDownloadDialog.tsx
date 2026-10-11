@@ -244,30 +244,42 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   }, [game?.id]);
   const currentGameId = useCallback(() => libraryGameIdRef.current ?? game?.id, [game?.id]);
 
+  // Shared by actions fired before the first add returns, so they don't each
+  // POST the game and create duplicate library rows.
+  const pendingLibraryGameRef = useRef<Promise<string> | null>(null);
+  useEffect(() => {
+    pendingLibraryGameRef.current = null;
+  }, [game?.id]);
+
   const ensureLibraryGameId = useCallback(async (): Promise<string | undefined> => {
     if (!game) return undefined;
     if (!isDiscoveryId(game.id)) return game.id;
-    if (libraryGameId) return libraryGameId;
-    let added: Game;
-    try {
-      const response = await apiRequest("POST", "/api/games", {
-        ...mapGameToInsertGame(game),
-        status: "wanted",
-      });
-      added = (await response.json()) as Game;
-    } catch (error) {
-      const existing =
-        error instanceof ApiError && error.status === 409
-          ? (error.data as { game?: Game } | undefined)?.game
-          : undefined;
-      if (!existing) throw error;
-      added = existing;
-    }
-    libraryGameIdRef.current = added.id;
-    setLibraryGameId(added.id);
-    queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-    return added.id;
-  }, [game, libraryGameId, queryClient]);
+    if (libraryGameIdRef.current) return libraryGameIdRef.current;
+    pendingLibraryGameRef.current ??= (async () => {
+      let added: Game;
+      try {
+        const response = await apiRequest("POST", "/api/games", {
+          ...mapGameToInsertGame(game),
+          status: "wanted",
+        });
+        added = (await response.json()) as Game;
+      } catch (error) {
+        const existing =
+          error instanceof ApiError && error.status === 409
+            ? (error.data as { game?: Game } | undefined)?.game
+            : undefined;
+        if (!existing) throw error;
+        added = existing;
+      }
+      libraryGameIdRef.current = added.id;
+      setLibraryGameId(added.id);
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      return added.id;
+    })().finally(() => {
+      pendingLibraryGameRef.current = null;
+    });
+    return pendingLibraryGameRef.current;
+  }, [game, queryClient]);
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 300);

@@ -442,6 +442,22 @@ export class ArchiveService {
    * the moves restores every file already replaced and removes every file already added.
    * @returns Final paths (under destDir) of the files moved.
    */
+  /** Hard-links `src` to `dest`, copying instead when linking is not possible; never leaves a partial copy. */
+  private async backupFile(src: string, dest: string): Promise<void> {
+    try {
+      await fs.link(src, dest);
+      return;
+    } catch {
+      // Cross-device or unsupported filesystem: fall back to a copy.
+    }
+    try {
+      await fs.copy(src, dest, { preserveTimestamps: true });
+    } catch (err) {
+      await fs.remove(dest).catch(() => undefined);
+      throw err;
+    }
+  }
+
   private async mergeExtracted(
     stagingDir: string,
     destDir: string,
@@ -500,12 +516,14 @@ export class ArchiveService {
       for (const [index, { from, to, replaces }] of filesToMove.entries()) {
         if (replaces) {
           const backup = path.join(backupDir, String(index));
-          await fs.link(to, backup).catch(() => fs.copy(to, backup, { preserveTimestamps: true }));
-          await fs.rename(from, to).catch(async (err: unknown) => {
+          await this.backupFile(to, backup);
+          try {
+            await fs.rename(from, to);
+          } catch (err) {
             // The original is untouched when the rename fails; drop its now-useless backup.
             await fs.remove(backup).catch(() => undefined);
             throw err;
-          });
+          }
           done.push({ to, backup });
         } else {
           await fs.move(from, to);

@@ -329,4 +329,25 @@ describe("ArchiveService.extract rollback", () => {
     expect(await fs.readFile(path.join(gameDir, "a.pak"), "utf8")).toBe("a-new");
     expect(await fs.readdir(gameDir)).toEqual(["a.pak"]);
   });
+
+  it("leaves no partial backup behind when the backup copy fails", async () => {
+    const gameDir = await tempDir();
+    await fs.outputFile(path.join(gameDir, "a.pak"), "a-old");
+    const archive = path.join(await tempDir(), "update.zip");
+    await fs.writeFile(archive, "zip-bytes");
+
+    const { service } = makeService({ "a.pak": "a-new" });
+    // Linking is impossible (e.g. a filesystem without hard links) and the copy fallback
+    // dies after writing part of the file.
+    vi.spyOn(fs, "link").mockRejectedValue(new Error("EPERM: operation not permitted"));
+    vi.spyOn(fs, "copy").mockImplementation((async (_src: string, dest: string) => {
+      await fs.outputFile(dest, "a-o");
+      throw new Error("ENOSPC: no space left on device");
+    }) as never);
+
+    await expect(service.extract(archive, gameDir)).rejects.toThrow(/ENOSPC/);
+
+    expect(await fs.readdir(gameDir)).toEqual(["a.pak"]);
+    expect(await fs.readFile(path.join(gameDir, "a.pak"), "utf8")).toBe("a-old");
+  });
 });

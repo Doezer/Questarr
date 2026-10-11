@@ -346,12 +346,66 @@ const CATEGORY_DIR_MAP: Record<DownloadCategory, string> = {
   packs: "packs",
 };
 
+const SORT_EXTRAS_RESERVED_DIRS = new Set(["dlc", "update", "extra", "packs"]);
+// Loose files a release folder commonly ships next to its single content directory.
+// Their presence alone doesn't make that directory anything other than a wrapper.
+const RELEASE_METADATA_FILE = /\.(nfo|sfv|md5|sha1|diz|txt|url|jpe?g|png)$/i;
+
+/**
+ * Assigns a Sort Extras category to every file of a release, given its paths
+ * relative to the release root.
+ *
+ * Categories are decided per top-level item, from that item's own name, and every
+ * file inside it inherits the result: matching the full relative path would let a
+ * folder name ("Foo.GOTY.Edition/") or a game's internal layout ("Data/Patch/x.pak")
+ * pull files out of the game and break it. A release wrapped in a single directory
+ * (optionally next to .nfo/.sfv-style files) is descended into first, so the items
+ * judged are the ones inside it rather than the wrapper itself.
+ */
+export function categorizeRelativeFiles(relFiles: string[]): FileCategoryEntry[] {
+  const split = relFiles.map((name) => ({ name, segments: name.split(path.sep) }));
+
+  let depth = 0;
+  for (;;) {
+    const children = new Map<string, boolean>();
+    for (const { segments } of split) {
+      const child = segments[depth];
+      if (child === undefined) continue;
+      children.set(child, (children.get(child) ?? false) || segments.length > depth + 1);
+    }
+    const dirs = [...children].filter(([, isDir]) => isDir).map(([child]) => child);
+    const files = [...children].filter(([, isDir]) => !isDir).map(([child]) => child);
+    const wrapper = dirs.length === 1 ? dirs[0] : undefined;
+    if (
+      wrapper === undefined ||
+      SORT_EXTRAS_RESERVED_DIRS.has(wrapper.toLowerCase()) ||
+      !files.every((file) => RELEASE_METADATA_FILE.test(file))
+    ) {
+      break;
+    }
+    depth++;
+  }
+
+  const categoryByItem = new Map<string, DownloadCategory>();
+  return split.map(({ name, segments }) => {
+    // Metadata files sitting next to a wrapper belong to the release, not to an extra.
+    if (segments.length <= depth) return { name, category: "main" };
+    const item = segments[depth] ?? name;
+    let category = categoryByItem.get(item);
+    if (category === undefined) {
+      // An item already named after a category folder is left where it is.
+      category = SORT_EXTRAS_RESERVED_DIRS.has(item.toLowerCase())
+        ? "main"
+        : categorizeDownload(item).category;
+      categoryByItem.set(item, category);
+    }
+    return { name, category };
+  });
+}
+
 async function categorizeSourceFiles(sourcePath: string): Promise<FileCategoryEntry[]> {
   const files = await gatherFiles(sourcePath);
-  return files.map((filePath) => {
-    const name = path.relative(sourcePath, filePath);
-    return { name, category: categorizeDownload(name).category };
-  });
+  return categorizeRelativeFiles(files.map((filePath) => path.relative(sourcePath, filePath)));
 }
 
 function resolveContainedPath(root: string, candidate: string): string {

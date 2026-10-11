@@ -7,6 +7,7 @@ import {
   PCImportStrategy,
   reorganizeBySortExtras,
   gatherFiles,
+  categorizeRelativeFiles,
 } from "../services/ImportStrategies.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
@@ -885,6 +886,42 @@ describe("ImportStrategies", () => {
       expect(moveSpy).not.toHaveBeenCalled();
     });
 
+    it("keeps a release wrapped in an edition-named folder in place", async () => {
+      // "GOTY" in the wrapper's name used to send the whole game into dlc/.
+      const root = tempDir();
+      const destDir = path.join(root, "library", "PC", "Foo");
+      const wrapper = path.join(destDir, "Foo.GOTY.Edition");
+      await fs.ensureDir(path.join(wrapper, "Data", "Patch"));
+      await fs.writeFile(path.join(wrapper, "foo.exe"), "main");
+      await fs.writeFile(path.join(wrapper, "Data", "Patch", "x.pak"), "data");
+      await fs.writeFile(path.join(destDir, "Foo.GOTY.Edition.nfo"), "nfo");
+
+      await reorganizeBySortExtras(destDir);
+
+      expect(await fs.pathExists(path.join(wrapper, "foo.exe"))).toBe(true);
+      expect(await fs.pathExists(path.join(wrapper, "Data", "Patch", "x.pak"))).toBe(true);
+      expect(await fs.pathExists(path.join(destDir, "dlc"))).toBe(false);
+      expect(await fs.pathExists(path.join(destDir, "update"))).toBe(false);
+    });
+
+    it("leaves a game's internal folders alone and moves extras as whole folders", async () => {
+      const root = tempDir();
+      const destDir = path.join(root, "library", "PC", "Foo");
+      await fs.ensureDir(path.join(destDir, "Data", "Patch"));
+      await fs.ensureDir(path.join(destDir, "Foo Soundtrack"));
+      await fs.writeFile(path.join(destDir, "foo.exe"), "main");
+      await fs.writeFile(path.join(destDir, "Data", "Patch", "x.pak"), "data");
+      await fs.writeFile(path.join(destDir, "Foo Soundtrack", "01.flac"), "music");
+
+      await reorganizeBySortExtras(destDir);
+
+      expect(await fs.pathExists(path.join(destDir, "Data", "Patch", "x.pak"))).toBe(true);
+      expect(await fs.pathExists(path.join(destDir, "update"))).toBe(false);
+      expect(await fs.pathExists(path.join(destDir, "extra", "Foo Soundtrack", "01.flac"))).toBe(
+        true
+      );
+    });
+
     it("rejects a collision instead of silently overwriting one file with another", async () => {
       // A root-level update file and an identically-named file already sitting in
       // "update/" both categorize to the same destination — without a collision check,
@@ -901,6 +938,47 @@ describe("ImportStrategies", () => {
         "Duplicate sortExtras destination"
       );
       expect(moveSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("categorizeRelativeFiles()", () => {
+    const p = (...segments: string[]) => path.join(...segments);
+
+    it("categorizes each top-level item by its own name, not by the paths inside it", () => {
+      expect(
+        categorizeRelativeFiles([
+          "game.exe",
+          p("Data", "Patch", "x.pak"),
+          p("Game Update v1.2", "setup.exe"),
+          "Game Expansion Pack.nsp",
+        ])
+      ).toEqual([
+        { name: "game.exe", category: "main" },
+        { name: p("Data", "Patch", "x.pak"), category: "main" },
+        { name: p("Game Update v1.2", "setup.exe"), category: "update" },
+        { name: "Game Expansion Pack.nsp", category: "dlc" },
+      ]);
+    });
+
+    it("looks inside a single wrapper folder, even next to release metadata files", () => {
+      expect(
+        categorizeRelativeFiles([
+          "Foo.GOTY.Edition.nfo",
+          p("Foo.GOTY.Edition", "foo.exe"),
+          p("Foo.GOTY.Edition", "Foo OST", "01.flac"),
+        ])
+      ).toEqual([
+        { name: "Foo.GOTY.Edition.nfo", category: "main" },
+        { name: p("Foo.GOTY.Edition", "foo.exe"), category: "main" },
+        { name: p("Foo.GOTY.Edition", "Foo OST", "01.flac"), category: "extra" },
+      ]);
+    });
+
+    it("leaves items already named after a category folder where they are", () => {
+      expect(categorizeRelativeFiles([p("update", "Game DLC Patch.nsp"), "base.nsp"])).toEqual([
+        { name: p("update", "Game DLC Patch.nsp"), category: "main" },
+        { name: "base.nsp", category: "main" },
+      ]);
     });
   });
 });

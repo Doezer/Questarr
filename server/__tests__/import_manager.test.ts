@@ -1447,6 +1447,96 @@ describe("ImportManager", () => {
       ).toBe(false);
     });
 
+    it("holds an incompletely scanned download for review without quarantining it", async () => {
+      storage.getGameDownload.mockResolvedValue({
+        id: "dl-1",
+        gameId: "g1",
+        downloaderId: "d1",
+      });
+      storage.getGame.mockResolvedValue({
+        id: "g1",
+        title: "Huge Game",
+        userId: "u1",
+        status: "wanted",
+        platforms: [6],
+      });
+      storage.getImportConfig.mockResolvedValue({ ...baseConfig, libraryRoot: "/data/library" });
+
+      const reason = "ClamAV did not scan this download: it has more than 10000 files.";
+      const securityScanService = {
+        scan: vi.fn().mockResolvedValue({
+          blocked: false,
+          incomplete: true,
+          source: "clamav",
+          reason,
+        }),
+      };
+
+      const manager = new ImportManager(
+        storage as never, // NOSONAR
+        pathService as never, // NOSONAR
+        platformService as never, // NOSONAR
+        archiveService as never, // NOSONAR
+        securityScanService as never // NOSONAR
+      );
+
+      await manager.processImport("dl-1", "/remote/path");
+
+      // The files stay in the client's folder so the torrent keeps seeding.
+      expect(fsMock.move).not.toHaveBeenCalled();
+      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+        "dl-1",
+        "manual_review_required",
+        reason
+      );
+      expect(
+        storage.updateGameDownloadStatus.mock.calls.some(
+          ([id, status]) => id === "dl-1" && (status === "quarantined" || status === "imported")
+        )
+      ).toBe(false);
+      expect(storage.addNotification).not.toHaveBeenCalled();
+    });
+
+    it("lets the user confirm the import of an incompletely scanned download", async () => {
+      storage.getGameDownload.mockResolvedValue({ id: "dl-1", gameId: "g1", downloaderId: "d1" });
+      storage.getGame.mockResolvedValue({
+        id: "g1",
+        title: "Huge Game",
+        userId: "u1",
+        status: "wanted",
+        platforms: [6],
+      });
+      storage.getImportConfig.mockResolvedValue({ ...baseConfig, libraryRoot: "/safe/root" });
+
+      const securityScanService = {
+        scan: vi.fn().mockResolvedValue({
+          blocked: false,
+          incomplete: true,
+          source: "clamav",
+          reason: "not fully scanned",
+        }),
+      };
+
+      const manager = new ImportManager(
+        storage as never, // NOSONAR
+        pathService as never, // NOSONAR
+        platformService as never, // NOSONAR
+        archiveService as never, // NOSONAR
+        securityScanService as never // NOSONAR
+      );
+
+      await manager.confirmImport("dl-1", {
+        strategy: "pc",
+        originalPath: "/downloads/source-folder",
+        proposedPath: "/safe/root/PC/Huge Game",
+        needsReview: false,
+        transferMode: "move",
+      });
+
+      expect(securityScanService.scan).toHaveBeenCalled();
+      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+    });
+
     it("does not create a notification when the securityAlert.inApp preference is disabled", async () => {
       storage.getGameDownload.mockResolvedValue({
         id: "dl-1",

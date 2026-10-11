@@ -14,10 +14,12 @@ const VT_LOOKUP_TIMEOUT_MS = 10_000;
 // trickling bytes back and forth for an arbitrarily long time.
 const CLAMAV_SCAN_TIMEOUT_MS = 5 * 60 * 1000;
 const CLAMAV_CHUNK_SIZE = 64 * 1024;
-// Matches ImportManager's own MAX_LISTED_FILES cap. Without a limit, a directory
-// download with thousands of loose files would serialize that many sequential
-// ClamAV round-trips before an import could proceed.
-const MAX_CLAMAV_SCAN_FILES = 100;
+// Without a limit, a pathological download with an enormous number of loose files
+// would serialize that many sequential ClamAV round-trips before an import could
+// proceed. Set well above the file count of an extracted game install, so that a
+// normal download is always scanned in full; past it, the import is held for
+// manual review rather than quarantined.
+export const MAX_CLAMAV_SCAN_FILES = 10_000;
 
 export interface VirusTotalSettings {
   enabled: boolean;
@@ -36,6 +38,12 @@ export type ScanVerdictSource = "virustotal" | "clamav";
 
 export interface ScanResult {
   blocked: boolean;
+  /**
+   * Set (with blocked false) when a scanner could not examine every file. Nothing
+   * was detected, but the download isn't known to be clean either, so it needs
+   * the user's review before it is imported.
+   */
+  incomplete?: boolean;
   source?: ScanVerdictSource;
   reason?: string;
   hash?: string;
@@ -408,7 +416,10 @@ export class SecurityScanService {
     return null;
   }
 
-  /** Returns a blocking ScanResult, or null when ClamAV is disabled, unreachable, or found nothing. */
+  /**
+   * Returns a blocking ScanResult, an incomplete (non-blocking) one when not every
+   * file could be scanned, or null when ClamAV is disabled, unreachable, or found nothing.
+   */
   private async runClamAvCheck(localPath: string): Promise<ScanResult | null> {
     const clamAvSettings = await readClamAvSettings(this.storage);
     if (!clamAvSettings.enabled || !clamAvSettings.host) return null;
@@ -420,17 +431,21 @@ export class SecurityScanService {
         // A partially- or incompletely-scanned directory must never be treated
         // as clean — an infected file past the enumeration cap, or hidden behind
         // a directory ClamAV's scanner couldn't read, would otherwise bypass
-        // scanning entirely and be imported along with everything else.
+        // scanning entirely and be imported along with everything else. It isn't
+        // a detection either, so it must not be quarantined (which moves the
+        // files out of the client and breaks seeding): the caller holds it for
+        // the user to review instead.
         securityScanLogger.warn(
           { localPath, limit: MAX_CLAMAV_SCAN_FILES, truncated, incomplete },
-          "ClamAV scan could not examine every file; blocking rather than treating a partial scan as clean"
+          "ClamAV scan could not examine every file; holding the import for manual review"
         );
         return {
-          blocked: true,
+          blocked: false,
+          incomplete: true,
           source: "clamav",
           reason: incomplete
-            ? "ClamAV scan could not enumerate every file in this download"
-            : "ClamAV could not scan every file in this download",
+            ? "ClamAV scan could not enumerate every file in this download. Review it before importing."
+            : `ClamAV did not scan this download: it has more than ${MAX_CLAMAV_SCAN_FILES} files. Review it before importing.`,
         };
       }
 

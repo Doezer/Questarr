@@ -880,6 +880,20 @@ export class ImportManager {
         );
         return;
       }
+      if (scanResult.incomplete) {
+        // Not a detection, so the files stay where the client put them (seeding
+        // keeps working); the user decides from Pending Manual Imports.
+        logger.warn(
+          { downloadId, gameTitle: game.title, reason: scanResult.reason },
+          "[ImportManager] Security scan incomplete, holding the import for manual review"
+        );
+        await this.storage.updateGameDownloadStatus(
+          downloadId,
+          "manual_review_required",
+          scanResult.reason ?? "Security scan could not examine every file"
+        );
+        return;
+      }
 
       const archiveResolution = config.autoUnpack ? await this.resolveArchive(localPath) : null;
       const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
@@ -1114,6 +1128,14 @@ export class ImportManager {
         config.libraryRoot || "/data"
       );
       throw new Error(scanResult.reason ?? "Flagged by security scan");
+    }
+    if (scanResult.incomplete) {
+      // processImport already held this download for review on the same grounds;
+      // confirming it is the user's decision to import it anyway.
+      logger.warn(
+        { downloadId, reason: scanResult.reason },
+        "[ImportManager] Importing a download the security scan could not fully examine, as confirmed by the user"
+      );
     }
 
     if (!overridePlan.proposedPath) {

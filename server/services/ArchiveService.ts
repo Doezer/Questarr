@@ -549,7 +549,10 @@ export class ArchiveService {
   isArchive(filePath: string): boolean {
     const name = path.basename(filePath).toLowerCase();
     const ext = path.extname(name);
-    if ([".zip", ".7z", ".rar", ".gz", ".tar", ".iso", ".bz2"].includes(ext)) return true;
+    // Disc images (.iso) are deliberately not archives here: console games and most PC
+    // releases are used as the image itself (loaded by an emulator or mounted), so
+    // auto-unpacking one would replace a working game with loose, unusable files.
+    if ([".zip", ".7z", ".rar", ".gz", ".tar", ".bz2"].includes(ext)) return true;
     // Numbered multi-volume continuations don't carry a recognized extname on their own
     // (path.extname("game.7z.001") is ".001") but are still archives: classic RAR .rNN,
     // 7-Zip/zip .NNN splits ("game.7z.001", "game.zip.002"), and a bare "game.001" with

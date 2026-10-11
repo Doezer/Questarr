@@ -145,6 +145,29 @@ describe("SSRF Vulnerability in Routes", () => {
 
   const UNSAFE_URL = "http://169.254.169.254/latest/meta-data/";
 
+  it.each(["http://[", "http://:9696", "http://prowlarr:bad"])(
+    "returns 400 without changing saved consent when opting out with malformed URL %s",
+    async (url) => {
+      const settings = new Map([
+        ["prowlarr.url", "http://prowlarr:9696"],
+        ["prowlarr.apiKey", "abc"],
+        ["prowlarr.syncDefaults", JSON.stringify({ allowInsecureLan: true })],
+      ]);
+      vi.mocked(storage.getSystemConfig).mockImplementation(async (key) => settings.get(key));
+      const app = await createApp();
+      const response = await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({ url, apiKey: "abc", allowInsecureLan: false });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid or unsafe URL");
+      expect(storage.setSystemConfigBatch).not.toHaveBeenCalled();
+      expect(storage.updateIndexer).not.toHaveBeenCalled();
+      expect(prowlarrClient.getIndexers).not.toHaveBeenCalled();
+      expect(storage.syncIndexers).not.toHaveBeenCalled();
+    }
+  );
+
   it("should allow unsafe URL in /api/indexers/prowlarr/sync (VULNERABILITY)", async () => {
     const app = await createApp();
 

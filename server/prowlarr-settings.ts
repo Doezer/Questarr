@@ -77,8 +77,16 @@ export async function revokeProwlarrHttpOptIn(url: string): Promise<void> {
   const saved = await loadProwlarrSyncSettings();
   if (!saved) return;
 
-  const base = new URL(normalizeProwlarrUrl(saved.url));
-  const requested = new URL(normalizeProwlarrUrl(url));
+  let base: URL;
+  let requested: URL;
+  try {
+    base = new URL(normalizeProwlarrUrl(saved.url));
+    requested = new URL(normalizeProwlarrUrl(url));
+  } catch {
+    // No valid identity to revoke. Let the route's URL validator reject a
+    // malformed request without turning it into a storage/server error.
+    return;
+  }
   if (base.href !== requested.href) return;
   const prefix = base.pathname.endsWith("/") ? base.pathname : `${base.pathname}/`;
   for (const indexer of await storage.getAllIndexers()) {

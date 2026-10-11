@@ -146,6 +146,24 @@ describe("Prowlarr HTTP consent revocation", () => {
     expect(storage.updateIndexer).not.toHaveBeenCalled();
   });
 
+  it.each(["http://[", "http://:9696", "http://prowlarr:bad"])(
+    "leaves saved consent untouched for malformed requested URL %s",
+    async (url) => {
+      await expect(revokeProwlarrHttpOptIn(url)).resolves.toBeUndefined();
+      expect(await loadProwlarrSyncSettings()).toEqual(saved);
+      expect(storage.getAllIndexers).not.toHaveBeenCalled();
+      expect(storage.updateIndexer).not.toHaveBeenCalled();
+    }
+  );
+
+  it("leaves malformed saved connection data untouched", async () => {
+    await saveProwlarrSyncSettings({ ...saved, url: "http://[" });
+    await expect(revokeProwlarrHttpOptIn(saved.url)).resolves.toBeUndefined();
+    expect(await loadProwlarrSyncSettings()).toEqual({ ...saved, url: "http://[" });
+    expect(storage.getAllIndexers).not.toHaveBeenCalled();
+    expect(storage.updateIndexer).not.toHaveBeenCalled();
+  });
+
   it("can retry indexer revocation after a storage failure", async () => {
     vi.mocked(storage.updateIndexer).mockRejectedValueOnce(new Error("Storage failure"));
     await expect(revokeProwlarrHttpOptIn(saved.url)).rejects.toThrow("Storage failure");

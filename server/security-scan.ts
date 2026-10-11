@@ -247,7 +247,12 @@ export async function checkVirusTotalHash(
 export type ClamAvVerdict =
   | { status: "clean" }
   | { status: "infected"; signature: string }
-  | { status: "error"; error: string };
+  | {
+      status: "error";
+      error: string;
+      /** True when clamd itself failed (connection error, timeout), not just this file. */
+      outage?: boolean;
+    };
 
 /** Strips clamd's "stream: " prefix and trailing " FOUND" from an INSTREAM reply. */
 function extractClamAvSignature(reply: string): string {
@@ -288,11 +293,11 @@ function scanFileWithClamAv(
     };
 
     const deadline = setTimeout(
-      () => finish({ status: "error", error: "ClamAV scan exceeded the time limit" }),
+      () => finish({ status: "error", error: "ClamAV scan exceeded the time limit", outage: true }),
       CLAMAV_SCAN_TIMEOUT_MS
     );
 
-    socket.once("error", (err) => finish({ status: "error", error: err.message }));
+    socket.once("error", (err) => finish({ status: "error", error: err.message, outage: true }));
 
     socket.connect(port, connectAddress, () => {
       socket.write("zINSTREAM\0");
@@ -459,13 +464,15 @@ export class SecurityScanService {
           };
         }
         if (verdict.status === "error") {
-          // Stop at the first failure: with thousands of files, a clamd that stopped
-          // answering would otherwise cost a full per-file timeout for each of them.
           securityScanLogger.warn(
             { file, error: verdict.error },
-            "ClamAV scan failed, proceeding without a verdict"
+            "ClamAV scan failed for file, proceeding without a verdict"
           );
-          break;
+          // Stop once clamd itself is down: with thousands of files, a clamd that
+          // stopped answering would otherwise cost a full timeout for each of them.
+          // A file-level refusal (e.g. over clamd's stream size limit) only skips
+          // that file, so the remaining files are still scanned.
+          if (verdict.outage) break;
         }
       }
     } catch (error) {

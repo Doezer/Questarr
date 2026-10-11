@@ -24,7 +24,7 @@ vi.mock("../downloaders.js", () => ({
   DownloaderManager: downloadersMock,
 }));
 
-import { ImportManager } from "../services/ImportManager.js";
+import { ImportManager, IncompleteScanError } from "../services/ImportManager.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
 describe("ImportManager", () => {
@@ -1538,7 +1538,7 @@ describe("ImportManager", () => {
           needsReview: false,
           transferMode: "move",
         })
-      ).rejects.toThrow("not fully scanned");
+      ).rejects.toThrow(IncompleteScanError);
 
       expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
         "dl-1",

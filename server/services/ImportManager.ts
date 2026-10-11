@@ -94,6 +94,9 @@ const MAX_LISTED_FILES = 100;
 // UI can show a password field instead of the normal path-review form.
 export const ARCHIVE_PASSWORD_REQUIRED_PREFIX = "ARCHIVE_PASSWORD_REQUIRED:";
 
+/** Thrown when a confirmation is the first to learn the security scan was incomplete. */
+export class IncompleteScanError extends Error {}
+
 interface ArchiveResolution {
   archivePath: string;
   isDirectorySource: boolean;
@@ -1137,7 +1140,7 @@ export class ImportManager {
       // now and stop, so the next confirmation is an informed one.
       if (download.status !== "manual_review_required" || download.errorMessage !== reason) {
         await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required", reason);
-        throw new Error(reason);
+        throw new IncompleteScanError(`${reason} Confirm again to import it anyway.`);
       }
       logger.warn(
         { downloadId, reason: scanResult.reason },

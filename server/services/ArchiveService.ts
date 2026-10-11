@@ -326,6 +326,16 @@ function validateArchiveEntries(entries: ArchiveEntry[], outputDir: string): voi
   }
 }
 
+// Merges into the library run one at a time, process-wide: each is a quick series of
+// renames, and serializing them means a merge's rollback can never overwrite or remove
+// what a concurrent import into the same (or an overlapping) folder just placed.
+let mergeQueue: Promise<unknown> = Promise.resolve();
+function serializeMerge<T>(fn: () => Promise<T>): Promise<T> {
+  const run = mergeQueue.then(fn, fn);
+  mergeQueue = run.catch(() => undefined);
+  return run;
+}
+
 export class ArchiveService {
   // -y: assume yes on any prompt; -p<password> supplies a password when one is given,
   // otherwise -p- refuses to prompt for one (fail instead of hanging on an encrypted
@@ -479,8 +489,8 @@ export class ArchiveService {
 
     // Rollback only ever touches what this merge itself put in place: a file is recorded
     // as done after its own move lands, and a replaced file's backup is restored if the
-    // move meant to supersede it fails. A path another import created in the meantime is
-    // left alone.
+    // move meant to supersede it fails. Merges are serialized (serializeMerge), so no
+    // other import writes these paths while this one runs.
     const done: Array<{ to: string; backup: string | undefined }> = [];
     let pendingBackup: { to: string; backup: string } | undefined;
     try {
@@ -497,10 +507,15 @@ export class ArchiveService {
         done.push({ to, backup });
       }
     } catch (err) {
+      let rollbackComplete = true;
       const restore = async (to: string, backup: string | undefined): Promise<void> => {
         await (backup ? fs.move(backup, to, { overwrite: true }) : fs.remove(to)).catch(
           (rollbackErr: unknown) => {
-            logger.error({ err: rollbackErr, path: to }, "Could not roll back extracted file");
+            rollbackComplete = false;
+            logger.error(
+              { err: rollbackErr, path: to, backup },
+              "Could not roll back extracted file"
+            );
           }
         );
       };
@@ -508,6 +523,13 @@ export class ArchiveService {
       for (const { to, backup } of done.reverse()) await restore(to, backup);
       for (const dir of [...dirsToCreate].reverse()) {
         await fs.rmdir(dir).catch(() => undefined);
+      }
+      if (!rollbackComplete) {
+        const detail = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `${detail} (rollback incomplete: original files that could not be restored are kept in ${backupDir})`,
+          { cause: err }
+        );
       }
       throw err;
     }
@@ -588,22 +610,28 @@ export class ArchiveService {
     const backupDir = `${stagingDir}.bak`;
 
     let extractedFiles: string[];
+    let merged = false;
     try {
       if (tool === "unrar") {
         await this.extractWithUnrar(filePath, stagingDir, password);
       } else {
         await this.extractWith7zip(filePath, stagingDir, password);
       }
-      extractedFiles = await this.mergeExtracted(stagingDir, outputDir, backupDir);
+      extractedFiles = await serializeMerge(() =>
+        this.mergeExtracted(stagingDir, outputDir, backupDir)
+      );
+      merged = true;
     } catch (err) {
       logger.error({ err, filePath, tool }, "Extraction failed");
       throw err;
     } finally {
-      for (const dir of [stagingDir, backupDir]) {
-        await fs.remove(dir).catch((err: unknown) => {
-          logger.warn({ err, dir }, "Could not remove extraction staging directory");
-        });
-      }
+      await fs.remove(stagingDir).catch((err: unknown) => {
+        logger.warn({ err, dir: stagingDir }, "Could not remove extraction staging directory");
+      });
+      // After a successful merge the backups are the replaced originals, no longer needed.
+      // After a failed one a complete rollback leaves the directory empty; anything still
+      // in it is an original file the rollback couldn't put back, so it is kept.
+      await (merged ? fs.remove(backupDir) : fs.rmdir(backupDir)).catch(() => undefined);
     }
 
     if (extractedFiles.length === 0) {

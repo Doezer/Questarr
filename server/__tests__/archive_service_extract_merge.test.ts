@@ -275,4 +275,42 @@ describe("ArchiveService.extract rollback", () => {
 
     expect(await fs.readdir(gameDir)).toEqual(["game.exe"]);
   });
+
+  it("keeps the backup of an original it could not restore and says where", async () => {
+    const gameDir = await tempDir();
+    await fs.outputFile(path.join(gameDir, "a.pak"), "a-old");
+    await fs.outputFile(path.join(gameDir, "b.pak"), "b-old");
+    const archive = path.join(await tempDir(), "update.zip");
+    await fs.writeFile(archive, "zip-bytes");
+
+    const { service } = makeService({ "a.pak": "a-new", "b.pak": "b-new" });
+    const realMove = fs.move.bind(fs);
+    vi.spyOn(fs, "move").mockImplementation((async (src: string, dest: string, opts?: object) => {
+      // The staged b.pak can't land, and neither can a.pak's original going back.
+      if (
+        dest === path.join(gameDir, "b.pak") &&
+        src.includes(".questarr-extract-") &&
+        !src.includes(".bak")
+      ) {
+        throw new Error("EIO: i/o error");
+      }
+      if (dest === path.join(gameDir, "a.pak") && src.includes(".bak")) {
+        throw new Error("EACCES: permission denied");
+      }
+      return realMove(src, dest, opts);
+    }) as never);
+
+    const error = await service.extract(archive, gameDir).catch((err: Error) => err);
+
+    expect(String(error)).toMatch(/rollback incomplete/);
+    const kept = (await fs.readdir(gameDir)).find((name) => name.endsWith(".bak"));
+    expect(kept).toBeDefined();
+    const keptFiles = await fs.readdir(path.join(gameDir, kept as string));
+    const contents = await Promise.all(
+      keptFiles.map((name) => fs.readFile(path.join(gameDir, kept as string, name), "utf8"))
+    );
+    expect(contents).toContain("a-old");
+    // b.pak's original was restored.
+    expect(await fs.readFile(path.join(gameDir, "b.pak"), "utf8")).toBe("b-old");
+  });
 });

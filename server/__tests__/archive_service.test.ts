@@ -37,6 +37,7 @@ vi.mock("fs-extra", () => ({
     stat: statMock,
     lstat: lstatMock,
     mkdtemp: mkdtempMock,
+    rmdir: vi.fn().mockResolvedValue(undefined),
     remove: removeMock,
   },
 }));

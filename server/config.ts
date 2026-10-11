@@ -70,7 +70,7 @@ const envSchema = z.object({
     .optional()
     .refine((value) => parseTrustProxy(value) !== null, {
       message:
-        'TRUST_PROXY must be "false", "true", a number of proxy hops (e.g. 1), or a comma-separated list of proxy IPs/subnets (e.g. 172.16.0.0/12, loopback).',
+        'TRUST_PROXY must be "false", "true", a number of proxy hops from 1 to 10, or a comma-separated list of proxy IPs/subnets (e.g. 172.16.0.0/12, loopback).',
     })
     .transform((value) => parseTrustProxy(value) ?? false),
 

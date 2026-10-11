@@ -9,6 +9,7 @@ export type TrustProxySetting = false | number | string;
 
 // Named subnets understood by Express (via proxy-addr).
 const NAMED_SUBNETS = new Set(["loopback", "linklocal", "uniquelocal"]);
+const MAX_HOPS = 10;
 const DISABLED_VALUES = new Set(["", "false", "0", "no", "off"]);
 
 function isValidProxyEntry(entry: string): boolean {
@@ -41,7 +42,12 @@ export function parseTrustProxy(value: string | undefined): TrustProxySetting | 
   const normalized = (value ?? "").trim().toLowerCase();
   if (DISABLED_VALUES.has(normalized)) return false;
   if (normalized === "true" || normalized === "yes" || normalized === "on") return 1;
-  if (/^\d+$/.test(normalized)) return Number(normalized);
+  if (/^\d+$/.test(normalized)) {
+    // A huge hop count trusts the whole chain, the same spoofable setup as
+    // Express's `true`; real deployments sit behind a handful of proxies.
+    const hops = Number(normalized);
+    return hops <= MAX_HOPS ? hops : null;
+  }
 
   const entries = normalized.split(",").map((entry) => entry.trim());
   if (entries.some((entry) => !isValidProxyEntry(entry))) return null;

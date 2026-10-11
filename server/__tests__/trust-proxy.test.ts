@@ -54,6 +54,8 @@ describe("parseTrustProxy", () => {
   it("rejects anything else", () => {
     for (const value of [
       "maybe",
+      "11",
+      "99999999999999999999",
       "10.0.0.0/33",
       "fd00::/129",
       "0.0.0.0/0",

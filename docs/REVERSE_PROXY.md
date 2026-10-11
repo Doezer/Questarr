@@ -126,7 +126,7 @@ Accepted values:
 | Value                           | Meaning                                                                                                                                                           |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | unset, `false`, `0`             | Default. Trust no proxy; the client IP is the TCP peer.                                                                                                           |
-| `1`, `2`, ...                   | Number of proxy hops in front of Questarr. `1` fits a single nginx/Traefik/Caddy. `true` means `1`.                                                               |
+| `1` to `10`                     | Number of proxy hops in front of Questarr. `1` fits a single nginx/Traefik/Caddy. `true` means `1`.                                                               |
 | IPs or subnets, comma-separated | Trust only these proxies, e.g. `172.16.0.0/12` for a Docker network, or `loopback` for a proxy on the same host. `linklocal` and `uniquelocal` are also accepted. |
 
 Only set it when every request really goes through the proxy. If the Questarr

@@ -155,14 +155,15 @@ export default function DiscoverPage() {
 
   // Carousels cache their already-filtered lists, so their keys carry what the
   // filter depends on: tracking, hiding or changing a game's status refetches them.
-  const carouselFilterKey = useMemo(
-    () => [
-      hiddenIgdbIds.size,
-      hideOwned ? ownedIgdbIds.size : "owned-shown",
-      hideWanted ? wantedIgdbIds.size : "wanted-shown",
-    ],
-    [hiddenIgdbIds, ownedIgdbIds, wantedIgdbIds, hideOwned, hideWanted]
-  );
+  // The IDs themselves, not counts, so a swap that keeps a count still re-keys.
+  const carouselFilterKey = useMemo(() => {
+    const signature = (ids: Set<number>) => [...ids].sort((a, b) => a - b).join(",");
+    return [
+      signature(hiddenIgdbIds),
+      hideOwned ? signature(ownedIgdbIds) : "owned-shown",
+      hideWanted ? signature(wantedIgdbIds) : "wanted-shown",
+    ];
+  }, [hiddenIgdbIds, ownedIgdbIds, wantedIgdbIds, hideOwned, hideWanted]);
 
   const filterGames = useCallback(
     (games: Game[]) => {

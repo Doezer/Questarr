@@ -239,13 +239,19 @@ describe("DiscoverPage", () => {
         (await screen.findByText("Popular Games")).getAttribute("data-query-key");
 
       await waitFor(async () =>
-        expect(await popularKey()).toBe('["/api/igdb/popular",0,"owned-shown",0]')
+        expect(await popularKey()).toBe('["/api/igdb/popular","","owned-shown",""]')
       );
       // Rating or tracking a Discover game adds it to the library as wanted.
       library = [{ id: "a", igdbId: 7, hidden: false, status: "wanted" }];
       await queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       await waitFor(async () =>
-        expect(await popularKey()).toBe('["/api/igdb/popular",0,"owned-shown",1]')
+        expect(await popularKey()).toBe('["/api/igdb/popular","","owned-shown","7"]')
+      );
+      // A different game takes its place: same count, different members.
+      library = [{ id: "b", igdbId: 8, hidden: false, status: "wanted" }];
+      await queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      await waitFor(async () =>
+        expect(await popularKey()).toBe('["/api/igdb/popular","","owned-shown","8"]')
       );
     } finally {
       delete storedValues.discoverHideWanted;

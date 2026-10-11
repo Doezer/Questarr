@@ -374,26 +374,23 @@ function isWrapperDirectory(name: string): boolean {
 export function categorizeRelativeFiles(relFiles: string[]): FileCategoryEntry[] {
   const split = relFiles.map((name) => ({ name, segments: name.split(path.sep) }));
 
-  let depth = 0;
-  for (;;) {
-    const children = new Map<string, boolean>();
-    for (const { segments } of split) {
-      const child = segments[depth];
-      if (child === undefined) continue;
-      children.set(child, (children.get(child) ?? false) || segments.length > depth + 1);
-    }
-    const dirs = [...children].filter(([, isDir]) => isDir).map(([child]) => child);
-    const files = [...children].filter(([, isDir]) => !isDir).map(([child]) => child);
-    const wrapper = dirs.length === 1 ? dirs[0] : undefined;
-    if (
-      wrapper === undefined ||
-      !isWrapperDirectory(wrapper) ||
-      !files.every((file) => RELEASE_METADATA_FILE.test(file))
-    ) {
-      break;
-    }
-    depth++;
+  // Only the release's own outer wrapper is skipped: descending further would walk
+  // into the game's internal layout ("Game/Data/Patch/") and judge its folders.
+  const children = new Map<string, boolean>();
+  for (const { segments } of split) {
+    const child = segments[0];
+    if (child === undefined) continue;
+    children.set(child, (children.get(child) ?? false) || segments.length > 1);
   }
+  const dirs = [...children].filter(([, isDir]) => isDir).map(([child]) => child);
+  const files = [...children].filter(([, isDir]) => !isDir).map(([child]) => child);
+  const wrapper = dirs.length === 1 ? dirs[0] : undefined;
+  const depth =
+    wrapper !== undefined &&
+    isWrapperDirectory(wrapper) &&
+    files.every((file) => RELEASE_METADATA_FILE.test(file))
+      ? 1
+      : 0;
 
   const categoryByItem = new Map<string, DownloadCategory>();
   return split.map(({ name, segments }) => {

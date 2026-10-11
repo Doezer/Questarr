@@ -559,6 +559,8 @@ export class ArchiveService {
     // no format tag. Without this, a directory containing only numbered volumes (no
     // plain .rar/.7z/.zip file) would never be recognized as containing an archive at
     // all, and resolveArchive would import the volumes as loose files unextracted.
+    // A split disc image ("game.iso.001") is still a disc image, not an archive.
+    if (/\.iso\.\d{3}$/i.test(name)) return false;
     return /\.(r\d{2,3}|7z\.\d{3}|zip\.\d{3}|\d{3})$/i.test(name);
   }
 

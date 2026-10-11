@@ -189,6 +189,7 @@ describe("ArchiveService", () => {
     // PS2/PSP/GameCube/Wii images are the game itself: unpacking would destroy them.
     expect(service.isArchive("image.iso")).toBe(false);
     expect(service.isArchive("Game.ISO")).toBe(false);
+    expect(service.isArchive("game.iso.001")).toBe(false);
   });
 
   it("isArchive returns true for .zip files", () => {

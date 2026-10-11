@@ -989,6 +989,12 @@ describe("ImportStrategies", () => {
       ]);
     });
 
+    it("only skips the outer release wrapper, not the game's internal folders", () => {
+      expect(categorizeRelativeFiles([p("Game", "Data", "Patch", "x.pak")])).toEqual([
+        { name: p("Game", "Data", "Patch", "x.pak"), category: "main" },
+      ]);
+    });
+
     it("leaves items already named after a category folder where they are", () => {
       expect(categorizeRelativeFiles([p("update", "Game DLC Patch.nsp"), "base.nsp"])).toEqual([
         { name: p("update", "Game DLC Patch.nsp"), category: "main" },

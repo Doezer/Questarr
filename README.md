@@ -459,6 +459,9 @@ container (or in `.env` for npm installs) and point your reverse proxy at it
 — no rebuild required. See [docs/REVERSE_PROXY.md](docs/REVERSE_PROXY.md) for
 full setup instructions (nginx, Traefik, Caddy).
 
+Behind any reverse proxy, also set `TRUST_PROXY=1` so rate limits see real
+client IPs (see the same doc).
+
 </details>
 
 ## Roadmap

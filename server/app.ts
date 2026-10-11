@@ -27,8 +27,11 @@ export function createApp() {
   // security headers (CSP, X-Frame-Options, X-Content-Type-Options, etc.)
   // entirely, since Express stops at the first route that sends a response.
 
-  if (config.server.isProduction) {
-    app.set("trust proxy", 1);
+  // Opt-in via TRUST_PROXY: trusting X-Forwarded-For without a proxy in
+  // front would let any client pick its own req.ip and dodge the rate
+  // limiters (login included).
+  if (config.server.trustProxy !== false) {
+    app.set("trust proxy", config.server.trustProxy);
   }
 
   app.use(

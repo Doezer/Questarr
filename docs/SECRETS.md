@@ -19,7 +19,7 @@ rather than starting with an invalid configuration.
 | Variable                                | Purpose                                                       | Required?                                                                                                                                                                                                                     |
 | --------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `JWT_SECRET`                            | Signs/verifies session JWTs                                   | No — auto-generated and persisted to the DB if unset (§2)                                                                                                                                                                     |
-| `NEXUSMODS_API_KEY`                     | NexusMods mod lookups                                         | No — validated by `envSchema`; can be set later in Settings → Services (§3)                                                                                                                                                   |
+| `NEXUSMODS_API_KEY`                     | NexusMods mod lookups                                         | No — validated by `envSchema`; can be set later in Settings → Integrations (§3)                                                                                                                                               |
 | `STEAM_API_KEY`                         | Steam achievements in a game's Journal tab                    | No — env-only; without it the achievements section is simply hidden (`server/config.ts`, `GET /api/settings/steam`)                                                                                                           |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | Twitch/IGDB OAuth for game metadata & discovery               | No env-wise, but one of env/DB must be set for discovery to work                                                                                                                                                              |
 | `PORT`                                  | HTTP port                                                     | No (default `5000`)                                                                                                                                                                                                           |
@@ -27,8 +27,8 @@ rather than starting with an invalid configuration.
 | `NODE_ENV`                              | `development` \| `production` \| `test`                       | No (defaults to `production`)                                                                                                                                                                                                 |
 | `SQLITE_DB_PATH`                        | Path to the SQLite database file                              | No (default `sqlite.db`)                                                                                                                                                                                                      |
 | `CREDENTIALS_ENCRYPTION_KEY`            | AES-256 key encrypting indexer/downloader credentials at rest | No — auto-generated (32 random bytes) and persisted to the DB if unset; must be a 64-char hex string if provided (§4)                                                                                                         |
-| `ARCHIVE_MAX_ENTRIES`                   | Max entries an archive may list before import extraction      | No (default `50000`). Archives listing more entries are refused before extraction. See [Archive extraction limits](#archive-extraction-limits) |
-| `ARCHIVE_MAX_EXPANDED_BYTES`            | Max total declared uncompressed size of an archive, in bytes  | No (default `268435456000`, 250 GiB). Archives declaring more are refused before extraction. See [Archive extraction limits](#archive-extraction-limits) |
+| `ARCHIVE_MAX_ENTRIES`                   | Max entries an archive may list before import extraction      | No (default `50000`). Archives listing more entries are refused before extraction. See [Archive extraction limits](#archive-extraction-limits)                                                                                |
+| `ARCHIVE_MAX_EXPANDED_BYTES`            | Max total declared uncompressed size of an archive, in bytes  | No (default `268435456000`, 250 GiB). Archives declaring more are refused before extraction. See [Archive extraction limits](#archive-extraction-limits)                                                                      |
 
 A legacy hardcoded default, `"questarr-default-secret-change-me"`, is
 explicitly rejected by a Zod `.refine()` (`server/config.ts:18-24`) so the
@@ -46,14 +46,14 @@ archives are listed with `unrar lt -v`; other formats use 7-Zip. Questarr
 refuses the archive, and the import fails with an error, if any of these is
 true:
 
-| Check                                                                                         | Error message                                                         |
-| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| More entries than `ARCHIVE_MAX_ENTRIES`                                                       | `Archive contains too many entries (limit: N).`                       |
-| Total declared uncompressed size above `ARCHIVE_MAX_EXPANDED_BYTES`                           | `Archive expands beyond the configured size limit (N bytes).`         |
-| An entry with an absolute path, a drive letter (`C:`), a `..` segment, or more than 64 levels | `Archive contains an unsafe file path.`                               |
-| An entry that would resolve outside the extraction directory                                  | `Archive contains a file path outside the extraction directory.`      |
-| A symbolic link or hard link                                                                  | `Archive contains a symbolic or hard link, which is not extracted.`   |
-| An entry with a missing or invalid uncompressed size                                          | `Archive contains an entry with an invalid uncompressed size.`        |
+| Check                                                                                         | Error message                                                       |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| More entries than `ARCHIVE_MAX_ENTRIES`                                                       | `Archive contains too many entries (limit: N).`                     |
+| Total declared uncompressed size above `ARCHIVE_MAX_EXPANDED_BYTES`                           | `Archive expands beyond the configured size limit (N bytes).`       |
+| An entry with an absolute path, a drive letter (`C:`), a `..` segment, or more than 64 levels | `Archive contains an unsafe file path.`                             |
+| An entry that would resolve outside the extraction directory                                  | `Archive contains a file path outside the extraction directory.`    |
+| A symbolic link or hard link                                                                  | `Archive contains a symbolic or hard link, which is not extracted.` |
+| An entry with a missing or invalid uncompressed size                                          | `Archive contains an entry with an invalid uncompressed size.`      |
 
 The path and link checks always apply. If a legitimate release is refused
 for size or entry count, raise the matching limit and restart the server:
@@ -98,14 +98,30 @@ existing session.
 
 ## 3. Third-party API credentials
 
-| Service                                          | Where configured                                                      | Storage                                                                                                                                                | Refresh/rotation                                                                                                                                                                                                         |
-| ------------------------------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **IGDB** (via Twitch OAuth)                      | `.env` (`IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`) or Settings → Services | DB `system_config` keys `igdb.clientId` / `igdb.clientSecret` take priority over env if both are present (`server/igdb.ts:138-153`)                    | Twitch access token is fetched via `client_credentials` grant and cached in memory, auto-refreshed ~1 minute before expiry (`server/igdb.ts:187-214`). Client ID/secret themselves are user-rotated via the Settings UI. |
-| **NexusMods**                                    | `.env` (`NEXUSMODS_API_KEY`) or Settings → Services                   | DB `system_config` key `nexusmods.apiKey`; client reconfigured in-memory on save (`server/nexusmods.ts:46-69,176-182`)                                 | Manual — overwrite the key in Settings.                                                                                                                                                                                  |
-| **HowLongToBeat**, **PCGamingWiki**, **xREL.to** | N/A                                                                   | N/A                                                                                                                                                    | These are unauthenticated public APIs; no credentials involved.                                                                                                                                                          |
-| **Steam** wishlist import                        | N/A (public Steam endpoints + user's `steamId64`)                     | N/A                                                                                                                                                    | N/A                                                                                                                                                                                                                      |
-| **Steam** Web API (achievements)                 | `.env` (`STEAM_API_KEY`) only — no Settings UI                        | Env-only; never persisted to the DB. `GET /api/settings/steam` returns only `{ apiKeyConfigured: boolean }`, never the key itself (`server/routes.ts`) | Manual — change the environment variable and restart the server.                                                                                                                                                         |
-| **Discord** notification webhook                 | Settings → Services                                                   | DB `system_config` key `discord.webhookUrl`, plaintext (`server/routes.ts:2769-2801`)                                                                  | Manual — overwrite the URL in Settings.                                                                                                                                                                                  |
+| Service                                          | Where configured                                                          | Storage                                                                                                                                                | Refresh/rotation                                                                                                                                                                                                         |
+| ------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **IGDB** (via Twitch OAuth)                      | `.env` (`IGDB_CLIENT_ID`/`IGDB_CLIENT_SECRET`) or Settings → Integrations | DB `system_config` keys `igdb.clientId` / `igdb.clientSecret` take priority over env if both are present (`server/igdb.ts:138-153`)                    | Twitch access token is fetched via `client_credentials` grant and cached in memory, auto-refreshed ~1 minute before expiry (`server/igdb.ts:187-214`). Client ID/secret themselves are user-rotated via the Settings UI. |
+| **NexusMods**                                    | `.env` (`NEXUSMODS_API_KEY`) or Settings → Integrations                   | DB `system_config` key `nexusmods.apiKey`; client reconfigured in-memory on save (`server/nexusmods.ts:46-69,176-182`)                                 | Manual — overwrite the key in Settings.                                                                                                                                                                                  |
+| **HowLongToBeat**, **PCGamingWiki**, **xREL.to** | N/A                                                                       | N/A                                                                                                                                                    | These are unauthenticated public APIs; no credentials involved.                                                                                                                                                          |
+| **Steam** wishlist import                        | N/A (public Steam endpoints + user's `steamId64`)                         | N/A                                                                                                                                                    | N/A                                                                                                                                                                                                                      |
+| **Steam** Web API (achievements)                 | `.env` (`STEAM_API_KEY`) only — no Settings UI                            | Env-only; never persisted to the DB. `GET /api/settings/steam` returns only `{ apiKeyConfigured: boolean }`, never the key itself (`server/routes.ts`) | Manual — change the environment variable and restart the server.                                                                                                                                                         |
+| **Discord** notification webhook                 | Stats page                                                                | DB `system_config` key `discord.webhookUrl`, plaintext (`server/routes.ts:2769-2801`)                                                                  | Manual — overwrite the URL on the Stats page.                                                                                                                                                                            |
+
+### Apprise API login
+
+Settings → Notifications supports optional Apprise API username/password fields
+for servers with `APPRISE_AUTH_REQUIRED=yes`. The username is stored in
+`system_config` as `apprise.username`; `apprise.password` is encrypted with the
+same credential key as downloader/indexer passwords. GET settings masks a saved
+password as `********`, including while CLI mode is active. Posting that
+placeholder preserves the password, an empty string clears it, and omitting it
+leaves it unchanged. Back up the encryption key along with the database.
+
+Login uses HTTP Basic Auth. HTTPS requests carrying login credentials reject
+plaintext and cross-origin redirects. An explicitly configured HTTP API URL
+sends login credentials unencrypted and displays a warning; use HTTPS unless
+the connection is on a network you trust. CLI mode does not use the API login.
+See [API.md](API.md#apprise-settings) for the settings contract.
 
 All four of these settings endpoints follow the same pattern: `GET`
 never returns the real secret, and updating it without changing the
@@ -170,6 +186,7 @@ Transmission, rTorrent, sabnzbd, nzbget).
     "allowInsecureLan": true
   }
   ```
+
 - **Insecure-LAN opt-in (`allowInsecureLan`):** Questarr sends an indexer's
   API key only to `https://` URLs, or to `http://` URLs when the indexer has
   the per-indexer "Allow insecure LAN connection" opt-in. Over plain HTTP
@@ -308,7 +325,7 @@ points operators at is on the safe side of the fix.
       indexer/downloader credentials stay decryptable across DB resets
       (`openssl rand -hex 32`).
 - [ ] Set IGDB and (optionally) NexusMods credentials via `.env` or
-      Settings → Services.
+      Settings → Integrations.
 - [ ] Restrict who has login access to the app — Questarr has no per-user
       role scoping, so any account holder can use every configured
       indexer/downloader (though the API keys/passwords themselves are

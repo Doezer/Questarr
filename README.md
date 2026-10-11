@@ -68,12 +68,23 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                            |
 | **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                                                                                                                                                                                     |
 
+For the 1.5.0 release, see the [changelog](docs/CHANGELOG.md) and
+[verification and upgrade checklist](docs/RELEASE_1.5.0.md).
+
+Already have games on disk? Open **Library → Library Import** to add extra root
+folders, follow automatic scan progress, and search IGDB by name for folders
+awaiting review. Discovery leaves files in place and deletion is off by default.
+See [Library Import](docs/LIBRARY_IMPORT.md).
+
 Can't decide what to play? Click **Pick a game** in your Library for
 [Backlog roulette](docs/BACKLOG_ROULETTE.md): draw a game, roll again, or mark it as Playing.
 
 ### Supported Indexers/Downloaders
 
-- Prowlarr synchronization is supported to add all your indexers at once.
+- Prowlarr synchronization adds your indexers at once and remembers the last
+  successful sync's URL, masked API key, and optional priority/category defaults.
+  Plain HTTP requires an explicit **Allow insecure LAN connection** opt-in on a
+  trusted local network; changing the URL requires entering the API key again.
 - G4u.to: the site offers an API to VIP members, which can be used in Questarr.
 
 | Indexers                   | Downloaders                                                                             |
@@ -84,7 +95,9 @@ Can't decide what to play? Click **Pick a game** in your Library for
 
 ## Installation
 
-Docker is the easiest way to deploy Questarr with all dependencies included. Questarr uses a SQLite database which is self-contained in the application container.
+Docker is the easiest way to deploy Questarr with all dependencies included.
+Questarr uses SQLite by default, with optional PostgreSQL support. Persist the
+`data` volume to retain the SQLite database, configuration, and encryption keys.
 
 **Supported architectures:** released Docker images are published for `linux/amd64` and `linux/arm64`, so Questarr runs on a Raspberry Pi 4/5 with a 64-bit OS, other 64-bit ARM SBCs, and ARM-based NAS boxes as well as on x86 hardware. Docker selects the right architecture automatically — the commands below are identical on every platform. (32-bit ARM, e.g. `armv7`/a 32-bit OS on Raspberry Pi 3 and earlier, is not supported. The [Home Assistant add-on](#home-assistant-add-on) is `amd64`-only.)
 
@@ -313,7 +326,15 @@ Browse and find new games to add to your collection.
 
 #### RSS & xRel.to feeds
 
-Custom RSS feeds and xRel.to flux matched to IGDB games directly into the app. Default RSS is set to fitgirl site.
+Custom RSS feeds and xRel.to releases are matched to IGDB games directly in the
+app. The default RSS feed is FitGirl. Enabled RSS feeds refresh shortly after
+startup and every hour; **Refresh Feeds** also refreshes them manually.
+
+In **Settings → Notifications**, update and pack/add-on alerts can be muted
+independently for Shelved and Completed games without stopping availability
+checks. Apprise API mode supports an optional login for authenticated servers;
+the password is encrypted and masked when saved. See [SECRETS.md](docs/SECRETS.md)
+for transport and credential handling.
 
 <p float="left">
   <a href="images/Screenshots/rss.png"><img src="images/Screenshots/rss.png" width="49%" /></a>
@@ -496,7 +517,7 @@ If you run into an issue, go to the **Logs** page and click **Send Logs** before
 ## Contributing
 
 - See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.
-- See [MAINTAINERS.md](/docs/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
+- See [MAINTAINERS.md](docs/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
 
 ### Contributors
 

@@ -73,7 +73,7 @@ above `1`, and uses the `Recreate` strategy so two pods never hold the volume at
 
 Every secret is optional: Questarr generates and persists its own `JWT_SECRET` and
 `CREDENTIALS_ENCRYPTION_KEY` when they are unset, and the API keys can also be entered
-in Settings → Services.
+in Settings → Integrations.
 
 | Key                                         | Default           | Description                                               |
 | ------------------------------------------- | ----------------- | --------------------------------------------------------- |

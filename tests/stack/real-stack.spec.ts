@@ -151,6 +151,7 @@ test("indexers and download clients connect", async () => {
       url: `http://127.0.0.1:${SABNZBD.port}`,
       // Questarr keeps the SABnzbd API key in the username field.
       username: SABNZBD.apiKey,
+      category: "questarr-release",
       priority: 3,
     },
   } as const;
@@ -216,8 +217,11 @@ test("sabnzbd: grab a usenet release and see it queued in the client", async () 
   await expect.poll(() => gameStatus("sabnzbd"), POLL).toBe("downloading");
   const queue = await fetch(
     `http://127.0.0.1:${SABNZBD.port}/api?mode=queue&output=json&apikey=${SABNZBD.apiKey}`
-  ).then((r) => r.json() as Promise<{ queue: { slots: { filename: string }[] } }>);
+  ).then((r) => r.json() as Promise<{ queue: { slots: { filename: string; cat: string }[] } }>);
   expect(queue.queue.slots.map((s) => s.filename)).toContain(RELEASES.sabnzbd.title);
+  expect(queue.queue.slots.find((s) => s.filename === RELEASES.sabnzbd.title)?.cat).toBe(
+    "questarr-release"
+  );
 
   const downloads = await api<{ name?: string; title?: string }[]>(
     "GET",

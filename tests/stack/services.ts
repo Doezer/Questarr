@@ -302,6 +302,9 @@ dir = ""
 [[games]]
 name = games
 dir = games
+[[questarr-release]]
+name = questarr-release
+dir = questarr-release
 `
   );
 }

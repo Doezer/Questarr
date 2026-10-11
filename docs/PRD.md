@@ -6,6 +6,10 @@
 **Audience:** Project owner, AI coding agents, open source contributors  
 **Horizon:** 6 months (Q3–Q4 2026)
 
+This is the June 2026 planning baseline. Its "What Exists Today" and roadmap
+sections reflect that date, not the 1.5.0 release. For current shipped behavior,
+see [CHANGELOG.md](CHANGELOG.md) and the [1.5.0 checklist](RELEASE_1.5.0.md).
+
 ---
 
 ## 1. Problem Statement

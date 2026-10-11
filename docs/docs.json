@@ -14,6 +14,10 @@
   "navigation": {
     "groups": [
       {
+        "group": "Using Questarr",
+        "pages": ["LIBRARY_IMPORT", "BACKLOG_ROULETTE", "CHANGELOG", "RELEASE_1.5.0"]
+      },
+      {
         "group": "Deployment",
         "pages": ["HOME_SERVER_APPS", "PROXMOX", "REVERSE_PROXY", "DATABASE", "MIGRATION"]
       },

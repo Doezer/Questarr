@@ -41,6 +41,31 @@ interface QBittorrentTorrent {
 }
 
 /**
+ * Pick the torrent carrying `tag` out of a `/torrents/info?tag=` response.
+ *
+ * qBittorrent before 4.4 ignores the `tag` filter and returns every torrent, so the
+ * first entry is not necessarily the one we tagged. Match on each torrent's own
+ * comma-separated `tags` field instead. `tagsUnsupported` is set when the client
+ * returned torrents but none of them reports a `tags` field at all (too old to know
+ * about tags), so a caller can fall back to other heuristics rather than wait forever.
+ */
+function findTaggedTorrent<T extends { hash?: string; tags?: unknown }>(
+  torrents: T[],
+  tag: string
+): { match: T | undefined; tagsUnsupported: boolean } {
+  const match = torrents.find(
+    (t) =>
+      typeof t.tags === "string" &&
+      t.tags
+        .split(",")
+        .map((value) => value.trim())
+        .includes(tag)
+  );
+  const tagsUnsupported = torrents.length > 0 && !torrents.some((t) => typeof t.tags === "string");
+  return { match, tagsUnsupported };
+}
+
+/**
  * qBittorrent client implementation using Web API v2.
  *
  * @remarks
@@ -158,6 +183,7 @@ export class QBittorrentClient implements DownloaderClient {
         name: string;
         hash: string;
         added_on: number;
+        tags?: string;
       }
 
       const findRecentlyAddedDownload = async (
@@ -183,8 +209,14 @@ export class QBittorrentClient implements DownloaderClient {
             `/api/v2/torrents/info?tag=${encodeURIComponent(options.correlationTag)}`
           );
           const tagged = (await taggedResponse.json()) as QBittorrentTorrent[];
-          const match = tagged[0];
-          return match?.hash ? { hash: match.hash, name: match.name } : null;
+          const { match, tagsUnsupported } = findTaggedTorrent(tagged, options.correlationTag);
+          if (!tagsUnsupported) {
+            return match?.hash ? { hash: match.hash, name: match.name } : null;
+          }
+          downloadersLogger.debug(
+            { correlationTag: options.correlationTag },
+            "qBittorrent does not report torrent tags; falling back to title/recency matching"
+          );
         }
 
         const allTorrentsResponse = await this.makeRequest(
@@ -872,7 +904,8 @@ export class QBittorrentClient implements DownloaderClient {
       `/api/v2/torrents/info?tag=${encodeURIComponent(tag)}`
     );
     const torrents = (await response.json()) as QBittorrentTorrent[];
-    const match = torrents?.[0];
+    // Never guess from the first entry: an older qBittorrent returns every torrent here.
+    const { match } = findTaggedTorrent(torrents ?? [], tag);
     if (match?.hash) {
       downloadersLogger.info(
         { tag, hash: match.hash, name: match.name },

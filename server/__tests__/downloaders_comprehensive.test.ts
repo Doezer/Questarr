@@ -30,6 +30,9 @@ function mockNzbFetch(content = "nzb content") {
 
 // Shared field defaults for the per-client downloader fixtures below, which
 // otherwise repeat the same dozen null/false fields under each client's id/type/url.
+/** The tag a `/torrents/info?tag=` lookup asks for, as qBittorrent reports it on the torrent. */
+const tagFromInfoPath = (path: string): string => decodeURIComponent(path.split("tag=")[1] ?? "");
+
 const downloaderFieldDefaults = {
   port: null,
   useSsl: null,
@@ -266,16 +269,17 @@ describe("Downloader Comprehensive Tests", () => {
           text: async () => "Ok.",
           headers: { entries: () => [] },
         })
-        .mockResolvedValueOnce({
+        .mockImplementationOnce(async (url: string) => ({
           ok: true,
           json: async () => [
             {
               hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
               name: "Test Torrent",
               added_on: Math.floor(Date.now() / 1000),
+              tags: tagFromInfoPath(url),
             },
           ],
-        });
+        }));
 
       const promise = DownloaderManager.addDownload(downloader, {
         url: "http://tracker.example.com/download/123.torrent",
@@ -299,16 +303,17 @@ describe("Downloader Comprehensive Tests", () => {
           text: async () => "Fails.",
           headers: { entries: () => [] },
         })
-        .mockResolvedValueOnce({
+        .mockImplementationOnce(async (url: string) => ({
           ok: true,
           json: async () => [
             {
               hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
               name: "Test Torrent",
               added_on: Math.floor(Date.now() / 1000),
+              tags: tagFromInfoPath(url),
             },
           ],
-        });
+        }));
 
       const promise = DownloaderManager.addDownload(downloader, {
         url: "http://tracker.example.com/download/123.torrent",

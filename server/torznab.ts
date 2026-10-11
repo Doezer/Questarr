@@ -94,9 +94,13 @@ export class TorznabClient {
       return true;
     }
 
-    // Any other host has to name the configured Prowlarr origin exactly: scheme,
-    // hostname and port all have to line up before the link counts as already proxied.
-    return candidate.origin === configured.origin;
+    // Any other host has to be the configured Prowlarr hostname. Scheme and port are
+    // allowed to differ: a proxy terminating TLS for `https://prowlarr.example.com`
+    // forwards plain HTTP, so Prowlarr reflects `http://prowlarr.example.com/...` (and
+    // sometimes its own port) back. The caller already requires this indexer's exact
+    // /{id}/download path and a `link` parameter, so the hostname is what still has
+    // to rule out an external link that merely mimics the proxy shape.
+    return candidate.hostname === configured.hostname;
   }
 
   /**

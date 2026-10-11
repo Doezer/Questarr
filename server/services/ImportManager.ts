@@ -384,10 +384,9 @@ export class ImportManager {
 
   // Relocates only the archive's own volume family into destDir — never the whole
   // source directory. A directory source can hold other legitimate files alongside
-  // the archive (a readme, bonus content); extract()'s own in-place cleanup treats
-  // anything in destDir it doesn't recognize as an archive volume as a stale leftover
-  // and deletes it, so those files must stay put in the source until after extraction
-  // runs, then get transferred separately (see unpackViaRelocatedExtraction above).
+  // the archive (a readme, bonus content); those stay put in the source until after
+  // extraction runs, then get transferred separately (see unpackViaRelocatedExtraction
+  // above), so the archive family is the only thing deleted from destDir afterward.
   private async relocateArchiveToDest(
     transferMode: TransferMode,
     resolution: ArchiveResolution,

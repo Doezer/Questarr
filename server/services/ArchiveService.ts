@@ -46,6 +46,8 @@ const ARCHIVE_MAX_EXPANDED_BYTES = configuredLimit(
 // itself is bad — cheap for a real failure (which fails fast, as seen in practice), and
 // turns a spurious "corrupt" report into a successful import if it was just a timing race.
 const ARCHIVE_TEST_MAX_ATTEMPTS = 3;
+// Name prefix of the per-archive staging directory extract() unpacks into before merging.
+const EXTRACT_STAGING_PREFIX = ".questarr-extract-";
 const ARCHIVE_TEST_RETRY_DELAYS_MS = [3_000, 8_000];
 
 function delay(ms: number): Promise<void> {
@@ -416,20 +418,41 @@ export class ArchiveService {
     );
   }
 
-  private async listExtractedFiles(outputDir: string): Promise<string[]> {
+  /**
+   * Moves everything under stagingDir into destDir, merging directories and replacing
+   * same-named files, and leaves every other file already in destDir untouched.
+   * Refuses to replace a file with a directory or a directory with a file rather than
+   * deleting what is there.
+   * @returns Final paths (under destDir) of the files moved.
+   */
+  private async mergeExtracted(stagingDir: string, destDir: string): Promise<string[]> {
     const results: string[] = [];
-    const walk = async (dir: string): Promise<void> => {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
+    const walk = async (srcDir: string, targetDir: string): Promise<void> => {
+      const entries = await fs.readdir(srcDir, { withFileTypes: true });
       for (const entry of entries) {
-        const entryPath = path.join(dir, entry.name);
+        const srcPath = path.join(srcDir, entry.name);
+        const targetPath = path.join(targetDir, entry.name);
+        const existing = await fs.stat(targetPath).catch(() => undefined);
         if (entry.isDirectory()) {
-          await walk(entryPath);
+          if (existing && !existing.isDirectory()) {
+            throw new Error(
+              `Cannot extract directory over existing file ${targetPath} — move or delete it and retry`
+            );
+          }
+          if (!existing) await fs.ensureDir(targetPath);
+          await walk(srcPath, targetPath);
         } else {
-          results.push(entryPath);
+          if (existing?.isDirectory()) {
+            throw new Error(
+              `Cannot extract file over existing directory ${targetPath} — move or delete it and retry`
+            );
+          }
+          await fs.move(srcPath, targetPath, { overwrite: true });
+          results.push(targetPath);
         }
       }
     };
-    await walk(outputDir);
+    await walk(stagingDir, destDir);
     return results;
   }
 
@@ -437,7 +460,7 @@ export class ArchiveService {
     filePath: string,
     outputDir: string,
     password?: string
-  ): Promise<string[]> {
+  ): Promise<void> {
     // Trailing separator tells unrar the operand is a destination directory. -idq suppresses
     // the per-file "Extracting..." progress output — without it, a large multi-file archive
     // can exceed execFile's maxBuffer and fail with ERR_CHILD_PROCESS_STDIO_MAXBUFFER after
@@ -451,14 +474,13 @@ export class ArchiveService {
       filePath,
       outputDir + path.sep,
     ]);
-    return this.listExtractedFiles(outputDir);
   }
 
   private async extractWith7zip(
     filePath: string,
     outputDir: string,
     password?: string
-  ): Promise<string[]> {
+  ): Promise<void> {
     // -bso0/-bsp0 silence 7-Zip's normal output and progress streams for the same
     // maxBuffer-overflow reason as unrar's -idq above.
     await runSevenZip([
@@ -471,7 +493,6 @@ export class ArchiveService {
       "--",
       filePath,
     ]);
-    return this.listExtractedFiles(outputDir);
   }
 
   /**
@@ -494,44 +515,36 @@ export class ArchiveService {
     validateArchiveEntries(entries, outputDir);
     await this.testArchive(filePath, tool, password);
 
-    // Always start from a clean output directory: a prior extraction attempt that was
-    // killed before its own cleanup ran (e.g. a container restart) can leave stale files
-    // behind at this same path, which would otherwise get reported alongside — or instead
-    // of — the files this run actually extracts. Can't unconditionally fs.emptyDir() it
-    // though: ImportManager's move/copy import modes relocate the raw archive into
-    // outputDir before calling extract() (extracting in place at the library
-    // destination), so wiping the directory here would delete the very file about to be
-    // read, and every extraction attempt would fail with a "file not found" from the
-    // archive tool. When the archive already lives in outputDir, clear everything else
-    // and leave it in place instead.
-    const resolvedFilePath = path.resolve(filePath);
-    const resolvedOutputDir = path.resolve(outputDir);
-    if (path.dirname(resolvedFilePath) === resolvedOutputDir) {
-      const entries = await fs.readdir(outputDir, { withFileTypes: true });
-      const archiveVolumes = new Set(
-        this.findVolumeSiblings(
-          resolvedFilePath,
-          entries.map((entry) => path.join(outputDir, entry.name))
-        ).map((entryPath) => path.resolve(entryPath))
-      );
-      await Promise.all(
-        entries
-          .filter((entry) => !archiveVolumes.has(path.resolve(outputDir, entry.name)))
-          .map((entry) => fs.remove(path.join(outputDir, entry.name)))
-      );
-    } else {
-      await fs.emptyDir(outputDir);
-    }
+    // Extract into a private staging directory inside outputDir, then merge the result
+    // into outputDir without deleting anything already there. outputDir is the game's
+    // folder in the library (ImportManager extracts straight into the destination), so it
+    // can already hold an installed copy of the game — a patch or update being imported
+    // over it must only add or replace the files it ships, never wipe the install.
+    // Staging also keeps a failed extraction from half-overwriting that install, and gives
+    // each run a clean slate: a leftover staging directory from an attempt killed before
+    // its own cleanup (e.g. a container restart) is removed first, so stale files never
+    // get reported as extracted. The staging directory sits inside outputDir so the merge
+    // is a same-filesystem rename, and its name is per-archive so it can't collide with
+    // the archive volumes the move/copy modes relocate into outputDir before extracting.
+    const stagingDir = path.join(outputDir, `${EXTRACT_STAGING_PREFIX}${path.basename(filePath)}`);
+    await fs.remove(stagingDir);
+    await fs.ensureDir(stagingDir);
 
     let extractedFiles: string[];
     try {
-      extractedFiles =
-        tool === "unrar"
-          ? await this.extractWithUnrar(filePath, outputDir, password)
-          : await this.extractWith7zip(filePath, outputDir, password);
+      if (tool === "unrar") {
+        await this.extractWithUnrar(filePath, stagingDir, password);
+      } else {
+        await this.extractWith7zip(filePath, stagingDir, password);
+      }
+      extractedFiles = await this.mergeExtracted(stagingDir, outputDir);
     } catch (err) {
       logger.error({ err, filePath, tool }, "Extraction failed");
       throw err;
+    } finally {
+      await fs.remove(stagingDir).catch((err: unknown) => {
+        logger.warn({ err, stagingDir }, "Could not remove extraction staging directory");
+      });
     }
 
     if (extractedFiles.length === 0) {

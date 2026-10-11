@@ -192,6 +192,12 @@ describe("ArchiveService", () => {
     expect(service.isArchive("game.iso.001")).toBe(false);
   });
 
+  it("accepts disc images only for an explicit unpack request", () => {
+    const service = new ArchiveService();
+    expect(service.isArchive("game.iso", { includeDiscImages: true })).toBe(true);
+    expect(service.isArchive("game.iso.001", { includeDiscImages: true })).toBe(true);
+  });
+
   it("isArchive returns true for .zip files", () => {
     const service = new ArchiveService();
     expect(service.isArchive("game.zip")).toBe(true);

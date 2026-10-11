@@ -356,15 +356,17 @@ const EDITION_WORDS = /\b(goty|deluxe|complete|edition|repack)\b/gi;
 /** Whether a release's only directory is a plain wrapper rather than an extra in itself. */
 function isWrapperDirectory(name: string): boolean {
   if (SORT_EXTRAS_RESERVED_DIRS.has(name.toLowerCase())) return false;
-  return categorizeItemName(name) === "main";
+  return categorizeDownload(name.replace(EDITION_WORDS, " ")).category === "main";
 }
 
 /**
- * An item's category from its name, ignoring edition words so an explicit type
- * still wins: "Game.GOTY.Edition.Update.v1.2" is an update, "Foo.GOTY.Edition" main.
+ * An item's category from its name. An explicit type found once edition words are
+ * set aside wins ("Game.GOTY.Edition.Update.v1.2" is an update); otherwise edition
+ * words still count as the DLC signal they are ("Deluxe Content/").
  */
 function categorizeItemName(name: string): DownloadCategory {
-  return categorizeDownload(name.replace(EDITION_WORDS, " ")).category;
+  const withoutEdition = categorizeDownload(name.replace(EDITION_WORDS, " ")).category;
+  return withoutEdition === "main" ? categorizeDownload(name).category : withoutEdition;
 }
 
 /**

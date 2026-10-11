@@ -779,6 +779,10 @@ describe("ImportManager", () => {
       unpack: true,
     });
 
+    // An explicit unpack request is the one path allowed to extract disc images.
+    expect(archiveService.isArchive).toHaveBeenCalledWith(expect.any(String), {
+      includeDiscImages: true,
+    });
     // move mode relocates the raw archive into the library first (game.zip's basename,
     // under the confirmed proposedPath), then extracts it in place there.
     expect(archiveService.extract).toHaveBeenCalledWith(

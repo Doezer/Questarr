@@ -998,6 +998,13 @@ describe("ImportStrategies", () => {
       ]);
     });
 
+    it("still treats edition words as a DLC signal for items inside the release", () => {
+      expect(categorizeRelativeFiles(["game.exe", p("Deluxe Content", "bonus.dat")])).toEqual([
+        { name: "game.exe", category: "main" },
+        { name: p("Deluxe Content", "bonus.dat"), category: "dlc" },
+      ]);
+    });
+
     it("leaves items already named after a category folder where they are", () => {
       expect(categorizeRelativeFiles([p("update", "Game DLC Patch.nsp"), "base.nsp"])).toEqual([
         { name: p("update", "Game DLC Patch.nsp"), category: "main" },

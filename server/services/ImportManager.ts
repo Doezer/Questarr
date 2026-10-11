@@ -192,7 +192,10 @@ export class ImportManager {
    * are only meaningful for directory sources, since a lone file has no
    * reliable sibling scope to check against.
    */
-  private async resolveArchive(sourcePath: string): Promise<ArchiveResolution | null> {
+  private async resolveArchive(
+    sourcePath: string,
+    options?: { includeDiscImages?: boolean }
+  ): Promise<ArchiveResolution | null> {
     if (isSensitivePath(sourcePath)) {
       throw new Error("Refusing to process a sensitive system path");
     }
@@ -206,7 +209,7 @@ export class ImportManager {
     const stats = await fs.stat(sourcePath);
 
     if (!stats.isDirectory()) {
-      if (!this.archiveService.isArchive(sourcePath)) return null;
+      if (!this.archiveService.isArchive(sourcePath, options)) return null;
       return {
         archivePath: sourcePath,
         isDirectorySource: false,
@@ -217,7 +220,9 @@ export class ImportManager {
     }
 
     const entries = await fs.readdir(sourcePath);
-    const archiveEntries = entries.filter((name) => this.archiveService.isArchive(name)).sort();
+    const archiveEntries = entries
+      .filter((name) => this.archiveService.isArchive(name, options))
+      .sort();
     if (archiveEntries.length === 0) return null;
 
     // Lexicographic sort puts "Game.r00" before "Game.rar" (since '0' < 'a'), but
@@ -1153,7 +1158,8 @@ export class ImportManager {
     }
 
     const archiveResolution = overridePlan.unpack
-      ? await this.resolveArchive(resolvedOriginalPath)
+      ? // An explicit unpack request may extract a disc image; auto-unpack never does.
+        await this.resolveArchive(resolvedOriginalPath, { includeDiscImages: true })
       : null;
     const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
 

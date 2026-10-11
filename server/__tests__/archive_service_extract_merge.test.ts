@@ -227,15 +227,13 @@ describe("ArchiveService.extract rollback", () => {
       "new/added.txt": "added",
       "b.pak": "b-new",
     });
-    const realMove = fs.move.bind(fs);
-    let failed = false;
-    vi.spyOn(fs, "move").mockImplementation((async (src: string, dest: string, opts?: object) => {
-      // Fail the staged b.pak landing once; the rollback's own move back must still work.
-      if (!failed && dest === path.join(gameDir, "b.pak")) {
-        failed = true;
+    const realRename = fs.rename.bind(fs);
+    vi.spyOn(fs, "rename").mockImplementation((async (src: string, dest: string) => {
+      // The staged b.pak can't land; the rollback's own renames must still work.
+      if (dest === path.join(gameDir, "b.pak") && !src.includes(".bak")) {
         throw new Error("EIO: i/o error");
       }
-      return realMove(src, dest, opts);
+      return realRename(src, dest);
     }) as never);
 
     await expect(service.extract(archive, gameDir)).rejects.toThrow("EIO");
@@ -284,20 +282,16 @@ describe("ArchiveService.extract rollback", () => {
     await fs.writeFile(archive, "zip-bytes");
 
     const { service } = makeService({ "a.pak": "a-new", "b.pak": "b-new" });
-    const realMove = fs.move.bind(fs);
-    vi.spyOn(fs, "move").mockImplementation((async (src: string, dest: string, opts?: object) => {
+    const realRename = fs.rename.bind(fs);
+    vi.spyOn(fs, "rename").mockImplementation((async (src: string, dest: string) => {
       // The staged b.pak can't land, and neither can a.pak's original going back.
-      if (
-        dest === path.join(gameDir, "b.pak") &&
-        src.includes(".questarr-extract-") &&
-        !src.includes(".bak")
-      ) {
+      if (dest === path.join(gameDir, "b.pak") && !src.includes(".bak")) {
         throw new Error("EIO: i/o error");
       }
       if (dest === path.join(gameDir, "a.pak") && src.includes(".bak")) {
         throw new Error("EACCES: permission denied");
       }
-      return realMove(src, dest, opts);
+      return realRename(src, dest);
     }) as never);
 
     const error = await service.extract(archive, gameDir).catch((err: Error) => err);
@@ -310,7 +304,29 @@ describe("ArchiveService.extract rollback", () => {
       keptFiles.map((name) => fs.readFile(path.join(gameDir, kept as string, name), "utf8"))
     );
     expect(contents).toContain("a-old");
-    // b.pak's original was restored.
+    // b.pak's original was never moved away.
     expect(await fs.readFile(path.join(gameDir, "b.pak"), "utf8")).toBe("b-old");
+  });
+
+  it("never leaves an installed file missing between backup and replacement", async () => {
+    const gameDir = await tempDir();
+    await fs.outputFile(path.join(gameDir, "a.pak"), "a-old");
+    const archive = path.join(await tempDir(), "update.zip");
+    await fs.writeFile(archive, "zip-bytes");
+
+    const { service } = makeService({ "a.pak": "a-new" });
+    const seen: string[] = [];
+    const realRename = fs.rename.bind(fs);
+    vi.spyOn(fs, "rename").mockImplementation((async (src: string, dest: string) => {
+      // Just before the replacement lands (where a crash would hit), the original is there.
+      if (dest === path.join(gameDir, "a.pak")) seen.push(await fs.readFile(dest, "utf8"));
+      return realRename(src, dest);
+    }) as never);
+
+    await service.extract(archive, gameDir);
+
+    expect(seen).toEqual(["a-old"]);
+    expect(await fs.readFile(path.join(gameDir, "a.pak"), "utf8")).toBe("a-new");
+    expect(await fs.readdir(gameDir)).toEqual(["a.pak"]);
   });
 });

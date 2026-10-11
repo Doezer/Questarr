@@ -487,39 +487,42 @@ export class ArchiveService {
     };
     await plan(stagingDir, destDir);
 
-    // Rollback only ever touches what this merge itself put in place: a file is recorded
-    // as done after its own move lands, and a replaced file's backup is restored if the
-    // move meant to supersede it fails. Merges are serialized (serializeMerge), so no
-    // other import writes these paths while this one runs.
+    // A replaced file is backed up by hard link (a copy when the filesystem has none),
+    // then the new version is renamed over it in one atomic step: the installed file is
+    // never missing, even if the process dies mid-merge. Rollback only touches what this
+    // merge itself put in place (a file is recorded as done after its own rename lands),
+    // and merges are serialized (serializeMerge), so no other import writes these paths
+    // while this one runs.
     const done: Array<{ to: string; backup: string | undefined }> = [];
-    let pendingBackup: { to: string; backup: string } | undefined;
     try {
       for (const dir of dirsToCreate) await fs.ensureDir(dir);
       if (filesToMove.some(({ replaces }) => replaces)) await fs.ensureDir(backupDir);
       for (const [index, { from, to, replaces }] of filesToMove.entries()) {
-        const backup = replaces ? path.join(backupDir, String(index)) : undefined;
-        if (backup) {
-          await fs.move(to, backup);
-          pendingBackup = { to, backup };
+        if (replaces) {
+          const backup = path.join(backupDir, String(index));
+          await fs.link(to, backup).catch(() => fs.copy(to, backup, { preserveTimestamps: true }));
+          await fs.rename(from, to).catch(async (err: unknown) => {
+            // The original is untouched when the rename fails; drop its now-useless backup.
+            await fs.remove(backup).catch(() => undefined);
+            throw err;
+          });
+          done.push({ to, backup });
+        } else {
+          await fs.move(from, to);
+          done.push({ to, backup: undefined });
         }
-        await fs.move(from, to);
-        pendingBackup = undefined;
-        done.push({ to, backup });
       }
     } catch (err) {
       let rollbackComplete = true;
       const restore = async (to: string, backup: string | undefined): Promise<void> => {
-        await (backup ? fs.move(backup, to, { overwrite: true }) : fs.remove(to)).catch(
-          (rollbackErr: unknown) => {
-            rollbackComplete = false;
-            logger.error(
-              { err: rollbackErr, path: to, backup },
-              "Could not roll back extracted file"
-            );
-          }
-        );
+        await (backup ? fs.rename(backup, to) : fs.remove(to)).catch((rollbackErr: unknown) => {
+          rollbackComplete = false;
+          logger.error(
+            { err: rollbackErr, path: to, backup },
+            "Could not roll back extracted file"
+          );
+        });
       };
-      if (pendingBackup) await restore(pendingBackup.to, pendingBackup.backup);
       for (const { to, backup } of done.reverse()) await restore(to, backup);
       for (const dir of [...dirsToCreate].reverse()) {
         await fs.rmdir(dir).catch(() => undefined);

@@ -153,6 +153,17 @@ export default function DiscoverPage() {
       };
     }, [localGames]);
 
+  // Carousels cache their already-filtered lists, so their keys carry what the
+  // filter depends on: tracking, hiding or changing a game's status refetches them.
+  const carouselFilterKey = useMemo(
+    () => [
+      hiddenIgdbIds.size,
+      hideOwned ? ownedIgdbIds.size : "owned-shown",
+      hideWanted ? wantedIgdbIds.size : "wanted-shown",
+    ],
+    [hiddenIgdbIds, ownedIgdbIds, wantedIgdbIds, hideOwned, hideWanted]
+  );
+
   const filterGames = useCallback(
     (games: Game[]) => {
       return games.filter((g: Game) => {
@@ -580,7 +591,7 @@ export default function DiscoverPage() {
             {/* Popular Games Section */}
             <GameCarouselSection
               title="Popular Games"
-              queryKey={["/api/igdb/popular", hiddenIgdbIds.size, hideOwned, hideWanted]}
+              queryKey={["/api/igdb/popular", ...carouselFilterKey]}
               queryFn={fetchPopularGames}
               staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
@@ -592,7 +603,7 @@ export default function DiscoverPage() {
             {/* Recent Releases Section */}
             <GameCarouselSection
               title="Recent Releases"
-              queryKey={["/api/igdb/recent", hiddenIgdbIds.size, hideOwned, hideWanted]}
+              queryKey={["/api/igdb/recent", ...carouselFilterKey]}
               queryFn={fetchRecentGames}
               staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
@@ -604,7 +615,7 @@ export default function DiscoverPage() {
             {/* Upcoming Releases Section */}
             <GameCarouselSection
               title="Coming Soon"
-              queryKey={["/api/igdb/upcoming", hiddenIgdbIds.size, hideOwned, hideWanted]}
+              queryKey={["/api/igdb/upcoming", ...carouselFilterKey]}
               queryFn={fetchUpcomingGames}
               staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
@@ -636,13 +647,7 @@ export default function DiscoverPage() {
               </div>
               <GameCarouselSection
                 title={`${selectedGenre} Games`}
-                queryKey={[
-                  "/api/igdb/genre",
-                  debouncedGenre,
-                  hiddenIgdbIds.size,
-                  hideOwned,
-                  hideWanted,
-                ]}
+                queryKey={["/api/igdb/genre", debouncedGenre, ...carouselFilterKey]}
                 queryFn={fetchGamesByGenre}
                 staleTime={DISCOVERY_STALE_TIME}
                 onStatusChange={handleStatusChange}
@@ -680,13 +685,7 @@ export default function DiscoverPage() {
                 </div>
                 <GameCarouselSection
                   title={`${selectedPlatform} Games`}
-                  queryKey={[
-                    "/api/igdb/platform",
-                    debouncedPlatform,
-                    hiddenIgdbIds.size,
-                    hideOwned,
-                    hideWanted,
-                  ]}
+                  queryKey={["/api/igdb/platform", debouncedPlatform, ...carouselFilterKey]}
                   queryFn={fetchGamesByPlatform}
                   staleTime={DISCOVERY_STALE_TIME}
                   onStatusChange={handleStatusChange}

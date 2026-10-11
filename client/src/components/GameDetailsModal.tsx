@@ -822,6 +822,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     errorMessage: "Failed to hide game",
   });
   const isHidden = !!libraryGame?.hidden;
+  const hideLabel = isHidden ? "Unhide" : "Hide";
   const isHiddenPending = hiddenMutation.isPending || discoveryHiddenMutation.isPending;
 
   const removeDownloadMutation = useMutation({
@@ -1042,16 +1043,16 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 onClick={handleToggleHidden}
                 disabled={isHiddenPending}
                 className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
-                aria-label={isHidden ? "Unhide" : "Hide"}
+                aria-label={hideLabel}
                 data-testid={`button-toggle-hidden-quick-${game.id}`}
               >
                 {isHidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                 <span className="hidden sm:inline">
-                  {isHiddenPending ? "Updating..." : isHidden ? "Unhide" : "Hide"}
+                  {isHiddenPending ? "Updating..." : hideLabel}
                 </span>
               </Button>
             </TooltipTrigger>
-            <TooltipContent className="sm:hidden">{isHidden ? "Unhide" : "Hide"}</TooltipContent>
+            <TooltipContent className="sm:hidden">{hideLabel}</TooltipContent>
           </Tooltip>
           {/* A Discover game that isn't in the library has nothing to remove. */}
           {libraryGame && (

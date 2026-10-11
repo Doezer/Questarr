@@ -23,7 +23,18 @@ function isValidProxyEntry(entry: string): boolean {
   // Express (proxy-addr) rejects a /0 range when compiling, and trusting
   // every address would defeat the point anyway.
   const bits = Number(prefix);
-  return bits > 0 && bits <= (version === 4 ? 32 : 128);
+  if (version === 4) return bits > 0 && bits <= 32;
+  // proxy-addr matches an IPv4-mapped range (::ffff:a.b.c.d/n) against plain
+  // IPv4 peers as /(n - 96), so /96 would trust every IPv4 address.
+  const minBits = isIPv4Mapped(address) ? 96 : 0;
+  return bits > minBits && bits <= 128;
+}
+
+function isIPv4Mapped(address: string): boolean {
+  // URL parsing canonicalizes every spelling (::ffff:10.0.0.1,
+  // 0:0:0:0:0:ffff:a00:1, ...) to the ::ffff:xxxx:xxxx form.
+  const canonical = new URL(`http://[${address}]`).hostname;
+  return /^\[::ffff:[0-9a-f]{1,4}:[0-9a-f]{1,4}\]$/.test(canonical);
 }
 
 /**

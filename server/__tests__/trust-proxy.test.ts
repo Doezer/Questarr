@@ -48,6 +48,7 @@ describe("parseTrustProxy", () => {
 
   it("accepts addresses, subnets and Express's named subnets", () => {
     expect(parseTrustProxy("172.16.0.0/12")).toBe("172.16.0.0/12");
+    expect(parseTrustProxy("::ffff:10.0.0.0/104")).toBe("::ffff:10.0.0.0/104");
     expect(parseTrustProxy("loopback, 10.0.0.5 ,fd00::/8")).toBe("loopback,10.0.0.5,fd00::/8");
   });
 
@@ -60,6 +61,8 @@ describe("parseTrustProxy", () => {
       "fd00::/129",
       "0.0.0.0/0",
       "::/0",
+      "::ffff:10.0.0.0/96",
+      "0:0:0:0:0:ffff:a00:0/90",
       "1.2.3",
       "loopback,",
       "a/b/c",

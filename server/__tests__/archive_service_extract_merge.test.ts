@@ -7,6 +7,7 @@ import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
 import { ArchiveService } from "../services/ArchiveService.js";
+import { logger } from "../logger.js";
 
 const cleanup: string[] = [];
 
@@ -349,5 +350,29 @@ describe("ArchiveService.extract rollback", () => {
 
     expect(await fs.readdir(gameDir)).toEqual(["a.pak"]);
     expect(await fs.readFile(path.join(gameDir, "a.pak"), "utf8")).toBe("a-old");
+  });
+
+  it("reports a backup directory it could not clean up after a successful merge", async () => {
+    const gameDir = await tempDir();
+    await fs.outputFile(path.join(gameDir, "a.pak"), "a-old");
+    const archive = path.join(await tempDir(), "update.zip");
+    await fs.writeFile(archive, "zip-bytes");
+
+    const { service } = makeService({ "a.pak": "a-new" });
+    const warn = vi.spyOn(logger, "warn");
+    const realRemove = fs.remove.bind(fs);
+    vi.spyOn(fs, "remove").mockImplementation((async (dir: string) => {
+      if (dir.endsWith(".bak")) throw new Error("EBUSY: resource busy");
+      return realRemove(dir);
+    }) as never);
+
+    await service.extract(archive, gameDir);
+
+    const kept = (await fs.readdir(gameDir)).find((name) => name.endsWith(".bak"));
+    expect(kept).toBeDefined();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ dir: path.join(gameDir, kept as string) }),
+      expect.stringContaining("backup directory")
+    );
   });
 });

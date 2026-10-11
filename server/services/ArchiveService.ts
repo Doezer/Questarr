@@ -652,7 +652,16 @@ export class ArchiveService {
       // After a successful merge the backups are the replaced originals, no longer needed.
       // After a failed one a complete rollback leaves the directory empty; anything still
       // in it is an original file the rollback couldn't put back, so it is kept.
-      await (merged ? fs.remove(backupDir) : fs.rmdir(backupDir)).catch(() => undefined);
+      if (merged) {
+        await fs.remove(backupDir).catch((err: unknown) => {
+          logger.warn(
+            { err, dir: backupDir },
+            "Could not remove extraction backup directory; it only holds replaced files and can be deleted"
+          );
+        });
+      } else {
+        await fs.rmdir(backupDir).catch(() => undefined);
+      }
     }
 
     if (extractedFiles.length === 0) {

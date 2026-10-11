@@ -75,6 +75,7 @@ All notable changes to this project will be documented in this file.
 
 #### Downloaders & Indexers, Integrations
 
+- **Apprise packaging**: fix Python dependency compatibility and include timezone data on Windows (#1171).
 - **qBittorrent**: v5+ downloads not tracked when the API returns an async `pending_count`; v5.2+ torrent-upload success not recognized; a fallback for v2.0.2 (#1015, #926, #869).
 - **Prowlarr**: download links no longer double-wrapped when the proxy URL comes back on a container IP (#1007).
 - **Prowlarr HTTP credentials**: Honor the insecure-LAN choice and explain when credentials are withheld over HTTP.

@@ -5,7 +5,11 @@ import { migrate as migrateSqlite } from "drizzle-orm/better-sqlite3/migrator";
 import { eq } from "drizzle-orm";
 import * as sqliteSchema from "../../shared/schema.js";
 import * as pgSchema from "../../shared/schema.pg.js";
-import { copyAllTables, findExistingRows } from "../../scripts/sqlite-to-pg.js";
+import {
+  copyAllTables,
+  findExistingRows,
+  findPendingSqliteMigrations,
+} from "../../scripts/sqlite-to-pg.js";
 
 /**
  * Round-trips a populated SQLite library into Postgres.
@@ -121,5 +125,25 @@ describe("sqlite-to-pg migration", () => {
     expect(existing.map((e) => e.table)).toEqual(
       expect.arrayContaining(["users", "games", "downloaders", "gameDownloads"])
     );
+  });
+});
+
+describe("sqlite-to-pg pending migration guard", () => {
+  it("lists every tag when the source has never been migrated", () => {
+    const source = new Database(":memory:");
+    expect(findPendingSqliteMigrations(source, ["0000_a", "0001_b"])).toEqual(["0000_a", "0001_b"]);
+    source.close();
+  });
+
+  it("lists only the tags the source has not applied", () => {
+    const source = new Database(":memory:");
+    source.exec(
+      'CREATE TABLE "__drizzle_migrations" (id INTEGER PRIMARY KEY, hash text NOT NULL UNIQUE, created_at integer)'
+    );
+    source.prepare('INSERT INTO "__drizzle_migrations" (hash) VALUES (?)').run("0043_x");
+    expect(findPendingSqliteMigrations(source, ["0043_x", "0044_backfill_insecure_lan"])).toEqual([
+      "0044_backfill_insecure_lan",
+    ]);
+    source.close();
   });
 });

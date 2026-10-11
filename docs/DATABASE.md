@@ -70,6 +70,10 @@ to run them ahead of time.
 Stop Questarr first — the script reads the SQLite file directly and expects it
 not to be changing underneath it.
 
+Run this version of Questarr on SQLite at least once before copying, so the SQLite
+file carries every migration (including the 1.5.0 plain-HTTP backfill). The
+script refuses a source with pending migrations.
+
 ```bash
 # 1. Create and migrate the target database
 createdb questarr

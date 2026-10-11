@@ -52,7 +52,16 @@ describe("parseTrustProxy", () => {
   });
 
   it("rejects anything else", () => {
-    for (const value of ["maybe", "10.0.0.0/33", "fd00::/129", "1.2.3", "loopback,", "a/b/c"]) {
+    for (const value of [
+      "maybe",
+      "10.0.0.0/33",
+      "fd00::/129",
+      "0.0.0.0/0",
+      "::/0",
+      "1.2.3",
+      "loopback,",
+      "a/b/c",
+    ]) {
       expect(parseTrustProxy(value)).toBeNull();
     }
   });

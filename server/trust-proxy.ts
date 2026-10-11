@@ -19,7 +19,10 @@ function isValidProxyEntry(entry: string): boolean {
   if (version === 0) return false;
   if (prefix === undefined) return true;
   if (!/^\d{1,3}$/.test(prefix)) return false;
-  return Number(prefix) <= (version === 4 ? 32 : 128);
+  // Express (proxy-addr) rejects a /0 range when compiling, and trusting
+  // every address would defeat the point anyway.
+  const bits = Number(prefix);
+  return bits > 0 && bits <= (version === 4 ? 32 : 128);
 }
 
 /**

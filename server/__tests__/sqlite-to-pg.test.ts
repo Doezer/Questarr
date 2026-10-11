@@ -9,6 +9,8 @@ import {
   copyAllTables,
   findExistingRows,
   findPendingSqliteMigrations,
+  readSqliteJournalTags,
+  describePendingSqliteMigrations,
 } from "../../scripts/sqlite-to-pg.js";
 
 /**
@@ -145,5 +147,17 @@ describe("sqlite-to-pg pending migration guard", () => {
       "0044_backfill_insecure_lan",
     ]);
     source.close();
+  });
+
+  it("reads the SQLite journal, which includes the insecure-LAN backfill", () => {
+    const tags = readSqliteJournalTags();
+    expect(tags).toContain("0044_backfill_insecure_lan");
+  });
+
+  it("explains how to apply pending migrations, and stays silent when there are none", () => {
+    expect(describePendingSqliteMigrations([])).toBeNull();
+    const message = describePendingSqliteMigrations(["0044_backfill_insecure_lan"]);
+    expect(message).toContain("missing 1 migration(s), starting with 0044_backfill_insecure_lan");
+    expect(message).toContain("npm run db:migrate");
   });
 });

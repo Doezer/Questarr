@@ -102,12 +102,23 @@ export function findPendingSqliteMigrations(source: Database.Database, tags: str
   return tags.filter((tag) => !applied.has(tag));
 }
 
-function readSqliteJournalTags(): string[] {
-  const journalPath = path.resolve(process.cwd(), "migrations", "meta", "_journal.json");
+export function readSqliteJournalTags(
+  journalPath = path.resolve(process.cwd(), "migrations", "meta", "_journal.json")
+): string[] {
   const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8")) as {
     entries: Array<{ tag: string }>;
   };
   return journal.entries.map((e) => e.tag);
+}
+
+/** Why the source cannot be copied yet, or null when it is fully migrated. */
+export function describePendingSqliteMigrations(pending: string[]): string | null {
+  if (pending.length === 0) return null;
+  return (
+    `The SQLite database is missing ${pending.length} migration(s), starting with ${pending[0]}.\n` +
+    "Start this version of Questarr on SQLite once (or run `npm run db:migrate`) so they " +
+    "apply, stop it, then re-run this script."
+  );
 }
 
 /** Rows already present in the target, by table. Empty means a clean target. */
@@ -218,13 +229,11 @@ async function main() {
   }
 
   const sqliteClient = new Database(sqlitePath, { readonly: true });
-  const pending = findPendingSqliteMigrations(sqliteClient, readSqliteJournalTags());
-  if (pending.length > 0) {
-    console.error(
-      `The SQLite database is missing ${pending.length} migration(s), starting with ${pending[0]}.\n` +
-        "Start this version of Questarr on SQLite once (or run `npm run db:migrate`) so they " +
-        "apply, stop it, then re-run this script."
-    );
+  const pendingError = describePendingSqliteMigrations(
+    findPendingSqliteMigrations(sqliteClient, readSqliteJournalTags())
+  );
+  if (pendingError) {
+    console.error(pendingError);
     sqliteClient.close();
     process.exit(1);
   }

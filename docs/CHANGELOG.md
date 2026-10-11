@@ -7,7 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Before you upgrade
 
 - **Sign in again once**: sessions moved to httpOnly cookies, so the first page load after upgrading asks for your password again.
-- **Plain-HTTP indexers and download clients**: credentials are now only sent over plain HTTP to indexers and download clients that have **Allow insecure LAN** turned on. Every one you already use over `http://` is opted in automatically during the upgrade, so it keeps working; new ones added over HTTP need the option ticked, or HTTPS (#1022, #1061, #1175).
+- **Plain-HTTP indexers and download clients**: credentials are now only sent over plain HTTP to indexers and download clients that have **Allow insecure LAN** turned on. Existing and new HTTP connections are opted out by default: switch to HTTPS or explicitly enable **Allow insecure LAN connection** for each trusted HTTP connection after upgrading (#1022, #1061, #1175).
+- **Reverse proxy**: set `TRUST_PROXY` for your proxy hops or addresses after upgrading; see [proxy setup](REVERSE_PROXY.md).
 - **Forgotten password in Docker**: the image has no `npm`, so run the reset script with `docker exec -it questarr su-exec questarr node dist/scripts/reset-password.js <username>` (replace `questarr` with your container name). Outside Docker, `npm run reset-password -- <username>` still works.
 
 ### Added
@@ -70,6 +71,8 @@ All notable changes to this project will be documented in this file.
 - **Discover downloads**: downloading, sending to a downloader, or blacklisting from a game’s details adds it to the library as Wanted first, or reuses its existing record (#1174).
 
 #### Import & Archives
+
+- **Wii U imports**: releases and IGDB platform matches now use the `Wii U` destination folder (#1178).
 
 - **Hardlink import**: falls back to copy when hardlinks are unsupported, including for multi-file downloads (#873, #978).
 - **Import**: `modeUsed` was only reporting the last per-file fallback (#931).
@@ -155,8 +158,9 @@ All notable changes to this project will be documented in this file.
 
 - **API auth**: added a default-deny boundary and fixed an unauthenticated `GET /api/config` (#953).
 - **Real-time channel**: the Socket.IO connection now requires the same session as the REST API. Before, anyone who could reach the port could open it and receive the live server log stream, notifications and download progress. A handshake that relies on the session cookie must also come from Questarr's own origin (reverse proxies that set `X-Forwarded-Host` work unchanged; otherwise list the public URL in `ALLOWED_ORIGINS` or `APP_URL`).
-- **Per-user events**: notifications and download progress are sent only to the signed-in user's own Socket.IO room instead of every connected client (#1081, #1149).
+- **Per-user notifications**: notifications are sent only to the owning user’s Socket.IO room. Download, import, scan and log events remain app-wide for authenticated clients (#1081, #1149).
 - **Apprise login transport**: authenticated HTTPS requests cannot be redirected to plaintext HTTP or another origin. HTTP URLs with a configured login show an unencrypted-credentials warning. The masked saved password survives CLI/API mode switches.
+- **Proxy trust**: forwarded client-IP and HTTPS headers are ignored by default. Behind a reverse proxy, configure `TRUST_PROXY` for your proxy hops or addresses; see [reverse proxy setup](REVERSE_PROXY.md) (#1177).
 - **Delete with files**: deleting a game whose library path is the library root (or an opted-in root folder) itself no longer removes that whole folder.
 - **Auth**: failed login attempts are now logged for brute-force/credential-stuffing detection (#858); fixed an IDOR letting any user modify or delete another user's games, and strengthened the password policy to 8+ characters with a letter and a digit (#859).
 - **Input validation**: hardened indexer search, qBittorrent, NexusMods, and game-status endpoints against unbounded/malformed input (#857).

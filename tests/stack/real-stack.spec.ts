@@ -183,7 +183,8 @@ test("indexers and download clients connect", async () => {
       title: release.game,
       igdbId: 990_000 + Object.keys(RELEASES).indexOf(key),
       status: "wanted",
-      platforms: ["PC (Microsoft Windows)"],
+      // Exercise Wii U destination selection from its IGDB platform ID.
+      platforms: key === "transmission" ? ["41"] : ["PC (Microsoft Windows)"],
       genres: ["Adventure"],
       releaseDate: "2020-01-15",
     });
@@ -192,7 +193,8 @@ test("indexers and download clients connect", async () => {
 });
 
 for (const key of ["qbittorrent", "transmission"] as const) {
-  test(`${key}: grab from the library, download, import into the library`, async () => {
+  const platformFolder = key === "transmission" ? "Wii U" : "PC";
+  test(`${key}: grab, download, import into ${platformFolder}`, async () => {
     // Only the client under test takes torrents, so the grab cannot fall back elsewhere.
     for (const other of ["qbittorrent", "transmission"] as const) {
       await api("PATCH", `/api/downloaders/${downloaderIds[other]}`, { enabled: other === key });
@@ -208,7 +210,7 @@ for (const key of ["qbittorrent", "transmission"] as const) {
     // Imported as <libraryRoot>/<platform>/<game>/ with the payload intact.
     await expect
       .poll(() => listFiles(LIBRARY_ROOT), { timeout: 30_000 })
-      .toContain(path.join("PC", RELEASES[key].game, PAYLOAD_FILE));
+      .toContain(path.join(platformFolder, RELEASES[key].game, PAYLOAD_FILE));
   });
 }
 

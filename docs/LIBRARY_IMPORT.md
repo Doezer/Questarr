@@ -39,7 +39,8 @@ Questarr checks completed downloads, translates their paths, determines the
 platform and destination, and imports the files using the configured transfer
 mode. Enabled archive extraction runs as part of this process. Successful imports
 link files to the game and mark it Owned; Playing, Shelved, and Completed statuses
-are preserved.
+are preserved. Wii U releases and games identified by IGDB as Wii U use the
+`Wii U` platform folder when Questarr selects the import destination.
 
 If a path is missing, a platform cannot be resolved, extraction needs a password,
 or an import fails, the download is held for review instead of being silently

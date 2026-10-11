@@ -64,13 +64,6 @@
       "when": 1791226213942,
       "tag": "0008_spotty_celestials",
       "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1791742827442,
-      "tag": "0009_backfill_insecure_lan",
-      "breakpoints": true
     }
   ]
 }

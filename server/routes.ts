@@ -1662,12 +1662,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           apiKey = saved.apiKey;
         }
 
+        // Revocation is local: it must also work when DNS validation fails.
+        if (allowInsecureLan === false) await revokeProwlarrHttpOptIn(url);
+
         if (!(await isSafeUrl(url))) {
           return res.status(400).json({ error: "Invalid or unsafe URL" });
         }
-
-        // Revocation is local: it must survive a refused or failed network sync.
-        if (allowInsecureLan === false) await revokeProwlarrHttpOptIn(url);
 
         const indexers = await prowlarrClient.getIndexers(url, apiKey, {
           allowInsecureLan,

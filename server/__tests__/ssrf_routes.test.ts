@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import express from "express";
+import dns from "dns/promises";
 
 // Use vi.hoisted to create the mock object
 const { mockConfig } = vi.hoisted(() => {
@@ -131,6 +132,7 @@ describe("SSRF Vulnerability in Routes", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.resetModules();
   });
 
@@ -154,8 +156,12 @@ describe("SSRF Vulnerability in Routes", () => {
     expect(response.body.error).toMatch(/Invalid or unsafe URL/);
   });
 
-  it("persists an HTTP opt-out even when the sync request is refused", async () => {
-    const url = "http://127.0.0.1:9696";
+  it.each([
+    { url: "http://127.0.0.1:9696", dnsResult: null, status: 500 },
+    { url: "http://removed-prowlarr.invalid:9696", dnsResult: "throw", status: 500 },
+    { url: "http://empty-prowlarr.invalid:9696", dnsResult: "empty", status: 400 },
+    { url: "http://unsafe-prowlarr.invalid:9696", dnsResult: "unsafe", status: 400 },
+  ])("persists HTTP opt-out when sync fails for $url", async ({ url, dnsResult, status }) => {
     const settings = new Map([
       ["prowlarr.url", url],
       ["prowlarr.apiKey", "abc"],
@@ -171,14 +177,36 @@ describe("SSRF Vulnerability in Routes", () => {
     vi.mocked(storage.getAllIndexers).mockResolvedValue([
       { id: "saved-indexer", url: `${url}/1/api`, apiKey: "abc", allowInsecureLan: true },
     ] as Indexer[]);
-    vi.mocked(prowlarrClient.getIndexers).mockRejectedValueOnce(
-      new Error("Refusing credential-bearing HTTP")
-    );
+    if (dnsResult) {
+      vi.spyOn(dns, "lookup").mockImplementationOnce(async () => {
+        // Exercise the real URL validator and prove local revocation happens first.
+        expect(JSON.parse(settings.get("prowlarr.syncDefaults")!)).toMatchObject({
+          allowInsecureLan: false,
+        });
+        if (dnsResult === "throw") {
+          throw Object.assign(new Error("Prowlarr hostname no longer resolves"), {
+            code: "ENOTFOUND",
+          });
+        }
+        return dnsResult === "empty" ? [] : [{ address: "169.254.169.254", family: 4 }];
+      });
+    }
+    if (!dnsResult || dnsResult === "throw") {
+      vi.mocked(prowlarrClient.getIndexers).mockRejectedValueOnce(
+        new Error("Refusing credential-bearing HTTP")
+      );
+    }
     const app = await createApp();
     const response = await request(app)
       .post("/api/indexers/prowlarr/sync")
-      .send({ url, apiKey: "abc", allowInsecureLan: false });
-    expect(response.status).toBe(500);
+      .send({ url, apiKey: "********", allowInsecureLan: false });
+    expect(response.status).toBe(status);
+    if (dnsResult) {
+      expect(dns.lookup).toHaveBeenCalledWith(new URL(url).hostname, { all: true });
+    }
+    if (status === 400) {
+      expect(prowlarrClient.getIndexers).not.toHaveBeenCalled();
+    }
     expect(JSON.parse(settings.get("prowlarr.syncDefaults")!)).toMatchObject({
       allowInsecureLan: false,
       priority: 4,

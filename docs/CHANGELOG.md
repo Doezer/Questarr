@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Before you upgrade
 
 - **Sign in again once**: sessions moved to httpOnly cookies, so the first page load after upgrading asks for your password again.
-- **Plain-HTTP indexers and download clients**: credentials are now only sent over plain HTTP to indexers and download clients that have **Allow insecure LAN connection** turned on. When upgrading from 1.4.x, every existing HTTP indexer and download client is opted in once so it keeps working; new HTTP connections stay opted out until you enable it. If you ran a 1.5.0 release candidate and deliberately left an HTTP connection opted out, check it again after upgrading, since the upgrade turns it back on (#1022, #1061, #1175).
+- **Plain-HTTP indexers and download clients**: credentials require **Allow insecure LAN connection** over HTTP. SQLite migration `0044` opts existing HTTP connections in once, preserving 1.4.x behavior; new connections stay opted out. Review any SQLite release-candidate HTTP opt-outs after upgrading, since this backfill turns them on. PostgreSQL has no backfill and preserves existing choices (#1022, #1061, #1175).
 - **Reverse proxy**: set `TRUST_PROXY` for your proxy hops or addresses after upgrading; see [proxy setup](REVERSE_PROXY.md).
 - **Forgotten password in Docker**: the image has no `npm`, so run the reset script with `docker exec -it questarr su-exec questarr node dist/scripts/reset-password.js <username>` (replace `questarr` with your container name). Outside Docker, `npm run reset-password -- <username>` still works.
 
@@ -43,6 +43,7 @@ All notable changes to this project will be documented in this file.
 - **Password-protected archives** are now routed to manual review with a password prompt, instead of failing (#1033).
 - **SABnzbd**: archive password support for G4U-style releases (#962).
 - **Pre-import security scanning**: [OPTIONAL] VirusTotal (hash lookup) and ClamAV (local deep scan) checks before a download is unpacked or moved into the library; a detection quarantines the download and raises a Security Alert notification instead of importing it (#1102).
+- **Import review**: incomplete ClamAV scans stay in Pending Manual Imports instead of quarantine; ISO images remain intact during auto-unpack, and Sort Extras preserves internal game layouts while recognizing release-level extras (#1179).
 - **Pending imports**: orphaned downloads (missing game record) get a dedicated "Link Game" action to reattach them instead of stalling silently (#932).
 - **Download search**: results now link back to their indexer/source page (#872).
 - **Global release name blacklist**: Settings → Discovery & Downloads lets you hide any release whose title contains a given term, case-insensitively, across manual search, both auto-search cycles, and AI enrichment/auto-download (#1112, closes #991).

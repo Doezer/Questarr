@@ -6,6 +6,17 @@ import { patchUserSettings } from "./helpers";
 import { DEFAULT_NOTIFICATION_PREFERENCES } from "../../shared/schema";
 
 test.describe("v1.5 changes since RC1", () => {
+  test("explains incomplete ClamAV scans and large-file limits", async ({ page }, testInfo) => {
+    await page.goto("/settings");
+    await page.getByRole("tab", { name: "Import", exact: true }).click();
+    await page.getByRole("tab", { name: "Security & Scanning", exact: true }).click();
+    await expect(page.getByText(/A download ClamAV can't fully scan/)).toBeVisible();
+    await page.getByText(/A download ClamAV can't fully scan/).scrollIntoViewIfNeeded();
+    for (const limit of ["StreamMaxLength", "MaxFileSize", "MaxScanSize"]) {
+      await expect(page.getByText(limit, { exact: true })).toBeVisible();
+    }
+    await page.screenshot({ path: testInfo.outputPath("security-scan-guidance.png") });
+  });
   test("refreshes RSS releases without losing the enabled feed configuration", async ({ page }) => {
     const feed = {
       id: "release-feed",

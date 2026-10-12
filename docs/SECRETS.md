@@ -207,10 +207,11 @@ Transmission, rTorrent, sabnzbd, nzbget).
   - The indexer and downloader `/test` endpoints honor `allowInsecureLan`,
     so a connection test behaves the same way as real searches and
     downloads.
-  - Migration `0033` adds the `allow_insecure_lan` column with a default of
-    `0`. Indexers that existed before the upgrade, including ones added by
-    hand, stay opted out. Enable the opt-in on each indexer, or re-sync from
-    Prowlarr with the checkbox ticked.
+  - SQLite migrations `0033`/`0034` add the flags with default `0`; migration
+    `0044` then opts existing HTTP indexers and downloaders in once to
+    preserve 1.4.x connections. This also re-enables SQLite release-candidate
+    HTTP opt-outs, so review them after upgrading. New connections remain
+    opted out. PostgreSQL has no backfill and preserves existing choices.
 - **In transit to the indexer/download client:** the storage layer decrypts
   transparently, so `server/downloaders/*.ts` and `server/search.ts` receive
   plaintext exactly as before — HTTP Basic Auth (base64, not encryption) for

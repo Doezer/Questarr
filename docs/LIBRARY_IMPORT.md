@@ -130,3 +130,23 @@ post-processing is enabled: review the downloaded files and confirm their
 source path. With post-processing off, a job last seen near completion is
 considered completed. These decisions use the last state observed during the
 current server run; they do not prove that a vanished job finished successfully.
+
+## Incomplete scans, disc images and extras
+
+If ClamAV is unavailable, refuses a file, cannot enumerate the full download,
+or reaches its file/time budget, the download waits in **Pending Manual Imports**
+without being moved to quarantine. Review the stated reason before confirming
+an import anyway. If confirmation first discovers an incomplete scan, it stops
+and asks you to confirm again after reading the reason. Actual detections still
+block and quarantine the download.
+
+For large game files, review clamd.conf limits **StreamMaxLength**, **MaxFileSize**
+and **MaxScanSize**. Scans allow up to 10,000 files and a 30-minute total budget.
+VirusTotal lookup outages retain their existing behavior.
+
+Auto-Unpack keeps `.iso` and split `.iso.NNN` disc images intact. An explicit
+manual unpack request can extract them. Sort Extras categorizes release-level
+items and may skip one outer release wrapper; it preserves internal game
+directories instead of treating names such as `Data/Patch` as separate updates.
+Explicit update/extra names take precedence over edition words, and category
+folders inside a release wrapper are sorted into their matching categories.

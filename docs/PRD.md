@@ -80,7 +80,8 @@ A user who wants to automate ROM downloads for retro gaming, feeding tools like 
   hardlink fallback, archive extraction, path mappings, and add-on organization.
 - Manual review for failed or ambiguous imports, archive passwords, and orphaned
   downloads; import history records task results.
-- Optional VirusTotal and ClamAV checks quarantine detected files before import.
+- Optional VirusTotal and ClamAV checks quarantine detected files before import;
+  incomplete ClamAV scans wait for informed manual review.
 - Playing, Shelved, and Completed statuses survive download and import updates.
 
 ### Notifications and administration

@@ -100,6 +100,17 @@ test("first-run setup creates the admin account", async () => {
   await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
 });
 
+test("SQLite upgrade opts in existing HTTP connections and keeps HTTPS opted out", async () => {
+  for (const endpoint of ["/api/indexers", "/api/downloaders"]) {
+    const connections = await api<Array<{ id: string; allowInsecureLan: boolean }>>(
+      "GET",
+      endpoint
+    );
+    expect(connections.find((row) => row.id === "upgrade-http")?.allowInsecureLan).toBe(true);
+    expect(connections.find((row) => row.id === "upgrade-https")?.allowInsecureLan).toBe(false);
+  }
+});
+
 test("indexers and download clients connect", async () => {
   const torznab = await api<{ id: string }>("POST", "/api/indexers", {
     name: "Stack Torznab",

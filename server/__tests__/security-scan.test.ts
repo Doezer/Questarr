@@ -79,9 +79,14 @@ vi.mock("node:net", () => {
     }
     write(data: Buffer | string) {
       if (Buffer.isBuffer(data) && data.length === 4 && data.readUInt32BE(0) === 0) {
-        const resp = clamAvTestState.responseQueue.shift() ?? "stream: OK\0";
+        const queued = clamAvTestState.responseQueue.shift() ?? "stream: OK\0";
+        // "RESET:" replies mimic clamd refusing a stream: it answers, then resets
+        // the connection, which Node reports as an error before the close.
+        const reset = queued.startsWith("RESET:");
+        const resp = reset ? queued.slice("RESET:".length) : queued;
         queueMicrotask(() => {
           this.emit("data", Buffer.from(resp));
+          if (reset) this.emit("error", new Error("read ECONNRESET"));
           this.emit("close");
         });
       }
@@ -387,6 +392,24 @@ describe("SecurityScanService.scan", () => {
     // Whichever file is scanned first is refused; the other one is still checked.
     clamAvTestState.responseQueue = [
       "INSTREAM size limit exceeded. ERROR\0",
+      "stream: Eicar-Test-Signature FOUND\0",
+    ];
+    const service = new SecurityScanService(
+      mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
+    );
+    const result = await service.scan(dir);
+    expect(result.blocked).toBe(true);
+    expect(clamAvTestState.createdSockets).toHaveLength(2);
+  });
+
+  it("keeps scanning when clamd resets the connection after refusing an oversized file", async () => {
+    const dir = path.join(tmpDir, "release-with-reset");
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, "a.bin"), "x");
+    fs.writeFileSync(path.join(dir, "b.bin"), "y");
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
+    clamAvTestState.responseQueue = [
+      "RESET:INSTREAM size limit exceeded. ERROR\0",
       "stream: Eicar-Test-Signature FOUND\0",
     ];
     const service = new SecurityScanService(

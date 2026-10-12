@@ -272,6 +272,16 @@ function extractClamAvSignature(reply: string): string {
 }
 
 /** Streams a single file to clamd over its INSTREAM protocol and parses the verdict. */
+/** Reads clamd's INSTREAM reply; anything but OK or FOUND is a refusal that names its reason. */
+function verdictFromReply(reply: string): ClamAvVerdict {
+  if (reply.includes("FOUND")) {
+    const signature = extractClamAvSignature(reply);
+    return { status: "infected", signature: signature || "unknown signature" };
+  }
+  if (reply.includes("OK")) return { status: "clean" };
+  return { status: "error", error: reply };
+}
+
 function scanFileWithClamAv(
   filePath: string,
   connectAddress: string,
@@ -301,7 +311,15 @@ function scanFileWithClamAv(
       CLAMAV_SCAN_TIMEOUT_MS
     );
 
-    socket.once("error", (err) => finish({ status: "error", error: err.message, outage: true }));
+    socket.once("error", (err) => {
+      // clamd answers a refused stream (e.g. one over its StreamMaxLength) and then
+      // resets the connection while the file is still being sent, so the reset
+      // arrives as an error after the reply. That reply is the real verdict.
+      const reply = responseBuf.replaceAll("\0", "").trim();
+      finish(
+        reply ? verdictFromReply(reply) : { status: "error", error: err.message, outage: true }
+      );
+    });
 
     socket.connect(port, connectAddress, () => {
       socket.write("zINSTREAM\0");
@@ -334,20 +352,13 @@ function scanFileWithClamAv(
     socket.on("close", () => {
       if (settled) return;
       const reply = responseBuf.replaceAll("\0", "").trim();
-      if (reply.includes("FOUND")) {
-        const signature = extractClamAvSignature(reply);
-        finish({ status: "infected", signature: signature || "unknown signature" });
-      } else if (reply.includes("OK")) {
-        finish({ status: "clean" });
-      } else {
-        // A refusal names its reason; a connection closed with no reply means clamd
-        // itself is broken or restarting, which is an outage like a socket error.
-        finish(
-          reply
-            ? { status: "error", error: reply }
-            : { status: "error", error: "Empty response from ClamAV", outage: true }
-        );
-      }
+      // A connection closed with no reply means clamd itself is broken or
+      // restarting, which is an outage like a socket error.
+      finish(
+        reply
+          ? verdictFromReply(reply)
+          : { status: "error", error: "Empty response from ClamAV", outage: true }
+      );
     });
   });
 }
@@ -490,7 +501,9 @@ export class SecurityScanService {
         if (verdict.status === "error") {
           securityScanLogger.warn(
             { file, error: verdict.error },
-            "ClamAV scan failed for file, proceeding without a verdict"
+            /size limit exceeded/i.test(verdict.error)
+              ? "ClamAV skipped a file over its size limit; raise StreamMaxLength, MaxFileSize and MaxScanSize in clamd.conf to scan it"
+              : "ClamAV scan failed for file, proceeding without a verdict"
           );
           // Stop once clamd itself is down: with thousands of files, a clamd that
           // stopped answering would otherwise cost a full timeout for each of them.

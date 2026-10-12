@@ -1012,6 +1012,15 @@ describe("ImportStrategies", () => {
       ]);
     });
 
+    it("does not treat a sole internal game folder as a wrapper", () => {
+      expect(
+        categorizeRelativeFiles([p("Data", "Patch", "x.pak"), p("Data", "Maps", "m.pak")])
+      ).toEqual([
+        { name: p("Data", "Patch", "x.pak"), category: "main" },
+        { name: p("Data", "Maps", "m.pak"), category: "main" },
+      ]);
+    });
+
     it("sorts category folders found inside a wrapper", () => {
       expect(
         categorizeRelativeFiles([

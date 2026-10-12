@@ -395,8 +395,15 @@ export function categorizeRelativeFiles(relFiles: string[]): FileCategoryEntry[]
   const dirs = [...children].filter(([, isDir]) => isDir).map(([child]) => child);
   const files = [...children].filter(([, isDir]) => !isDir).map(([child]) => child);
   const wrapper = dirs.length === 1 ? dirs[0] : undefined;
+  // A release wrapper holds the game itself, so it has files of its own. A sole
+  // directory with only subdirectories ("Data/Patch/x.pak" at the game root) is
+  // more likely the game's internal layout, which must not be judged item by item.
+  const wrapperHasFiles = split.some(
+    ({ segments }) => segments.length === 2 && segments[0] === wrapper
+  );
   const depth =
     wrapper !== undefined &&
+    wrapperHasFiles &&
     isWrapperDirectory(wrapper) &&
     files.every((file) => RELEASE_METADATA_FILE.test(file))
       ? 1

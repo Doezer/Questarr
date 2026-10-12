@@ -34,7 +34,7 @@ All notable changes to this project will be documented in this file.
 - **Wishlist**: configurable grid column count (#871).
 - **Content filtering**: filters to hide erotic and age-restricted (ESRB AO / PEGI 18) games from the library, search, and discovery pages (#808).
 - **Windows 2000 style mode**: a retro cosmetic theme (#807).
-- **Sidebar**: moved the xREL and RSS pages under Discover (#1086). Wishlist moved into Library group alongside Playing; on mobile, Playing replaced Wishlist in the pinned bottom-nav slots (Wishlist stays reachable via "More") (#1080). All Games and Playing now show their game counts like Wishlist, Playing in its cyan status color.
+- **Sidebar**: moved the xREL and RSS pages under Discover (#1086). Wishlist moved into Library group alongside Playing; on mobile, Playing replaced Wishlist in the pinned bottom-nav slots (Wishlist stays reachable via "More") (#1080). All Games and Playing now show their game counts like Wishlist, Playing in its cyan status color (#1161).
 
 #### Downloads & Import
 
@@ -53,10 +53,10 @@ All notable changes to this project will be documented in this file.
 - **PostgreSQL backend**: [OPTIONAL] Questarr can now run on PostgreSQL instead of SQLite, selected with `DB_DIALECT=postgres` plus `DATABASE_URL` (setting `DATABASE_URL` alone keeps SQLite) (#1046). See `docs/DATABASE.md` if you're looking to migrate from SQLite.
 - **Playnite integration**: API keys, an integration API, and a Playnite extension. See [the extension's README](https://github.com/Doezer/Questarr/blob/main/extensions/playnite-questarr/README.md) for setup (#986).
 - **Steam wishlist**: optional auto-sync on a configurable interval, alongside the existing manual sync (#805).
-- **RSS refresh schedule**: Enabled feeds refresh automatically at startup and hourly.
-- **Prowlarr sync defaults**: Remember the connection and apply optional priority and category defaults to synced indexers.
-- **Apprise API login**: Support authenticated Apprise API servers with an optional username and password.
-- **Update notification controls**: Mute update and add-on alerts independently for Shelved and Completed games.
+- **RSS refresh schedule**: Enabled feeds refresh automatically at startup and hourly (#1164).
+- **Prowlarr sync defaults**: Remember the connection and apply optional priority and category defaults to synced indexers (#1148).
+- **Apprise API login**: Support authenticated Apprise API servers with an optional username and password (#1154).
+- **Update notification controls**: Mute update and add-on alerts independently for Shelved and Completed games (#1159).
 
 #### Deployment & Admin
 
@@ -75,9 +75,7 @@ All notable changes to this project will be documented in this file.
 
 - **Archive updates**: extracting into an existing game folder preserves unrelated installed files and saves while adding or replacing the archive's files (#1180).
 - **Download tracking**: client outages and temporary torrent errors keep tracking active; interrupted imports and jobs removed near completion go to manual review when post-processing is enabled. Auto-search skips releases that already failed for that game (#1183).
-
 - **Wii U imports**: releases and IGDB platform matches now use the `Wii U` destination folder (#1178).
-
 - **Hardlink import**: falls back to copy when hardlinks are unsupported, including for multi-file downloads (#873, #978).
 - **Import**: `modeUsed` was only reporting the last per-file fallback (#931).
 - **Import**: a download that disappeared from the client (e.g. pruned after a seed-ratio limit) was silently marked owned without importing anything; now routed to manual review (#837). A failed import used to dead-end with no retry path; failures now go to Pending Manual Imports so they can be adjusted and retried (#840).
@@ -97,10 +95,10 @@ All notable changes to this project will be documented in this file.
 - **qBittorrent**: v5+ downloads not tracked when the API returns an async `pending_count`; v5.2+ torrent-upload success not recognized; a fallback for v2.0.2 (#1015, #926, #869).
 - **Older qBittorrent and Prowlarr**: verify torrent tags when clients ignore tag filters, fall back to title matching when add tags are unsupported, and normalize Prowlarr download links reflected as HTTP behind a TLS proxy (#1182).
 - **Prowlarr**: download links no longer double-wrapped when the proxy URL comes back on a container IP (#1007).
-- **Prowlarr HTTP credentials**: Honor the insecure-LAN choice and explain when credentials are withheld over HTTP.
-- **Newznab/Torznab categories**: Fix searches using multiple categories.
+- **Prowlarr HTTP credentials**: Honor the insecure-LAN choice and explain when credentials are withheld over HTTP (#1148).
+- **Newznab/Torznab categories**: Fix searches using multiple categories (#1149).
 - **Release titles**: a download was rejected with "Validation failed" when an indexer returned a title spread over several lines (#1119).
-- **Release matching**: Avoid matching sequels when searching for the original game, while accepting updates to the intended game.
+- **Release matching**: Avoid matching sequels when searching for the original game, while accepting updates to the intended game (#1164).
 - **Indexers**: search categories outside 40xx/10xx were being dropped; hardened Newznab/Torznab caps discovery (#1058, #951).
 - **Downloaders**: credential policy now validates the resolved URL, not just `useSsl` (#1061).
 - **IGDB**: validated the rate-limit setting's range; canonicalized/deduped game editions in search results (#1020, #950).
@@ -118,8 +116,7 @@ All notable changes to this project will be documented in this file.
 - **Clipboard**: copy buttons now work on non-secure (HTTP) contexts (#961).
 - **Direct links**: reloading or bookmarking a nested page such as `/activity/imports` showed a blank page (#1135).
 - **Login**: the Login button could stay disabled after a session expired (#1122).
-- **Calendar**: follow-up fixes to the year view's date filtering.
-- **Calendar year view**: grey out past months and releases, comparing datetime releases by their local calendar day.
+- **Calendar year view**: past months and releases are greyed out, comparing datetime releases by their local calendar day (#1160).
 - **Release notifications**: no longer sent for games added with a release date already in the past (#874).
 - **Scroll areas**: scrollbars stayed hidden except while actively scrolling (#875).
 - **Game status**: a game marked Playing, Shelved or Completed kept being reset by the download pipeline: an update download flipped it to Downloading, then Owned on import (or Wanted if the download failed), and a root-folder scan flipped it to Owned. Those statuses are now left alone, update/pack searches keep running for Playing and Shelved games, and Discover treats them as owned.
@@ -153,9 +150,9 @@ All notable changes to this project will be documented in this file.
 
 - **API rate limit**: the general `/api` limit is raised to 600 requests per minute so busy libraries and the Downloads page no longer hit 429 errors (#1136).
 - **AI release analysis**: Jev can classify a release as `unknown`; TypeSafe, the categorizer and auto-search treat it separately from `other` instead of dropping or mislabeling it (#1129).
-- **License metadata**: align package, Helm, and deployment declarations on `GPL-3.0-only` without changing the project license.
+- **License metadata**: align package, Helm, and deployment declarations on `GPL-3.0-only` without changing the project license (#1153).
 - **Release packaging**: align the Helm app version and Home Assistant add-on version with 1.5.0; Helm chart version is 0.1.2.
-- **Dependencies**: update bundled Apprise and its locked Python dependencies; refresh `http-cache-semantics` and `source-map-js` in the npm lockfile.
+- **Dependencies**: update bundled Apprise and its locked Python dependencies; refresh `http-cache-semantics` and `source-map-js` in the npm lockfile (#1150, #1152, #1173).
 - **Logs page**: history limit raised from 200 to 1000 lines (#928).
 - Dependency updates: `undici` 7.29.0 → 8.9.0 (direct dependency, used by the SSRF-safe fetch wrapper in `server/ssrf.ts`). No vulnerability fix — see `docs/CVE_FIXES_BY_RELEASE.md` for verification. Major version bump; undici 8.9.0 requires Node `>=22.19.0`, so Questarr's own `engines.node` floor is raised from `>=20` to `>=22.19.0` to match — this only formalizes existing practice, since CI (`node-version: 26.x`) and the production Docker image (`node:26-alpine`) were already on Node 26. Full test suite and `server/__tests__/ssrf.test.ts` verified green against the new version.
 
@@ -166,7 +163,7 @@ All notable changes to this project will be documented in this file.
 - **API auth**: added a default-deny boundary and fixed an unauthenticated `GET /api/config` (#953).
 - **Real-time channel**: the Socket.IO connection now requires the same session as the REST API. Before, anyone who could reach the port could open it and receive the live server log stream, notifications and download progress. A handshake that relies on the session cookie must also come from Questarr's own origin (reverse proxies that set `X-Forwarded-Host` work unchanged; otherwise list the public URL in `ALLOWED_ORIGINS` or `APP_URL`).
 - **Per-user notifications**: notifications are sent only to the owning user’s Socket.IO room. Download, import, scan and log events remain app-wide for authenticated clients (#1081, #1149).
-- **Apprise login transport**: authenticated HTTPS requests cannot be redirected to plaintext HTTP or another origin. HTTP URLs with a configured login show an unencrypted-credentials warning. The masked saved password survives CLI/API mode switches.
+- **Apprise login transport**: authenticated HTTPS requests cannot be redirected to plaintext HTTP or another origin. HTTP URLs with a configured login show an unencrypted-credentials warning. The masked saved password survives CLI/API mode switches (#1154).
 - **Proxy trust**: forwarded client-IP and HTTPS headers are ignored by default. Behind a reverse proxy, configure `TRUST_PROXY` for your proxy hops or addresses; see [reverse proxy setup](REVERSE_PROXY.md) (#1177).
 - **Delete with files**: deleting a game whose library path is the library root (or an opted-in root folder) itself no longer removes that whole folder.
 - **Auth**: failed login attempts are now logged for brute-force/credential-stuffing detection (#858); fixed an IDOR letting any user modify or delete another user's games, and strengthened the password policy to 8+ characters with a letter and a digit (#859).
@@ -185,8 +182,8 @@ All notable changes to this project will be documented in this file.
 #### Scanning & Logging
 
 - **Scan Disk endpoint**: limited recursive traversal with a max file count and time budget, and added rate limiting, reducing DoS exposure on large directory trees (#1069).
-- **IPv6 scan limiter**: group requests by IPv6 subnet so rotating addresses within a subnet cannot bypass scan limits.
-- **Archive extraction limits**: bound untrusted archive expansion by file count, unpacked bytes, timeout, and nesting depth; reject unsafe paths and links before extraction, and deduplicate split RAR volume continuations. Limits can be configured with the documented `ARCHIVE_*` environment variables in [SECRETS.md](SECRETS.md).
+- **IPv6 scan limiter**: group requests by IPv6 subnet so rotating addresses within a subnet cannot bypass scan limits (#1149).
+- **Archive extraction limits**: bound untrusted archive expansion by file count, unpacked bytes, timeout, and nesting depth; reject unsafe paths and links before extraction, and deduplicate split RAR volume continuations. Limits can be configured with the documented `ARCHIVE_*` environment variables in [SECRETS.md](SECRETS.md) (#1149, #1157).
 - **Logging**: production no longer hardcodes the debug log level, and secrets are now redacted from logs; API keys/tokens are also redacted before logs are sent to support (#952, #960).
 - **Search engines**: `/robots.txt` no longer bypasses security headers, and instances are kept out of search-engine indexes (#941, #939).
 

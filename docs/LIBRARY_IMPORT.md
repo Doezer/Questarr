@@ -116,3 +116,17 @@ state; run another scan after a server restart to recreate them.
 
 See [API.md](API.md#root-folders--library-scan) for scan and review endpoints and
 [SECRETS.md](SECRETS.md) for filesystem and extraction limits.
+
+## Download tracking and recovery
+
+An unreachable download client leaves tracked downloads active. Torrent errors
+remain tracked for a 30-minute grace period so they can recover; Usenet failures
+are treated as final. Auto-search skips a release that previously failed for
+the same game; you can choose another release manually.
+
+After a restart, an interrupted import appears in **Pending Manual Imports**.
+A download removed by its client near completion also goes there when
+post-processing is enabled: review the downloaded files and confirm their
+source path. With post-processing off, a job last seen near completion is
+considered completed. These decisions use the last state observed during the
+current server run; they do not prove that a vanished job finished successfully.

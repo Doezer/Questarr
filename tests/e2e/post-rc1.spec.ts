@@ -379,6 +379,7 @@ test.describe("v1.5 changes since RC1", () => {
     await page.route("/api/indexers/prowlarr/sync", async (route) => {
       syncAttempts++;
       expect(route.request().postDataJSON().allowInsecureLan).not.toBe(true);
+      expect(route.request().postDataJSON().apiKey).toBe(saved.apiKey);
       saved.allowInsecureLan = false;
       await route.fulfill({ status: 500, json: { error: "HTTP credentials require HTTPS" } });
     });
@@ -386,7 +387,10 @@ test.describe("v1.5 changes since RC1", () => {
     await page.getByTestId("button-sync-prowlarr").click();
     const consent = page.getByTestId("checkbox-prowlarr-insecure-lan");
     await expect(consent).toBeChecked();
+    await page.getByLabel("Prowlarr URL").fill(`${saved.url}/`);
+    await expect(page.getByLabel("API Key", { exact: true })).toHaveValue(saved.apiKey);
     await consent.click();
+    await page.screenshot({ path: testInfo.outputPath("prowlarr-equivalent-url.png") });
     const initialIndexerReads = indexerReads;
     await page.getByTestId("button-sync-prowlarr-confirm").click();
     await expect(page.getByText("Sync failed", { exact: true })).toBeVisible();

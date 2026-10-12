@@ -106,6 +106,11 @@ interface ArchiveResolution {
 
 export class ImportManager {
   private readonly pathRetryCount = new Map<string, number>();
+  // Downloads whose processImport() is running in this process. The
+  // "unpacking"/"completed_pending_import" statuses outlive a restart, so this
+  // is the only way to tell an import that is still running from one that a
+  // restart cut short.
+  private readonly importsInFlight = new Set<string>();
 
   // Optional and defaulted (rather than required) so existing call sites — and
   // the many unit tests that construct an ImportManager directly — don't all
@@ -799,7 +804,31 @@ export class ImportManager {
     }
   }
 
+  isImportInFlight(downloadId: string): boolean {
+    return this.importsInFlight.has(downloadId);
+  }
+
   async processImport(
+    downloadId: string,
+    remoteDownloadPath: string,
+    password?: string
+  ): Promise<void> {
+    if (this.importsInFlight.has(downloadId)) {
+      logger.warn(
+        { downloadId },
+        "[ImportManager] Import already running, ignoring a second start"
+      );
+      return;
+    }
+    this.importsInFlight.add(downloadId);
+    try {
+      await this.runImport(downloadId, remoteDownloadPath, password);
+    } finally {
+      this.importsInFlight.delete(downloadId);
+    }
+  }
+
+  private async runImport(
     downloadId: string,
     remoteDownloadPath: string,
     password?: string

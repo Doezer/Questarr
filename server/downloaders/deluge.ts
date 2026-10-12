@@ -456,7 +456,10 @@ export class DelugeClient implements DownloaderClient {
     }
   }
 
-  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
     try {
       await this.authenticate();
       await this.ensureConnected();
@@ -480,13 +483,19 @@ export class DelugeClient implements DownloaderClient {
         ],
       ]);
 
-      if (response.result && typeof response.result === "object") {
+      // Deluge answers an unknown hash with an empty object rather than null.
+      if (
+        response.result &&
+        typeof response.result === "object" &&
+        Object.keys(response.result).length > 0
+      ) {
         return this.mapDelugeStatus(id, response.result as DelugeTorrentStatus);
       }
 
       return null;
     } catch (error) {
       downloadersLogger.error({ error, id }, "Error getting download status from Deluge");
+      if (options?.throwOnError) throw error;
       return null;
     }
   }
@@ -604,7 +613,7 @@ export class DelugeClient implements DownloaderClient {
     }
   }
 
-  async getAllDownloads(): Promise<DownloadStatus[]> {
+  async getAllDownloads(options?: { throwOnError?: boolean }): Promise<DownloadStatus[]> {
     try {
       await this.authenticate();
       await this.ensureConnected();
@@ -634,6 +643,7 @@ export class DelugeClient implements DownloaderClient {
       return Object.entries(torrents).map(([hash, status]) => this.mapDelugeStatus(hash, status));
     } catch (error) {
       downloadersLogger.error({ error }, "Error getting all downloads from Deluge");
+      if (options?.throwOnError) throw error;
       return [];
     }
   }

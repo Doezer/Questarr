@@ -120,3 +120,105 @@ test.describe("Discover details release actions", () => {
     });
   }
 });
+
+test.describe("Discover details library actions", () => {
+  for (const scenario of [
+    "hide-new",
+    "hide-existing",
+    "rating",
+    "rating-filter",
+    "remove",
+  ] as const) {
+    test(`refreshes the library identity for ${scenario}`, async ({ page }, testInfo) => {
+      const libraryId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+      const game = {
+        id: "igdb-990002",
+        igdbId: 990002,
+        title: "Discovery Actions Quest",
+        status: "wanted",
+        platforms: ["PC"],
+        genres: [],
+        hidden: false,
+        coverUrl: "",
+        userRating: null as number | null,
+        addedAt: new Date().toISOString(),
+      };
+      let library =
+        scenario === "hide-existing" || scenario === "remove" ? [{ ...game, id: libraryId }] : [];
+      let writes = 0;
+      let reads = 0;
+      await page.addInitScript((hideWanted) => {
+        localStorage.setItem("discoverHideOwned", "false");
+        localStorage.setItem("discoverHideWanted", JSON.stringify(hideWanted));
+      }, scenario === "rating-filter");
+      await page.route("/api/igdb/**", (route) =>
+        route.fulfill({ json: /genres|platforms/.test(route.request().url()) ? [] : [game] })
+      );
+      await page.route("/api/games?*", (route) => {
+        reads++;
+        return route.fulfill({ json: library });
+      });
+      await page.route("/api/games", (route) => {
+        if (route.request().method() !== "POST") return route.fulfill({ json: library });
+        const data = route.request().postDataJSON();
+        expect(data).toMatchObject({ igdbId: game.igdbId, status: "wanted" });
+        library = [{ ...game, ...data, id: libraryId }];
+        if (scenario === "hide-new") {
+          expect(data.hidden).toBe(true);
+          writes++;
+        }
+        return route.fulfill({ status: 201, json: library[0] });
+      });
+      await page.route(`/api/games/${libraryId}/hidden`, (route) => {
+        expect(route.request().postDataJSON()).toEqual({ hidden: true });
+        library = library.map((g) => ({ ...g, hidden: true }));
+        writes++;
+        return route.fulfill({ json: library[0] });
+      });
+      await page.route(`/api/games/${libraryId}/user-rating`, (route) => {
+        expect(route.request().postDataJSON()).toEqual({ userRating: 8 });
+        library = library.map((g) => ({ ...g, userRating: 8 }));
+        writes++;
+        return route.fulfill({ json: library[0] });
+      });
+      await page.route(`/api/games/${libraryId}?deleteFiles=false`, (route) => {
+        expect(route.request().method()).toBe("DELETE");
+        library = [];
+        writes++;
+        return route.fulfill({ json: { success: true } });
+      });
+
+      await page.goto("/discover");
+      await page.getByTestId(`card-game-${game.id}`).first().click();
+      const modal = page.getByRole("dialog").first();
+      await expect.poll(() => reads).toBeGreaterThan(0);
+      const initialReads = reads;
+      if (scenario.startsWith("hide")) {
+        await modal.getByRole("button", { name: "Hide", exact: true }).click();
+        await expect(modal).not.toBeVisible();
+        await expect(page.getByTestId(`card-game-${game.id}`)).toHaveCount(0);
+      } else if (scenario.startsWith("rating")) {
+        await expect(modal.getByRole("button", { name: "Remove", exact: true })).toHaveCount(0);
+        await modal.getByRole("tab", { name: /links/i }).click();
+        await modal.getByRole("button", { name: "Rate 4 out of 5" }).click();
+        if (scenario === "rating-filter") {
+          // Hide wanted was already enabled: adding via rating must refresh the carousel.
+          await expect(page.getByTestId(`card-game-${game.id}`)).toHaveCount(0);
+        } else {
+          await expect(modal.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
+          await page.screenshot({ path: testInfo.outputPath("discover-rating.png") });
+        }
+      } else {
+        await modal.getByRole("button", { name: "Remove", exact: true }).click();
+        await page
+          .getByRole("alertdialog")
+          .getByRole("button", { name: "Remove", exact: true })
+          .click();
+        await expect(modal).not.toBeVisible();
+        await expect(page.getByTestId(`card-game-${game.id}`).first()).toBeVisible();
+      }
+      await expect.poll(() => writes).toBe(1);
+      await expect.poll(() => reads).toBeGreaterThan(initialReads);
+    });
+  }
+});

@@ -1,3 +1,4 @@
+import { isSameProwlarrUrl } from "@shared/prowlarr-url";
 import { useCallback, useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiFetch, queryClient, clearSearchCache } from "@/lib/queryClient";
@@ -195,7 +196,10 @@ export default function IndexersPage() {
       setProwlarrPrefilled(true);
       setProwlarrUrl(value);
       // The saved key is only valid for the saved URL; ask for it again elsewhere.
-      if (prowlarrApiKey === SAVED_KEY_PLACEHOLDER && value !== savedProwlarrSettings?.url) {
+      if (
+        prowlarrApiKey === SAVED_KEY_PLACEHOLDER &&
+        !isSameProwlarrUrl(savedProwlarrSettings?.url, value)
+      ) {
         setProwlarrApiKey("");
       }
     },

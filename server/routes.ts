@@ -1,3 +1,4 @@
+import { isSameProwlarrUrl } from "../shared/prowlarr-url.js";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
@@ -1656,7 +1657,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // be sent to a different host.
         if (isUnchangedSentinel(apiKey)) {
           const saved = await loadProwlarrSyncSettings();
-          if (!saved?.apiKey || saved.url !== url) {
+          if (!saved?.apiKey || !isSameProwlarrUrl(saved.url, url)) {
             return res.status(400).json({ error: "Enter the Prowlarr API key again for this URL" });
           }
           apiKey = saved.apiKey;

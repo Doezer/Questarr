@@ -52,3 +52,24 @@ export async function hideDiscoveryGame(
 
   return { hidden: true };
 }
+
+/**
+ * Adds a Discover game to the library with the given status and returns the
+ * library row. When the game is already there (409), returns that row instead.
+ */
+export async function addDiscoveryGameToLibrary(
+  game: Game,
+  status: Game["status"] = "wanted"
+): Promise<Game> {
+  try {
+    const response = await apiRequest("POST", "/api/games", {
+      ...mapGameToInsertGame(game),
+      status,
+    });
+    return (await response.json()) as Game;
+  } catch (error) {
+    const data = (error as ApiErrorLike)?.data as { game?: Game } | undefined;
+    if (!getExistingGameIdFromError(error) || !data?.game) throw error;
+    return data.game;
+  }
+}

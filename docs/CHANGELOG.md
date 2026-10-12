@@ -73,6 +73,7 @@ All notable changes to this project will be documented in this file.
 #### Import & Archives
 
 - **Archive updates**: extracting into an existing game folder preserves unrelated installed files and saves while adding or replacing the archive's files (#1180).
+- **Download tracking**: client outages and temporary torrent errors keep tracking active; interrupted imports and jobs removed near completion go to manual review when post-processing is enabled. Auto-search skips releases that already failed for that game (#1183).
 
 - **Wii U imports**: releases and IGDB platform matches now use the `Wii U` destination folder (#1178).
 
@@ -125,6 +126,8 @@ All notable changes to this project will be documented in this file.
 - **API**: unknown `/api/*` paths returned the web app's HTML with a 200; they now answer with a JSON 404.
 
 ### Changed
+
+- **Discover details**: Hide, Remove and personal ratings use the library record; rating an untracked game adds it as Wanted. Carousels refresh after library and visibility changes (#1181).
 
 #### Auth & Settings
 

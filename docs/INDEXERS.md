@@ -11,7 +11,8 @@ Open **Indexers** to add a Torznab, Newznab, or G4U indexer, or choose
 
 Questarr remembers the last successful connection and defaults. The stored API
 key is encrypted and shown as a mask; leave it unchanged to reuse it. Enter a
-new key when changing the URL. Sync does not follow redirects; enter the server's
+new key when changing the connection. Equivalent URL spellings, such as a
+trailing slash or scheme-less HTTP URL, keep the saved key. Sync does not follow redirects; enter the server's
 final base URL.
 
 Use HTTPS whenever possible. For a trusted LAN server using HTTP, explicitly
@@ -33,3 +34,12 @@ record. Configure a compatible [downloader](DOWNLOADERS_COMPATIBILITY.md) first.
 **Blacklist release** also adds the game if needed, then hides that release from
 its download search. Future searches use the library game's blacklist. This
 applies to search results as well as Discover games.
+
+## Manage a Discover game
+
+In game details, **Hide** removes the game from Discover. **Remove** is available
+when the game is in your library and removes that record; from Discover it does
+not delete game files or remove downloads from the client. A personal rating
+uses the existing library record, or adds an untracked game as **Wanted** first.
+Discover refreshes after these actions, including the **Hide owned** and
+**Hide wanted** filters.

@@ -145,6 +145,67 @@ describe("SSRF Vulnerability in Routes", () => {
 
   const UNSAFE_URL = "http://169.254.169.254/latest/meta-data/";
 
+  it.each([
+    "http://PROWLARR.invalid:9696/base/",
+    "prowlarr.invalid:9696/base",
+    "http://prowlarr.invalid:9696/base///",
+  ])("revokes with the saved-key placeholder for equivalent connection %s", async (url) => {
+    const savedUrl = "http://prowlarr.invalid:9696/base";
+    const settings = new Map([
+      ["prowlarr.url", savedUrl],
+      ["prowlarr.apiKey", "abc"],
+      ["prowlarr.syncDefaults", JSON.stringify({ allowInsecureLan: true })],
+    ]);
+    vi.mocked(storage.getSystemConfig).mockImplementation(async (key) => settings.get(key));
+    vi.mocked(storage.setSystemConfigBatch).mockImplementation(async (entries) => {
+      for (const { key, value } of entries) settings.set(key, value);
+    });
+    vi.mocked(storage.getAllIndexers).mockResolvedValue([
+      { id: "saved-indexer", url: `${savedUrl}/1/api`, apiKey: "abc", allowInsecureLan: true },
+    ] as Indexer[]);
+    vi.spyOn(dns, "lookup").mockResolvedValue([{ address: "10.0.0.2", family: 4 }] as never);
+    vi.mocked(prowlarrClient.getIndexers).mockRejectedValueOnce(new Error("HTTP requires consent"));
+    const app = await createApp();
+    const response = await request(app)
+      .post("/api/indexers/prowlarr/sync")
+      .send({ url, apiKey: "********", allowInsecureLan: false });
+
+    expect(response.status).toBe(500);
+    expect(prowlarrClient.getIndexers).toHaveBeenCalledWith(url, "abc", expect.anything());
+    expect(storage.updateIndexer).toHaveBeenCalledWith("saved-indexer", {
+      allowInsecureLan: false,
+    });
+    expect(JSON.parse(settings.get("prowlarr.syncDefaults")!)).toEqual({
+      allowInsecureLan: false,
+      categories: [],
+    });
+    vi.mocked(storage.getSystemConfig).mockReset();
+    vi.mocked(storage.getAllIndexers).mockResolvedValue([]);
+  });
+
+  it.each([
+    "http://another.invalid:9696/base",
+    "http://prowlarr.invalid:9696/other",
+    "https://prowlarr.invalid:9696/base",
+  ])("rejects saved-key reuse for a different connection %s", async (url) => {
+    const settings = new Map([
+      ["prowlarr.url", "http://prowlarr.invalid:9696/base"],
+      ["prowlarr.apiKey", "abc"],
+      ["prowlarr.syncDefaults", JSON.stringify({ allowInsecureLan: true })],
+    ]);
+    vi.mocked(storage.getSystemConfig).mockImplementation(async (key) => settings.get(key));
+    const app = await createApp();
+    const response = await request(app)
+      .post("/api/indexers/prowlarr/sync")
+      .send({ url, apiKey: "********", allowInsecureLan: false });
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("Enter the Prowlarr API key again for this URL");
+    expect(storage.setSystemConfigBatch).not.toHaveBeenCalled();
+    expect(storage.updateIndexer).not.toHaveBeenCalled();
+    expect(prowlarrClient.getIndexers).not.toHaveBeenCalled();
+    vi.mocked(storage.getSystemConfig).mockReset();
+  });
+
   it.each(["http://[", "http://:9696", "http://prowlarr:bad"])(
     "returns 400 without changing saved consent when opting out with malformed URL %s",
     async (url) => {

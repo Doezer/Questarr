@@ -28,6 +28,10 @@ Questarr uses the long-lived Transmission RPC interface rather than targeting on
 
 Questarr targets the qBittorrent WebUI API. Historical documentation exists for qBittorrent 3.2.0 through 4.0.4, while the maintained OpenAPI documentation covers the newer 4.1+ API family.
 
+Older clients can ignore torrent tag filters or tags supplied when adding a
+download. Questarr checks the tags reported on each torrent before associating
+it with a request, and falls back to title matching when add tags are unsupported.
+
 ### SABnzbd
 
 Questarr supports SABnzbd through its HTTP API. The current API supports both `addurl` and multipart `addfile` flows, and modern releases such as 5.0.4 are in scope for this integration.

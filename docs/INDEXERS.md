@@ -15,6 +15,11 @@ new key when changing the connection. Equivalent URL spellings, such as a
 trailing slash or scheme-less HTTP URL, keep the saved key. Sync does not follow redirects; enter the server's
 final base URL.
 
+When Prowlarr sits behind a TLS proxy, search results can reflect an HTTP
+download link on the configured hostname or its internal port. Questarr
+normalizes recognized Prowlarr proxy links to the configured origin without
+wrapping them twice; external tracker links still use Prowlarr's proxy.
+
 Use HTTPS whenever possible. For a trusted LAN server using HTTP, explicitly
 select **Allow insecure LAN connection** before syncing. Clearing this choice
 revokes the saved permission and matching synced indexers' HTTP permission even

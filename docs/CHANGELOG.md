@@ -94,6 +94,7 @@ All notable changes to this project will be documented in this file.
 
 - **Apprise packaging**: fix Python dependency compatibility and include timezone data on Windows (#1171).
 - **qBittorrent**: v5+ downloads not tracked when the API returns an async `pending_count`; v5.2+ torrent-upload success not recognized; a fallback for v2.0.2 (#1015, #926, #869).
+- **Older qBittorrent and Prowlarr**: verify torrent tags when clients ignore tag filters, fall back to title matching when add tags are unsupported, and normalize Prowlarr download links reflected as HTTP behind a TLS proxy (#1182).
 - **Prowlarr**: download links no longer double-wrapped when the proxy URL comes back on a container IP (#1007).
 - **Prowlarr HTTP credentials**: Honor the insecure-LAN choice and explain when credentials are withheld over HTTP.
 - **Newznab/Torznab categories**: Fix searches using multiple categories.

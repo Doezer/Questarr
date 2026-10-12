@@ -131,7 +131,7 @@ test("indexers and download clients connect", async () => {
     qbittorrent: {
       name: "Stack qBittorrent",
       type: "qbittorrent",
-      url: `http://127.0.0.1:${QBITTORRENT.port}`,
+      url: `http://127.0.0.1:${QBITTORRENT.proxyPort}`,
       username: QBITTORRENT.username,
       password: QBITTORRENT.password,
       downloadPath: QBITTORRENT.downloads,
@@ -225,6 +225,8 @@ for (const key of ["qbittorrent", "transmission"] as const) {
       .poll(() => listFiles(LIBRARY_ROOT), { timeout: 30_000 })
       .toContain(path.join(platformFolder, RELEASES[key].game, PAYLOAD_FILE));
     if (key === "qbittorrent") {
+      // The proxy deliberately ignored ?tag= and returned an unrelated torrent first.
+      expect(readFileSync(QBITTORRENT.tagLookupLog, "utf8")).toContain("questarr-add-");
       expect(readFileSync(path.join(gameDir, "game.exe"), "utf8")).toBe("installed game");
       expect(readFileSync(path.join(gameDir, "saves", "slot1.sav"), "utf8")).toBe("existing save");
       expect(readFileSync(path.join(gameDir, PAYLOAD_FILE), "utf8")).toBe(PATCH_PAYLOAD);

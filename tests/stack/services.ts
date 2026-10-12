@@ -14,6 +14,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { ZipArchive } from "archiver";
+import { startLegacyQbittorrentProxy } from "./qbittorrent-proxy";
 
 export const STACK_DIR = process.env.STACK_DIR ?? path.join(os.tmpdir(), "questarr-stack");
 export const LIBRARY_ROOT = path.join(STACK_DIR, "library");
@@ -22,6 +23,8 @@ export const QUESTARR_PORT = 5300;
 export const INDEXER = { port: 9117, apiKey: "stack-indexer-key" };
 export const QBITTORRENT = {
   port: 8181,
+  proxyPort: 8182,
+  tagLookupLog: path.join(STACK_DIR, "qbittorrent-tag-lookups.log"),
   username: "questarr",
   password: "stack-qbit-pass",
   downloads: path.join(STACK_DIR, "qbittorrent-downloads"),
@@ -379,6 +382,11 @@ export async function startServices(): Promise<() => Promise<void>> {
 
   writeClientConfigs();
   const indexer = startFakeIndexer(torrents, nzbs);
+  const legacyProxy = startLegacyQbittorrentProxy(
+    QBITTORRENT.port,
+    QBITTORRENT.proxyPort,
+    QBITTORRENT.tagLookupLog
+  );
   const children = [
     spawnLogged("qbittorrent", "qbittorrent-nox", [
       `--profile=${path.join(STACK_DIR, "qbittorrent")}`,
@@ -405,6 +413,7 @@ export async function startServices(): Promise<() => Promise<void>> {
   const stop = async () => {
     for (const child of children) child.kill("SIGTERM");
     await new Promise<void>((resolve) => indexer.close(() => resolve()));
+    await new Promise<void>((resolve) => legacyProxy.close(() => resolve()));
   };
 
   try {

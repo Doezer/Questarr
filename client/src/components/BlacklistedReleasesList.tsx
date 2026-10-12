@@ -16,7 +16,12 @@ export default function BlacklistedReleasesList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: entries, isLoading } = useQuery<BlacklistEntry[]>({
+  const {
+    data: entries,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<BlacklistEntry[]>({
     queryKey: ["/api/blacklist"],
   });
 
@@ -41,6 +46,61 @@ export default function BlacklistedReleasesList() {
     }, {});
   }, [entries]);
 
+  const renderBody = () => {
+    if (isLoading) return <div className="text-sm text-muted-foreground">Loading...</div>;
+    if (isError) {
+      return (
+        <div className="flex items-center gap-3 text-sm text-destructive">
+          <span>Could not load blacklisted releases.</span>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      );
+    }
+    if (!entries || entries.length === 0) {
+      return <div className="text-sm text-muted-foreground">No blacklisted releases.</div>;
+    }
+    return (
+      <div className="space-y-4">
+        {Object.entries(entriesByGame).map(([gameId, gameEntries]) => (
+          <div key={gameId}>
+            <h4 className="text-sm font-semibold mb-2">
+              {gameEntries[0]?.gameTitle ?? "Unknown game"}
+            </h4>
+            <div className="space-y-2">
+              {gameEntries.map((entry) => (
+                <div
+                  key={entry.id}
+                  className="flex items-center justify-between gap-2 rounded-md border p-3"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-sm font-medium leading-snug break-words">
+                      {entry.releaseTitle}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {entry.indexerName ? `${entry.indexerName} · ` : ""}
+                      {entry.createdAt ? new Date(entry.createdAt).toISOString().split("T")[0] : ""}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    aria-label={`Remove ${entry.releaseTitle} from blacklist`}
+                    onClick={() => removeMutation.mutate({ gameId: entry.gameId, id: entry.id })}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <section aria-labelledby="blacklisted-releases-heading" className="space-y-3">
       <div className="space-y-1">
@@ -52,50 +112,7 @@ export default function BlacklistedReleasesList() {
           effect immediately.
         </p>
       </div>
-      {isLoading ? (
-        <div className="text-sm text-muted-foreground">Loading...</div>
-      ) : !entries || entries.length === 0 ? (
-        <div className="text-sm text-muted-foreground">No blacklisted releases.</div>
-      ) : (
-        <div className="space-y-4">
-          {Object.entries(entriesByGame).map(([gameId, gameEntries]) => (
-            <div key={gameId}>
-              <h4 className="text-sm font-semibold mb-2">
-                {gameEntries[0]?.gameTitle ?? "Unknown game"}
-              </h4>
-              <div className="space-y-2">
-                {gameEntries.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="flex items-center justify-between gap-2 rounded-md border p-3"
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <p className="text-sm font-medium leading-snug break-words">
-                        {entry.releaseTitle}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {entry.indexerName ? `${entry.indexerName} · ` : ""}
-                        {entry.createdAt
-                          ? new Date(entry.createdAt).toISOString().split("T")[0]
-                          : ""}
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="shrink-0"
-                      aria-label={`Remove ${entry.releaseTitle} from blacklist`}
-                      onClick={() => removeMutation.mutate({ gameId: entry.gameId, id: entry.id })}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {renderBody()}
     </section>
   );
 }

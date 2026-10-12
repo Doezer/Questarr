@@ -664,7 +664,13 @@ export class ArchiveService {
           );
         });
       } else {
-        await fs.rmdir(backupDir).catch(() => undefined);
+        await fs.rmdir(backupDir).catch((err: NodeJS.ErrnoException) => {
+          if (err.code === "ENOENT") return;
+          logger.warn(
+            { err, dir: backupDir },
+            "Extraction backup directory left in place after a failed import; check its files before deleting it"
+          );
+        });
       }
     }
 

@@ -398,4 +398,30 @@ describe("ArchiveService.extract rollback", () => {
     expect(String(error)).not.toMatch(/kept in/);
     expect(await fs.readFile(path.join(gameDir, "b.pak"), "utf8")).toBe("b-old");
   });
+
+  it("reports a backup it could not drop after a failed replacement", async () => {
+    const gameDir = await tempDir();
+    await fs.outputFile(path.join(gameDir, "a.pak"), "a-old");
+    const archive = path.join(await tempDir(), "update.zip");
+    await fs.writeFile(archive, "zip-bytes");
+
+    const { service } = makeService({ "a.pak": "a-new" });
+    const warn = vi.spyOn(logger, "warn");
+    vi.spyOn(fs, "rename").mockRejectedValue(new Error("EIO: i/o error"));
+    const realRemove = fs.remove.bind(fs);
+    vi.spyOn(fs, "remove").mockImplementation((async (target: string) => {
+      if (target.includes(".bak")) throw new Error("EACCES: permission denied");
+      return realRemove(target);
+    }) as never);
+
+    await expect(service.extract(archive, gameDir)).rejects.toThrow(/EIO/);
+
+    const kept = (await fs.readdir(gameDir)).find((name) => name.endsWith(".bak"));
+    expect(kept).toBeDefined();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ dir: path.join(gameDir, kept as string) }),
+      expect.stringContaining("backup directory")
+    );
+    expect(await fs.readFile(path.join(gameDir, "a.pak"), "utf8")).toBe("a-old");
+  });
 });

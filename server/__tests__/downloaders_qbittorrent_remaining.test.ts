@@ -34,6 +34,9 @@ vi.mock("../downloaders/utils.js", async (importOriginal) => {
 
 global.fetch = fetchMock as unknown as typeof fetch;
 
+/** The tag a `/torrents/info?tag=` lookup asks for, as qBittorrent reports it on the torrent. */
+const tagFromInfoPath = (path: string): string => decodeURIComponent(path.split("tag=")[1] ?? "");
+
 const { isSafeUrl, safeFetch } = await import("../ssrf.js");
 const { QBittorrentClient } = await import("../downloaders/qbittorrent.js");
 
@@ -569,10 +572,19 @@ describe("qbittorrent remaining regression coverage", () => {
         text: async () => "Fails.",
         headers: emptyHeaders,
       } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => [{ hash: "recent-hash", added_on: Math.floor(Date.now() / 1000) - 1 }],
-      } as Response);
+      .mockImplementationOnce(
+        async (_method, path) =>
+          ({
+            ok: true,
+            json: async () => [
+              {
+                hash: "recent-hash",
+                added_on: Math.floor(Date.now() / 1000) - 1,
+                tags: tagFromInfoPath(path),
+              },
+            ],
+          }) as Response
+      );
 
     await expect(
       client.addDownload({

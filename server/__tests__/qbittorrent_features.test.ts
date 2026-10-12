@@ -21,6 +21,9 @@ vi.mock("../ssrf.js", () => ({
 const fetchMock = vi.fn();
 globalThis.fetch = fetchMock as unknown as typeof fetch;
 
+/** The tag a `/torrents/info?tag=` lookup asks for, as qBittorrent reports it on the torrent. */
+const tagFromInfoPath = (path: string): string => decodeURIComponent(path.split("tag=")[1] ?? "");
+
 describe("QBittorrentClient - Advanced Features", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -110,21 +113,22 @@ describe("QBittorrentClient - Advanced Features", () => {
     };
 
     // Mock torrents info response (to find the added torrent)
-    const torrentsInfoResponse = {
+    const torrentsInfoResponse = async (url: string) => ({
       ok: true,
       json: async () => [
         {
           hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
           name: "Test Game",
           added_on: Math.floor(Date.now() / 1000),
+          tags: tagFromInfoPath(url),
         },
       ],
-    };
+    });
 
     fetchMock
       .mockResolvedValueOnce(loginResponse) // login
       .mockResolvedValueOnce(urlAddResponse) // add by URL (qBittorrent fetches it)
-      .mockResolvedValueOnce(torrentsInfoResponse); // list torrents
+      .mockImplementationOnce(torrentsInfoResponse); // list torrents
 
     const promise = DownloaderManager.addDownload(testDownloader, {
       url: "http://tracker.example.com/download/123.torrent",

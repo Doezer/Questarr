@@ -1012,6 +1012,99 @@ describe("GameDetailsModal", () => {
     });
   });
 
+  describe("Discover games (temporary igdb- id)", () => {
+    const discoveryGame = {
+      ...mockGame,
+      id: "igdb-123",
+      igdbId: 123,
+    } as unknown as import("@shared/schema").Game;
+    const libraryId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const libraryGame = { ...mockGame, id: libraryId, igdbId: 123, userRating: 6 };
+
+    type FetchCall = [string, RequestInit | undefined];
+    const fetchCalls = () => (global.fetch as ReturnType<typeof vi.fn>).mock.calls as FetchCall[];
+    const callsTo = (method: string, url: string) =>
+      fetchCalls().filter(([u, init]) => u === url && (init?.method ?? "GET") === method);
+
+    function mockLibrary(games: unknown[], postResponse?: unknown) {
+      const base = makeFetchMock({ "/api/games?includeHidden=true": games });
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, init?: RequestInit) => {
+          if (url === "/api/games" && init?.method === "POST") {
+            return Promise.resolve({
+              ok: true,
+              status: 201,
+              json: vi.fn().mockResolvedValue(postResponse),
+            });
+          }
+          return base(url);
+        }
+      );
+    }
+
+    it("hides a game that isn't in the library by adding it as hidden", async () => {
+      mockLibrary([], { ...libraryGame, hidden: true });
+      renderComponent(discoveryGame);
+
+      fireEvent.click(screen.getByTestId("button-toggle-hidden-quick-igdb-123"));
+
+      await waitFor(() => expect(callsTo("POST", "/api/games")).toHaveLength(1));
+      const body = JSON.parse(String(callsTo("POST", "/api/games")[0]![1]!.body));
+      expect(body).toMatchObject({ igdbId: 123, hidden: true });
+      expect(fetchCalls().some(([url]) => url.includes("igdb-123"))).toBe(false);
+    });
+
+    it("hides the library copy when the game is already tracked", async () => {
+      mockLibrary([libraryGame]);
+      renderComponent(discoveryGame);
+
+      await waitFor(() => expect(callsTo("GET", "/api/games?includeHidden=true")).toHaveLength(1));
+      // Wait for the library list to land: the rating shows the library value.
+      expect(await screen.findByText("3/5")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("button-toggle-hidden-quick-igdb-123"));
+
+      await waitFor(() =>
+        expect(callsTo("PATCH", `/api/games/${libraryId}/hidden`)).toHaveLength(1)
+      );
+      expect(callsTo("POST", "/api/games")).toHaveLength(0);
+    });
+
+    it("offers no Remove button for a game that isn't in the library", async () => {
+      mockLibrary([]);
+      renderComponent(discoveryGame);
+
+      await waitFor(() => expect(callsTo("GET", "/api/games?includeHidden=true")).toHaveLength(1));
+      expect(screen.queryByTestId("button-remove-game-quick-igdb-123")).not.toBeInTheDocument();
+    });
+
+    it("removes the library copy without touching files", async () => {
+      mockLibrary([libraryGame]);
+      renderComponent(discoveryGame);
+
+      fireEvent.click(await screen.findByTestId("button-remove-game-quick-igdb-123"));
+      const dialog = await screen.findByRole("alertdialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+
+      await waitFor(() =>
+        expect(callsTo("DELETE", `/api/games/${libraryId}?deleteFiles=false`)).toHaveLength(1)
+      );
+    });
+
+    it("adds an untracked game to the library before saving its rating", async () => {
+      mockLibrary([], libraryGame);
+      renderComponent(discoveryGame);
+
+      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+      fireEvent.click(await screen.findByRole("button", { name: "Rate 4 out of 5" }));
+
+      await waitFor(() =>
+        expect(callsTo("PATCH", `/api/games/${libraryId}/user-rating`)).toHaveLength(1)
+      );
+      const body = JSON.parse(String(callsTo("POST", "/api/games")[0]![1]!.body));
+      expect(body).toMatchObject({ igdbId: 123, status: "wanted" });
+    });
+  });
+
   describe("modal state reset", () => {
     it("resets summary expansion when modal closes", async () => {
       const { rerender } = renderComponent();

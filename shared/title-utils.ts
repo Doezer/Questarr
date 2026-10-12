@@ -105,7 +105,7 @@ export function cleanReleaseName(releaseName: string): string {
   return cleaned.replaceAll(/[[\]]/g, " ").replaceAll(/\s+/g, " ").trim();
 }
 
-const TITLE_STOP_WORDS = new Set([
+export const TITLE_STOP_WORDS: ReadonlySet<string> = new Set([
   "the",
   "of",
   "and",
@@ -123,7 +123,7 @@ const TITLE_STOP_WORDS = new Set([
 ]);
 
 /** Drops stopwords from an already normalized title ("the witcher 3" -> "witcher 3"). */
-function withoutStopWords(normalized: string): string {
+export function withoutStopWords(normalized: string): string {
   return normalized
     .split(" ")
     .filter((w) => !TITLE_STOP_WORDS.has(w))
@@ -146,7 +146,7 @@ function isSequelMarker(token: string | undefined): boolean {
  * alone would accept those, and auto-search downloads a lone match on its own.
  * A number followed by another number ("game 2 0") reads as a version, not a sequel.
  */
-function isSequelOf(longer: string, shorter: string): boolean {
+export function isSequelOf(longer: string, shorter: string): boolean {
   if (!longer || !shorter || longer === shorter) return false;
   const longWords = longer.split(" ");
   const shortWords = shorter.split(" ");

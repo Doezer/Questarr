@@ -111,6 +111,7 @@
     "passport-steam": "^1.0.18",
     "pg": "^8.23.0",
     "pino": "^10.3.1",
+    "re2js": "^2.8.6",
     "react": "^19.3.0",
     "react-day-picker": "^10.0.1",
     "react-dom": "^19.3.0",

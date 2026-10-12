@@ -50,6 +50,9 @@ const createDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
   };
 };
 
+/** The tag a `/torrents/info?tag=` lookup asks for, as qBittorrent reports it on the torrent. */
+const tagFromInfoPath = (path: string): string => decodeURIComponent(path.split("tag=")[1] ?? "");
+
 const emptyHeaders = {
   entries: () => [][Symbol.iterator](),
   get: () => null,
@@ -535,16 +538,20 @@ describe("qbittorrent regression coverage", () => {
         text: async () => "Ok.",
         headers: emptyHeaders,
       } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => [
-          {
-            hash: "recent-hash",
-            name: "Verified upload",
-            added_on: Math.floor(Date.now() / 1000),
-          },
-        ],
-      } as Response);
+      .mockImplementationOnce(
+        async (_method, path) =>
+          ({
+            ok: true,
+            json: async () => [
+              {
+                hash: "recent-hash",
+                name: "Verified upload",
+                added_on: Math.floor(Date.now() / 1000),
+                tags: tagFromInfoPath(path),
+              },
+            ],
+          }) as Response
+      );
 
     await expect(
       client.addDownload({
@@ -558,6 +565,96 @@ describe("qbittorrent regression coverage", () => {
     });
 
     setTimeoutSpy.mockRestore();
+  });
+
+  // qBittorrent before 4.4 ignores `?tag=` and lists every torrent, so the newest
+  // entry can belong to another download entirely (wrong import, or moving/deleting
+  // someone else's files). Only the torrent actually carrying our tag may match.
+  describe("when qBittorrent ignores the tag filter", () => {
+    const runUrlAdd = async (listing: (path: string) => Record<string, unknown>[]) => {
+      const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+        callback: TimerHandler,
+        _delay?: number,
+        ...args: unknown[]
+      ) => {
+        if (typeof callback === "function") callback(...args);
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout);
+
+      try {
+        const client = new QBittorrentClient(createDownloader());
+        const privateClient = client as unknown as {
+          authenticate(force?: boolean): Promise<void>;
+          makeRequest(method: string, path: string, body?: string | Buffer): Promise<Response>;
+        };
+        vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+        vi.spyOn(privateClient, "makeRequest").mockImplementation(async (_method, path) => {
+          if (path === "/api/v2/torrents/add") {
+            return {
+              ok: true,
+              status: 200,
+              text: async () => "Ok.",
+              headers: emptyHeaders,
+            } as unknown as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info")) {
+            return { ok: true, json: async () => listing(path) } as Response;
+          }
+          return { ok: true, status: 200, text: async () => "" } as Response;
+        });
+
+        return await client.addDownload({
+          url: "http://indexer.local/wanted.torrent",
+          title: "Wanted Game",
+        });
+      } finally {
+        setTimeoutSpy.mockRestore();
+      }
+    };
+
+    it("picks the torrent carrying the tag instead of the first one listed", async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const result = await runUrlAdd((path) => [
+        { hash: "other-hash", name: "Other Game", added_on: now, tags: "" },
+        { hash: "wanted-hash", name: "Wanted Game", added_on: now, tags: tagFromInfoPath(path) },
+      ]);
+
+      expect(result).toEqual({
+        success: true,
+        id: "wanted-hash",
+        message: "Download added successfully",
+      });
+    });
+
+    it("falls back to title matching when the client does not report tags at all", async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const result = await runUrlAdd(() => [
+        { hash: "other-hash", name: "Other Game", added_on: now },
+        { hash: "wanted-hash", name: "Wanted.Game-GRP", added_on: now - 60 },
+      ]);
+
+      expect(result).toEqual({
+        success: true,
+        id: "wanted-hash",
+        message: "Download added successfully",
+      });
+    });
+
+    // qBittorrent 4.2.x to 4.3.2 report a `tags` string on every torrent but ignore
+    // the `tags` parameter on add, so our tag never shows up on the new torrent.
+    it("falls back to title matching when tags are reported but the add tag was not applied", async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const result = await runUrlAdd(() => [
+        { hash: "other-hash", name: "Other Game", added_on: now, tags: "" },
+        { hash: "wanted-hash", name: "Wanted.Game-GRP", added_on: now - 60, tags: "" },
+      ]);
+
+      expect(result).toEqual({
+        success: true,
+        id: "wanted-hash",
+        message: "Download added successfully",
+      });
+    });
   });
 
   it("removes the correlation tag when a non-magnet URL add already existed", async () => {
@@ -593,16 +690,20 @@ describe("qbittorrent regression coverage", () => {
           text: async () => "Fails.",
           headers: emptyHeaders,
         } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => [
-            {
-              hash: "existing-hash",
-              name: "Already queued",
-              added_on: Math.floor(Date.now() / 1000),
-            },
-          ],
-        } as Response)
+        .mockImplementationOnce(
+          async (_method, path) =>
+            ({
+              ok: true,
+              json: async () => [
+                {
+                  hash: "existing-hash",
+                  name: "Already queued",
+                  added_on: Math.floor(Date.now() / 1000),
+                  tags: tagFromInfoPath(path),
+                },
+              ],
+            }) as Response
+        )
         .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "" } as Response);
 
       await expect(
@@ -676,16 +777,20 @@ describe("qbittorrent regression coverage", () => {
             }),
           headers: jsonHeaders,
         } as unknown as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => [
-            {
-              hash: "async-hash",
-              name: "Queued via URL",
-              added_on: Math.floor(Date.now() / 1000),
-            },
-          ],
-        } as Response)
+        .mockImplementationOnce(
+          async (_method, path) =>
+            ({
+              ok: true,
+              json: async () => [
+                {
+                  hash: "async-hash",
+                  name: "Queued via URL",
+                  added_on: Math.floor(Date.now() / 1000),
+                  tags: tagFromInfoPath(path),
+                },
+              ],
+            }) as Response
+        )
         .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "" } as Response);
 
       await expect(
@@ -1037,7 +1142,14 @@ describe("qbittorrent regression coverage", () => {
           if (path.startsWith("/api/v2/torrents/info?tag=")) {
             return {
               ok: true,
-              json: async () => [{ hash: "existing-hash", name: "Existing torrent", added_on: 1 }],
+              json: async () => [
+                {
+                  hash: "existing-hash",
+                  name: "Existing torrent",
+                  added_on: 1,
+                  tags: tagFromInfoPath(path),
+                },
+              ],
             } as Response;
           }
           if (path === "/api/v2/torrents/removeTags") {
@@ -1133,7 +1245,14 @@ describe("qbittorrent regression coverage", () => {
           if (path.startsWith("/api/v2/torrents/info?tag=")) {
             return {
               ok: true,
-              json: async () => [{ hash: "existing-hash", name: "Existing torrent", added_on: 1 }],
+              json: async () => [
+                {
+                  hash: "existing-hash",
+                  name: "Existing torrent",
+                  added_on: 1,
+                  tags: tagFromInfoPath(path),
+                },
+              ],
             } as Response;
           }
           if (path === "/api/v2/torrents/removeTags") {
@@ -1529,7 +1648,13 @@ describe("QBittorrentClient.findTorrentByTag — async correlation tag resolutio
   it("returns the torrent hash when a matching tag is found", async () => {
     const client = new QBittorrentClient(createDownloader());
     const makeRequestSpy = mockTagLookup(client, [
-      { hash: "resolvedhash123", name: "Async Game", state: "downloading", progress: 0.5 },
+      {
+        hash: "resolvedhash123",
+        name: "Async Game",
+        state: "downloading",
+        progress: 0.5,
+        tags: "questarr-add-abc123",
+      },
     ]);
 
     const result = await client.findTorrentByTag("questarr-add-abc123");
@@ -1571,13 +1696,40 @@ describe("QBittorrentClient.findTorrentByTag — async correlation tag resolutio
   it("returns the first match when multiple torrents share the tag", async () => {
     const client = new QBittorrentClient(createDownloader());
     mockTagLookup(client, [
-      { hash: "firsthash", name: "Game 1" },
-      { hash: "secondhash", name: "Game 2" },
+      { hash: "firsthash", name: "Game 1", tags: "questarr-add-multi" },
+      { hash: "secondhash", name: "Game 2", tags: "other, questarr-add-multi" },
     ]);
 
     const result = await client.findTorrentByTag("questarr-add-multi");
 
     // Should return the first match.
     expect(result).toBe("firsthash");
+  });
+
+  // qBittorrent before 4.4 ignores the `tag` filter and answers with every torrent,
+  // so the first entry may belong to a completely different download.
+  it("ignores torrents that do not carry the tag when the filter is not applied", async () => {
+    const client = new QBittorrentClient(createDownloader());
+    mockTagLookup(client, [
+      { hash: "otherhash", name: "Someone else's torrent", tags: "" },
+      { hash: "taggedhash", name: "Async Game", tags: "seeding, questarr-add-old" },
+    ]);
+
+    const result = await client.findTorrentByTag("questarr-add-old");
+
+    expect(result).toBe("taggedhash");
+  });
+
+  it("returns null rather than guessing when no torrent carries the tag", async () => {
+    const client = new QBittorrentClient(createDownloader());
+    mockTagLookup(client, [
+      { hash: "otherhash", name: "Someone else's torrent", tags: "" },
+      // A tag that only shares a prefix is not the same tag.
+      { hash: "prefixhash", name: "Lookalike", tags: "questarr-add-old-2" },
+    ]);
+
+    const result = await client.findTorrentByTag("questarr-add-old");
+
+    expect(result).toBeNull();
   });
 });

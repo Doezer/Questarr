@@ -214,7 +214,10 @@ export class RTorrentClient implements DownloaderClient {
     }
   }
 
-  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
     try {
       // Get detailed information about a specific download using multicall
       const result = await this.makeXMLRPCRequest("d.multicall2", [
@@ -248,6 +251,7 @@ export class RTorrentClient implements DownloaderClient {
       return null;
     } catch (error) {
       downloadersLogger.error({ error }, "error getting download status (rtorrent)");
+      if (options?.throwOnError) throw error;
       return null;
     }
   }

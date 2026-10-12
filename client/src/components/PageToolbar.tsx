@@ -60,9 +60,12 @@ export default function PageToolbar({
   const hasRow2 = Boolean(filterPills || hasSort || actions);
 
   return (
-    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-      {/* Row 1 on mobile: search (flex-1) + view controls */}
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+    <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:justify-between">
+      {/* Row 1 on mobile: search (flex-1) + view controls. On tablet and desktop the controls
+          wrap below the search when the content area is too narrow to hold both on one line. */}
+      <div
+        className={`flex min-w-0 flex-1 items-center gap-2 ${hasSearch ? "md:min-w-[220px]" : ""}`}
+      >
         {hasSearch && (
           <div className="relative h-10 flex-1 min-w-0 sm:h-8 sm:flex-initial sm:min-w-[220px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -103,7 +106,7 @@ export default function PageToolbar({
 
       {/* Row 2 on mobile / right section on desktop: filter pills + sort + view controls + actions */}
       {hasRow2 && (
-        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:flex-nowrap md:shrink-0 md:justify-end">
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:max-w-full md:shrink-0">
           {filterPills && (
             <div className="flex flex-wrap items-center gap-1.5 shrink-0">{filterPills}</div>
           )}

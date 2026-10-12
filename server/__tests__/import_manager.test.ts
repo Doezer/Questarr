@@ -81,6 +81,32 @@ describe("ImportManager", () => {
     expect(storage.updateGameDownloadStatus).not.toHaveBeenCalled();
   });
 
+  it("reports an import as in flight until it finishes and ignores a second start", async () => {
+    let releaseDownload!: (value: unknown) => void;
+    storage.getGameDownload.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releaseDownload = resolve;
+      })
+    );
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    const first = manager.processImport("dl-1", "/remote/path");
+    expect(manager.isImportInFlight("dl-1")).toBe(true);
+    expect(manager.isImportInFlight("dl-2")).toBe(false);
+
+    await manager.processImport("dl-1", "/remote/path");
+    expect(storage.getGameDownload).toHaveBeenCalledTimes(1);
+
+    releaseDownload(undefined);
+    await first;
+    expect(manager.isImportInFlight("dl-1")).toBe(false);
+  });
+
   it("marks download game_link_required when game is missing", async () => {
     // Not "error": that status is never re-polled (getDownloadingGameDownloads
     // only selects "downloading") and never shown in the UI's pending-imports
@@ -1130,6 +1156,62 @@ describe("ImportManager", () => {
     planSpy.mockRestore();
     execSpy.mockRestore();
   });
+
+  it.each([
+    ["release title", "Some Game (2013) [Wii U / Multi-Language]", [6]],
+    ["IGDB platform", "", [41]],
+  ])(
+    "processImport: Wii U detected from %s goes to the Wii U folder",
+    async (_, title, platforms) => {
+      storage.getGameDownload.mockResolvedValue({
+        id: "dl-1",
+        gameId: "g1",
+        downloaderId: "d1",
+        downloadTitle: title,
+      });
+      storage.getGame.mockResolvedValue({
+        id: "g1",
+        title: "Some Game",
+        userId: "u1",
+        status: "wanted",
+        platforms,
+      });
+      storage.getDownloader.mockResolvedValue({
+        id: "d1",
+        name: "Downloader",
+        url: "http://remote:9091",
+      });
+      pathService.translatePath.mockResolvedValue("/local/downloads/game.wux");
+
+      const { PCImportStrategy } = await import("../services/ImportStrategies.js");
+      const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+        needsReview: true,
+        originalPath: "/local/downloads/game.wux",
+        proposedPath: "/data/Wii U/Some Game",
+        strategy: "pc",
+      });
+
+      const manager = new ImportManager(
+        storage as never, // NOSONAR
+        pathService as never, // NOSONAR
+        platformService as never, // NOSONAR
+        archiveService as never // NOSONAR
+      );
+
+      await manager.processImport("dl-1", "/remote/downloads/game.wux");
+
+      expect(planSpy).toHaveBeenCalledWith(
+        "/local/downloads/game.wux",
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        "Wii U",
+        undefined
+      );
+
+      planSpy.mockRestore();
+    }
+  );
 
   // ─── processImport: needsReview → manual_review_required ────────────────────
 

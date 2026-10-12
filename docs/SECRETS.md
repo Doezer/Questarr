@@ -16,19 +16,20 @@ against a Zod schema in `server/config.ts:10-59`. If any variable fails
 validation, the server logs the error and exits (`server/config.ts:64-80`)
 rather than starting with an invalid configuration.
 
-| Variable                                | Purpose                                                       | Required?                                                                                                                                                                                                                     |
-| --------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `JWT_SECRET`                            | Signs/verifies session JWTs                                   | No — auto-generated and persisted to the DB if unset (§2)                                                                                                                                                                     |
-| `NEXUSMODS_API_KEY`                     | NexusMods mod lookups                                         | No — validated by `envSchema`; can be set later in Settings → Services (§3)                                                                                                                                                   |
-| `STEAM_API_KEY`                         | Steam achievements in a game's Journal tab                    | No — env-only; without it the achievements section is simply hidden (`server/config.ts`, `GET /api/settings/steam`)                                                                                                           |
-| `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | Twitch/IGDB OAuth for game metadata & discovery               | No env-wise, but one of env/DB must be set for discovery to work                                                                                                                                                              |
-| `PORT`                                  | HTTP port                                                     | No (default `5000`)                                                                                                                                                                                                           |
-| `HOST`                                  | Bind address                                                  | No — **defaults to `0.0.0.0` (all interfaces) in every deployment mode**, not just Docker (`server/config.ts:52`). Set `HOST=127.0.0.1` explicitly if you don't want the server reachable from other machines on the network. |
-| `NODE_ENV`                              | `development` \| `production` \| `test`                       | No (defaults to `production`)                                                                                                                                                                                                 |
-| `SQLITE_DB_PATH`                        | Path to the SQLite database file                              | No (default `sqlite.db`)                                                                                                                                                                                                      |
-| `CREDENTIALS_ENCRYPTION_KEY`            | AES-256 key encrypting indexer/downloader credentials at rest | No — auto-generated (32 random bytes) and persisted to the DB if unset; must be a 64-char hex string if provided (§4)                                                                                                         |
-| `ARCHIVE_MAX_ENTRIES`                   | Max entries an archive may list before import extraction      | No (default `50000`). Archives listing more entries are refused before extraction. See [Archive extraction limits](#archive-extraction-limits) |
-| `ARCHIVE_MAX_EXPANDED_BYTES`            | Max total declared uncompressed size of an archive, in bytes  | No (default `268435456000`, 250 GiB). Archives declaring more are refused before extraction. See [Archive extraction limits](#archive-extraction-limits) |
+| Variable                                | Purpose                                                            | Required?                                                                                                                                                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JWT_SECRET`                            | Signs/verifies session JWTs                                        | No — auto-generated and persisted to the DB if unset (§2)                                                                                                                                                                     |
+| `NEXUSMODS_API_KEY`                     | NexusMods mod lookups                                              | No — validated by `envSchema`; can be set later in Settings → Services (§3)                                                                                                                                                   |
+| `STEAM_API_KEY`                         | Steam achievements in a game's Journal tab                         | No — env-only; without it the achievements section is simply hidden (`server/config.ts`, `GET /api/settings/steam`)                                                                                                           |
+| `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | Twitch/IGDB OAuth for game metadata & discovery                    | No env-wise, but one of env/DB must be set for discovery to work                                                                                                                                                              |
+| `PORT`                                  | HTTP port                                                          | No (default `5000`)                                                                                                                                                                                                           |
+| `HOST`                                  | Bind address                                                       | No — **defaults to `0.0.0.0` (all interfaces) in every deployment mode**, not just Docker (`server/config.ts:52`). Set `HOST=127.0.0.1` explicitly if you don't want the server reachable from other machines on the network. |
+| `TRUST_PROXY`                           | Trust `X-Forwarded-For` / `X-Forwarded-Proto` from a reverse proxy | No (default off). Set `1` (hop count) or the proxy's IP/subnet when Questarr sits behind a reverse proxy, so rate limits see real client IPs. See [REVERSE_PROXY.md](REVERSE_PROXY.md#3-trust-the-proxy-trust_proxy)          |
+| `NODE_ENV`                              | `development` \| `production` \| `test`                            | No (defaults to `production`)                                                                                                                                                                                                 |
+| `SQLITE_DB_PATH`                        | Path to the SQLite database file                                   | No (default `sqlite.db`)                                                                                                                                                                                                      |
+| `CREDENTIALS_ENCRYPTION_KEY`            | AES-256 key encrypting indexer/downloader credentials at rest      | No — auto-generated (32 random bytes) and persisted to the DB if unset; must be a 64-char hex string if provided (§4)                                                                                                         |
+| `ARCHIVE_MAX_ENTRIES`                   | Max entries an archive may list before import extraction           | No (default `50000`). Archives listing more entries are refused before extraction. See [Archive extraction limits](#archive-extraction-limits)                                                                                |
+| `ARCHIVE_MAX_EXPANDED_BYTES`            | Max total declared uncompressed size of an archive, in bytes       | No (default `268435456000`, 250 GiB). Archives declaring more are refused before extraction. See [Archive extraction limits](#archive-extraction-limits)                                                                      |
 
 A legacy hardcoded default, `"questarr-default-secret-change-me"`, is
 explicitly rejected by a Zod `.refine()` (`server/config.ts:18-24`) so the
@@ -46,14 +47,14 @@ archives are listed with `unrar lt -v`; other formats use 7-Zip. Questarr
 refuses the archive, and the import fails with an error, if any of these is
 true:
 
-| Check                                                                                         | Error message                                                         |
-| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| More entries than `ARCHIVE_MAX_ENTRIES`                                                       | `Archive contains too many entries (limit: N).`                       |
-| Total declared uncompressed size above `ARCHIVE_MAX_EXPANDED_BYTES`                           | `Archive expands beyond the configured size limit (N bytes).`         |
-| An entry with an absolute path, a drive letter (`C:`), a `..` segment, or more than 64 levels | `Archive contains an unsafe file path.`                               |
-| An entry that would resolve outside the extraction directory                                  | `Archive contains a file path outside the extraction directory.`      |
-| A symbolic link or hard link                                                                  | `Archive contains a symbolic or hard link, which is not extracted.`   |
-| An entry with a missing or invalid uncompressed size                                          | `Archive contains an entry with an invalid uncompressed size.`        |
+| Check                                                                                         | Error message                                                       |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| More entries than `ARCHIVE_MAX_ENTRIES`                                                       | `Archive contains too many entries (limit: N).`                     |
+| Total declared uncompressed size above `ARCHIVE_MAX_EXPANDED_BYTES`                           | `Archive expands beyond the configured size limit (N bytes).`       |
+| An entry with an absolute path, a drive letter (`C:`), a `..` segment, or more than 64 levels | `Archive contains an unsafe file path.`                             |
+| An entry that would resolve outside the extraction directory                                  | `Archive contains a file path outside the extraction directory.`    |
+| A symbolic link or hard link                                                                  | `Archive contains a symbolic or hard link, which is not extracted.` |
+| An entry with a missing or invalid uncompressed size                                          | `Archive contains an entry with an invalid uncompressed size.`      |
 
 The path and link checks always apply. If a legitimate release is refused
 for size or entry count, raise the matching limit and restart the server:
@@ -170,6 +171,7 @@ Transmission, rTorrent, sabnzbd, nzbget).
     "allowInsecureLan": true
   }
   ```
+
 - **Insecure-LAN opt-in (`allowInsecureLan`):** Questarr sends an indexer's
   API key only to `https://` URLs, or to `http://` URLs when the indexer has
   the per-indexer "Allow insecure LAN connection" opt-in. Over plain HTTP

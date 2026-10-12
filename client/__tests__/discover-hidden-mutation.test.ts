@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { hideDiscoveryGame } from "../src/lib/discover-hidden-mutation";
+import { addDiscoveryGameToLibrary, hideDiscoveryGame } from "../src/lib/discover-hidden-mutation";
 import { apiRequest } from "@/lib/queryClient";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { type Game } from "@shared/schema";
@@ -89,5 +89,45 @@ describe("hideDiscoveryGame", () => {
     expect(apiRequest).toHaveBeenNthCalledWith(2, "PATCH", "/api/games/existing-local-id/hidden", {
       hidden: true,
     });
+  });
+});
+
+describe("addDiscoveryGameToLibrary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(mapGameToInsertGame).mockReturnValue({ igdbId: 42 } as never);
+  });
+
+  it("returns the created library game", async () => {
+    vi.mocked(apiRequest).mockResolvedValue({
+      json: async () => ({ id: "new-id", status: "owned" }),
+    } as Response);
+
+    await expect(addDiscoveryGameToLibrary(mockGame, "owned")).resolves.toEqual({
+      id: "new-id",
+      status: "owned",
+    });
+    expect(apiRequest).toHaveBeenCalledWith("POST", "/api/games", {
+      igdbId: 42,
+      status: "owned",
+    });
+  });
+
+  it("returns the existing library game when the POST answers 409", async () => {
+    vi.mocked(apiRequest).mockRejectedValue({
+      status: 409,
+      data: { game: { id: "existing-id", status: "wanted" } },
+    });
+
+    await expect(addDiscoveryGameToLibrary(mockGame)).resolves.toEqual({
+      id: "existing-id",
+      status: "wanted",
+    });
+  });
+
+  it("rethrows other errors", async () => {
+    vi.mocked(apiRequest).mockRejectedValue({ status: 500 });
+
+    await expect(addDiscoveryGameToLibrary(mockGame)).rejects.toEqual({ status: 500 });
   });
 });

@@ -16,9 +16,14 @@ vi.mock("@/hooks/use-hidden-mutation", () => ({
   useHiddenMutation: () => ({ mutate: vi.fn() }),
 }));
 
+// Initial values for useLocalStorageState, by key, overriding the page defaults.
+const storedValues: Record<string, unknown> = {};
+
 vi.mock("@/hooks/use-local-storage-state", () => ({
-  useLocalStorageState: <T,>(_key: string, initial: T) => {
-    const [value, setValue] = React.useState(initial);
+  useLocalStorageState: <T,>(key: string, initial: T) => {
+    const [value, setValue] = React.useState<T>(
+      key in storedValues ? (storedValues[key] as T) : initial
+    );
     return [value, setValue] as const;
   },
 }));
@@ -29,7 +34,11 @@ vi.mock("@/components/DiscoverSettingsModal", () => ({
 }));
 
 vi.mock("@/components/GameCarouselSection", () => ({
-  default: ({ title }: { title: string }) => <div data-testid="carousel-section">{title}</div>,
+  default: ({ title, queryKey }: { title: string; queryKey: unknown[] }) => (
+    <div data-testid="carousel-section" data-query-key={JSON.stringify(queryKey)}>
+      {title}
+    </div>
+  ),
 }));
 vi.mock("@/components/RssFeedList", () => ({
   default: () => <div data-testid="rss-feed-list" />,
@@ -185,5 +194,67 @@ describe("DiscoverPage", () => {
     );
 
     expect(await screen.findByText("Discover")).toBeInTheDocument();
+  });
+
+  it("refreshes its library list when game queries are invalidated", async () => {
+    vi.mocked(apiRequest).mockImplementation((_method: string, url: string) => {
+      if (url.includes("/api/games?includeHidden=true")) {
+        return Promise.resolve({ json: async () => [] } as Response);
+      }
+      return Promise.resolve({ json: async () => ({ configured: true }) } as Response);
+    });
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DiscoverPage />
+      </QueryClientProvider>
+    );
+    const libraryFetches = () =>
+      vi.mocked(apiRequest).mock.calls.filter(([, url]) => url === "/api/games?includeHidden=true")
+        .length;
+
+    await waitFor(() => expect(libraryFetches()).toBe(1));
+    // Every game mutation (hide, status change, add) invalidates ["/api/games"].
+    await queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    await waitFor(() => expect(libraryFetches()).toBe(2));
+  });
+
+  it("re-keys the carousels when a game becomes wanted while wanted games are hidden", async () => {
+    storedValues.discoverHideWanted = true;
+    let library: unknown[] = [];
+    vi.mocked(apiRequest).mockImplementation((_method: string, url: string) => {
+      if (url.includes("/api/games?includeHidden=true")) {
+        return Promise.resolve({ json: async () => library } as Response);
+      }
+      return Promise.resolve({ json: async () => ({ configured: true }) } as Response);
+    });
+    const queryClient = createTestQueryClient();
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <DiscoverPage />
+        </QueryClientProvider>
+      );
+      const popularKey = async () =>
+        (await screen.findByText("Popular Games")).getAttribute("data-query-key");
+
+      await waitFor(async () =>
+        expect(await popularKey()).toBe('["/api/igdb/popular","","owned-shown",""]')
+      );
+      // Rating or tracking a Discover game adds it to the library as wanted.
+      library = [{ id: "a", igdbId: 7, hidden: false, status: "wanted" }];
+      await queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      await waitFor(async () =>
+        expect(await popularKey()).toBe('["/api/igdb/popular","","owned-shown","7"]')
+      );
+      // A different game takes its place: same count, different members.
+      library = [{ id: "b", igdbId: 8, hidden: false, status: "wanted" }];
+      await queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      await waitFor(async () =>
+        expect(await popularKey()).toBe('["/api/igdb/popular","","owned-shown","8"]')
+      );
+    } finally {
+      delete storedValues.discoverHideWanted;
+    }
   });
 });

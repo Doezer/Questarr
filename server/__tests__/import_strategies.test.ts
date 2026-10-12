@@ -30,6 +30,47 @@ afterEach(async () => {
 });
 
 describe("ImportStrategies", () => {
+  it("skips extraction staging directories when gathering a game folder's files", async () => {
+    // Another import may still be unpacking into (or an interrupted one may have left) a
+    // .questarr-extract-* directory inside the game folder; its files are not game content.
+    const gameDir = tempDir();
+    await fs.outputFile(path.join(gameDir, "game.exe"), "exe");
+    await fs.outputFile(path.join(gameDir, ".questarr-extract-AbC123", "partial.bin"), "half");
+    await fs.outputFile(path.join(gameDir, ".questarr-extract-AbC123.bak", "0"), "old");
+
+    // A nested directory with that name is game content: staging only sits at the root.
+    await fs.outputFile(path.join(gameDir, "assets", ".questarr-extract-data", "a.pak"), "pak");
+
+    expect((await gatherFiles(gameDir, { skipExtractStaging: true })).sort()).toEqual(
+      [
+        path.join(gameDir, "assets", ".questarr-extract-data", "a.pak"),
+        path.join(gameDir, "game.exe"),
+      ].sort()
+    );
+  });
+
+  it("moves a source directory named like a staging directory into the library", async () => {
+    // Only library folders skip staging names; in a download they are ordinary content,
+    // and move mode deletes the source afterwards.
+    const root = tempDir();
+    const source = path.join(root, "downloads", "Game");
+    const destination = path.join(root, "library", "PC", "Game");
+    await fs.outputFile(path.join(source, "game.exe"), "exe");
+    await fs.outputFile(path.join(source, ".questarr-extract-data", "level.pak"), "pak");
+
+    expect(await gatherFiles(source)).toContain(
+      path.join(source, ".questarr-extract-data", "level.pak")
+    );
+    await new PCImportStrategy().executeImport(
+      { needsReview: false, originalPath: source, proposedPath: destination, strategy: "pc" },
+      "move"
+    );
+
+    expect(
+      await fs.readFile(path.join(destination, ".questarr-extract-data", "level.pak"), "utf8")
+    ).toBe("pak");
+  });
+
   it.each(["EXDEV", "EPERM", "EACCES", "ENOTSUP", "EOPNOTSUPP"])(
     "falls back to copy when hardlink fails with %s",
     async (code) => {

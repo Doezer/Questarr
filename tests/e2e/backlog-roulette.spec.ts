@@ -100,4 +100,27 @@ test.describe("Backlog roulette", () => {
     await expect(page.locator("html")).toHaveClass(/light/);
     await page.screenshot({ path: "docs/pr-evidence/backlog-roulette-light.png" });
   });
+
+  test("draws from the Playing page and stays reachable at tablet width", async ({ page }) => {
+    const id = uniqueId();
+    const title = `Roulette playing ${id}`;
+    await page.goto("/");
+    const game = await seedGame(page, { title, igdbId: id, status: "playing" });
+    await page.setViewportSize({ width: 820, height: 1000 });
+    await page.reload();
+    const libraryPick = page.getByRole("button", { name: "Pick a game", exact: true });
+    await expect(libraryPick).toBeInViewport({ ratio: 1 });
+    await page.goto("/playing");
+    await page.getByPlaceholder("Filter playing...").fill(title);
+    await expect(page.getByTestId(`card-game-${game.id}`)).toBeVisible();
+    const pick = page.getByRole("button", { name: "Pick a game", exact: true });
+    await expect(pick).toBeInViewport({ ratio: 1 });
+    await pick.click();
+    const dialog = page.getByRole("dialog", { name: "Backlog roulette" });
+    await expect(dialog.getByTestId("roulette-title")).toHaveText(title);
+    await expect(dialog.getByRole("combobox", { name: "Pick from" })).toHaveText(
+      "Currently playing"
+    );
+    await expect(dialog.getByRole("button", { name: "Mark as Playing" })).toHaveCount(0);
+  });
 });

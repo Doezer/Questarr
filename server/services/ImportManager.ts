@@ -37,6 +37,7 @@ const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
   n64: 4,
   gamecube: 21,
   wii: 5,
+  "wii u": 41,
   gb: 33,
   gbc: 22,
   gba: 24,
@@ -62,6 +63,7 @@ const PLATFORM_FOLDER_NAMES: Record<string, string> = {
   n64: "N64",
   gamecube: "GameCube",
   wii: "Wii",
+  "wii u": "Wii U",
   gb: "Game Boy",
   gbc: "Game Boy Color",
   gba: "Game Boy Advance",
@@ -107,6 +109,11 @@ interface ArchiveResolution {
 
 export class ImportManager {
   private readonly pathRetryCount = new Map<string, number>();
+  // Downloads whose processImport() is running in this process. The
+  // "unpacking"/"completed_pending_import" statuses outlive a restart, so this
+  // is the only way to tell an import that is still running from one that a
+  // restart cut short.
+  private readonly importsInFlight = new Set<string>();
 
   // Optional and defaulted (rather than required) so existing call sites — and
   // the many unit tests that construct an ImportManager directly — don't all
@@ -331,7 +338,7 @@ export class ImportManager {
 
     return {
       destDir,
-      filesPlaced: await gatherFiles(destDir),
+      filesPlaced: await gatherFiles(destDir, { skipExtractStaging: true }),
       modeUsed,
       conflictsResolved: [],
     };
@@ -384,7 +391,7 @@ export class ImportManager {
 
     return {
       destDir,
-      filesPlaced: await gatherFiles(destDir),
+      filesPlaced: await gatherFiles(destDir, { skipExtractStaging: true }),
       modeUsed,
       conflictsResolved: [],
     };
@@ -392,10 +399,9 @@ export class ImportManager {
 
   // Relocates only the archive's own volume family into destDir — never the whole
   // source directory. A directory source can hold other legitimate files alongside
-  // the archive (a readme, bonus content); extract()'s own in-place cleanup treats
-  // anything in destDir it doesn't recognize as an archive volume as a stale leftover
-  // and deletes it, so those files must stay put in the source until after extraction
-  // runs, then get transferred separately (see unpackViaRelocatedExtraction above).
+  // the archive (a readme, bonus content); those stay put in the source until after
+  // extraction runs, then get transferred separately (see unpackViaRelocatedExtraction
+  // above), so the archive family is the only thing deleted from destDir afterward.
   private async relocateArchiveToDest(
     transferMode: TransferMode,
     resolution: ArchiveResolution,
@@ -806,7 +812,31 @@ export class ImportManager {
     }
   }
 
+  isImportInFlight(downloadId: string): boolean {
+    return this.importsInFlight.has(downloadId);
+  }
+
   async processImport(
+    downloadId: string,
+    remoteDownloadPath: string,
+    password?: string
+  ): Promise<void> {
+    if (this.importsInFlight.has(downloadId)) {
+      logger.warn(
+        { downloadId },
+        "[ImportManager] Import already running, ignoring a second start"
+      );
+      return;
+    }
+    this.importsInFlight.add(downloadId);
+    try {
+      await this.runImport(downloadId, remoteDownloadPath, password);
+    } finally {
+      this.importsInFlight.delete(downloadId);
+    }
+  }
+
+  private async runImport(
     downloadId: string,
     remoteDownloadPath: string,
     password?: string

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { configLoader } from "./config-loader.js";
+import { parseTrustProxy } from "./trust-proxy.js";
 
 const LEGACY_DEFAULT_JWT_SECRET = "questarr-default-secret-change-me";
 
@@ -60,6 +61,18 @@ const envSchema = z.object({
     .transform((val) => val === "true")
     .optional(),
   APP_URL: z.string().url().optional(),
+
+  // Reverse proxy trust (see docs/REVERSE_PROXY.md). Off by default: only
+  // when set does Express take the client IP and protocol from
+  // X-Forwarded-For / X-Forwarded-Proto.
+  TRUST_PROXY: z
+    .string()
+    .optional()
+    .refine((value) => parseTrustProxy(value) !== null, {
+      message:
+        'TRUST_PROXY must be "false", "true", a number of proxy hops from 1 to 10, or a comma-separated list of proxy IPs/subnets (e.g. 172.16.0.0/12, loopback).',
+    })
+    .transform((value) => parseTrustProxy(value) ?? false),
 
   // URL base for reverse-proxy subdirectory deployments (e.g. "/Questarr" for
   // https://host/Questarr/). Optional; defaults to serving from the root.
@@ -152,6 +165,7 @@ export const config = {
       ? env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
       : ["http://localhost:port".replace("port", env.PORT.toString())],
     basePath: normalizeBasePath(env.QUESTARR_BASE_PATH),
+    trustProxy: env.TRUST_PROXY,
   },
   ssl: configLoader.getSslConfig(),
 } as const;

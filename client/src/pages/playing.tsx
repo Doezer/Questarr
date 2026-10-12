@@ -11,10 +11,14 @@ import GameFilterPills from "@/components/GameFilterPills";
 import GridColumnsControl from "@/components/GridColumnsControl";
 import { useViewControls } from "@/hooks/use-view-controls";
 import PageToolbar from "@/components/PageToolbar";
+import BacklogRoulette from "@/components/BacklogRoulette";
 import { useDownloadSummary } from "@/hooks/use-download-summary";
 import { compareDates } from "@/lib/game-sort";
 
 type SortOption = "added-desc" | "added-asc" | "title-asc";
+
+// Everything on this page is already Playing, so the roulette only draws from that pool.
+const PLAYING_POOLS: ["playing"] = ["playing"];
 
 const SORT_OPTIONS = [
   { value: "added-desc", label: "Recently Added" },
@@ -169,10 +173,13 @@ export default function PlayingPage() {
           onSearchChange={setSearchQuery}
           searchPlaceholder="Filter playing..."
           actions={
-            <GridColumnsControl
-              columns={safeGridColumns}
-              onColumnsChange={handleGridColumnsChange}
-            />
+            <>
+              <BacklogRoulette games={filteredGames} loading={isLoading} pools={PLAYING_POOLS} />
+              <GridColumnsControl
+                columns={safeGridColumns}
+                onColumnsChange={handleGridColumnsChange}
+              />
+            </>
           }
           filterPills={
             <>

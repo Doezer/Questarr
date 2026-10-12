@@ -80,9 +80,14 @@ export class DownloaderManager {
     }
   }
 
-  static async getAllDownloads(downloader: Downloader): Promise<DownloadStatus[]> {
+  // See getDownloadStatus below for `throwOnError`: the cron tracker needs an
+  // unreachable client to throw, not to look like a client with no downloads.
+  static async getAllDownloads(
+    downloader: Downloader,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus[]> {
     const client = this.createClient(downloader);
-    const downloads = await client.getAllDownloads();
+    const downloads = await client.getAllDownloads(options);
 
     // Filter by configured category if set
     if (downloader.category) {

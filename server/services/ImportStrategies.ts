@@ -4,6 +4,7 @@ import fs from "fs-extra";
 import path from "node:path";
 import { logger } from "../logger.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
+import { EXTRACT_STAGING_PREFIX } from "./extract-staging.js";
 export type TransferMode = "copy" | "move" | "hardlink" | "symlink";
 
 export function sanitizeFsName(name: string | null | undefined): string {
@@ -92,7 +93,15 @@ async function ensureParentDir(filePath: string, root: string): Promise<void> {
   }
 }
 
-async function walkRelative(rootPath: string): Promise<string[]> {
+interface WalkOptions {
+  // Set only when walking a library folder: skips ArchiveService's .questarr-extract-*
+  // staging and backup directories, which only ever sit directly under that folder. Never
+  // set for a download's source tree, where a directory with that name is ordinary content
+  // that must be transferred.
+  skipExtractStaging?: boolean;
+}
+
+async function walkRelative(rootPath: string, options: WalkOptions = {}): Promise<string[]> {
   const stats = await fs.stat(rootPath);
   if (!stats.isDirectory()) return [path.basename(rootPath)];
 
@@ -106,6 +115,9 @@ async function walkRelative(rootPath: string): Promise<string[]> {
     for (const entry of entries) {
       const entryRel = rel ? path.join(rel, entry.name) : entry.name;
       if (entry.isDirectory()) {
+        if (options.skipExtractStaging && !rel && entry.name.startsWith(EXTRACT_STAGING_PREFIX)) {
+          continue;
+        }
         stack.push(entryRel);
       } else {
         collected.push(entryRel);
@@ -326,7 +338,7 @@ async function transferFile(
   return transferSingleFile(source, destination, mode, path.dirname(destination));
 }
 
-export async function gatherFiles(rootPath: string): Promise<string[]> {
+export async function gatherFiles(rootPath: string, options: WalkOptions = {}): Promise<string[]> {
   if (isSensitivePath(rootPath)) {
     throw new Error("Refusing to process a sensitive system path");
   }
@@ -334,7 +346,7 @@ export async function gatherFiles(rootPath: string): Promise<string[]> {
   const stats = await fs.stat(rootPath);
   if (!stats.isDirectory()) return [rootPath];
 
-  const relFiles = await walkRelative(rootPath);
+  const relFiles = await walkRelative(rootPath, options);
   return relFiles.map((rel) => path.join(rootPath, rel));
 }
 
@@ -431,8 +443,11 @@ export function categorizeRelativeFiles(relFiles: string[]): FileCategoryEntry[]
   });
 }
 
-async function categorizeSourceFiles(sourcePath: string): Promise<FileCategoryEntry[]> {
-  const files = await gatherFiles(sourcePath);
+async function categorizeSourceFiles(
+  sourcePath: string,
+  options: WalkOptions = {}
+): Promise<FileCategoryEntry[]> {
+  const files = await gatherFiles(sourcePath, options);
   return categorizeRelativeFiles(files.map((filePath) => path.relative(sourcePath, filePath)));
 }
 
@@ -466,7 +481,7 @@ function destinationForFile(gameDir: string, entry: FileCategoryEntry): string {
 // reorganization pass over the destination directory after extraction has already
 // placed everything there.
 export async function reorganizeBySortExtras(destDir: string): Promise<void> {
-  const entries = await categorizeSourceFiles(destDir);
+  const entries = await categorizeSourceFiles(destDir, { skipExtractStaging: true });
   const moves = entries.map((entry) => ({
     currentPath: path.resolve(path.join(destDir, entry.name)),
     desiredPath: path.resolve(destinationForFile(destDir, entry)),
@@ -665,7 +680,7 @@ export class PCImportStrategy implements ImportStrategy {
       transferMode,
       excludePaths
     );
-    const filesPlaced = await gatherFiles(review.proposedPath);
+    const filesPlaced = await gatherFiles(review.proposedPath, { skipExtractStaging: true });
     return {
       destDir: review.proposedPath,
       filesPlaced,

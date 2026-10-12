@@ -38,6 +38,7 @@ const mockGetEnabledIndexers = vi.fn().mockResolvedValue([]);
 const mockHasAiAutoDownloadHold = vi.fn().mockResolvedValue(false);
 const mockRecordAiAutoDownloadHold = vi.fn().mockResolvedValue(true);
 const mockClearAiAutoDownloadHold = vi.fn().mockResolvedValue(undefined);
+const mockGetDownloadsByGameId = vi.fn().mockResolvedValue([]);
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -57,6 +58,7 @@ vi.mock("../storage.js", () => ({
     hasAiAutoDownloadHold: mockHasAiAutoDownloadHold,
     recordAiAutoDownloadHold: mockRecordAiAutoDownloadHold,
     clearAiAutoDownloadHold: mockClearAiAutoDownloadHold,
+    getDownloadsByGameId: mockGetDownloadsByGameId,
   },
 }));
 
@@ -2121,6 +2123,32 @@ describe("Cron - checkAutoSearch", () => {
         errors: [],
         total: 1,
       });
+    });
+
+    it("does not auto-download a release that already failed for this game", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
+      // Same release, different casing/punctuation: a client that purges finished jobs or a
+      // dead torrent would otherwise be grabbed again on every cycle.
+      mockGetDownloadsByGameId.mockResolvedValueOnce([
+        { id: "old", gameId: wantedGame.id, downloadTitle: "test game group", status: "failed" },
+      ]);
+
+      await checkAutoSearch();
+
+      expect(mockGetDownloadsByGameId).toHaveBeenCalledWith(wantedGame.id);
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockAnalyzeRelease).not.toHaveBeenCalled();
+    });
+
+    it("still auto-downloads when only a different release failed for this game", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
+      mockGetDownloadsByGameId.mockResolvedValueOnce([
+        { id: "old", gameId: wantedGame.id, downloadTitle: "Test Game-OTHER", status: "failed" },
+      ]);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
     });
 
     it("auto-downloads as before when TypeSafe is not configured", async () => {

@@ -325,7 +325,10 @@ export class TransmissionClient implements DownloaderClient {
     }
   }
 
-  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
     try {
       const response = await this.makeRequest("torrent-get", {
         ids: this.toTransmissionIds(id),
@@ -355,6 +358,7 @@ export class TransmissionClient implements DownloaderClient {
       return null;
     } catch (error) {
       downloadersLogger.error({ error }, "error getting download status (transmission)");
+      if (options?.throwOnError) throw error;
       return null;
     }
   }

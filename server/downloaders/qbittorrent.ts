@@ -41,6 +41,29 @@ interface QBittorrentTorrent {
 }
 
 /**
+ * Pick the torrent carrying `tag` out of a `/torrents/info?tag=` response.
+ *
+ * qBittorrent before 4.4 ignores the `tag` filter and returns every torrent, so the
+ * first entry is not necessarily the one we tagged. Match on each torrent's own
+ * comma-separated `tags` field instead. `filterIgnored` is set when the response lists
+ * a torrent without our tag: the client did not apply the filter, and if it is older
+ * than 4.3.3 it also never set the tag on the add, so a caller should fall back to
+ * other heuristics rather than wait for a tag that will never appear.
+ */
+function findTaggedTorrent<T extends { hash?: string; tags?: unknown }>(
+  torrents: T[],
+  tag: string
+): { match: T | undefined; filterIgnored: boolean } {
+  const carriesTag = (t: T) =>
+    typeof t.tags === "string" &&
+    t.tags
+      .split(",")
+      .map((value) => value.trim())
+      .includes(tag);
+  return { match: torrents.find(carriesTag), filterIgnored: !torrents.every(carriesTag) };
+}
+
+/**
  * qBittorrent client implementation using Web API v2.
  *
  * @remarks
@@ -158,6 +181,7 @@ export class QBittorrentClient implements DownloaderClient {
         name: string;
         hash: string;
         added_on: number;
+        tags?: string;
       }
 
       const findRecentlyAddedDownload = async (
@@ -183,8 +207,14 @@ export class QBittorrentClient implements DownloaderClient {
             `/api/v2/torrents/info?tag=${encodeURIComponent(options.correlationTag)}`
           );
           const tagged = (await taggedResponse.json()) as QBittorrentTorrent[];
-          const match = tagged[0];
-          return match?.hash ? { hash: match.hash, name: match.name } : null;
+          const { match, filterIgnored } = findTaggedTorrent(tagged, options.correlationTag);
+          if (match?.hash) return { hash: match.hash, name: match.name };
+          if (!filterIgnored) return null;
+          downloadersLogger.debug(
+            { correlationTag: options.correlationTag },
+            "qBittorrent ignored the tag filter and no torrent carries the tag; " +
+              "falling back to title/recency matching"
+          );
         }
 
         const allTorrentsResponse = await this.makeRequest(
@@ -872,7 +902,8 @@ export class QBittorrentClient implements DownloaderClient {
       `/api/v2/torrents/info?tag=${encodeURIComponent(tag)}`
     );
     const torrents = (await response.json()) as QBittorrentTorrent[];
-    const match = torrents?.[0];
+    // Never guess from the first entry: an older qBittorrent returns every torrent here.
+    const { match } = findTaggedTorrent(torrents ?? [], tag);
     if (match?.hash) {
       downloadersLogger.info(
         { tag, hash: match.hash, name: match.name },
@@ -884,7 +915,10 @@ export class QBittorrentClient implements DownloaderClient {
     return null;
   }
 
-  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
     try {
       await this.authenticate();
 
@@ -902,6 +936,7 @@ export class QBittorrentClient implements DownloaderClient {
       return null;
     } catch (error) {
       downloadersLogger.error({ error, id }, "Error getting download status");
+      if (options?.throwOnError) throw error;
       return null;
     }
   }
@@ -1025,7 +1060,7 @@ export class QBittorrentClient implements DownloaderClient {
     }
   }
 
-  async getAllDownloads(): Promise<DownloadStatus[]> {
+  async getAllDownloads(options?: { throwOnError?: boolean }): Promise<DownloadStatus[]> {
     try {
       await this.authenticate();
 
@@ -1040,6 +1075,7 @@ export class QBittorrentClient implements DownloaderClient {
       return [];
     } catch (error) {
       downloadersLogger.error({ error }, "Error getting all downloads");
+      if (options?.throwOnError) throw error;
       return [];
     }
   }

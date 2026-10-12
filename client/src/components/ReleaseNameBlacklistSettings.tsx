@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from "react";
 import { Ban } from "lucide-react";
 import TagListSettingsCard from "@/components/TagListSettingsCard";
+import BlacklistedReleasesList from "@/components/BlacklistedReleasesList";
 
 interface ReleaseNameBlacklistSettingsProps {
   blacklistTerms: string[];
   onTermsChange: (terms: string[]) => void;
 }
 
-/** Settings card for the global list of terms that hide matching release names everywhere. */
+/**
+ * Settings card for everything that hides releases: the global list of name terms, and the
+ * specific releases blacklisted per game from the download dialog.
+ */
 export default function ReleaseNameBlacklistSettings({
   blacklistTerms,
   onTermsChange,
@@ -25,8 +29,8 @@ export default function ReleaseNameBlacklistSettings({
   return (
     <TagListSettingsCard
       icon={Ban}
-      title="Release Name Blacklist"
-      description="Hide releases whose name contains any of these terms, across manual search, auto-search and AI-assisted results. Matching is case-insensitive and checks for the term anywhere in the release name."
+      title="Release Blacklist"
+      description="Releases hidden from search results and never auto-downloaded. Terms hide any release whose name contains them, across manual search, auto-search and AI-assisted results (case-insensitive, matched anywhere in the name)."
       tags={terms}
       onTagsChange={setTerms}
       editor={{
@@ -39,10 +43,11 @@ export default function ReleaseNameBlacklistSettings({
         removeAriaLabel: (term) => `Remove ${term}`,
       }}
       buildPayload={() => ({ releaseNameBlacklist: JSON.stringify(terms) })}
-      successTitle="Release Name Blacklist Saved"
+      successTitle="Release Blacklist Saved"
       successDescription="Your blacklisted release name terms have been saved."
       saveLabel="Save Blacklist"
       onReset={() => setTerms([])}
+      footer={<BlacklistedReleasesList />}
     />
   );
 }

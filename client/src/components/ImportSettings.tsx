@@ -53,7 +53,7 @@ export default function ImportSettings() {
   const { data: hardlinkCapability } = useQuery<HardlinkCapabilityResponse>({
     queryKey: ["/api/imports/hardlink/check"],
   });
-  // Read-only mirror of the Platforms tab, which owns this setting.
+  // Read-only mirror of the Platforms card (Appearance tab), which owns this setting.
   const { data: userSettings } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
   });
@@ -97,7 +97,7 @@ export default function ImportSettings() {
   // Mutations
   const updateConfigMutation = useMutation({
     mutationFn: async (data: ImportConfig) => {
-      // `importPlatformIds` is owned by the Platforms tab. Sending it from here
+      // `importPlatformIds` is owned by the Platforms card. Sending it from here
       // would let a stale copy revert a change saved on that tab, so omit it and
       // let the route keep the stored value.
       const { importPlatformIds: _unused, ...rest } = data;
@@ -140,7 +140,9 @@ export default function ImportSettings() {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="config" className="w-full">
-        <TabsList>
+        {/* Two-by-two grid on phones so all four sub-tabs stay visible instead of
+            overflowing the screen; a single row from sm up. */}
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:inline-flex sm:h-10 sm:w-auto sm:gap-0">
           <TabsTrigger value="config">General Config</TabsTrigger>
           <TabsTrigger value="paths">Path Mappings</TabsTrigger>
           <TabsTrigger value="security">Security & Scanning</TabsTrigger>
@@ -334,8 +336,8 @@ export default function ImportSettings() {
                     </p>
                     <div className="mb-6">
                       <p className="text-xs text-muted-foreground">
-                        Imports are restricted to the platforms chosen in the{" "}
-                        <span className="font-medium text-foreground">Platforms</span> settings tab.
+                        Imports are restricted to the platforms chosen under{" "}
+                        <span className="font-medium text-foreground">Appearance → Platforms</span>.
                         Leave that list empty to make all platforms eligible.
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -512,7 +514,7 @@ export default function ImportSettings() {
                     },
                     {
                       name: "Platform Filter",
-                      desc: "Limits imports to the platforms chosen in the Platforms settings tab. If no platforms are checked, all platforms are eligible.",
+                      desc: "Limits imports to the platforms chosen under Settings → Appearance → Platforms. If no platforms are checked, all platforms are eligible.",
                     },
                     {
                       name: "Rename Pattern",

@@ -96,6 +96,9 @@ const MAX_LISTED_FILES = 100;
 // UI can show a password field instead of the normal path-review form.
 export const ARCHIVE_PASSWORD_REQUIRED_PREFIX = "ARCHIVE_PASSWORD_REQUIRED:";
 
+/** Thrown when a confirmation is the first to learn the security scan was incomplete. */
+export class IncompleteScanError extends Error {}
+
 interface ArchiveResolution {
   archivePath: string;
   isDirectorySource: boolean;
@@ -196,7 +199,10 @@ export class ImportManager {
    * are only meaningful for directory sources, since a lone file has no
    * reliable sibling scope to check against.
    */
-  private async resolveArchive(sourcePath: string): Promise<ArchiveResolution | null> {
+  private async resolveArchive(
+    sourcePath: string,
+    options?: { includeDiscImages?: boolean }
+  ): Promise<ArchiveResolution | null> {
     if (isSensitivePath(sourcePath)) {
       throw new Error("Refusing to process a sensitive system path");
     }
@@ -210,7 +216,7 @@ export class ImportManager {
     const stats = await fs.stat(sourcePath);
 
     if (!stats.isDirectory()) {
-      if (!this.archiveService.isArchive(sourcePath)) return null;
+      if (!this.archiveService.isArchive(sourcePath, options)) return null;
       return {
         archivePath: sourcePath,
         isDirectorySource: false,
@@ -221,7 +227,9 @@ export class ImportManager {
     }
 
     const entries = await fs.readdir(sourcePath);
-    const archiveEntries = entries.filter((name) => this.archiveService.isArchive(name)).sort();
+    const archiveEntries = entries
+      .filter((name) => this.archiveService.isArchive(name, options))
+      .sort();
     if (archiveEntries.length === 0) return null;
 
     // Lexicographic sort puts "Game.r00" before "Game.rar" (since '0' < 'a'), but
@@ -910,6 +918,20 @@ export class ImportManager {
         );
         return;
       }
+      if (scanResult.incomplete) {
+        // Not a detection, so the files stay where the client put them (seeding
+        // keeps working); the user decides from Pending Manual Imports.
+        logger.warn(
+          { downloadId, gameTitle: game.title, reason: scanResult.reason },
+          "[ImportManager] Security scan incomplete, holding the import for manual review"
+        );
+        await this.storage.updateGameDownloadStatus(
+          downloadId,
+          "manual_review_required",
+          scanResult.reason ?? "Security scan could not examine every file"
+        );
+        return;
+      }
 
       const archiveResolution = config.autoUnpack ? await this.resolveArchive(localPath) : null;
       const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
@@ -1145,13 +1167,29 @@ export class ImportManager {
       );
       throw new Error(scanResult.reason ?? "Flagged by security scan");
     }
+    if (scanResult.incomplete) {
+      const reason = scanResult.reason ?? "Security scan could not examine every file";
+      // Importing an incompletely scanned download needs the user to have seen why.
+      // processImport records the reason on the pending import; when this
+      // confirmation is the first scan (e.g. right after linking a game), record it
+      // now and stop, so the next confirmation is an informed one.
+      if (download.status !== "manual_review_required" || download.errorMessage !== reason) {
+        await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required", reason);
+        throw new IncompleteScanError(`${reason} Confirm again to import it anyway.`);
+      }
+      logger.warn(
+        { downloadId, reason: scanResult.reason },
+        "[ImportManager] Importing a download the security scan could not fully examine, as confirmed by the user"
+      );
+    }
 
     if (!overridePlan.proposedPath) {
       throw new Error("Proposed path is required for import validation");
     }
 
     const archiveResolution = overridePlan.unpack
-      ? await this.resolveArchive(resolvedOriginalPath)
+      ? // An explicit unpack request may extract a disc image; auto-unpack never does.
+        await this.resolveArchive(resolvedOriginalPath, { includeDiscImages: true })
       : null;
     const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
 

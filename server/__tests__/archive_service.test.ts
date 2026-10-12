@@ -190,7 +190,6 @@ describe("ArchiveService", () => {
 
     expect(service.isArchive("file.ZIP")).toBe(true);
     expect(service.isArchive("file.7z")).toBe(true);
-    expect(service.isArchive("file.iso")).toBe(true);
     expect(service.isArchive("file.txt")).toBe(false);
   });
 
@@ -207,8 +206,20 @@ describe("ArchiveService", () => {
 
     expect(service.isArchive("readme.txt")).toBe(false);
     expect(service.isArchive("notes.md")).toBe(false);
-    // iso IS treated as an archive by the service
-    expect(service.isArchive("image.iso")).toBe(true);
+  });
+
+  it("does not treat disc images as archives to unpack", () => {
+    const service = new ArchiveService();
+    // PS2/PSP/GameCube/Wii images are the game itself: unpacking would destroy them.
+    expect(service.isArchive("image.iso")).toBe(false);
+    expect(service.isArchive("Game.ISO")).toBe(false);
+    expect(service.isArchive("game.iso.001")).toBe(false);
+  });
+
+  it("accepts disc images only for an explicit unpack request", () => {
+    const service = new ArchiveService();
+    expect(service.isArchive("game.iso", { includeDiscImages: true })).toBe(true);
+    expect(service.isArchive("game.iso.001", { includeDiscImages: true })).toBe(true);
   });
 
   it("isArchive returns true for .zip files", () => {

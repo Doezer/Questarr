@@ -1,10 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   INDEXER,
   LIBRARY_ROOT,
   PAYLOAD_FILE,
+  PATCH_PAYLOAD,
   QBITTORRENT,
   RELEASES,
   SABNZBD,
@@ -195,6 +196,18 @@ test("indexers and download clients connect", async () => {
 for (const key of ["qbittorrent", "transmission"] as const) {
   const platformFolder = key === "transmission" ? "Wii U" : "PC";
   test(`${key}: grab, download, import into ${platformFolder}`, async () => {
+    const gameDir = path.join(LIBRARY_ROOT, platformFolder, RELEASES[key].game);
+    if (key === "qbittorrent") {
+      // Import a ZIP update over an installed game: only archive entries may change.
+      mkdirSync(path.join(gameDir, "saves"), { recursive: true });
+      writeFileSync(path.join(gameDir, "game.exe"), "installed game");
+      writeFileSync(path.join(gameDir, "saves", "slot1.sav"), "existing save");
+      writeFileSync(path.join(gameDir, PAYLOAD_FILE), "old payload");
+    }
+    await api("PATCH", "/api/settings", {
+      autoUnpack: key === "qbittorrent",
+      overwriteExisting: key === "qbittorrent",
+    });
     // Only the client under test takes torrents, so the grab cannot fall back elsewhere.
     for (const other of ["qbittorrent", "transmission"] as const) {
       await api("PATCH", `/api/downloaders/${downloaderIds[other]}`, { enabled: other === key });
@@ -211,6 +224,15 @@ for (const key of ["qbittorrent", "transmission"] as const) {
     await expect
       .poll(() => listFiles(LIBRARY_ROOT), { timeout: 30_000 })
       .toContain(path.join(platformFolder, RELEASES[key].game, PAYLOAD_FILE));
+    if (key === "qbittorrent") {
+      expect(readFileSync(path.join(gameDir, "game.exe"), "utf8")).toBe("installed game");
+      expect(readFileSync(path.join(gameDir, "saves", "slot1.sav"), "utf8")).toBe("existing save");
+      expect(readFileSync(path.join(gameDir, PAYLOAD_FILE), "utf8")).toBe(PATCH_PAYLOAD);
+      expect(readFileSync(path.join(gameDir, "Data", "patch.bin"), "utf8")).toBe("new patch data");
+      expect(readdirSync(gameDir).filter((name) => name.startsWith(".questarr-extract-"))).toEqual(
+        []
+      );
+    }
   });
 }
 

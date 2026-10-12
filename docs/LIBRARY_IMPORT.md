@@ -42,6 +42,14 @@ link files to the game and mark it Owned; Playing, Shelved, and Completed status
 are preserved. Wii U releases and games identified by IGDB as Wii U use the
 `Wii U` platform folder when Questarr selects the import destination.
 
+Archive extraction stages the contents before merging them into the destination.
+When importing an update into an existing game folder, files supplied by the
+archive replace same-named files; unrelated installed files and saves remain.
+File/directory conflicts and symlinked destination directories require correction
+before retrying. If an error reports an incomplete rollback or a retained
+`.questarr-extract-*.bak` directory, inspect its original files and the reported
+paths before retrying or deleting it.
+
 If a path is missing, a platform cannot be resolved, extraction needs a password,
 or an import fails, the download is held for review instead of being silently
 marked imported.

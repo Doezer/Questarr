@@ -72,6 +72,8 @@ All notable changes to this project will be documented in this file.
 
 #### Import & Archives
 
+- **Archive updates**: extracting into an existing game folder preserves unrelated installed files and saves while adding or replacing the archive's files (#1180).
+
 - **Wii U imports**: releases and IGDB platform matches now use the `Wii U` destination folder (#1178).
 
 - **Hardlink import**: falls back to copy when hardlinks are unsupported, including for multi-file downloads (#873, #978).

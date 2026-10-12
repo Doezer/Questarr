@@ -54,7 +54,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            qbittorrent-nox transmission-daemon sabnzbdplus
+            qbittorrent-nox transmission-daemon sabnzbdplus p7zip-full
           sudo systemctl stop transmission-daemon || true
           sudo systemctl disable transmission-daemon || true
 

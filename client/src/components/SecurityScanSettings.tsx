@@ -219,7 +219,8 @@ export default function SecurityScanSettings() {
                   Streams downloaded files through a ClamAV daemon for signature-based scanning.
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  clamd skips files over its size limits. Raise <code>StreamMaxLength</code>,{" "}
+                  A download ClamAV can't fully scan (clamd down, or a file over its size limits)
+                  waits in Pending Manual Imports. Raise <code>StreamMaxLength</code>,{" "}
                   <code>MaxFileSize</code> and <code>MaxScanSize</code> in clamd.conf so large game
                   files get scanned.
                 </p>

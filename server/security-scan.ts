@@ -375,10 +375,11 @@ export interface SecurityScanServiceDeps {
 
 /**
  * Orchestrates the pre-import security scan: an optional VirusTotal hash lookup
- * followed by an optional local ClamAV deep scan. Both providers fail open on
- * network/timeout errors (a scanner outage should never itself hang or corrupt
- * the import queue) — only an actual detection, or an unknown hash under a
- * strict "block unknown hashes" policy, blocks the import.
+ * followed by an optional local ClamAV deep scan. VirusTotal fails open on
+ * network/timeout errors. Only an actual detection, or an unknown hash under a
+ * strict "block unknown hashes" policy, blocks the import. When ClamAV cannot
+ * scan every file (outage, refused file, file cap, time budget), the result is
+ * incomplete: not blocked, but held for the user to review.
  */
 export class SecurityScanService {
   constructor(private readonly storage: SecurityScanServiceDeps) {}
@@ -444,7 +445,7 @@ export class SecurityScanService {
 
   /**
    * Returns a blocking ScanResult, an incomplete (non-blocking) one when not every
-   * file could be scanned, or null when ClamAV is disabled, unreachable, or found nothing.
+   * file could be scanned, or null when ClamAV is disabled or every file scanned clean.
    */
   private async runClamAvCheck(localPath: string): Promise<ScanResult | null> {
     const clamAvSettings = await readClamAvSettings(this.storage);
@@ -476,6 +477,8 @@ export class SecurityScanService {
       }
 
       const scanStartedAt = Date.now();
+      const refusedFiles: string[] = [];
+      let refusal = "";
       for (const file of files) {
         if (Date.now() - scanStartedAt > CLAMAV_TOTAL_SCAN_BUDGET_MS) {
           securityScanLogger.warn(
@@ -503,20 +506,48 @@ export class SecurityScanService {
             { file, error: verdict.error },
             /size limit exceeded/i.test(verdict.error)
               ? "ClamAV skipped a file over its size limit; raise StreamMaxLength, MaxFileSize and MaxScanSize in clamd.conf to scan it"
-              : "ClamAV scan failed for file, proceeding without a verdict"
+              : "ClamAV could not scan a file"
           );
           // Stop once clamd itself is down: with thousands of files, a clamd that
           // stopped answering would otherwise cost a full timeout for each of them.
+          if (verdict.outage) {
+            return {
+              blocked: false,
+              incomplete: true,
+              source: "clamav",
+              reason:
+                "ClamAV stopped responding before scanning every file. Review it before importing.",
+            };
+          }
           // A file-level refusal (e.g. over clamd's stream size limit) only skips
-          // that file, so the remaining files are still scanned.
-          if (verdict.outage) break;
+          // that file: the remaining files are still scanned, so a detection in
+          // one of them still blocks, and the download is held for review after.
+          refusedFiles.push(file);
+          refusal ||= verdict.error;
         }
+      }
+      if (refusedFiles.length > 0) {
+        const sizeHint = /size limit exceeded/i.test(refusal)
+          ? " Raise StreamMaxLength, MaxFileSize and MaxScanSize in clamd.conf to scan large files."
+          : "";
+        return {
+          blocked: false,
+          incomplete: true,
+          source: "clamav",
+          reason: `ClamAV could not scan ${refusedFiles.length} file(s), including ${path.basename(refusedFiles[0] ?? "")} (${refusal}).${sizeHint} Review it before importing.`,
+        };
       }
     } catch (error) {
       securityScanLogger.warn(
         { error, host: clamAvSettings.host },
-        "Could not reach ClamAV, proceeding without a scan"
+        "Could not reach ClamAV; holding the import for manual review"
       );
+      return {
+        blocked: false,
+        incomplete: true,
+        source: "clamav",
+        reason: "ClamAV could not be reached to scan this download. Review it before importing.",
+      };
     }
 
     return null;

@@ -692,7 +692,7 @@ export class SABnzbdClient implements DownloaderClient {
     };
   }
 
-  async getAllDownloads(): Promise<DownloadStatus[]> {
+  async getAllDownloads(options?: { throwOnError?: boolean }): Promise<DownloadStatus[]> {
     try {
       const url = this.getApiUrl("queue");
       const response = await this.fetchWithFallback(url);
@@ -702,7 +702,7 @@ export class SABnzbdClient implements DownloaderClient {
       const results: DownloadStatus[] = [];
 
       for (const item of queue.slots) {
-        const status = await this.getDownloadStatus(item.nzo_id);
+        const status = await this.getDownloadStatus(item.nzo_id, options);
         if (status) {
           results.push(status);
         }
@@ -711,6 +711,7 @@ export class SABnzbdClient implements DownloaderClient {
       return results;
     } catch (error) {
       downloadersLogger.error({ error }, "Failed to get SABnzbd queue");
+      if (options?.throwOnError) throw error;
       return [];
     }
   }

@@ -884,7 +884,10 @@ export class QBittorrentClient implements DownloaderClient {
     return null;
   }
 
-  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
     try {
       await this.authenticate();
 
@@ -902,6 +905,7 @@ export class QBittorrentClient implements DownloaderClient {
       return null;
     } catch (error) {
       downloadersLogger.error({ error, id }, "Error getting download status");
+      if (options?.throwOnError) throw error;
       return null;
     }
   }
@@ -1025,7 +1029,7 @@ export class QBittorrentClient implements DownloaderClient {
     }
   }
 
-  async getAllDownloads(): Promise<DownloadStatus[]> {
+  async getAllDownloads(options?: { throwOnError?: boolean }): Promise<DownloadStatus[]> {
     try {
       await this.authenticate();
 
@@ -1040,6 +1044,7 @@ export class QBittorrentClient implements DownloaderClient {
       return [];
     } catch (error) {
       downloadersLogger.error({ error }, "Error getting all downloads");
+      if (options?.throwOnError) throw error;
       return [];
     }
   }

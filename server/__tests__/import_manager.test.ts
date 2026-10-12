@@ -81,6 +81,32 @@ describe("ImportManager", () => {
     expect(storage.updateGameDownloadStatus).not.toHaveBeenCalled();
   });
 
+  it("reports an import as in flight until it finishes and ignores a second start", async () => {
+    let releaseDownload!: (value: unknown) => void;
+    storage.getGameDownload.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releaseDownload = resolve;
+      })
+    );
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    const first = manager.processImport("dl-1", "/remote/path");
+    expect(manager.isImportInFlight("dl-1")).toBe(true);
+    expect(manager.isImportInFlight("dl-2")).toBe(false);
+
+    await manager.processImport("dl-1", "/remote/path");
+    expect(storage.getGameDownload).toHaveBeenCalledTimes(1);
+
+    releaseDownload(undefined);
+    await first;
+    expect(manager.isImportInFlight("dl-1")).toBe(false);
+  });
+
   it("marks download game_link_required when game is missing", async () => {
     // Not "error": that status is never re-polled (getDownloadingGameDownloads
     // only selects "downloading") and never shown in the UI's pending-imports

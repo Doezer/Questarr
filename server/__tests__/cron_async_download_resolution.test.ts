@@ -14,6 +14,7 @@ const createMockLogger = () => ({
 
 const mockNotifyUser = vi.fn();
 const mockProcessImport = vi.fn();
+const mockIsImportInFlight = vi.fn().mockReturnValue(false);
 const mockFindDownloadByTag = vi.fn();
 const mockGetDownloadDetails = vi.fn();
 const mockGetDownloadStatus = vi.fn();
@@ -50,6 +51,7 @@ vi.mock("../socket.js", () => ({
 vi.mock("../services/index.js", () => ({
   importManager: {
     processImport: mockProcessImport,
+    isImportInFlight: mockIsImportInFlight,
   },
 }));
 vi.mock("../downloaders.js", () => ({

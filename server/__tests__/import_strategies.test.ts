@@ -1011,5 +1011,19 @@ describe("ImportStrategies", () => {
         { name: "base.nsp", category: "main" },
       ]);
     });
+
+    it("sorts category folders found inside a wrapper", () => {
+      expect(
+        categorizeRelativeFiles([
+          p("Game", "game.exe"),
+          p("Game", "DLC", "addon.pak"),
+          p("Game", "Packs", "skins.pak"),
+        ])
+      ).toEqual([
+        { name: p("Game", "game.exe"), category: "main" },
+        { name: p("Game", "DLC", "addon.pak"), category: "dlc" },
+        { name: p("Game", "Packs", "skins.pak"), category: "packs" },
+      ]);
+    });
   });
 });

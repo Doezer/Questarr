@@ -409,9 +409,14 @@ export function categorizeRelativeFiles(relFiles: string[]): FileCategoryEntry[]
     const item = segments[depth] ?? name;
     let category = categoryByItem.get(item);
     if (category === undefined) {
-      // An item already named after a category folder is left where it is.
-      category = SORT_EXTRAS_RESERVED_DIRS.has(item.toLowerCase())
-        ? "main"
+      // At the release root, an item already named after a category folder is left
+      // where it is. Inside a wrapper ("Game/DLC/") it gets that folder's category,
+      // so it is moved into the matching category folder like any other item.
+      const reserved = item.toLowerCase();
+      category = SORT_EXTRAS_RESERVED_DIRS.has(reserved)
+        ? depth === 0
+          ? "main"
+          : (reserved as DownloadCategory)
         : categorizeItemName(item);
       categoryByItem.set(item, category);
     }

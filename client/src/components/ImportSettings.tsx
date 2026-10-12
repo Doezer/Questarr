@@ -140,7 +140,9 @@ export default function ImportSettings() {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="config" className="w-full">
-        <TabsList>
+        {/* Two-by-two grid on phones so all four sub-tabs stay visible instead of
+            overflowing the screen; a single row from sm up. */}
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:inline-flex sm:h-10 sm:w-auto sm:gap-0">
           <TabsTrigger value="config">General Config</TabsTrigger>
           <TabsTrigger value="paths">Path Mappings</TabsTrigger>
           <TabsTrigger value="security">Security & Scanning</TabsTrigger>

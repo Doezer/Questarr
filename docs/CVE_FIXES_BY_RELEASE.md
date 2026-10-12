@@ -83,7 +83,7 @@ Tagged directly off `v1.4.1`, not from `main`; `main` picked up the same fixes i
 
 ## v1.5.0 (from v1.4.2)
 
-Regenerated on 2026-09-29 with `node scripts/cve-report.mjs v1.4.2 HEAD` (plus `v1.4.0 v1.4.1` and `v1.4.1 v1.4.2` for the hotfixes above). Fixes that already shipped in v1.4.1/v1.4.2 are not repeated here, even where `main` re-applied them.
+Regenerated on 2026-09-29 with `node scripts/cve-report.mjs v1.4.2 HEAD` (plus `v1.4.0 v1.4.1` and `v1.4.1 v1.4.2` for the hotfixes above); entries added by hand until 2026-10-12 (PyJWT, Semgrep, fast-copy, postcss-selector-parser). Fixes that already shipped in v1.4.1/v1.4.2 are not repeated here, even where `main` re-applied them.
 
 ### Production dependencies
 

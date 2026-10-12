@@ -37,9 +37,15 @@ describe("ImportStrategies", () => {
     await fs.outputFile(path.join(gameDir, ".questarr-extract-AbC123", "partial.bin"), "half");
     await fs.outputFile(path.join(gameDir, ".questarr-extract-AbC123.bak", "0"), "old");
 
-    expect(await gatherFiles(gameDir, { skipExtractStaging: true })).toEqual([
-      path.join(gameDir, "game.exe"),
-    ]);
+    // A nested directory with that name is game content: staging only sits at the root.
+    await fs.outputFile(path.join(gameDir, "assets", ".questarr-extract-data", "a.pak"), "pak");
+
+    expect((await gatherFiles(gameDir, { skipExtractStaging: true })).sort()).toEqual(
+      [
+        path.join(gameDir, "assets", ".questarr-extract-data", "a.pak"),
+        path.join(gameDir, "game.exe"),
+      ].sort()
+    );
   });
 
   it("moves a source directory named like a staging directory into the library", async () => {

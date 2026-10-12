@@ -95,8 +95,9 @@ async function ensureParentDir(filePath: string, root: string): Promise<void> {
 
 interface WalkOptions {
   // Set only when walking a library folder: skips ArchiveService's .questarr-extract-*
-  // staging and backup directories. Never set for a download's source tree, where a
-  // directory with that name is ordinary content that must be transferred.
+  // staging and backup directories, which only ever sit directly under that folder. Never
+  // set for a download's source tree, where a directory with that name is ordinary content
+  // that must be transferred.
   skipExtractStaging?: boolean;
 }
 
@@ -114,7 +115,9 @@ async function walkRelative(rootPath: string, options: WalkOptions = {}): Promis
     for (const entry of entries) {
       const entryRel = rel ? path.join(rel, entry.name) : entry.name;
       if (entry.isDirectory()) {
-        if (options.skipExtractStaging && entry.name.startsWith(EXTRACT_STAGING_PREFIX)) continue;
+        if (options.skipExtractStaging && !rel && entry.name.startsWith(EXTRACT_STAGING_PREFIX)) {
+          continue;
+        }
         stack.push(entryRel);
       } else {
         collected.push(entryRel);

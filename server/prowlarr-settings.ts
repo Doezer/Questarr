@@ -87,7 +87,10 @@ export async function revokeProwlarrHttpOptIn(url: string): Promise<void> {
     // malformed request without turning it into a storage/server error.
     return;
   }
-  if (base.href !== requested.href) return;
+  // Explicit opt-out also revokes the old HTTP connection when replacing it
+  // with HTTPS, before a successful sync replaces the sole saved settings row.
+  const replacesHttpWithHttps = base.protocol === "http:" && requested.protocol === "https:";
+  if (base.href !== requested.href && !replacesHttpWithHttps) return;
   const prefix = base.pathname.endsWith("/") ? base.pathname : `${base.pathname}/`;
   for (const indexer of await storage.getAllIndexers()) {
     if (!indexer.allowInsecureLan || indexer.apiKey !== saved.apiKey) continue;

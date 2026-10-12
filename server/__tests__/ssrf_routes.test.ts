@@ -145,6 +145,47 @@ describe("SSRF Vulnerability in Routes", () => {
 
   const UNSAFE_URL = "http://169.254.169.254/latest/meta-data/";
 
+  it("revokes old HTTP indexers before a replacement HTTPS sync overwrites saved settings", async () => {
+    const oldUrl = "http://prowlarr.invalid:9696/base";
+    const newUrl = "https://replacement.invalid/new-base";
+    const settings = new Map([
+      ["prowlarr.url", oldUrl],
+      ["prowlarr.apiKey", "old-key"],
+      ["prowlarr.syncDefaults", JSON.stringify({ allowInsecureLan: true })],
+    ]);
+    vi.mocked(storage.getSystemConfig).mockImplementation(async (key) => settings.get(key));
+    vi.mocked(storage.setSystemConfigBatch).mockImplementation(async (entries) => {
+      for (const { key, value } of entries) settings.set(key, value);
+    });
+    vi.mocked(storage.getAllIndexers).mockResolvedValue([
+      { id: "old", url: `${oldUrl}/1/api`, apiKey: "old-key", allowInsecureLan: true },
+      {
+        id: "unrelated",
+        url: "http://other:9696/1/api",
+        apiKey: "old-key",
+        allowInsecureLan: true,
+      },
+    ] as Indexer[]);
+    vi.spyOn(dns, "lookup").mockResolvedValue([{ address: "10.0.0.2", family: 4 }] as never);
+    vi.mocked(prowlarrClient.getIndexers).mockImplementationOnce(async () => {
+      expect(storage.updateIndexer).toHaveBeenCalledExactlyOnceWith("old", {
+        allowInsecureLan: false,
+      });
+      expect(JSON.parse(settings.get("prowlarr.syncDefaults")!).allowInsecureLan).toBe(false);
+      return [];
+    });
+    const app = await createApp();
+    const response = await request(app)
+      .post("/api/indexers/prowlarr/sync")
+      .send({ url: newUrl, apiKey: "new-key", allowInsecureLan: false });
+    expect(response.status).toBe(200);
+    expect(settings.get("prowlarr.url")).toBe(newUrl);
+    expect(settings.get("prowlarr.apiKey")).toBe("new-key");
+    expect(storage.syncIndexers).toHaveBeenCalled();
+    vi.mocked(storage.getSystemConfig).mockReset();
+    vi.mocked(storage.getAllIndexers).mockResolvedValue([]);
+  });
+
   it.each([
     "http://PROWLARR.invalid:9696/base/",
     "prowlarr.invalid:9696/base",

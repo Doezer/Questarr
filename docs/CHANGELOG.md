@@ -17,7 +17,7 @@ All notable changes to this project will be documented in this file.
 
 - **Root folder / Scan Disk**: discover games already present on disk, plus safe recursive file discovery within a game's own folder to reconcile files already there (#943, #892, #938).
 - **Library Import**: [Discover games on disk](LIBRARY_IMPORT.md), follow scan progress, and review unmatched folders by searching IGDB.
-- **Backlog roulette**: [Pick your next game](BACKLOG_ROULETTE.md) from the Library, reroll, or mark it as Playing (#1165).
+- **Backlog roulette**: [Pick your next game](BACKLOG_ROULETTE.md) from Library or Playing, reroll, or mark an owned game as Playing. Toolbar actions remain reachable at narrower widths (#1165, #1184).
 - **Platforms setting**: one Settings > Platforms list to always only see your platform of choice by default across Library, Discover, Add Game, and download search (#1018, #1104).
 - **Per-game target platforms** for automatic downloads (#1048).
 - **Platform and release year filters** on game search (#897).

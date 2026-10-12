@@ -16,8 +16,13 @@ export function startLegacyQbittorrentProxy(
       target.searchParams.delete("tag");
     }
     const upstream = http.request(
-      target,
-      { method: req.method, headers: { ...req.headers, "accept-encoding": "identity" } },
+      {
+        hostname: "127.0.0.1",
+        port: upstreamPort,
+        path: `${target.pathname}${target.search}`,
+        method: req.method,
+        headers: { ...req.headers, "accept-encoding": "identity" },
+      },
       (response) => {
         if (!ignoresTag || response.statusCode !== 200) {
           res.writeHead(response.statusCode ?? 502, response.headers);

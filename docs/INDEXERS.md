@@ -23,7 +23,10 @@ wrapping them twice; external tracker links still use Prowlarr's proxy.
 Use HTTPS whenever possible. For a trusted LAN server using HTTP, explicitly
 select **Allow insecure LAN connection** before syncing. Clearing this choice
 revokes the saved permission and matching synced indexers' HTTP permission even
-if the sync cannot proceed. Switch to HTTPS to sync with the choice cleared. If a request reports that its
+if the sync cannot proceed. When replacing a saved HTTP connection with HTTPS and clearing this choice,
+Questarr also revokes matching indexers from the previous connection before
+saving the replacement. Enter the new connection's API key when changing its
+identity. If a request reports that its
 API key was withheld, check the URL and this setting before trying again.
 
 See [SECRETS.md](SECRETS.md) for credential handling and [API.md](API.md) for the

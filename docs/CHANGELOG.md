@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Before you upgrade
 
 - **Sign in again once**: sessions moved to httpOnly cookies, so the first page load after upgrading asks for your password again.
-- **Plain-HTTP indexers and download clients**: credentials are now only sent over plain HTTP to indexers and download clients that have **Allow insecure LAN** turned on. Existing and new HTTP connections are opted out by default: switch to HTTPS or explicitly enable **Allow insecure LAN connection** for each trusted HTTP connection after upgrading (#1022, #1061, #1175).
+- **Plain-HTTP indexers and download clients**: credentials are now only sent over plain HTTP to indexers and download clients that have **Allow insecure LAN connection** turned on. When upgrading from 1.4.x, every existing HTTP indexer and download client is opted in once so it keeps working; new HTTP connections stay opted out until you enable it. If you ran a 1.5.0 release candidate and deliberately left an HTTP connection opted out, check it again after upgrading, since the upgrade turns it back on (#1022, #1061, #1175).
 - **Reverse proxy**: set `TRUST_PROXY` for your proxy hops or addresses after upgrading; see [proxy setup](REVERSE_PROXY.md).
 - **Forgotten password in Docker**: the image has no `npm`, so run the reset script with `docker exec -it questarr su-exec questarr node dist/scripts/reset-password.js <username>` (replace `questarr` with your container name). Outside Docker, `npm run reset-password -- <username>` still works.
 

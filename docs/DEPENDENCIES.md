@@ -41,11 +41,7 @@ Dependencies are added deliberately as part of normal development, via `npm inst
 
 Every published Docker image ships with a generated Software Bill of Materials listing the exact versions of every dependency included in that release. See [docs/SBOM.md](SBOM.md) for how to inspect it.
 
-## Currently blocked updates
+## Previously blocked updates
 
-Tracked here so a blocked Dependabot PR doesn't get silently re-proposed and re-investigated from scratch. Remove an entry once its update is unblocked and merged.
-
-_As of 2026-07-04, `release/1.4.0`:_
-
-- **`@hookform/resolvers`** `3.10.0` → `5.4.0` (PR #756) — blocked. Installs, but the TypeScript check fails in form resolver usage (`client/src/pages/downloaders.tsx`, `client/src/pages/indexers.tsx`). The project is on Zod 3 (`zod: ^3.25.0`); this upgrade likely needs resolver/schema compatibility adjustments first.
-- **React 19** `react 18.3.1` → `19.2.7`, `@types/react 18.3.11` → `19.2.17` (PR #761) — blocked. Install fails on peer dependency resolution across UI dependencies; needs a broader compatibility pass across the React ecosystem packages first.
+Resolved in 1.5.0: React 19, matching React type packages, Zod 4, and
+`@hookform/resolvers` 5 are supported.

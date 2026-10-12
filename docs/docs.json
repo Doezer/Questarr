@@ -12,43 +12,76 @@
     "default": "dark"
   },
   "navigation": {
-    "groups": [
+    "tabs": [
       {
-        "group": "Deployment",
-        "pages": ["HOME_SERVER_APPS", "PROXMOX", "REVERSE_PROXY", "DATABASE", "MIGRATION"]
-      },
-      {
-        "group": "Reference",
-        "pages": [
-          "API",
-          "ARCHITECTURE",
-          "DOWNLOADERS_COMPATIBILITY",
-          "synology-download-station-api-notes"
+        "tab": "User guide",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": ["QUICKSTART", "CHANGELOG"]
+          },
+          {
+            "group": "Library",
+            "pages": ["LIBRARY_IMPORT", "BACKLOG_ROULETTE"]
+          },
+          {
+            "group": "Discovery & notifications",
+            "pages": ["INDEXERS", "RSS", "NOTIFICATIONS"]
+          },
+          {
+            "group": "Deployment",
+            "pages": ["HOME_SERVER_APPS", "PROXMOX", "REVERSE_PROXY", "DATABASE"]
+          },
+          {
+            "group": "Security & credentials",
+            "pages": ["SECRETS", "SECURITY"]
+          }
         ]
       },
       {
-        "group": "Security",
-        "pages": [
-          "SECURITY",
-          "SECURITY_ASSESSMENT",
-          "THREAT_MODEL",
-          "SECRETS",
-          "VULNERABILITY_MANAGEMENT",
-          "VEX",
-          "SBOM",
-          "DEPENDENCIES",
-          "BEST_PRACTICES",
-          "CVE_FIXES_BY_RELEASE",
-          "CWE_FIXES_BY_RELEASE"
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Integrations",
+            "pages": ["API", "DOWNLOADERS_COMPATIBILITY", "synology-download-station-api-notes"]
+          },
+          {
+            "group": "Architecture & security",
+            "pages": ["ARCHITECTURE", "SECURITY_ASSESSMENT", "THREAT_MODEL"]
+          },
+          {
+            "group": "Supply chain",
+            "pages": [
+              "DEPENDENCIES",
+              "VULNERABILITY_MANAGEMENT",
+              "SBOM",
+              "VEX",
+              "CVE_FIXES_BY_RELEASE",
+              "CWE_FIXES_BY_RELEASE"
+            ]
+          },
+          {
+            "group": "Legacy migration",
+            "pages": ["MIGRATION"]
+          }
         ]
       },
       {
-        "group": "Project",
-        "pages": ["PRD", "TODO", "GITHUB_DOCUMENTATION"]
-      },
-      {
-        "group": "Community",
-        "pages": ["CODE_OF_CONDUCT", "MAINTAINERS", "OPERATIONS"]
+        "tab": "Project",
+        "groups": [
+          {
+            "group": "Planning",
+            "pages": ["PRD", "TODO", "GITHUB_DOCUMENTATION"]
+          },
+          {
+            "group": "Maintainers",
+            "pages": ["OPERATIONS", "MAINTAINERS", "BEST_PRACTICES"]
+          },
+          {
+            "group": "Community",
+            "pages": ["CODE_OF_CONDUCT"]
+          }
+        ]
       }
     ]
   },

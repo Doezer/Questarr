@@ -2,7 +2,9 @@ import { test, expect } from "@playwright/test";
 import { seedGame, uniqueId } from "./helpers";
 
 test.describe("Backlog roulette", () => {
-  test("draws owned games, rerolls, opens details and saves Mark as Playing", async ({ page }) => {
+  test("draws owned games, rerolls, opens details and saves Mark as Playing", async ({
+    page,
+  }, testInfo) => {
     const id = uniqueId();
     const prefix = `Roulette ${id}`;
     await page.goto("/");
@@ -27,7 +29,7 @@ test.describe("Backlog roulette", () => {
     await dialog.getByRole("button", { name: "Roll again" }).click();
     await expect(title).not.toHaveText(initial!);
     const chosen = await title.textContent();
-    await page.screenshot({ path: "docs/pr-evidence/backlog-roulette-desktop.png" });
+    await page.screenshot({ path: testInfo.outputPath("backlog-roulette-desktop.png") });
     await dialog.getByRole("button", { name: "View game" }).click();
     await expect(
       page.getByRole("dialog").getByRole("heading", { name: chosen!, exact: true })
@@ -63,7 +65,9 @@ test.describe("Backlog roulette", () => {
     await expect(page.getByTestId(`card-game-${started.id}`)).toBeVisible();
   });
 
-  test("handles an empty owned pool, filters, mobile layout and light theme", async ({ page }) => {
+  test("handles an empty owned pool, filters, mobile layout and light theme", async ({
+    page,
+  }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const id = uniqueId();
     const title = `Roulette mobile ${id}`;
@@ -87,7 +91,7 @@ test.describe("Backlog roulette", () => {
     const bounds = await dialog.boundingBox();
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
-    await page.screenshot({ path: "docs/pr-evidence/backlog-roulette-mobile.png" });
+    await page.screenshot({ path: testInfo.outputPath("backlog-roulette-mobile.png") });
     await page.keyboard.press("Escape");
     await page.evaluate(() => localStorage.setItem("theme", "light"));
     await page.reload();
@@ -98,10 +102,12 @@ test.describe("Backlog roulette", () => {
     await page.getByRole("option", { name: "All visible games" }).click();
     await expect(dialog.getByTestId("roulette-title")).toHaveText(title);
     await expect(page.locator("html")).toHaveClass(/light/);
-    await page.screenshot({ path: "docs/pr-evidence/backlog-roulette-light.png" });
+    await page.screenshot({ path: testInfo.outputPath("backlog-roulette-light.png") });
   });
 
-  test("draws from the Playing page and stays reachable at tablet width", async ({ page }) => {
+  test("draws from the Playing page and stays reachable at tablet width", async ({
+    page,
+  }, testInfo) => {
     const id = uniqueId();
     const title = `Roulette playing ${id}`;
     await page.goto("/");
@@ -122,5 +128,6 @@ test.describe("Backlog roulette", () => {
       "Currently playing"
     );
     await expect(dialog.getByRole("button", { name: "Mark as Playing" })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("playing-roulette-tablet.png") });
   });
 });

@@ -55,25 +55,22 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 
 ## List of features
 
-| Feature                     | Description                                                                                                                                                                                                                                                                                                                           |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Backlog management**      | Track your collection with status indicators (Wanted, Owned, Playing, Completed, Shelved), ratings, and notes. A dedicated **Playing** page adds journal notes, a milestones checklist, screenshots, and Steam achievements per game, plus Crack status and Time to Beat (via IGDB) on the game detail page and a DLC/expansions tab. |
-| **Game Discovery**          | Browse popular, new, and upcoming titles via IGDB, RSS feeds, and xREL.to, or sync your Steam wishlist directly into the app. A per-platform **Root folder / Scan Disk** discovers games already on disk and reconciles their files.                                                                                                  |
-| **Search & Filter**         | Find games by genre, platform, and keyword, with automatic search until a release is found, plus release blacklisting and preferred release groups/platforms. A Platforms setting scopes the whole app to your platform(s) of choice, with optional filters to hide shelved/owned games and age-restricted or erotic content.         |
-| **Download Management**     | Integrates with indexers and downloaders with optional auto-download and automatic post-processing import, password-protected archive handling, optional pre-import VirusTotal/ClamAV scanning and optional, experimental "Powered by AI" workflow to improve game matches (using Typesafe's Jev, in BYOK)                            |
-| **Real-time Notifications** | In-app alerts for releases and downloads, plus external notifications to 100+ providers via [Apprise](https://github.com/caronc/apprise).                                                                                                                                                                                             |
-| **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available.                                                                                                                                                                                                                              |
-| **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                                                                                                                                                                                      |
-| **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](docs/SECURITY.md) for the full process.                                                                                                                                                            |
-| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                            |
-| **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                                                                                                                                                                                     |
-
-Can't decide what to play? Click **Pick a game** in your Library for
-[Backlog roulette](docs/BACKLOG_ROULETTE.md): draw a game, roll again, or mark it as Playing.
+| Feature                     | Description                                                                                                                                                                                                                                                                                                                      |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Backlog management**      | Track game status, ratings, notes, and your play journal. Use [Backlog roulette](docs/BACKLOG_ROULETTE.md) to pick a game from Library or Playing.                                                                                                                                                                               |
+| **Game Discovery**          | Browse IGDB, RSS, and xREL.to, manage ratings and visibility from game details, sync your Steam wishlist, or discover games on disk with [Library Import](docs/LIBRARY_IMPORT.md).                                                                                                                                               |
+| **Search & Filter**         | Find games by genre, platform, and keyword, with automatic search until a release is found, plus release blacklisting and preferred release groups/platforms. Settings → Appearance → Platforms scopes the app to your chosen platforms, with optional filters to hide shelved/owned games and age-restricted or erotic content. |
+| **Download Management**     | Automate downloads and [library imports](docs/LIBRARY_IMPORT.md), with archive updates that preserve unrelated installed files, manual review, optional security scanning, and experimental AI matching.                                                                                                                         |
+| **Real-time Notifications** | Choose in-app and [Apprise alerts](docs/NOTIFICATIONS.md), including update controls for Shelved and Completed games.                                                                                                                                                                                                            |
+| **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available.                                                                                                                                                                                                                         |
+| **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                                                                                                                                                                                 |
+| **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](docs/SECURITY.md) for the full process.                                                                                                                                                       |
+| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                       |
+| **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                                                                                                                                                                                |
 
 ### Supported Indexers/Downloaders
 
-- Prowlarr synchronization is supported to add all your indexers at once.
+- Sync indexers from [Prowlarr](docs/INDEXERS.md).
 - G4u.to: the site offers an API to VIP members, which can be used in Questarr.
 
 | Indexers                   | Downloaders                                                                             |
@@ -84,7 +81,10 @@ Can't decide what to play? Click **Pick a game** in your Library for
 
 ## Installation
 
-Docker is the easiest way to deploy Questarr with all dependencies included. Questarr uses a SQLite database which is self-contained in the application container.
+Docker is the easiest way to deploy Questarr with all dependencies included.
+Since 1.5.0, native Windows installation is also supported via the [Windows installer](#windows-installer).
+Questarr uses SQLite by default, with optional PostgreSQL support. Persist the
+`data` volume to retain the SQLite database, configuration, and encryption keys.
 
 **Supported architectures:** released Docker images are published for `linux/amd64` and `linux/arm64`, so Questarr runs on a Raspberry Pi 4/5 with a 64-bit OS, other 64-bit ARM SBCs, and ARM-based NAS boxes as well as on x86 hardware. Docker selects the right architecture automatically — the commands below are identical on every platform. (32-bit ARM, e.g. `armv7`/a 32-bit OS on Raspberry Pi 3 and earlier, is not supported. The [Home Assistant add-on](#home-assistant-add-on) is `amd64`-only.)
 
@@ -144,8 +144,8 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 
 Prefer running Questarr as a native Windows service instead of Docker? Download
 `QuestarrSetup-<version>-windows-x64.exe` from the
-[latest GitHub release](https://github.com/Doezer/Questarr/releases/latest) and
-run it. The installer bundles Node.js, installs Questarr as a Windows service
+[GitHub releases](https://github.com/Doezer/Questarr/releases), choosing a 1.5.0
+or later release with the installer attached, and run it. The installer bundles Node.js, installs Questarr as a Windows service
 (`Questarr.Service.exe`), and starts it automatically — open
 `http://localhost:5000` once it finishes.
 
@@ -307,13 +307,13 @@ Manage your wanted games and when they release.
 
 ### Discover Games
 
-Browse and find new games to add to your collection.
+Browse and find new games to add to your collection. Download from a game’s details to add it as Wanted and send a release to your downloader.
 
 <a href="images/Screenshots/discover.png"><img src="images/Screenshots/discover.png" /></a>
 
 #### RSS & xRel.to feeds
 
-Custom RSS feeds and xRel.to flux matched to IGDB games directly into the app. Default RSS is set to fitgirl site.
+Discover releases through [RSS feeds](docs/RSS.md) and xREL.to, with IGDB matching.
 
 <p float="left">
   <a href="images/Screenshots/rss.png"><img src="images/Screenshots/rss.png" width="49%" /></a>
@@ -466,10 +466,10 @@ client IPs (see the same doc).
 
 ## Roadmap
 
-Based on the [Product Requirements Document](docs/PRD.md), here's what's planned over the next 6 months, in priority order:
+Based on the [Product Requirements Document](docs/PRD.md), here is the release status and remaining work, in priority order:
 
 - ✅ **P0 — Post-Processing Pipeline** : Move/copy completed downloads to a destination path, extract archives — closing the "set it and forget it" loop.
-- **P1 — Smart Game Backlog**: Track the version of each downloaded game and notify (or auto-download) when a newer release shows up on indexers.
+- **P1 — Smart Game Backlog**: Installed-version tracking and update filtering are available; configurable automatic upgrades remain a priority.
 - **P2 — Direct Download Support**: Add debrid services (Real-Debrid and similar) as a downloader option, no seeding required.
 - **P3 — External Library Sync**: Import owned games from Steam/GOG libraries and local filesystem scans, not just wishlists.
 - **P4 — Integrations with External Tools**: ✅ Playnite extension shipped (library sync, request-to-download); RomM, Gameyfin, and a generic webhook for anything not explicitly supported are still planned.
@@ -499,7 +499,7 @@ If you run into an issue, go to the **Logs** page and click **Send Logs** before
 ## Contributing
 
 - See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.
-- See [MAINTAINERS.md](/docs/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
+- See [MAINTAINERS.md](docs/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
 
 ### Contributors
 

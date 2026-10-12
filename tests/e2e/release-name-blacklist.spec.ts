@@ -22,7 +22,7 @@ test.describe("Release name blacklist journey", () => {
       await expect(page.getByText(term.toLowerCase(), { exact: true })).toBeVisible();
 
       await page.getByRole("button", { name: "Save Blacklist" }).click();
-      await expect(page.getByText("Release Name Blacklist Saved", { exact: true })).toBeVisible();
+      await expect(page.getByText("Release Blacklist Saved", { exact: true })).toBeVisible();
 
       // Assert the server persisted the term alongside any pre-existing entries.
       const savedSettings = await page.request.get("/api/settings");
@@ -34,7 +34,7 @@ test.describe("Release name blacklist journey", () => {
       await page.getByRole("button", { name: `Remove ${term.toLowerCase()}` }).click();
       await expect(page.getByText(term.toLowerCase(), { exact: true })).toHaveCount(0);
       await page.getByRole("button", { name: "Save Blacklist" }).click();
-      await expect(page.getByText("Release Name Blacklist Saved", { exact: true })).toBeVisible();
+      await expect(page.getByText("Release Blacklist Saved", { exact: true })).toBeVisible();
 
       const restoredSettings = await page.request.get("/api/settings");
       expect(restoredSettings.ok()).toBe(true);

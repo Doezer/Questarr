@@ -23,6 +23,8 @@ interface TagListSettingsCardProps {
   saveLabel: string;
   onReset: () => void;
   children?: React.ReactNode;
+  /** Content rendered below the save row, for parts of the card the save button doesn't cover. */
+  footer?: React.ReactNode;
 }
 
 /** Settings card for a user-editable list of release-name tags, saved via PATCH /api/settings. */
@@ -39,6 +41,7 @@ export default function TagListSettingsCard({
   saveLabel,
   onReset,
   children,
+  footer,
 }: Readonly<TagListSettingsCardProps>) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -93,6 +96,8 @@ export default function TagListSettingsCard({
             {saveMutation.isPending ? "Saving..." : saveLabel}
           </Button>
         </div>
+
+        {footer && <div className="pt-4 border-t">{footer}</div>}
       </CardContent>
     </Card>
   );

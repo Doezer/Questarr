@@ -1,8 +1,9 @@
 # Library Import
 
 Questarr can import completed downloads into your library and discover games
-already on disk. Configure download imports in **Settings → Import**; manage
-existing directories in **Library → Library Import**.
+already on disk. Configure download imports in **Settings → Import**; its four
+sub-tabs form a two-by-two grid on phones. Manage existing directories in
+**Library → Library Import**.
 
 ## Configure download imports
 
@@ -18,7 +19,7 @@ In Docker, mount both locations and use their paths inside the container.
 | Auto-delete source after import   | After a successful copy or move import, remove the download from the client and delete source files.                                                    |
 | Sort add-on files into subfolders | Organize detected DLC, updates, and extras in `dlc/`, `update/`, and `extra/` for directory imports.                                                    |
 | Rename Pattern                    | Use `{Title}`, `{Region}`, `{Platform}`, and `{Year}` to name the destination.                                                                          |
-| Platform Filter                   | Use **Settings → Platforms** to limit eligible platforms; an empty list allows all platforms.                                                           |
+| Platform Filter                   | Use **Settings → Appearance → Platforms** to limit eligible platforms; an empty list allows all platforms.                                              |
 
 ### Path mappings and security
 

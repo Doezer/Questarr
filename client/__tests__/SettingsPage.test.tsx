@@ -242,7 +242,7 @@ describe("SettingsPage", () => {
     expect(screen.getByTestId("preferred-release-groups")).toBeInTheDocument();
   });
 
-  it("switches to the Platforms tab and renders the platform picker", async () => {
+  it("renders the platform picker in the Appearance tab", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
@@ -250,7 +250,8 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Platforms" }));
+    expect(screen.queryByRole("tab", { name: "Platforms" })).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Appearance" }));
 
     expect(
       await screen.findByText("Choose the platforms you use.", { exact: false })

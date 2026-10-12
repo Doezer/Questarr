@@ -18,7 +18,7 @@ All notable changes to this project will be documented in this file.
 - **Root folder / Scan Disk**: discover games already present on disk, plus safe recursive file discovery within a game's own folder to reconcile files already there (#943, #892, #938).
 - **Library Import**: [Discover games on disk](LIBRARY_IMPORT.md), follow scan progress, and review unmatched folders by searching IGDB.
 - **Backlog roulette**: [Pick your next game](BACKLOG_ROULETTE.md) from Library or Playing, reroll, or mark an owned game as Playing. Toolbar actions remain reachable at narrower widths (#1165, #1184).
-- **Platforms setting**: one Settings > Platforms list to always only see your platform of choice by default across Library, Discover, Add Game, and download search (#1018, #1104).
+- **Platforms setting**: one Settings → Appearance → Platforms list to always only see your platform of choice by default across Library, Discover, Add Game, and download search (#1018, #1104).
 - **Per-game target platforms** for automatic downloads (#1048).
 - **Platform and release year filters** on game search (#897).
 - **Library filters**: added filters to hide shelved games and games already owned from search/discover results (#1089).
@@ -135,7 +135,7 @@ All notable changes to this project will be documented in this file.
 
 - **Auth**: migrated to httpOnly cookies plus CSRF, with a bearer-token fallback (#954).
 - **IGDB credential validation** and a test-connection UI (#1064).
-- **Settings**: reorganized page tabs by domain; moved the Discord webhook config to the Stats page (#949, #946).
+- **Settings**: reorganized tabs by domain; Platforms lives under Appearance, release terms and per-game blacklisted releases share one card, and Import sub-tabs wrap on phones. Discord webhook configuration lives on Stats (#1185, #949, #946).
 - **Appearance**: unified theme selection into a single dropdown (#1042).
 
 #### Performance

@@ -43,6 +43,16 @@ record. Configure a compatible [downloader](DOWNLOADERS_COMPATIBILITY.md) first.
 its download search. Future searches use the library game's blacklist. This
 applies to search results as well as Discover games.
 
+## Manage release blacklists
+
+Open **Settings → Discovery & Downloads → Release Blacklist**. Add terms to
+hide matching release names across manual, automatic and AI-assisted searches;
+matching is case-insensitive. Choose **Save Blacklist** to save term edits.
+
+The same card lists specific **Blacklisted Releases**, grouped by game. Removing
+one takes effect immediately, without saving the term list. If loading fails,
+choose **Retry**; the error does not mean the blacklist is empty.
+
 ## Manage a Discover game
 
 In game details, **Hide** removes the game from Discover. **Remove** is available

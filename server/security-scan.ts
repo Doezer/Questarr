@@ -527,14 +527,16 @@ export class SecurityScanService {
         }
       }
       if (refusedFiles.length > 0) {
-        const sizeHint = /size limit exceeded/i.test(refusal)
-          ? " Raise StreamMaxLength, MaxFileSize and MaxScanSize in clamd.conf to scan large files."
-          : "";
+        // The raw error (which can name server paths) stays in the log above; the
+        // reason shown to the user only says which kind of failure it was.
+        const cause = /size limit exceeded/i.test(refusal)
+          ? " over clamd's size limit. Raise StreamMaxLength, MaxFileSize and MaxScanSize in clamd.conf to scan large files."
+          : ".";
         return {
           blocked: false,
           incomplete: true,
           source: "clamav",
-          reason: `ClamAV could not scan ${refusedFiles.length} file(s), including ${path.basename(refusedFiles[0] ?? "")} (${refusal}).${sizeHint} Review it before importing.`,
+          reason: `ClamAV could not scan ${refusedFiles.length} file(s), including ${path.basename(refusedFiles[0] ?? "")}${cause} Review it before importing.`,
         };
       }
     } catch (error) {

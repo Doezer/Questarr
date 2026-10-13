@@ -160,7 +160,8 @@ function tokenValue(token: NamingToken, ctx: NamingContext): string {
  * separator, so it cannot leave its parent folder.
  */
 export function renderName(pattern: string, ctx: NamingContext): string {
-  let out = pattern.replace(/\{([^{}]*)\}/g, (whole, name: string) => {
+  // Literal characters of the pattern need the same sanitizing as token values ("{Title}: {Year}").
+  let out = sanitizeValue(pattern).replace(/\{([^{}]*)\}/g, (whole, name: string) => {
     const token = TOKEN_LOOKUP.get(name.toLowerCase());
     if (!token) return whole;
     const value = sanitizeValue(tokenValue(token, ctx)).trim();
@@ -168,7 +169,7 @@ export function renderName(pattern: string, ctx: NamingContext): string {
   });
 
   // Brackets that only held empty tokens, with the whitespace before them.
-  const emptyPair = new RegExp(`\\s*[(\\[{]\\s*${EMPTY}*\\s*[)\\]}]`, "g");
+  const emptyPair = new RegExp(`\\s*[(\\[{][\\s\\-_.,:]*(?:${EMPTY}[\\s\\-_.,:]*)*[)\\]}]`, "g");
   out = out.replace(emptyPair, (m) => (m.includes(EMPTY) ? "" : m));
   // Orphan separators around an empty token at either end ("Title - {Group}").
   out = out
@@ -179,7 +180,12 @@ export function renderName(pattern: string, ctx: NamingContext): string {
     a || b ? " " : ""
   );
 
-  out = out.trim().replace(/[. ]+$/, "");
+  return finalizeName(out);
+}
+
+/** Last normalization shared by rendered and fallback names: length, trailing dots, reserved names. */
+function finalizeName(name: string): string {
+  let out = name.trim().replace(/[. ]+$/, "");
   out = truncateBytes(out, MAX_NAME_BYTES).replace(/[. ]+$/, "");
   if (out === "" || out === "." || out === "..") return "";
   if (WINDOWS_RESERVED.test(out)) out = `_${out}`;
@@ -188,8 +194,7 @@ export function renderName(pattern: string, ctx: NamingContext): string {
 
 /** Name for a game whose pattern renders to nothing (or is unusable). */
 export function fallbackName(ctx: NamingContext): string {
-  const title = sanitizeValue(ctx.title).trim();
-  return title === "" || title === "." || title === ".." ? "Unknown" : title;
+  return finalizeName(sanitizeValue(ctx.title)) || "Unknown";
 }
 
 export function renderNameOrFallback(pattern: string, ctx: NamingContext): string {

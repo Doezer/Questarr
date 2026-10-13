@@ -85,6 +85,26 @@ describe("naming engine", () => {
     expect(validatePattern("{Title}\u0000").ok).toBe(false);
   });
 
+  it("drops a bracket group whose tokens are all empty, separators included", () => {
+    const bare = { title: "Hades" };
+    expect(renderName("{Title} [{Version}-{Group}]", bare)).toBe("Hades");
+    expect(renderName("[{Version}-{Group}]", bare)).toBe("");
+    expect(renderName("{Title} [{Version}-{Group}]", { title: "Hades", group: "FLT" })).toBe(
+      "Hades [-FLT]"
+    );
+  });
+
+  it("sanitizes illegal literal characters of the pattern", () => {
+    expect(renderName("{Title}: {Year}?", { title: "Hades", year: 2020 })).toBe("Hades_ 2020_");
+  });
+
+  it("normalizes fallback names like rendered ones", () => {
+    expect(renderNameOrFallback("{Year}", { title: "CON" })).toBe("_CON");
+    expect(renderNameOrFallback("{Year}", { title: "Game." })).toBe("Game");
+    const long = renderNameOrFallback("{Year}", { title: "x".repeat(500) });
+    expect(new TextEncoder().encode(long).length).toBeLessThanOrEqual(200);
+  });
+
   it("falls back to the title for an invalid pattern", () => {
     expect(renderNameOrFallback("{Foo}", { title: "Hades" })).toBe("Hades");
   });

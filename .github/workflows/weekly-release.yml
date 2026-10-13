@@ -1,0 +1,128 @@
+name: Weekly Pre-release
+
+# Every Monday: tag the current state of main as a development pre-release, publish a
+# GitHub pre-release whose notes list the pull requests merged since the previous tag,
+# and trigger the existing Deploy workflow to build the matching Docker image.
+# The image gets the release tag and the moving `dev` tag, never `latest`.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      build_windows_installer:
+        description: "Also build the Windows installer and attach it to the pre-release"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-release
+  cancel-in-progress: false
+
+jobs:
+  weekly-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag and the release
+      actions: write # dispatch deploy.yml
+      pull-requests: read # PR titles and labels for the notes
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.x
+
+      # Version scheme: <next patch of the latest stable tag>-dev.<UTC date>, e.g. v1.5.1-dev.20261019.
+      # Semver sorts it before the stable release it leads to, and it is a valid Docker tag.
+      - name: Compute version
+        id: version
+        run: |
+          set -euo pipefail
+          LAST_STABLE=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -v -- '-' | head -n1)
+          PREV_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
+          if [ "$(git rev-list --count "${PREV_TAG}..HEAD")" -eq 0 ]; then
+            echo "No commit on main since ${PREV_TAG}; nothing to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          IFS=. read -r MAJOR MINOR PATCH <<< "${LAST_STABLE#v}"
+          TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))-dev.$(date -u +%Y%m%d)"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists; nothing to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo "skip=false"
+            echo "tag=${TAG}"
+            echo "prev_tag=${PREV_TAG}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        if: steps.version.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREV_TAG: ${{ steps.version.outputs.prev_tag }}
+          TAG: ${{ steps.version.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: node scripts/weekly-release-notes.mjs "$PREV_TAG" "$TAG" "$REPO" > release-notes.md
+
+      # Tags pushed with GITHUB_TOKEN do not trigger other workflows, so release.yml
+      # (stable tags only) does not run for this one.
+      - name: Create tag and pre-release
+        if: steps.version.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Weekly development build $TAG"
+          git push origin "refs/tags/${TAG}"
+          gh release create "$TAG" \
+            --verify-tag \
+            --prerelease \
+            --title "$TAG" \
+            --notes-file release-notes.md
+
+      - name: Build the Docker image
+        if: steps.version.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          WINDOWS: ${{ inputs.build_windows_installer == true }}
+        run: |
+          gh workflow run deploy.yml --ref main \
+            -f environment=dev \
+            -f tag="$TAG" \
+            -f build_arm64=true \
+            -f build_windows_installer="$WINDOWS"
+
+      - name: Summary
+        if: always()
+        env:
+          SKIP: ${{ steps.version.outputs.skip }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if [ "$SKIP" = "true" ]; then
+            echo "No pre-release this week (nothing new on main)." >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "$TAG" ]; then
+            echo "Pre-release \`$TAG\` created; the Deploy workflow was dispatched for the \`dev\` image tagged \`$TAG\`." >> "$GITHUB_STEP_SUMMARY"
+          fi

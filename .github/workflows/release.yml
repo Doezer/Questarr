@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+      # Weekly development pre-releases are created by weekly-release.yml
+      - "!v*-dev.*"
 
 permissions:
   contents: read

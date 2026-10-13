@@ -301,6 +301,7 @@ import {
 import { normalizeInitialReleaseStatus } from "./game-status.js";
 import { quickAddGameByTitle } from "./game-quick-add.js";
 import { importRouter } from "./routes/import.js";
+import { rommRouter } from "./routes/romm.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
@@ -1612,6 +1613,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // the identical jwt.verify + storage.getUser after the same middleware
   // already accepted the request) while doubling the per-request auth cost.
   app.use("/api/imports", importRouter);
+  app.use("/api/settings/romm", rommRouter);
   app.use("/api/import-tasks", importTasksRouter);
   app.use("/api/system", systemRouter);
   // Authenticated by the /api gate above (JWT or integration API key); same

@@ -21,6 +21,7 @@ import type { ImportConfig, UserSettings } from "@shared/schema";
 import { selectedPlatformNames as resolveSelectedPlatformNames } from "@shared/platforms";
 import { PathMappingSettings } from "./PathMappingSettings";
 import { FileBrowser } from "./FileBrowser";
+import { RommSettings } from "./RommSettings";
 import SecurityScanSettings from "./SecurityScanSettings";
 
 type HardlinkPairCheck = {
@@ -249,7 +250,11 @@ export default function ImportSettings() {
                           </Button>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Where files are placed after import.
+                          Where files are placed after import, in a platform folder:{" "}
+                          <code>
+                            {(localConfig.libraryRoot || "/data").replace(/\/+$/, "")}/PC/Game Name
+                          </code>
+                          . For RomM, switch on RomM platform folders below.
                         </p>
                       </div>
                       <div className="space-y-1.5">
@@ -378,6 +383,8 @@ export default function ImportSettings() {
                   Save Changes
                 </Button>
               </div>
+
+              <RommSettings />
             </>
           )}
         </TabsContent>
@@ -581,6 +588,15 @@ export default function ImportSettings() {
                         "Set Library Root to where you want games stored (e.g. /data/library).",
                         "Set Transfer Mode to Hardlink if the download folder is on the same volume, otherwise Copy.",
                         "Leave Path Mappings empty.",
+                      ],
+                    },
+                    {
+                      title: "Feeding RomM (or ES-DE, Playnite)",
+                      steps: [
+                        "Enable Post-Processing.",
+                        "Set Library Root to the folder your frontend scans (for RomM, its roms folder).",
+                        "Under RomM, switch on RomM platform folders: games go to <library root>/<platform>/, e.g. roms/snes or roms/win.",
+                        "Optionally add your RomM URL and an API token: Questarr then asks RomM to rescan after each import and can mark games already in RomM as owned.",
                       ],
                     },
                     {

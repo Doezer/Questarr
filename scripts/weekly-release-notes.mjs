@@ -68,7 +68,7 @@ const others = sorted.filter((pr) => !security.includes(pr));
 
 const out = [
   "> **Weekly development build** — automatically generated from `main`, not functionally tested.",
-  "> Use a stable release for production. The Docker image is tagged with this version and `dev`; `latest` is untouched.",
+  "> Use a stable release for production. The Docker image is tagged with this version and `weekly` (always the latest weekly build); `latest` is untouched.",
   "",
 ];
 if (security.length) out.push("## Security and dependency fixes", "", ...security.map(fmtPr), "");

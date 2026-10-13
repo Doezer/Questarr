@@ -65,7 +65,7 @@ deployment workflow, and publication remain maintainer actions.
 
 1. tags `main` as `v<next patch>-dev.<YYYYMMDD>` (for example `v1.5.1-dev.20261019`);
 2. publishes a GitHub **pre-release** whose notes list the merged pull requests (security and dependency fixes first) and any commit pushed straight to `main`;
-3. dispatches the Deploy workflow for the `dev` environment, which pushes `ghcr.io/doezer/questarr` and `doezer/questarr` images tagged with the release tag and `dev` (multi-arch), built from the tag. `latest` is only moved by production deployments.
+3. dispatches the Deploy workflow for the `dev` environment, which pushes `ghcr.io/doezer/questarr` and `doezer/questarr` images tagged with the release tag, `weekly` (moves only when a new pre-release is built; follow it to stay on the weekly build) and `dev` (moves with the daily dev build) (multi-arch), built from the tag. `latest` is only moved by production deployments.
 
 These builds are not functionally tested. Stable releases keep using a `vX.Y.Z` tag, which creates a draft release from `docs/CHANGELOG.md` (`release.yml` ignores `-dev.` tags).
 

@@ -3,7 +3,7 @@ name: Weekly Pre-release
 # Every Monday: tag the current state of main as a development pre-release, publish a
 # GitHub pre-release whose notes list the pull requests merged since the previous tag,
 # and trigger the existing Deploy workflow to build the matching Docker image.
-# The image gets the release tag and the moving `dev` tag, never `latest`.
+# The image gets the release tag, the moving `weekly` and `dev` tags, never `latest`.
 on:
   schedule:
     - cron: "0 6 * * 1"

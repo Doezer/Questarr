@@ -445,6 +445,53 @@ export class ImportManager {
     return { archiveInDest, siblingsInDest };
   }
 
+  /**
+   * Archive sets below `dir` that still hold packed content. A set whose contents are already
+   * sitting next to it (the client unpacked but kept the archive) does not count.
+   */
+  private async findUnextractedArchiveSets(dir: string): Promise<string[]> {
+    const sets = await this.archiveService.findArchiveSets(dir);
+    const unextracted: string[] = [];
+    for (const set of sets) {
+      if (!(await this.archiveService.isAlreadyExtracted(set.primary, path.dirname(set.primary)))) {
+        unextracted.push(path.relative(dir, set.primary));
+      }
+    }
+    return unextracted;
+  }
+
+  /**
+   * Tells the user when a finished download still contains archives nothing unpacked: the
+   * download client marks a job complete even when it left archives behind, and Questarr's
+   * own import only unpacks when auto-unpack is on. Informational and best effort: it never
+   * changes the download or the import.
+   */
+  async reportLeftoverArchives(
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    dir: string,
+    options: { checkRoots?: boolean } = {}
+  ): Promise<void> {
+    try {
+      if (isSensitivePath(dir)) return;
+      if (options.checkRoots) {
+        await assertWithinRoots(dir, await this.pathService.getConfiguredRoots(), "outside roots");
+      }
+      const leftovers = await this.findUnextractedArchiveSets(dir);
+      if (leftovers.length === 0) return;
+      const shown = leftovers.slice(0, 3).join(", ");
+      const more = leftovers.length > 3 ? ` and ${leftovers.length - 3} more` : "";
+      await this.storage.addNotification({
+        userId: game.userId ?? "",
+        type: "warning",
+        title: "Archives were not extracted",
+        message: `"${game.title}" still contains ${leftovers.length} archive${leftovers.length === 1 ? "" : "s"} that nothing unpacked (${shown}${more}). Turn on Auto-unpack in the import settings, or extract them yourself.`,
+        link: "/downloads",
+      });
+    } catch (err) {
+      logger.debug({ err, dir }, "[ImportManager] Leftover archive check skipped");
+    }
+  }
+
   private async notifyStrandedImport(
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     archiveInDest: string,
@@ -991,6 +1038,7 @@ export class ImportManager {
       );
 
       await this.finalizeImport(downloadId, game, result.destDir);
+      await this.reportLeftoverArchives(game, result.destDir);
       await this.autoDeleteIfConfigured(downloadId, download, game, config);
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] Import failed");

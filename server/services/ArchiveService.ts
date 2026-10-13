@@ -776,6 +776,73 @@ export class ArchiveService {
   }
 
   /**
+   * Finds every archive set (one primary volume plus its continuations) below `root`, without
+   * touching anything: `lstat` only, symlinks are never followed, and the walk is bounded by
+   * depth and by the number of directory entries it looks at. Staging directories left by a
+   * running extraction are skipped. Only the primary volume of each set is returned, so a
+   * release split in ten parts counts once.
+   */
+  async findArchiveSets(
+    root: string,
+    options: { maxDepth?: number; maxEntries?: number; includeDiscImages?: boolean } = {}
+  ): Promise<Array<{ primary: string; volumes: string[]; relDir: string }>> {
+    const maxDepth = options.maxDepth ?? 3;
+    let budget = options.maxEntries ?? 5000;
+    const sets: Array<{ primary: string; volumes: string[]; relDir: string }> = [];
+    const archiveOptions = { includeDiscImages: options.includeDiscImages === true };
+
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      if (budget <= 0) return;
+      let names: string[];
+      try {
+        names = (await fs.readdir(dir)).sort();
+      } catch {
+        return;
+      }
+      budget -= names.length;
+
+      const files: string[] = [];
+      const subDirs: string[] = [];
+      for (const name of names) {
+        if (name.startsWith(EXTRACT_STAGING_PREFIX)) continue;
+        const full = path.join(dir, name);
+        const stats = await fs.lstat(full).catch(() => null);
+        if (!stats || stats.isSymbolicLink()) continue;
+        if (stats.isDirectory()) subDirs.push(full);
+        else if (stats.isFile()) files.push(full);
+      }
+
+      const remaining = files.filter((f) => this.isArchive(f, archiveOptions));
+      while (remaining.length > 0) {
+        let primary = remaining[0]!;
+        // ".r00" sorts before ".rar" but is a continuation, not the entry point.
+        const continuation = /^(.*)\.r\d{2,3}$/i.exec(path.basename(primary));
+        if (continuation?.[1]) {
+          const stem = continuation[1].toLowerCase();
+          const rar = remaining.find(
+            (f) =>
+              /\.rar$/i.test(f) && path.basename(f).slice(0, -".rar".length).toLowerCase() === stem
+          );
+          if (rar) primary = rar;
+        }
+        const volumes = this.findVolumeSiblings(primary, files).map((f) => path.resolve(f));
+        if (!volumes.includes(path.resolve(primary))) volumes.push(path.resolve(primary));
+        sets.push({ primary, volumes, relDir: path.relative(root, dir) });
+        const taken = new Set(volumes);
+        for (let i = remaining.length - 1; i >= 0; i--) {
+          if (taken.has(path.resolve(remaining[i]!))) remaining.splice(i, 1);
+        }
+      }
+
+      if (depth >= maxDepth) return;
+      for (const sub of subDirs) await walk(sub, depth + 1);
+    };
+
+    await walk(root, 0);
+    return sets;
+  }
+
+  /**
    * Given a main archive path and the absolute paths of its siblings,
    * returns the subset that belongs to the same archive: the main archive
    * itself plus any split/multi-part volume companions (.r00, .part2.rar,

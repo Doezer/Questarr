@@ -13,12 +13,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mapGameToInsertGame, isDiscoveryId, cn, parseReleaseDate } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { Link } from "wouter";
+import { useGameDetailsLink } from "@/hooks/use-game-details-link";
 import LazyModalFallback from "./LazyModalFallback";
 import { getReleaseStatus } from "@/lib/game-utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 
-const GameDetailsModal = lazy(() => import("./GameDetailsModal"));
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
 interface CompactGameCardProps {
@@ -56,7 +57,6 @@ const CompactGameCard = ({
 }: CompactGameCardProps) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [popoverRating, setPopoverRating] = useState<number>(game.userRating ?? DEFAULT_RATING);
   const releaseStatus = getReleaseStatus(game);
@@ -98,9 +98,10 @@ const CompactGameCard = ({
     onError: () => toast({ description: "Failed to save your rating", variant: "destructive" }),
   });
 
-  const handleDetailsClick = () => {
-    setDetailsOpen(true);
+  const details = useGameDetailsLink(game);
+  const handleDetailsClick = (event?: React.MouseEvent) => {
     onViewDetails?.(game.id);
+    details.openDetails(event);
   };
   const handleDownloadClick = async () => {
     if (isDiscoveryId(resolvedGame.id)) {
@@ -282,16 +283,6 @@ const CompactGameCard = ({
           </div>
         </div>
 
-        {detailsOpen && (
-          <Suspense fallback={<LazyModalFallback message="Loading game details..." />}>
-            <GameDetailsModal
-              game={resolvedGame}
-              open={detailsOpen}
-              onOpenChange={setDetailsOpen}
-            />
-          </Suspense>
-        )}
-
         {downloadOpen && (
           <Suspense fallback={<LazyModalFallback message="Loading download dialog..." />}>
             <GameDownloadDialog
@@ -311,6 +302,7 @@ const CompactGameCard = ({
         role="button"
         tabIndex={0}
         onClick={handleDetailsClick}
+        onAuxClick={details.onAuxClick}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -363,7 +355,16 @@ const CompactGameCard = ({
             )}
             data-testid={`text-title-${game.id}`}
           >
-            {game.title}
+            <Link
+              href={details.path}
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewDetails?.(game.id);
+              }}
+              className="hover:underline focus-visible:underline"
+            >
+              {game.title}
+            </Link>
           </h3>
           <DownloadIndicator summary={downloadSummary} variant="inline" />
           <SearchResultsBadge visible={game.searchResultsAvailable ?? false} variant="inline" />
@@ -637,12 +638,6 @@ const CompactGameCard = ({
           )}
         </div>
       </div>
-
-      {detailsOpen && (
-        <Suspense fallback={<LazyModalFallback message="Loading game details..." />}>
-          <GameDetailsModal game={resolvedGame} open={detailsOpen} onOpenChange={setDetailsOpen} />
-        </Suspense>
-      )}
 
       {downloadOpen && (
         <Suspense fallback={<LazyModalFallback message="Loading download dialog..." />}>

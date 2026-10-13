@@ -18,10 +18,11 @@ import { useToast } from "@/hooks/use-toast";
 import LazyModalFallback from "./LazyModalFallback";
 import { getReleaseStatus } from "@/lib/game-utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Link } from "wouter";
+import { useGameDetailsLink } from "@/hooks/use-game-details-link";
 
 // ⚡ Bolt: Lazy load heavy modal components to reduce initial bundle size.
 // These are only needed when the user interacts with the card.
-const GameDetailsModal = lazy(() => import("./GameDetailsModal"));
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
 interface GameCardProps {
@@ -48,7 +49,6 @@ const GameCard = ({
 }: GameCardProps) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const releaseStatus = getReleaseStatus(game);
@@ -92,10 +92,10 @@ const GameCard = ({
     },
   });
 
-  const handleDetailsClick = () => {
-    console.warn(`View details triggered for game: ${game.title}`);
-    setDetailsOpen(true);
+  const details = useGameDetailsLink(game);
+  const handleDetailsClick = (event?: React.MouseEvent) => {
     onViewDetails?.(game.id);
+    details.openDetails(event);
   };
 
   const handleDownloadClick = async () => {
@@ -131,6 +131,7 @@ const GameCard = ({
     <Card
       ref={cardRef}
       onClick={handleDetailsClick}
+      onAuxClick={details.onAuxClick}
       className={`group hover-elevate transition-all duration-200 mx-auto min-w-0 w-full max-w-full cursor-pointer flex flex-col h-full overflow-hidden sm:max-w-[225px] ${game.hidden ? "opacity-60 grayscale" : ""}`}
       data-testid={`card-game-${game.id}`}
       aria-label={`View details for ${game.title}`}
@@ -232,7 +233,16 @@ const GameCard = ({
           className="mb-1.5 line-clamp-2 text-xs font-semibold leading-4 sm:mb-2 sm:text-sm sm:leading-5"
           data-testid={`text-title-${game.id}`}
         >
-          {game.title}
+          <Link
+            href={details.path}
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewDetails?.(game.id);
+            }}
+            className="hover:underline focus-visible:underline"
+          >
+            {game.title}
+          </Link>
         </h3>
         <div className="mb-2 flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground sm:gap-2 sm:text-xs">
           <Tooltip>
@@ -363,11 +373,6 @@ const GameCard = ({
           This prevents rendering hundreds of hidden, complex components on pages
           with many game cards, significantly improving initial render performance
           and reducing memory usage. */}
-      {detailsOpen && (
-        <Suspense fallback={<LazyModalFallback message="Loading game details..." />}>
-          <GameDetailsModal game={resolvedGame} open={detailsOpen} onOpenChange={setDetailsOpen} />
-        </Suspense>
-      )}
 
       {downloadOpen && (
         <Suspense fallback={<LazyModalFallback message="Loading download dialog..." />}>

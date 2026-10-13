@@ -107,10 +107,6 @@ vi.mock("../src/components/LazyModalFallback", () => ({
   default: ({ message }: { message: string }) => <div>{message}</div>,
 }));
 
-vi.mock("../src/components/GameDetailsModal", () => ({
-  default: ({ game }: { game: Game }) => <div>Details for {game.title}</div>,
-}));
-
 vi.mock("../src/components/GameDownloadDialog", () => ({
   default: ({ game }: { game: Game }) => <div>Download dialog for {game.title}</div>,
 }));
@@ -199,7 +195,7 @@ describe("GameCard remaining coverage", () => {
     const detailsButton = screen.getByTestId("card-game-igdb-1");
     fireEvent.click(detailsButton);
     expect(onViewDetails).toHaveBeenCalledWith("igdb-1");
-    expect(await screen.findByText("Details for Library Game")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/games/igdb-1");
 
     const content = screen.getByTestId("text-title-igdb-1").parentElement;
     expect(content).toBeTruthy();

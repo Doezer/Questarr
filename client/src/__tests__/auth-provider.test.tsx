@@ -222,11 +222,13 @@ describe("AuthProvider — legacy localStorage token migration", () => {
     }
 
     const committedAtRemoval: boolean[] = [];
+    const originalRemoveItem = Storage.prototype.removeItem;
     const removeSpy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (
       this: Storage,
       key: string
     ) {
       if (key === "token") committedAtRemoval.push(committed);
+      originalRemoveItem.call(this, key);
     });
 
     render(
@@ -243,6 +245,7 @@ describe("AuthProvider — legacy localStorage token migration", () => {
     });
 
     expect(committedAtRemoval).toEqual([true]);
+    expect(localStorage.getItem("token")).toBeNull();
     removeSpy.mockRestore();
   });
 

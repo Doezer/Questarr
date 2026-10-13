@@ -199,9 +199,8 @@ describe("AuthProvider — legacy localStorage token migration", () => {
     }
   }, 12000);
 
-  it("does not mutate localStorage or send /api/auth/me during render, only after migration commits", async () => {
+  it("scrubs localStorage only after commit, never during render", async () => {
     localStorage.setItem("token", "legacy-token");
-    const removeSpy = vi.spyOn(Storage.prototype, "removeItem");
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -211,18 +210,31 @@ describe("AuthProvider — legacy localStorage token migration", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    let sawTokenDuringRender: string | null = null;
-    function Probe() {
-      // Child renders only after the provider's migration effect has run.
-      sawTokenDuringRender = localStorage.getItem("token");
-      return <div>probe</div>;
+    // A sibling's layout effect runs at commit, after every render-phase call
+    // of AuthProvider and before any passive effect. A removal observed
+    // before it would therefore have happened during render.
+    let committed = false;
+    function CommitMarker() {
+      React.useLayoutEffect(() => {
+        committed = true;
+      }, []);
+      return null;
     }
+
+    const committedAtRemoval: boolean[] = [];
+    const removeSpy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (
+      this: Storage,
+      key: string
+    ) {
+      if (key === "token") committedAtRemoval.push(committed);
+    });
 
     render(
       <Wrapper>
         <AuthProvider>
-          <Probe />
+          <div>test</div>
         </AuthProvider>
+        <CommitMarker />
       </Wrapper>
     );
 
@@ -230,9 +242,7 @@ describe("AuthProvider — legacy localStorage token migration", () => {
       expect(findMeCall(fetchMock)).toBeDefined();
     });
 
-    expect(sawTokenDuringRender).toBeNull();
-    expect(removeSpy).toHaveBeenCalledTimes(1);
-    expect(removeSpy).toHaveBeenCalledWith("token");
+    expect(committedAtRemoval).toEqual([true]);
     removeSpy.mockRestore();
   });
 

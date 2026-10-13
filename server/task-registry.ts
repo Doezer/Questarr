@@ -135,7 +135,11 @@ export async function executeTask(
   entry.state.nextRunAt = null;
   entry.state.lastStartedAt = Date.now();
   entry.state.lastTrigger = trigger;
-  notifyUser("task:started", { name, startedAt: entry.state.lastStartedAt, trigger });
+  try {
+    notifyUser("task:started", { name, startedAt: entry.state.lastStartedAt, trigger });
+  } catch (err) {
+    igdbLogger.warn({ err, task: name }, "Failed to notify task start");
+  }
 
   const startedAt = entry.state.lastStartedAt;
   try {
@@ -155,7 +159,11 @@ export async function executeTask(
   entry.state.lastDurationMs = entry.state.lastFinishedAt - startedAt;
   schedule(entry, entry.def.intervalMs);
   await persist(entry);
-  notifyUser("task:finished", { ...entry.state });
+  try {
+    notifyUser("task:finished", { ...entry.state });
+  } catch (err) {
+    igdbLogger.warn({ err, task: name }, "Failed to notify task end");
+  }
   return "started";
 }
 

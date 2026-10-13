@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle, Clock, Loader2, Play, Timer } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
@@ -110,12 +110,18 @@ export default function SystemTasksPage() {
   }, [queryClient]);
 
   const runTask = useMutation({
+    mutationKey: ["system-task-run"],
     mutationFn: async (name: string) => {
       await apiRequest("POST", `/api/system/tasks/${encodeURIComponent(name)}/run`);
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/system/tasks"] }),
     onError: (error: Error) =>
       toast({ title: "Could not start task", description: error.message, variant: "destructive" }),
+  });
+
+  const pendingTaskNames = useMutationState({
+    filters: { mutationKey: ["system-task-run"], status: "pending" },
+    select: (mutation) => mutation.state.variables as string,
   });
 
   return (
@@ -163,7 +169,7 @@ export default function SystemTasksPage() {
                 <Button
                   className="mt-3 h-11 w-full"
                   variant="secondary"
-                  disabled={task.running || runTask.isPending}
+                  disabled={task.running || pendingTaskNames.includes(task.name)}
                   onClick={() => runTask.mutate(task.name)}
                   aria-label={`Run ${task.title} now`}
                 >
@@ -221,7 +227,7 @@ export default function SystemTasksPage() {
                       <Button
                         size="sm"
                         variant="secondary"
-                        disabled={task.running || runTask.isPending}
+                        disabled={task.running || pendingTaskNames.includes(task.name)}
                         onClick={() => runTask.mutate(task.name)}
                         aria-label={`Run ${task.title} now`}
                       >

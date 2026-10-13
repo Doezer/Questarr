@@ -35,27 +35,41 @@ export function isEmptyCollectionRules(rules: CollectionRules | null | undefined
   );
 }
 
+function matchesReleaseYear(game: MatchableGame, rules: CollectionRules): boolean {
+  if (rules.releaseYearFrom === undefined && rules.releaseYearTo === undefined) return true;
+  // releaseDate is an ISO string; the first four characters are the year.
+  const year = game.releaseDate ? Number.parseInt(game.releaseDate.slice(0, 4), 10) : Number.NaN;
+  if (Number.isNaN(year)) return false;
+  if (rules.releaseYearFrom !== undefined && year < rules.releaseYearFrom) return false;
+  return rules.releaseYearTo === undefined || year <= rules.releaseYearTo;
+}
+
+function matchesRatings(game: MatchableGame, rules: CollectionRules): boolean {
+  if (rules.minRating !== undefined && (game.rating ?? -1) < rules.minRating) return false;
+  return rules.minUserRating === undefined || (game.userRating ?? -1) >= rules.minUserRating;
+}
+
+function matchesLists(game: MatchableGame, rules: CollectionRules): boolean {
+  if (rules.statuses?.length && !rules.statuses.includes(game.status)) return false;
+  if (rules.platforms?.length && !hasAny(game.platforms, rules.platforms)) return false;
+  return !rules.genres?.length || hasAny(game.genres, rules.genres);
+}
+
+function matchesTitle(game: MatchableGame, rules: CollectionRules): boolean {
+  return (
+    !rules.titleContains || game.title.toLowerCase().includes(rules.titleContains.toLowerCase())
+  );
+}
+
 /**
  * Evaluates a smart collection's rules against a game. All set criteria must hold (AND); list
  * criteria hold when the game has at least one of the listed values (OR, case-insensitive).
  */
 export function gameMatchesCollectionRules(game: MatchableGame, rules: CollectionRules): boolean {
-  if (rules.statuses?.length && !rules.statuses.includes(game.status)) return false;
-  if (rules.platforms?.length && !hasAny(game.platforms, rules.platforms)) return false;
-  if (rules.genres?.length && !hasAny(game.genres, rules.genres)) return false;
-  if (rules.minRating !== undefined && (game.rating ?? -1) < rules.minRating) return false;
-  if (rules.minUserRating !== undefined && (game.userRating ?? -1) < rules.minUserRating) {
-    return false;
-  }
-  if (rules.releaseYearFrom !== undefined || rules.releaseYearTo !== undefined) {
-    // releaseDate is an ISO string; the first four characters are the year.
-    const year = game.releaseDate ? Number.parseInt(game.releaseDate.slice(0, 4), 10) : Number.NaN;
-    if (Number.isNaN(year)) return false;
-    if (rules.releaseYearFrom !== undefined && year < rules.releaseYearFrom) return false;
-    if (rules.releaseYearTo !== undefined && year > rules.releaseYearTo) return false;
-  }
-  if (rules.titleContains) {
-    if (!game.title.toLowerCase().includes(rules.titleContains.toLowerCase())) return false;
-  }
-  return true;
+  return (
+    matchesLists(game, rules) &&
+    matchesRatings(game, rules) &&
+    matchesReleaseYear(game, rules) &&
+    matchesTitle(game, rules)
+  );
 }

@@ -2484,7 +2484,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCollections(userId: string): Promise<Collection[]> {
-    return db.select().from(collections).where(eq(collections.userId, userId));
+    return db
+      .select()
+      .from(collections)
+      .where(eq(collections.userId, userId))
+      .orderBy(collections.name);
   }
 
   async getCollection(id: string, userId: string): Promise<Collection | undefined> {

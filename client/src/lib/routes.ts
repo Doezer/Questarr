@@ -18,6 +18,7 @@ export const routePaths = {
   stats: "/stats",
   logs: "/logs",
   importHistory: "/activity/imports",
+  systemTasks: "/system/tasks",
 } as const;
 
 export const appRoutePaths = [
@@ -39,4 +40,5 @@ export const appRoutePaths = [
   routePaths.stats,
   routePaths.logs,
   routePaths.importHistory,
+  routePaths.systemTasks,
 ] as const;

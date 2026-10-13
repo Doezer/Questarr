@@ -1,6 +1,7 @@
 import {
   Calendar,
   ClipboardList,
+  Timer,
   Compass,
   Database,
   Download,
@@ -66,6 +67,7 @@ export const managementNavigation: AppNavItem[] = [
 export const activityNavigation: AppNavItem[] = [
   { title: "Logs", url: "/logs", icon: ScrollText },
   { title: "Import History", url: "/activity/imports", icon: ClipboardList },
+  { title: "System Tasks", url: "/system/tasks", icon: Timer },
 ];
 
 export const mobileBottomNavigation: AppNavItem[] = [

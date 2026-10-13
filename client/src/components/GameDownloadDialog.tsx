@@ -67,7 +67,7 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { cn, copyToClipboard, safeUrl } from "@/lib/utils";
+import { cn, copyToClipboard, safeUrl, isDiscoveryId, mapGameToInsertGame } from "@/lib/utils";
 import {
   type Game,
   type Indexer,
@@ -142,7 +142,7 @@ function formatDate(dateString: string): string {
   }
 }
 
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useDebounce } from "@/hooks/use-debounce";
 import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -231,6 +231,60 @@ function ReleaseMetadataBadges({
 export default function GameDownloadDialog({ game, open, onOpenChange }: GameDownloadDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Discover and search results carry a temporary "igdb-<id>" id, which the
+  // download and blacklist endpoints reject. Add such a game to the library
+  // on first use and send its real id instead.
+  // Every cached value is keyed by the dialog game's id, so a result for one
+  // game can never be used for the next one.
+  type ResolvedId = { forId: string; id: string };
+  const [resolvedGame, setResolvedGame] = useState<ResolvedId | null>(null);
+  const libraryGameId = resolvedGame && resolvedGame.forId === game?.id ? resolvedGame.id : null;
+  // Mirrors resolvedGame for mutation callbacks, which run before the re-render.
+  const resolvedGameRef = useRef<ResolvedId | null>(null);
+  const currentGameId = useCallback(() => {
+    const resolved = resolvedGameRef.current;
+    return resolved && resolved.forId === game?.id ? resolved.id : game?.id;
+  }, [game?.id]);
+
+  // Shared by actions fired before the first add returns, so they don't each
+  // POST the game and create duplicate library rows.
+  const pendingAddRef = useRef<{ forId: string; promise: Promise<string> } | null>(null);
+
+  const ensureLibraryGameId = useCallback(async (): Promise<string | undefined> => {
+    if (!game) return undefined;
+    if (!isDiscoveryId(game.id)) return game.id;
+    const forId = game.id;
+    if (resolvedGameRef.current?.forId === forId) return resolvedGameRef.current.id;
+    if (pendingAddRef.current?.forId === forId) return pendingAddRef.current.promise;
+
+    const promise = (async () => {
+      let added: Game;
+      try {
+        const response = await apiRequest("POST", "/api/games", {
+          ...mapGameToInsertGame(game),
+          status: "wanted",
+        });
+        added = (await response.json()) as Game;
+      } catch (error) {
+        const existing =
+          error instanceof ApiError && error.status === 409
+            ? (error.data as { game?: Game } | undefined)?.game
+            : undefined;
+        if (!existing) throw error;
+        added = existing;
+      }
+      const resolved = { forId, id: added.id };
+      resolvedGameRef.current = resolved;
+      setResolvedGame(resolved);
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      return added.id;
+    })().finally(() => {
+      if (pendingAddRef.current?.forId === forId) pendingAddRef.current = null;
+    });
+    pendingAddRef.current = { forId, promise };
+    return promise;
+  }, [game, queryClient]);
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -350,9 +404,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }
   }, [open, game, userSettings, applyDownloadRules]);
 
-  const searchQueryKey = game?.id
-    ? `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&gameId=${game.id}`
-    : `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}`;
+  const buildSearchQueryKey = (gameId: string | undefined) =>
+    gameId
+      ? `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&gameId=${gameId}`
+      : `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}`;
+  // Once a Discover game is in the library, search with its real id so the
+  // server applies that game's release blacklist.
+  const searchQueryKey = buildSearchQueryKey(libraryGameId ?? game?.id);
 
   const { data: searchResults, isLoading: isSearching } = useQuery<SearchResult>({
     queryKey: [searchQueryKey],
@@ -537,12 +595,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   const downloadMutation = useMutation({
     mutationFn: async (downloads: DownloadItem[]) => {
+      const gameId = await ensureLibraryGameId();
       const results = [];
       for (const download of downloads) {
         const response = await apiRequest("POST", "/api/downloads", {
           url: download.link,
           title: download.title,
-          gameId: game?.id,
+          gameId,
           downloadType: isUsenetItem(download) ? "usenet" : "torrent",
           releaseCategory: inferReleaseCategory(
             download.title,
@@ -582,8 +641,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       }
       queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
-      if (game?.id) {
-        queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/downloads`] });
+      const gameId = currentGameId();
+      if (gameId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/downloads`] });
       }
     },
     onError: (error: Error) => {
@@ -609,10 +669,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       downloaderId: string;
       downloaderName: string;
     }) => {
+      const gameId = await ensureLibraryGameId();
       const response = await apiRequest("POST", `/api/downloaders/${downloaderId}/downloads`, {
         url: download.link,
         title: download.title,
-        gameId: game?.id,
+        gameId,
         downloadType: isUsenetItem(download) ? "usenet" : "torrent",
       });
       return response.json();
@@ -622,8 +683,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         toast({ title: `Download sent to ${variables.downloaderName}` });
         queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
         queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
-        if (game?.id) {
-          queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/downloads`] });
+        const gameId = currentGameId();
+        if (gameId) {
+          queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/downloads`] });
         }
       } else {
         toast({ title: result.message || "Failed to start download", variant: "destructive" });
@@ -640,19 +702,27 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   const blacklistMutation = useMutation({
     mutationFn: async (item: DownloadItem) => {
-      if (!game) throw new Error("No game context");
-      await apiRequest("POST", `/api/games/${game.id}/blacklist`, {
+      const gameId = await ensureLibraryGameId();
+      if (!gameId) throw new Error("No game context");
+      await apiRequest("POST", `/api/games/${gameId}/blacklist`, {
         releaseTitle: item.title,
         indexerName: item.indexerName ?? null,
       });
     },
     onSuccess: (_data, item) => {
-      queryClient.setQueryData<SearchResult>([searchQueryKey], (old) => {
-        if (!old) return old;
-        return { ...old, items: old.items.filter((i) => i.title !== item.title) };
-      });
+      const remaining = queryClient.getQueryData<SearchResult>([searchQueryKey]);
+      const filtered = remaining && {
+        ...remaining,
+        items: remaining.items.filter((i) => i.title !== item.title),
+      };
+      // A Discover game just added to the library searches under its real id
+      // from the next render on: seed that key too so the dialog doesn't flash.
+      const resolvedKey = buildSearchQueryKey(currentGameId());
+      for (const key of new Set([searchQueryKey, resolvedKey])) {
+        queryClient.setQueryData<SearchResult>([key], filtered);
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/blacklist"] });
-      queryClient.invalidateQueries({ queryKey: [searchQueryKey] });
+      queryClient.invalidateQueries({ queryKey: [resolvedKey] });
       toast({ description: "Release blacklisted" });
     },
     onError: () => {

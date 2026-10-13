@@ -83,7 +83,7 @@ Tagged directly off `v1.4.1`, not from `main`; `main` picked up the same fixes i
 
 ## v1.5.0 (from v1.4.2)
 
-Regenerated on 2026-09-29 with `node scripts/cve-report.mjs v1.4.2 HEAD` (plus `v1.4.0 v1.4.1` and `v1.4.1 v1.4.2` for the hotfixes above). Fixes that already shipped in v1.4.1/v1.4.2 are not repeated here, even where `main` re-applied them.
+Regenerated on 2026-09-29 with `node scripts/cve-report.mjs v1.4.2 HEAD` (plus `v1.4.0 v1.4.1` and `v1.4.1 v1.4.2` for the hotfixes above); entries added by hand until 2026-10-12 (PyJWT, Semgrep, fast-copy, postcss-selector-parser). Fixes that already shipped in v1.4.1/v1.4.2 are not repeated here, even where `main` re-applied them.
 
 ### Production dependencies
 
@@ -114,6 +114,9 @@ Regenerated on 2026-09-29 with `node scripts/cve-report.mjs v1.4.2 HEAD` (plus `
 - **postcss** 8.5.18 → 8.5.28 — fixes **CVE-2026-69153** (GHSA-fxqj-rqcc-2cmp, MODERATE) — attacker-controlled `sourceMappingURL` could read arbitrary `.map` files when `from` is unset (#882).
 - **vitest** / **@vitest/mocker** 4.1.10 → 5.0.1 — fixes **CVE-2026-84373** (GHSA-82fw-gwwq-j7x9, MODERATE) — path traversal / arbitrary file read via the redirect mock (#971).
 - **undici** (scoped `overrides` pin under `node-gyp`, via `@lizenz/checker`) 6.28.0 → 6.29.0 — fixes **CVE-2026-85024** (GHSA-3wwx-pv8p-q78v), the same advisory as the production entry above (#1118).
+- **fast-copy** (npm `overrides` pin, via `pino-pretty`) 4.0.3 → 4.1.0 — fixes GHSA-jggr-w7fw-pc2j (no CVE assigned, MODERATE) — stack exhaustion when copying deeply nested values.
+- **postcss-selector-parser** (npm `overrides` pin, via `@npmcli/query`) 7.1.5 → 7.1.6 — fixes **CVE-2026-104844** (GHSA-rj75-hqrm-r3gf, MODERATE) — quadratic complexity in flat selector parsing. The unused `@tailwindcss/typography` dev dependency, which pinned the unpatched 6.0.10, is removed.
+- **PyJWT** (CI Semgrep install, `.github/requirements/semgrep.txt`) 2.13.0 → 2.15.1 through Semgrep 1.178.0 → 1.180.0 — fixes 14 advisories, including **CVE-2026-102268** (GHSA-ffc3-869f-jxw9, CRITICAL) — asymmetric-PEM detection bypass with whitespace-mutated public keys — and HIGH key-confusion and redirect issues (CVE-2026-102266, CVE-2026-102267, CVE-2026-102271, CVE-2026-102272, CVE-2026-102273). Semgrep only scans the repository in CI and never handles tokens.
 
 ### Container image
 

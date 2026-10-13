@@ -4,6 +4,7 @@ import fs from "fs-extra";
 import path from "node:path";
 import { logger } from "../logger.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
+import { EXTRACT_STAGING_PREFIX } from "./extract-staging.js";
 export type TransferMode = "copy" | "move" | "hardlink" | "symlink";
 
 export function sanitizeFsName(name: string | null | undefined): string {
@@ -92,7 +93,15 @@ async function ensureParentDir(filePath: string, root: string): Promise<void> {
   }
 }
 
-async function walkRelative(rootPath: string): Promise<string[]> {
+interface WalkOptions {
+  // Set only when walking a library folder: skips ArchiveService's .questarr-extract-*
+  // staging and backup directories, which only ever sit directly under that folder. Never
+  // set for a download's source tree, where a directory with that name is ordinary content
+  // that must be transferred.
+  skipExtractStaging?: boolean;
+}
+
+async function walkRelative(rootPath: string, options: WalkOptions = {}): Promise<string[]> {
   const stats = await fs.stat(rootPath);
   if (!stats.isDirectory()) return [path.basename(rootPath)];
 
@@ -106,6 +115,9 @@ async function walkRelative(rootPath: string): Promise<string[]> {
     for (const entry of entries) {
       const entryRel = rel ? path.join(rel, entry.name) : entry.name;
       if (entry.isDirectory()) {
+        if (options.skipExtractStaging && !rel && entry.name.startsWith(EXTRACT_STAGING_PREFIX)) {
+          continue;
+        }
         stack.push(entryRel);
       } else {
         collected.push(entryRel);
@@ -326,7 +338,7 @@ async function transferFile(
   return transferSingleFile(source, destination, mode, path.dirname(destination));
 }
 
-export async function gatherFiles(rootPath: string): Promise<string[]> {
+export async function gatherFiles(rootPath: string, options: WalkOptions = {}): Promise<string[]> {
   if (isSensitivePath(rootPath)) {
     throw new Error("Refusing to process a sensitive system path");
   }
@@ -334,7 +346,7 @@ export async function gatherFiles(rootPath: string): Promise<string[]> {
   const stats = await fs.stat(rootPath);
   if (!stats.isDirectory()) return [rootPath];
 
-  const relFiles = await walkRelative(rootPath);
+  const relFiles = await walkRelative(rootPath, options);
   return relFiles.map((rel) => path.join(rootPath, rel));
 }
 
@@ -346,12 +358,97 @@ const CATEGORY_DIR_MAP: Record<DownloadCategory, string> = {
   packs: "packs",
 };
 
-async function categorizeSourceFiles(sourcePath: string): Promise<FileCategoryEntry[]> {
-  const files = await gatherFiles(sourcePath);
-  return files.map((filePath) => {
-    const name = path.relative(sourcePath, filePath);
-    return { name, category: categorizeDownload(name).category };
+const SORT_EXTRAS_RESERVED_DIRS = new Set(["dlc", "update", "extra", "packs"]);
+// Loose files a release folder commonly ships next to its single content directory.
+// Their presence alone doesn't make that directory anything other than a wrapper.
+const RELEASE_METADATA_FILE = /\.(nfo|sfv|md5|sha1|diz|txt|url|jpe?g|png)$/i;
+// Edition words ("Foo.GOTY.Edition") trip the DLC patterns but name the whole game.
+const EDITION_WORDS = /\b(goty|deluxe|complete|edition|repack)\b/gi;
+
+/** Whether a release's only directory is a plain wrapper rather than an extra in itself. */
+function isWrapperDirectory(name: string): boolean {
+  if (SORT_EXTRAS_RESERVED_DIRS.has(name.toLowerCase())) return false;
+  return categorizeDownload(name.replace(EDITION_WORDS, " ")).category === "main";
+}
+
+/**
+ * An item's category from its name. An explicit type found once edition words are
+ * set aside wins ("Game.GOTY.Edition.Update.v1.2" is an update); otherwise edition
+ * words still count as the DLC signal they are ("Deluxe Content/").
+ */
+function categorizeItemName(name: string): DownloadCategory {
+  const withoutEdition = categorizeDownload(name.replace(EDITION_WORDS, " ")).category;
+  return withoutEdition === "main" ? categorizeDownload(name).category : withoutEdition;
+}
+
+/**
+ * Assigns a Sort Extras category to every file of a release, given its paths
+ * relative to the release root.
+ *
+ * Categories are decided per top-level item, from that item's own name, and every
+ * file inside it inherits the result: matching the full relative path would let a
+ * folder name ("Foo.GOTY.Edition/") or a game's internal layout ("Data/Patch/x.pak")
+ * pull files out of the game and break it. A release wrapped in a single directory
+ * (optionally next to .nfo/.sfv-style files) is descended into first, so the items
+ * judged are the ones inside it rather than the wrapper itself, unless that
+ * directory's own name marks it as an extra ("Update v1.2/", "Bonus Soundtrack/").
+ */
+export function categorizeRelativeFiles(relFiles: string[]): FileCategoryEntry[] {
+  const split = relFiles.map((name) => ({ name, segments: name.split(path.sep) }));
+
+  // Only the release's own outer wrapper is skipped: descending further would walk
+  // into the game's internal layout ("Game/Data/Patch/") and judge its folders.
+  const children = new Map<string, boolean>();
+  for (const { segments } of split) {
+    const child = segments[0];
+    if (child === undefined) continue;
+    children.set(child, (children.get(child) ?? false) || segments.length > 1);
+  }
+  const dirs = [...children].filter(([, isDir]) => isDir).map(([child]) => child);
+  const files = [...children].filter(([, isDir]) => !isDir).map(([child]) => child);
+  const wrapper = dirs.length === 1 ? dirs[0] : undefined;
+  // A release wrapper holds the game itself, so it has files of its own. A sole
+  // directory with only subdirectories ("Data/Patch/x.pak" at the game root) is
+  // more likely the game's internal layout, which must not be judged item by item.
+  const wrapperHasFiles = split.some(
+    ({ segments }) => segments.length === 2 && segments[0] === wrapper
+  );
+  const depth =
+    wrapper !== undefined &&
+    wrapperHasFiles &&
+    isWrapperDirectory(wrapper) &&
+    files.every((file) => RELEASE_METADATA_FILE.test(file))
+      ? 1
+      : 0;
+
+  const categoryByItem = new Map<string, DownloadCategory>();
+  return split.map(({ name, segments }) => {
+    // Metadata files sitting next to a wrapper belong to the release, not to an extra.
+    if (segments.length <= depth) return { name, category: "main" };
+    const item = segments[depth] ?? name;
+    let category = categoryByItem.get(item);
+    if (category === undefined) {
+      // At the release root, an item already named after a category folder is left
+      // where it is. Inside a wrapper ("Game/DLC/") it gets that folder's category,
+      // so it is moved into the matching category folder like any other item.
+      const reserved = item.toLowerCase();
+      category = SORT_EXTRAS_RESERVED_DIRS.has(reserved)
+        ? depth === 0
+          ? "main"
+          : (reserved as DownloadCategory)
+        : categorizeItemName(item);
+      categoryByItem.set(item, category);
+    }
+    return { name, category };
   });
+}
+
+async function categorizeSourceFiles(
+  sourcePath: string,
+  options: WalkOptions = {}
+): Promise<FileCategoryEntry[]> {
+  const files = await gatherFiles(sourcePath, options);
+  return categorizeRelativeFiles(files.map((filePath) => path.relative(sourcePath, filePath)));
 }
 
 function resolveContainedPath(root: string, candidate: string): string {
@@ -384,7 +481,7 @@ function destinationForFile(gameDir: string, entry: FileCategoryEntry): string {
 // reorganization pass over the destination directory after extraction has already
 // placed everything there.
 export async function reorganizeBySortExtras(destDir: string): Promise<void> {
-  const entries = await categorizeSourceFiles(destDir);
+  const entries = await categorizeSourceFiles(destDir, { skipExtractStaging: true });
   const moves = entries.map((entry) => ({
     currentPath: path.resolve(path.join(destDir, entry.name)),
     desiredPath: path.resolve(destinationForFile(destDir, entry)),
@@ -583,7 +680,7 @@ export class PCImportStrategy implements ImportStrategy {
       transferMode,
       excludePaths
     );
-    const filesPlaced = await gatherFiles(review.proposedPath);
+    const filesPlaced = await gatherFiles(review.proposedPath, { skipExtractStaging: true });
     return {
       destDir: review.proposedPath,
       filesPlaced,

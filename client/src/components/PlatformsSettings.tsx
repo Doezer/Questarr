@@ -10,7 +10,7 @@ import type { IgdbPlatform } from "@shared/platforms";
 import { PlatformPicker } from "./PlatformPicker";
 
 /**
- * Settings → Platforms.
+ * Settings → Appearance → Platforms.
  *
  * One selection governs every platform selector in the app: the Library
  * platform filter, the download-search platform filter, the Discover and

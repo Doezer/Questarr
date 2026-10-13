@@ -3,7 +3,7 @@
 
 image:
   repository: ghcr.io/doezer/questarr
-  # Overrides the image tag; defaults to the chart's appVersion.
+  # Overrides the image tag; defaults to the chart's appVersion with the release tag prefix (v).
   tag: ""
   pullPolicy: IfNotPresent
 

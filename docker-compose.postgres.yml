@@ -23,6 +23,7 @@ services:
       - DATABASE_URL=postgres://questarr:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/questarr
       # - DATABASE_POOL_MAX=10
       # - QUESTARR_BASE_PATH=/Questarr  # Serve from a subdirectory behind a reverse proxy, see docs/REVERSE_PROXY.md
+      # - TRUST_PROXY=1  # Behind a reverse proxy: use real client IPs for rate limits, see docs/REVERSE_PROXY.md
     volumes:
       # Postgres owns your library data, but Questarr still stores config.yaml
       # and other non-database state under /app/data -- keep this mount.

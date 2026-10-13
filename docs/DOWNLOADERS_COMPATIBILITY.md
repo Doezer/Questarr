@@ -12,6 +12,19 @@ This document lists the current compatibility targets for downloaders supported 
 | SABnzbd                   | Supports the current SABnzbd HTTP API, including the `addurl` and multipart `addfile` flows used by Questarr; modern releases such as 5.0.4 are in scope. |
 | NZBGet                    | Supports the NZBGet RPC API used by Questarr, including `append`; the official API documentation covers NZBGet version 13.0 and later.                    |
 
+## Plain HTTP connections
+
+Questarr sends a downloader's password, API key, or Basic Auth header only
+when the request URL is `https://`, or when the downloader has **Allow
+insecure LAN** turned on. The check uses the URL the request actually goes
+to, not just the **Use SSL** switch. Without the opt-in, a connection over
+plain HTTP fails with a "refusing to send … over unencrypted HTTP" error.
+
+Turn the opt-in on only for a downloader on a trusted network that cannot
+use TLS. Upgrading from 1.4.x on SQLite turns it on once for existing HTTP
+downloaders; new downloaders start with it off. See
+[SECRETS.md](SECRETS.md) for the full credential policy.
+
 ## Details
 
 ### Synology Download Station
@@ -27,6 +40,10 @@ Questarr uses the long-lived Transmission RPC interface rather than targeting on
 ### qBittorrent
 
 Questarr targets the qBittorrent WebUI API. Historical documentation exists for qBittorrent 3.2.0 through 4.0.4, while the maintained OpenAPI documentation covers the newer 4.1+ API family.
+
+Older clients can ignore torrent tag filters or tags supplied when adding a
+download. Questarr checks the tags reported on each torrent before associating
+it with a request, and falls back to title matching when add tags are unsupported.
 
 ### SABnzbd
 

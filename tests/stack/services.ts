@@ -13,6 +13,8 @@ import { createWriteStream, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { ZipArchive } from "archiver";
+import { startLegacyQbittorrentProxy } from "./qbittorrent-proxy";
 
 export const STACK_DIR = process.env.STACK_DIR ?? path.join(os.tmpdir(), "questarr-stack");
 export const LIBRARY_ROOT = path.join(STACK_DIR, "library");
@@ -21,6 +23,8 @@ export const QUESTARR_PORT = 5300;
 export const INDEXER = { port: 9117, apiKey: "stack-indexer-key" };
 export const QBITTORRENT = {
   port: 8181,
+  proxyPort: 8182,
+  tagLookupLog: path.join(STACK_DIR, "qbittorrent-tag-lookups.log"),
   username: "questarr",
   password: "stack-qbit-pass",
   downloads: path.join(STACK_DIR, "qbittorrent-downloads"),
@@ -64,6 +68,7 @@ export type ReleaseKey = keyof typeof RELEASES;
 
 /** Name of the main file in every payload; the journey looks for it in the library. */
 export const PAYLOAD_FILE = "setup.bin";
+export const PATCH_PAYLOAD = "Questarr real-stack updated payload";
 
 const PAYLOAD_SIZE = 256 * 1024;
 const PIECE_LENGTH = 32 * 1024;
@@ -92,9 +97,23 @@ interface PayloadFile {
   data: Buffer;
 }
 
-function payloadFiles(title: string): PayloadFile[] {
+async function payloadFiles(title: string, archivePayload: boolean): Promise<PayloadFile[]> {
+  let payload = { name: PAYLOAD_FILE, data: randomBytes(PAYLOAD_SIZE) };
+  if (archivePayload) {
+    const archive = new ZipArchive({ zlib: { level: 0 } });
+    const chunks: Buffer[] = [];
+    const completed = new Promise<Buffer>((resolve, reject) => {
+      archive.on("data", (chunk: Buffer) => chunks.push(chunk));
+      archive.once("end", () => resolve(Buffer.concat(chunks)));
+      archive.once("error", reject);
+    });
+    archive.append(PATCH_PAYLOAD, { name: PAYLOAD_FILE });
+    archive.append("new patch data", { name: "Data/patch.bin" });
+    await archive.finalize();
+    payload = { name: "update.zip", data: await completed };
+  }
   return [
-    { name: PAYLOAD_FILE, data: randomBytes(PAYLOAD_SIZE) },
+    payload,
     { name: "release.nfo", data: Buffer.from(`${title}\nQuestarr real-stack fixture\n`) },
   ];
 }
@@ -302,6 +321,9 @@ dir = ""
 [[games]]
 name = games
 dir = games
+[[questarr-release]]
+name = questarr-release
+dir = questarr-release
 `
   );
 }
@@ -351,7 +373,7 @@ export async function startServices(): Promise<() => Promise<void>> {
       nzbs.set(release.title, buildNzb(release.title));
       continue;
     }
-    const files = payloadFiles(release.title);
+    const files = await payloadFiles(release.title, release === RELEASES.qbittorrent);
     const folder = path.join(release.downloads, release.title);
     mkdirSync(folder, { recursive: true });
     for (const file of files) writeFileSync(path.join(folder, file.name), file.data);
@@ -360,6 +382,11 @@ export async function startServices(): Promise<() => Promise<void>> {
 
   writeClientConfigs();
   const indexer = startFakeIndexer(torrents, nzbs);
+  const legacyProxy = startLegacyQbittorrentProxy(
+    QBITTORRENT.port,
+    QBITTORRENT.proxyPort,
+    QBITTORRENT.tagLookupLog
+  );
   const children = [
     spawnLogged("qbittorrent", "qbittorrent-nox", [
       `--profile=${path.join(STACK_DIR, "qbittorrent")}`,
@@ -386,6 +413,7 @@ export async function startServices(): Promise<() => Promise<void>> {
   const stop = async () => {
     for (const child of children) child.kill("SIGTERM");
     await new Promise<void>((resolve) => indexer.close(() => resolve()));
+    await new Promise<void>((resolve) => legacyProxy.close(() => resolve()));
   };
 
   try {

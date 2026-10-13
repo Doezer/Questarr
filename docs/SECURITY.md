@@ -39,6 +39,7 @@ Questarr uses SQLite, not PostgreSQL — the provided `docker-compose.yml` does 
 ### 3. Network Security
 
 - Run the application behind a reverse proxy (like Nginx or Traefik) with SSL/TLS enabled (HTTPS).
+- Behind a reverse proxy, set `TRUST_PROXY=1` (or the proxy's IP/subnet) so rate limits use real client IPs. Leave it unset when Questarr is reached directly: it would let clients forge their IP with `X-Forwarded-For`. See [REVERSE_PROXY.md](REVERSE_PROXY.md#3-trust-the-proxy-trust_proxy).
 - `HOST` defaults to `0.0.0.0` (all network interfaces) in every deployment mode, not just Docker. Set `HOST=127.0.0.1` if the app should only be reachable through a local reverse proxy.
 
 ### 4. Authentication

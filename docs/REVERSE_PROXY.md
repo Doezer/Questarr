@@ -105,7 +105,40 @@ xxx.domain.com {
 }
 ```
 
-## 3. Verify
+## 3. Trust the proxy (`TRUST_PROXY`)
+
+Questarr ignores `X-Forwarded-For` and `X-Forwarded-Proto` unless you tell it
+a reverse proxy sits in front. Behind a proxy, set `TRUST_PROXY` so that:
+
+- rate limits, including the login limit, count each real client IP instead
+  of treating every request as coming from the proxy;
+- session cookies get the `Secure` flag when the proxy terminates HTTPS.
+
+```yaml
+services:
+  app:
+    environment:
+      - TRUST_PROXY=1
+```
+
+Accepted values:
+
+| Value                           | Meaning                                                                                                                                                           |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| unset, `false`, `0`             | Default. Trust no proxy; the client IP is the TCP peer.                                                                                                           |
+| `1` to `10`                     | Number of proxy hops in front of Questarr. `1` fits a single nginx/Traefik/Caddy. `true` means `1`.                                                               |
+| IPs or subnets, comma-separated | Trust only these proxies, e.g. `172.16.0.0/12` for a Docker network, or `loopback` for a proxy on the same host. `linklocal` and `uniquelocal` are also accepted. |
+
+Only set it when every request really goes through the proxy. If the Questarr
+port is also reachable directly, anyone hitting it can forge
+`X-Forwarded-For` and pick their own IP for the rate limits; prefer the
+subnet form then, or bind Questarr to `127.0.0.1` / an internal network. An
+invalid value stops startup with an error.
+
+Your proxy must send `X-Forwarded-For` and `X-Forwarded-Proto` (the nginx
+example above does; Traefik and Caddy do by default).
+
+## 4. Verify
 
 Visit `https://xxx.domain.com/Questarr/`. Login, navigation, API calls, and
 real-time download/notification updates should all work normally under the

@@ -3,6 +3,7 @@ import { accessSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
 import fs from "fs-extra";
 import { logger } from "../logger.js";
+import { EXTRACT_STAGING_PREFIX } from "./extract-staging.js";
 
 type ArchiveTool = "7zip" | "unrar";
 type ExecFileResult = { stdout: string; stderr: string };
@@ -322,6 +323,16 @@ function validateArchiveEntries(entries: ArchiveEntry[], outputDir: string): voi
   }
 }
 
+// Merges into the library run one at a time, process-wide: each is a quick series of
+// renames, and serializing them means a merge's rollback can never overwrite or remove
+// what a concurrent import into the same (or an overlapping) folder just placed.
+let mergeQueue: Promise<unknown> = Promise.resolve();
+function serializeMerge<T>(fn: () => Promise<T>): Promise<T> {
+  const run = mergeQueue.then(fn, fn);
+  mergeQueue = run.catch(() => undefined);
+  return run;
+}
+
 export class ArchiveService {
   // -y: assume yes on any prompt; -p<password> supplies a password when one is given,
   // otherwise -p- refuses to prompt for one (fail instead of hanging on an encrypted
@@ -416,28 +427,145 @@ export class ArchiveService {
     );
   }
 
-  private async listExtractedFiles(outputDir: string): Promise<string[]> {
-    const results: string[] = [];
-    const walk = async (dir: string): Promise<void> => {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
+  /**
+   * Moves everything under stagingDir into destDir, merging directories and replacing
+   * same-named files, and leaves every other file already in destDir untouched.
+   *
+   * Every conflict is checked before the first file moves, so a refused merge leaves
+   * destDir exactly as it was: a file and a directory at the same path, an existing
+   * symlink where the archive has a directory (descending into it would write outside
+   * destDir), or a top-level entry using the staging directory's reserved name. A file
+   * being replaced is first set aside in backupDir, so an I/O failure part-way through
+   * the moves restores every file already replaced and removes every file already added.
+   * @returns Final paths (under destDir) of the files moved.
+   */
+  /** Hard-links `src` to `dest`, copying instead when linking is not possible; never leaves a partial copy. */
+  private async backupFile(src: string, dest: string): Promise<void> {
+    try {
+      await fs.link(src, dest);
+      return;
+    } catch {
+      // Cross-device or unsupported filesystem: fall back to a copy.
+    }
+    try {
+      await fs.copy(src, dest, { preserveTimestamps: true });
+    } catch (err) {
+      await fs.remove(dest).catch(() => undefined);
+      throw err;
+    }
+  }
+
+  private async mergeExtracted(
+    stagingDir: string,
+    destDir: string,
+    backupDir: string
+  ): Promise<string[]> {
+    const dirsToCreate: string[] = [];
+    const filesToMove: Array<{ from: string; to: string; replaces: boolean }> = [];
+
+    const plan = async (srcDir: string, targetDir: string): Promise<void> => {
+      const entries = await fs.readdir(srcDir, { withFileTypes: true });
       for (const entry of entries) {
-        const entryPath = path.join(dir, entry.name);
+        const srcPath = path.join(srcDir, entry.name);
+        const targetPath = path.join(targetDir, entry.name);
+        if (srcDir === stagingDir && entry.name.startsWith(EXTRACT_STAGING_PREFIX)) {
+          throw new Error(
+            `Archive contains "${entry.name}", a name reserved for Questarr's extraction staging directory`
+          );
+        }
+        const existing = await fs.lstat(targetPath).catch(() => undefined);
         if (entry.isDirectory()) {
-          await walk(entryPath);
+          if (existing?.isSymbolicLink()) {
+            throw new Error(
+              `Cannot extract into ${targetPath}: it is a symbolic link — replace it with a real directory and retry`
+            );
+          }
+          if (existing && !existing.isDirectory()) {
+            throw new Error(
+              `Cannot extract directory over existing file ${targetPath} — move or delete it and retry`
+            );
+          }
+          if (!existing) dirsToCreate.push(targetPath);
+          await plan(srcPath, targetPath);
         } else {
-          results.push(entryPath);
+          if (existing?.isDirectory()) {
+            throw new Error(
+              `Cannot extract file over existing directory ${targetPath} — move or delete it and retry`
+            );
+          }
+          // A symlink at a file's path is replaced by the rename itself, never followed.
+          filesToMove.push({ from: srcPath, to: targetPath, replaces: !!existing });
         }
       }
     };
-    await walk(outputDir);
-    return results;
+    await plan(stagingDir, destDir);
+
+    // A replaced file is backed up by hard link (a copy when the filesystem has none),
+    // then the new version is renamed over it in one atomic step: the installed file is
+    // never missing, even if the process dies mid-merge. Rollback only touches what this
+    // merge itself put in place (a file is recorded as done after its own rename lands),
+    // and merges are serialized (serializeMerge), so no other import writes these paths
+    // while this one runs.
+    const done: Array<{ to: string; backup: string | undefined }> = [];
+    try {
+      for (const dir of dirsToCreate) await fs.ensureDir(dir);
+      if (filesToMove.some(({ replaces }) => replaces)) await fs.ensureDir(backupDir);
+      for (const [index, { from, to, replaces }] of filesToMove.entries()) {
+        if (replaces) {
+          const backup = path.join(backupDir, String(index));
+          await this.backupFile(to, backup);
+          try {
+            await fs.rename(from, to);
+          } catch (err) {
+            // The original is untouched when the rename fails; drop its now-useless backup.
+            await fs.remove(backup).catch(() => undefined);
+            throw err;
+          }
+          done.push({ to, backup });
+        } else {
+          await fs.move(from, to);
+          done.push({ to, backup: undefined });
+        }
+      }
+    } catch (err) {
+      let unrestored = 0;
+      const leftovers: string[] = [];
+      const restore = async (to: string, backup: string | undefined): Promise<void> => {
+        await (backup ? fs.rename(backup, to) : fs.remove(to)).catch((rollbackErr: unknown) => {
+          if (backup) unrestored++;
+          else leftovers.push(to);
+          logger.error(
+            { err: rollbackErr, path: to, backup },
+            "Could not roll back extracted file"
+          );
+        });
+      };
+      for (const { to, backup } of done.reverse()) await restore(to, backup);
+      for (const dir of [...dirsToCreate].reverse()) {
+        await fs.rmdir(dir).catch(() => undefined);
+      }
+      if (unrestored > 0 || leftovers.length > 0) {
+        const detail = err instanceof Error ? err.message : String(err);
+        const problems = [
+          unrestored > 0 &&
+            `${unrestored} original file(s) that could not be restored are kept in ${backupDir}`,
+          leftovers.length > 0 &&
+            `extracted file(s) that could not be removed: ${leftovers.join(", ")}`,
+        ].filter(Boolean);
+        throw new Error(`${detail} (rollback incomplete: ${problems.join("; ")})`, {
+          cause: err,
+        });
+      }
+      throw err;
+    }
+    return filesToMove.map(({ to }) => to);
   }
 
   private async extractWithUnrar(
     filePath: string,
     outputDir: string,
     password?: string
-  ): Promise<string[]> {
+  ): Promise<void> {
     // Trailing separator tells unrar the operand is a destination directory. -idq suppresses
     // the per-file "Extracting..." progress output — without it, a large multi-file archive
     // can exceed execFile's maxBuffer and fail with ERR_CHILD_PROCESS_STDIO_MAXBUFFER after
@@ -451,14 +579,13 @@ export class ArchiveService {
       filePath,
       outputDir + path.sep,
     ]);
-    return this.listExtractedFiles(outputDir);
   }
 
   private async extractWith7zip(
     filePath: string,
     outputDir: string,
     password?: string
-  ): Promise<string[]> {
+  ): Promise<void> {
     // -bso0/-bsp0 silence 7-Zip's normal output and progress streams for the same
     // maxBuffer-overflow reason as unrar's -idq above.
     await runSevenZip([
@@ -471,7 +598,6 @@ export class ArchiveService {
       "--",
       filePath,
     ]);
-    return this.listExtractedFiles(outputDir);
   }
 
   /**
@@ -494,44 +620,58 @@ export class ArchiveService {
     validateArchiveEntries(entries, outputDir);
     await this.testArchive(filePath, tool, password);
 
-    // Always start from a clean output directory: a prior extraction attempt that was
-    // killed before its own cleanup ran (e.g. a container restart) can leave stale files
-    // behind at this same path, which would otherwise get reported alongside — or instead
-    // of — the files this run actually extracts. Can't unconditionally fs.emptyDir() it
-    // though: ImportManager's move/copy import modes relocate the raw archive into
-    // outputDir before calling extract() (extracting in place at the library
-    // destination), so wiping the directory here would delete the very file about to be
-    // read, and every extraction attempt would fail with a "file not found" from the
-    // archive tool. When the archive already lives in outputDir, clear everything else
-    // and leave it in place instead.
-    const resolvedFilePath = path.resolve(filePath);
-    const resolvedOutputDir = path.resolve(outputDir);
-    if (path.dirname(resolvedFilePath) === resolvedOutputDir) {
-      const entries = await fs.readdir(outputDir, { withFileTypes: true });
-      const archiveVolumes = new Set(
-        this.findVolumeSiblings(
-          resolvedFilePath,
-          entries.map((entry) => path.join(outputDir, entry.name))
-        ).map((entryPath) => path.resolve(entryPath))
-      );
-      await Promise.all(
-        entries
-          .filter((entry) => !archiveVolumes.has(path.resolve(outputDir, entry.name)))
-          .map((entry) => fs.remove(path.join(outputDir, entry.name)))
-      );
-    } else {
-      await fs.emptyDir(outputDir);
-    }
+    // Extract into a private staging directory inside outputDir, then merge the result
+    // into outputDir without deleting anything already there. outputDir is the game's
+    // folder in the library (ImportManager extracts straight into the destination), so it
+    // can already hold an installed copy of the game — a patch or update being imported
+    // over it must only add or replace the files it ships, never wipe the install.
+    // Staging also keeps a failed extraction from half-overwriting that install. Each run
+    // gets its own uniquely named staging directory, so two imports into the same folder
+    // can't delete or mix each other's output. It sits inside outputDir so the merge is a
+    // same-filesystem rename, and its reserved name can't collide with the archive volumes
+    // the move/copy modes relocate into outputDir before extracting.
+    await fs.ensureDir(outputDir);
+    const stagingDir = await fs.mkdtemp(path.join(outputDir, EXTRACT_STAGING_PREFIX));
+    const backupDir = `${stagingDir}.bak`;
 
     let extractedFiles: string[];
+    let merged = false;
     try {
-      extractedFiles =
-        tool === "unrar"
-          ? await this.extractWithUnrar(filePath, outputDir, password)
-          : await this.extractWith7zip(filePath, outputDir, password);
+      if (tool === "unrar") {
+        await this.extractWithUnrar(filePath, stagingDir, password);
+      } else {
+        await this.extractWith7zip(filePath, stagingDir, password);
+      }
+      extractedFiles = await serializeMerge(() =>
+        this.mergeExtracted(stagingDir, outputDir, backupDir)
+      );
+      merged = true;
     } catch (err) {
       logger.error({ err, filePath, tool }, "Extraction failed");
       throw err;
+    } finally {
+      await fs.remove(stagingDir).catch((err: unknown) => {
+        logger.warn({ err, dir: stagingDir }, "Could not remove extraction staging directory");
+      });
+      // After a successful merge the backups are the replaced originals, no longer needed.
+      // After a failed one a complete rollback leaves the directory empty; anything still
+      // in it is an original file the rollback couldn't put back, so it is kept.
+      if (merged) {
+        await fs.remove(backupDir).catch((err: unknown) => {
+          logger.warn(
+            { err, dir: backupDir },
+            "Could not remove extraction backup directory; it only holds replaced files and can be deleted"
+          );
+        });
+      } else {
+        await fs.rmdir(backupDir).catch((err: NodeJS.ErrnoException) => {
+          if (err.code === "ENOENT") return;
+          logger.warn(
+            { err, dir: backupDir },
+            "Extraction backup directory left in place after a failed import; check its files before deleting it"
+          );
+        });
+      }
     }
 
     if (extractedFiles.length === 0) {
@@ -546,10 +686,17 @@ export class ArchiveService {
     return extractedFiles;
   }
 
-  isArchive(filePath: string): boolean {
+  /**
+   * Disc images (.iso, .iso.NNN) only count when `includeDiscImages` is set, for an
+   * explicit unpack request: console games and most PC releases are used as the image
+   * itself (loaded by an emulator or mounted), so auto-unpacking one would replace a
+   * working game with loose, unusable files.
+   */
+  isArchive(filePath: string, options?: { includeDiscImages?: boolean }): boolean {
     const name = path.basename(filePath).toLowerCase();
     const ext = path.extname(name);
-    if ([".zip", ".7z", ".rar", ".gz", ".tar", ".iso", ".bz2"].includes(ext)) return true;
+    if (/\.iso(\.\d{3})?$/i.test(name)) return options?.includeDiscImages === true;
+    if ([".zip", ".7z", ".rar", ".gz", ".tar", ".bz2"].includes(ext)) return true;
     // Numbered multi-volume continuations don't carry a recognized extname on their own
     // (path.extname("game.7z.001") is ".001") but are still archives: classic RAR .rNN,
     // 7-Zip/zip .NNN splits ("game.7z.001", "game.zip.002"), and a bare "game.001" with

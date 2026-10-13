@@ -88,6 +88,22 @@ describe("Backlog roulette", () => {
     expect(screen.getByText("Chosen from 2 matching games.")).toBeVisible();
   });
 
+  it("restricts the draw to the given pools and hides Mark as Playing without a handler", async () => {
+    render(
+      <BacklogRoulette
+        games={[game("owned"), game("playing", "playing")]}
+        loading={false}
+        pools={["playing"]}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest playing");
+    expect(screen.getByText("Chosen from 1 matching game.")).toBeVisible();
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Pick from" }), { key: "ArrowDown" });
+    expect(await screen.findAllByRole("option")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Mark as Playing" })).not.toBeInTheDocument();
+  });
+
   it("does not draw while loading and discards a choice removed by updated filters", () => {
     const props = { games: [game("a")], loading: true, onStartPlaying: vi.fn() };
     const { rerender } = render(<BacklogRoulette {...props} />);

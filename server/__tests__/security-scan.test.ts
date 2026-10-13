@@ -79,9 +79,14 @@ vi.mock("node:net", () => {
     }
     write(data: Buffer | string) {
       if (Buffer.isBuffer(data) && data.length === 4 && data.readUInt32BE(0) === 0) {
-        const resp = clamAvTestState.responseQueue.shift() ?? "stream: OK\0";
+        const queued = clamAvTestState.responseQueue.shift() ?? "stream: OK\0";
+        // "RESET:" replies mimic clamd refusing a stream: it answers, then resets
+        // the connection, which Node reports as an error before the close.
+        const reset = queued.startsWith("RESET:");
+        const resp = reset ? queued.slice("RESET:".length) : queued;
         queueMicrotask(() => {
           this.emit("data", Buffer.from(resp));
+          if (reset) this.emit("error", new Error("read ECONNRESET"));
           this.emit("close");
         });
       }
@@ -105,6 +110,8 @@ import {
   readVirusTotalSettings,
   readClamAvSettings,
   SecurityScanService,
+  MAX_CLAMAV_SCAN_FILES,
+  CLAMAV_TOTAL_SCAN_BUDGET_MS,
 } from "../security-scan.js";
 
 function mockStorage(config: Record<string, string | undefined>) {
@@ -344,21 +351,136 @@ describe("SecurityScanService.scan", () => {
     await expect(service.scan(filePath)).resolves.toEqual({ blocked: false });
   });
 
-  it("fails open when ClamAV cannot be reached", async () => {
+  it("holds the download for review when ClamAV cannot be reached", async () => {
     vi.mocked(resolveSafeAddress).mockRejectedValue(new Error("unsafe host"));
     const service = new SecurityScanService(
       mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "evil" })
     );
-    await expect(service.scan(filePath)).resolves.toEqual({ blocked: false });
+    const result = await service.scan(filePath);
+    expect(result).toMatchObject({ blocked: false, incomplete: true, source: "clamav" });
   });
 
-  it("fails open when the ClamAV socket errors mid-scan", async () => {
+  it("holds the download for review when the ClamAV socket errors mid-scan", async () => {
     vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
     clamAvTestState.forceConnectError = "ECONNREFUSED";
     const service = new SecurityScanService(
       mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
     );
-    await expect(service.scan(filePath)).resolves.toEqual({ blocked: false });
+    const result = await service.scan(filePath);
+    expect(result).toMatchObject({ blocked: false, incomplete: true, source: "clamav" });
+  });
+
+  it("stops scanning a directory at the first ClamAV failure instead of retrying every file", async () => {
+    const dir = path.join(tmpDir, "release-unreachable");
+    fs.mkdirSync(dir);
+    for (const name of ["a.bin", "b.bin", "c.bin"]) {
+      fs.writeFileSync(path.join(dir, name), "x");
+    }
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
+    clamAvTestState.forceConnectError = "ETIMEDOUT";
+    const service = new SecurityScanService(
+      mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
+    );
+    const result = await service.scan(dir);
+    expect(result).toMatchObject({ blocked: false, incomplete: true });
+    expect(clamAvTestState.createdSockets).toHaveLength(1);
+  });
+
+  it("holds the download for review when clamd refuses a file and the rest are clean", async () => {
+    const dir = path.join(tmpDir, "release-refused-clean");
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, "a.bin"), "x");
+    fs.writeFileSync(path.join(dir, "b.bin"), "y");
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
+    clamAvTestState.responseQueue = ["RESET:INSTREAM size limit exceeded. ERROR\0", "stream: OK\0"];
+    const service = new SecurityScanService(
+      mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
+    );
+    const result = await service.scan(dir);
+    expect(result).toMatchObject({ blocked: false, incomplete: true, source: "clamav" });
+    expect(result.reason).toContain("1 file(s)");
+    expect(result.reason).toContain("StreamMaxLength");
+    expect(clamAvTestState.createdSockets).toHaveLength(2);
+  });
+
+  it("keeps scanning the other files when clamd refuses one file", async () => {
+    const dir = path.join(tmpDir, "release-with-big-file");
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, "a.bin"), "x");
+    fs.writeFileSync(path.join(dir, "b.bin"), "y");
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
+    // Whichever file is scanned first is refused; the other one is still checked.
+    clamAvTestState.responseQueue = [
+      "INSTREAM size limit exceeded. ERROR\0",
+      "stream: Eicar-Test-Signature FOUND\0",
+    ];
+    const service = new SecurityScanService(
+      mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
+    );
+    const result = await service.scan(dir);
+    expect(result.blocked).toBe(true);
+    expect(clamAvTestState.createdSockets).toHaveLength(2);
+  });
+
+  it("keeps scanning when clamd resets the connection after refusing an oversized file", async () => {
+    const dir = path.join(tmpDir, "release-with-reset");
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, "a.bin"), "x");
+    fs.writeFileSync(path.join(dir, "b.bin"), "y");
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
+    clamAvTestState.responseQueue = [
+      "RESET:INSTREAM size limit exceeded. ERROR\0",
+      "stream: Eicar-Test-Signature FOUND\0",
+    ];
+    const service = new SecurityScanService(
+      mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
+    );
+    const result = await service.scan(dir);
+    expect(result.blocked).toBe(true);
+    expect(clamAvTestState.createdSockets).toHaveLength(2);
+  });
+
+  it("reports the download as incomplete once the total scan budget runs out", async () => {
+    const dir = path.join(tmpDir, "release-slow-clamd");
+    fs.mkdirSync(dir);
+    for (const name of ["a.bin", "b.bin", "c.bin"]) {
+      fs.writeFileSync(path.join(dir, name), "x");
+    }
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
+    clamAvTestState.responseQueue = ["stream: OK\0", "stream: OK\0", "stream: OK\0"];
+    // Each file takes longer than the whole budget, as with a slow but responsive clamd.
+    let now = 0;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => {
+      now += CLAMAV_TOTAL_SCAN_BUDGET_MS;
+      return now;
+    });
+    try {
+      const service = new SecurityScanService(
+        mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
+      );
+      const result = await service.scan(dir);
+      expect(result.blocked).toBe(false);
+      expect(result.incomplete).toBe(true);
+      expect(clamAvTestState.createdSockets.length).toBeLessThan(3);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("stops scanning when clamd closes the connection without a reply", async () => {
+    const dir = path.join(tmpDir, "release-empty-reply");
+    fs.mkdirSync(dir);
+    for (const name of ["a.bin", "b.bin", "c.bin"]) {
+      fs.writeFileSync(path.join(dir, name), "x");
+    }
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
+    clamAvTestState.responseQueue = ["", "stream: OK\0", "stream: OK\0"];
+    const service = new SecurityScanService(
+      mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
+    );
+    const result = await service.scan(dir);
+    expect(result).toMatchObject({ blocked: false, incomplete: true });
+    expect(clamAvTestState.createdSockets).toHaveLength(1);
   });
 
   it("scans every file in a directory download", async () => {
@@ -375,11 +497,26 @@ describe("SecurityScanService.scan", () => {
     expect(clamAvTestState.createdSockets).toHaveLength(2);
   });
 
-  it("blocks rather than partially scanning a directory with more files than the scan cap", async () => {
+  it("scans and accepts a clean download with more than 100 files", async () => {
+    const dir = path.join(tmpDir, "extracted-game");
+    fs.mkdirSync(dir);
+    for (let i = 0; i < 150; i++) {
+      fs.writeFileSync(path.join(dir, `file-${i}.bin`), "x");
+    }
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
+    clamAvTestState.responseQueue = Array.from({ length: 150 }, () => "stream: OK\0");
+    const service = new SecurityScanService(
+      mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
+    );
+    await expect(service.scan(dir)).resolves.toEqual({ blocked: false });
+    expect(clamAvTestState.createdSockets).toHaveLength(150);
+  });
+
+  it("reports a directory past the scan cap as incomplete, not blocked", async () => {
     const dir = path.join(tmpDir, "huge-release");
     fs.mkdirSync(dir);
-    // One more file than the 100-file cap so enumeration is truncated.
-    for (let i = 0; i < 101; i++) {
+    // One more file than the cap so enumeration is truncated.
+    for (let i = 0; i <= MAX_CLAMAV_SCAN_FILES; i++) {
       fs.writeFileSync(path.join(dir, `file-${i}.bin`), "x");
     }
     vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "10.0.0.5", family: 4 });
@@ -387,14 +524,15 @@ describe("SecurityScanService.scan", () => {
       mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
     );
     const result = await service.scan(dir);
-    expect(result.blocked).toBe(true);
+    expect(result.blocked).toBe(false);
+    expect(result.incomplete).toBe(true);
     expect(result.source).toBe("clamav");
     // No file should have been scanned — a partial scan must never be
     // reported as "no infection found" instead of "not fully checked".
     expect(clamAvTestState.createdSockets).toHaveLength(0);
   });
 
-  it("blocks rather than treating an unreadable subdirectory as empty", async () => {
+  it("reports an unreadable subdirectory as incomplete rather than empty", async () => {
     const dir = path.join(tmpDir, "release-with-locked-subdir");
     fs.mkdirSync(dir);
     fs.writeFileSync(path.join(dir, "readme.txt"), "hello");
@@ -423,7 +561,8 @@ describe("SecurityScanService.scan", () => {
         mockStorage({ "security.clamav.enabled": "true", "security.clamav.host": "clamav" })
       );
       const result = await service.scan(dir);
-      expect(result.blocked).toBe(true);
+      expect(result.blocked).toBe(false);
+      expect(result.incomplete).toBe(true);
       expect(result.source).toBe("clamav");
       // The unreadable subdirectory must never be silently treated as
       // empty — that would let a file hidden inside it bypass scanning.

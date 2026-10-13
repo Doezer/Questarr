@@ -1,3 +1,4 @@
+import { isSameProwlarrUrl } from "../shared/prowlarr-url.js";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
@@ -84,7 +85,11 @@ import {
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
 import { prowlarrClient } from "./prowlarr.js";
-import { loadProwlarrSyncSettings, saveProwlarrSyncSettings } from "./prowlarr-settings.js";
+import {
+  loadProwlarrSyncSettings,
+  saveProwlarrSyncSettings,
+  revokeProwlarrHttpOptIn,
+} from "./prowlarr-settings.js";
 import { isSafeUrl, safeFetch, resolveSafeAddress, normalizeHostname } from "./ssrf.js";
 import {
   hashPassword,
@@ -1652,11 +1657,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // be sent to a different host.
         if (isUnchangedSentinel(apiKey)) {
           const saved = await loadProwlarrSyncSettings();
-          if (!saved?.apiKey || saved.url !== url) {
+          if (!saved?.apiKey || !isSameProwlarrUrl(saved.url, url)) {
             return res.status(400).json({ error: "Enter the Prowlarr API key again for this URL" });
           }
           apiKey = saved.apiKey;
         }
+
+        // Revocation is local: it must also work when DNS validation fails.
+        if (allowInsecureLan === false) await revokeProwlarrHttpOptIn(url);
 
         if (!(await isSafeUrl(url))) {
           return res.status(400).json({ error: "Invalid or unsafe URL" });

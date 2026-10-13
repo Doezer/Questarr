@@ -48,6 +48,7 @@ vi.mock("../library-scanner.js", () => ({
 }));
 
 import { importRouter } from "../routes/import.js";
+import { IncompleteScanError } from "../services/ImportManager.js";
 import { rescanAllEnabledRootFolders } from "../library-scanner.js";
 import { makeImportConfig, createImportTestApp } from "./helpers/import-test-helpers.js";
 
@@ -484,6 +485,22 @@ describe("POST /api/imports/:id/confirm — Source path error", () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error).toMatch(/not found/i);
+  });
+
+  it("returns the incomplete-scan reason so the user can see it before confirming again", async () => {
+    mockImportManager.confirmImport.mockRejectedValue(
+      new IncompleteScanError(
+        "ClamAV did not scan this download. Confirm again to import it anyway."
+      )
+    );
+
+    const res = await request(createApp()).post("/api/imports/dl-1/confirm").send({
+      strategy: "pc",
+      proposedPath: "/data/PC/game",
+    });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/ClamAV did not scan/);
   });
 
   it("returns 500 on unexpected confirm error", async () => {

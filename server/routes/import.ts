@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { storage } from "../storage.js";
 import { importManager, platformMappingService } from "../services/index.js";
-import { ARCHIVE_PASSWORD_REQUIRED_PREFIX } from "../services/ImportManager.js";
+import {
+  ARCHIVE_PASSWORD_REQUIRED_PREFIX,
+  IncompleteScanError,
+} from "../services/ImportManager.js";
 import { ArchivePasswordRequiredError } from "../services/ArchiveService.js";
 import { routesLogger as logger } from "../logger.js";
 import { rescanAllEnabledRootFolders } from "../library-scanner.js";
@@ -640,6 +643,9 @@ importRouter.post("/:id/confirm", async (req, res) => {
     }
     if (error instanceof ArchivePasswordRequiredError) {
       return res.status(400).json({ error: error.message, passwordRequired: true });
+    }
+    if (error instanceof IncompleteScanError) {
+      return res.status(409).json({ error: error.message });
     }
     if (error instanceof Error) {
       if (

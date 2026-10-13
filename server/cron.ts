@@ -24,7 +24,9 @@ import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   ACQUIRED_GAME_STATUSES,
   isUserCuratedGameStatus,
+  type DownloadStatus,
   type Game,
+  type GameDownload,
   type InsertNotification,
   type NotificationEvent,
   type NotificationPreferences,
@@ -57,6 +59,51 @@ const DOWNLOAD_MISS_THRESHOLD = 3;
 // "downloading" forever.
 const downloadTagMissCount = new Map<string, number>();
 const ASYNC_TAG_RESOLVE_THRESHOLD = 3;
+
+// When a torrent client first reported an error for a download. Torrent errors are
+// often transient (a tracker message in rTorrent, Transmission's errorString, a
+// qBittorrent missingFiles while a disk remounts), so the download keeps being
+// tracked until the error has lasted this long. Usenet failures are final.
+const downloadErrorSince = new Map<string, number>();
+const TORRENT_ERROR_GRACE_MS = 30 * 60 * 1000;
+
+// Last state the client reported for each tracked download. When a download
+// vanishes, this tells "removed right after finishing" (clients that purge
+// completed jobs) apart from "removed mid-download".
+const lastSeenRemote = new Map<string, { progress: number; status: DownloadStatus["status"] }>();
+const PROBABLY_FINISHED_PROGRESS = 90;
+const PROBABLY_FINISHED_STATUSES = new Set<DownloadStatus["status"]>([
+  "completed",
+  "seeding",
+  "unpacking",
+  "repairing",
+]);
+
+const ACTIVE_DOWNLOAD_STATUSES = new Set([
+  "downloading",
+  "paused",
+  "unpacking",
+  "completed_pending_import",
+]);
+
+// Download statuses that mean the release itself didn't work out; auto-search
+// won't grab the same release again for that game.
+const FAILED_DOWNLOAD_STATUSES = new Set(["failed", "error"]);
+
+let downloadStatusCheckRunning = false;
+
+/** Clears the in-memory per-download tracking. Test isolation only. */
+export function resetDownloadStatusTracking(): void {
+  for (const tracked of [
+    downloadMissCount,
+    downloadTagMissCount,
+    downloadErrorSince,
+    lastSeenRemote,
+  ]) {
+    tracked.clear();
+  }
+  downloadStatusCheckRunning = false;
+}
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interval gates actual sync)
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
@@ -677,7 +724,25 @@ export async function checkGameUpdates() {
   );
 }
 
+/**
+ * Polls every download client for the downloads Questarr tracks and moves each one
+ * along: completion (and import), errors, and downloads that vanished from the client.
+ * A run that is still going when the next tick fires makes that tick a no-op.
+ */
 export async function checkDownloadStatus() {
+  if (downloadStatusCheckRunning) {
+    igdbLogger.debug("Previous download status check still running — skipping this tick");
+    return;
+  }
+  downloadStatusCheckRunning = true;
+  try {
+    await runDownloadStatusCheck();
+  } finally {
+    downloadStatusCheckRunning = false;
+  }
+}
+
+async function runDownloadStatusCheck() {
   const downloadingDownloads = await storage.getDownloadingGameDownloads();
 
   if (downloadingDownloads.length === 0) {
@@ -693,11 +758,13 @@ export async function checkDownloadStatus() {
       downloadMissCount.delete(key);
     }
   });
-  downloadTagMissCount.forEach((_, key) => {
-    if (!activeDownloadIds.has(key)) {
-      downloadTagMissCount.delete(key);
-    }
-  });
+  for (const tracked of [downloadTagMissCount, downloadErrorSince, lastSeenRemote]) {
+    tracked.forEach((_, key) => {
+      if (!activeDownloadIds.has(key)) {
+        tracked.delete(key);
+      }
+    });
+  }
 
   // Group by downloader
   const downloadsByDownloader = new Map<string, typeof downloadingDownloads>();
@@ -713,7 +780,12 @@ export async function checkDownloadStatus() {
       const downloader = await storage.getDownloader(downloaderId);
       if (!downloader || !downloader.enabled) continue;
 
-      const activeDownloads = await DownloaderManager.getAllDownloads(downloader);
+      // throwOnError: an unreachable client must not look like a client that
+      // no longer has any of our downloads, or an outage would mark them all
+      // failed. The catch at the bottom skips this downloader for the tick.
+      const activeDownloads = await DownloaderManager.getAllDownloads(downloader, {
+        throwOnError: true,
+      });
       const activeDownloadMap = new Map(activeDownloads.map((t) => [t.id.toLowerCase(), t]));
 
       igdbLogger.debug(
@@ -792,14 +864,8 @@ export async function checkDownloadStatus() {
               // only when no sibling download for the same game is still
               // actively downloading.
               const siblings = await storage.getDownloadsByGameId(download.gameId);
-              const activeStatuses = new Set([
-                "downloading",
-                "paused",
-                "unpacking",
-                "completed_pending_import",
-              ]);
               const hasActiveSibling = siblings.some(
-                (s) => s.id !== download.id && activeStatuses.has(s.status)
+                (s) => s.id !== download.id && ACTIVE_DOWNLOAD_STATUSES.has(s.status)
               );
               if (!hasActiveSibling) {
                 const failedGame = await storage.getGame(download.gameId);
@@ -837,15 +903,23 @@ export async function checkDownloadStatus() {
           }
         }
 
-        // Skip rows whose import is already in flight — the earlier tick's
+        // Skip rows whose import is already in flight — an earlier tick's
         // processImport() is still extracting (large archives take minutes).
         // Re-invoking here would start a second extraction into the same
         // directory and clobber the in-flight one.
-        if (download.status === "unpacking" || download.status === "completed_pending_import") {
+        if (importManager.isImportInFlight(download.id)) {
           igdbLogger.debug(
             { downloadId: download.id, status: download.status },
             "Skipping download — import already in progress"
           );
+          continue;
+        }
+
+        // A mid-import status with no import running means the process stopped
+        // (restart, crash) while importing. Nothing would ever pick the row up
+        // again, so hand it to the user through Pending Imports.
+        if (download.status === "unpacking" || download.status === "completed_pending_import") {
+          await recoverInterruptedImport(download);
           continue;
         }
 
@@ -884,6 +958,13 @@ export async function checkDownloadStatus() {
         if (remoteDownload) {
           // Clear any previous miss count — download is alive.
           downloadMissCount.delete(download.id);
+          lastSeenRemote.set(download.id, {
+            progress: remoteDownload.progress,
+            status: remoteDownload.status,
+          });
+          if (remoteDownload.status !== "error") {
+            downloadErrorSince.delete(download.id);
+          }
 
           igdbLogger.debug(
             {
@@ -933,14 +1014,15 @@ export async function checkDownloadStatus() {
                   ...details,
                   downloadDir: details.downloadDir,
                 });
-                try {
-                  await importManager.processImport(download.id, remoteImportPath);
-                } catch (error) {
+                // Not awaited: an extraction can take many minutes, and this tick
+                // still has other downloads to check. ImportManager tracks the
+                // running import, which the next ticks skip.
+                importManager.processImport(download.id, remoteImportPath).catch((error) => {
                   igdbLogger.error(
                     { error, downloadId: download.id, remoteImportPath },
                     "Failed to start import pipeline after download completion"
                   );
-                }
+                });
               } else {
                 shouldSendCompletionNotification = false;
                 await storage.updateGameDownloadStatus(download.id, "manual_review_required");
@@ -1019,15 +1101,37 @@ export async function checkDownloadStatus() {
             let isDefinitiveError = false;
 
             if (remoteDownload.status === "error") {
-              newDownloadStatus = "failed";
-              newGameStatus = "wanted"; // Reset to wanted on error
-              newErrorMessage =
+              const remoteError =
                 remoteDownload.error?.trim() || "Aborted by downloader (no details provided)";
-              isDefinitiveError = true;
-              igdbLogger.warn(
-                { title: download.downloadTitle, error: newErrorMessage },
-                "Download error detected"
-              );
+              const now = Date.now();
+              const errorSince = downloadErrorSince.get(download.id) ?? now;
+              downloadErrorSince.set(download.id, errorSince);
+              const isTorrent = (remoteDownload.downloadType ?? download.downloadType) !== "usenet";
+
+              if (isTorrent && now - errorSince < TORRENT_ERROR_GRACE_MS) {
+                // Keep tracking it: the client may recover (tracker back, disk
+                // remounted) and finish the download, which would never be
+                // imported once the row is "failed". Show the error meanwhile.
+                newDownloadStatus = download.status === "paused" ? "paused" : "downloading";
+                newGameStatus = "downloading";
+                newErrorMessage = remoteError;
+                if (errorSince === now) {
+                  igdbLogger.warn(
+                    { title: download.downloadTitle, error: remoteError },
+                    "Download client reports an error — waiting to see if it clears"
+                  );
+                }
+              } else {
+                downloadErrorSince.delete(download.id);
+                newDownloadStatus = "failed";
+                newGameStatus = "wanted"; // Reset to wanted on error
+                newErrorMessage = remoteError;
+                isDefinitiveError = true;
+                igdbLogger.warn(
+                  { title: download.downloadTitle, error: newErrorMessage },
+                  "Download error detected"
+                );
+              }
             } else if (remoteDownload.status === "paused") {
               newDownloadStatus = "paused";
               newGameStatus = "downloading"; // Still consider it downloading (user can resume)
@@ -1158,6 +1262,22 @@ export async function checkDownloadStatus() {
             continue;
           }
 
+          const lastSeen = lastSeenRemote.get(download.id);
+          if (
+            lastSeen &&
+            (lastSeen.progress >= PROBABLY_FINISHED_PROGRESS ||
+              PROBABLY_FINISHED_STATUSES.has(lastSeen.status))
+          ) {
+            // It was finished or nearly so: a client that drops jobs once they
+            // complete (SABnzbd/NZBGet without history, qBittorrent removing at
+            // ratio 0) did this, not a failure. Failing it would reset the game
+            // to "wanted" and auto-search would grab the same release again.
+            downloadMissCount.delete(download.id);
+            lastSeenRemote.delete(download.id);
+            await handleProbablyFinishedDisappearance(download, lastSeen.progress);
+            continue;
+          }
+
           // Threshold reached. A download disappearing from the downloader (queue and
           // history) is far more consistent with a failure that a cleanup script or the
           // user removed (e.g. SABnzbd repair failure, torrent client "remove on error")
@@ -1191,14 +1311,8 @@ export async function checkDownloadStatus() {
           // the game status as-is to avoid a false regression. Mirrors the active-status
           // set used for the analogous async tag-resolution failure path above.
           const siblings = await storage.getDownloadsByGameId(download.gameId);
-          const activeStatuses = new Set([
-            "downloading",
-            "paused",
-            "unpacking",
-            "completed_pending_import",
-          ]);
           const hasActiveSibling = siblings.some(
-            (s) => s.id !== download.id && activeStatuses.has(s.status)
+            (s) => s.id !== download.id && ACTIVE_DOWNLOAD_STATUSES.has(s.status)
           );
           const willResetGame =
             !hasActiveSibling &&
@@ -1256,6 +1370,115 @@ export async function checkDownloadStatus() {
       }
     }
   }
+}
+
+/**
+ * Hands a download whose import was cut short (the process stopped mid-import) to the
+ * user: Pending Imports lists "manual_review_required" rows and lets them retry.
+ */
+async function recoverInterruptedImport(download: GameDownload): Promise<void> {
+  igdbLogger.warn(
+    { downloadId: download.id, status: download.status },
+    "Import was interrupted before it finished — moving it to manual review"
+  );
+  await storage.updateGameDownloadStatus(
+    download.id,
+    "manual_review_required",
+    "The import was interrupted before it finished (Questarr was probably restarted). " +
+      "Review it to run the import again."
+  );
+  notifyUser("downloadUpdate", download.gameId);
+
+  const game = await storage.getGame(download.gameId);
+  try {
+    const notification = await storage.addNotification({
+      type: "warning",
+      title: "Import needs attention",
+      message: `The import of "${game?.title ?? download.downloadTitle}" was interrupted. Review it in Pending Imports to run it again.`,
+      link: "/downloads",
+      userId: game?.userId ?? undefined,
+    });
+    notifyUser("notification", notification, notification.userId);
+  } catch (error) {
+    igdbLogger.error(
+      { error, downloadId: download.id },
+      "Failed to create interrupted-import notification"
+    );
+  }
+}
+
+/**
+ * A download that vanished from its client once finished (or nearly): with post-processing
+ * the user imports it from Pending Imports; without it, it counts as completed, as a
+ * finished download normally would. The game is never reset to "wanted".
+ */
+async function handleProbablyFinishedDisappearance(
+  download: GameDownload,
+  lastProgress: number
+): Promise<void> {
+  const game = await storage.getGame(download.gameId);
+  const gameTitle = game?.title ?? download.downloadTitle;
+  const importConfig = await storage.getImportConfig(game?.userId ?? undefined);
+
+  igdbLogger.warn(
+    { downloadId: download.id, gameId: download.gameId, lastProgress },
+    "Download disappeared from the downloader after finishing — the client probably " +
+      "removed it on completion"
+  );
+
+  if (!importConfig.enablePostProcessing) {
+    await storage.updateGameDownloadStatus(download.id, "completed");
+    await recordVersionFromCompletedDownload(
+      storage,
+      download.gameId,
+      download.downloadTitle,
+      download.category
+    );
+    if (!isUserCuratedGameStatus(game?.status)) {
+      await storage.updateGameStatus(
+        download.gameId,
+        { status: "owned" },
+        { preserveCurated: true }
+      );
+    }
+    notifyUser("downloadUpdate", download.gameId);
+    return;
+  }
+
+  await storage.updateGameDownloadStatus(
+    download.id,
+    "manual_review_required",
+    "The download client removed this download once it finished, so its files could not " +
+      "be located automatically. Review it and point the import at the downloaded files."
+  );
+  notifyUser("downloadUpdate", download.gameId);
+  try {
+    const notification = await storage.addNotification({
+      type: "warning",
+      title: "Import needs attention",
+      message: `"${gameTitle}" finished downloading but the download client removed it before Questarr could import it. Review it in Pending Imports and select the downloaded files.`,
+      link: "/downloads",
+      userId: game?.userId ?? undefined,
+    });
+    notifyUser("notification", notification, notification.userId);
+  } catch (error) {
+    igdbLogger.error(
+      { error, downloadId: download.id },
+      "Failed to create removed-on-completion notification"
+    );
+  }
+}
+
+/**
+ * Whether this exact release was already grabbed for the game and failed. Auto-search
+ * skips it so a release that keeps failing (or vanishing) isn't downloaded in a loop.
+ */
+async function releaseAlreadyFailedForGame(gameId: string, releaseTitle: string) {
+  const key = normalizeTitle(releaseTitle);
+  const downloads = await storage.getDownloadsByGameId(gameId);
+  return downloads.some(
+    (d) => FAILED_DOWNLOAD_STATUSES.has(d.status) && normalizeTitle(d.downloadTitle) === key
+  );
 }
 
 /**
@@ -1389,12 +1612,20 @@ export async function checkAutoSearch() {
                   // flagged for review (a stale/differently-scored AI response would
                   // otherwise let it through) and avoids a repeat paid TypeSafe call for
                   // the same release every cycle.
-                  const alreadyHeld = await storage.hasAiAutoDownloadHold(game.id, releaseKey);
-                  const aiHoldReason = alreadyHeld
-                    ? null
-                    : await getAiAutoDownloadHoldReason(item, effectivePlatform);
+                  const alreadyFailed = await releaseAlreadyFailedForGame(game.id, item.title);
+                  const alreadyHeld =
+                    !alreadyFailed && (await storage.hasAiAutoDownloadHold(game.id, releaseKey));
+                  const aiHoldReason =
+                    alreadyFailed || alreadyHeld
+                      ? null
+                      : await getAiAutoDownloadHoldReason(item, effectivePlatform);
 
-                  if (alreadyHeld) {
+                  if (alreadyFailed) {
+                    igdbLogger.info(
+                      { gameTitle: game.title, releaseTitle: item.title },
+                      "Skipping auto-download: this release already failed for this game"
+                    );
+                  } else if (alreadyHeld) {
                     igdbLogger.debug(
                       { gameTitle: game.title },
                       "Skipping auto-download: release already held for AI review"

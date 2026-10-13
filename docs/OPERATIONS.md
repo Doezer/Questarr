@@ -37,3 +37,24 @@ All pull requests and hardening passes must pass the following verification gate
 2.  **Iterative Remediation**: Fix failures using the allowed policy.
 3.  **Proactive Improvement**: Implement small, high-impact improvements.
 4.  **Deliver Green PR**: Submit fully-tested changes.
+
+## Windows release assets
+
+Windows installers use the existing manual **Deploy Web App** workflow. Creating
+a tag creates a draft release; it does not build or attach an installer.
+
+Before publishing a release that advertises Windows support:
+
+1. Wait for the matching draft GitHub release to exist.
+2. Run **Deploy Web App** from the release commit with the matching `tag` input
+   (for example, `v1.5.0`) and **build_windows_installer** enabled. Choose the
+   deployment environment intended for that release.
+3. Verify that `QuestarrSetup-<version>-windows-x64.exe` and its `.sha256` file
+   are attached to the matching release. The version comes from `package.json`
+   on the workflow's selected ref, so it must match the release.
+4. Publish the release only after verifying its assets.
+
+The installer job treats a missing matching release as a skipped attachment.
+If that occurs, attach the executable and checksum from the workflow artifact
+to the matching draft release before publishing. Tagging, dispatching the
+deployment workflow, and publication remain maintainer actions.

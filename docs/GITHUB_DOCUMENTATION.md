@@ -1,25 +1,87 @@
-# GitHub Documentation Map (Canonical)
+# Documentation Map
 
-This file is the single entry point for GitHub-facing documentation in this repository.
+The Mintlify site uses three tabs: **User guide** for installation and daily use,
+**Reference** for technical and security details, and **Project** for planning and
+maintainer procedures. This map follows the tabs, groups, and page order in
+[docs.json](docs.json). Repository resources are linked at the end.
 
-- Product overview and setup: [`README.md`](https://github.com/Doezer/Questarr/blob/main/README.md)
-- Contribution guide: [`.github/CONTRIBUTING.md`](https://github.com/Doezer/Questarr/blob/main/.github/CONTRIBUTING.md)
-- Security policy and reporting: [`docs/SECURITY.md`](SECURITY.md)
-- API reference: [`docs/API.md`](./API.md), for the REST/Socket.io interface reference
-- Architecture: [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md), for a system architecture and actor overview
-- Changelog: [`docs/CHANGELOG.md`](https://github.com/Doezer/Questarr/blob/main/docs/CHANGELOG.md)
-- Migration notes: [`docs/MIGRATION.md`](./MIGRATION.md), for migration from PostgreSQL to SQLite in v1.1
-- Database: [`docs/DATABASE.md`](./DATABASE.md), for running Questarr on the optional PostgreSQL backend instead of SQLite
-- Reverse proxy / subdirectory deployment: [`docs/REVERSE_PROXY.md`](./REVERSE_PROXY.md), for serving Questarr from a path like `/Questarr` behind nginx/Traefik/Caddy
-- Proxmox VE deployment: [`docs/PROXMOX.md`](./PROXMOX.md), for deploying Questarr into a Proxmox LXC container without Docker
-- Home server app definitions: [`docs/HOME_SERVER_APPS.md`](./HOME_SERVER_APPS.md), for the UNRAID/CasaOS/Umbrel/Cosmos Cloud/Home Assistant install definitions
-- Playnite extension: [`extensions/playnite-questarr/README.md`](https://github.com/Doezer/Questarr/blob/main/extensions/playnite-questarr/README.md), for syncing your Playnite library and requesting games from the couch
-- Security model and operations:
-  - [`docs/THREAT_MODEL.md`](./THREAT_MODEL.md), for the attack surface analysis and security architecture
-  - [`docs/SECURITY_ASSESSMENT.md`](./SECURITY_ASSESSMENT.md), security risk assessment.
-  - [`docs/VULNERABILITY_MANAGEMENT.md`](./VULNERABILITY_MANAGEMENT.md), for the SCA/SAST remediation policy and release gates
-  - [`docs/SECRETS.md`](./SECRETS.md), for details on how API keys, indexer/downloader credentials, and other secrets are stored and managed.
-  - [`docs/SBOM.md`](./SBOM.md): Every published image ships with a Software Bill of Materials.
-  - [`docs/VEX.md`](./VEX.md), for details on Questarr's Vulnerability Exploitability Exchange feed
-  - [`docs/DEPENDENCIES.md`](./DEPENDENCIES.md), for how dependencies are selected, obtained, and tracked.
-- `docs/CODE_OF_CONDUCT.md` (community health file)
+## User guide
+
+### Getting started
+
+- [Install and get started](QUICKSTART.md)
+- [Changelog](CHANGELOG.md)
+
+### Library
+
+- [Library imports, settings, manual review, and history](LIBRARY_IMPORT.md)
+- [Pick your next game](BACKLOG_ROULETTE.md)
+
+### Discovery & notifications
+
+- [Indexers and Prowlarr](INDEXERS.md)
+- [RSS feeds](RSS.md)
+- [Notifications and Apprise](NOTIFICATIONS.md)
+
+### Deployment
+
+- [Home server app deployments](HOME_SERVER_APPS.md)
+- [Proxmox LXC deployment](PROXMOX.md)
+- [Reverse proxy and subdirectory setup](REVERSE_PROXY.md)
+- [SQLite and optional PostgreSQL](DATABASE.md)
+
+### Security & credentials
+
+- [Credentials and secrets](SECRETS.md)
+- [Security policy and reporting](SECURITY.md)
+
+## Reference
+
+### Integrations
+
+- [REST and Socket.IO API](API.md)
+- [Downloader compatibility](DOWNLOADERS_COMPATIBILITY.md)
+- [Synology Download Station API notes](synology-download-station-api-notes.md)
+
+### Architecture & security
+
+- [System architecture](ARCHITECTURE.md)
+- [Security risk assessment](SECURITY_ASSESSMENT.md)
+- [Threat model](THREAT_MODEL.md)
+
+### Supply chain
+
+- [Dependency management](DEPENDENCIES.md)
+- [Vulnerability management and release gates](VULNERABILITY_MANAGEMENT.md)
+- [Software Bill of Materials](SBOM.md)
+- [Vulnerability Exploitability Exchange](VEX.md)
+- [CVE fixes by release](CVE_FIXES_BY_RELEASE.md)
+- [CWE fixes by release](CWE_FIXES_BY_RELEASE.md)
+
+### Legacy migration
+
+- [Legacy PostgreSQL-to-SQLite migration](MIGRATION.md)
+
+## Project
+
+### Planning
+
+- [Product requirements and remaining roadmap](PRD.md)
+- [Development priorities](TODO.md)
+- [Documentation map](GITHUB_DOCUMENTATION.md)
+
+### Maintainers
+
+- [Operational procedures and Windows release assets](OPERATIONS.md)
+- [Maintainers](MAINTAINERS.md)
+- [OpenSSF badge evidence](BEST_PRACTICES.md)
+
+### Community
+
+- [Code of conduct](CODE_OF_CONDUCT.md)
+
+## Repository resources
+
+- [Product overview and installation](https://github.com/Doezer/Questarr/blob/main/README.md)
+- [Contribution guide](https://github.com/Doezer/Questarr/blob/main/.github/CONTRIBUTING.md)
+- [Playnite extension](https://github.com/Doezer/Questarr/blob/main/extensions/playnite-questarr/README.md)

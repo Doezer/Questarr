@@ -4,8 +4,20 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { emptyDirMock, readdirMock, statMock, removeMock, loggerMocks } = vi.hoisted(() => ({
-  emptyDirMock: vi.fn().mockResolvedValue(undefined),
+const {
+  ensureDirMock,
+  moveMock,
+  lstatMock,
+  mkdtempMock,
+  readdirMock,
+  statMock,
+  removeMock,
+  loggerMocks,
+} = vi.hoisted(() => ({
+  ensureDirMock: vi.fn().mockResolvedValue(undefined),
+  moveMock: vi.fn().mockResolvedValue(undefined),
+  lstatMock: vi.fn(),
+  mkdtempMock: vi.fn(async (prefix: string) => `${prefix}test`),
   readdirMock: vi.fn().mockResolvedValue([]),
   statMock: vi.fn(),
   removeMock: vi.fn().mockResolvedValue(undefined),
@@ -19,9 +31,13 @@ const { emptyDirMock, readdirMock, statMock, removeMock, loggerMocks } = vi.hois
 
 vi.mock("fs-extra", () => ({
   default: {
-    emptyDir: emptyDirMock,
+    ensureDir: ensureDirMock,
+    move: moveMock,
     readdir: readdirMock,
     stat: statMock,
+    lstat: lstatMock,
+    mkdtemp: mkdtempMock,
+    rmdir: vi.fn().mockResolvedValue(undefined),
     remove: removeMock,
   },
 }));
@@ -45,6 +61,11 @@ import { ArchiveService } from "../services/ArchiveService.js";
 // /usr/bin/7z, /usr/local/bin/unrar, /usr/bin/unrar) being absent. That assumption doesn't
 // hold everywhere: a bare CI runner or dev machine can genuinely have a system 7-Zip
 // installed (p7zip is a common preinstall), which made this exact test flaky in CI.
+// The directory extract() unpacks into before merging into outputDir.
+function staging(outputDir: string): string {
+  return path.join(outputDir, `.questarr-extract-test`);
+}
+
 const NONEXISTENT_BINARY_PATH = "/definitely/does/not/exist/questarr-archive-tool-test";
 
 type ExecCallback = (error: Error | null, stdout: string, stderr: string) => void;
@@ -145,7 +166,10 @@ describe("ArchiveService", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    emptyDirMock.mockResolvedValue(undefined);
+    ensureDirMock.mockResolvedValue(undefined);
+    moveMock.mockResolvedValue(undefined);
+    // Nothing exists at the merge destination unless a test says otherwise.
+    lstatMock.mockRejectedValue(new Error("ENOENT"));
     readdirMock.mockResolvedValue([]);
     removeMock.mockResolvedValue(undefined);
     process.env.SEVENZIP_PATH = fakeSevenZipPath;
@@ -166,7 +190,6 @@ describe("ArchiveService", () => {
 
     expect(service.isArchive("file.ZIP")).toBe(true);
     expect(service.isArchive("file.7z")).toBe(true);
-    expect(service.isArchive("file.iso")).toBe(true);
     expect(service.isArchive("file.txt")).toBe(false);
   });
 
@@ -183,8 +206,20 @@ describe("ArchiveService", () => {
 
     expect(service.isArchive("readme.txt")).toBe(false);
     expect(service.isArchive("notes.md")).toBe(false);
-    // iso IS treated as an archive by the service
-    expect(service.isArchive("image.iso")).toBe(true);
+  });
+
+  it("does not treat disc images as archives to unpack", () => {
+    const service = new ArchiveService();
+    // PS2/PSP/GameCube/Wii images are the game itself: unpacking would destroy them.
+    expect(service.isArchive("image.iso")).toBe(false);
+    expect(service.isArchive("Game.ISO")).toBe(false);
+    expect(service.isArchive("game.iso.001")).toBe(false);
+  });
+
+  it("accepts disc images only for an explicit unpack request", () => {
+    const service = new ArchiveService();
+    expect(service.isArchive("game.iso", { includeDiscImages: true })).toBe(true);
+    expect(service.isArchive("game.iso.001", { includeDiscImages: true })).toBe(true);
   });
 
   it("isArchive returns true for .zip files", () => {
@@ -239,11 +274,11 @@ describe("ArchiveService", () => {
         "-bso0",
         "-bsp0",
         "-y",
-        "-o/tmp/out",
+        `-o${staging("/tmp/out")}`,
         "--",
         "/downloads/game.zip",
       ]);
-      expect(emptyDirMock).toHaveBeenCalledWith("/tmp/out"); // NOSONAR - mocked fs, no real dir access
+      expect(mkdtempMock).toHaveBeenCalledWith(path.join("/tmp/out", ".questarr-extract-"));
     });
 
     it("resolves with an empty array and warns when extraction produces no files", async () => {
@@ -269,7 +304,7 @@ describe("ArchiveService", () => {
       ).rejects.toThrow("unsafe file path");
 
       expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
-      expect(emptyDirMock).not.toHaveBeenCalled();
+      expect(ensureDirMock).not.toHaveBeenCalled();
     });
 
     it("does not treat empty link fields on ordinary entries as links", async () => {
@@ -315,7 +350,7 @@ describe("ArchiveService", () => {
       ).rejects.toThrow("symbolic or hard link");
 
       expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
-      expect(emptyDirMock).not.toHaveBeenCalled();
+      expect(ensureDirMock).not.toHaveBeenCalled();
     });
 
     it("rejects archive entry counts and expanded sizes above configured limits", async () => {
@@ -338,7 +373,7 @@ describe("ArchiveService", () => {
           service.extract("/downloads/game.zip", "/tmp/out") // NOSONAR - mocked fs
         ).rejects.toThrow("too many entries");
         expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
-        expect(emptyDirMock).not.toHaveBeenCalled();
+        expect(ensureDirMock).not.toHaveBeenCalled();
 
         vi.clearAllMocks();
         const sizeLimitedService = await freshArchiveService();
@@ -347,7 +382,7 @@ describe("ArchiveService", () => {
           sizeLimitedService.extract("/downloads/large.zip", "/tmp/out") // NOSONAR - mocked fs
         ).rejects.toThrow("configured size limit");
         expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
-        expect(emptyDirMock).not.toHaveBeenCalled();
+        expect(ensureDirMock).not.toHaveBeenCalled();
       } finally {
         if (previousCount === undefined) delete process.env.ARCHIVE_MAX_ENTRIES;
         else process.env.ARCHIVE_MAX_ENTRIES = previousCount;
@@ -380,89 +415,10 @@ describe("ArchiveService", () => {
         "-bso0",
         "-bsp0",
         "-y",
-        "-o/tmp/settling-out",
+        `-o${staging("/tmp/settling-out")}`,
         "--",
         "/downloads/settling.zip",
       ]);
-    });
-
-    it("empties the destination directory even when it pre-exists", async () => {
-      const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
-      readdirMock.mockResolvedValueOnce([]);
-
-      await service.extract("/downloads/game.zip", "/tmp/existing-dir"); // NOSONAR - mocked fs, no real dir access
-
-      expect(emptyDirMock).toHaveBeenCalledOnce();
-      expect(emptyDirMock).toHaveBeenCalledWith("/tmp/existing-dir"); // NOSONAR - mocked fs, no real dir access
-    });
-
-    // Shared by the two in-place-extraction tests below: mocks the two readdir calls
-    // `extract()` makes (its own pre-cleanup listing, then listExtractedFiles's
-    // post-extraction listing) and runs extract() against them.
-    async function extractInPlace(
-      archivePath: string,
-      outputDir: string,
-      preExistingEntries: Array<{ name: string; isDirectory: () => boolean }>,
-      postExtractionEntries: Array<{ name: string; isDirectory: () => boolean }>
-    ): Promise<string[]> {
-      const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
-      readdirMock.mockResolvedValueOnce(preExistingEntries);
-      readdirMock.mockResolvedValueOnce(postExtractionEntries);
-      return service.extract(archivePath, outputDir); // NOSONAR - mocked fs
-    }
-
-    it("does not delete the archive when it already lives inside outputDir (move/copy extract-in-place)", async () => {
-      // Regression test: ImportManager's move/copy import modes relocate the raw archive
-      // into the library destination before calling extract() there, so outputDir and the
-      // archive's own directory are the same path. Unconditionally emptying outputDir
-      // would delete the archive before the tool ever reads it.
-      const files = await extractInPlace(
-        "/tmp/library/game.zip",
-        "/tmp/library",
-        [
-          { name: "game.zip", isDirectory: () => false },
-          { name: "stale.tmp", isDirectory: () => false },
-        ],
-        [{ name: "game.rom", isDirectory: () => false }]
-      );
-
-      expect(emptyDirMock).not.toHaveBeenCalled();
-      expect(removeMock).toHaveBeenCalledExactlyOnceWith(path.join("/tmp/library", "stale.tmp"));
-      expect(files).toEqual([expect.stringMatching(/library[\\/]game\.rom$/)]);
-    });
-
-    it("preserves other volumes of a multi-part archive already extracted in place", async () => {
-      // Regression test: the in-place cleanup above only protected the exact archive
-      // file passed in (archiveBasename), so extracting "game.7z.001" would delete its
-      // sibling volume "game.7z.002" before 7-Zip ever got to read it.
-      await extractInPlace(
-        "/tmp/library/game.7z.001",
-        "/tmp/library",
-        [
-          { name: "game.7z.001", isDirectory: () => false },
-          { name: "game.7z.002", isDirectory: () => false },
-          { name: "stale.tmp", isDirectory: () => false },
-        ],
-        [{ name: "game.rom", isDirectory: () => false }]
-      );
-
-      expect(emptyDirMock).not.toHaveBeenCalled();
-      expect(removeMock).toHaveBeenCalledExactlyOnceWith(path.join("/tmp/library", "stale.tmp"));
-    });
-
-    it("still empties the whole output directory when the archive lives elsewhere", async () => {
-      // Regression guard for the test above: the in-place branch must only trigger when
-      // the archive's own directory matches outputDir, not whenever outputDir is non-empty.
-      const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
-      readdirMock.mockResolvedValueOnce([]);
-
-      await service.extract("/downloads/game.zip", "/tmp/out"); // NOSONAR - mocked fs, no real dir access
-
-      expect(emptyDirMock).toHaveBeenCalledWith("/tmp/out"); // NOSONAR - mocked fs, no real dir access
-      expect(removeMock).not.toHaveBeenCalled();
     });
 
     it("rejects with the tool's error message when extraction fails", async () => {
@@ -489,7 +445,7 @@ describe("ArchiveService", () => {
       await assertion;
       vi.useRealTimers();
 
-      expect(emptyDirMock).not.toHaveBeenCalled();
+      expect(ensureDirMock).not.toHaveBeenCalled();
       // One metadata listing plus 3 test attempts; extraction never ran.
       expect(vi.mocked(execFile).mock.calls).toHaveLength(4);
     });
@@ -503,20 +459,20 @@ describe("ArchiveService", () => {
       ).rejects.toThrow("no binary was found");
 
       expect(execFile).not.toHaveBeenCalled();
-      expect(emptyDirMock).not.toHaveBeenCalled();
+      expect(ensureDirMock).not.toHaveBeenCalled();
     });
 
     it("returns full nested paths for files inside subdirectories", async () => {
       const service = await freshArchiveService();
       mockExecAlways(null, "", "");
       readdirMock.mockImplementation(async (dir: string) => {
-        if (dir === "/tmp/nested-out") {
+        if (dir === staging("/tmp/nested-out")) {
           return [
             { name: "level1", isDirectory: () => true },
             { name: "root.cfg", isDirectory: () => false },
           ] as never;
         }
-        if (dir === path.join("/tmp/nested-out", "level1")) {
+        if (dir === path.join(staging("/tmp/nested-out"), "level1")) {
           return [{ name: "deep.rom", isDirectory: () => false }] as never;
         }
         return [];
@@ -558,9 +514,9 @@ describe("ArchiveService", () => {
         "-p-",
         "--",
         "/downloads/game.rar",
-        "/tmp/rar-out" + path.sep,
+        staging("/tmp/rar-out") + path.sep,
       ]);
-      expect(emptyDirMock).toHaveBeenCalledWith("/tmp/rar-out");
+      expect(mkdtempMock).toHaveBeenCalledWith(path.join("/tmp/rar-out", ".questarr-extract-"));
     });
 
     it("does not create the output directory when the RAR integrity test fails on every attempt", async () => {
@@ -575,7 +531,7 @@ describe("ArchiveService", () => {
       await assertion;
       vi.useRealTimers();
 
-      expect(emptyDirMock).not.toHaveBeenCalled();
+      expect(ensureDirMock).not.toHaveBeenCalled();
       // One metadata listing plus 3 test attempts; extraction was never attempted.
       expect(vi.mocked(execFile).mock.calls).toHaveLength(4);
     });
@@ -629,7 +585,7 @@ describe("ArchiveService", () => {
 
       // Listing a RAR already needs unrar, so nothing runs at all.
       expect(execFile).not.toHaveBeenCalled();
-      expect(emptyDirMock).not.toHaveBeenCalled();
+      expect(ensureDirMock).not.toHaveBeenCalled();
     });
 
     it("logs a warning when RAR extraction succeeds but produces no files", async () => {
@@ -664,7 +620,7 @@ describe("ArchiveService", () => {
 
         // No retries — a password failure is deterministic, so only the first test attempt runs.
         expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
-        expect(emptyDirMock).not.toHaveBeenCalled();
+        expect(ensureDirMock).not.toHaveBeenCalled();
       }
     );
 
@@ -695,14 +651,31 @@ describe("ArchiveService", () => {
         "/downloads/game.rar",
         "/tmp/rar-out",
         ["t", "-y", "-phunter2", "--", "/downloads/game.rar"],
-        ["x", "-idq", "-y", "-phunter2", "--", "/downloads/game.rar", "/tmp/rar-out" + path.sep],
+        [
+          "x",
+          "-idq",
+          "-y",
+          "-phunter2",
+          "--",
+          "/downloads/game.rar",
+          staging("/tmp/rar-out") + path.sep,
+        ],
       ],
       [
         "7-Zip",
         "/downloads/game.zip",
         "/tmp/out",
         ["t", "-y", "-phunter2", "--", "/downloads/game.zip"],
-        ["x", "-bso0", "-bsp0", "-y", "-phunter2", "-o/tmp/out", "--", "/downloads/game.zip"],
+        [
+          "x",
+          "-bso0",
+          "-bsp0",
+          "-y",
+          "-phunter2",
+          `-o${staging("/tmp/out")}`,
+          "--",
+          "/downloads/game.zip",
+        ],
       ],
     ])(
       "passes a given password to %s via -p<password> on both test and extract",

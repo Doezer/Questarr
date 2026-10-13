@@ -1077,6 +1077,18 @@ describe("API Routes - Extended Coverage", () => {
       expect((await request(app).get(`/api/games/${gameId}`)).status).toBe(403);
     });
 
+    it("returns 404 for a game hidden by the content filter", async () => {
+      vi.mocked(storage.getGame).mockResolvedValueOnce({
+        id: gameId,
+        userId: "user-1",
+        isAdultContent: true,
+      } as unknown as Game);
+      vi.mocked(storage.getUserSettings).mockResolvedValueOnce({
+        hideAdultContent: true,
+      } as unknown as Awaited<ReturnType<typeof storage.getUserSettings>>);
+      expect((await request(app).get(`/api/games/${gameId}`)).status).toBe(404);
+    });
+
     it("rejects a malformed id", async () => {
       expect((await request(app).get("/api/games/not-a-uuid")).status).toBe(400);
     });

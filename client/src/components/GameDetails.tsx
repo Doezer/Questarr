@@ -981,7 +981,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
     { id: "overview", label: "Overview" },
     ...(isLibraryGame
       ? [{ id: "downloads", label: "Downloads", count: gameDownloads.length }]
-      : [{ id: "downloads", label: "Downloads", count: 0 }]),
+      : []),
     ...(isLibraryGame ? [{ id: "journal", label: "Journal" }] : []),
     { id: "media", label: "Media", count: screenshots.length },
     ...(hasExpansions ? [{ id: "dlc", label: "DLC", count: game.expansions?.length ?? 0 }] : []),

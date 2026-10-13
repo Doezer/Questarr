@@ -3126,6 +3126,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { id } = req.params as { id: string };
         const game = await resolveOwnedGame(id, req.user!.id, res);
         if (!game) return;
+        // Same rule as the library list: a hidden category is not reachable by a bookmarked URL.
+        const filterFlags = await getContentFilterFlags(req.user!.id);
+        if (isContentFiltered(game, filterFlags)) {
+          return res.status(404).json({ error: "Game not found" });
+        }
         return res.json(game);
       } catch (error) {
         routesLogger.error({ error }, "error fetching game");

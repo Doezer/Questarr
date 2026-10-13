@@ -17,6 +17,7 @@ activityRouter.use((req, res, next) => {
 
 const historyQuerySchema = z.object({
   eventType: z.enum(DOWNLOAD_EVENT_TYPES).optional(),
+  search: z.string().trim().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -28,9 +29,10 @@ activityRouter.get("/history", async (req, res) => {
     return res.status(400).json({ error: "Invalid query parameters" });
   }
   try {
-    const { eventType, limit, offset } = parsed.data;
+    const { eventType, search, limit, offset } = parsed.data;
     const result = await storage.getDownloadEvents(res.locals.userId as string, {
       ...(eventType ? { eventType } : {}),
+      ...(search ? { search } : {}),
       limit,
       offset,
     });
@@ -38,5 +40,16 @@ activityRouter.get("/history", async (req, res) => {
   } catch (error) {
     logger.error({ error }, "error listing download history");
     return res.status(500).json({ error: "Failed to load history" });
+  }
+});
+
+// DELETE /api/activity/blocklist - unblock every release of the user's games in one go
+activityRouter.delete("/blocklist", async (_req, res) => {
+  try {
+    const removed = await storage.removeAllReleaseBlacklists(res.locals.userId as string);
+    return res.json({ removed });
+  } catch (error) {
+    logger.error({ error }, "error clearing the blocklist");
+    return res.status(500).json({ error: "Failed to clear the blocklist" });
   }
 });

@@ -799,6 +799,8 @@ export class ArchiveService {
       } catch {
         return;
       }
+      // Look at no more entries than the budget has left, even inside one huge directory.
+      names = names.slice(0, budget);
       budget -= names.length;
 
       const files: string[] = [];

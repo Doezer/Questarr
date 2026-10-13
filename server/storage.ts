@@ -428,13 +428,14 @@ export interface IStorage {
   getReleaseBlacklist(gameId: string): Promise<ReleaseBlacklist[]>;
   getAllReleaseBlacklists(userId: string): Promise<(ReleaseBlacklist & { gameTitle: string })[]>;
   removeReleaseBlacklist(id: string, gameId: string): Promise<boolean>;
+  removeAllReleaseBlacklists(userId: string): Promise<number>;
   getReleaseBlacklistSet(gameId: string): Promise<Set<string>>;
 
   // Download event log (Activity > History)
   addDownloadEvent(event: InsertDownloadEvent): Promise<void>;
   getDownloadEvents(
     userId: string,
-    options?: { eventType?: DownloadEventType; limit?: number; offset?: number }
+    options?: { eventType?: DownloadEventType; search?: string; limit?: number; offset?: number }
   ): Promise<{ events: DownloadEvent[]; total: number }>;
   deleteDownloadEventsOlderThan(cutoffMs: number): Promise<number>;
 
@@ -1796,6 +1797,22 @@ export class MemStorage implements IStorage {
     return true;
   }
 
+  async removeAllReleaseBlacklists(userId: string): Promise<number> {
+    const userGameIds = new Set(
+      Array.from(this.games.values())
+        .filter((g) => g.userId === userId)
+        .map((g) => g.id)
+    );
+    let removed = 0;
+    for (const [id, entry] of Array.from(this.releaseBlacklists.entries())) {
+      if (userGameIds.has(entry.gameId)) {
+        this.releaseBlacklists.delete(id);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   async getReleaseBlacklistSet(gameId: string): Promise<Set<string>> {
     const titles = Array.from(this.releaseBlacklists.values())
       .filter((r) => r.gameId === gameId)
@@ -1816,11 +1833,20 @@ export class MemStorage implements IStorage {
 
   async getDownloadEvents(
     userId: string,
-    options: { eventType?: DownloadEventType; limit?: number; offset?: number } = {}
+    options: {
+      eventType?: DownloadEventType;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    } = {}
   ): Promise<{ events: DownloadEvent[]; total: number }> {
     const matching = this.downloadEventLog
       .filter(
-        (e) => e.userId === userId && (!options.eventType || e.eventType === options.eventType)
+        (e) =>
+          e.userId === userId &&
+          (!options.eventType || e.eventType === options.eventType) &&
+          (!options.search ||
+            `${e.releaseTitle} ${e.gameTitle}`.toLowerCase().includes(options.search.toLowerCase()))
       )
       .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
     const offset = options.offset ?? 0;
@@ -3484,6 +3510,18 @@ export class DatabaseStorage implements IStorage {
     return affectedRows(result) > 0;
   }
 
+  async removeAllReleaseBlacklists(userId: string): Promise<number> {
+    const result = await db
+      .delete(releaseBlacklist)
+      .where(
+        inArray(
+          releaseBlacklist.gameId,
+          db.select({ id: games.id }).from(games).where(eq(games.userId, userId))
+        )
+      );
+    return affectedRows(result);
+  }
+
   async getReleaseBlacklistSet(gameId: string): Promise<Set<string>> {
     const rows = await db
       .select({ releaseTitle: releaseBlacklist.releaseTitle })
@@ -3507,11 +3545,24 @@ export class DatabaseStorage implements IStorage {
 
   async getDownloadEvents(
     userId: string,
-    options: { eventType?: DownloadEventType; limit?: number; offset?: number } = {}
+    options: {
+      eventType?: DownloadEventType;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    } = {}
   ): Promise<{ events: DownloadEvent[]; total: number }> {
-    const where = options.eventType
-      ? and(eq(downloadEvents.userId, userId), eq(downloadEvents.eventType, options.eventType))
-      : eq(downloadEvents.userId, userId);
+    const search = options.search?.trim();
+    const where = and(
+      eq(downloadEvents.userId, userId),
+      options.eventType ? eq(downloadEvents.eventType, options.eventType) : undefined,
+      search
+        ? or(
+            containsCI(downloadEvents.releaseTitle, search),
+            containsCI(downloadEvents.gameTitle, search)
+          )
+        : undefined
+    );
     const [events, [totalRow]] = await Promise.all([
       db
         .select()

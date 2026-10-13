@@ -1890,6 +1890,8 @@ export async function checkAutoSearch() {
     }
   } catch (error) {
     igdbLogger.error({ error }, "Error in checkAutoSearch");
+    // Let the task registry record the run as failed.
+    throw error;
   }
 }
 
@@ -2005,6 +2007,8 @@ export async function checkXrelReleases() {
     }
   } catch (error) {
     igdbLogger.error({ error }, "Error in checkXrelReleases");
+    // Let the task registry record the run as failed.
+    throw error;
   }
 }
 
@@ -2043,6 +2047,8 @@ export async function checkSteamWishlist() {
     }
   } catch (error) {
     igdbLogger.error({ error }, "Failed scheduled Steam Wishlist auto-sync check");
+    // Let the task registry record the run as failed.
+    throw error;
   } finally {
     steamWishlistCheckInProgress = false;
   }

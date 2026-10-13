@@ -71,6 +71,13 @@ describe("ArchiveService.findArchiveSets", () => {
     }
   });
 
+  it("never looks at more entries than the budget in a single large folder", async () => {
+    await touch("a.zip");
+    await touch("b.zip");
+    await touch("c.zip");
+    expect(await primaries({ maxEntries: 2 })).toEqual(["a.zip", "b.zip"]);
+  });
+
   it("stops after the entry budget is spent", async () => {
     await touch("a.zip");
     await touch("b/c.zip");

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle, Clock, Loader2, Play, Timer } from "lucide-react";
+import { AlertTriangle, CheckCircle, Clock, Loader2, Play, Search, Timer } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getSocket } from "@/lib/socket";
@@ -91,7 +92,15 @@ export default function SystemTasksPage() {
     queryKey: ["/api/system/tasks"],
     refetchInterval: (query) => (query.state.data?.tasks.some((t) => t.running) ? 3000 : false),
   });
-  const tasks = useMemo(() => data?.tasks ?? [], [data]);
+  const [filter, setFilter] = useState("");
+  const tasks = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    const all = data?.tasks ?? [];
+    if (!needle) return all;
+    return all.filter(
+      (t) => t.title.toLowerCase().includes(needle) || t.description.toLowerCase().includes(needle)
+    );
+  }, [data, filter]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 10_000);
@@ -131,10 +140,24 @@ export default function SystemTasksPage() {
         description="Background jobs that keep Questarr up to date. Run any of them now."
       />
 
+      <div className="relative mb-4 max-w-md">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <Input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Search tasks"
+          aria-label="Search tasks"
+          className="h-11 pl-9 sm:h-10"
+        />
+      </div>
+
       {tasks.length === 0 ? (
         <div className="flex h-48 flex-col items-center justify-center text-slate-500">
           <Timer className="mb-3 h-10 w-10 opacity-30" aria-hidden="true" />
-          <p className="text-sm">No scheduled tasks</p>
+          <p className="text-sm">{filter ? "No task matches" : "No scheduled tasks"}</p>
         </div>
       ) : (
         <>

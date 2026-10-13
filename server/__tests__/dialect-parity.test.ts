@@ -299,6 +299,18 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
         downloaderName: "events-qb",
       });
 
+      // Search matches the release or the game title, whatever the case.
+      const bySearch = await storage().getDownloadEvents(user.id, { search: "EVENTS.game-bad" });
+      expect(bySearch.total).toBe(1);
+      expect(bySearch.events[0]?.eventType).toBe("blocklisted");
+      expect((await storage().getDownloadEvents(user.id, { search: "no-such-thing" })).total).toBe(
+        0
+      );
+
+      // Unblock all removes every blocked release of the user's games.
+      expect(await storage().removeAllReleaseBlacklists(user.id)).toBeGreaterThanOrEqual(1);
+      expect(await storage().getAllReleaseBlacklists(user.id)).toEqual([]);
+
       const completedOnly = await storage().getDownloadEvents(user.id, { eventType: "completed" });
       expect(completedOnly.total).toBeGreaterThanOrEqual(1);
       expect(completedOnly.events.every((e) => e.eventType === "completed")).toBe(true);

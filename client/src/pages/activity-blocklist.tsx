@@ -3,6 +3,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Search, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 import PageHeader from "@/components/PageHeader";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -34,6 +45,18 @@ export default function ActivityBlocklistPage() {
       toast({ description: "Release removed from the blocklist" });
     },
     onError: () => toast({ variant: "destructive", description: "Failed to remove the release" }),
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", "/api/activity/blocklist");
+      return (await res.json()) as { removed: number };
+    },
+    onSuccess: ({ removed }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/blacklist"] });
+      toast({ description: `${removed} release${removed === 1 ? "" : "s"} unblocked` });
+    },
+    onError: () => toast({ variant: "destructive", description: "Failed to clear the blocklist" }),
   });
 
   const entries = useMemo(() => {
@@ -142,6 +165,35 @@ export default function ActivityBlocklistPage() {
       <PageHeader
         title="Blocklist"
         description="Releases you blocked from a game's download results. They are skipped by search and auto-download."
+        actions={
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-11 justify-center sm:h-9"
+                disabled={!data?.length || clearMutation.isPending}
+              >
+                <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                Unblock all
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Unblock all releases?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {data?.length ?? 0} blocked release{data?.length === 1 ? "" : "s"} will show up in
+                  search results and can be auto-downloaded again.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => clearMutation.mutate()}>
+                  Unblock all
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        }
       />
       <p className="mb-4 text-sm text-muted-foreground">
         Release name terms that hide matching releases everywhere live in{" "}

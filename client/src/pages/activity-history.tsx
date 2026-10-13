@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
-import { History } from "lucide-react";
+import { History, Search } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -46,12 +47,24 @@ function formatDateTime(value: Date | string | null): string {
 export default function ActivityHistoryPage() {
   const [eventType, setEventType] = useState<DownloadEventType | "all">("all");
   const [page, setPage] = useState(0);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+
+  // Query the server once the user pauses typing, always from the first page.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(0);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const params = new URLSearchParams({
     limit: String(PAGE_SIZE),
     offset: String(page * PAGE_SIZE),
   });
   if (eventType !== "all") params.set("eventType", eventType);
+  if (search) params.set("search", search);
   const url = `/api/activity/history?${params.toString()}`;
 
   const { data, isLoading, isError, refetch } = useQuery<{
@@ -82,7 +95,9 @@ export default function ActivityHistoryPage() {
     body = (
       <div className="flex h-48 flex-col items-center justify-center text-slate-500">
         <History className="mb-3 h-10 w-10 opacity-30" aria-hidden="true" />
-        <p className="text-sm">No download activity yet</p>
+        <p className="text-sm">
+          {search || eventType !== "all" ? "No event matches" : "No download activity yet"}
+        </p>
       </div>
     );
   } else {
@@ -193,6 +208,19 @@ export default function ActivityHistoryPage() {
           </Select>
         }
       />
+      <div className="relative mb-4 max-w-md">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <Input
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search by release or game"
+          aria-label="Search the history"
+          className="h-11 pl-9 sm:h-10"
+        />
+      </div>
       {body}
     </div>
   );

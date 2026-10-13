@@ -1296,6 +1296,7 @@ export class ImportManager {
       );
 
       await this.finalizeImport(downloadId, game, result.destDir);
+      await this.reportLeftoverArchives(game, result.destDir);
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] confirmImport failed");
       try {

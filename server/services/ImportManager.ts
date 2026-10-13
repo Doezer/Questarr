@@ -559,7 +559,9 @@ export class ImportManager {
     const gamePrimaryPlatformId = this.getPrimaryPlatformId(game);
     const releasePlatformKey = this.getReleasePlatformKey(downloadTitle);
     const releasePlatformId = this.getReleasePlatformIgdbId(releasePlatformKey);
-    const effectivePlatformId = releasePlatformId ?? gamePrimaryPlatformId;
+    // Same precedence as resolvePlatformFolder: release, then the chosen target, then the primary.
+    const effectivePlatformId =
+      releasePlatformId ?? game.targetPlatformId ?? gamePrimaryPlatformId ?? undefined;
 
     if (!this.isPlatformEnabled(effectivePlatformId, importPlatformIds)) {
       logger.info(

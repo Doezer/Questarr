@@ -2,6 +2,7 @@ import { storage } from "./storage.js";
 import { logger } from "./logger.js";
 import { normalizeTitle } from "../shared/title-utils.js";
 import type { Game } from "../shared/schema.js";
+import { rommSlugForPlatformId } from "../shared/romm-platforms.js";
 import { readRommSettings, rommClient, ROMM_CONFIG_KEYS } from "./romm.js";
 
 export interface RommSyncSummary {
@@ -48,11 +49,20 @@ export async function syncFromRomm(userId: string): Promise<RommSyncSummary> {
   const seen = new Set<string>();
 
   for (const rom of roms) {
-    const game =
-      rom.igdb_id != null
-        ? byIgdbId.get(rom.igdb_id)
-        : // Title fallback only without an IGDB id: an original and its remake must not be mixed up.
-          byTitle.get(normalizeTitle(rom.name));
+    let game: Game | null | undefined;
+    if (rom.igdb_id != null) {
+      game = byIgdbId.get(rom.igdb_id);
+    } else {
+      // Title fallback only without an IGDB id: an original and its remake must not be mixed up.
+      game = byTitle.get(normalizeTitle(rom.name));
+      // A game with a chosen target platform only matches a ROM of that platform.
+      if (
+        game?.targetPlatformId != null &&
+        rommSlugForPlatformId(game.targetPlatformId) !== rom.platform_slug
+      ) {
+        game = undefined;
+      }
+    }
     if (!game) {
       summary.notInLibrary++;
       continue;

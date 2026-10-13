@@ -207,6 +207,21 @@ describe("RomM sync", () => {
     expect(mockStorage.updateGameStatus).not.toHaveBeenCalled();
   });
 
+  it("keeps a title match to the chosen target platform", async () => {
+    await configure();
+    mockStorage.getUserGames.mockResolvedValue([
+      { ...game("z", "Cross Platform", "wanted"), targetPlatformId: 19 },
+    ]);
+    safeFetchMock.mockResolvedValue(
+      json({ items: [{ id: 1, name: "Cross Platform", platform_slug: "psx" }], total: 1 })
+    );
+    expect((await syncFromRomm("user-1")).matched).toBe(0);
+    safeFetchMock.mockResolvedValue(
+      json({ items: [{ id: 1, name: "Cross Platform", platform_slug: "snes" }], total: 1 })
+    );
+    expect((await syncFromRomm("user-1")).matched).toBe(1);
+  });
+
   it("walks every page up to the reported total", async () => {
     await configure();
     const page = (from: number, n: number) =>
@@ -290,6 +305,14 @@ describe("RomM routes", () => {
     expect(init.headers.Authorization).toBe("Bearer rmm_typo");
     expect(store.get("romm.url")).toBe("http://romm.lan:8080");
     expect(store.get("romm.apiToken")).toBe("enc:rmm_secret");
+
+    // The saved token never goes to another URL.
+    safeFetchMock.mockClear();
+    const leak = await request(app())
+      .post("/api/settings/romm/test")
+      .send({ url: "http://attacker:1", apiToken: "********" });
+    expect(leak.status).toBe(400);
+    expect(safeFetchMock).not.toHaveBeenCalled();
 
     safeFetchMock.mockResolvedValueOnce(json({}, 401));
     const denied = await request(app()).post("/api/settings/romm/test");

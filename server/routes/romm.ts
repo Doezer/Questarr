@@ -89,9 +89,15 @@ rommRouter.post("/test", sensitiveEndpointLimiter, async (req, res) => {
     const candidate = rommTestSchema.parse(req.body ?? {});
     const saved = await readRommSettings();
     const token = candidate.apiToken;
+    const url = candidate.url?.trim().replace(/\/+$/, "") ?? saved.url;
+    const reuseSaved = token === undefined || token === REDACTED || token === "";
+    // The saved token is only ever sent to the saved URL.
+    if (reuseSaved && url !== saved.url) {
+      return res.status(400).json({ error: "Enter the RomM API token again for this URL" });
+    }
     const platforms = await rommClient.testConnection({
-      url: candidate.url?.trim().replace(/\/+$/, "") ?? saved.url,
-      apiToken: token === undefined || token === REDACTED || token === "" ? saved.apiToken : token,
+      url,
+      apiToken: reuseSaved ? saved.apiToken : token,
     });
     return res.json({ success: true, platforms });
   } catch (error) {

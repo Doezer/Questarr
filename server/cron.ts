@@ -36,7 +36,8 @@ import { isReleasePossiblyNewer } from "../shared/version-utils.js";
 import { recordVersionFromCompletedDownload } from "./game-version.js";
 import { rssService } from "./rss.js";
 import { loadScoringConfig, type ScoringConfig } from "./release-scoring-service.js";
-import { evaluateReleases } from "../shared/release-scoring.js";
+import { getXrelPredb, xrelEnabledFor } from "./xrel-predb.js";
+import { evaluateReleases, type XrelPredbEntry } from "../shared/release-scoring.js";
 import {
   releaseMatchesGame,
   normalizeTitle,
@@ -366,6 +367,8 @@ export interface AutoSearchScoring {
   config: ScoringConfig;
   /** The user's default platform, used when the game has no target platform of its own. */
   preferredPlatform: string | null;
+  /** Check the xREL PreDB (the user has an xREL feature on). */
+  useXrel: boolean;
 }
 
 /**
@@ -376,12 +379,13 @@ export interface AutoSearchScoring {
 export function scoreReleasesForGame(
   items: SearchItem[],
   game: Pick<Game, "title" | "targetPlatformId" | "targetPlatformName">,
-  scoring: AutoSearchScoring
+  scoring: AutoSearchScoring,
+  xrelReleases?: XrelPredbEntry[]
 ): SearchItem[] {
   const platform = resolveGamePlatformPreference(game, scoring.preferredPlatform);
   return evaluateReleases(
     items,
-    { gameTitle: game.title, platform },
+    { gameTitle: game.title, platform, ...(xrelReleases ? { xrelReleases } : {}) },
     scoring.config.profile,
     scoring.config.formats
   )
@@ -408,6 +412,8 @@ async function searchAndCategorizeItemsForGame(
 ): Promise<AutoSearchCategorizedItems | null> {
   let matchedItems: SearchItem[] = [];
   let globallyFiltered: SearchItem[] = [];
+  let xrelLookedUp = false;
+  let xrelReleases: XrelPredbEntry[] | undefined;
 
   for (let page = 0; page < AUTO_SEARCH_MAX_PAGES; page++) {
     const { items, errors } = await searchAllIndexers({
@@ -423,8 +429,13 @@ async function searchAndCategorizeItemsForGame(
       break;
     }
 
+    // looked up once per game, and only when there is something to score
+    if (scoring?.useXrel && !xrelLookedUp) {
+      xrelLookedUp = true;
+      xrelReleases = await getXrelPredb(game.title);
+    }
     matchedItems = scoring
-      ? scoreReleasesForGame(items, game, scoring)
+      ? scoreReleasesForGame(items, game, scoring, xrelReleases)
       : items.filter((item) => releaseMatchesGame(item.title, game.title));
     // A first page with no title match means the search is not about this game. Later pages
     // are only fetched because the blacklist hid a whole page, so an unrelated page there
@@ -1588,7 +1599,11 @@ export async function checkAutoSearch() {
         // profile cannot be loaded, this cycle falls back to the previous behavior.
         let scoring: AutoSearchScoring | undefined;
         try {
-          scoring = { config: await loadScoringConfig(userId), preferredPlatform };
+          scoring = {
+            config: await loadScoringConfig(userId),
+            preferredPlatform,
+            useXrel: xrelEnabledFor(settings),
+          };
         } catch (error) {
           igdbLogger.warn({ userId, error }, "Release scoring unavailable, using legacy filters");
         }

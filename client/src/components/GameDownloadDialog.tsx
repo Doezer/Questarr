@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import ReleaseScoreBadge from "@/components/ReleaseScoreBadge";
+import ReleaseScoreBadge, { XrelStatusBadge } from "@/components/ReleaseScoreBadge";
 import type { ReleaseEvaluation } from "@shared/release-scoring";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -1329,10 +1329,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     className="mt-1"
                                   />
                                   {download.evaluation && (
-                                    <ReleaseScoreBadge
-                                      evaluation={download.evaluation}
-                                      className="mt-1"
-                                    />
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      <ReleaseScoreBadge evaluation={download.evaluation} />
+                                      <XrelStatusBadge evaluation={download.evaluation} />
+                                    </div>
                                   )}
 
                                   {/* Group + indexer line */}
@@ -1433,7 +1433,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   className="gap-1.5"
                                 />
                                 {download.evaluation && (
-                                  <ReleaseScoreBadge evaluation={download.evaluation} />
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <ReleaseScoreBadge evaluation={download.evaluation} />
+                                    <XrelStatusBadge evaluation={download.evaluation} />
+                                  </div>
                                 )}
 
                                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">

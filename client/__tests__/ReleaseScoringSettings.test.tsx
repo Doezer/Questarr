@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestQueryClient } from "./test-utils";
 import ReleaseScoringSettings from "@/components/ReleaseScoringSettings";
-import ReleaseScoreBadge from "@/components/ReleaseScoreBadge";
+import ReleaseScoreBadge, { XrelStatusBadge } from "@/components/ReleaseScoreBadge";
 import { DEFAULT_RELEASE_PROFILE } from "@shared/release-scoring";
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
@@ -144,5 +144,32 @@ describe("ReleaseScoreBadge", () => {
     fireEvent.click(screen.getByRole("button", { name: /Score 20, rejected/ }));
     expect(await screen.findByText("The release is a sequel (2)")).toBeInTheDocument();
     expect(screen.getByText("+8")).toBeInTheDocument();
+  });
+});
+
+describe("XrelStatusBadge", () => {
+  const base = {
+    accepted: true,
+    score: 10,
+    lines: [],
+    rejections: [],
+    titleMatch: "exact" as const,
+    indexerCategory: "unknown" as const,
+    category: "main" as const,
+    matchedFormats: [],
+    preferredProtocol: true,
+  };
+
+  it("labels verified, nuked and unlisted releases, and nothing without xREL data", () => {
+    const { rerender, container } = render(<XrelStatusBadge evaluation={base} />);
+    expect(container).toBeEmptyDOMElement();
+    rerender(<XrelStatusBadge evaluation={{ ...base, xrel: "verified" }} />);
+    expect(screen.getByText("xREL")).toBeInTheDocument();
+    rerender(<XrelStatusBadge evaluation={{ ...base, xrel: "not_found" }} />);
+    expect(screen.getByText("Not on xREL")).toBeInTheDocument();
+    rerender(
+      <XrelStatusBadge evaluation={{ ...base, xrel: "nuked", xrelNukeReason: "bad crack" }} />
+    );
+    expect(screen.getByTitle("Nuked on xREL: bad crack")).toBeInTheDocument();
   });
 });

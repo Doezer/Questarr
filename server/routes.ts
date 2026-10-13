@@ -296,6 +296,7 @@ import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { releaseScoringRoutes } from "./release-scoring-routes.js";
 import { loadScoringConfig } from "./release-scoring-service.js";
+import { getXrelPredb, xrelEnabledFor } from "./xrel-predb.js";
 import { evaluateReleases } from "../shared/release-scoring.js";
 import { gameJournalRoutes, screenshotDirForGame } from "./game-journal-routes.js";
 import {
@@ -669,7 +670,8 @@ async function scoreManualSearchResults(
   userId: string | undefined,
   ownGame: Awaited<ReturnType<typeof storage.getGame>>,
   query: string,
-  preferredPlatform: string | null
+  preferredPlatform: string | null,
+  useXrel: boolean
 ): Promise<SearchItem[]> {
   if (!userId || items.length === 0) return items;
   try {
@@ -677,9 +679,11 @@ async function scoreManualSearchResults(
     const platform = ownGame
       ? resolveGamePlatformPreference(ownGame, preferredPlatform)
       : preferredPlatform;
+    const gameTitle = ownGame?.title ?? query;
+    const xrelReleases = useXrel ? await getXrelPredb(gameTitle) : undefined;
     return evaluateReleases(
       items,
-      { gameTitle: ownGame?.title ?? query, platform },
+      { gameTitle, platform, ...(xrelReleases ? { xrelReleases } : {}) },
       config.profile,
       config.formats
     ).map(({ item, evaluation }) => ({ ...item, evaluation }));
@@ -748,7 +752,8 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       req.user?.id,
       ownGame,
       query.trim(),
-      userSettings?.preferredPlatform ?? null
+      userSettings?.preferredPlatform ?? null,
+      xrelEnabledFor(userSettings)
     );
 
     // Update the "has results" flag only for canonical game-title searches so that

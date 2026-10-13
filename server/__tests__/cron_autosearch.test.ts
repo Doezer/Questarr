@@ -2486,6 +2486,7 @@ describe("release scoring in auto-search", () => {
       formats: [],
     },
     preferredPlatform: null,
+    useXrel: false,
   };
 
   it("keeps the game and its updates but drops a sequel and a spinoff", () => {
@@ -2538,5 +2539,17 @@ describe("release scoring in auto-search", () => {
     };
     const result = categorizeSearchItems([scored[1]!, lowSeedHighScore], rules);
     expect(result.mainItems[0]?.seeders).toBe(1);
+  });
+  it("drops a nuked release and ranks the xREL-verified one first", () => {
+    const kept = scoreReleasesForGame(
+      [item("Dishonored-FLT"), item("Dishonored-CODEX"), item("Dishonored-SKIDROW")],
+      game,
+      scoring,
+      [{ dirname: "Dishonored-CODEX" }, { dirname: "Dishonored-SKIDROW", nukeReason: "bad dump" }]
+    );
+    expect(kept.map((i) => i.title)).not.toContain("Dishonored-SKIDROW");
+    const ranked = [...kept].sort((a, b) => b.evaluation!.score - a.evaluation!.score);
+    expect(ranked[0]?.title).toBe("Dishonored-CODEX");
+    expect(ranked[0]?.evaluation?.xrel).toBe("verified");
   });
 });

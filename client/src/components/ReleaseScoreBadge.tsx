@@ -16,6 +16,7 @@ const REJECTION_LABELS: Record<RejectionCode, string> = {
   below_min_score: "Score is below the minimum",
   custom_format_reject: "Rejected by a custom format",
   risky_file: "Executable or script payload",
+  xrel_nuked: "Nuked on xREL",
 };
 
 const TITLE_MATCH_LABELS: Record<ReleaseEvaluation["titleMatch"], string> = {
@@ -26,6 +27,46 @@ const TITLE_MATCH_LABELS: Record<ReleaseEvaluation["titleMatch"], string> = {
   sequel: "Sequel",
   mismatch: "Different game",
 };
+
+const XREL_BADGES = {
+  verified: {
+    label: "xREL",
+    title: "Listed on xREL",
+    className: "border-emerald-500/50 text-emerald-500",
+  },
+  nuked: {
+    label: "Nuked",
+    title: "Nuked on xREL",
+    className: "border-destructive/50 text-destructive",
+  },
+  not_found: {
+    label: "Not on xREL",
+    title: "Not listed on xREL (P2P and usenet releases often are not)",
+    className: "border-border text-muted-foreground",
+  },
+} as const;
+
+/** xREL PreDB verdict for a result, when the lookup worked. */
+export function XrelStatusBadge({
+  evaluation,
+  className,
+}: Readonly<{ evaluation: ReleaseEvaluation; className?: string }>) {
+  if (!evaluation.xrel) return null;
+  const badge = XREL_BADGES[evaluation.xrel];
+  const title =
+    evaluation.xrel === "nuked" && evaluation.xrelNukeReason
+      ? `${badge.title}: ${evaluation.xrelNukeReason}`
+      : badge.title;
+  return (
+    <Badge
+      variant="outline"
+      title={title}
+      className={cn("h-5 px-1.5 text-[10px]", badge.className, className)}
+    >
+      {badge.label}
+    </Badge>
+  );
+}
 
 export function formatPoints(points: number): string {
   return points > 0 ? `+${points}` : String(points);

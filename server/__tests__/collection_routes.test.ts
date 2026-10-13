@@ -236,4 +236,42 @@ describe("Collection routes", () => {
     expect(removed.status).toBe(204);
     expect(deleted.status).toBe(204);
   });
+
+  it("rejects smart rules made only of empty lists", async () => {
+    const created = await request(app)
+      .post("/api/collections")
+      .send({ name: "Everything", type: "smart", rules: { genres: [] } });
+    expect(created.status).toBe(400);
+
+    vi.mocked(storage.getCollection).mockResolvedValue(makeCollection());
+    const patched = await request(app)
+      .patch(`/api/collections/${collectionId}`)
+      .send({ type: "smart", rules: { statuses: [] } });
+    expect(patched.status).toBe(400);
+    expect(storage.updateCollection).not.toHaveBeenCalled();
+  });
+
+  it("leaves out games hidden by the user's content filter", async () => {
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      hideAdultContent: true,
+      hideAgeRestrictedContent: false,
+    } as Awaited<ReturnType<typeof storage.getUserSettings>>);
+    vi.mocked(storage.getCollection).mockResolvedValue(
+      makeCollection({ type: "smart", rules: { genres: ["Shooter"] } })
+    );
+    vi.mocked(storage.getCollectionLinks).mockResolvedValue([]);
+    vi.mocked(storage.getUserGames).mockResolvedValue([
+      makeGame(),
+      makeGame({
+        id: "523e4567-e89b-12d3-a456-426614174000",
+        title: "Spicy",
+        isAdultContent: true,
+      }),
+    ]);
+
+    const response = await request(app).get(`/api/collections/${collectionId}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.games.map((g: Game) => g.title)).toEqual(["Doom"]);
+  });
 });

@@ -5,7 +5,8 @@ import { storage } from "./storage.js";
 import { authenticateToken } from "./auth.js";
 import { routesLogger } from "./logger.js";
 import { sanitizeCollectionId, sensitiveEndpointLimiter, validateRequest } from "./middleware.js";
-import { gameMatchesCollectionRules } from "../shared/collection-rules.js";
+import { getContentFilterFlags, excludeFilteredContent } from "./content-filter.js";
+import { gameMatchesCollectionRules, isEmptyCollectionRules } from "../shared/collection-rules.js";
 import {
   addCollectionGameSchema,
   insertCollectionSchema,
@@ -40,6 +41,15 @@ function gamesOfCollection(
   return libraryGames.filter((game) => linkedGameIds.has(game.id));
 }
 
+/** The user's visible library: hidden games and content hidden by their filter settings are left out. */
+async function loadLibraryGames(userId: string): Promise<Game[]> {
+  const [games, flags] = await Promise.all([
+    storage.getUserGames(userId),
+    getContentFilterFlags(userId),
+  ]);
+  return excludeFilteredContent(games, flags);
+}
+
 async function loadOwnedCollection(req: Request, res: Response): Promise<Collection | null> {
   const user = req.user as User;
   const { collectionId } = req.params as { collectionId: string };
@@ -57,7 +67,7 @@ router.get("/api/collections", authenticateToken, async (req: Request, res: Resp
     const [collections, links, libraryGames] = await Promise.all([
       storage.getCollections(user.id),
       storage.getCollectionLinks(user.id),
-      storage.getUserGames(user.id),
+      loadLibraryGames(user.id),
     ]);
 
     const linkedByCollection = new Map<string, Set<string>>();
@@ -102,7 +112,7 @@ router.get(
       const user = req.user as User;
       const [links, libraryGames] = await Promise.all([
         storage.getCollectionLinks(user.id),
-        storage.getUserGames(user.id),
+        loadLibraryGames(user.id),
       ]);
       const linked = new Set(
         links.filter((l) => l.collectionId === collection.id).map((l) => l.gameId)
@@ -160,7 +170,7 @@ router.patch(
       // The effective type/rules after the patch must still form a valid collection.
       const type = patch.type ?? (existing.type as "manual" | "smart");
       const rules = patch.rules === undefined ? existing.rules : patch.rules;
-      if (type === "smart" && (!rules || Object.keys(rules).length === 0)) {
+      if (type === "smart" && isEmptyCollectionRules(rules)) {
         return res.status(400).json({ error: "A smart collection needs at least one rule" });
       }
 

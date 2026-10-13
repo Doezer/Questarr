@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { ArrowLeft, Layers, ListPlus, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
@@ -8,6 +8,7 @@ import { useDownloadSummary } from "@/hooks/use-download-summary";
 import { useGridColumns } from "@/hooks/use-grid-columns";
 import { apiRequest } from "@/lib/queryClient";
 import { routePaths } from "@/lib/routes";
+import type { Game } from "@shared/schema";
 import { describeRules, type CollectionDetail, type CollectionSummary } from "@/lib/collections";
 import { useToast } from "@/hooks/use-toast";
 import CollectionDialog from "@/components/CollectionDialog";
@@ -61,11 +62,27 @@ function CoverMosaic({ urls }: Readonly<{ urls: string[] }>) {
   );
 }
 
+/**
+ * Collections are derived from the games, but game mutations and the gameUpdated socket event only
+ * invalidate the games query. Re-fetch the collections whenever that query refreshes.
+ */
+function useRefreshCollectionsOnGameChange() {
+  const queryClient = useQueryClient();
+  const { dataUpdatedAt } = useQuery<Game[]>({ queryKey: ["/api/games"] });
+  const seen = useRef(dataUpdatedAt);
+  useEffect(() => {
+    if (seen.current === dataUpdatedAt) return;
+    seen.current = dataUpdatedAt;
+    queryClient.invalidateQueries({ queryKey: ["/api/collections"] });
+  }, [dataUpdatedAt, queryClient]);
+}
+
 function collectionUrl(id: string): string {
   return `${routePaths.collections}?id=${encodeURIComponent(id)}`;
 }
 
 function CollectionList() {
+  useRefreshCollectionsOnGameChange();
   const [, navigate] = useLocation();
   const [createOpen, setCreateOpen] = useState(false);
   const { data: collections = [], isLoading } = useQuery<CollectionSummary[]>({
@@ -138,6 +155,7 @@ function CollectionList() {
 }
 
 function CollectionView({ id }: Readonly<{ id: string }>) {
+  useRefreshCollectionsOnGameChange();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();

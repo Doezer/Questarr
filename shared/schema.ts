@@ -3,6 +3,7 @@ import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-or
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { resolveTargetPlatform } from "./title-utils.js";
+import { isEmptyCollectionRules } from "./collection-rules.js";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -684,7 +685,7 @@ function refineCollectionRules(
   value: { type?: "manual" | "smart" | undefined; rules?: CollectionRules | null | undefined },
   ctx: z.RefinementCtx
 ) {
-  if (value.type === "smart" && (!value.rules || Object.keys(value.rules).length === 0)) {
+  if (value.type === "smart" && isEmptyCollectionRules(value.rules)) {
     ctx.addIssue({
       code: "custom",
       path: ["rules"],

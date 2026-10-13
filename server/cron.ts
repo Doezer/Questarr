@@ -435,6 +435,7 @@ export function startCronJobs() {
 }
 
 const IMPORT_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const DOWNLOAD_EVENT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const IMPORT_TASK_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function registerCronTasks(): void {
@@ -497,11 +498,12 @@ function registerCronTasks(): void {
     },
     {
       name: "import-task-cleanup",
-      title: "Import history cleanup",
-      description: "Delete import history entries older than 30 days.",
+      title: "History cleanup",
+      description: "Delete import history older than 30 days and download events older than 90.",
       intervalMs: IMPORT_TASK_CLEANUP_INTERVAL_MS,
       run: async () => {
         await storage.deleteImportTasksOlderThan(Date.now() - IMPORT_TASK_RETENTION_MS);
+        await storage.deleteDownloadEventsOlderThan(Date.now() - DOWNLOAD_EVENT_RETENTION_MS);
       },
     },
   ];

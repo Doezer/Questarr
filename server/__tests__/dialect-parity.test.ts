@@ -255,4 +255,53 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(keys.has(`${downloader!.id}:${realHash}`)).toBe(true);
     });
   });
+
+  describe("download event log", () => {
+    it("records grabbed, completed, blocklisted and removed events, newest first", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      const downloader = await storage().addDownloader({
+        name: "events-qb",
+        type: "qbittorrent",
+        url: "http://events",
+      } as never);
+      const before = (await storage().getDownloadEvents(user.id)).total;
+
+      const download = await storage().addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader!.id,
+        downloadType: "game",
+        downloadHash: "events-hash",
+        downloadTitle: "Events.Game-GRP",
+        status: "downloading",
+      } as never);
+      await storage().updateGameDownloadStatus(download!.id, "completed");
+      // Same status twice must not log a second event.
+      await storage().updateGameDownloadStatus(download!.id, "completed");
+      await storage().addReleaseBlacklist({
+        gameId: game.id,
+        releaseTitle: "Events.Game-BAD",
+        indexerName: "idx",
+      } as never);
+      await storage().removeGameDownload(download!.id, game.id);
+
+      const { events, total } = await storage().getDownloadEvents(user.id);
+      expect(total).toBe(before + 4);
+      expect(
+        events
+          .slice(0, 4)
+          .map((e) => e.eventType)
+          .sort()
+      ).toEqual(["blocklisted", "completed", "grabbed", "removed"]);
+      expect(events.find((e) => e.eventType === "grabbed")).toMatchObject({
+        gameTitle: game.title,
+        releaseTitle: "Events.Game-GRP",
+        downloaderName: "events-qb",
+      });
+
+      const completedOnly = await storage().getDownloadEvents(user.id, { eventType: "completed" });
+      expect(completedOnly.total).toBeGreaterThanOrEqual(1);
+      expect(completedOnly.events.every((e) => e.eventType === "completed")).toBe(true);
+    });
+  });
 });

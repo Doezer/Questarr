@@ -78,7 +78,7 @@ describe.each(activeTestDialects())("release scoring storage and migration on %s
     expect(await ctx.storage.deleteCustomFormat(userId, format.id)).toBe(true);
   });
 
-  it("migrates preferred groups and the seeder floor, once", async () => {
+  it("migrates preferred groups once", async () => {
     await ctx.storage.createUserSettings({
       userId: strictUserId,
       preferredReleaseGroups: JSON.stringify(["CODEX", "R.G. Mechanics"]),
@@ -86,7 +86,7 @@ describe.each(activeTestDialects())("release scoring storage and migration on %s
       downloadRules: JSON.stringify({ minSeeders: 7 }),
     });
     const first = await service.loadScoringConfig(strictUserId, ctx.storage);
-    expect(first.profile.minSeeders).toBe(7);
+    expect(first.profile.minSeeders).toBe(0);
     expect(first.formats.map((f) => f.name)).toEqual([
       service.PREFERRED_GROUP_FORMAT_NAME,
       service.NON_PREFERRED_GROUP_FORMAT_NAME,

@@ -1,11 +1,7 @@
 import type { IStorage } from "./storage.js";
 import { storage as defaultStorage } from "./storage.js";
 import { logger } from "./logger.js";
-import {
-  downloadRulesSchema,
-  type CustomFormatRow,
-  type ReleaseProfileRow,
-} from "../shared/schema.js";
+import { type CustomFormatRow, type ReleaseProfileRow } from "../shared/schema.js";
 import {
   DEFAULT_RELEASE_PROFILE,
   MAX_FORMAT_REGEX_LENGTH,
@@ -115,20 +111,11 @@ export function preferredGroupFormats(
   return formats;
 }
 
-function minSeedersFromRules(downloadRules: string | null | undefined): number {
-  if (!downloadRules) return 0;
-  try {
-    return downloadRulesSchema.parse(JSON.parse(downloadRules)).minSeeders;
-  } catch {
-    return 0;
-  }
-}
-
 const inFlight = new Map<string, Promise<void>>();
 
 /**
  * Creates the user's profile the first time it is needed, carrying over the old settings:
- * the seeder floor from the download rules and the preferred release groups (kept in
+ * the preferred release groups (kept in
  * user_settings, which is left untouched so a downgrade still works). minScore starts at 0 so
  * nothing is rejected that the old filters let through, apart from the title checks.
  */
@@ -148,7 +135,8 @@ async function createInitialConfig(store: IStorage, userId: string): Promise<voi
     protocolPreference,
     requiredTerms,
     ignoredTerms,
-    minSeeders: minSeedersFromRules(settings?.downloadRules),
+    // the seeder floor stays in the download rules, which apply on top of the profile
+    minSeeders: 0,
     maxSizeBytes,
     builtInOverrides: {},
     formatScores: {},

@@ -177,12 +177,15 @@ export class ImportManager {
    */
   private async resolvePlatformFolder(
     downloadTitle: string,
-    game: { platforms?: unknown }
+    game: { platforms?: unknown; targetPlatformId?: number | null }
   ): Promise<string> {
     if (await isRommPlatformFoldersEnabled()) {
       const releaseKey = this.getReleasePlatformKey(downloadTitle);
       const platformId =
-        this.getReleasePlatformIgdbId(releaseKey) ?? this.getPrimaryPlatformId(game) ?? 6;
+        this.getReleasePlatformIgdbId(releaseKey) ??
+        game.targetPlatformId ??
+        this.getPrimaryPlatformId(game) ??
+        6;
       const slug = rommSlugForPlatformId(platformId);
       if (slug && isValidRommSlug(slug)) return slug;
     }

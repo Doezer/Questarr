@@ -184,6 +184,29 @@ describe("RomM sync", () => {
     expect(store.get("romm.lastSync")).toBeTruthy();
   });
 
+  it("does not fall back to the title when the IGDB ids disagree", async () => {
+    await configure();
+    mockStorage.getUserGames.mockResolvedValue([game("r", "Remake Game", "wanted", 10)]);
+    safeFetchMock.mockResolvedValue(
+      json({ items: [{ id: 1, name: "Remake Game", igdb_id: 20 }], total: 1 })
+    );
+    const summary = await syncFromRomm("user-1");
+    expect(summary.matched).toBe(0);
+    expect(mockStorage.updateGameStatus).not.toHaveBeenCalled();
+  });
+
+  it("walks every page up to the reported total", async () => {
+    await configure();
+    const page = (from: number, n: number) =>
+      json({
+        items: Array.from({ length: n }, (_, i) => ({ id: from + i, name: `G${from + i}` })),
+        total: 300,
+      });
+    safeFetchMock.mockResolvedValueOnce(page(0, 250)).mockResolvedValueOnce(page(250, 50));
+    const roms = await rommClient.listAllRoms(await readRommSettings());
+    expect(roms).toHaveLength(300);
+  });
+
   it("refuses to run without a configuration", async () => {
     await expect(syncFromRomm("user-1")).rejects.toThrow(/not configured/);
   });

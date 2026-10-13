@@ -161,10 +161,10 @@ export const rommClient = {
     return Array.isArray(platforms) ? platforms.length : 0;
   },
 
-  async listAllRoms(settings: RommSettings, hardCap = 50_000): Promise<RommRom[]> {
+  async listAllRoms(settings: RommSettings): Promise<RommRom[]> {
     const roms: RommRom[] = [];
     const pageSize = 250;
-    for (let offset = 0; roms.length < hardCap; offset += pageSize) {
+    for (let offset = 0; ; offset += pageSize) {
       const page = await rommRequest<{ items?: RommRom[]; total?: number }>(
         settings,
         "GET",

@@ -21,7 +21,11 @@ import { ImportManager } from "../services/ImportManager.js";
 import { isValidRommSlug, ROMM_SLUG_BY_IGDB_PLATFORM_ID } from "../../shared/romm-platforms.js";
 import { makeImportConfig } from "./helpers/import-test-helpers.js";
 
-function planFor(platforms: unknown[], downloadTitle = "Some.Game-GRP") {
+function planFor(
+  platforms: unknown[],
+  downloadTitle = "Some.Game-GRP",
+  targetPlatformId: number | null = null
+) {
   const storage = {
     getGameDownload: vi.fn().mockResolvedValue({
       id: "dl-1",
@@ -30,7 +34,13 @@ function planFor(platforms: unknown[], downloadTitle = "Some.Game-GRP") {
       downloadHash: "abc",
       downloadTitle,
     }),
-    getGame: vi.fn().mockResolvedValue({ id: "g1", title: "Some Game", userId: "u1", platforms }),
+    getGame: vi.fn().mockResolvedValue({
+      id: "g1",
+      title: "Some Game",
+      userId: "u1",
+      platforms,
+      targetPlatformId,
+    }),
     getImportConfig: vi.fn().mockResolvedValue(makeImportConfig({ libraryRoot: "/roms" })),
     getDownloader: vi.fn().mockResolvedValue(undefined),
   };
@@ -57,6 +67,12 @@ describe("RomM platform folders", () => {
 
   it("prefers the platform named in the release", async () => {
     expect((await planFor([6], "Some.Game.NSW-GRP")).proposedPath).toBe("/roms/switch/Some Game");
+  });
+
+  it("uses the chosen target platform before defaulting to win", async () => {
+    expect((await planFor(["Super Nintendo"], "Some.Game-GRP", 19)).proposedPath).toBe(
+      "/roms/snes/Some Game"
+    );
   });
 
   it("puts PC games in win", async () => {

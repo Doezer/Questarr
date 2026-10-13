@@ -48,8 +48,10 @@ export async function syncFromRomm(userId: string): Promise<RommSyncSummary> {
 
   for (const rom of roms) {
     const game =
-      (rom.igdb_id != null ? byIgdbId.get(rom.igdb_id) : undefined) ??
-      byTitle.get(normalizeTitle(rom.name));
+      rom.igdb_id != null
+        ? byIgdbId.get(rom.igdb_id)
+        : // Title fallback only without an IGDB id: an original and its remake must not be mixed up.
+          byTitle.get(normalizeTitle(rom.name));
     if (!game) {
       summary.notInLibrary++;
       continue;

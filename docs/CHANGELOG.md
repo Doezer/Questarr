@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Legacy session token migration**: the one-time move of a pre-1.5.0 `localStorage` token to the httpOnly cookie no longer runs during React render; it now happens in a post-commit effect, and the app waits for it before calling `/api/auth/me`, which also makes it safe under StrictMode (#1193).
+
+### Dependencies
+
+- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14 (#1188, #1189, #1190, #1191).
+
 ## [1.5.0] - 2026-10-12
 
 ### Before you upgrade

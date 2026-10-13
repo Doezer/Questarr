@@ -18,7 +18,7 @@
         "groups": [
           {
             "group": "Getting started",
-            "pages": ["QUICKSTART", "CHANGELOG"]
+            "pages": ["QUICKSTART"]
           },
           {
             "group": "Library",

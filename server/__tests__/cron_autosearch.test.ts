@@ -126,7 +126,7 @@ vi.mock("../xrel.js", () => ({
 
 // Import the function under test
 // We need to use dynamic import or require because of the hoisting of vi.mock
-const { checkAutoSearch, categorizeSearchItems } = await import("../cron.js");
+const { checkAutoSearch, categorizeSearchItems, scoreReleasesForGame } = await import("../cron.js");
 const { igdbLogger } = await import("../logger.js");
 
 describe("Cron - checkAutoSearch", () => {
@@ -2454,5 +2454,89 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockNotifyUser).toHaveBeenCalledWith("notification", { id: "notif-1" }, undefined);
       expect(mockAppriseSend).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("release scoring in auto-search", () => {
+  const item = (title: string, extra: Record<string, unknown> = {}) => ({
+    title,
+    link: `http://x/${title}`,
+    pubDate: "2026-01-01T00:00:00Z",
+    indexerId: "i1",
+    indexerName: "idx",
+    category: ["4050"],
+    guid: title,
+    downloadType: "torrent" as const,
+    seeders: 20,
+    ...extra,
+  });
+  const game = { title: "Dishonored", targetPlatformId: null, targetPlatformName: null };
+  const scoring = {
+    config: {
+      profile: {
+        minScore: 0,
+        protocolPreference: "either" as const,
+        requiredTerms: [],
+        ignoredTerms: [],
+        minSeeders: 0,
+        maxSizeBytes: null,
+        builtInOverrides: {},
+        formatScores: {},
+      },
+      formats: [],
+    },
+    preferredPlatform: null,
+  };
+
+  it("keeps the game and its updates but drops a sequel and a spinoff", () => {
+    const kept = scoreReleasesForGame(
+      [
+        item("Dishonored-CODEX"),
+        item("Dishonored.Update.v1.4-CODEX"),
+        item("Dishonored.2-CODEX"),
+        item("Dishonored.Death.of.the.Outsider-CODEX"),
+      ],
+      game,
+      scoring
+    ).map((i) => i.title);
+    expect(kept).toContain("Dishonored-CODEX");
+    expect(kept).toContain("Dishonored.Update.v1.4-CODEX");
+    expect(kept).not.toContain("Dishonored.2-CODEX");
+    expect(kept).not.toContain("Dishonored.Death.of.the.Outsider-CODEX");
+  });
+
+  it("attaches the evaluation and ranks by score before the user's sort order", () => {
+    const scored = scoreReleasesForGame(
+      [item("Dishonored-CODEX", { seeders: 1 }), item("Dishonored-CODEX.Repack", { seeders: 900 })],
+      game,
+      {
+        ...scoring,
+        config: {
+          ...scoring.config,
+          formats: [
+            {
+              id: "f1",
+              name: "Codex",
+              specs: [{ field: "title" as const, mode: "contains" as const, value: "-CODEX" }],
+              score: 500,
+              hardReject: false,
+              enabled: true,
+            },
+          ],
+        },
+      }
+    );
+    expect(scored.every((i) => i.evaluation?.accepted)).toBe(true);
+    const rules = {
+      minSeeders: 0,
+      sortBy: "seeders" as const,
+      visibleCategoriesSet: new Set(["main", "update", "dlc", "extra", "packs"]),
+    };
+    const lowSeedHighScore = {
+      ...scored[0]!,
+      evaluation: { ...scored[0]!.evaluation!, score: 900 },
+    };
+    const result = categorizeSearchItems([scored[1]!, lowSeedHighScore], rules);
+    expect(result.mainItems[0]?.seeders).toBe(1);
   });
 });

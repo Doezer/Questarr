@@ -35,6 +35,8 @@ import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isReleasePossiblyNewer } from "../shared/version-utils.js";
 import { recordVersionFromCompletedDownload } from "./game-version.js";
 import { rssService } from "./rss.js";
+import { loadScoringConfig, type ScoringConfig } from "./release-scoring-service.js";
+import { evaluateReleases } from "../shared/release-scoring.js";
 import {
   releaseMatchesGame,
   normalizeTitle,
@@ -228,6 +230,10 @@ export function categorizeSearchItems(
     // for sorting is the grab count instead.
     .filter((item) => item.downloadType === "usenet" || (item.seeders ?? 0) >= rules.minSeeders)
     .sort((a, b) => {
+      // Release scoring decides first; the user's sort order only breaks ties.
+      if (a.evaluation && b.evaluation && a.evaluation.score !== b.evaluation.score) {
+        return b.evaluation.score - a.evaluation.score;
+      }
       if (rules.sortBy === "seeders") {
         return releaseHealth(b) - releaseHealth(a);
       }
@@ -355,6 +361,38 @@ function logAutoSearchErrors(gameTitle: string, errors: string[]): void {
   }
 }
 
+/** Release scoring inputs for one auto-search cycle of one user. */
+export interface AutoSearchScoring {
+  config: ScoringConfig;
+  /** The user's default platform, used when the game has no target platform of its own. */
+  preferredPlatform: string | null;
+}
+
+/**
+ * Scores the results for a game and keeps the ones auto-search may take: accepted, and a clear
+ * title match. "Ambiguous" names (a match followed by an unverified suffix) stay in manual
+ * search. Each kept item carries its evaluation.
+ */
+export function scoreReleasesForGame(
+  items: SearchItem[],
+  game: Pick<Game, "title" | "targetPlatformId" | "targetPlatformName">,
+  scoring: AutoSearchScoring
+): SearchItem[] {
+  const platform = resolveGamePlatformPreference(game, scoring.preferredPlatform);
+  return evaluateReleases(
+    items,
+    { gameTitle: game.title, platform },
+    scoring.config.profile,
+    scoring.config.formats
+  )
+    .filter(
+      ({ evaluation }) =>
+        evaluation.accepted &&
+        (evaluation.titleMatch === "exact" || evaluation.titleMatch === "contains")
+    )
+    .map(({ item, evaluation }) => ({ ...item, evaluation }));
+}
+
 /**
  * Searches all indexers for a game and returns its eligible releases, categorized by type.
  * Releases are title-matched, then filtered by the user's global release-name blacklist and
@@ -362,10 +400,11 @@ function logAutoSearchErrors(gameTitle: string, errors: string[]): void {
  * fetched (up to AUTO_SEARCH_MAX_PAGES). Returns null when no eligible release is found.
  */
 async function searchAndCategorizeItemsForGame(
-  game: Pick<Game, "id" | "title">,
+  game: Pick<Game, "id" | "title" | "targetPlatformId" | "targetPlatformName">,
   downloadRules: string | null,
   indexerPriorityMap?: Map<string, number>,
-  blacklistTerms: string[] = []
+  blacklistTerms: string[] = [],
+  scoring?: AutoSearchScoring
 ): Promise<AutoSearchCategorizedItems | null> {
   let matchedItems: SearchItem[] = [];
   let globallyFiltered: SearchItem[] = [];
@@ -384,7 +423,9 @@ async function searchAndCategorizeItemsForGame(
       break;
     }
 
-    matchedItems = items.filter((item) => releaseMatchesGame(item.title, game.title));
+    matchedItems = scoring
+      ? scoreReleasesForGame(items, game, scoring)
+      : items.filter((item) => releaseMatchesGame(item.title, game.title));
     // A first page with no title match means the search is not about this game. Later pages
     // are only fetched because the blacklist hid a whole page, so an unrelated page there
     // should not stop the search.
@@ -1543,6 +1584,15 @@ export async function checkAutoSearch() {
         const preferredPlatform = settings.preferredPlatform ?? null;
         const blacklistTerms = parseJsonStringArray(settings.releaseNameBlacklist);
 
+        // Release scoring replaces the title match and the preferred-groups filter. If the
+        // profile cannot be loaded, this cycle falls back to the previous behavior.
+        let scoring: AutoSearchScoring | undefined;
+        try {
+          scoring = { config: await loadScoringConfig(userId), preferredPlatform };
+        } catch (error) {
+          igdbLogger.warn({ userId, error }, "Release scoring unavailable, using legacy filters");
+        }
+
         for (const game of wantedGames) {
           try {
             // Skip unreleased games if configured to do so
@@ -1558,7 +1608,8 @@ export async function checkAutoSearch() {
               game,
               settings.downloadRules,
               indexerPriorityMap,
-              blacklistTerms
+              blacklistTerms,
+              scoring
             );
             if (!searchResult) {
               // No results at all (zero results or all blacklisted) — clear the badge
@@ -1577,11 +1628,13 @@ export async function checkAutoSearch() {
               searchResult.mainItems,
               effectivePlatform
             );
-            const groupFilteredMain = applyPreferredGroupsFilter(
-              platformFilteredMain,
-              preferredGroups,
-              settings.filterByPreferredGroups ?? false
-            );
+            const groupFilteredMain = scoring
+              ? platformFilteredMain
+              : applyPreferredGroupsFilter(
+                  platformFilteredMain,
+                  preferredGroups,
+                  settings.filterByPreferredGroups ?? false
+                );
             const mainItems = deduplicateByTitle(groupFilteredMain, indexerPriorityMap);
 
             // Handle main items
@@ -1775,7 +1828,8 @@ export async function checkAutoSearch() {
               game,
               settings.downloadRules,
               indexerPriorityMap,
-              blacklistTerms
+              blacklistTerms,
+              scoring
             );
             if (!searchResult) {
               await storage.updateGameSearchResultsAvailable(game.id, false);
@@ -1790,11 +1844,13 @@ export async function checkAutoSearch() {
               searchResult.updateItems,
               effectivePlatform
             );
-            const groupFilteredUpdate = applyPreferredGroupsFilter(
-              platformFilteredUpdate,
-              preferredGroups,
-              settings.filterByPreferredGroups ?? false
-            );
+            const groupFilteredUpdate = scoring
+              ? platformFilteredUpdate
+              : applyPreferredGroupsFilter(
+                  platformFilteredUpdate,
+                  preferredGroups,
+                  settings.filterByPreferredGroups ?? false
+                );
             // Drop update releases whose version is provably not newer than the one the user
             // has installed, so a game already on v1.5 isn't flagged for a v1.4 patch.
             const versionFilteredUpdate = groupFilteredUpdate.filter((item) =>
@@ -1807,11 +1863,13 @@ export async function checkAutoSearch() {
               searchResult.packsItems,
               effectivePlatform
             );
-            const groupFilteredPacks = applyPreferredGroupsFilter(
-              platformFilteredPacks,
-              preferredGroups,
-              settings.filterByPreferredGroups ?? false
-            );
+            const groupFilteredPacks = scoring
+              ? platformFilteredPacks
+              : applyPreferredGroupsFilter(
+                  platformFilteredPacks,
+                  preferredGroups,
+                  settings.filterByPreferredGroups ?? false
+                );
             const packsItems = deduplicateByTitle(groupFilteredPacks, indexerPriorityMap);
 
             await storage.updateGameSearchResultsByCategory(game.id, {

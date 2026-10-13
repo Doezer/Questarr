@@ -1150,7 +1150,7 @@ describe("ImportManager", () => {
       expect.anything(),
       expect.anything(),
       "PC",
-      undefined
+      expect.objectContaining({ downloadTitle: expect.anything() })
     );
 
     planSpy.mockRestore();
@@ -1206,7 +1206,7 @@ describe("ImportManager", () => {
         expect.anything(),
         expect.anything(),
         "Wii U",
-        undefined
+        expect.objectContaining({ downloadTitle: expect.anything() })
       );
 
       planSpy.mockRestore();

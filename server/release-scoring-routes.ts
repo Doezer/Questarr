@@ -41,13 +41,17 @@ async function currentConfig(userId: string) {
   return {
     profile: profile ? profileFromRow(profile) : null,
     formats: formats.map(formatFromRow),
-    builtInRules: BUILT_IN_RULES.map(({ id, label, points, locked, rejection }) => ({
-      id,
-      label,
-      points,
-      locked: locked === true,
-      rejects: rejection !== undefined,
-    })),
+    // size_mismatch needs an expected size that no search path supplies yet, so it is hidden
+    // rather than offered as a setting that changes nothing
+    builtInRules: BUILT_IN_RULES.filter((rule) => rule.id !== "size_mismatch").map(
+      ({ id, label, points, locked, rejection }) => ({
+        id,
+        label,
+        points,
+        locked: locked === true,
+        rejects: rejection !== undefined,
+      })
+    ),
   };
 }
 

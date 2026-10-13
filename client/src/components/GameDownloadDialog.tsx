@@ -553,6 +553,15 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               return aEval.accepted ? -1 : 1;
             }
             comparison = (bEval?.score ?? 0) - (aEval?.score ?? 0);
+            if (
+              comparison === 0 &&
+              aEval &&
+              bEval &&
+              aEval.preferredProtocol !== bEval.preferredProtocol
+            ) {
+              // an equal score keeps the preferred protocol first, as the server ordered it
+              comparison = aEval.preferredProtocol ? -1 : 1;
+            }
             if (comparison === 0) {
               const aHealth = isUsenetItem(a) ? (a.grabs ?? 0) : (a.seeders ?? 0);
               const bHealth = isUsenetItem(b) ? (b.grabs ?? 0) : (b.seeders ?? 0);

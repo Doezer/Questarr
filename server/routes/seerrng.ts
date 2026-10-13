@@ -1,11 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import {
-  readFileSync,
-  createReadStream,
-  constants as fsConstants,
-  promises as fs,
-  type Stats,
-} from "node:fs";
+import { readFileSync, constants as fsConstants, promises as fs, type Stats } from "node:fs";
 import path from "node:path";
 import { TarArchive } from "archiver";
 import { z } from "zod";
@@ -569,6 +563,42 @@ async function withDispatchQueue<T>(key: string, work: () => Promise<T>): Promis
   }
 }
 
+/**
+ * Attaches a request to a game that is already in the library. Another live request owning it
+ * is a conflict (returns undefined); a cancelled one is released. Unacquired games are retargeted
+ * to the requested OS so auto-search looks for the right release.
+ */
+async function attachExistingGame(
+  userId: string,
+  externalRequestId: string,
+  owner: Game,
+  operatingSystem: keyof typeof TARGET_PLATFORMS
+): Promise<IntegrationRequest | undefined> {
+  const holder = await storage.getIntegrationRequestByGameId(userId, owner.id);
+  if (holder && holder.externalRequestId !== externalRequestId) {
+    if (holder.status !== "cancelled") {
+      await storage.updateIntegrationRequest(userId, externalRequestId, {
+        status: "failed",
+        errorMessage: "Game is already linked to another request.",
+      });
+      return undefined;
+    }
+    await storage.updateIntegrationRequest(userId, holder.externalRequestId, { gameId: null });
+  }
+  const platform = TARGET_PLATFORMS[operatingSystem];
+  if (!isAcquired(owner) && owner.targetPlatformId !== platform.id) {
+    await storage.updateGame(owner.id, {
+      targetPlatformId: platform.id,
+      targetPlatformName: platform.name,
+    });
+  }
+  return storage.updateIntegrationRequest(userId, externalRequestId, {
+    gameId: owner.id,
+    status: "searching",
+    errorMessage: null,
+  });
+}
+
 seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
   const parsed = createRequestSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -617,32 +647,16 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
       }
 
       if (result.outcome === "duplicate") {
-        // The game is already in the library. Another request owning it is a
-        // conflict; otherwise the request attaches to the existing game and
-        // reports whatever state it is really in (wanted, downloading, owned).
-        const owner = result.game;
-        const holder = await storage.getIntegrationRequestByGameId(userId, owner.id);
-        if (holder && holder.externalRequestId !== externalRequestId) {
-          await storage.updateIntegrationRequest(userId, externalRequestId, {
-            status: "failed",
-            errorMessage: "Game is already linked to another request.",
-          });
+        const linked = await attachExistingGame(
+          userId,
+          externalRequestId,
+          result.game,
+          variant.operatingSystem
+        );
+        if (!linked) {
           return res.status(409).json({ error: "Game is already linked to another request." });
         }
-        const platform = TARGET_PLATFORMS[variant.operatingSystem];
-        if (!isAcquired(owner) && owner.targetPlatformId !== platform.id) {
-          // Auto-search must look for the requested OS, not the platform the game was added with.
-          await storage.updateGame(owner.id, {
-            targetPlatformId: platform.id,
-            targetPlatformName: platform.name,
-          });
-        }
-        const linked = await storage.updateIntegrationRequest(userId, externalRequestId, {
-          gameId: owner.id,
-          status: "searching",
-          errorMessage: null,
-        });
-        return res.status(201).json(await describeRequest(userId, linked ?? ledger));
+        return res.status(201).json(await describeRequest(userId, linked));
       }
 
       const linked = await storage.updateIntegrationRequest(userId, externalRequestId, {
@@ -754,6 +768,17 @@ seerrngRouter.post(
           return res.status(404).json({ error: "No matching PC game was found." });
         }
         game = result.game;
+        if (result.outcome === "duplicate") {
+          const attached = await attachExistingGame(
+            userId,
+            ledger.externalRequestId,
+            game,
+            ledger.operatingSystem ?? "windows"
+          );
+          if (!attached) {
+            return res.status(409).json({ error: "Game is already linked to another request." });
+          }
+        }
       }
       // An already-acquired game found again (added manually since) keeps its state.
       if (!isAcquired(game) && game.status !== "wanted") {
@@ -972,7 +997,20 @@ seerrngRouter.get(
       );
       if (!asset) return res.status(404).json({ error: "Asset not found." });
 
-      const size = asset.size;
+      // O_NOFOLLOW: the path was already resolved, so a swap for a symlink after listing is
+      // refused instead of followed; everything below reads from the verified handle.
+      let handle: Awaited<ReturnType<typeof fs.open>>;
+      try {
+        handle = await fs.open(asset.path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+      } catch {
+        return res.status(404).json({ error: "Asset not found." });
+      }
+      const stats = await handle.stat();
+      if (!stats.isFile()) {
+        await handle.close();
+        return res.status(404).json({ error: "Asset not found." });
+      }
+      const size = stats.size;
       let start = 0;
       let end = size - 1;
       let statusCode = 200;
@@ -981,6 +1019,7 @@ seerrngRouter.get(
         const match = /^bytes=(\d*)-(\d*)$/.exec(range);
         const unsatisfiable = () => {
           res.set("Content-Range", `bytes */${size}`);
+          void handle.close();
           return res.status(416).end();
         };
         if (!match || size === 0) return unsatisfiable();
@@ -1005,8 +1044,11 @@ seerrngRouter.get(
         "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(asset.name)}`,
         "X-Content-Type-Options": "nosniff",
       });
-      if (size === 0) return res.status(200).end();
-      const stream = createReadStream(asset.path, { start, end });
+      if (size === 0) {
+        await handle.close();
+        return res.status(200).end();
+      }
+      const stream = handle.createReadStream({ start, end });
       stream.on("error", (error) => {
         logger.warn({ error }, "SeerrNG asset stream failed");
         if (!res.headersSent) res.status(404).end();

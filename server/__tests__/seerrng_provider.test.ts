@@ -384,6 +384,36 @@ describe("SeerrNG provider API", () => {
       expect(games.get("g9")?.status).toBe("owned");
     });
 
+    it("lets a cancelled game be requested again under a new request ID", async () => {
+      await request(app).post(`${base}/requests`).send(createBody);
+      await request(app).post(`${base}/requests/seerrng:request:1/cancel`).send({});
+      const again = await request(app)
+        .post(`${base}/requests`)
+        .send({ ...createBody, externalRequestId: "seerrng:request:2" });
+      expect(again.status).toBe(201);
+      expect(again.body.status).not.toBe("cancelled");
+    });
+
+    it("refuses to retry onto a game another request has since claimed", async () => {
+      await request(app)
+        .post(`${base}/requests`)
+        .send({ ...createBody, igdbId: 42 });
+      ledger.set("user-1:seerrng:request:2", {
+        id: "req-x",
+        userId: USER.id,
+        externalRequestId: "seerrng:request:2",
+        title: "Example Game",
+        igdbId: 42,
+        operatingSystem: "windows",
+        architecture: "x64",
+        gameId: null,
+        status: "failed",
+        errorMessage: "x",
+      });
+      const res = await request(app).post(`${base}/requests/seerrng:request:2/retry`).send({});
+      expect(res.status).toBe(409);
+    });
+
     it("refuses a game already answering another request", async () => {
       await request(app).post(`${base}/requests`).send(createBody);
       const res = await request(app)

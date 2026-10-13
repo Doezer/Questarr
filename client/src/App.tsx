@@ -14,6 +14,7 @@ import { AuthProvider } from "@/lib/auth";
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef } from "react";
 import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
+import "@/lib/in-app-history";
 import { routerBase } from "@/lib/app-path";
 import { gameDetailsRoutePattern, routePaths } from "@/lib/routes";
 import { applyThemeClass, migrateLegacyTheme } from "@/lib/theme-mode";

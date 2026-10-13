@@ -47,6 +47,17 @@ describe("GameDetailsPage", () => {
     expect(await screen.findByText("Game not found")).toBeInTheDocument();
   });
 
+  it("tells a server failure apart from a missing game", async () => {
+    apiRequest.mockResolvedValue({
+      json: async () => {
+        throw new ApiError(500, "Boom");
+      },
+    });
+    renderAt("/games/g500");
+    expect(await screen.findByText("Couldn't load this game", {}, { timeout: 5000 })).toBeVisible();
+    expect(screen.queryByText("Game not found")).toBeNull();
+  });
+
   it("loads a library game by id and names the tab after it", async () => {
     apiRequest.mockResolvedValue({ json: async () => game });
     renderAt("/games/g1");

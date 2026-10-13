@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, apiRequest } from "@/lib/queryClient";
 import { isDiscoveryId } from "@/lib/utils";
 import { routePaths } from "@/lib/routes";
+import { canGoBackInApp } from "@/lib/in-app-history";
 
 /** The game a card passed along when navigating here, if any (absent on a direct visit). */
 function gameFromNavigationState(id: string): Game | undefined {
@@ -37,7 +38,11 @@ export default function GameDetailsPage() {
   const [, navigate] = useLocation();
   const isDiscovery = isDiscoveryId(id);
 
-  const { data: game, isLoading } = useQuery<Game>({
+  const {
+    data: game,
+    isLoading,
+    error,
+  } = useQuery<Game>({
     // Under the ["/api/games"] prefix so every status/rating/hidden mutation refreshes the page.
     queryKey: isDiscovery ? ["/api/igdb/game", id] : ["/api/games", id],
     queryFn: async () => {
@@ -65,21 +70,26 @@ export default function GameDetailsPage() {
     };
   }, [game?.title]);
 
-  // A game opened in a fresh tab has no history to go back to: fall back to the library.
+  // A game opened in a fresh tab (or from a bookmark) has no in-app history: fall back to the library.
   const handleClose = useCallback(() => {
-    if (window.history.length > 1) window.history.back();
+    if (canGoBackInApp()) window.history.back();
     else navigate(routePaths.library);
   }, [navigate]);
 
   if (isLoading) return <DetailsSkeleton />;
 
   if (!game) {
+    const notFound = error instanceof ApiError && (error.status === 404 || error.status === 403);
     return (
       <div className="mx-auto flex max-w-md flex-col items-center gap-4 px-4 py-24 text-center">
         <AlertCircle className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
-        <h1 className="text-xl font-semibold">Game not found</h1>
+        <h1 className="text-xl font-semibold">
+          {notFound ? "Game not found" : "Couldn't load this game"}
+        </h1>
         <p className="text-sm text-muted-foreground">
-          It may have been removed from your library, or the link is wrong.
+          {notFound
+            ? "It may have been removed from your library, or the link is wrong."
+            : "Try again in a moment."}
         </p>
         <Button variant="outline" onClick={handleClose} className="gap-1.5">
           <ChevronLeft className="h-4 w-4" />

@@ -1,3 +1,4 @@
+import { isSameProwlarrUrl } from "../shared/prowlarr-url.js";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
@@ -84,7 +85,11 @@ import {
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
 import { prowlarrClient } from "./prowlarr.js";
-import { loadProwlarrSyncSettings, saveProwlarrSyncSettings } from "./prowlarr-settings.js";
+import {
+  loadProwlarrSyncSettings,
+  saveProwlarrSyncSettings,
+  revokeProwlarrHttpOptIn,
+} from "./prowlarr-settings.js";
 import { isSafeUrl, safeFetch, resolveSafeAddress, normalizeHostname } from "./ssrf.js";
 import {
   hashPassword,
@@ -268,6 +273,7 @@ const upload = multer({
 });
 import {
   searchAllIndexers,
+  type SearchItem,
   filterBlacklistedReleases,
   filterByReleaseNameBlacklist,
   enrichWithAiAnalysis,
@@ -278,6 +284,7 @@ import {
   cleanReleaseName,
   releaseMatchesGame,
   parseReleaseMetadata,
+  resolveGamePlatformPreference,
   matchesPlatformFilter,
   parseJsonStringArray,
 } from "../shared/title-utils.js";
@@ -287,6 +294,10 @@ import type { XrelGameStatus } from "../shared/xrel-types.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import { releaseScoringRoutes } from "./release-scoring-routes.js";
+import { loadScoringConfig } from "./release-scoring-service.js";
+import { getXrelPredb, xrelEnabledFor } from "./xrel-predb.js";
+import { evaluateReleases } from "../shared/release-scoring.js";
 import { gameJournalRoutes, screenshotDirForGame } from "./game-journal-routes.js";
 import {
   getContentFilterFlags,
@@ -649,6 +660,40 @@ async function saveIgdbCredentialsIfProvided(
 }
 
 /**
+ * Attaches a release scoring evaluation to every result and sorts by it (accepted first, then
+ * score). Rejected releases stay in the list so the UI can show why. The wanted game is the
+ * requested gameId when it is the user's own, else the query text. Scoring is best effort: on
+ * failure the results come back unscored.
+ */
+async function scoreManualSearchResults(
+  items: SearchItem[],
+  userId: string | undefined,
+  ownGame: Awaited<ReturnType<typeof storage.getGame>>,
+  query: string,
+  preferredPlatform: string | null,
+  useXrel: boolean
+): Promise<SearchItem[]> {
+  if (!userId || items.length === 0) return items;
+  try {
+    const config = await loadScoringConfig(userId);
+    const platform = ownGame
+      ? resolveGamePlatformPreference(ownGame, preferredPlatform)
+      : preferredPlatform;
+    const gameTitle = ownGame?.title ?? query;
+    const xrelReleases = useXrel ? await getXrelPredb(gameTitle) : undefined;
+    return evaluateReleases(
+      items,
+      { gameTitle, platform, ...(xrelReleases ? { xrelReleases } : {}) },
+      config.profile,
+      config.formats
+    ).map(({ item, evaluation }) => ({ ...item, evaluation }));
+  } catch (error) {
+    routesLogger.warn({ error }, "Release scoring failed, returning unscored results");
+    return items;
+  }
+}
+
+/**
  * Handles an aggregated indexer search request. Results are filtered by the requesting user's
  * global release-name blacklist and, when a gameId is given, that game's blacklist, before AI
  * enrichment. A canonical game-title search also refreshes the game's availability badge.
@@ -683,6 +728,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
     const gameId = req.query.gameId as string | undefined;
     let filteredItems = items;
     let userSettings: Awaited<ReturnType<typeof storage.getUserSettings>> | undefined;
+    let ownGame: Awaited<ReturnType<typeof storage.getGame>> = undefined;
     if (req.user) {
       userSettings = await storage.getUserSettings(req.user.id);
       const blacklistTerms = parseJsonStringArray(userSettings?.releaseNameBlacklist);
@@ -696,27 +742,48 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
         const blacklisted = await storage.getReleaseBlacklistSet(gameId);
         filteredItems = filterBlacklistedReleases(filteredItems, blacklisted);
 
-        // Update the "has results" flag only for canonical game-title searches so that
-        // partial/custom user-typed queries in the download dialog don't flip the badge
-        // based on a transient, narrow result set. Runs async to avoid blocking the response.
-        const isCanonicalSearch = normalizeTitle(query.trim()) === normalizeTitle(game.title);
-        if (isCanonicalSearch) {
-          const preferredPlatform = userSettings?.preferredPlatform ?? null;
-          const platformFiltered = preferredPlatform
-            ? filteredItems.filter((item) => {
-                const { platform } = parseReleaseMetadata(item.title);
-                return matchesPlatformFilter(platform, preferredPlatform);
-              })
-            : filteredItems;
-          storage
-            .updateGameSearchResultsAvailable(game.id, platformFiltered.length > 0)
-            .catch((err) => routesLogger.warn({ err }, "Failed to update searchResultsAvailable"));
-        }
+        ownGame = game;
       }
     }
 
     const blacklistedCount = items.length - filteredItems.length;
-    const enrichedItems = await enrichWithAiAnalysis(filteredItems);
+    const scoredItems = await scoreManualSearchResults(
+      filteredItems,
+      req.user?.id,
+      ownGame,
+      query.trim(),
+      userSettings?.preferredPlatform ?? null,
+      xrelEnabledFor(userSettings)
+    );
+
+    // Update the "has results" flag only for canonical game-title searches so that
+    // partial/custom user-typed queries in the download dialog don't flip the badge
+    // based on a transient, narrow result set. Runs async to avoid blocking the response.
+    // Same rule as auto-search: an accepted release with a clear title match.
+    if (ownGame && normalizeTitle(query.trim()) === normalizeTitle(ownGame.title)) {
+      // the game's own target platform wins over the account default, as in the scoring above
+      const preferredPlatform = resolveGamePlatformPreference(
+        ownGame,
+        userSettings?.preferredPlatform ?? null
+      );
+      const usable = scoredItems.filter(({ evaluation }) =>
+        evaluation
+          ? evaluation.accepted &&
+            (evaluation.titleMatch === "exact" || evaluation.titleMatch === "contains")
+          : true
+      );
+      const platformFiltered = preferredPlatform
+        ? usable.filter((item) => {
+            const { platform } = parseReleaseMetadata(item.title);
+            return matchesPlatformFilter(platform, preferredPlatform);
+          })
+        : usable;
+      storage
+        .updateGameSearchResultsAvailable(ownGame.id, platformFiltered.length > 0)
+        .catch((err) => routesLogger.warn({ err }, "Failed to update searchResultsAvailable"));
+    }
+
+    const enrichedItems = await enrichWithAiAnalysis(scoredItems);
 
     return res.json({
       items: enrichedItems,
@@ -932,6 +999,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Use Steam Routes
   app.use(steamRoutes);
+  app.use(releaseScoringRoutes);
   app.use(gameJournalRoutes);
   // Use PCGamingWiki Routes
   app.use(pcgamingwikiRouter);
@@ -1652,11 +1720,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // be sent to a different host.
         if (isUnchangedSentinel(apiKey)) {
           const saved = await loadProwlarrSyncSettings();
-          if (!saved?.apiKey || saved.url !== url) {
+          if (!saved?.apiKey || !isSameProwlarrUrl(saved.url, url)) {
             return res.status(400).json({ error: "Enter the Prowlarr API key again for this URL" });
           }
           apiKey = saved.apiKey;
         }
+
+        // Revocation is local: it must also work when DNS validation fails.
+        if (allowInsecureLan === false) await revokeProwlarrHttpOptIn(url);
 
         if (!(await isSafeUrl(url))) {
           return res.status(400).json({ error: "Invalid or unsafe URL" });

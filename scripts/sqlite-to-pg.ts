@@ -20,6 +20,8 @@
  * integer booleans, epoch-millisecond timestamps and TEXT JSON into Postgres
  * booleans, bigints and jsonb without a hand-written transform per column.
  */
+import fs from "fs";
+import path from "path";
 import Database from "better-sqlite3";
 import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3";
 import pg from "pg";
@@ -49,6 +51,8 @@ const TABLE_ORDER = [
   "apiKeys",
   "importTasks",
   "rssFeedItems",
+  "releaseProfiles",
+  "customFormats",
   // Reference games / downloaders / importTasks.
   "gameDownloads",
   "xrelNotifiedReleases",
@@ -77,6 +81,46 @@ export interface MigrateResult {
   /** Per table: rows found in SQLite and rows present in Postgres afterwards. */
   counts: Record<string, { read: number; written: number; verified: number }>;
   mismatched: string[];
+}
+
+/**
+ * Migrations in the SQLite journal that the source database has not applied.
+ * Questarr's SQLite runner records each applied migration's tag in
+ * `__drizzle_migrations.hash`. Rows are read through the current schema, so a
+ * source that is behind would either fail on a missing column or carry rows
+ * a data migration has not fixed yet (e.g. 0044's insecure-LAN backfill),
+ * which would then land in Postgres after its own migrations already ran.
+ */
+export function findPendingSqliteMigrations(source: Database.Database, tags: string[]): string[] {
+  const hasTable = source
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '__drizzle_migrations'")
+    .get();
+  if (!hasTable) return [...tags];
+  const applied = new Set(
+    (
+      source.prepare('SELECT hash FROM "__drizzle_migrations"').all() as Array<{ hash: string }>
+    ).map((r) => r.hash)
+  );
+  return tags.filter((tag) => !applied.has(tag));
+}
+
+export function readSqliteJournalTags(
+  journalPath = path.resolve(process.cwd(), "migrations", "meta", "_journal.json")
+): string[] {
+  const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8")) as {
+    entries: Array<{ tag: string }>;
+  };
+  return journal.entries.map((e) => e.tag);
+}
+
+/** Why the source cannot be copied yet, or null when it is fully migrated. */
+export function describePendingSqliteMigrations(pending: string[]): string | null {
+  if (pending.length === 0) return null;
+  return (
+    `The SQLite database is missing ${pending.length} migration(s), starting with ${pending[0]}.\n` +
+    "Start this version of Questarr on SQLite once (or run `npm run db:migrate`) so they " +
+    "apply, stop it, then re-run this script."
+  );
 }
 
 /** Rows already present in the target, by table. Empty means a clean target. */
@@ -187,6 +231,14 @@ async function main() {
   }
 
   const sqliteClient = new Database(sqlitePath, { readonly: true });
+  const pendingError = describePendingSqliteMigrations(
+    findPendingSqliteMigrations(sqliteClient, readSqliteJournalTags())
+  );
+  if (pendingError) {
+    console.error(pendingError);
+    sqliteClient.close();
+    process.exit(1);
+  }
   const src = drizzleSqlite(sqliteClient, { schema: sqliteSchema });
 
   const pool = new pg.Pool({ connectionString: databaseUrl });

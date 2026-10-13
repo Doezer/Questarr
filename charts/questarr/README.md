@@ -42,16 +42,16 @@ above `1`, and uses the `Recreate` strategy so two pods never hold the volume at
 
 ### Image and release
 
-| Key                | Default                   | Description                                     |
-| ------------------ | ------------------------- | ----------------------------------------------- |
-| `image.repository` | `ghcr.io/doezer/questarr` | Image repository                                |
-| `image.tag`        | `""`                      | Image tag; defaults to the chart's `appVersion` |
-| `image.pullPolicy` | `IfNotPresent`            | Image pull policy                               |
-| `imagePullSecrets` | `[]`                      | Pull secrets for private registries             |
-| `replicaCount`     | `1`                       | Must stay `1` (see above)                       |
-| `strategy`         | `{type: Recreate}`        | Deployment update strategy                      |
-| `nameOverride`     | `""`                      | Overrides the chart name                        |
-| `fullnameOverride` | `""`                      | Overrides the generated resource names          |
+| Key                | Default                   | Description                                                           |
+| ------------------ | ------------------------- | --------------------------------------------------------------------- |
+| `image.repository` | `ghcr.io/doezer/questarr` | Image repository                                                      |
+| `image.tag`        | `""`                      | Image tag; defaults to `v` + the chart's `appVersion` (e.g. `v1.5.0`) |
+| `image.pullPolicy` | `IfNotPresent`            | Image pull policy                                                     |
+| `imagePullSecrets` | `[]`                      | Pull secrets for private registries                                   |
+| `replicaCount`     | `1`                       | Must stay `1` (see above)                                             |
+| `strategy`         | `{type: Recreate}`        | Deployment update strategy                                            |
+| `nameOverride`     | `""`                      | Overrides the chart name                                              |
+| `fullnameOverride` | `""`                      | Overrides the generated resource names                                |
 
 ### Application
 
@@ -73,7 +73,7 @@ above `1`, and uses the `Recreate` strategy so two pods never hold the volume at
 
 Every secret is optional: Questarr generates and persists its own `JWT_SECRET` and
 `CREDENTIALS_ENCRYPTION_KEY` when they are unset, and the API keys can also be entered
-in Settings → Services.
+in Settings → Integrations.
 
 | Key                                         | Default           | Description                                               |
 | ------------------------------------------- | ----------------- | --------------------------------------------------------- |

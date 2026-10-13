@@ -379,14 +379,17 @@ export class NZBGetClient implements DownloaderClient {
     }
   }
 
-  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
     try {
       const queue = (await this.makeXMLRPCRequest("listgroups")) as NZBGetListResult[];
       const item = queue.find((q) => q.NZBID.toString() === id);
 
       if (!item) {
         // Check history
-        return await this.getFromHistory(id);
+        return await this.getFromHistory(id, options);
       }
 
       const progress =
@@ -447,11 +450,15 @@ export class NZBGetClient implements DownloaderClient {
       };
     } catch (error) {
       downloadersLogger.error({ error }, "Failed to get NZBGet status");
+      if (options?.throwOnError) throw error;
       return null;
     }
   }
 
-  private async getFromHistory(id: string): Promise<DownloadStatus | null> {
+  private async getFromHistory(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
     try {
       const history = (await this.makeXMLRPCRequest("history")) as NZBGetHistoryResult[];
       const item = history.find((h) => h.NZBID.toString() === id);
@@ -495,6 +502,7 @@ export class NZBGetClient implements DownloaderClient {
       };
     } catch (error) {
       downloadersLogger.error({ error }, "Failed to get NZBGet history");
+      if (options?.throwOnError) throw error;
       return null;
     }
   }
@@ -534,13 +542,13 @@ export class NZBGetClient implements DownloaderClient {
     };
   }
 
-  async getAllDownloads(): Promise<DownloadStatus[]> {
+  async getAllDownloads(options?: { throwOnError?: boolean }): Promise<DownloadStatus[]> {
     try {
       const queue = (await this.makeXMLRPCRequest("listgroups")) as NZBGetListResult[];
       const results: DownloadStatus[] = [];
 
       for (const item of queue) {
-        const status = await this.getDownloadStatus(item.NZBID.toString());
+        const status = await this.getDownloadStatus(item.NZBID.toString(), options);
         if (status) {
           results.push(status);
         }
@@ -549,6 +557,7 @@ export class NZBGetClient implements DownloaderClient {
       return results;
     } catch (error) {
       downloadersLogger.error({ error }, "Failed to get NZBGet queue");
+      if (options?.throwOnError) throw error;
       return [];
     }
   }

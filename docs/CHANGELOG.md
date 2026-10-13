@@ -2,14 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.5.0] - 2026-09-xx
+## [1.5.0] - 2026-10-12
+
+### Before you upgrade
+
+- **Sign in again once**: sessions moved to httpOnly cookies, so the first page load after upgrading asks for your password again.
+- **Plain-HTTP indexers and download clients**: credentials require **Allow insecure LAN connection** over HTTP. SQLite migration `0044` opts existing HTTP connections in once, preserving 1.4.x behavior; new connections stay opted out. Review any SQLite release-candidate HTTP opt-outs after upgrading, since this backfill turns them on. PostgreSQL has no backfill and preserves existing choices (#1022, #1061, #1175).
+- **Reverse proxy**: set `TRUST_PROXY` for your proxy hops or addresses after upgrading; see [proxy setup](REVERSE_PROXY.md).
+- **Forgotten password in Docker**: the image has no `npm`, so run the reset script with `docker exec -it questarr su-exec questarr node dist/scripts/reset-password.js <username>` (replace `questarr` with your container name). Outside Docker, `npm run reset-password -- <username>` still works.
 
 ### Added
 
 #### Library & Discovery
 
 - **Root folder / Scan Disk**: discover games already present on disk, plus safe recursive file discovery within a game's own folder to reconcile files already there (#943, #892, #938).
-- **Platforms setting**: one Settings > Platforms list to always only see your platform of choice by default across Library, Discover, Add Game, and download search (#1018, #1104).
+- **Library Import**: [Discover games on disk](LIBRARY_IMPORT.md), follow scan progress, and review unmatched folders by searching IGDB.
+- **Backlog roulette**: [Pick your next game](BACKLOG_ROULETTE.md) from Library or Playing, reroll, or mark an owned game as Playing. Toolbar actions remain reachable at narrower widths (#1165, #1184).
+- **Platforms setting**: one Settings → Appearance → Platforms list to always only see your platform of choice by default across Library, Discover, Add Game, and download search (#1018, #1104).
 - **Per-game target platforms** for automatic downloads (#1048).
 - **Platform and release year filters** on game search (#897).
 - **Library filters**: added filters to hide shelved games and games already owned from search/discover results (#1089).
@@ -19,12 +28,13 @@ All notable changes to this project will be documented in this file.
 - **Sort menu** on the Library page, plus an indexer-priority sort option for downloads (#980, #963).
 - **DLC & expansions**: games now persist their IGDB expansions and show them in a new DLC tab on the game detail page, with cover art, release year, and a category badge (#1105).
 - **Installed version**: each game records the version you have installed, editable in the game details modal with suggestions from your downloads' release names. It is filled in automatically when a full-game or update download finishes, and update releases that are not newer than it no longer raise "Game Updates Available" (#1142).
+- **File categories**: change the category of a file in a game's Files tab; your choice survives later rescans (#1140).
 - **xREL**: surfaces a release's nuke reason with a "Nuked" badge (#948).
 - **Screenshot lightbox**: carousel navigation with arrow-key and swipe support, plus an image counter (#804).
 - **Wishlist**: configurable grid column count (#871).
 - **Content filtering**: filters to hide erotic and age-restricted (ESRB AO / PEGI 18) games from the library, search, and discovery pages (#808).
 - **Windows 2000 style mode**: a retro cosmetic theme (#807).
-- **Sidebar**: moved the xREL and RSS pages under Discover (#1086). Wishlist moved into Library group alongside Playing; on mobile, Playing replaced Wishlist in the pinned bottom-nav slots (Wishlist stays reachable via "More") (#1080). All Games and Playing now show their game counts like Wishlist, Playing in its cyan status color.
+- **Sidebar**: moved the xREL and RSS pages under Discover (#1086). Wishlist moved into Library group alongside Playing; on mobile, Playing replaced Wishlist in the pinned bottom-nav slots (Wishlist stays reachable via "More") (#1080). All Games and Playing now show their game counts like Wishlist, Playing in its cyan status color (#1161).
 
 #### Downloads & Import
 
@@ -33,6 +43,7 @@ All notable changes to this project will be documented in this file.
 - **Password-protected archives** are now routed to manual review with a password prompt, instead of failing (#1033).
 - **SABnzbd**: archive password support for G4U-style releases (#962).
 - **Pre-import security scanning**: [OPTIONAL] VirusTotal (hash lookup) and ClamAV (local deep scan) checks before a download is unpacked or moved into the library; a detection quarantines the download and raises a Security Alert notification instead of importing it (#1102).
+- **Import review**: incomplete ClamAV scans stay in Pending Manual Imports instead of quarantine; ISO images remain intact during auto-unpack, and Sort Extras preserves internal game layouts while recognizing release-level extras (#1179).
 - **Pending imports**: orphaned downloads (missing game record) get a dedicated "Link Game" action to reattach them instead of stalling silently (#932).
 - **Download search**: results now link back to their indexer/source page (#872).
 - **Global release name blacklist**: Settings → Discovery & Downloads lets you hide any release whose title contains a given term, case-insensitively, across manual search, both auto-search cycles, and AI enrichment/auto-download (#1112, closes #991).
@@ -42,7 +53,10 @@ All notable changes to this project will be documented in this file.
 - **PostgreSQL backend**: [OPTIONAL] Questarr can now run on PostgreSQL instead of SQLite, selected with `DB_DIALECT=postgres` plus `DATABASE_URL` (setting `DATABASE_URL` alone keeps SQLite) (#1046). See `docs/DATABASE.md` if you're looking to migrate from SQLite.
 - **Playnite integration**: API keys, an integration API, and a Playnite extension. See [the extension's README](https://github.com/Doezer/Questarr/blob/main/extensions/playnite-questarr/README.md) for setup (#986).
 - **Steam wishlist**: optional auto-sync on a configurable interval, alongside the existing manual sync (#805).
-- **Apprise API login**: Questarr can send a username and password to an Apprise API server that requires a login (`APPRISE_AUTH_REQUIRED=yes`, Apprise API 2). The password is stored encrypted.
+- **RSS refresh schedule**: Enabled feeds refresh automatically at startup and hourly (#1164).
+- **Prowlarr sync defaults**: Remember the connection and apply optional priority and category defaults to synced indexers (#1148).
+- **Apprise API login**: Support authenticated Apprise API servers with an optional username and password (#1154).
+- **Update notification controls**: Mute update and add-on alerts independently for Shelved and Completed games (#1159).
 
 #### Deployment & Admin
 
@@ -51,17 +65,25 @@ All notable changes to this project will be documented in this file.
 - **`/api/status`**: new dashboard endpoint (#984).
 - **Debug logging**: optional logging of full downloader responses (#927).
 - **Telemetry**: [OPTIONAL] automatic reporting of unhandled server errors (#924). This uses the same function as the "Send Logs" button in the logs page and allows maintainers to proactively analyze errors not necessarily raised by users.
-- **Password reset**: `npm run reset-password` CLI script for a forgotten admin password (#860).
+- **Password reset**: `npm run reset-password -- <username>` CLI script for a forgotten admin password; in Docker, see _Before you upgrade_ (#860).
 
 ### Fixed
 
+- **Discover downloads**: downloading, sending to a downloader, or blacklisting from a game’s details adds it to the library as Wanted first, or reuses its existing record (#1174).
+
 #### Import & Archives
 
+- **Archive updates**: extracting into an existing game folder preserves unrelated installed files and saves while adding or replacing the archive's files (#1180).
+- **Download tracking**: client outages and temporary torrent errors keep tracking active; interrupted imports and jobs removed near completion go to manual review when post-processing is enabled. Auto-search skips releases that already failed for that game (#1183).
+- **Wii U imports**: releases and IGDB platform matches now use the `Wii U` destination folder (#1178).
 - **Hardlink import**: falls back to copy when hardlinks are unsupported, including for multi-file downloads (#873, #978).
 - **Import**: `modeUsed` was only reporting the last per-file fallback (#931).
 - **Import**: a download that disappeared from the client (e.g. pruned after a seed-ratio limit) was silently marked owned without importing anything; now routed to manual review (#837). A failed import used to dead-end with no retry path; failures now go to Pending Manual Imports so they can be adjusted and retried (#840).
 - **Import**: a single-file torrent saved outside a subfolder produced a 500 instead of importing (#856).
+- **Import**: auto-import failed when a torrent's name differed from its folder, as with FitGirl repacks; Questarr now uses the files' common root folder (#968, #1141).
+- **Library Import**: linking a Needs Review folder to a game failed with "Selected IGDB game not found in top candidates" for many release names; each entry can now also be searched on IGDB by name (#1163).
 - **SABnzbd**: fixed the manual Confirm Import path resolution and a history lookup that missed archived/failed downloads (#940, #1044); manual Confirm Import could also build a duplicated source path (`.../release/release`) (#937).
+- **SABnzbd categories**: use the downloader's configured category when an add request does not specify one (#1169).
 - **NZBGet**: the configured category was never applied to new downloads (#851); completed downloads with a non-`SUCCESS/ALL` history status were reported as aborted (#855); `downloadDir` was never populated on completion, so successful downloads never reached import (#932).
 - **Usenet**: download ids (e.g. SABnzbd's `nzo_id`) were incorrectly lowercased on claim/scan routes, breaking case-sensitive status lookups (#1055).
 - **Nintendo Switch**: fixed silent import failures for NSP/XCI releases (#1021).
@@ -69,8 +91,14 @@ All notable changes to this project will be documented in this file.
 
 #### Downloaders & Indexers, Integrations
 
+- **Apprise packaging**: fix Python dependency compatibility and include timezone data on Windows (#1171).
 - **qBittorrent**: v5+ downloads not tracked when the API returns an async `pending_count`; v5.2+ torrent-upload success not recognized; a fallback for v2.0.2 (#1015, #926, #869).
+- **Older qBittorrent and Prowlarr**: verify torrent tags when clients ignore tag filters, fall back to title matching when add tags are unsupported, and normalize Prowlarr download links reflected as HTTP behind a TLS proxy (#1182).
 - **Prowlarr**: download links no longer double-wrapped when the proxy URL comes back on a container IP (#1007).
+- **Prowlarr HTTP credentials**: Honor the insecure-LAN choice and explain when credentials are withheld over HTTP (#1148).
+- **Newznab/Torznab categories**: Fix searches using multiple categories (#1149).
+- **Release titles**: a download was rejected with "Validation failed" when an indexer returned a title spread over several lines (#1119).
+- **Release matching**: Avoid matching sequels when searching for the original game, while accepting updates to the intended game (#1164).
 - **Indexers**: search categories outside 40xx/10xx were being dropped; hardened Newznab/Torznab caps discovery (#1058, #951).
 - **Downloaders**: credential policy now validates the resolved URL, not just `useSsl` (#1061).
 - **IGDB**: validated the rate-limit setting's range; canonicalized/deduped game editions in search results (#1020, #950).
@@ -86,7 +114,9 @@ All notable changes to this project will be documented in this file.
 #### UI & Misc
 
 - **Clipboard**: copy buttons now work on non-secure (HTTP) contexts (#961).
-- **Calendar**: follow-up fixes to the year view's date filtering.
+- **Direct links**: reloading or bookmarking a nested page such as `/activity/imports` showed a blank page (#1135).
+- **Login**: the Login button could stay disabled after a session expired (#1122).
+- **Calendar year view**: past months and releases are greyed out, comparing datetime releases by their local calendar day (#1160).
 - **Release notifications**: no longer sent for games added with a release date already in the past (#874).
 - **Scroll areas**: scrollbars stayed hidden except while actively scrolling (#875).
 - **Game status**: a game marked Playing, Shelved or Completed kept being reset by the download pipeline: an update download flipped it to Downloading, then Owned on import (or Wanted if the download failed), and a root-folder scan flipped it to Owned. Those statuses are now left alone, update/pack searches keep running for Playing and Shelved games, and Discover treats them as owned.
@@ -96,11 +126,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Discover details**: Hide, Remove and personal ratings use the library record; rating an untracked game adds it as Wanted. Carousels refresh after library and visibility changes (#1181).
+
 #### Auth & Settings
 
 - **Auth**: migrated to httpOnly cookies plus CSRF, with a bearer-token fallback (#954).
 - **IGDB credential validation** and a test-connection UI (#1064).
-- **Settings**: reorganized page tabs by domain; moved the Discord webhook config to the Stats page (#949, #946).
+- **Settings**: reorganized tabs by domain; Platforms lives under Appearance, release terms and per-game blacklisted releases share one card, and Import sub-tabs wrap on phones. Discord webhook configuration lives on Stats (#1185, #949, #946).
 - **Appearance**: unified theme selection into a single dropdown (#1042).
 
 #### Performance
@@ -112,9 +144,15 @@ All notable changes to this project will be documented in this file.
 #### Mobile
 
 - **Mobile**: personal notes collapse behind an Edit button; the Settings tab strip gets scroll-fade hints (#993, #969).
+- **Game cards and navigation**: larger touch targets on mobile (the hide toggle stays 36px), plus responsive and accessibility fixes for cards, tags and the sidebar (#1130).
 
 #### Other
 
+- **API rate limit**: the general `/api` limit is raised to 600 requests per minute so busy libraries and the Downloads page no longer hit 429 errors (#1136).
+- **AI release analysis**: Jev can classify a release as `unknown`; TypeSafe, the categorizer and auto-search treat it separately from `other` instead of dropping or mislabeling it (#1129).
+- **License metadata**: align package, Helm, and deployment declarations on `GPL-3.0-only` without changing the project license (#1153).
+- **Release packaging**: align the Helm app version and Home Assistant add-on version with 1.5.0; Helm chart version is 0.1.2.
+- **Dependencies**: update bundled Apprise and its locked Python dependencies; refresh `http-cache-semantics` and `source-map-js` in the npm lockfile (#1150, #1152, #1173).
 - **Logs page**: history limit raised from 200 to 1000 lines (#928).
 - Dependency updates: `undici` 7.29.0 → 8.9.0 (direct dependency, used by the SSRF-safe fetch wrapper in `server/ssrf.ts`). No vulnerability fix — see `docs/CVE_FIXES_BY_RELEASE.md` for verification. Major version bump; undici 8.9.0 requires Node `>=22.19.0`, so Questarr's own `engines.node` floor is raised from `>=20` to `>=22.19.0` to match — this only formalizes existing practice, since CI (`node-version: 26.x`) and the production Docker image (`node:26-alpine`) were already on Node 26. Full test suite and `server/__tests__/ssrf.test.ts` verified green against the new version.
 
@@ -124,6 +162,9 @@ All notable changes to this project will be documented in this file.
 
 - **API auth**: added a default-deny boundary and fixed an unauthenticated `GET /api/config` (#953).
 - **Real-time channel**: the Socket.IO connection now requires the same session as the REST API. Before, anyone who could reach the port could open it and receive the live server log stream, notifications and download progress. A handshake that relies on the session cookie must also come from Questarr's own origin (reverse proxies that set `X-Forwarded-Host` work unchanged; otherwise list the public URL in `ALLOWED_ORIGINS` or `APP_URL`).
+- **Per-user notifications**: notifications are sent only to the owning user’s Socket.IO room. Download, import, scan and log events remain app-wide for authenticated clients (#1081, #1149).
+- **Apprise login transport**: authenticated HTTPS requests cannot be redirected to plaintext HTTP or another origin. HTTP URLs with a configured login show an unencrypted-credentials warning. The masked saved password survives CLI/API mode switches (#1154).
+- **Proxy trust**: forwarded client-IP and HTTPS headers are ignored by default. Behind a reverse proxy, configure `TRUST_PROXY` for your proxy hops or addresses; see [reverse proxy setup](REVERSE_PROXY.md) (#1177).
 - **Delete with files**: deleting a game whose library path is the library root (or an opted-in root folder) itself no longer removes that whole folder.
 - **Auth**: failed login attempts are now logged for brute-force/credential-stuffing detection (#858); fixed an IDOR letting any user modify or delete another user's games, and strengthened the password policy to 8+ characters with a letter and a digit (#859).
 - **Input validation**: hardened indexer search, qBittorrent, NexusMods, and game-status endpoints against unbounded/malformed input (#857).
@@ -141,13 +182,15 @@ All notable changes to this project will be documented in this file.
 #### Scanning & Logging
 
 - **Scan Disk endpoint**: limited recursive traversal with a max file count and time budget, and added rate limiting, reducing DoS exposure on large directory trees (#1069).
+- **IPv6 scan limiter**: group requests by IPv6 subnet so rotating addresses within a subnet cannot bypass scan limits (#1149).
+- **Archive extraction limits**: bound untrusted archive expansion by file count, unpacked bytes, timeout, and nesting depth; reject unsafe paths and links before extraction, and deduplicate split RAR volume continuations. Limits can be configured with the documented `ARCHIVE_*` environment variables in [SECRETS.md](SECRETS.md) (#1149, #1157).
 - **Logging**: production no longer hardcodes the debug log level, and secrets are now redacted from logs; API keys/tokens are also redacted before logs are sent to support (#952, #960).
 - **Search engines**: `/robots.txt` no longer bypasses security headers, and instances are kept out of search-engine indexes (#941, #939).
 
 #### Dependency Vulnerabilities
 
 - Fixed 17 known vulnerabilities in production dependencies since 1.4.2: `fast-uri` (6), `multer` (5), `ip-address` (2), `qs` (2), `undici` (1), plus a critical IP-spoofing vulnerability in `proxy-addr` (#879, #981, #997, #1000, #1028, #1066, #1118).
-- Fixed 9 known vulnerabilities in build and test tooling that is not shipped in the production image: `js-yaml` 4.x (2), `nanoid` 3.x (2), `browserslist` (2), `baseline-browser-mapping`, `postcss` and `vitest`.
+- Fixed 11 known vulnerabilities in build and test tooling that is not shipped in the production image: `js-yaml` 4.x (2), `nanoid` 3.x (2), `browserslist` (2), `baseline-browser-mapping`, `postcss`, `vitest`, `fast-copy` and `postcss-selector-parser`. The CI Semgrep install also moves to a PyJWT release that fixes 14 advisories, one of them critical.
 - Patched the Docker base image's `openssl`/`expat` and removed its bundled npm CLI (dropping vendored `tar`/`ip-address`/`brace-expansion` copies) (#1113).
 
 ### Vulnerabilities Addressed
@@ -183,6 +226,9 @@ Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.d
 - **postcss** 8.5.18 → 8.5.28 — fixes **CVE-2026-69153** (GHSA-fxqj-rqcc-2cmp, MODERATE) — attacker-controlled `sourceMappingURL` could read arbitrary `.map` files when `from` is unset (#882).
 - **vitest** / **@vitest/mocker** 4.1.10 → 5.0.1 — fixes **CVE-2026-84373** (GHSA-82fw-gwwq-j7x9, MODERATE) — path traversal / arbitrary file read via the redirect mock (#971).
 - **undici** (scoped `overrides` pin under `node-gyp`, via `@lizenz/checker`) 6.28.0 → 6.29.0 — fixes **CVE-2026-85024** (GHSA-3wwx-pv8p-q78v), the same advisory as the production entry above (#1118).
+- **fast-copy** (npm `overrides` pin, via `pino-pretty`) 4.0.3 → 4.1.0 — fixes GHSA-jggr-w7fw-pc2j (no CVE assigned, MODERATE) — stack exhaustion when copying deeply nested values.
+- **postcss-selector-parser** (npm `overrides` pin, via `@npmcli/query`) 7.1.5 → 7.1.6 — fixes **CVE-2026-104844** (GHSA-rj75-hqrm-r3gf, MODERATE) — quadratic complexity in flat selector parsing. The unused `@tailwindcss/typography` dev dependency, which pinned the unpatched 6.0.10, is removed.
+- **PyJWT** (CI Semgrep install, `.github/requirements/semgrep.txt`) 2.13.0 → 2.15.1 through Semgrep 1.178.0 → 1.180.0 — fixes 14 advisories, including **CVE-2026-102268** (GHSA-ffc3-869f-jxw9, CRITICAL) — asymmetric-PEM detection bypass with whitespace-mutated public keys — and HIGH key-confusion and redirect issues (CVE-2026-102266, CVE-2026-102267, CVE-2026-102271, CVE-2026-102272, CVE-2026-102273). Semgrep only scans the repository in CI and never handles tokens.
 
 #### Container image
 

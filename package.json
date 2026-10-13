@@ -140,7 +140,6 @@
     "@lizenz/checker": "0.0.2",
     "@playwright/test": "^1.63.0",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.6",
-    "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",
@@ -225,7 +224,8 @@
     "eslint-plugin-react": {
       "eslint": "^10.9.1"
     },
-    "engine.io": "^6.6.10"
+    "fast-copy": "^4.1.0",
+    "postcss-selector-parser": "^7.1.6"
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

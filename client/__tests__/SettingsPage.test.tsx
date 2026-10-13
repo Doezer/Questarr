@@ -53,8 +53,8 @@ vi.mock("@/components/AutoDownloadRulesSettings", () => ({
   default: () => <div data-testid="auto-download-rules" />,
 }));
 
-vi.mock("@/components/PreferredReleaseGroupsSettings", () => ({
-  default: () => <div data-testid="preferred-release-groups" />,
+vi.mock("@/components/ReleaseScoringSettings", () => ({
+  default: () => <div data-testid="release-scoring" />,
 }));
 
 vi.mock("@/components/PasswordSettings", () => ({
@@ -239,10 +239,10 @@ describe("SettingsPage", () => {
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
 
     expect(await screen.findByTestId("auto-download-rules")).toBeInTheDocument();
-    expect(screen.getByTestId("preferred-release-groups")).toBeInTheDocument();
+    expect(screen.getByTestId("release-scoring")).toBeInTheDocument();
   });
 
-  it("switches to the Platforms tab and renders the platform picker", async () => {
+  it("renders the platform picker in the Appearance tab", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
@@ -250,7 +250,8 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Platforms" }));
+    expect(screen.queryByRole("tab", { name: "Platforms" })).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Appearance" }));
 
     expect(
       await screen.findByText("Choose the platforms you use.", { exact: false })

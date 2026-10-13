@@ -48,13 +48,18 @@ jobs:
           # Same accepted cache-poisoning trade-off as ci.yml (single maintainer with push access).
           cache: "npm" # zizmor: ignore[cache-poisoning]
 
-      # The packaged transmission-daemon starts a system service on 9091 at install time;
-      # the journey runs its own instance with its own profile on that port.
+      # The packaged transmission-daemon would start a system service on 9091 at install
+      # time, with DHT on, reaching dht.transmissionbt.com before it could be stopped. A
+      # policy-rc.d that refuses service starts keeps it down; the journey runs its own
+      # instance with its own profile on that port.
       - name: Install download clients
         run: |
+          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d > /dev/null
+          sudo chmod +x /usr/sbin/policy-rc.d
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-            qbittorrent-nox transmission-daemon sabnzbdplus
+            qbittorrent-nox transmission-daemon sabnzbdplus p7zip-full
+          sudo rm -f /usr/sbin/policy-rc.d
           sudo systemctl stop transmission-daemon || true
           sudo systemctl disable transmission-daemon || true
 

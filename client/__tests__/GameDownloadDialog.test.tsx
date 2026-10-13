@@ -12,6 +12,15 @@ import { createTestQueryClient, getRequestUrl } from "./test-utils";
 
 // Route apiRequest through globalThis.fetch so test mocks capture mutation calls
 vi.mock("@/lib/queryClient", () => ({
+  ApiError: class ApiError extends Error {
+    constructor(
+      public status: number,
+      message: string,
+      public data?: unknown
+    ) {
+      super(message);
+    }
+  },
   apiRequest: async (method: string, url: string, data?: unknown) => {
     const headers: Record<string, string> = data ? { "Content-Type": "application/json" } : {};
     const res = await globalThis.fetch(url, {
@@ -115,6 +124,7 @@ type TorrentItemOverrides = {
   group?: string;
   downloadVolumeFactor?: number;
   uploadVolumeFactor?: number;
+  evaluation?: object;
 };
 
 type UsenetItemOverrides = {
@@ -147,6 +157,7 @@ const makeTorrentItem = (overrides: TorrentItemOverrides = {}) => ({
   ...(overrides.uploadVolumeFactor !== undefined && {
     uploadVolumeFactor: overrides.uploadVolumeFactor,
   }),
+  ...(overrides.evaluation !== undefined && { evaluation: overrides.evaluation }),
 });
 
 const makeUsenetItem = (overrides: UsenetItemOverrides = {}) => ({
@@ -203,12 +214,12 @@ globalThis.fetch = vi.fn();
 let queryClient: QueryClient;
 const mockOnOpenChange = vi.fn();
 
-const renderComponent = (onOpenChange = mockOnOpenChange) => {
+const renderComponent = (onOpenChange = mockOnOpenChange, game = mockGame) => {
   queryClient = createTestQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <GameDownloadDialog game={mockGame} open={true} onOpenChange={onOpenChange} />
+        <GameDownloadDialog game={game} open={true} onOpenChange={onOpenChange} />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
@@ -375,10 +386,11 @@ describe("GameDownloadDialog", () => {
       expect(screen.getByText("Health")).toBeInTheDocument();
     });
 
-    // Click on Health sort header
-    // Initial state is Seeders Desc (ArrowDown). Clicking it should toggle to Asc (ArrowUp).
+    // Initial state is Score Desc. The first click on Health selects it (desc), the second
+    // toggles it to Asc (ArrowUp).
     const healthHeader = screen.getByText("Health");
     fireEvent.click(healthHeader);
+    fireEvent.click(screen.getByText("Health"));
 
     // Should trigger a re-sort -> Ascending -> ArrowUp
     expect(screen.getAllByTestId("icon-sort-up").length).toBeGreaterThan(0);
@@ -540,6 +552,69 @@ describe("GameDownloadDialog", () => {
     expect(mockOnOpenChange).not.toHaveBeenCalledWith(false);
   });
 
+  it("adds a Discover game to the library before downloading it", async () => {
+    const libraryId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const baseFetch = createFetchMock();
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (getRequestUrl(url) === "/api/games" && init?.method === "POST") {
+        return { ok: true, json: async () => ({ ...mockGame, id: libraryId }) };
+      }
+      return baseFetch(url, init);
+    }) as typeof fetch;
+    const discoveryGame = { ...mockGame, id: "igdb-123" } as unknown as typeof mockGame;
+    renderComponent(mockOnOpenChange, discoveryGame);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("icon-download").length).toBeGreaterThan(0);
+    });
+    const downloadButton = screen.getAllByTestId("icon-download")[0].closest("button");
+    if (!downloadButton) throw new Error("Download button not found");
+    fireEvent.click(downloadButton);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/downloads",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining(`"gameId":"${libraryId}"`),
+        })
+      );
+    });
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/games",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("blacklists from a Discover game under its library id and searches with it", async () => {
+    const libraryId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const baseFetch = createFetchMock();
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (getRequestUrl(url) === "/api/games" && init?.method === "POST") {
+        return { ok: true, json: async () => ({ ...mockGame, id: libraryId }) };
+      }
+      return baseFetch(url, init);
+    }) as typeof fetch;
+    const discoveryGame = { ...mockGame, id: "igdb-123" } as unknown as typeof mockGame;
+    renderComponent(mockOnOpenChange, discoveryGame);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Blacklist release").length).toBeGreaterThan(0);
+    });
+    fireEvent.click(screen.getAllByText("Blacklist release")[0]);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        `/api/games/${libraryId}/blacklist`,
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+    await waitFor(() => {
+      const urls = vi.mocked(globalThis.fetch).mock.calls.map(([url]) => getRequestUrl(url));
+      expect(urls).toContainEqual(expect.stringContaining(`gameId=${libraryId}`));
+    });
+  });
+
   it("shows destructive toast when download API returns success:false", async () => {
     globalThis.fetch = createFetchMock({
       downloads: { success: false, message: "Downloader offline" },
@@ -631,7 +706,7 @@ describe("GameDownloadDialog", () => {
   });
   const groupSearchResults = makeSearchResult([skidrowItem, codexItem]);
 
-  it("filters displayed results to preferred groups when filterByPreferredGroups is enabled", async () => {
+  it("no longer preselects a group filter from the old preferred-groups setting", async () => {
     globalThis.fetch = createFetchMock({
       search: groupSearchResults,
       settings: { filterByPreferredGroups: true, preferredReleaseGroups: '["SKIDROW"]' },
@@ -642,11 +717,54 @@ describe("GameDownloadDialog", () => {
     await waitFor(
       () => {
         expect(screen.getAllByText("Test Game SKIDROW").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("Test Game CODEX").length).toBeGreaterThan(0);
       },
       { timeout: 3000 }
     );
+  });
 
-    expect(screen.queryByText("Test Game CODEX")).toBeNull();
+  it("ranks by score, shows the breakdown and dims rejected releases", async () => {
+    const evaluation = (score: number, accepted: boolean) => ({
+      accepted,
+      score,
+      lines: [{ ruleId: "title_exact", label: "Title matches the game", points: score }],
+      rejections: accepted ? [] : [{ code: "title_sequel", detail: "2" }],
+      titleMatch: accepted ? "exact" : "sequel",
+      indexerCategory: "unknown",
+      category: "main",
+      matchedFormats: [],
+      preferredProtocol: true,
+    });
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "rejected",
+          title: "Test Game Sequel",
+          link: "http://test.com/r",
+          seeders: 900,
+          evaluation: evaluation(180, false),
+        }),
+        makeTorrentItem({
+          guid: "good",
+          title: "Test Game Plain",
+          link: "http://test.com/g",
+          seeders: 3,
+          evaluation: evaluation(120, true),
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        const text = document.body.textContent ?? "";
+        expect(text.indexOf("Test Game Plain")).toBeGreaterThan(-1);
+        expect(text.indexOf("Test Game Plain")).toBeLessThan(text.indexOf("Test Game Sequel"));
+      },
+      { timeout: 3000 }
+    );
+    expect(screen.getAllByLabelText(/Score 180, rejected/).length).toBeGreaterThan(0);
   });
 
   it("shows all results when filterByPreferredGroups is false even if groups are configured", async () => {

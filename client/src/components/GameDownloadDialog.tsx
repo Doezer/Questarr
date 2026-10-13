@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import ReleaseScoreBadge, { XrelStatusBadge } from "@/components/ReleaseScoreBadge";
+import type { ReleaseEvaluation } from "@shared/release-scoring";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -67,7 +69,7 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { cn, copyToClipboard, safeUrl } from "@/lib/utils";
+import { cn, copyToClipboard, safeUrl, isDiscoveryId, mapGameToInsertGame } from "@/lib/utils";
 import {
   type Game,
   type Indexer,
@@ -84,13 +86,14 @@ import { inferReleaseCategory } from "@shared/version-utils";
 import type { ReleaseType } from "@shared/typesafe-types";
 import {
   parseReleaseMetadata,
-  parseJsonStringArray,
   matchesPlatformFilter,
   normalizeTitle,
   type CanonicalPlatform,
 } from "@shared/title-utils";
 import { canonicalPlatformsForIgdbIds, matchesSelectedIgdbPlatform } from "@shared/platforms";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
+
+type SortField = "score" | "seeders" | "date" | "size" | "priority";
 
 interface DownloadItem {
   title: string;
@@ -116,6 +119,7 @@ interface DownloadItem {
   group?: string;
   aiReleaseType?: ReleaseType;
   aiReleaseTypeConfidence?: number;
+  evaluation?: ReleaseEvaluation;
 }
 
 interface SearchResult {
@@ -142,7 +146,7 @@ function formatDate(dateString: string): string {
   }
 }
 
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useDebounce } from "@/hooks/use-debounce";
 import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -231,6 +235,60 @@ function ReleaseMetadataBadges({
 export default function GameDownloadDialog({ game, open, onOpenChange }: GameDownloadDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Discover and search results carry a temporary "igdb-<id>" id, which the
+  // download and blacklist endpoints reject. Add such a game to the library
+  // on first use and send its real id instead.
+  // Every cached value is keyed by the dialog game's id, so a result for one
+  // game can never be used for the next one.
+  type ResolvedId = { forId: string; id: string };
+  const [resolvedGame, setResolvedGame] = useState<ResolvedId | null>(null);
+  const libraryGameId = resolvedGame && resolvedGame.forId === game?.id ? resolvedGame.id : null;
+  // Mirrors resolvedGame for mutation callbacks, which run before the re-render.
+  const resolvedGameRef = useRef<ResolvedId | null>(null);
+  const currentGameId = useCallback(() => {
+    const resolved = resolvedGameRef.current;
+    return resolved && resolved.forId === game?.id ? resolved.id : game?.id;
+  }, [game?.id]);
+
+  // Shared by actions fired before the first add returns, so they don't each
+  // POST the game and create duplicate library rows.
+  const pendingAddRef = useRef<{ forId: string; promise: Promise<string> } | null>(null);
+
+  const ensureLibraryGameId = useCallback(async (): Promise<string | undefined> => {
+    if (!game) return undefined;
+    if (!isDiscoveryId(game.id)) return game.id;
+    const forId = game.id;
+    if (resolvedGameRef.current?.forId === forId) return resolvedGameRef.current.id;
+    if (pendingAddRef.current?.forId === forId) return pendingAddRef.current.promise;
+
+    const promise = (async () => {
+      let added: Game;
+      try {
+        const response = await apiRequest("POST", "/api/games", {
+          ...mapGameToInsertGame(game),
+          status: "wanted",
+        });
+        added = (await response.json()) as Game;
+      } catch (error) {
+        const existing =
+          error instanceof ApiError && error.status === 409
+            ? (error.data as { game?: Game } | undefined)?.game
+            : undefined;
+        if (!existing) throw error;
+        added = existing;
+      }
+      const resolved = { forId, id: added.id };
+      resolvedGameRef.current = resolved;
+      setResolvedGame(resolved);
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      return added.id;
+    })().finally(() => {
+      if (pendingAddRef.current?.forId === forId) pendingAddRef.current = null;
+    });
+    pendingAddRef.current = { forId, promise };
+    return promise;
+  }, [game, queryClient]);
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -247,7 +305,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     [minSeeders]
   );
   const [selectedIndexer, setSelectedIndexer] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size" | "priority">("seeders");
+  const [sortBy, setSortBy] = useState<SortField>("score");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
@@ -273,7 +331,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setSelectedUpdateIndices(new Set());
     setMinSeeders(0);
     setSelectedIndexer("all");
-    setSortBy("seeders");
+    setSortBy("score");
     setSortOrder("desc");
     setShowFilters(false);
     setVisibleCategories(
@@ -296,19 +354,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       try {
         const rules = downloadRulesSchema.parse(JSON.parse(userSettings.downloadRules));
         setMinSeeders(rules.minSeeders);
-        setSortBy(rules.sortBy);
         setSortOrder("desc");
         if (rules.visibleCategories) {
           setVisibleCategories(new Set(rules.visibleCategories as DownloadCategory[]));
         }
       } catch (error) {
         console.warn("Failed to apply download rules from settings", error);
-      }
-    }
-    if (userSettings?.filterByPreferredGroups) {
-      const groups = parseJsonStringArray(userSettings.preferredReleaseGroups);
-      if (groups.length > 0) {
-        setSelectedGroups(groups);
       }
     }
     if (userSettings?.preferredPlatform && !platformPreselectedRef.current) {
@@ -326,8 +377,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }
   }, [
     userSettings?.downloadRules,
-    userSettings?.filterByPreferredGroups,
-    userSettings?.preferredReleaseGroups,
     userSettings?.preferredPlatform,
     userSettings?.importPlatformIds,
   ]);
@@ -350,9 +399,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }
   }, [open, game, userSettings, applyDownloadRules]);
 
-  const searchQueryKey = game?.id
-    ? `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&gameId=${game.id}`
-    : `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}`;
+  const buildSearchQueryKey = (gameId: string | undefined) =>
+    gameId
+      ? `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&gameId=${gameId}`
+      : `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}`;
+  // Once a Discover game is in the library, search with its real id so the
+  // server applies that game's release blacklist.
+  const searchQueryKey = buildSearchQueryKey(libraryGameId ?? game?.id);
 
   const { data: searchResults, isLoading: isSearching } = useQuery<SearchResult>({
     queryKey: [searchQueryKey],
@@ -492,7 +545,29 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         })
         .sort((a, b) => {
           let comparison;
-          if (sortBy === "seeders") {
+          if (sortBy === "score") {
+            // Rejected releases sort below accepted ones whatever their score.
+            const aEval = a.evaluation;
+            const bEval = b.evaluation;
+            if (aEval && bEval && aEval.accepted !== bEval.accepted) {
+              return aEval.accepted ? -1 : 1;
+            }
+            comparison = (bEval?.score ?? 0) - (aEval?.score ?? 0);
+            if (
+              comparison === 0 &&
+              aEval &&
+              bEval &&
+              aEval.preferredProtocol !== bEval.preferredProtocol
+            ) {
+              // an equal score keeps the preferred protocol first, as the server ordered it
+              comparison = aEval.preferredProtocol ? -1 : 1;
+            }
+            if (comparison === 0) {
+              const aHealth = isUsenetItem(a) ? (a.grabs ?? 0) : (a.seeders ?? 0);
+              const bHealth = isUsenetItem(b) ? (b.grabs ?? 0) : (b.seeders ?? 0);
+              comparison = bHealth - aHealth;
+            }
+          } else if (sortBy === "seeders") {
             const aHealth = isUsenetItem(a) ? (a.grabs ?? 0) : (a.seeders ?? 0);
             const bHealth = isUsenetItem(b) ? (b.grabs ?? 0) : (b.seeders ?? 0);
             comparison = bHealth - aHealth;
@@ -537,12 +612,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   const downloadMutation = useMutation({
     mutationFn: async (downloads: DownloadItem[]) => {
+      const gameId = await ensureLibraryGameId();
       const results = [];
       for (const download of downloads) {
         const response = await apiRequest("POST", "/api/downloads", {
           url: download.link,
           title: download.title,
-          gameId: game?.id,
+          gameId,
           downloadType: isUsenetItem(download) ? "usenet" : "torrent",
           releaseCategory: inferReleaseCategory(
             download.title,
@@ -582,8 +658,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       }
       queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
-      if (game?.id) {
-        queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/downloads`] });
+      const gameId = currentGameId();
+      if (gameId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/downloads`] });
       }
     },
     onError: (error: Error) => {
@@ -609,10 +686,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       downloaderId: string;
       downloaderName: string;
     }) => {
+      const gameId = await ensureLibraryGameId();
       const response = await apiRequest("POST", `/api/downloaders/${downloaderId}/downloads`, {
         url: download.link,
         title: download.title,
-        gameId: game?.id,
+        gameId,
         downloadType: isUsenetItem(download) ? "usenet" : "torrent",
       });
       return response.json();
@@ -622,8 +700,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         toast({ title: `Download sent to ${variables.downloaderName}` });
         queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
         queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
-        if (game?.id) {
-          queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/downloads`] });
+        const gameId = currentGameId();
+        if (gameId) {
+          queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/downloads`] });
         }
       } else {
         toast({ title: result.message || "Failed to start download", variant: "destructive" });
@@ -640,19 +719,27 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   const blacklistMutation = useMutation({
     mutationFn: async (item: DownloadItem) => {
-      if (!game) throw new Error("No game context");
-      await apiRequest("POST", `/api/games/${game.id}/blacklist`, {
+      const gameId = await ensureLibraryGameId();
+      if (!gameId) throw new Error("No game context");
+      await apiRequest("POST", `/api/games/${gameId}/blacklist`, {
         releaseTitle: item.title,
         indexerName: item.indexerName ?? null,
       });
     },
     onSuccess: (_data, item) => {
-      queryClient.setQueryData<SearchResult>([searchQueryKey], (old) => {
-        if (!old) return old;
-        return { ...old, items: old.items.filter((i) => i.title !== item.title) };
-      });
+      const remaining = queryClient.getQueryData<SearchResult>([searchQueryKey]);
+      const filtered = remaining && {
+        ...remaining,
+        items: remaining.items.filter((i) => i.title !== item.title),
+      };
+      // A Discover game just added to the library searches under its real id
+      // from the next render on: seed that key too so the dialog doesn't flash.
+      const resolvedKey = buildSearchQueryKey(currentGameId());
+      for (const key of new Set([searchQueryKey, resolvedKey])) {
+        queryClient.setQueryData<SearchResult>([key], filtered);
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/blacklist"] });
-      queryClient.invalidateQueries({ queryKey: [searchQueryKey] });
+      queryClient.invalidateQueries({ queryKey: [resolvedKey] });
       toast({ description: "Release blacklisted" });
     },
     onError: () => {
@@ -759,7 +846,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     });
   };
 
-  const toggleSort = (field: "seeders" | "date" | "size" | "priority") => {
+  const toggleSort = (field: SortField) => {
     if (sortBy === field) {
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
     } else {
@@ -773,7 +860,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     label,
     className = "",
   }: {
-    field: "seeders" | "date" | "size" | "priority";
+    field: SortField;
     label: string;
     className?: string;
   }) => (
@@ -1042,6 +1129,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                               />
                             )}
                             <SortHeader
+                              field="score"
+                              label="Score"
+                              className="min-w-[70px] justify-end"
+                            />
+                            <SortHeader
                               field="date"
                               label="Date"
                               className="min-w-[70px] justify-end"
@@ -1167,7 +1259,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                           return (
                             <div
                               key={download.guid || download.link}
-                              className="p-3 text-sm overflow-hidden"
+                              className={cn(
+                                "p-3 text-sm overflow-hidden",
+                                download.evaluation?.accepted === false && "opacity-60"
+                              )}
                             >
                               <div className="flex items-start gap-2 min-w-0">
                                 {/* Type icon */}
@@ -1242,6 +1337,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     downloadVolumeFactor={download.downloadVolumeFactor}
                                     className="mt-1"
                                   />
+                                  {download.evaluation && (
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      <ReleaseScoreBadge evaluation={download.evaluation} />
+                                      <XrelStatusBadge evaluation={download.evaluation} />
+                                    </div>
+                                  )}
 
                                   {/* Group + indexer line */}
                                   <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 mt-1 min-w-0 overflow-hidden">
@@ -1280,7 +1381,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                         return (
                           <div
                             key={download.guid || download.link}
-                            className="p-4 text-sm hover:bg-muted/30 transition-colors group/row"
+                            className={cn(
+                              "p-4 text-sm hover:bg-muted/30 transition-colors group/row",
+                              download.evaluation?.accepted === false && "opacity-60"
+                            )}
                           >
                             <div className="flex items-center gap-4">
                               <div className="flex-1 min-w-0 space-y-1">
@@ -1337,6 +1441,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   downloadVolumeFactor={download.downloadVolumeFactor}
                                   className="gap-1.5"
                                 />
+                                {download.evaluation && (
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <ReleaseScoreBadge evaluation={download.evaluation} />
+                                    <XrelStatusBadge evaluation={download.evaluation} />
+                                  </div>
+                                )}
 
                                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
                                   {metadata.group && (
@@ -1366,6 +1476,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     {indexerPriorityMap.get(download.indexerName ?? "") ?? "—"}
                                   </div>
                                 )}
+
+                                <div className="min-w-[70px] text-right font-mono text-xs font-bold">
+                                  {download.evaluation?.score ?? "—"}
+                                </div>
 
                                 <div className="min-w-[70px] text-right">
                                   <div className="text-xs font-medium">

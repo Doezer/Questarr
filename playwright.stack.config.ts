@@ -24,7 +24,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: `rm -rf "${dataDir}" && mkdir -p "${dataDir}" && node dist/server/index.js`,
+    command: `rm -rf "${dataDir}" && mkdir -p "${dataDir}" && node --import tsx tests/stack/prepare-upgrade.ts && node dist/server/index.js`,
     url: `http://127.0.0.1:${QUESTARR_PORT}/api/health`,
     reuseExistingServer: false,
     timeout: 60 * 1000,

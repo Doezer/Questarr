@@ -153,7 +153,7 @@ export default function Library() {
     errorMessage: "Failed to update game visibility",
   });
 
-  // The platforms the user selected in Settings → Platforms. Only these appear
+  // The platforms the user selected in Settings → Appearance → Platforms. Only these appear
   // in the filter dropdown; games on other platforms stay in the library.
   const { data: igdbPlatforms = [] } = useQuery<{ id: number; name: string }[]>({
     queryKey: ["/api/igdb/platforms"],

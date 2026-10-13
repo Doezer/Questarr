@@ -7,6 +7,7 @@ import {
   PCImportStrategy,
   reorganizeBySortExtras,
   gatherFiles,
+  categorizeRelativeFiles,
 } from "../services/ImportStrategies.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
@@ -29,6 +30,47 @@ afterEach(async () => {
 });
 
 describe("ImportStrategies", () => {
+  it("skips extraction staging directories when gathering a game folder's files", async () => {
+    // Another import may still be unpacking into (or an interrupted one may have left) a
+    // .questarr-extract-* directory inside the game folder; its files are not game content.
+    const gameDir = tempDir();
+    await fs.outputFile(path.join(gameDir, "game.exe"), "exe");
+    await fs.outputFile(path.join(gameDir, ".questarr-extract-AbC123", "partial.bin"), "half");
+    await fs.outputFile(path.join(gameDir, ".questarr-extract-AbC123.bak", "0"), "old");
+
+    // A nested directory with that name is game content: staging only sits at the root.
+    await fs.outputFile(path.join(gameDir, "assets", ".questarr-extract-data", "a.pak"), "pak");
+
+    expect((await gatherFiles(gameDir, { skipExtractStaging: true })).sort()).toEqual(
+      [
+        path.join(gameDir, "assets", ".questarr-extract-data", "a.pak"),
+        path.join(gameDir, "game.exe"),
+      ].sort()
+    );
+  });
+
+  it("moves a source directory named like a staging directory into the library", async () => {
+    // Only library folders skip staging names; in a download they are ordinary content,
+    // and move mode deletes the source afterwards.
+    const root = tempDir();
+    const source = path.join(root, "downloads", "Game");
+    const destination = path.join(root, "library", "PC", "Game");
+    await fs.outputFile(path.join(source, "game.exe"), "exe");
+    await fs.outputFile(path.join(source, ".questarr-extract-data", "level.pak"), "pak");
+
+    expect(await gatherFiles(source)).toContain(
+      path.join(source, ".questarr-extract-data", "level.pak")
+    );
+    await new PCImportStrategy().executeImport(
+      { needsReview: false, originalPath: source, proposedPath: destination, strategy: "pc" },
+      "move"
+    );
+
+    expect(
+      await fs.readFile(path.join(destination, ".questarr-extract-data", "level.pak"), "utf8")
+    ).toBe("pak");
+  });
+
   it.each(["EXDEV", "EPERM", "EACCES", "ENOTSUP", "EOPNOTSUPP"])(
     "falls back to copy when hardlink fails with %s",
     async (code) => {
@@ -885,6 +927,42 @@ describe("ImportStrategies", () => {
       expect(moveSpy).not.toHaveBeenCalled();
     });
 
+    it("keeps a release wrapped in an edition-named folder in place", async () => {
+      // "GOTY" in the wrapper's name used to send the whole game into dlc/.
+      const root = tempDir();
+      const destDir = path.join(root, "library", "PC", "Foo");
+      const wrapper = path.join(destDir, "Foo.GOTY.Edition");
+      await fs.ensureDir(path.join(wrapper, "Data", "Patch"));
+      await fs.writeFile(path.join(wrapper, "foo.exe"), "main");
+      await fs.writeFile(path.join(wrapper, "Data", "Patch", "x.pak"), "data");
+      await fs.writeFile(path.join(destDir, "Foo.GOTY.Edition.nfo"), "nfo");
+
+      await reorganizeBySortExtras(destDir);
+
+      expect(await fs.pathExists(path.join(wrapper, "foo.exe"))).toBe(true);
+      expect(await fs.pathExists(path.join(wrapper, "Data", "Patch", "x.pak"))).toBe(true);
+      expect(await fs.pathExists(path.join(destDir, "dlc"))).toBe(false);
+      expect(await fs.pathExists(path.join(destDir, "update"))).toBe(false);
+    });
+
+    it("leaves a game's internal folders alone and moves extras as whole folders", async () => {
+      const root = tempDir();
+      const destDir = path.join(root, "library", "PC", "Foo");
+      await fs.ensureDir(path.join(destDir, "Data", "Patch"));
+      await fs.ensureDir(path.join(destDir, "Foo Soundtrack"));
+      await fs.writeFile(path.join(destDir, "foo.exe"), "main");
+      await fs.writeFile(path.join(destDir, "Data", "Patch", "x.pak"), "data");
+      await fs.writeFile(path.join(destDir, "Foo Soundtrack", "01.flac"), "music");
+
+      await reorganizeBySortExtras(destDir);
+
+      expect(await fs.pathExists(path.join(destDir, "Data", "Patch", "x.pak"))).toBe(true);
+      expect(await fs.pathExists(path.join(destDir, "update"))).toBe(false);
+      expect(await fs.pathExists(path.join(destDir, "extra", "Foo Soundtrack", "01.flac"))).toBe(
+        true
+      );
+    });
+
     it("rejects a collision instead of silently overwriting one file with another", async () => {
       // A root-level update file and an identically-named file already sitting in
       // "update/" both categorize to the same destination — without a collision check,
@@ -901,6 +979,101 @@ describe("ImportStrategies", () => {
         "Duplicate sortExtras destination"
       );
       expect(moveSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("categorizeRelativeFiles()", () => {
+    const p = (...segments: string[]) => path.join(...segments);
+
+    it("categorizes each top-level item by its own name, not by the paths inside it", () => {
+      expect(
+        categorizeRelativeFiles([
+          "game.exe",
+          p("Data", "Patch", "x.pak"),
+          p("Game Update v1.2", "setup.exe"),
+          "Game Expansion Pack.nsp",
+        ])
+      ).toEqual([
+        { name: "game.exe", category: "main" },
+        { name: p("Data", "Patch", "x.pak"), category: "main" },
+        { name: p("Game Update v1.2", "setup.exe"), category: "update" },
+        { name: "Game Expansion Pack.nsp", category: "dlc" },
+      ]);
+    });
+
+    it("looks inside a single wrapper folder, even next to release metadata files", () => {
+      expect(
+        categorizeRelativeFiles([
+          "Foo.GOTY.Edition.nfo",
+          p("Foo.GOTY.Edition", "foo.exe"),
+          p("Foo.GOTY.Edition", "Foo OST", "01.flac"),
+        ])
+      ).toEqual([
+        { name: "Foo.GOTY.Edition.nfo", category: "main" },
+        { name: p("Foo.GOTY.Edition", "foo.exe"), category: "main" },
+        { name: p("Foo.GOTY.Edition", "Foo OST", "01.flac"), category: "extra" },
+      ]);
+    });
+
+    it("keeps the category of a release's only directory when its name marks an extra", () => {
+      expect(
+        categorizeRelativeFiles([p("Update v1.2", "setup.exe"), p("Bonus Soundtrack", "01.flac")])
+      ).toEqual([
+        { name: p("Update v1.2", "setup.exe"), category: "update" },
+        { name: p("Bonus Soundtrack", "01.flac"), category: "extra" },
+      ]);
+      expect(categorizeRelativeFiles([p("Update v1.2", "setup.exe")])).toEqual([
+        { name: p("Update v1.2", "setup.exe"), category: "update" },
+      ]);
+      expect(categorizeRelativeFiles([p("Game.GOTY.Edition.Update.v1.2", "setup.exe")])).toEqual([
+        { name: p("Game.GOTY.Edition.Update.v1.2", "setup.exe"), category: "update" },
+      ]);
+      expect(categorizeRelativeFiles([p("Bonus Soundtrack", "01.flac")])).toEqual([
+        { name: p("Bonus Soundtrack", "01.flac"), category: "extra" },
+      ]);
+    });
+
+    it("only skips the outer release wrapper, not the game's internal folders", () => {
+      expect(categorizeRelativeFiles([p("Game", "Data", "Patch", "x.pak")])).toEqual([
+        { name: p("Game", "Data", "Patch", "x.pak"), category: "main" },
+      ]);
+    });
+
+    it("still treats edition words as a DLC signal for items inside the release", () => {
+      expect(categorizeRelativeFiles(["game.exe", p("Deluxe Content", "bonus.dat")])).toEqual([
+        { name: "game.exe", category: "main" },
+        { name: p("Deluxe Content", "bonus.dat"), category: "dlc" },
+      ]);
+    });
+
+    it("leaves items already named after a category folder where they are", () => {
+      expect(categorizeRelativeFiles([p("update", "Game DLC Patch.nsp"), "base.nsp"])).toEqual([
+        { name: p("update", "Game DLC Patch.nsp"), category: "main" },
+        { name: "base.nsp", category: "main" },
+      ]);
+    });
+
+    it("does not treat a sole internal game folder as a wrapper", () => {
+      expect(
+        categorizeRelativeFiles([p("Data", "Patch", "x.pak"), p("Data", "Maps", "m.pak")])
+      ).toEqual([
+        { name: p("Data", "Patch", "x.pak"), category: "main" },
+        { name: p("Data", "Maps", "m.pak"), category: "main" },
+      ]);
+    });
+
+    it("sorts category folders found inside a wrapper", () => {
+      expect(
+        categorizeRelativeFiles([
+          p("Game", "game.exe"),
+          p("Game", "DLC", "addon.pak"),
+          p("Game", "Packs", "skins.pak"),
+        ])
+      ).toEqual([
+        { name: p("Game", "game.exe"), category: "main" },
+        { name: p("Game", "DLC", "addon.pak"), category: "dlc" },
+        { name: p("Game", "Packs", "skins.pak"), category: "packs" },
+      ]);
     });
   });
 });

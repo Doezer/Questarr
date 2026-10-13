@@ -1,3 +1,5 @@
+export { normalizeProwlarrUrl } from "../shared/prowlarr-url.js";
+
 export function extractHostnameFromUrl(url?: string | null): string | null {
   if (!url) return null;
 

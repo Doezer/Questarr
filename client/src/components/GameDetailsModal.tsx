@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react";
+import GameVideoCard from "./GameVideoCard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -1108,7 +1109,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             value="media"
             label="Media"
             icon={<Image className="h-3.5 w-3.5 sm:hidden" />}
-            count={game.screenshots?.length}
+            count={(game.screenshots?.length ?? 0) + (game.videos?.length ?? 0)}
           />
           {game.expansions && game.expansions.length > 0 && (
             <GameTabTrigger
@@ -1412,30 +1413,51 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
         >
           <ScrollArea className="h-full">
             <div className="pr-4 pb-2">
-              {game.screenshots && game.screenshots.length > 0 ? (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {game.screenshots.map((screenshot, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      aria-label={`Open screenshot ${index + 1}`}
-                      className="shadcn-card overflow-hidden cursor-pointer hover-elevate rounded-xl border bg-card border-card-border text-card-foreground shadow-sm"
-                      onClick={() => setSelectedScreenshotIndex(index)}
-                      data-testid={`screenshot-${index}`}
-                    >
-                      <img
-                        src={screenshot}
-                        alt={`${game.title} screenshot ${index + 1}`}
-                        className="w-full h-24 object-cover"
+              {game.videos && game.videos.length > 0 && (
+                <section aria-label="Videos" className="mb-4">
+                  <h3 className="mb-2 text-sm font-medium">Videos</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {game.videos.map((video) => (
+                      <GameVideoCard
+                        key={video.videoId}
+                        name={video.name}
+                        videoId={video.videoId}
                       />
-                    </button>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+              {game.screenshots && game.screenshots.length > 0 ? (
+                <section aria-label="Screenshots">
+                  {game.videos && game.videos.length > 0 && (
+                    <h3 className="mb-2 text-sm font-medium">Screenshots</h3>
+                  )}
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {game.screenshots.map((screenshot, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        aria-label={`Open screenshot ${index + 1}`}
+                        className="shadcn-card overflow-hidden cursor-pointer hover-elevate rounded-xl border bg-card border-card-border text-card-foreground shadow-sm"
+                        onClick={() => setSelectedScreenshotIndex(index)}
+                        data-testid={`screenshot-${index}`}
+                      >
+                        <img
+                          src={screenshot}
+                          alt={`${game.title} screenshot ${index + 1}`}
+                          className="w-full h-24 object-cover"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </section>
               ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
-                  <Monitor className="w-8 h-8 opacity-40" />
-                  <p className="text-sm">No screenshots available.</p>
-                </div>
+                !(game.videos && game.videos.length > 0) && (
+                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                    <Monitor className="w-8 h-8 opacity-40" />
+                    <p className="text-sm">No screenshots or videos available.</p>
+                  </div>
+                )
               )}
             </div>
           </ScrollArea>

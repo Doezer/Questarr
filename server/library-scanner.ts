@@ -19,7 +19,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { storage } from "./storage.js";
-import { igdbClient, type IGDBGame } from "./igdb.js";
+import { igdbClient, toVideos, type IGDBGame } from "./igdb.js";
 import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { igdbLogger, routesLogger } from "./logger.js";
@@ -304,6 +304,7 @@ function igdbToInsertGame(igdb: IGDBGame, userId: string): InsertGame {
       igdb.involved_companies?.filter((c) => c.developer).map((c) => c.company.name) ?? [],
     screenshots:
       igdb.screenshots?.map((s) => `https:${s.url.replace("t_thumb", "t_screenshot_big")}`) ?? [],
+    videos: toVideos(igdb.videos),
     status: "owned",
     releaseStatus: "released",
     source: "scan",

@@ -16,7 +16,7 @@ export const IGDB_EARLY_ACCESS_STATUS = 4;
 
 // Shared field list for all IGDB game queries
 const IGDB_GAME_FIELDS =
-  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type, expansions.url";
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, videos.name, videos.video_id, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type, expansions.url";
 
 // IGDB theme name flagged as adult content (Erotic)
 const ADULT_THEME_NAMES = new Set(["Erotic"]);
@@ -26,6 +26,13 @@ const ADULT_AGE_RATINGS = [
   { category: 1, rating: 12 }, // ESRB Adults Only (AO)
   { category: 2, rating: 5 }, // PEGI 18
 ];
+
+/** Keep only well-formed YouTube ids so a bad IGDB value can never reach an embed URL. */
+export function toVideos(videos: IGDBGame["videos"]): Array<{ name: string; videoId: string }> {
+  return (videos ?? [])
+    .filter((v): v is { name?: string; video_id: string } => /^[\w-]{6,20}$/.test(v.video_id ?? ""))
+    .map((v) => ({ name: v.name?.trim() || "Video", videoId: v.video_id }));
+}
 
 function hasEroticTheme(igdbGame: IGDBGame): boolean {
   return igdbGame.themes?.some((t) => ADULT_THEME_NAMES.has(t.name)) ?? false;
@@ -77,6 +84,10 @@ export interface IGDBGame {
   screenshots?: Array<{
     id: number;
     url: string;
+  }>;
+  videos?: Array<{
+    name?: string;
+    video_id?: string;
   }>;
   websites?: Array<{
     category: number;
@@ -1407,6 +1418,7 @@ class IGDBClient {
       screenshots:
         igdbGame.screenshots?.map((s) => `https:${s.url.replace("t_thumb", "t_screenshot_big")}`) ||
         [],
+      videos: toVideos(igdbGame.videos),
       igdbWebsites: igdbWebsiteSchema
         .array()
         .catch([])

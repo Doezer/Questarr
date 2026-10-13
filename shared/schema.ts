@@ -206,6 +206,8 @@ export const games = sqliteTable("games", {
   publishers: text("publishers", { mode: "json" }).$type<string[]>(),
   developers: text("developers", { mode: "json" }).$type<string[]>(),
   screenshots: text("screenshots", { mode: "json" }).$type<string[]>(),
+  // IGDB trailers/gameplay clips: `videoId` is the YouTube video id
+  videos: text("videos", { mode: "json" }).$type<Array<{ name: string; videoId: string }>>(),
   source: text("source").default("manual"), // "manual" | "steam" | "api"
   igdbWebsites: text("igdb_websites", { mode: "json" }).$type<
     Array<{ category: number; url: string }>
@@ -685,6 +687,7 @@ export const claimDownloadRequestSchema = z.object({
       rating: z.number().optional(),
       aggregatedRating: z.number().optional(),
       screenshots: z.array(z.string()).optional(),
+      videos: z.array(z.object({ name: z.string(), videoId: z.string() })).optional(),
       igdbWebsites: z.array(z.object({ category: z.number(), url: z.string() })).optional(),
     })
     .optional(),

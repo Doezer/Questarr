@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- **Legacy session token migration**: the one-time move of a pre-1.5.0 `localStorage` token to the httpOnly cookie no longer runs during React render; it now happens in a post-commit effect, and the app waits for it before calling `/api/auth/me`, which also makes it safe under StrictMode (#1193).
+- **Legacy session token migration**: a pre-1.5.0 token left in `localStorage` is now carried over as an in-memory bearer token for the current tab and removed from `localStorage`, in a post-commit effect instead of during React render. The app waits for it before calling `/api/auth/me`, which also makes it safe under StrictMode. It is not stored as a cookie, so the next reload asks you to sign in again (#1193).
 
 ### Dependencies
 

@@ -1413,7 +1413,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
         >
           <ScrollArea className="h-full">
             <div className="pr-4 pb-2">
-              {game.videos && game.videos.length > 0 && <GameVideoCarousel videos={game.videos} />}
+              {activeTab === "media" && game.videos && game.videos.length > 0 && (
+                <GameVideoCarousel videos={game.videos} />
+              )}
               {game.screenshots && game.screenshots.length > 0 ? (
                 <section aria-label="Screenshots">
                   {game.videos && game.videos.length > 0 && (

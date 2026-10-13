@@ -1,3 +1,4 @@
+import { toVideos } from "./igdb-videos.js";
 import { z } from "zod";
 import { config } from "./config.js";
 import { igdbLogger } from "./logger.js";
@@ -26,13 +27,6 @@ const ADULT_AGE_RATINGS = [
   { category: 1, rating: 12 }, // ESRB Adults Only (AO)
   { category: 2, rating: 5 }, // PEGI 18
 ];
-
-/** Keep only well-formed YouTube ids so a bad IGDB value can never reach an embed URL. */
-export function toVideos(videos: IGDBGame["videos"]): Array<{ name: string; videoId: string }> {
-  return (videos ?? [])
-    .filter((v): v is { name?: string; video_id: string } => /^[\w-]{6,20}$/.test(v.video_id ?? ""))
-    .map((v) => ({ name: v.name?.trim() || "Video", videoId: v.video_id }));
-}
 
 function hasEroticTheme(igdbGame: IGDBGame): boolean {
   return igdbGame.themes?.some((t) => ADULT_THEME_NAMES.has(t.name)) ?? false;

@@ -1,48 +1,50 @@
-import { useState } from "react";
 import { Play } from "lucide-react";
 
 interface GameVideoCardProps {
   name: string;
   videoId: string;
+  playing: boolean;
+  onPlay: () => void;
 }
 
 /**
- * IGDB video (YouTube). Nothing is requested from YouTube until the user clicks,
- * then it plays in the privacy-enhanced youtube-nocookie embed.
+ * IGDB video (YouTube). Shows the YouTube thumbnail until the user clicks, then plays it in
+ * the privacy-enhanced youtube-nocookie embed inside Questarr (no redirect to YouTube).
  */
-export default function GameVideoCard({ name, videoId }: GameVideoCardProps) {
-  const [playing, setPlaying] = useState(false);
-
+export default function GameVideoCard({ name, videoId, playing, onPlay }: GameVideoCardProps) {
   return (
-    <div className="overflow-hidden rounded-xl border bg-card border-card-border text-card-foreground shadow-sm">
-      <div className="aspect-video bg-black">
-        {playing ? (
-          <iframe
-            className="h-full w-full"
-            src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=1&rel=0`}
-            title={name}
-            allow="autoplay; encrypted-media; fullscreen"
-            allowFullScreen
-            referrerPolicy="strict-origin-when-cross-origin"
+    <div className="aspect-video overflow-hidden rounded-xl border border-card-border bg-black">
+      {playing ? (
+        <iframe
+          className="h-full w-full"
+          src={`https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=1&rel=0`}
+          title={name}
+          allow="autoplay; encrypted-media; fullscreen"
+          allowFullScreen
+          referrerPolicy="strict-origin-when-cross-origin"
+        />
+      ) : (
+        <button
+          type="button"
+          aria-label={`Play video: ${name}`}
+          onClick={onPlay}
+          className="group relative block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-testid={`video-play-${videoId}`}
+        >
+          <img
+            src={`https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`}
+            alt=""
+            loading="lazy"
+            draggable={false}
+            className="h-full w-full object-cover"
           />
-        ) : (
-          <button
-            type="button"
-            aria-label={`Play video: ${name}`}
-            onClick={() => setPlaying(true)}
-            className="flex h-full w-full flex-col items-center justify-center gap-2 bg-muted/40 text-muted-foreground hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            data-testid={`video-play-${videoId}`}
-          >
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
-              <Play className="h-5 w-5 fill-current" />
+          <span className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/20">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg">
+              <Play className="h-6 w-6 fill-current" />
             </span>
-            <span className="text-xs">Click to load from YouTube</span>
-          </button>
-        )}
-      </div>
-      <p className="truncate px-3 py-2 text-sm" title={name}>
-        {name}
-      </p>
+          </span>
+        </button>
+      )}
     </div>
   );
 }

@@ -892,6 +892,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             "'self'",
             "data:",
             "https://images.igdb.com",
+            // YouTube thumbnails for IGDB videos
+            "https://i.ytimg.com",
             "https://staticdelivery.nexusmods.com",
             // Steam achievement icons (GetSchemaForGame), served from Steam's CDN
             "https://steamcdn-a.akamaihd.net",

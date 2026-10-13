@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react";
-import GameVideoCard from "./GameVideoCard";
+import GameVideoCarousel from "./GameVideoCarousel";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -1413,20 +1413,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
         >
           <ScrollArea className="h-full">
             <div className="pr-4 pb-2">
-              {game.videos && game.videos.length > 0 && (
-                <section aria-label="Videos" className="mb-4">
-                  <h3 className="mb-2 text-sm font-medium">Videos</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {game.videos.map((video) => (
-                      <GameVideoCard
-                        key={video.videoId}
-                        name={video.name}
-                        videoId={video.videoId}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
+              {game.videos && game.videos.length > 0 && <GameVideoCarousel videos={game.videos} />}
               {game.screenshots && game.screenshots.length > 0 ? (
                 <section aria-label="Screenshots">
                   {game.videos && game.videos.length > 0 && (

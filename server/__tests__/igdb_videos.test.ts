@@ -20,6 +20,15 @@ describe("toVideos", () => {
     ).toEqual([{ name: "Video", videoId: "abc_DEF-123" }]);
   });
 
+  it("drops duplicate ids so each video is unique", () => {
+    expect(
+      toVideos([
+        { name: "A", video_id: "dQw4w9WgXcQ" },
+        { name: "B", video_id: "dQw4w9WgXcQ" },
+      ])
+    ).toEqual([{ name: "A", videoId: "dQw4w9WgXcQ" }]);
+  });
+
   it("handles undefined", () => {
     expect(toVideos(undefined)).toEqual([]);
   });

@@ -10,7 +10,7 @@ maintainer procedures. This map follows the tabs, groups, and page order in
 ### Getting started
 
 - [Install and get started](QUICKSTART.md)
-- [Changelog](CHANGELOG.md)
+- [Changelog](https://github.com/Doezer/Questarr/blob/main/docs/CHANGELOG.md)
 
 ### Library
 

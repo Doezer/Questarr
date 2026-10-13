@@ -129,6 +129,7 @@ jobs:
           gh workflow run deploy.yml --ref "$TAG" \
             -f environment=dev \
             -f tag="$TAG" \
+            -f weekly=true \
             -f build_arm64=true \
             -f build_windows_installer="$WINDOWS"
 

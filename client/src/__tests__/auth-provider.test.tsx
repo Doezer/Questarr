@@ -80,12 +80,12 @@ describe("AuthProvider — legacy localStorage token migration", () => {
       </Wrapper>
     );
 
-    // Cleared synchronously on mount, before the /api/auth/me request even settles.
-    expect(localStorage.getItem("token")).toBeNull();
-
     await waitFor(() => {
       expect(findMeCall(fetchMock)).toBeDefined();
     });
+
+    // Scrubbed from localStorage by the time /api/auth/me is requested.
+    expect(localStorage.getItem("token")).toBeNull();
 
     // The legacy token was carried forward as an in-memory bearer header for
     // this request, so an already-logged-in user isn't stranded.
@@ -198,4 +198,102 @@ describe("AuthProvider — legacy localStorage token migration", () => {
       expect(headers.get("Authorization")).toBe("Bearer legacy-token");
     }
   }, 12000);
+
+  it("does not mutate localStorage or send /api/auth/me during render, only after migration commits", async () => {
+    localStorage.setItem("token", "legacy-token");
+    const removeSpy = vi.spyOn(Storage.prototype, "removeItem");
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/auth/status") return jsonResponse(200, { hasUsers: true });
+      if (url === "/api/auth/me") return jsonResponse(200, { id: "1", username: "admin" });
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let sawTokenDuringRender: string | null = null;
+    function Probe() {
+      // Child renders only after the provider's migration effect has run.
+      sawTokenDuringRender = localStorage.getItem("token");
+      return <div>probe</div>;
+    }
+
+    render(
+      <Wrapper>
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>
+      </Wrapper>
+    );
+
+    await waitFor(() => {
+      expect(findMeCall(fetchMock)).toBeDefined();
+    });
+
+    expect(sawTokenDuringRender).toBeNull();
+    expect(removeSpy).toHaveBeenCalledTimes(1);
+    expect(removeSpy).toHaveBeenCalledWith("token");
+    removeSpy.mockRestore();
+  });
+
+  it("keeps the migrated bearer token under React.StrictMode double invocation and migrates once", async () => {
+    localStorage.setItem("token", "legacy-token");
+    const removeSpy = vi.spyOn(Storage.prototype, "removeItem");
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/auth/status") return jsonResponse(200, { hasUsers: true });
+      if (url === "/api/auth/me") return jsonResponse(200, { id: "1", username: "admin" });
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <React.StrictMode>
+        <Wrapper>
+          <AuthProvider>
+            <div>test</div>
+          </AuthProvider>
+        </Wrapper>
+      </React.StrictMode>
+    );
+
+    await waitFor(() => {
+      expect(findMeCalls(fetchMock).length).toBeGreaterThan(0);
+    });
+
+    for (const call of findMeCalls(fetchMock)) {
+      const headers = new Headers((call[1] as RequestInit | undefined)?.headers);
+      expect(headers.get("Authorization")).toBe("Bearer legacy-token");
+    }
+    expect(localStorage.getItem("token")).toBeNull();
+    expect(removeSpy.mock.calls.filter((c) => c[0] === "token").length).toBeLessThanOrEqual(2);
+    removeSpy.mockRestore();
+  });
+
+  it("loads cookie-only sessions without an Authorization header", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/auth/status") return jsonResponse(200, { hasUsers: true });
+      if (url === "/api/auth/me") return jsonResponse(200, { id: "1", username: "admin" });
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <React.StrictMode>
+        <Wrapper>
+          <AuthProvider>
+            <div>test</div>
+          </AuthProvider>
+        </Wrapper>
+      </React.StrictMode>
+    );
+
+    await waitFor(() => {
+      expect(findMeCall(fetchMock)).toBeDefined();
+    });
+    const headers = new Headers((findMeCall(fetchMock)![1] as RequestInit | undefined)?.headers);
+    expect(headers.get("Authorization")).toBeNull();
+  });
 });

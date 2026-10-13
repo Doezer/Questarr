@@ -12,6 +12,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import type {
+  ApiKeyScope,
   GameExpansion,
   GameFileCategory,
   ImportTaskItemResult,
@@ -475,6 +476,8 @@ export const apiKeys = pgTable(
     prefix: text("prefix").notNull(),
     createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
     lastUsedAt: timestampMs("last_used_at"),
+    scope: text("scope").$type<ApiKeyScope>().notNull().default("integration:all"),
+    expiresAt: timestampMs("expires_at"),
   },
   (t) => [
     uniqueIndex("api_keys_key_hash_idx").on(t.keyHash),

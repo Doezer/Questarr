@@ -60,6 +60,39 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       ).rejects.toThrow(/limit reached/i);
     });
 
+    it("api keys round-trip scope and expiry, default to integration:all / never, and throttle last-used", async () => {
+      const [user] = await storage().getAllUsers();
+      const expiresAt = new Date(Date.now() + 86_400_000);
+      const scoped = await storage().addApiKey(
+        {
+          userId: user.id,
+          name: "scoped",
+          keyHash: "hs",
+          prefix: "ps",
+          scope: "integration:read",
+          expiresAt,
+        },
+        10
+      );
+      expect(scoped.scope).toBe("integration:read");
+      expect(scoped.expiresAt?.getTime()).toBe(expiresAt.getTime());
+
+      const legacy = await storage().addApiKey(
+        { userId: user.id, name: "legacy", keyHash: "hl", prefix: "pl" },
+        10
+      );
+      expect(legacy.scope).toBe("integration:all");
+      expect(legacy.expiresAt).toBeNull();
+
+      await storage().touchApiKey(legacy.id);
+      const first = (await storage().getApiKeyByHash("hl"))!.lastUsedAt!;
+      expect(first).toBeInstanceOf(Date);
+      await new Promise((r) => setTimeout(r, 5));
+      await storage().touchApiKey(legacy.id);
+      const second = (await storage().getApiKeyByHash("hl"))!.lastUsedAt!;
+      expect(second.getTime()).toBe(first.getTime());
+    });
+
     it("syncIndexers inserts, then updates the same url", async () => {
       const inserted = await storage().syncIndexers([
         { name: "idx", url: "http://a", apiKey: "secret", protocol: "torznab" },

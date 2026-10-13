@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { storage } from "../storage.js";
+import { requireScope } from "../auth.js";
 import { routesLogger as logger } from "../logger.js";
 import { normalizeTitle } from "../../shared/title-utils.js";
 import { quickAddGameByTitle } from "../game-quick-add.js";
@@ -61,15 +62,23 @@ function toIntegrationGame(game: Game) {
 // ── Handshake ────────────────────────────────────────────────────────────────
 // Lets an extension verify its URL and credential in one call before doing any
 // real work, and surfaces the version pair in its own logs.
-integrationRouter.get("/ping", (req: Request, res: Response) => {
-  res.json({
-    service: "questarr",
-    version: APP_VERSION,
-    apiVersion: INTEGRATION_API_VERSION,
-    authenticatedAs: { id: req.user!.id, username: req.user!.username },
-    usingApiKey: Boolean(req.apiKeyId),
-  });
-});
+integrationRouter.get(
+  "/ping",
+  requireScope("integration:playnite", "integration:read"),
+  (req: Request, res: Response) => {
+    res.json({
+      service: "questarr",
+      version: APP_VERSION,
+      apiVersion: INTEGRATION_API_VERSION,
+      authenticatedAs: { id: req.user!.id, username: req.user!.username },
+      usingApiKey: Boolean(req.apiKeyId),
+      // Lets a client warn before its key expires. Both are null for a browser
+      // session; expiresAt is also null for a key that never expires.
+      scope: req.apiKeyScope ?? null,
+      expiresAt: req.apiKeyExpiresAt?.toISOString() ?? null,
+    });
+  }
+);
 
 // ── Pull: Questarr library → external client ─────────────────────────────────
 const libraryQuerySchema = z.object({
@@ -89,25 +98,29 @@ const libraryQuerySchema = z.object({
     .transform((v) => v === "true"),
 });
 
-integrationRouter.get("/library", async (req: Request, res: Response) => {
-  try {
-    const parsed = libraryQuerySchema.safeParse(req.query);
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid query parameters" });
-    }
-    const { status: statuses, includeHidden } = parsed.data;
+integrationRouter.get(
+  "/library",
+  requireScope("integration:playnite", "integration:read"),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = libraryQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid query parameters" });
+      }
+      const { status: statuses, includeHidden } = parsed.data;
 
-    const games = await storage.getUserGames(req.user!.id, includeHidden, statuses);
-    // Match /api/games' own behavior: a title the user filtered out (adult
-    // content, age-restricted) must not leak through this endpoint either.
-    const filterFlags = await getContentFilterFlags(req.user!.id);
-    const visibleGames = excludeFilteredContent(games, filterFlags);
-    return res.json({ games: visibleGames.map(toIntegrationGame), count: visibleGames.length });
-  } catch (error) {
-    logger.error({ error }, "Integration library fetch failed");
-    return res.status(500).json({ error: "Failed to fetch library" });
+      const games = await storage.getUserGames(req.user!.id, includeHidden, statuses);
+      // Match /api/games' own behavior: a title the user filtered out (adult
+      // content, age-restricted) must not leak through this endpoint either.
+      const filterFlags = await getContentFilterFlags(req.user!.id);
+      const visibleGames = excludeFilteredContent(games, filterFlags);
+      return res.json({ games: visibleGames.map(toIntegrationGame), count: visibleGames.length });
+    } catch (error) {
+      logger.error({ error }, "Integration library fetch failed");
+      return res.status(500).json({ error: "Failed to fetch library" });
+    }
   }
-});
+);
 
 // ── Push: external library → Questarr ────────────────────────────────────────
 const syncSchema = z.object({
@@ -130,83 +143,87 @@ const syncSchema = z.object({
   markInstalledAsOwned: z.boolean().optional().default(false),
 });
 
-integrationRouter.post("/library/sync", async (req: Request, res: Response) => {
-  try {
-    const parsed = syncSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid sync payload", issues: parsed.error.issues });
-    }
-    const { games: incoming, markInstalledAsOwned } = parsed.data;
-    const userId = req.user!.id;
+integrationRouter.post(
+  "/library/sync",
+  requireScope("integration:playnite"),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = syncSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid sync payload", issues: parsed.error.issues });
+      }
+      const { games: incoming, markInstalledAsOwned } = parsed.data;
+      const userId = req.user!.id;
 
-    const library = await storage.getUserGames(userId, true);
+      const library = await storage.getUserGames(userId, true);
 
-    // Index the library once; a sync can carry thousands of titles and a linear
-    // scan per entry would make this quadratic.
-    const byNormalizedTitle = new Map<string, Game>();
-    const bySteamAppId = new Map<number, Game>();
-    for (const game of library) {
-      const key = normalizeTitle(game.title);
-      if (!byNormalizedTitle.has(key)) byNormalizedTitle.set(key, game);
-      if (game.steamAppId) bySteamAppId.set(game.steamAppId, game);
-    }
-
-    const matched: Array<{
-      externalId?: string | undefined;
-      title: string;
-      gameId: string;
-      status: string;
-    }> = [];
-    const unmatched: Array<{ externalId?: string | undefined; title: string }> = [];
-    const promoted: string[] = [];
-
-    for (const entry of incoming) {
-      const match =
-        (entry.steamAppId ? bySteamAppId.get(entry.steamAppId) : undefined) ??
-        byNormalizedTitle.get(normalizeTitle(entry.title));
-
-      if (!match) {
-        unmatched.push({ externalId: entry.externalId, title: entry.title });
-        continue;
+      // Index the library once; a sync can carry thousands of titles and a linear
+      // scan per entry would make this quadratic.
+      const byNormalizedTitle = new Map<string, Game>();
+      const bySteamAppId = new Map<number, Game>();
+      for (const game of library) {
+        const key = normalizeTitle(game.title);
+        if (!byNormalizedTitle.has(key)) byNormalizedTitle.set(key, game);
+        if (game.steamAppId) bySteamAppId.set(game.steamAppId, game);
       }
 
-      let status = match.status;
-      if (markInstalledAsOwned && entry.installed && match.status === "wanted") {
-        await storage.updateGameStatus(match.id, { status: "owned" });
-        status = "owned";
-        promoted.push(match.id);
+      const matched: Array<{
+        externalId?: string | undefined;
+        title: string;
+        gameId: string;
+        status: string;
+      }> = [];
+      const unmatched: Array<{ externalId?: string | undefined; title: string }> = [];
+      const promoted: string[] = [];
+
+      for (const entry of incoming) {
+        const match =
+          (entry.steamAppId ? bySteamAppId.get(entry.steamAppId) : undefined) ??
+          byNormalizedTitle.get(normalizeTitle(entry.title));
+
+        if (!match) {
+          unmatched.push({ externalId: entry.externalId, title: entry.title });
+          continue;
+        }
+
+        let status = match.status;
+        if (markInstalledAsOwned && entry.installed && match.status === "wanted") {
+          await storage.updateGameStatus(match.id, { status: "owned" });
+          status = "owned";
+          promoted.push(match.id);
+        }
+
+        matched.push({
+          externalId: entry.externalId,
+          title: entry.title,
+          gameId: match.id,
+          status,
+        });
       }
 
-      matched.push({
-        externalId: entry.externalId,
-        title: entry.title,
-        gameId: match.id,
-        status,
-      });
-    }
+      logger.info(
+        {
+          userId,
+          received: incoming.length,
+          matched: matched.length,
+          unmatched: unmatched.length,
+          promoted: promoted.length,
+        },
+        "Integration library sync"
+      );
 
-    logger.info(
-      {
-        userId,
+      return res.json({
         received: incoming.length,
-        matched: matched.length,
-        unmatched: unmatched.length,
-        promoted: promoted.length,
-      },
-      "Integration library sync"
-    );
-
-    return res.json({
-      received: incoming.length,
-      matched,
-      unmatched,
-      promotedToOwned: promoted.length,
-    });
-  } catch (error) {
-    logger.error({ error }, "Integration library sync failed");
-    return res.status(500).json({ error: "Library sync failed" });
+        matched,
+        unmatched,
+        promotedToOwned: promoted.length,
+      });
+    } catch (error) {
+      logger.error({ error }, "Integration library sync failed");
+      return res.status(500).json({ error: "Library sync failed" });
+    }
   }
-});
+);
 
 // ── Request a game from the couch ────────────────────────────────────────────
 // Matches a free-text title against IGDB and adds it to the library. Adding it
@@ -218,50 +235,54 @@ const requestSchema = z.object({
   status: z.enum(["wanted", "owned"]).optional().default("wanted"),
 });
 
-integrationRouter.post("/games/request", async (req: Request, res: Response) => {
-  try {
-    const parsed = requestSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res
-        .status(400)
-        .json({ error: "Invalid request payload", issues: parsed.error.issues });
-    }
-    const { title, status } = parsed.data;
-    const userId = req.user!.id;
-
-    // Shared with POST /api/games/match-and-add (the browser's own "quick
-    // add" flow) so the two entry points can't drift on matching, content
-    // filtering, or dedupe behavior.
-    const result = await quickAddGameByTitle(userId, title, { status, source: "api" });
-
-    switch (result.outcome) {
-      case "not_found":
-        // Deliberately indistinguishable from "no match": a filtered title
-        // must not be discoverable through this endpoint either.
-        return res.status(404).json({ error: "No game found on IGDB for this title" });
-      case "duplicate":
+integrationRouter.post(
+  "/games/request",
+  requireScope("integration:playnite"),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = requestSchema.safeParse(req.body);
+      if (!parsed.success) {
         return res
-          .status(409)
-          .json({ error: "Game already in collection", game: toIntegrationGame(result.game) });
-      case "added":
-        logger.info(
-          {
-            userId,
-            title: result.game.title,
-            igdbId: result.game.igdbId,
-            viaApiKey: Boolean(req.apiKeyId),
-          },
-          "Game requested through the integration API"
-        );
-        return res.status(201).json({ game: toIntegrationGame(result.game) });
-    }
+          .status(400)
+          .json({ error: "Invalid request payload", issues: parsed.error.issues });
+      }
+      const { title, status } = parsed.data;
+      const userId = req.user!.id;
 
-    return;
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.issues });
+      // Shared with POST /api/games/match-and-add (the browser's own "quick
+      // add" flow) so the two entry points can't drift on matching, content
+      // filtering, or dedupe behavior.
+      const result = await quickAddGameByTitle(userId, title, { status, source: "api" });
+
+      switch (result.outcome) {
+        case "not_found":
+          // Deliberately indistinguishable from "no match": a filtered title
+          // must not be discoverable through this endpoint either.
+          return res.status(404).json({ error: "No game found on IGDB for this title" });
+        case "duplicate":
+          return res
+            .status(409)
+            .json({ error: "Game already in collection", game: toIntegrationGame(result.game) });
+        case "added":
+          logger.info(
+            {
+              userId,
+              title: result.game.title,
+              igdbId: result.game.igdbId,
+              viaApiKey: Boolean(req.apiKeyId),
+            },
+            "Game requested through the integration API"
+          );
+          return res.status(201).json({ game: toIntegrationGame(result.game) });
+      }
+
+      return;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.issues });
+      }
+      logger.error({ error }, "Integration game request failed");
+      return res.status(500).json({ error: "Failed to request game" });
     }
-    logger.error({ error }, "Integration game request failed");
-    return res.status(500).json({ error: "Failed to request game" });
   }
-});
+);

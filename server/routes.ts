@@ -81,6 +81,7 @@ import {
   sanitizeLibraryScanData,
   sanitizeUnmatchedMatchData,
   sanitizeUnmatchedSearchData,
+  integrationRateLimiter,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
@@ -1616,7 +1617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/system", systemRouter);
   // Authenticated by the /api gate above (JWT or integration API key); same
   // reasoning as the mounts above.
-  app.use("/api/integration", integrationRouter);
+  app.use("/api/integration", integrationRateLimiter, integrationRouter);
   app.use("/api/api-keys", apiKeysRouter);
 
   // Last-used Prowlarr sync settings, to prefill the sync dialog. The stored

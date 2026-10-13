@@ -30,11 +30,12 @@ export async function syncFromRomm(userId: string): Promise<RommSyncSummary> {
   const roms = await rommClient.listAllRoms(settings);
   const games = await storage.getUserGames(userId, true);
   const byIgdbId = new Map<number, Game>();
-  const byTitle = new Map<string, Game>();
+  // A title shared by several games is ambiguous: it is never used for matching.
+  const byTitle = new Map<string, Game | null>();
   for (const game of games) {
     if (game.igdbId != null) byIgdbId.set(game.igdbId, game);
     const key = normalizeTitle(game.title);
-    if (key && !byTitle.has(key)) byTitle.set(key, game);
+    if (key) byTitle.set(key, byTitle.has(key) ? null : game);
   }
 
   const summary: RommSyncSummary = {

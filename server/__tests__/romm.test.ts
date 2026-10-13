@@ -195,6 +195,18 @@ describe("RomM sync", () => {
     expect(mockStorage.updateGameStatus).not.toHaveBeenCalled();
   });
 
+  it("ignores a title shared by two games when the ROM has no IGDB id", async () => {
+    await configure();
+    mockStorage.getUserGames.mockResolvedValue([
+      game("x", "Same Title", "wanted", 1),
+      game("y", "Same Title", "wanted", 2),
+    ]);
+    safeFetchMock.mockResolvedValue(json({ items: [{ id: 1, name: "Same Title" }], total: 1 }));
+    const summary = await syncFromRomm("user-1");
+    expect(summary.matched).toBe(0);
+    expect(mockStorage.updateGameStatus).not.toHaveBeenCalled();
+  });
+
   it("walks every page up to the reported total", async () => {
     await configure();
     const page = (from: number, n: number) =>

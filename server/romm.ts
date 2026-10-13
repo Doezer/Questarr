@@ -168,7 +168,7 @@ export const rommClient = {
       const page = await rommRequest<{ items?: RommRom[]; total?: number }>(
         settings,
         "GET",
-        `/api/roms?limit=${pageSize}&offset=${offset}`
+        `/api/roms?limit=${pageSize}&offset=${offset}&with_char_index=false&with_filter_values=false&with_rom_id_index=false`
       );
       const items = page?.items ?? [];
       roms.push(...items);

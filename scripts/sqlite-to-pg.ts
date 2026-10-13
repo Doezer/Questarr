@@ -51,6 +51,8 @@ const TABLE_ORDER = [
   "apiKeys",
   "importTasks",
   "rssFeedItems",
+  "releaseProfiles",
+  "customFormats",
   // Reference games / downloaders / importTasks.
   "gameDownloads",
   "xrelNotifiedReleases",

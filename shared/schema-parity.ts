@@ -125,6 +125,24 @@ export type _InsertAiAutoDownloadHolds = Expect<
     typeof pgSchema.aiAutoDownloadHolds.$inferInsert
   >
 >;
+export type _SelectReleaseProfiles = Expect<
+  Equal<
+    typeof sqliteSchema.releaseProfiles.$inferSelect,
+    typeof pgSchema.releaseProfiles.$inferSelect
+  >
+>;
+export type _InsertReleaseProfiles = Expect<
+  Equal<
+    typeof sqliteSchema.releaseProfiles.$inferInsert,
+    typeof pgSchema.releaseProfiles.$inferInsert
+  >
+>;
+export type _SelectCustomFormats = Expect<
+  Equal<typeof sqliteSchema.customFormats.$inferSelect, typeof pgSchema.customFormats.$inferSelect>
+>;
+export type _InsertCustomFormats = Expect<
+  Equal<typeof sqliteSchema.customFormats.$inferInsert, typeof pgSchema.customFormats.$inferInsert>
+>;
 export type _SelectNotifications = Expect<
   Equal<typeof sqliteSchema.notifications.$inferSelect, typeof pgSchema.notifications.$inferSelect>
 >;

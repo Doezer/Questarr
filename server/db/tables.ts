@@ -21,6 +21,7 @@ const active = dialect === "postgres" ? (pgSchema as unknown as typeof sqliteSch
 export const {
   aiAutoDownloadHolds,
   apiKeys,
+  customFormats,
   downloaders,
   gameDownloads,
   gameFiles,
@@ -35,6 +36,7 @@ export const {
   pathMappings,
   platformMappings,
   releaseBlacklist,
+  releaseProfiles,
   rootFolders,
   rssFeedItems,
   rssFeeds,

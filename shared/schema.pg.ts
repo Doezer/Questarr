@@ -18,6 +18,7 @@ import type {
   ImportTaskStatus,
   ImportTaskType,
 } from "./schema.js";
+import type { FormatSpec, ReleaseProfile } from "./release-scoring.js";
 
 /**
  * Postgres mirror of shared/schema.ts.
@@ -296,6 +297,46 @@ export const aiAutoDownloadHolds = pgTable(
     createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
   },
   (t) => [uniqueIndex("ai_auto_download_holds_game_title_idx").on(t.gameId, t.releaseTitle)]
+);
+
+export const releaseProfiles = pgTable("release_profiles", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  minScore: integer("min_score").notNull().default(0),
+  protocolPreference: text("protocol_preference").notNull().default("either"),
+  requiredTerms: jsonb("required_terms").$type<string[]>().notNull().default([]),
+  ignoredTerms: jsonb("ignored_terms").$type<string[]>().notNull().default([]),
+  minSeeders: integer("min_seeders").notNull().default(0),
+  maxSizeBytes: bigint("max_size_bytes", { mode: "number" }),
+  builtInOverrides: jsonb("built_in_overrides")
+    .$type<ReleaseProfile["builtInOverrides"]>()
+    .notNull()
+    .default({}),
+  formatScores: jsonb("format_scores").$type<Record<string, number>>().notNull().default({}),
+  createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+});
+
+export const customFormats = pgTable(
+  "custom_formats",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    specs: jsonb("specs").$type<FormatSpec[]>().notNull().default([]),
+    score: integer("score").notNull().default(0),
+    hardReject: boolean("hard_reject").notNull().default(false),
+    enabled: boolean("enabled").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+    updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("custom_formats_user_idx").on(t.userId)]
 );
 
 export const gameJournalEntries = pgTable(

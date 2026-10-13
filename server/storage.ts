@@ -24,6 +24,11 @@ import {
   type RssFeedItem,
   type InsertRssFeedItem,
   type ReleaseBlacklist,
+  type ReleaseProfileRow,
+  type ReleaseProfileInput,
+  type CustomFormatRow,
+  type CustomFormatInput,
+  type CustomFormatUpdate,
   type InsertReleaseBlacklist,
   type AiAutoDownloadHold,
   type InsertAiAutoDownloadHold,
@@ -73,6 +78,8 @@ import {
   importTasks,
   importTaskItems,
   releaseBlacklist,
+  releaseProfiles,
+  customFormats,
   aiAutoDownloadHolds,
   gameFiles,
   apiKeys,
@@ -90,6 +97,7 @@ import {
   or,
   sql,
   desc,
+  asc,
   and,
   not,
   inArray,
@@ -386,6 +394,18 @@ export interface IStorage {
     updates: UpdateUserSettings
   ): Promise<UserSettings | undefined>;
 
+  // Release scoring (profile + custom formats), one profile per user
+  getReleaseProfile(userId: string): Promise<ReleaseProfileRow | undefined>;
+  saveReleaseProfile(userId: string, input: ReleaseProfileInput): Promise<ReleaseProfileRow>;
+  getCustomFormats(userId: string): Promise<CustomFormatRow[]>;
+  createCustomFormat(userId: string, input: CustomFormatInput): Promise<CustomFormatRow>;
+  updateCustomFormat(
+    userId: string,
+    id: string,
+    updates: CustomFormatUpdate
+  ): Promise<CustomFormatRow | undefined>;
+  deleteCustomFormat(userId: string, id: string): Promise<boolean>;
+
   // xREL notified releases (for notifications + "on xREL" indicator)
   addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease>;
   hasXrelNotifiedRelease(gameId: string, xrelReleaseId: string): Promise<boolean>;
@@ -499,6 +519,8 @@ export class MemStorage implements IStorage {
   private readonly pathMappings: Map<string, PathMapping>;
   private readonly platformMappings: Map<string, PlatformMapping>;
   private releaseBlacklists: Map<string, ReleaseBlacklist>;
+  private releaseProfiles: Map<string, ReleaseProfileRow>;
+  private customFormats: Map<string, CustomFormatRow>;
   private aiAutoDownloadHolds: Map<string, AiAutoDownloadHold>;
   private gameFiles: Map<string, GameFile>;
   private rootFolders: Map<string, RootFolder>;
@@ -522,6 +544,8 @@ export class MemStorage implements IStorage {
     this.pathMappings = new Map();
     this.platformMappings = new Map();
     this.releaseBlacklists = new Map();
+    this.releaseProfiles = new Map();
+    this.customFormats = new Map();
     this.aiAutoDownloadHolds = new Map();
     this.gameFiles = new Map();
     this.rootFolders = new Map();
@@ -1616,6 +1640,65 @@ export class MemStorage implements IStorage {
     };
     this.userSettings.set(existing.id, updated);
     return updated;
+  }
+
+  // Release scoring
+  async getReleaseProfile(userId: string): Promise<ReleaseProfileRow | undefined> {
+    return this.releaseProfiles.get(userId);
+  }
+
+  async saveReleaseProfile(userId: string, input: ReleaseProfileInput): Promise<ReleaseProfileRow> {
+    const existing = this.releaseProfiles.get(userId);
+    const row: ReleaseProfileRow = {
+      id: existing?.id ?? randomUUID(),
+      userId,
+      ...input,
+      createdAt: existing?.createdAt ?? new Date(),
+      updatedAt: new Date(),
+    };
+    this.releaseProfiles.set(userId, row);
+    return row;
+  }
+
+  async getCustomFormats(userId: string): Promise<CustomFormatRow[]> {
+    return Array.from(this.customFormats.values())
+      .filter((row) => row.userId === userId)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  async createCustomFormat(userId: string, input: CustomFormatInput): Promise<CustomFormatRow> {
+    const existing = await this.getCustomFormats(userId);
+    const row: CustomFormatRow = {
+      id: randomUUID(),
+      userId,
+      ...input,
+      sortOrder: existing.reduce((max, f) => Math.max(max, f.sortOrder + 1), 0),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.customFormats.set(row.id, row);
+    return row;
+  }
+
+  async updateCustomFormat(
+    userId: string,
+    id: string,
+    updates: CustomFormatUpdate
+  ): Promise<CustomFormatRow | undefined> {
+    const existing = this.customFormats.get(id);
+    if (existing?.userId !== userId) return undefined;
+    const updated: CustomFormatRow = {
+      ...existing,
+      ...stripUndefined(updates),
+      updatedAt: new Date(),
+    };
+    this.customFormats.set(id, updated);
+    return updated;
+  }
+
+  async deleteCustomFormat(userId: string, id: string): Promise<boolean> {
+    if (this.customFormats.get(id)?.userId !== userId) return false;
+    return this.customFormats.delete(id);
   }
 
   async addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease> {
@@ -3268,6 +3351,76 @@ export class DatabaseStorage implements IStorage {
       .where(eq(userSettings.userId, userId))
       .returning();
     return updated || undefined;
+  }
+
+  // Release scoring
+  async getReleaseProfile(userId: string): Promise<ReleaseProfileRow | undefined> {
+    const [row] = await db.select().from(releaseProfiles).where(eq(releaseProfiles.userId, userId));
+    return row || undefined;
+  }
+
+  async saveReleaseProfile(userId: string, input: ReleaseProfileInput): Promise<ReleaseProfileRow> {
+    const now = new Date();
+    const rows = await db
+      .insert(releaseProfiles)
+      .values({ id: randomUUID(), userId, ...input, createdAt: now, updatedAt: now })
+      .onConflictDoUpdate({
+        target: releaseProfiles.userId,
+        set: { ...input, updatedAt: now },
+      })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async getCustomFormats(userId: string): Promise<CustomFormatRow[]> {
+    return db
+      .select()
+      .from(customFormats)
+      .where(eq(customFormats.userId, userId))
+      .orderBy(asc(customFormats.sortOrder), asc(customFormats.createdAt));
+  }
+
+  async createCustomFormat(userId: string, input: CustomFormatInput): Promise<CustomFormatRow> {
+    const [last] = await db
+      .select({ sortOrder: customFormats.sortOrder })
+      .from(customFormats)
+      .where(eq(customFormats.userId, userId))
+      .orderBy(desc(customFormats.sortOrder))
+      .limit(1);
+    const now = new Date();
+    const rows = await db
+      .insert(customFormats)
+      .values({
+        id: randomUUID(),
+        userId,
+        ...input,
+        sortOrder: last ? last.sortOrder + 1 : 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async updateCustomFormat(
+    userId: string,
+    id: string,
+    updates: CustomFormatUpdate
+  ): Promise<CustomFormatRow | undefined> {
+    const [row] = await db
+      .update(customFormats)
+      .set({ ...stripUndefined(updates), updatedAt: new Date() })
+      .where(and(eq(customFormats.id, id), eq(customFormats.userId, userId)))
+      .returning();
+    return row || undefined;
+  }
+
+  async deleteCustomFormat(userId: string, id: string): Promise<boolean> {
+    const rows = await db
+      .delete(customFormats)
+      .where(and(eq(customFormats.id, id), eq(customFormats.userId, userId)))
+      .returning({ id: customFormats.id });
+    return rows.length > 0;
   }
 
   async addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease> {

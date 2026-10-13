@@ -330,6 +330,13 @@
       "when": 1791870886341,
       "tag": "0045_sloppy_wallop",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1791871580385,
+      "tag": "0046_last_vanisher",
+      "breakpoints": true
     }
   ]
 }

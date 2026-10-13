@@ -13,6 +13,10 @@ import {
 } from "drizzle-orm/pg-core";
 import type {
   ApiKeyScope,
+  IntegrationRequestProvider,
+  IntegrationRequestStatus,
+  SeerrngArchitecture,
+  SeerrngOperatingSystem,
   GameExpansion,
   GameFileCategory,
   ImportTaskItemResult,
@@ -482,5 +486,34 @@ export const apiKeys = pgTable(
   (t) => [
     uniqueIndex("api_keys_key_hash_idx").on(t.keyHash),
     index("api_keys_user_id_idx").on(t.userId),
+  ]
+);
+
+export const integrationRequests = pgTable(
+  "integration_requests",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").$type<IntegrationRequestProvider>().notNull().default("seerrng"),
+    externalRequestId: text("external_request_id").notNull(),
+    igdbId: integer("igdb_id"),
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    operatingSystem: text("operating_system").$type<SeerrngOperatingSystem>(),
+    architecture: text("architecture").$type<SeerrngArchitecture>(),
+    status: text("status").$type<IntegrationRequestStatus>().notNull().default("accepted"),
+    errorMessage: text("error_message"),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+    updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [
+    uniqueIndex("integration_requests_user_provider_external_idx").on(
+      t.userId,
+      t.provider,
+      t.externalRequestId
+    ),
+    index("integration_requests_game_id_idx").on(t.gameId),
   ]
 );

@@ -1310,6 +1310,7 @@ export const API_KEY_SCOPES = [
   "integration:all",
   "integration:playnite",
   "integration:read",
+  "integration:seerrng",
 ] as const;
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 export const DEFAULT_API_KEY_SCOPE: ApiKeyScope = "integration:all";
@@ -1388,3 +1389,70 @@ export const apiKeyCreatedResponseSchema = apiKeyPublicResponseSchema.extend({
   key: z.string(),
 });
 export type ApiKeyCreatedResponse = z.infer<typeof apiKeyCreatedResponseSchema>;
+
+// ── External requests ledger ─────────────────────────────────────────────────
+// Durable record of a request made by an external request app (SeerrNG). The
+// app owns users, approvals and quotas; Questarr only remembers which of its
+// own games answers which external request id, so a replayed POST is
+// idempotent and status can be read back after either service restarts.
+export const INTEGRATION_REQUEST_PROVIDERS = ["seerrng"] as const;
+export type IntegrationRequestProvider = (typeof INTEGRATION_REQUEST_PROVIDERS)[number];
+export const INTEGRATION_REQUEST_STATUSES = [
+  "accepted",
+  "searching",
+  "failed",
+  "cancelled",
+] as const;
+export type IntegrationRequestStatus = (typeof INTEGRATION_REQUEST_STATUSES)[number];
+export const SEERRNG_OPERATING_SYSTEMS = ["windows", "linux", "macos"] as const;
+export const SEERRNG_ARCHITECTURES = ["x64", "arm64", "x86", "universal"] as const;
+export type SeerrngOperatingSystem = (typeof SEERRNG_OPERATING_SYSTEMS)[number];
+export type SeerrngArchitecture = (typeof SEERRNG_ARCHITECTURES)[number];
+
+export const integrationRequests = sqliteTable(
+  "integration_requests",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").$type<IntegrationRequestProvider>().notNull().default("seerrng"),
+    externalRequestId: text("external_request_id").notNull(),
+    // Exact IGDB identity supplied by the request app; null when it sent a title only.
+    igdbId: integer("igdb_id"),
+    // The game answering the request. Set null if the game is deleted, so the
+    // request stays readable (and retryable) instead of vanishing.
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    operatingSystem: text("operating_system").$type<SeerrngOperatingSystem>(),
+    architecture: text("architecture").$type<SeerrngArchitecture>(),
+    status: text("status").$type<IntegrationRequestStatus>().notNull().default("accepted"),
+    errorMessage: text("error_message"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [
+    uniqueIndex("integration_requests_user_provider_external_idx").on(
+      t.userId,
+      t.provider,
+      t.externalRequestId
+    ),
+    index("integration_requests_game_id_idx").on(t.gameId),
+  ]
+);
+
+export type IntegrationRequest = typeof integrationRequests.$inferSelect;
+export type NewIntegrationRequest = Pick<
+  IntegrationRequest,
+  "userId" | "externalRequestId" | "title"
+> &
+  Partial<
+    Pick<IntegrationRequest, "provider" | "igdbId" | "gameId" | "operatingSystem" | "architecture">
+  >;
+export type IntegrationRequestUpdate = Partial<
+  Pick<IntegrationRequest, "gameId" | "status" | "errorMessage">
+>;

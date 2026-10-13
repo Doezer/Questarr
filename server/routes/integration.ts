@@ -4,6 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import { storage } from "../storage.js";
 import { requireScope } from "../auth.js";
+import { seerrngRouter } from "./seerrng.js";
 import { routesLogger as logger } from "../logger.js";
 import { normalizeTitle } from "../../shared/title-utils.js";
 import { quickAddGameByTitle } from "../game-quick-add.js";
@@ -41,6 +42,9 @@ integrationRouter.use((req, res, next) => {
   return next();
 });
 
+// SeerrNG provider API (docs/SEERRNG.md). Its routes declare their own scope.
+integrationRouter.use("/seerrng/v1", seerrngRouter);
+
 /** The library shape handed to external clients — a stable subset of Game. */
 function toIntegrationGame(game: Game) {
   return {
@@ -64,7 +68,7 @@ function toIntegrationGame(game: Game) {
 // real work, and surfaces the version pair in its own logs.
 integrationRouter.get(
   "/ping",
-  requireScope("integration:playnite", "integration:read"),
+  requireScope("integration:playnite", "integration:read", "integration:seerrng"),
   (req: Request, res: Response) => {
     res.json({
       service: "questarr",

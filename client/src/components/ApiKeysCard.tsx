@@ -46,6 +46,11 @@ const SCOPE_OPTIONS: { value: ApiKeyScope; label: string; description: string }[
     description: "Ping and read the library (dashboards, widgets)",
   },
   {
+    value: "integration:seerrng",
+    label: "SeerrNG provider",
+    description: "Let SeerrNG browse the catalog and request PC games",
+  },
+  {
     value: "integration:all",
     label: "All integration routes",
     description: "Everything the integration API offers",
@@ -55,6 +60,7 @@ const SCOPE_OPTIONS: { value: ApiKeyScope; label: string; description: string }[
 const SCOPE_LABELS: Record<ApiKeyScope, string> = {
   "integration:playnite": "Playnite",
   "integration:read": "Read only",
+  "integration:seerrng": "SeerrNG",
   "integration:all": "All routes",
 };
 

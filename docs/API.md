@@ -349,7 +349,7 @@ router), both behind the global auth gate plus explicit `authenticateToken`.
 
 ## Integration API (external clients)
 
-`server/routes/integration.ts` — 4 routes, mounted at `/api/integration`.
+`server/routes/integration.ts` — 4 routes, mounted at `/api/integration`, plus the SeerrNG provider routes under `/api/integration/seerrng/v1` (`server/routes/seerrng.ts`, documented in [SEERRNG.md](SEERRNG.md)).
 
 This is the one part of the API that accepts a long-lived **integration API
 key** in addition to a JWT, for machine clients that cannot run the interactive
@@ -366,10 +366,12 @@ gets 403 `{ error, code: "API_KEY_SCOPE_DENIED" }`; an expired key gets 401
 `{ error: "API key expired", code: "API_KEY_EXPIRED" }`. Requests are limited to
 300/min per key (`integrationRateLimiter`).
 
-| Route                                       | `integration:playnite` | `integration:read` | `integration:all` |
-| ------------------------------------------- | :--------------------: | :----------------: | :---------------: |
-| `GET /ping`, `GET /library`                 |           ✓            |         ✓          |         ✓         |
-| `POST /library/sync`, `POST /games/request` |           ✓            |         —          |         ✓         |
+| Route                                                | `integration:playnite` | `integration:read` | `integration:seerrng` | `integration:all` |
+| ---------------------------------------------------- | :--------------------: | :----------------: | :-------------------: | :---------------: |
+| `GET /ping`                                          |           ✓            |         ✓          |           ✓           |         ✓         |
+| `GET /library`                                       |           ✓            |         ✓          |           —           |         ✓         |
+| `POST /library/sync`, `POST /games/request`          |           ✓            |         —          |           —           |         ✓         |
+| `/seerrng/v1/*` (see [SeerrNG provider](SEERRNG.md)) |           —            |         —          |           ✓           |         ✓         |
 
 Authentication is handled by `authenticateApiKeyOrToken` in `server/auth.ts`,
 selected by `requireAuthenticationForApi` for paths under `/integration` only.
@@ -411,11 +413,11 @@ Keys are stored as a SHA-256 hash plus a short display prefix; the raw key is
 returned exactly once, in the 201 response that creates it, and is not
 recoverable afterwards. A user may hold at most 25 keys. `last_used_at` is written at most once per minute per key.
 
-| Method | Path                | Auth Required                    | Request Body                                                                                                                                                                            | Response                                                                                                                            |
-| ------ | ------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/api-keys`     | JWT                              | —                                                                                                                                                                                       | `Array<{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt }>` — never includes the hash                            |
-| POST   | `/api/api-keys`     | JWT + `sensitiveEndpointLimiter` | `{ name: string (1–100 chars), scope?: "integration:all" \| "integration:playnite" \| "integration:read" (default `integration:all`), expiresInDays?: 1–365 \| null (default: never) }` | 201 `{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt, key }` — `key` is shown only here; 409 once 25 keys exist |
-| DELETE | `/api/api-keys/:id` | JWT + `sensitiveEndpointLimiter` | —                                                                                                                                                                                       | 204; 404 if the key does not exist or belongs to another user                                                                       |
+| Method | Path                | Auth Required                    | Request Body                                                                                                                                                                                                     | Response                                                                                                                            |
+| ------ | ------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/api-keys`     | JWT                              | —                                                                                                                                                                                                                | `Array<{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt }>` — never includes the hash                            |
+| POST   | `/api/api-keys`     | JWT + `sensitiveEndpointLimiter` | `{ name: string (1–100 chars), scope?: "integration:all" \| "integration:playnite" \| "integration:read" \| "integration:seerrng" (default `integration:all`), expiresInDays?: 1–365 \| null (default: never) }` | 201 `{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt, key }` — `key` is shown only here; 409 once 25 keys exist |
+| DELETE | `/api/api-keys/:id` | JWT + `sensitiveEndpointLimiter` | —                                                                                                                                                                                                                | 204; 404 if the key does not exist or belongs to another user                                                                       |
 
 ## Error Format
 

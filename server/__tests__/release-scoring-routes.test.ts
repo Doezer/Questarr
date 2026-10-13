@@ -55,6 +55,16 @@ describe("release scoring routes", () => {
       .send({ score: -10 });
     expect(edited.body.score).toBe(-10);
 
+    const disabled = await request(app)
+      .patch(`/api/custom-formats/${created.body.id}`)
+      .send({ enabled: false, hardReject: true });
+    expect(disabled.body).toMatchObject({ enabled: false, hardReject: true });
+    // a later partial update must not reset the fields it does not mention
+    const renamed = await request(app)
+      .patch(`/api/custom-formats/${created.body.id}`)
+      .send({ name: "Repacks v2" });
+    expect(renamed.body).toMatchObject({ name: "Repacks v2", enabled: false, hardReject: true });
+
     const list = await request(app).get("/api/release-scoring");
     expect(list.body.formats).toHaveLength(1);
 

@@ -403,7 +403,7 @@ export function scoreReleasesForGame(
  * the game's own blacklist. When the global blacklist hides a whole page, later pages are
  * fetched (up to AUTO_SEARCH_MAX_PAGES). Returns null when no eligible release is found.
  */
-async function searchAndCategorizeItemsForGame(
+export async function searchAndCategorizeItemsForGame(
   game: Pick<Game, "id" | "title" | "targetPlatformId" | "targetPlatformName">,
   downloadRules: string | null,
   indexerPriorityMap?: Map<string, number>,
@@ -440,7 +440,12 @@ async function searchAndCategorizeItemsForGame(
     // A first page with no title match means the search is not about this game. Later pages
     // are only fetched because the blacklist hid a whole page, so an unrelated page there
     // should not stop the search.
-    if (matchedItems.length === 0 && page === 0) {
+    // With scoring, an empty result may only mean every title match was rejected, so the
+    // unrelated-search decision is made on the raw title match and paging continues otherwise.
+    const unrelated = scoring
+      ? page === 0 && !items.some((item) => releaseMatchesGame(item.title, game.title))
+      : matchedItems.length === 0 && page === 0;
+    if (unrelated) {
       igdbLogger.debug(
         { gameTitle: game.title, originalCount: items.length },
         "No items passed strict title matching"

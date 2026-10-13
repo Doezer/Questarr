@@ -102,7 +102,12 @@ router.patch("/api/custom-formats/:id", async (req: Request, res: Response) => {
   try {
     const userId = (req.user as User).id;
     const parsed = customFormatInputSchema.partial().parse(req.body);
-    const { specs: parsedSpecs, ...rest } = parsed;
+    // partial() keeps the schema defaults, which would reset fields the client did not send
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const sent = Object.fromEntries(
+      Object.entries(parsed).filter(([key]) => Object.prototype.hasOwnProperty.call(body, key))
+    ) as typeof parsed;
+    const { specs: parsedSpecs, ...rest } = sent;
     const specs = parsedSpecs ? toFormatSpecs(parsedSpecs) : undefined;
     const problem = specs ? specProblem(specs) : null;
     if (problem) return res.status(400).json({ error: problem });

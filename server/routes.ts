@@ -761,7 +761,11 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
     // based on a transient, narrow result set. Runs async to avoid blocking the response.
     // Same rule as auto-search: an accepted release with a clear title match.
     if (ownGame && normalizeTitle(query.trim()) === normalizeTitle(ownGame.title)) {
-      const preferredPlatform = userSettings?.preferredPlatform ?? null;
+      // the game's own target platform wins over the account default, as in the scoring above
+      const preferredPlatform = resolveGamePlatformPreference(
+        ownGame,
+        userSettings?.preferredPlatform ?? null
+      );
       const usable = scoredItems.filter(({ evaluation }) =>
         evaluation
           ? evaluation.accepted &&

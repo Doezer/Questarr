@@ -126,7 +126,12 @@ vi.mock("../xrel.js", () => ({
 
 // Import the function under test
 // We need to use dynamic import or require because of the hoisting of vi.mock
-const { checkAutoSearch, categorizeSearchItems, scoreReleasesForGame } = await import("../cron.js");
+const {
+  checkAutoSearch,
+  categorizeSearchItems,
+  scoreReleasesForGame,
+  searchAndCategorizeItemsForGame,
+} = await import("../cron.js");
 const { igdbLogger } = await import("../logger.js");
 
 describe("Cron - checkAutoSearch", () => {
@@ -2551,5 +2556,32 @@ describe("release scoring in auto-search", () => {
     const ranked = [...kept].sort((a, b) => b.evaluation!.score - a.evaluation!.score);
     expect(ranked[0]?.title).toBe("Dishonored-CODEX");
     expect(ranked[0]?.evaluation?.xrel).toBe("verified");
+  });
+
+  it("keeps paging when every title match on the first page is rejected by scoring", async () => {
+    const rejecting = {
+      ...scoring,
+      config: {
+        ...scoring.config,
+        profile: { ...scoring.config.profile, ignoredTerms: ["FitGirl"] },
+      },
+    };
+    const page = (prefix: string, group: string) => ({
+      items: Array.from({ length: 10 }, (_, n) => item(`Dishonored.${prefix}${n}-${group}`)),
+      errors: [],
+    });
+    mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
+    mockSearchAllIndexers
+      .mockResolvedValueOnce(page("a", "FitGirl"))
+      .mockResolvedValueOnce({ items: [item("Dishonored-CODEX")], errors: [] });
+    const result = await searchAndCategorizeItemsForGame(
+      { id: "g1", ...game },
+      null,
+      undefined,
+      [],
+      rejecting
+    );
+    expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
+    expect(result?.mainItems.map((i) => i.title)).toContain("Dishonored-CODEX");
   });
 });

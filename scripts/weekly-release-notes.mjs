@@ -58,7 +58,7 @@ for (const pr of prs.values()) {
 }
 
 const isSecurity = (title, labels = []) =>
-  labels.some((l) => /security|vulnerab/i.test(l)) || SECURITY.test(title);
+  labels.some((l) => /security|vulnerab|dependenc/i.test(l)) || SECURITY.test(title);
 
 const fmtPr = (pr) => `- ${pr.title} (#${pr.number})${pr.author ? ` by @${pr.author}` : ""}`.trim();
 

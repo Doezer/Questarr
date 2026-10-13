@@ -75,12 +75,13 @@ jobs:
             exit 0
           fi
           IFS=. read -r MAJOR MINOR PATCH <<< "${LAST_STABLE#v}"
-          TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))-dev.$(date -u +%Y%m%d)"
-          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
-            echo "Tag ${TAG} already exists; nothing to release."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          BASE="v${MAJOR}.${MINOR}.$((PATCH + 1))-dev.$(date -u +%Y%m%d)"
+          TAG="$BASE"
+          N=1
+          while git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; do
+            N=$((N + 1))
+            TAG="${BASE}.${N}"
+          done
           {
             echo "skip=false"
             echo "tag=${TAG}"
@@ -95,7 +96,12 @@ jobs:
           PREV_TAG: ${{ steps.version.outputs.prev_tag }}
           TAG: ${{ steps.version.outputs.tag }}
           REPO: ${{ github.repository }}
-        run: node scripts/weekly-release-notes.mjs "$PREV_TAG" "$TAG" "$REPO" > release-notes.md
+          TAG_EXISTS: ${{ steps.version.outputs.tag_exists }}
+        run: |
+          # A resumed run documents the tagged commit, not whatever main has become since.
+          END_REF=HEAD
+          if [ "$TAG_EXISTS" = "true" ]; then END_REF="$TAG"; fi
+          node scripts/weekly-release-notes.mjs "$PREV_TAG" "$TAG" "$REPO" "$END_REF" > release-notes.md
 
       # Tags pushed with GITHUB_TOKEN do not trigger other workflows, so release.yml
       # (stable tags only) does not run for this one.

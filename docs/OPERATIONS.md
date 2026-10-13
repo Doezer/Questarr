@@ -70,4 +70,4 @@ deployment workflow, and publication remain maintainer actions.
 These builds are not functionally tested. Stable releases keep using a `vX.Y.Z` tag, which creates a draft release from `docs/CHANGELOG.md` (`release.yml` ignores `-dev.` tags).
 
 The optional Windows installer takes its file name and version from `package.json`, not from the pre-release tag.
-A run that fails after pushing the tag resumes on the next run (the tag has no release yet).
+A second run on the same day gets a `.2` suffix (`-dev.20261019.2`). A run that fails after pushing the tag resumes on the next run (the tag has no release yet).

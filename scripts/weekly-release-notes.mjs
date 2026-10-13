@@ -2,12 +2,15 @@ import { execFileSync } from "node:child_process";
 import console from "node:console";
 import process from "node:process";
 
-// Usage: node scripts/weekly-release-notes.mjs <previous-tag> <new-tag> [repo]
+// Usage: node scripts/weekly-release-notes.mjs <previous-tag> <new-tag> [repo] [end-ref]
 // Builds the notes of a weekly pre-release from the pull requests merged on main
 // since <previous-tag>, plus commits pushed straight to main.
-const [prevTag, newTag, repo = process.env.GITHUB_REPOSITORY] = process.argv.slice(2);
+const [prevTag, newTag, repo = process.env.GITHUB_REPOSITORY, endRef = "HEAD"] =
+  process.argv.slice(2);
 if (!prevTag || !newTag) {
-  console.error("Usage: node scripts/weekly-release-notes.mjs <previous-tag> <new-tag> [repo]");
+  console.error(
+    "Usage: node scripts/weekly-release-notes.mjs <previous-tag> <new-tag> [repo] [end-ref]"
+  );
   process.exit(1);
 }
 
@@ -17,7 +20,12 @@ const run = (cmd, args) =>
 const SECURITY = /\b(CVE-\d{4}-\d+|GHSA-[\w-]+|vulnerab\w*|security|codeql|overrides?)\b/i;
 
 // First-parent history of main: merge commits stand for PRs, the others were pushed directly.
-const log = run("git", ["log", "--first-parent", "--format=%H%x1f%s%x1f%an", `${prevTag}..HEAD`]);
+const log = run("git", [
+  "log",
+  "--first-parent",
+  "--format=%H%x1f%s%x1f%an",
+  `${prevTag}..${endRef}`,
+]);
 const commits = log
   ? log.split("\n").map((line) => {
       const [sha, subject, author] = line.split("\x1f");

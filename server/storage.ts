@@ -3067,6 +3067,18 @@ export class DatabaseStorage implements IStorage {
           releaseTitle: context.releaseTitle,
           downloaderName: context.downloaderName,
         });
+        // Rows inserted already finished (claimed completed items) never go through a status update.
+        const insertedEvent = DOWNLOAD_STATUS_EVENTS[gameDownload.status];
+        if (insertedEvent) {
+          await this.recordDownloadEvent({
+            userId: context.userId,
+            gameId: context.gameId,
+            gameTitle: context.gameTitle,
+            eventType: insertedEvent,
+            releaseTitle: context.releaseTitle,
+            downloaderName: context.downloaderName,
+          });
+        }
       }
     }
     return gameDownload;

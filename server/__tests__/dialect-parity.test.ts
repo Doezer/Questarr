@@ -257,6 +257,27 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
   });
 
   describe("download event log", () => {
+    it("records a completed event for rows inserted already completed", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      const downloader = await storage().addDownloader({
+        name: "claimed-qb",
+        type: "qbittorrent",
+        url: "http://claimed",
+      } as never);
+      const before = (await storage().getDownloadEvents(user.id, { eventType: "completed" })).total;
+      await storage().addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader!.id,
+        downloadType: "game",
+        downloadHash: "claimed-hash",
+        downloadTitle: "Claimed.Game-GRP",
+        status: "completed",
+      } as never);
+      const after = (await storage().getDownloadEvents(user.id, { eventType: "completed" })).total;
+      expect(after).toBe(before + 1);
+    });
+
     it("records grabbed, completed, blocklisted and removed events, newest first", async () => {
       const [user] = await storage().getAllUsers();
       const [game] = await storage().getUserGames(user.id);

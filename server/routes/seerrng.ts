@@ -47,7 +47,8 @@ export const SEERRNG_REQUEST_CONTRACT_VERSION = 2;
 
 const MAX_CATALOG_RESULTS = 50;
 /** Paged catalog routes walk IGDB results from the start, so the window is bounded. */
-const MAX_CATALOG_WINDOW = 200;
+// IGDB clamps one upstream request to 100 results, so that is the browsable window.
+const MAX_CATALOG_WINDOW = 100;
 const MAX_ASSETS = 100;
 const BASE_PATH = "/api/integration/seerrng/v1";
 
@@ -117,11 +118,25 @@ function toCatalogGameDetail(igdbGame: IgdbGame) {
   };
 }
 
-/** Drops adult/age-restricted titles the account's content filters hide everywhere else. */
+/** IGDB platform ids for Windows, Linux and macOS: the only targets this provider can acquire. */
+const desktopPlatformIds = () => new Set(Object.values(TARGET_PLATFORMS).map(({ id }) => id));
+
+/** Games with no platform data stay eligible; console-only titles are not acquirable here. */
+function supportsDesktop(game: IgdbGame): boolean {
+  const options = igdbClient.formatGameData(game).platformOptions;
+  if (!Array.isArray(options) || options.length === 0) return true;
+  return options.some((option) => desktopPlatformIds().has((option as { id?: number }).id ?? -1));
+}
+
+/**
+ * Drops adult/age-restricted titles the account's content filters hide everywhere else, and
+ * titles that cannot be acquired for a desktop OS.
+ */
 async function visibleIgdbGames(userId: string, games: IgdbGame[]): Promise<IgdbGame[]> {
   const flags = await getContentFilterFlags(userId);
   return games.filter(
     (game) =>
+      supportsDesktop(game) &&
       !isContentFiltered(
         igdbClient.formatGameData(game) as { isAdultContent?: boolean; isAgeRestricted?: boolean },
         flags
@@ -655,6 +670,18 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
             .json({ error: "externalRequestId is already bound to a different request." });
         }
         return res.status(200).json(await describeRequest(userId, ledger));
+      }
+
+      if (igdbId) {
+        // An exact IGDB id bypasses the catalog filters: refuse titles with no desktop release.
+        const requested = await igdbClient.getGameById(igdbId);
+        if (requested && !supportsDesktop(requested)) {
+          await storage.updateIntegrationRequest(userId, externalRequestId, {
+            status: "failed",
+            errorMessage: "No matching PC game was found.",
+          });
+          return res.status(404).json({ error: "No matching PC game was found." });
+        }
       }
 
       const result = await quickAddGameByTitle(userId, title, {

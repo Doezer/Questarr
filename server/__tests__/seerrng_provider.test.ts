@@ -414,6 +414,15 @@ describe("SeerrNG provider API", () => {
       expect(res.status).toBe(409);
     });
 
+    it("refuses console-only IGDB ids", async () => {
+      (igdb.getGameById as Mock).mockResolvedValue(
+        igdbGame(42, "Console Only", { platformOptions: [{ id: 48, name: "PS4" }] })
+      );
+      const res = await request(app).post(`${base}/requests`).send(createBody);
+      expect(res.status).toBe(404);
+      expect(storage.addGame).not.toHaveBeenCalled();
+    });
+
     it("refuses a game already answering another request", async () => {
       await request(app).post(`${base}/requests`).send(createBody);
       const res = await request(app)

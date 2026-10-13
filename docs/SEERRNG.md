@@ -51,5 +51,5 @@ before this feature (`integration:all`) still work, and rate limiting is 300 req
   is recorded but not used to filter releases.
 - No "restart recovery" handshake: a request has no hidden in-flight state, so there is nothing to
   confirm after a restart. `confirmNoExistingDownload` is accepted and ignored.
-- Paged catalog routes walk the first 200 IGDB results; deeper paging is not supported.
+- Paged catalog routes walk the first 100 IGDB results; deeper paging is not supported.
 - `library/lookup` answers IGDB ids only (no Steam App ids).

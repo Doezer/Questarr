@@ -658,6 +658,35 @@ async function loadRequest(req: Request, res: Response): Promise<IntegrationRequ
   return ledger;
 }
 
+type RequestActionContext = {
+  userId: string;
+  ledger: IntegrationRequest;
+  current: Awaited<ReturnType<typeof describeRequest>>;
+};
+
+/** Shared prelude of the retry/cancel actions: confirmation body, ledger lookup, current status. */
+function requestAction(
+  confirmationError: string,
+  failureError: string,
+  logMessage: string,
+  action: (ctx: RequestActionContext, res: Response) => Promise<unknown>
+) {
+  return async (req: Request, res: Response) => {
+    if (!confirmationSchema.safeParse(req.body ?? {}).success) {
+      return res.status(400).json({ error: confirmationError });
+    }
+    try {
+      const ledger = await loadRequest(req, res);
+      if (!ledger) return undefined;
+      const userId = req.user!.id;
+      return await action({ userId, ledger, current: await describeRequest(userId, ledger) }, res);
+    } catch (error) {
+      logger.error({ error }, logMessage);
+      return res.status(500).json({ error: failureError });
+    }
+  };
+}
+
 seerrngRouter.get("/requests/:externalRequestId", scope, async (req: Request, res: Response) => {
   try {
     const ledger = await loadRequest(req, res);
@@ -672,14 +701,11 @@ seerrngRouter.get("/requests/:externalRequestId", scope, async (req: Request, re
 seerrngRouter.post(
   "/requests/:externalRequestId/retry",
   scope,
-  async (req: Request, res: Response) => {
-    const body = confirmationSchema.safeParse(req.body ?? {});
-    if (!body.success) return res.status(400).json({ error: "Invalid retry confirmation." });
-    const userId = req.user!.id;
-    try {
-      const ledger = await loadRequest(req, res);
-      if (!ledger) return undefined;
-      const current = await describeRequest(userId, ledger);
+  requestAction(
+    "Invalid retry confirmation.",
+    "Request could not be retried.",
+    "SeerrNG software request retry failed",
+    async ({ userId, ledger, current }, res) => {
       if (current.status === "cancelled") {
         return res.status(409).json({ error: "Cancelled requests cannot be retried." });
       }
@@ -718,24 +744,18 @@ seerrngRouter.post(
         errorMessage: null,
       });
       return res.json(await describeRequest(userId, updated ?? ledger));
-    } catch (error) {
-      logger.error({ error }, "SeerrNG software request retry failed");
-      return res.status(500).json({ error: "Request could not be retried." });
     }
-  }
+  )
 );
 
 seerrngRouter.post(
   "/requests/:externalRequestId/cancel",
   scope,
-  async (req: Request, res: Response) => {
-    const body = confirmationSchema.safeParse(req.body ?? {});
-    if (!body.success) return res.status(400).json({ error: "Invalid cancellation confirmation." });
-    const userId = req.user!.id;
-    try {
-      const ledger = await loadRequest(req, res);
-      if (!ledger) return undefined;
-      const current = await describeRequest(userId, ledger);
+  requestAction(
+    "Invalid cancellation confirmation.",
+    "Request could not be cancelled.",
+    "SeerrNG software request cancellation failed",
+    async ({ userId, ledger, current }, res) => {
       if (current.status === "cancelled") return res.json(current);
       if (current.status === "available") {
         return res.status(409).json({ error: "An available game cannot be cancelled." });
@@ -789,11 +809,8 @@ seerrngRouter.post(
         errorMessage: null,
       });
       return res.json(await describeRequest(userId, updated ?? ledger));
-    } catch (error) {
-      logger.error({ error }, "SeerrNG software request cancellation failed");
-      return res.status(500).json({ error: "Request could not be cancelled." });
     }
-  }
+  )
 );
 
 // ── Asset delivery ───────────────────────────────────────────────────────────

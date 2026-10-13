@@ -11,6 +11,15 @@ function hasAny(values: readonly string[] | null | undefined, wanted: readonly s
   return wanted.some((w) => lowered.has(w.toLowerCase()));
 }
 
+/** True when the release-year bounds contradict each other, so nothing could ever match. */
+export function hasReversedYearRange(rules: CollectionRules | null | undefined): boolean {
+  return (
+    rules?.releaseYearFrom !== undefined &&
+    rules.releaseYearTo !== undefined &&
+    rules.releaseYearFrom > rules.releaseYearTo
+  );
+}
+
 /** True when the rules contain no usable criterion (such rules would match the whole library). */
 export function isEmptyCollectionRules(rules: CollectionRules | null | undefined): boolean {
   if (!rules) return true;

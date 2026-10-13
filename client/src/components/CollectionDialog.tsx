@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GAME_STATUSES, type CollectionRules, type Game } from "@shared/schema";
-import { gameMatchesCollectionRules } from "@shared/collection-rules";
+import {
+  gameMatchesCollectionRules,
+  hasReversedYearRange,
+  isEmptyCollectionRules,
+} from "@shared/collection-rules";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { CollectionDto } from "@/lib/collections";
@@ -110,7 +114,8 @@ export default function CollectionDialog({
     };
   }, [statuses, genres, platforms, minRating, minUserRating, yearFrom, yearTo, titleContains]);
 
-  const hasRules = Object.keys(rules).length > 0;
+  const hasRules = !isEmptyCollectionRules(rules);
+  const reversedYears = hasReversedYearRange(rules);
   const matchCount = useMemo(
     () => (hasRules ? games.filter((g) => gameMatchesCollectionRules(g, rules)).length : 0),
     [games, rules, hasRules]
@@ -144,7 +149,10 @@ export default function CollectionDialog({
     },
   });
 
-  const canSave = name.trim() !== "" && (type === "manual" || hasRules) && !saveMutation.isPending;
+  const canSave =
+    name.trim() !== "" &&
+    (type === "manual" || (hasRules && !reversedYears)) &&
+    !saveMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -323,9 +331,11 @@ export default function CollectionDialog({
               </div>
 
               <p className="text-sm text-muted-foreground" aria-live="polite">
-                {hasRules
-                  ? `${matchCount} ${matchCount === 1 ? "game matches" : "games match"} right now.`
-                  : "Set at least one rule."}
+                {reversedYears
+                  ? "“Released until” cannot be before “Released from”."
+                  : hasRules
+                    ? `${matchCount} ${matchCount === 1 ? "game matches" : "games match"} right now.`
+                    : "Set at least one rule."}
               </p>
             </fieldset>
           )}

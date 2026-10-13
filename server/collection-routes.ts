@@ -6,7 +6,11 @@ import { authenticateToken } from "./auth.js";
 import { routesLogger } from "./logger.js";
 import { sanitizeCollectionId, sensitiveEndpointLimiter, validateRequest } from "./middleware.js";
 import { getContentFilterFlags, excludeFilteredContent } from "./content-filter.js";
-import { gameMatchesCollectionRules, isEmptyCollectionRules } from "../shared/collection-rules.js";
+import {
+  gameMatchesCollectionRules,
+  hasReversedYearRange,
+  isEmptyCollectionRules,
+} from "../shared/collection-rules.js";
 import {
   addCollectionGameSchema,
   insertCollectionSchema,
@@ -172,6 +176,10 @@ router.patch(
       const rules = patch.rules === undefined ? existing.rules : patch.rules;
       if (type === "smart" && isEmptyCollectionRules(rules)) {
         return res.status(400).json({ error: "A smart collection needs at least one rule" });
+      }
+
+      if (type === "smart" && hasReversedYearRange(rules)) {
+        return res.status(400).json({ error: "releaseYearTo must not be before releaseYearFrom" });
       }
 
       const updated = await storage.updateCollection(existing.id, user.id, {

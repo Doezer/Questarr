@@ -87,6 +87,8 @@ function CollectionList() {
   const [createOpen, setCreateOpen] = useState(false);
   const { data: collections = [], isLoading } = useQuery<CollectionSummary[]>({
     queryKey: ["/api/collections"],
+    // Collections are derived from the games, which can change while this page is unmounted.
+    refetchOnMount: "always",
   });
 
   return (
@@ -176,7 +178,7 @@ function CollectionView({ id }: Readonly<{ id: string }>) {
     data: collection,
     isLoading,
     isError,
-  } = useQuery<CollectionDetail>({ queryKey: ["/api/collections", id] });
+  } = useQuery<CollectionDetail>({ queryKey: ["/api/collections", id], refetchOnMount: "always" });
 
   const memberIds = useMemo(
     () => new Set(collection?.games.map((game) => game.id) ?? []),

@@ -3,7 +3,7 @@ import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-or
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { resolveTargetPlatform } from "./title-utils.js";
-import { isEmptyCollectionRules } from "./collection-rules.js";
+import { hasReversedYearRange, isEmptyCollectionRules } from "./collection-rules.js";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -690,6 +690,13 @@ function refineCollectionRules(
       code: "custom",
       path: ["rules"],
       message: "A smart collection needs at least one rule",
+    });
+  }
+  if (hasReversedYearRange(value.rules)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["rules", "releaseYearTo"],
+      message: "releaseYearTo must not be before releaseYearFrom",
     });
   }
 }

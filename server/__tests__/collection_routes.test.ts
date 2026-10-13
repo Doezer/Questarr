@@ -274,4 +274,19 @@ describe("Collection routes", () => {
     expect(response.status).toBe(200);
     expect(response.body.games.map((g: Game) => g.title)).toEqual(["Doom"]);
   });
+
+  it("rejects a reversed release-year range", async () => {
+    const created = await request(app)
+      .post("/api/collections")
+      .send({ name: "Odd", type: "smart", rules: { releaseYearFrom: 2020, releaseYearTo: 2010 } });
+    expect(created.status).toBe(400);
+
+    vi.mocked(storage.getCollection).mockResolvedValue(
+      makeCollection({ type: "smart", rules: { releaseYearFrom: 2000 } })
+    );
+    const patched = await request(app)
+      .patch(`/api/collections/${collectionId}`)
+      .send({ rules: { releaseYearFrom: 2000, releaseYearTo: 1990 } });
+    expect(patched.status).toBe(400);
+  });
 });

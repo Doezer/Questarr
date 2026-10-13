@@ -38,7 +38,7 @@ const direct = [];
 for (const { sha, subject, author } of commits) {
   const number =
     subject.match(/^Merge pull request #(\d+)/)?.[1] ?? subject.match(/\(#(\d+)\)\s*$/)?.[1];
-  if (number) prs.set(Number(number), { number: Number(number), sha });
+  if (number) prs.set(Number(number), { number: Number(number), sha, subject });
   else if (!/^Merge (branch|remote-tracking)/.test(subject)) direct.push({ sha, subject, author });
 }
 
@@ -59,8 +59,10 @@ for (const pr of prs.values()) {
     pr.labels = info.labels.map((l) => l.name);
   } catch {
     // gh unavailable: fall back to the merge commit message.
-    const body = run("git", ["show", "-s", "--format=%b", pr.sha]).split("\n")[0];
-    pr.title = body || `Pull request #${pr.number}`;
+    // Merge commits keep the PR title in the body; squash merges in the subject.
+    const isMerge = /^Merge pull request #/.test(pr.subject);
+    const body = isMerge ? run("git", ["show", "-s", "--format=%b", pr.sha]).split("\n")[0] : "";
+    pr.title = body || pr.subject.replace(/\s*\(#\d+\)\s*$/, "") || `Pull request #${pr.number}`;
     pr.labels = [];
   }
 }

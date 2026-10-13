@@ -1,8 +1,9 @@
 /**
  * RomM platform folders.
  *
- * RomM scans `<library>/roms/<fs_slug>/...` and recognises the platform from the folder name,
- * which by default is the IGDB platform slug ("snes", "ps2", "win"...). Questarr only needs the
+ * RomM scans `<library>/roms/<fs_slug>/...` and recognises the platform from the folder name.
+ * The slugs below are RomM's own universal platform slugs (backend/utils/platform_slugs.py in
+ * rommapp/romm), which differ from IGDB's for a few platforms ("psx", "genesis", "tg16"). Questarr only needs the
  * IGDB platform id -> slug table to place imports where RomM looks for them.
  *
  * The table follows the layout used by the RomM integration branch of Questarr (Doezer),
@@ -14,7 +15,7 @@ export const ROMM_SLUG_BY_IGDB_PLATFORM_ID: Readonly<Record<number, string>> = {
   4: "n64",
   5: "wii",
   6: "win",
-  7: "ps",
+  7: "psx",
   8: "ps2",
   9: "ps3",
   11: "xbox",
@@ -27,7 +28,7 @@ export const ROMM_SLUG_BY_IGDB_PLATFORM_ID: Readonly<Record<number, string>> = {
   22: "gbc",
   23: "dc",
   24: "gba",
-  29: "genesis-slash-megadrive",
+  29: "genesis",
   32: "saturn",
   33: "gb",
   35: "gamegear",
@@ -35,7 +36,7 @@ export const ROMM_SLUG_BY_IGDB_PLATFORM_ID: Readonly<Record<number, string>> = {
   38: "psp",
   41: "wiiu",
   46: "psvita",
-  48: "ps4--1",
+  48: "ps4",
   49: "xboxone",
   52: "arcade",
   59: "atari2600",
@@ -45,9 +46,9 @@ export const ROMM_SLUG_BY_IGDB_PLATFORM_ID: Readonly<Record<number, string>> = {
   64: "sms",
   66: "atari5200",
   80: "neogeoaes",
-  86: "turbografx16--1",
-  119: "ngp",
-  120: "ngpc",
+  86: "tg16",
+  119: "neo-geo-pocket",
+  120: "neo-geo-pocket-color",
   130: "switch",
   167: "ps5",
   169: "series-x-s",

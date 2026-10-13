@@ -14,7 +14,7 @@ const { store, mockStorage, safeFetchMock } = vi.hoisted(() => {
       }),
       getUserGames: vi.fn(),
       getAllUsers: vi.fn(),
-      updateGame: vi.fn(),
+      updateGameStatus: vi.fn(),
     },
     safeFetchMock: vi.fn(),
   };
@@ -114,8 +114,24 @@ describe("RomM client", () => {
     safeFetchMock.mockRejectedValue(new Error("down"));
     requestRommScanAfterImport();
     await vi.waitFor(() => expect(safeFetchMock).toHaveBeenCalled());
-    expect(safeFetchMock.mock.calls[0][0]).toBe("http://romm.lan:8080/api/tasks/run/scan_library");
+    expect(safeFetchMock.mock.calls[0][0]).toBe("http://romm.lan:8080/api/tasks/scan");
     expect(safeFetchMock.mock.calls[0][1].method).toBe("POST");
+  });
+
+  it("falls back to the scan_library task on a RomM without the scan endpoint", async () => {
+    await configure();
+    const settings = await readRommSettings();
+    safeFetchMock.mockResolvedValueOnce(json({}, 404)).mockResolvedValueOnce(json({}, 200));
+    await rommClient.triggerScan(settings);
+    expect(safeFetchMock.mock.calls[1][0]).toBe("http://romm.lan:8080/api/tasks/run/scan_library");
+  });
+
+  it("treats a scan already in flight as queued", async () => {
+    await configure();
+    safeFetchMock.mockResolvedValueOnce(json({}, 409));
+    await expect(rommClient.triggerScan(await readRommSettings())).resolves.toBeUndefined();
+    safeFetchMock.mockResolvedValueOnce(json({}, 500));
+    await expect(rommClient.triggerScan(await readRommSettings())).rejects.toThrow(/HTTP 500/);
   });
 });
 
@@ -154,9 +170,17 @@ describe("RomM sync", () => {
       markedOwned: 2,
       notInLibrary: 1,
     });
-    expect(mockStorage.updateGame).toHaveBeenCalledTimes(2);
-    expect(mockStorage.updateGame).toHaveBeenCalledWith("a", { status: "owned" });
-    expect(mockStorage.updateGame).toHaveBeenCalledWith("b", { status: "owned" });
+    expect(mockStorage.updateGameStatus).toHaveBeenCalledTimes(2);
+    expect(mockStorage.updateGameStatus).toHaveBeenCalledWith(
+      "a",
+      { status: "owned" },
+      { preserveCurated: true }
+    );
+    expect(mockStorage.updateGameStatus).toHaveBeenCalledWith(
+      "b",
+      { status: "owned" },
+      { preserveCurated: true }
+    );
     expect(store.get("romm.lastSync")).toBeTruthy();
   });
 
@@ -220,6 +244,17 @@ describe("RomM routes", () => {
     safeFetchMock.mockResolvedValueOnce(json([{ id: 1 }]));
     const ok = await request(app()).post("/api/settings/romm/test");
     expect(ok.body).toEqual({ success: true, platforms: 1 });
+
+    // Candidate values are tried as typed, and are not saved.
+    safeFetchMock.mockResolvedValueOnce(json([]));
+    await request(app())
+      .post("/api/settings/romm/test")
+      .send({ url: "http://other:1/", apiToken: "rmm_typo" });
+    const [url, init] = safeFetchMock.mock.calls.at(-1)!;
+    expect(url).toBe("http://other:1/api/platforms");
+    expect(init.headers.Authorization).toBe("Bearer rmm_typo");
+    expect(store.get("romm.url")).toBe("http://romm.lan:8080");
+    expect(store.get("romm.apiToken")).toBe("enc:rmm_secret");
 
     safeFetchMock.mockResolvedValueOnce(json({}, 401));
     const denied = await request(app()).post("/api/settings/romm/test");

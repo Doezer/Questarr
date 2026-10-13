@@ -79,12 +79,11 @@ export function RommSettings() {
 
   const test = useMutation({
     mutationFn: async () => {
-      // Test what is on screen, not what was saved last time.
-      await apiRequest("POST", "/api/settings/romm", {
+      // Test what is on screen without saving it.
+      const res = await apiRequest("POST", "/api/settings/romm/test", {
         url: form.url,
         apiToken: form.apiToken,
       });
-      const res = await apiRequest("POST", "/api/settings/romm/test");
       return (await res.json()) as { platforms: number };
     },
     onSuccess: (result) =>

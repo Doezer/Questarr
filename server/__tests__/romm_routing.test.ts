@@ -75,6 +75,14 @@ describe("RomM platform folders", () => {
 });
 
 describe("RomM platform table", () => {
+  it("uses RomM's universal slugs, which differ from IGDB's for a few platforms", () => {
+    expect(ROMM_SLUG_BY_IGDB_PLATFORM_ID[7]).toBe("psx");
+    expect(ROMM_SLUG_BY_IGDB_PLATFORM_ID[29]).toBe("genesis");
+    expect(ROMM_SLUG_BY_IGDB_PLATFORM_ID[48]).toBe("ps4");
+    expect(ROMM_SLUG_BY_IGDB_PLATFORM_ID[86]).toBe("tg16");
+    expect(ROMM_SLUG_BY_IGDB_PLATFORM_ID[119]).toBe("neo-geo-pocket");
+  });
+
   it("only holds slugs that are safe folder names", () => {
     for (const slug of Object.values(ROMM_SLUG_BY_IGDB_PLATFORM_ID)) {
       expect(isValidRommSlug(slug)).toBe(true);

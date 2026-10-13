@@ -70,13 +70,35 @@ rommRouter.post("/", async (req, res) => {
   }
 });
 
-rommRouter.post("/test", sensitiveEndpointLimiter, async (_req, res) => {
+// Candidate values are tested as typed and never saved: a typo must not overwrite working settings.
+const rommTestSchema = z
+  .object({
+    url: z
+      .string()
+      .max(1024)
+      .refine((value) => /^https?:\/\//i.test(value), {
+        message: "URL must start with http:// or https://",
+      })
+      .optional(),
+    apiToken: z.string().max(512).optional(),
+  })
+  .strict();
+
+rommRouter.post("/test", sensitiveEndpointLimiter, async (req, res) => {
   try {
-    const settings = await readRommSettings();
-    const platforms = await rommClient.testConnection(settings);
-    res.json({ success: true, platforms });
+    const candidate = rommTestSchema.parse(req.body ?? {});
+    const saved = await readRommSettings();
+    const token = candidate.apiToken;
+    const platforms = await rommClient.testConnection({
+      url: candidate.url?.trim().replace(/\/+$/, "") ?? saved.url,
+      apiToken: token === undefined || token === REDACTED || token === "" ? saved.apiToken : token,
+    });
+    return res.json({ success: true, platforms });
   } catch (error) {
-    res.status(502).json({
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.issues.map((i) => i.message).join(", ") });
+    }
+    return res.status(502).json({
       error: error instanceof Error ? error.message : "Could not reach RomM",
     });
   }

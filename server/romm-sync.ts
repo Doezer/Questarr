@@ -61,7 +61,8 @@ export async function syncFromRomm(userId: string): Promise<RommSyncSummary> {
       summary.alreadyOwned++;
       continue;
     }
-    await storage.updateGame(game.id, { status: "owned" });
+    // The status updater also clears the search-availability flags a wanted game carries.
+    await storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
     summary.markedOwned++;
   }
 

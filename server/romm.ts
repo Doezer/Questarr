@@ -102,7 +102,14 @@ export async function writeRommSettings(update: RommSettingsUpdate): Promise<voi
   if (entries.length > 0) await storage.setSystemConfigBatch(entries);
 }
 
-export class RommError extends Error {}
+export class RommError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number
+  ) {
+    super(message);
+  }
+}
 
 /** Whether imports should use RomM platform folders; never throws. */
 export async function isRommPlatformFoldersEnabled(): Promise<boolean> {
@@ -143,7 +150,7 @@ async function rommRequest<T>(
   if (response.status === 401 || response.status === 403) {
     throw new RommError("RomM rejected the API token");
   }
-  if (!response.ok) throw new RommError(`RomM answered HTTP ${response.status}`);
+  if (!response.ok) throw new RommError(`RomM answered HTTP ${response.status}`, response.status);
   if (response.status === 204) return null;
   return (await response.json()) as T;
 }
@@ -170,9 +177,25 @@ export const rommClient = {
     return roms;
   },
 
-  /** RomM 4.x runs library scans as a task. */
+  /**
+   * Queues a quick scan of the whole library. Recent RomM versions have a dedicated
+   * `POST /api/tasks/scan`; older ones only run the `scan_library` task. A scan that is already
+   * running (409) is as good as one just queued.
+   */
   async triggerScan(settings: Pick<RommSettings, "url" | "apiToken">): Promise<void> {
-    await rommRequest(settings, "POST", "/api/tasks/run/scan_library", {});
+    try {
+      await rommRequest(settings, "POST", "/api/tasks/scan", {});
+    } catch (error) {
+      if (error instanceof RommError && error.status === 409) return;
+      if (!(error instanceof RommError) || ![404, 405, 422].includes(error.status ?? 0))
+        throw error;
+      try {
+        await rommRequest(settings, "POST", "/api/tasks/run/scan_library", {});
+      } catch (fallback) {
+        if (fallback instanceof RommError && fallback.status === 409) return;
+        throw fallback;
+      }
+    }
   },
 };
 

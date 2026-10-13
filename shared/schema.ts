@@ -170,6 +170,24 @@ export const importConfigSchema = z.object({
 
 // A DLC/expansion IGDB reports as related to a game, carried through from
 // IGDBClient.formatGameData for display; not a separately tracked entity.
+export type CollectionType = "manual" | "smart";
+
+/** Filter rules of a smart collection. Every set field must match (AND); the list fields match
+ * when the game has at least one of the listed values (OR). */
+export type CollectionRules = {
+  statuses?: string[] | undefined;
+  platforms?: string[] | undefined;
+  genres?: string[] | undefined;
+  /** Minimum IGDB rating (0-10, as stored on games). */
+  minRating?: number | undefined;
+  /** Minimum personal rating (0.5-10). */
+  minUserRating?: number | undefined;
+  releaseYearFrom?: number | undefined;
+  releaseYearTo?: number | undefined;
+  /** Case-insensitive substring of the title. */
+  titleContains?: string | undefined;
+};
+
 export type GameExpansion = {
   id: number;
   name: string;
@@ -447,6 +465,44 @@ export const aiAutoDownloadHolds = sqliteTable(
   (t) => [uniqueIndex("ai_auto_download_holds_game_title_idx").on(t.gameId, t.releaseTitle)]
 );
 
+// User-defined collections of games. "manual" collections hold an explicit list of games
+// (collection_games); "smart" ones store filter rules and are evaluated against the library
+// on read, so they never go stale.
+export const collections = sqliteTable(
+  "collections",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    type: text("type").notNull().default("manual"), // "manual" | "smart" — validated by Zod
+    rules: text("rules", { mode: "json" }).$type<CollectionRules>(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("collections_user_idx").on(t.userId)]
+);
+
+export const collectionGames = sqliteTable(
+  "collection_games",
+  {
+    id: text("id").primaryKey(),
+    collectionId: text("collection_id")
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [uniqueIndex("collection_games_collection_game_idx").on(t.collectionId, t.gameId)]
+);
+
 export const notifications = sqliteTable("notifications", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
@@ -595,6 +651,59 @@ export const updateGameInstalledVersionSchema = z.object({
     .max(64, "installedVersion must be at most 64 characters")
     .nullable()
     .transform((v) => v || null),
+});
+
+const trimmedList = z.array(z.string().trim().min(1).max(100)).max(50);
+
+export const collectionRulesSchema = z
+  .object({
+    statuses: trimmedList.optional(),
+    platforms: trimmedList.optional(),
+    genres: trimmedList.optional(),
+    minRating: z.number().min(0).max(10).optional(),
+    minUserRating: z.number().min(0).max(10).optional(),
+    releaseYearFrom: z.number().int().min(1950).max(2100).optional(),
+    releaseYearTo: z.number().int().min(1950).max(2100).optional(),
+    titleContains: z.string().trim().min(1).max(100).optional(),
+  })
+  .strict();
+
+const collectionBaseSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(100),
+  description: z
+    .string()
+    .max(500)
+    .nullish()
+    .transform((v) => v?.trim() || null),
+  type: z.enum(["manual", "smart"]),
+  rules: collectionRulesSchema.nullish(),
+});
+
+/** A smart collection needs at least one rule; a manual one never stores rules. */
+function refineCollectionRules(
+  value: { type?: "manual" | "smart" | undefined; rules?: CollectionRules | null | undefined },
+  ctx: z.RefinementCtx
+) {
+  if (value.type === "smart" && (!value.rules || Object.keys(value.rules).length === 0)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["rules"],
+      message: "A smart collection needs at least one rule",
+    });
+  }
+}
+
+export const insertCollectionSchema = collectionBaseSchema
+  .superRefine(refineCollectionRules)
+  .transform((v) => ({ ...v, rules: v.type === "smart" ? (v.rules ?? null) : null }));
+
+export const updateCollectionSchema = collectionBaseSchema
+  .partial()
+  .superRefine(refineCollectionRules)
+  .transform((v) => (v.type === "manual" ? { ...v, rules: null } : v));
+
+export const addCollectionGameSchema = z.object({
+  gameId: z.string().trim().min(1),
 });
 
 export const insertGameJournalEntrySchema = createInsertSchema(gameJournalEntries, {
@@ -865,6 +974,15 @@ export type InsertDownloader = (typeof insertDownloaderSchema)["_output"];
 export type GameDownload = typeof gameDownloads.$inferSelect;
 export type InsertGameDownload = (typeof insertGameDownloadSchema)["_output"];
 
+export type Collection = typeof collections.$inferSelect;
+export type InsertCollection = {
+  userId: string;
+  name: string;
+  description: string | null;
+  type: CollectionType;
+  rules: CollectionRules | null;
+};
+export type CollectionGame = typeof collectionGames.$inferSelect;
 export type GameJournalEntry = typeof gameJournalEntries.$inferSelect;
 export type InsertGameJournalEntry = (typeof insertGameJournalEntrySchema)["_output"];
 

@@ -12,6 +12,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import type {
+  CollectionRules,
   GameExpansion,
   GameFileCategory,
   ImportTaskItemResult,
@@ -296,6 +297,37 @@ export const aiAutoDownloadHolds = pgTable(
     createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
   },
   (t) => [uniqueIndex("ai_auto_download_holds_game_title_idx").on(t.gameId, t.releaseTitle)]
+);
+
+export const collections = pgTable(
+  "collections",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    type: text("type").notNull().default("manual"),
+    rules: jsonb("rules").$type<CollectionRules>(),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("collections_user_idx").on(t.userId)]
+);
+
+export const collectionGames = pgTable(
+  "collection_games",
+  {
+    id: text("id").primaryKey(),
+    collectionId: text("collection_id")
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    addedAt: timestampMs("added_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [uniqueIndex("collection_games_collection_game_idx").on(t.collectionId, t.gameId)]
 );
 
 export const gameJournalEntries = pgTable(

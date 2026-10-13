@@ -225,6 +225,21 @@ describe("SeerrNG provider API", () => {
       expect(res.body.nextOffset).toBeNull();
     });
 
+    it("keeps paging past entries removed by filters", async () => {
+      (igdb.getPopularGames as Mock).mockResolvedValue([
+        ...[1, 2, 3].map((id) => igdbGame(id, `P${id}`, { genres: ["Puzzle"] })),
+        ...[4, 5, 6].map((id) => igdbGame(id, `A${id}`)),
+      ]);
+      const first = await request(app).get(`${base}/catalog/popular-page?genre=adventure&limit=2`);
+      expect(first.body.results.map((g: { igdbId: number }) => g.igdbId)).toEqual([4, 5]);
+      expect(first.body.nextOffset).toBe(5);
+      const second = await request(app).get(
+        `${base}/catalog/popular-page?genre=adventure&limit=2&offset=5`
+      );
+      expect(second.body.results.map((g: { igdbId: number }) => g.igdbId)).toEqual([6]);
+      expect(second.body.nextOffset).toBeNull();
+    });
+
     it("returns game details and 404 for a filtered or unknown game", async () => {
       const ok = await request(app).get(`${base}/catalog/games/42`);
       expect(ok.status).toBe(200);
@@ -317,6 +332,56 @@ describe("SeerrNG provider API", () => {
       expect(res.status).toBe(201);
       expect(res.body).toMatchObject({ status: "available", game: { id: "g1" } });
       expect(storage.addGame).not.toHaveBeenCalled();
+    });
+
+    it("marks the request failed when dispatch throws so it can be retried", async () => {
+      (storage.addGame as Mock).mockRejectedValueOnce(new Error("db down"));
+      const res = await request(app).post(`${base}/requests`).send(createBody);
+      expect(res.status).toBe(500);
+      const status = await request(app).get(`${base}/requests/seerrng:request:1`);
+      expect(status.body).toMatchObject({ status: "failed", actions: { retry: true } });
+    });
+
+    it("retargets an unacquired library game to the requested OS", async () => {
+      games.set("g1", {
+        id: "g1",
+        userId: USER.id,
+        igdbId: 42,
+        status: "wanted",
+        title: "Example Game",
+        targetPlatformId: 6,
+      });
+      (storage.updateGame as Mock).mockResolvedValue(undefined);
+      const linux = { ...createBody, variant: { operatingSystem: "linux", architecture: "x64" } };
+      const res = await request(app).post(`${base}/requests`).send(linux);
+      expect(res.status).toBe(201);
+      expect(storage.updateGame).toHaveBeenCalledWith(
+        "g1",
+        expect.objectContaining({ targetPlatformId: 3 })
+      );
+    });
+
+    it("does not reset a game acquired since when retrying an unlinked request", async () => {
+      await request(app)
+        .post(`${base}/requests`)
+        .send({ ...createBody, igdbId: 99 });
+      ledger.set("user-1:seerrng:request:1", {
+        ...ledger.get("user-1:seerrng:request:1"),
+        gameId: null,
+        igdbId: 42,
+        status: "failed",
+      });
+      games.clear();
+      games.set("g9", {
+        id: "g9",
+        userId: USER.id,
+        igdbId: 42,
+        status: "owned",
+        title: "Example Game",
+      });
+      const res = await request(app).post(`${base}/requests/seerrng:request:1/retry`).send({});
+      expect(res.status).toBe(200);
+      expect(games.get("g9")?.status).toBe("owned");
     });
 
     it("refuses a game already answering another request", async () => {

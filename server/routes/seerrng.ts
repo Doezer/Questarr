@@ -173,14 +173,20 @@ async function pagedCatalog(
   const platformIds = parseIdList(req.query.platformIds);
   const filters = filtersSchema.safeParse(req.query);
   if (platformIds === null || !filters.success) throw new z.ZodError([]);
-  const windowSize = Math.min(offset + limit + 1, MAX_CATALOG_WINDOW);
-  const visible = await visibleIgdbGames(req.user!.id, await fetchWindow(windowSize));
-  const matching = visible
-    .map(toCatalogGame)
-    .filter((game) => matchesCatalogFilters(game, { platformIds, ...filters.data }));
-  const page = matching.slice(offset, offset + limit);
-  const hasMore = matching.length > offset + limit && offset + limit < MAX_CATALOG_WINDOW;
-  return { results: await withTimeToBeats(page), next: hasMore ? offset + limit : null };
+  // Filters can drop entries, so over-fetch and walk the visible list: the cursor is the index of
+  // the first visible entry not yet returned.
+  const windowSize = Math.min(offset + limit * 3 + 1, MAX_CATALOG_WINDOW);
+  const raw = await fetchWindow(windowSize);
+  const visible = (await visibleIgdbGames(req.user!.id, raw)).map(toCatalogGame);
+  const page: CatalogGame[] = [];
+  let index = offset;
+  for (; index < visible.length && page.length < limit; index += 1) {
+    const game = visible[index];
+    if (game && matchesCatalogFilters(game, { platformIds, ...filters.data })) page.push(game);
+  }
+  const moreUpstream = raw.length >= windowSize && windowSize < MAX_CATALOG_WINDOW;
+  const hasMore = index < visible.length || moreUpstream;
+  return { results: await withTimeToBeats(page), next: hasMore ? index : null };
 }
 
 seerrngRouter.get("/ping", scope, (_req: Request, res: Response) => {
@@ -623,6 +629,14 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
           });
           return res.status(409).json({ error: "Game is already linked to another request." });
         }
+        const platform = TARGET_PLATFORMS[variant.operatingSystem];
+        if (!isAcquired(owner) && owner.targetPlatformId !== platform.id) {
+          // Auto-search must look for the requested OS, not the platform the game was added with.
+          await storage.updateGame(owner.id, {
+            targetPlatformId: platform.id,
+            targetPlatformName: platform.name,
+          });
+        }
         const linked = await storage.updateIntegrationRequest(userId, externalRequestId, {
           gameId: owner.id,
           status: "searching",
@@ -639,6 +653,13 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
       return res.status(201).json(await describeRequest(userId, linked ?? ledger));
     } catch (error) {
       logger.error({ error, externalRequestId }, "SeerrNG software request failed");
+      // Leave the ledger row retryable instead of stuck in "accepted" with no game.
+      await storage
+        .updateIntegrationRequest(userId, externalRequestId, {
+          status: "failed",
+          errorMessage: "Software request could not be started.",
+        })
+        .catch(() => undefined);
       return res.status(500).json({ error: "Software request could not be started." });
     }
   });
@@ -734,10 +755,11 @@ seerrngRouter.post(
         }
         game = result.game;
       }
-      if (game.status !== "wanted") {
+      // An already-acquired game found again (added manually since) keeps its state.
+      if (!isAcquired(game) && game.status !== "wanted") {
         await storage.updateGameStatus(game.id, { status: "wanted" });
       }
-      await storage.updateGameSearchResultsAvailable(game.id, false);
+      if (!isAcquired(game)) await storage.updateGameSearchResultsAvailable(game.id, false);
       const updated = await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
         gameId: game.id,
         status: "searching",

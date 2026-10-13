@@ -107,6 +107,9 @@ interface ArchiveResolution {
   hasRemainingFiles: boolean;
 }
 
+// Upper bound on archive sets inspected when looking for leftovers after an import.
+const MAX_LEFTOVER_SETS_CHECKED = 25;
+
 export class ImportManager {
   private readonly pathRetryCount = new Map<string, number>();
   // Downloads whose processImport() is running in this process. The
@@ -452,7 +455,8 @@ export class ImportManager {
   private async findUnextractedArchiveSets(dir: string): Promise<string[]> {
     const sets = await this.archiveService.findArchiveSets(dir);
     const unextracted: string[] = [];
-    for (const set of sets) {
+    // Each check may spawn 7z/unrar; this is a best-effort warning, so bound the work.
+    for (const set of sets.slice(0, MAX_LEFTOVER_SETS_CHECKED)) {
       if (!(await this.archiveService.isAlreadyExtracted(set.primary, path.dirname(set.primary)))) {
         unextracted.push(path.relative(dir, set.primary));
       }
@@ -480,13 +484,14 @@ export class ImportManager {
       if (leftovers.length === 0) return;
       const shown = leftovers.slice(0, 3).join(", ");
       const more = leftovers.length > 3 ? ` and ${leftovers.length - 3} more` : "";
-      await this.storage.addNotification({
+      const notification = await this.storage.addNotification({
         userId: game.userId ?? "",
         type: "warning",
         title: "Archives were not extracted",
         message: `"${game.title}" still contains ${leftovers.length} archive${leftovers.length === 1 ? "" : "s"} that nothing unpacked (${shown}${more}). Turn on Auto-unpack in the import settings, or extract them yourself.`,
         link: "/downloads",
       });
+      notifyUser("notification", notification, notification.userId);
     } catch (err) {
       logger.debug({ err, dir }, "[ImportManager] Leftover archive check skipped");
     }

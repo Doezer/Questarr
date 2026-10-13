@@ -391,7 +391,7 @@ describe("SeerrNG provider API", () => {
         .post(`${base}/requests`)
         .send({ ...createBody, externalRequestId: "seerrng:request:2" });
       expect(again.status).toBe(201);
-      expect(again.body.status).not.toBe("cancelled");
+      expect(again.body.status).toBe("searching");
     });
 
     it("refuses to retry onto a game another request has since claimed", async () => {

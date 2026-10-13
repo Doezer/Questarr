@@ -510,6 +510,12 @@ async function describeRequest(userId: string, ledger: IntegrationRequest) {
       (a, b) => (b.addedAt?.getTime() ?? 0) - (a.addedAt?.getTime() ?? 0)
     )[0];
     const downloadStatus = latest?.status.toLowerCase() ?? "";
+    // A failure older than the last ledger update (a retry) must not mask the new attempt.
+    const failedBeforeRetry =
+      ledger.status === "searching" &&
+      !!latest?.addedAt &&
+      !!ledger.updatedAt &&
+      latest.addedAt.getTime() < ledger.updatedAt.getTime();
     const activeDownload = downloads.some((download) =>
       ACTIVE_DOWNLOAD_STATUSES.has(download.status.toLowerCase())
     );
@@ -519,7 +525,10 @@ async function describeRequest(userId: string, ledger: IntegrationRequest) {
       status = "downloading";
     } else if (IMPORTING_DOWNLOAD_STATUSES.has(downloadStatus)) {
       status = "importing";
-    } else if (FAILED_DOWNLOAD_STATUSES.has(downloadStatus) || ledger.status === "failed") {
+    } else if (
+      (FAILED_DOWNLOAD_STATUSES.has(downloadStatus) && !failedBeforeRetry) ||
+      ledger.status === "failed"
+    ) {
       status = "failed";
       error = latest?.errorMessage ?? ledger.errorMessage ?? "No usable release was found.";
     } else if (game.status === "downloading") {
@@ -568,7 +577,19 @@ async function withDispatchQueue<T>(key: string, work: () => Promise<T>): Promis
  * is a conflict (returns undefined); a cancelled one is released. Unacquired games are retargeted
  * to the requested OS so auto-search looks for the right release.
  */
-async function attachExistingGame(
+function attachExistingGame(
+  userId: string,
+  externalRequestId: string,
+  owner: Game,
+  operatingSystem: keyof typeof TARGET_PLATFORMS
+): Promise<IntegrationRequest | undefined> {
+  // Serialized per game so two requests cannot both observe "no holder".
+  return withDispatchQueue(`${userId}:game:${owner.id}`, () =>
+    attachExistingGameLocked(userId, externalRequestId, owner, operatingSystem)
+  );
+}
+
+async function attachExistingGameLocked(
   userId: string,
   externalRequestId: string,
   owner: Game,
@@ -584,6 +605,11 @@ async function attachExistingGame(
       return undefined;
     }
     await storage.updateIntegrationRequest(userId, holder.externalRequestId, { gameId: null });
+    if (owner.status === "shelved") {
+      // Cancellation shelved the game; a new request wants it again.
+      await storage.updateGameStatus(owner.id, { status: "wanted" });
+      owner = { ...owner, status: "wanted" };
+    }
   }
   const platform = TARGET_PLATFORMS[operatingSystem];
   if (!isAcquired(owner) && owner.targetPlatformId !== platform.id) {
@@ -714,7 +740,10 @@ function requestAction(
       const ledger = await loadRequest(req, res);
       if (!ledger) return undefined;
       const userId = req.user!.id;
-      return await action({ userId, ledger, current: await describeRequest(userId, ledger) }, res);
+      // Same queue as request creation: retries cannot race each other or a new request.
+      return await withDispatchQueue(`${userId}:${normalizeTitle(ledger.title)}`, async () =>
+        action({ userId, ledger, current: await describeRequest(userId, ledger) }, res)
+      );
     } catch (error) {
       logger.error({ error }, logMessage);
       return res.status(500).json({ error: failureError });

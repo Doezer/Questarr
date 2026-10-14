@@ -143,6 +143,33 @@ describe("ImportManager - planConfirmImport", () => {
     planSpy.mockRestore();
   });
 
+  it("renders the fallback proposed path from the rename pattern", async () => {
+    const storage = makeStorage();
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadHash: "abc",
+      downloadTitle: "Fallback.Game.v2.0-CODEX",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "Fallback Game",
+      releaseDate: "2018-01-01",
+      userId: "u1",
+      status: "wanted",
+      platforms: [],
+    });
+    storage.getImportConfig.mockResolvedValue(
+      makeImportConfig({ libraryRoot: "/games", renamePattern: "{Title} ({Year}) [{Group}]" })
+    );
+    storage.getDownloader.mockResolvedValue(undefined);
+
+    const result = await makeManager(storage).planConfirmImport("dl-1");
+
+    expect(result.proposedPath).toMatch(/Fallback Game \(2018\) \[CODEX\]$/);
+  });
+
   it("returns null originalPath when downloader not found (no overrideSourcePath)", async () => {
     const storage = makeStorage();
     storage.getGameDownload.mockResolvedValue({

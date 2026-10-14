@@ -8,7 +8,7 @@ import {
   ImportResult,
   PCImportStrategy,
   TransferMode,
-  sanitizeFsName,
+  resolveLibraryLeafName,
   gatherFiles,
   reorganizeBySortExtras,
 } from "./ImportStrategies.js";
@@ -21,6 +21,7 @@ import {
   GAME_LINK_REQUIRED_STATUS,
   QUARANTINED_STATUS,
   isUserCuratedGameStatus,
+  type Game,
 } from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
@@ -954,16 +955,12 @@ export class ImportManager {
       await fs.ensureDir(libraryRoot);
 
       const platformDir = this.resolvePlatformFolderName(download.downloadTitle || "", game);
-      const plan = await strategy.planImport(
-        localPath,
-        game,
-        libraryRoot,
-        config,
-        platformDir,
-        needsExtraction && !archiveResolution!.isDirectorySource
+      const plan = await strategy.planImport(localPath, game, libraryRoot, config, platformDir, {
+        ...(needsExtraction && !archiveResolution!.isDirectorySource
           ? { treatAsDirectory: true }
-          : undefined
-      );
+          : {}),
+        downloadTitle: download.downloadTitle,
+      });
 
       if (plan.needsReview) {
         await this.flagNeedsReview(downloadId, game, plan);
@@ -1026,6 +1023,47 @@ export class ImportManager {
     return this.pathService.translatePath(remotePath, remoteHost);
   }
 
+  /**
+   * Renders a naming pattern on a few of the user's own games, plus one synthetic release so
+   * the release-derived tokens (Version, Group, Source) show up too. Nothing touches the disk.
+   */
+  async previewNaming(
+    pattern: string,
+    userId: string
+  ): Promise<Array<{ title: string; leafName: string; fullPath: string }>> {
+    const config = await this.storage.getImportConfig(userId);
+    const libraryRoot = config.libraryRoot || "/data";
+    const games = (await this.storage.getUserGames(userId)).slice(0, 5);
+    const samples: Array<{ game: Game; releaseTitle: string }> = games.map((game) => ({
+      game,
+      releaseTitle: "",
+    }));
+    samples.push({
+      game: {
+        title: "The Example Quest: Remastered",
+        releaseDate: "2021-06-15",
+        igdbId: 12345,
+        steamAppId: 67890,
+        platforms: ["PC (Microsoft Windows)"],
+      } as unknown as Game,
+      releaseTitle: "The.Example.Quest.Remastered.v1.2.3-GROUP",
+    });
+    return samples.map(({ game, releaseTitle }) => {
+      const platformDir = this.resolvePlatformFolderName(releaseTitle, game);
+      const leafName = resolveLibraryLeafName(
+        game,
+        { renamePattern: pattern },
+        platformDir,
+        releaseTitle
+      );
+      return {
+        title: game.title,
+        leafName,
+        fullPath: path.join(libraryRoot, platformDir, leafName),
+      };
+    });
+  }
+
   async planConfirmImport(
     downloadId: string,
     overrideSourcePath?: string,
@@ -1055,7 +1093,11 @@ export class ImportManager {
     }
 
     const platformDir = this.resolvePlatformFolderName(download.downloadTitle || "", game);
-    const fallbackProposedPath = path.join(libraryRoot, platformDir, sanitizeFsName(game.title));
+    const fallbackProposedPath = path.join(
+      libraryRoot,
+      platformDir,
+      resolveLibraryLeafName(game, config, platformDir, download.downloadTitle)
+    );
 
     if (resolvedOriginalPath) {
       const { files, hasArchive, totalCount } = await this.readSourceFiles(resolvedOriginalPath);
@@ -1066,7 +1108,8 @@ export class ImportManager {
           game,
           libraryRoot,
           config,
-          platformDir
+          platformDir,
+          { downloadTitle: download.downloadTitle }
         );
         return {
           originalPath: resolvedOriginalPath,

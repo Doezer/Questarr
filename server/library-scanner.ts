@@ -285,6 +285,10 @@ async function bestIgdbMatch(folderName: string): Promise<{
 
 // ---------- Ingestion ----------
 
+/**
+ * Maps IGDB metadata, including validated videos, to a game for the scanning user.
+ * Sets the scanned game as owned and released, with its source marked as a library scan.
+ */
 function igdbToInsertGame(igdb: IGDBGame, userId: string): InsertGame {
   const releaseDate = igdb.first_release_date
     ? new Date(igdb.first_release_date * 1000).toISOString().slice(0, 10)

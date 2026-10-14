@@ -130,7 +130,7 @@
     "undici": "^8.11.2",
     "vaul": "^1.1.2",
     "wouter": "^3.13.0",
-    "zod": "^4.6.5",
+    "zod": "^4.6.6",
     "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {

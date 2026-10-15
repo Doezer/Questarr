@@ -32,33 +32,10 @@ import { resolvePrefs } from "../notification-prefs.js";
 import { appriseClient } from "../apprise.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
 
-const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
-  nes: 18,
-  snes: 19,
-  n64: 4,
-  gamecube: 21,
-  wii: 5,
-  "wii u": 41,
-  gb: 33,
-  gbc: 22,
-  gba: 24,
-  nds: 20,
-  "3ds": 37,
-  switch: 130,
-  ps1: 7,
-  ps2: 8,
-  ps3: 9,
-  psp: 38,
-  "game gear": 35,
-  "master system": 64,
-  "mega drive": 29,
-  dreamcast: 23,
-  "atari 2600": 59,
-  "neo geo": 80,
-  pc: 6,
-};
-
 const PLATFORM_FOLDER_NAMES: Record<string, string> = {
+  ...Object.fromEntries(
+    PLATFORM_CATALOG.map(({ canonical }) => [canonical.toLowerCase(), canonical])
+  ),
   nes: "NES",
   snes: "SNES",
   n64: "N64",
@@ -84,9 +61,14 @@ const PLATFORM_FOLDER_NAMES: Record<string, string> = {
   pc: "PC",
 };
 
-const IGDB_ID_TO_PLATFORM_KEY: Record<number, string> = Object.fromEntries(
-  Object.entries(RELEASE_PLATFORM_TO_IGDB_ID).map(([key, id]) => [id, key])
-);
+const IGDB_ID_TO_PLATFORM_KEY: Record<number, string> = {
+  ...Object.fromEntries(
+    PLATFORM_CATALOG.flatMap(({ canonical, igdbIds }) =>
+      igdbIds.map((id) => [id, canonical.toLowerCase()])
+    )
+  ),
+  35: "game gear",
+};
 
 const MAX_PATH_RETRY = 5;
 const MAX_LISTED_FILES = 100;

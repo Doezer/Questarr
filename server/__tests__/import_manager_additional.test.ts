@@ -622,9 +622,9 @@ describe("ImportManager - shouldSkipPCPlatform", () => {
   });
 
   it.each([
-    { platforms: ["PC (Microsoft Windows)"], selected: [6], allowed: true },
+    { platforms: ["PC (Microsoft Windows)"], selected: [6], allowed: true, folder: "PC" },
     { platforms: ["  pc (microsoft   windows)  "], selected: [6], allowed: true },
-    { platforms: ["PlayStation 3"], selected: [9], allowed: true },
+    { platforms: ["PlayStation 3"], selected: [9], allowed: true, folder: "PS3" },
     { platforms: ["PlayStation 3"], selected: [6], allowed: false },
     { platforms: ["PlayStation 3", "PC (Microsoft Windows)"], selected: [6], allowed: true },
     { platforms: ["Unknown platform", "PC (Microsoft Windows)"], selected: [6], allowed: true },
@@ -648,15 +648,15 @@ describe("ImportManager - shouldSkipPCPlatform", () => {
       allowed: true,
     },
     ...[
-      { label: "PS4", id: 48 },
-      { label: "PS5", id: 167 },
-      { label: "Xbox.One", id: 49 },
-      { label: "Xbox.360", id: 12 },
-      { label: "Xbox.Series", id: 169 },
-      { label: "Xbox", id: 11 },
-      { label: "Linux", id: 3 },
-      { label: "Mac", id: 14 },
-    ].flatMap(({ label, id }) => [
+      { label: "PS4", id: 48, name: "PlayStation 4", folder: "PS4" },
+      { label: "PS5", id: 167, name: "PlayStation 5", folder: "PS5" },
+      { label: "Xbox.One", id: 49, name: "Xbox One", folder: "Xbox One" },
+      { label: "Xbox.360", id: 12, name: "Xbox 360", folder: "Xbox 360" },
+      { label: "Xbox.Series", id: 169, name: "Xbox Series X|S", folder: "Xbox Series" },
+      { label: "Xbox", id: 11, name: "Xbox", folder: "Xbox Classic" },
+      { label: "Linux", id: 3, name: "Linux", folder: "Linux" },
+      { label: "Mac", id: 14, name: "Mac", folder: "Mac" },
+    ].flatMap(({ label, id, name, folder }) => [
       {
         platforms: ["PC (Microsoft Windows)"],
         selected: [6],
@@ -668,11 +668,18 @@ describe("ImportManager - shouldSkipPCPlatform", () => {
         selected: [id],
         releaseTitle: `Some.Game.${label}`,
         allowed: true,
+        folder,
+      },
+      {
+        platforms: [name],
+        selected: [id],
+        allowed: true,
+        folder,
       },
     ]),
   ])(
     "filters stored $platforms against $selected (release: $releaseTitle, allowed: $allowed)",
-    async ({ platforms, selected, releaseTitle, allowed }) => {
+    async ({ platforms, selected, releaseTitle, allowed, ...expected }) => {
       const storage = makeStorage();
       storage.getGameDownload.mockResolvedValue({
         id: "dl-1",
@@ -712,6 +719,16 @@ describe("ImportManager - shouldSkipPCPlatform", () => {
           allowed ? "imported" : "completed"
         );
         expect(execSpy).toHaveBeenCalledTimes(allowed ? 1 : 0);
+        if ("folder" in expected) {
+          expect(planSpy).toHaveBeenCalledWith(
+            "/local/file.iso",
+            expect.anything(),
+            "/games",
+            expect.anything(),
+            expected.folder,
+            expect.anything()
+          );
+        }
       } finally {
         planSpy.mockRestore();
         execSpy.mockRestore();

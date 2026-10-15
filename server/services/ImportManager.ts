@@ -132,11 +132,15 @@ export class ImportManager {
     return undefined;
   }
 
-  private getPrimaryPlatformId(game: { platforms?: unknown }): number | undefined {
+  private getPrimaryPlatformId(
+    game: { platforms?: unknown },
+    allowed: number[] = []
+  ): number | undefined {
     if (!Array.isArray(game.platforms)) return undefined;
     for (const p of game.platforms) {
       const platformId = this.extractPlatformIdFromElement(p);
-      if (platformId !== undefined) return platformId;
+      if (platformId !== undefined && this.isPlatformEnabled(platformId, allowed))
+        return platformId;
     }
     return undefined;
   }
@@ -158,11 +162,15 @@ export class ImportManager {
       ?.igdbIds[0];
   }
 
-  private resolvePlatformFolderName(downloadTitle: string, game: { platforms?: unknown }): string {
+  private resolvePlatformFolderName(
+    downloadTitle: string,
+    game: { platforms?: unknown },
+    allowed: number[]
+  ): string {
     const key = this.getReleasePlatformKey(downloadTitle);
     if (key && PLATFORM_FOLDER_NAMES[key]) return PLATFORM_FOLDER_NAMES[key];
 
-    const igdbId = this.getPrimaryPlatformId(game);
+    const igdbId = this.getPrimaryPlatformId(game, allowed) ?? this.getPrimaryPlatformId(game);
     if (igdbId !== undefined) {
       const igdbKey = IGDB_ID_TO_PLATFORM_KEY[igdbId];
       if (igdbKey && PLATFORM_FOLDER_NAMES[igdbKey]) return PLATFORM_FOLDER_NAMES[igdbKey];
@@ -529,11 +537,10 @@ export class ImportManager {
     const enabled =
       releasePlatformId !== undefined
         ? this.isPlatformEnabled(releasePlatformId, importPlatformIds)
-        : importPlatformIds.length === 0 ||
-          (Array.isArray(game.platforms) &&
-            game.platforms.some((platform) =>
-              this.isPlatformEnabled(this.extractPlatformIdFromElement(platform), importPlatformIds)
-            ));
+        : this.isPlatformEnabled(
+            this.getPrimaryPlatformId(game, importPlatformIds),
+            importPlatformIds
+          );
 
     if (!enabled) {
       logger.info(
@@ -951,7 +958,11 @@ export class ImportManager {
 
       await fs.ensureDir(libraryRoot);
 
-      const platformDir = this.resolvePlatformFolderName(download.downloadTitle || "", game);
+      const platformDir = this.resolvePlatformFolderName(
+        download.downloadTitle || "",
+        game,
+        config.importPlatformIds
+      );
       const plan = await strategy.planImport(localPath, game, libraryRoot, config, platformDir, {
         ...(needsExtraction && !archiveResolution!.isDirectorySource
           ? { treatAsDirectory: true }
@@ -1046,7 +1057,11 @@ export class ImportManager {
       releaseTitle: "The.Example.Quest.Remastered.v1.2.3-GROUP",
     });
     return samples.map(({ game, releaseTitle }) => {
-      const platformDir = this.resolvePlatformFolderName(releaseTitle, game);
+      const platformDir = this.resolvePlatformFolderName(
+        releaseTitle,
+        game,
+        config.importPlatformIds
+      );
       const leafName = resolveLibraryLeafName(
         game,
         { renamePattern: pattern },
@@ -1089,7 +1104,11 @@ export class ImportManager {
       // Source resolution failed — still return a proposed path based on game title
     }
 
-    const platformDir = this.resolvePlatformFolderName(download.downloadTitle || "", game);
+    const platformDir = this.resolvePlatformFolderName(
+      download.downloadTitle || "",
+      game,
+      config.importPlatformIds
+    );
     const fallbackProposedPath = path.join(
       libraryRoot,
       platformDir,

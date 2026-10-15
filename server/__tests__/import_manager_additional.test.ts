@@ -647,6 +647,29 @@ describe("ImportManager - shouldSkipPCPlatform", () => {
       releaseTitle: "Some.Game.PC",
       allowed: true,
     },
+    ...[
+      { label: "PS4", id: 48 },
+      { label: "PS5", id: 167 },
+      { label: "Xbox.One", id: 49 },
+      { label: "Xbox.360", id: 12 },
+      { label: "Xbox.Series", id: 169 },
+      { label: "Xbox", id: 11 },
+      { label: "Linux", id: 3 },
+      { label: "Mac", id: 14 },
+    ].flatMap(({ label, id }) => [
+      {
+        platforms: ["PC (Microsoft Windows)"],
+        selected: [6],
+        releaseTitle: `Some.Game.${label}`,
+        allowed: false,
+      },
+      {
+        platforms: ["PC (Microsoft Windows)"],
+        selected: [id],
+        releaseTitle: `Some.Game.${label}`,
+        allowed: true,
+      },
+    ]),
   ])(
     "filters stored $platforms against $selected (release: $releaseTitle, allowed: $allowed)",
     async ({ platforms, selected, releaseTitle, allowed }) => {

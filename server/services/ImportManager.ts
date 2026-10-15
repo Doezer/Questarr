@@ -172,7 +172,8 @@ export class ImportManager {
 
   private getReleasePlatformIgdbId(releasePlatformKey: string | null): number | undefined {
     if (!releasePlatformKey) return undefined;
-    return RELEASE_PLATFORM_TO_IGDB_ID[releasePlatformKey];
+    return PLATFORM_CATALOG.find(({ canonical }) => canonical.toLowerCase() === releasePlatformKey)
+      ?.igdbIds[0];
   }
 
   private resolvePlatformFolderName(downloadTitle: string, game: { platforms?: unknown }): string {

@@ -621,6 +621,81 @@ describe("ImportManager - shouldSkipPCPlatform", () => {
     fsMock.pathExists.mockResolvedValue(true);
   });
 
+  it.each([
+    { platforms: ["PC (Microsoft Windows)"], selected: [6], allowed: true },
+    { platforms: ["  pc (microsoft   windows)  "], selected: [6], allowed: true },
+    { platforms: ["PlayStation 3"], selected: [9], allowed: true },
+    { platforms: ["PlayStation 3"], selected: [6], allowed: false },
+    { platforms: ["PlayStation 3", "PC (Microsoft Windows)"], selected: [6], allowed: true },
+    { platforms: ["Unknown platform", "PC (Microsoft Windows)"], selected: [6], allowed: true },
+    { platforms: ["Unknown platform"], selected: [6], allowed: false },
+    { platforms: [], selected: [], allowed: true },
+    { platforms: ["Unknown platform"], selected: [], allowed: true },
+    { platforms: [6], selected: [6], allowed: true },
+    { platforms: ["6"], selected: [6], allowed: true },
+    { platforms: [{ id: 6 }], selected: [6], allowed: true },
+    { platforms: [{ id: "6" }], selected: [6], allowed: true },
+    {
+      platforms: ["PC (Microsoft Windows)"],
+      selected: [6],
+      releaseTitle: "Some.Game.PS3",
+      allowed: false,
+    },
+    {
+      platforms: ["PlayStation 3"],
+      selected: [6],
+      releaseTitle: "Some.Game.PC",
+      allowed: true,
+    },
+  ])(
+    "filters stored $platforms against $selected (release: $releaseTitle, allowed: $allowed)",
+    async ({ platforms, selected, releaseTitle, allowed }) => {
+      const storage = makeStorage();
+      storage.getGameDownload.mockResolvedValue({
+        id: "dl-1",
+        gameId: "g1",
+        downloaderId: "d1",
+        downloadTitle: releaseTitle ?? "Some.Game.v1.0-GROUP",
+      });
+      storage.getGame.mockResolvedValue({
+        id: "g1",
+        title: "Some Game",
+        userId: "u1",
+        status: "wanted",
+        platforms,
+      });
+      storage.getImportConfig.mockResolvedValue(
+        makeImportConfig({ importPlatformIds: selected, libraryRoot: "/games" })
+      );
+      storage.getDownloader.mockResolvedValue({ id: "d1", name: "qBit", url: "http://localhost" });
+      const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+        needsReview: false,
+        strategy: "pc",
+        originalPath: "/local/file.iso",
+        proposedPath: "/games/Some Game",
+      });
+      const execSpy = vi.spyOn(PCImportStrategy.prototype, "executeImport").mockResolvedValue({
+        destDir: "/games/Some Game",
+        filesPlaced: ["/games/Some Game/file.iso"],
+        modeUsed: "copy",
+        conflictsResolved: [],
+      });
+
+      try {
+        await makeManager(storage).processImport("dl-1", "/remote/path");
+
+        expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+          "dl-1",
+          allowed ? "imported" : "completed"
+        );
+        expect(execSpy).toHaveBeenCalledTimes(allowed ? 1 : 0);
+      } finally {
+        planSpy.mockRestore();
+        execSpy.mockRestore();
+      }
+    }
+  );
+
   it("marks completed when game platform is excluded by importPlatformIds filter", async () => {
     const storage = makeStorage();
     storage.getGameDownload.mockResolvedValue({

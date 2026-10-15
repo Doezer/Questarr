@@ -16,7 +16,7 @@ import { DownloaderManager } from "../downloaders.js";
 import { resolveRemoteImportPath } from "../downloaders/utils.js";
 import fs from "fs-extra";
 import path from "node:path";
-import { parseReleaseMetadata } from "../../shared/title-utils.js";
+import { parseReleaseMetadata, PLATFORM_CATALOG } from "../../shared/title-utils.js";
 import {
   GAME_LINK_REQUIRED_STATUS,
   QUARANTINED_STATUS,
@@ -135,7 +135,13 @@ export class ImportManager {
 
   private extractPlatformIdFromElement(p: unknown): number | undefined {
     if (typeof p === "number") return p;
-    if (typeof p === "string" && /^\d+$/.test(p)) return Number(p);
+    if (typeof p === "string") {
+      if (/^\d+$/.test(p)) return Number(p);
+      const normalizedName = p.trim().toLowerCase().replaceAll(/\s+/g, " ");
+      return PLATFORM_CATALOG.find(({ igdbNames }) =>
+        igdbNames.some((name) => name.toLowerCase() === normalizedName)
+      )?.igdbIds[0];
+    }
     if (p && typeof p === "object" && "id" in p) {
       const id = (p as { id?: unknown }).id;
       if (typeof id === "number") return id;
@@ -533,14 +539,22 @@ export class ImportManager {
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     importPlatformIds: number[]
   ): boolean {
-    const gamePrimaryPlatformId = this.getPrimaryPlatformId(game);
     const releasePlatformKey = this.getReleasePlatformKey(downloadTitle);
     const releasePlatformId = this.getReleasePlatformIgdbId(releasePlatformKey);
-    const effectivePlatformId = releasePlatformId ?? gamePrimaryPlatformId;
+    // A detected release identifies the downloaded version. Otherwise the game
+    // can list several platforms, stored as IGDB names, and any selected one fits.
+    const enabled =
+      releasePlatformId !== undefined
+        ? this.isPlatformEnabled(releasePlatformId, importPlatformIds)
+        : importPlatformIds.length === 0 ||
+          (Array.isArray(game.platforms) &&
+            game.platforms.some((platform) =>
+              this.isPlatformEnabled(this.extractPlatformIdFromElement(platform), importPlatformIds)
+            ));
 
-    if (!this.isPlatformEnabled(effectivePlatformId, importPlatformIds)) {
+    if (!enabled) {
       logger.info(
-        { gameTitle: game.title, effectivePlatformId },
+        { gameTitle: game.title, releasePlatformId, gamePlatforms: game.platforms },
         "[ImportManager] Skipping import: platform not in filter"
       );
       return true;

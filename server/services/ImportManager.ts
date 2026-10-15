@@ -61,14 +61,11 @@ const PLATFORM_FOLDER_NAMES: Record<string, string> = {
   pc: "PC",
 };
 
-const IGDB_ID_TO_PLATFORM_KEY: Record<number, string> = {
-  ...Object.fromEntries(
-    PLATFORM_CATALOG.flatMap(({ canonical, igdbIds }) =>
-      igdbIds.map((id) => [id, canonical.toLowerCase()])
-    )
-  ),
-  35: "game gear",
-};
+const IGDB_ID_TO_PLATFORM_KEY: Record<number, string> = Object.fromEntries(
+  PLATFORM_CATALOG.flatMap(({ canonical, igdbIds }) =>
+    igdbIds.map((id) => [id, canonical.toLowerCase()])
+  )
+);
 
 const MAX_PATH_RETRY = 5;
 const MAX_LISTED_FILES = 100;

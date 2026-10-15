@@ -673,6 +673,7 @@ describe("ImportManager - shouldSkipPCPlatform", () => {
       { label: "Xbox", id: 11, name: "Xbox", folder: "Xbox Classic" },
       { label: "Linux", id: 3, name: "Linux", folder: "Linux" },
       { label: "Mac", id: 14, name: "Mac", folder: "Mac" },
+      { label: "Game.Gear", id: 35, name: "Sega Game Gear", folder: "Game Gear" },
     ].flatMap(({ label, id, name, folder }) => [
       {
         platforms: ["PC (Microsoft Windows)"],

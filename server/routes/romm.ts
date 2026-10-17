@@ -56,6 +56,14 @@ rommRouter.post("/", async (req, res) => {
   try {
     const update = rommSettingsSchema.parse(req.body);
     const { apiToken, ...rest } = update;
+    const keepsToken = apiToken === undefined || apiToken === REDACTED || apiToken === "";
+    if (keepsToken && rest.url !== undefined) {
+      // The saved token is only ever sent to the saved URL.
+      const saved = await readRommSettings();
+      if (saved.apiToken && rest.url.trim().replace(/\/+$/, "") !== saved.url) {
+        return res.status(400).json({ error: "Enter the RomM API token again for this URL" });
+      }
+    }
     await writeRommSettings({
       ...rest,
       ...(apiToken !== undefined && apiToken !== REDACTED ? { apiToken } : {}),

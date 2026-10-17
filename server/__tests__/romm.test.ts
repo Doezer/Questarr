@@ -276,10 +276,17 @@ describe("RomM routes", () => {
 
     const save = await request(app())
       .post("/api/settings/romm")
-      .send({ url: "https://romm.example", apiToken: "********", platformFolders: true });
+      .send({ url: "http://romm.lan:8080/", apiToken: "********", platformFolders: true });
     expect(save.status).toBe(200);
     expect(store.get("romm.apiToken")).toBe("enc:rmm_secret");
     expect(store.get("romm.platformFolders")).toBe("true");
+
+    // A new URL needs a new token: the saved one is never sent to another host.
+    const moved = await request(app())
+      .post("/api/settings/romm")
+      .send({ url: "https://romm.example", apiToken: "********" });
+    expect(moved.status).toBe(400);
+    expect(store.get("romm.url")).toBe("http://romm.lan:8080");
   });
 
   it("rejects a non-http URL and unknown fields", async () => {

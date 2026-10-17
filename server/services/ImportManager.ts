@@ -8,7 +8,7 @@ import {
   ImportResult,
   PCImportStrategy,
   TransferMode,
-  sanitizeFsName,
+  resolveLibraryLeafName,
   gatherFiles,
   reorganizeBySortExtras,
 } from "./ImportStrategies.js";
@@ -16,11 +16,12 @@ import { DownloaderManager } from "../downloaders.js";
 import { resolveRemoteImportPath } from "../downloaders/utils.js";
 import fs from "fs-extra";
 import path from "node:path";
-import { parseReleaseMetadata } from "../../shared/title-utils.js";
+import { parseReleaseMetadata, PLATFORM_CATALOG } from "../../shared/title-utils.js";
 import {
   GAME_LINK_REQUIRED_STATUS,
   QUARANTINED_STATUS,
   isUserCuratedGameStatus,
+  type Game,
 } from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
@@ -33,33 +34,10 @@ import { isRommPlatformFoldersEnabled, requestRommScanAfterImport } from "../rom
 import { isValidRommSlug, rommSlugForPlatformId } from "../../shared/romm-platforms.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
 
-const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
-  nes: 18,
-  snes: 19,
-  n64: 4,
-  gamecube: 21,
-  wii: 5,
-  "wii u": 41,
-  gb: 33,
-  gbc: 22,
-  gba: 24,
-  nds: 20,
-  "3ds": 37,
-  switch: 130,
-  ps1: 7,
-  ps2: 8,
-  ps3: 9,
-  psp: 38,
-  "game gear": 35,
-  "master system": 64,
-  "mega drive": 29,
-  dreamcast: 23,
-  "atari 2600": 59,
-  "neo geo": 80,
-  pc: 6,
-};
-
 const PLATFORM_FOLDER_NAMES: Record<string, string> = {
+  ...Object.fromEntries(
+    PLATFORM_CATALOG.map(({ canonical }) => [canonical.toLowerCase(), canonical])
+  ),
   nes: "NES",
   snes: "SNES",
   n64: "N64",
@@ -86,7 +64,9 @@ const PLATFORM_FOLDER_NAMES: Record<string, string> = {
 };
 
 const IGDB_ID_TO_PLATFORM_KEY: Record<number, string> = Object.fromEntries(
-  Object.entries(RELEASE_PLATFORM_TO_IGDB_ID).map(([key, id]) => [id, key])
+  PLATFORM_CATALOG.flatMap(({ canonical, igdbIds }) =>
+    igdbIds.map((id) => [id, canonical.toLowerCase()])
+  )
 );
 
 const MAX_PATH_RETRY = 5;
@@ -136,7 +116,13 @@ export class ImportManager {
 
   private extractPlatformIdFromElement(p: unknown): number | undefined {
     if (typeof p === "number") return p;
-    if (typeof p === "string" && /^\d+$/.test(p)) return Number(p);
+    if (typeof p === "string") {
+      if (/^\d+$/.test(p)) return Number(p);
+      const normalizedName = p.trim().toLowerCase().replaceAll(/\s+/g, " ");
+      return PLATFORM_CATALOG.find(({ igdbNames }) =>
+        igdbNames.some((name) => name.toLowerCase() === normalizedName)
+      )?.igdbIds[0];
+    }
     if (p && typeof p === "object" && "id" in p) {
       const id = (p as { id?: unknown }).id;
       if (typeof id === "number") return id;
@@ -145,11 +131,15 @@ export class ImportManager {
     return undefined;
   }
 
-  private getPrimaryPlatformId(game: { platforms?: unknown }): number | undefined {
+  private getPrimaryPlatformId(
+    game: { platforms?: unknown },
+    allowed: number[] = []
+  ): number | undefined {
     if (!Array.isArray(game.platforms)) return undefined;
     for (const p of game.platforms) {
       const platformId = this.extractPlatformIdFromElement(p);
-      if (platformId !== undefined) return platformId;
+      if (platformId !== undefined && this.isPlatformEnabled(platformId, allowed))
+        return platformId;
     }
     return undefined;
   }
@@ -167,7 +157,8 @@ export class ImportManager {
 
   private getReleasePlatformIgdbId(releasePlatformKey: string | null): number | undefined {
     if (!releasePlatformKey) return undefined;
-    return RELEASE_PLATFORM_TO_IGDB_ID[releasePlatformKey];
+    return PLATFORM_CATALOG.find(({ canonical }) => canonical.toLowerCase() === releasePlatformKey)
+      ?.igdbIds[0];
   }
 
   /**
@@ -177,26 +168,31 @@ export class ImportManager {
    */
   private async resolvePlatformFolder(
     downloadTitle: string,
-    game: { platforms?: unknown; targetPlatformId?: number | null }
+    game: { platforms?: unknown; targetPlatformId?: number | null },
+    allowed: number[]
   ): Promise<string> {
     if (await isRommPlatformFoldersEnabled()) {
       const releaseKey = this.getReleasePlatformKey(downloadTitle);
       const platformId =
         this.getReleasePlatformIgdbId(releaseKey) ??
         game.targetPlatformId ??
-        this.getPrimaryPlatformId(game) ??
+        this.getPrimaryPlatformId(game, allowed) ??
         6;
       const slug = rommSlugForPlatformId(platformId);
       if (slug && isValidRommSlug(slug)) return slug;
     }
-    return this.resolvePlatformFolderName(downloadTitle, game);
+    return this.resolvePlatformFolderName(downloadTitle, game, allowed);
   }
 
-  private resolvePlatformFolderName(downloadTitle: string, game: { platforms?: unknown }): string {
+  private resolvePlatformFolderName(
+    downloadTitle: string,
+    game: { platforms?: unknown },
+    allowed: number[]
+  ): string {
     const key = this.getReleasePlatformKey(downloadTitle);
     if (key && PLATFORM_FOLDER_NAMES[key]) return PLATFORM_FOLDER_NAMES[key];
 
-    const igdbId = this.getPrimaryPlatformId(game);
+    const igdbId = this.getPrimaryPlatformId(game, allowed) ?? this.getPrimaryPlatformId(game);
     if (igdbId !== undefined) {
       const igdbKey = IGDB_ID_TO_PLATFORM_KEY[igdbId];
       if (igdbKey && PLATFORM_FOLDER_NAMES[igdbKey]) return PLATFORM_FOLDER_NAMES[igdbKey];
@@ -556,16 +552,23 @@ export class ImportManager {
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     importPlatformIds: number[]
   ): boolean {
-    const gamePrimaryPlatformId = this.getPrimaryPlatformId(game);
     const releasePlatformKey = this.getReleasePlatformKey(downloadTitle);
     const releasePlatformId = this.getReleasePlatformIgdbId(releasePlatformKey);
-    // Same precedence as resolvePlatformFolder: release, then the chosen target, then the primary.
-    const effectivePlatformId =
-      releasePlatformId ?? game.targetPlatformId ?? gamePrimaryPlatformId ?? undefined;
+    // A detected release identifies the downloaded version, then the platform the user chose for
+    // the game. Otherwise the game can list several platforms, stored as IGDB names, and any
+    // selected one fits.
+    const identifiedPlatformId = releasePlatformId ?? game.targetPlatformId ?? undefined;
+    const enabled =
+      identifiedPlatformId !== undefined
+        ? this.isPlatformEnabled(identifiedPlatformId, importPlatformIds)
+        : this.isPlatformEnabled(
+            this.getPrimaryPlatformId(game, importPlatformIds),
+            importPlatformIds
+          );
 
-    if (!this.isPlatformEnabled(effectivePlatformId, importPlatformIds)) {
+    if (!enabled) {
       logger.info(
-        { gameTitle: game.title, effectivePlatformId },
+        { gameTitle: game.title, releasePlatformId, gamePlatforms: game.platforms },
         "[ImportManager] Skipping import: platform not in filter"
       );
       return true;
@@ -980,17 +983,17 @@ export class ImportManager {
 
       await fs.ensureDir(libraryRoot);
 
-      const platformDir = await this.resolvePlatformFolder(download.downloadTitle || "", game);
-      const plan = await strategy.planImport(
-        localPath,
+      const platformDir = await this.resolvePlatformFolder(
+        download.downloadTitle || "",
         game,
-        libraryRoot,
-        config,
-        platformDir,
-        needsExtraction && !archiveResolution!.isDirectorySource
-          ? { treatAsDirectory: true }
-          : undefined
+        config.importPlatformIds
       );
+      const plan = await strategy.planImport(localPath, game, libraryRoot, config, platformDir, {
+        ...(needsExtraction && !archiveResolution!.isDirectorySource
+          ? { treatAsDirectory: true }
+          : {}),
+        downloadTitle: download.downloadTitle,
+      });
 
       if (plan.needsReview) {
         await this.flagNeedsReview(downloadId, game, plan);
@@ -1053,6 +1056,51 @@ export class ImportManager {
     return this.pathService.translatePath(remotePath, remoteHost);
   }
 
+  /**
+   * Renders a naming pattern on a few of the user's own games, plus one synthetic release so
+   * the release-derived tokens (Version, Group, Source) show up too. Nothing touches the disk.
+   */
+  async previewNaming(
+    pattern: string,
+    userId: string
+  ): Promise<Array<{ title: string; leafName: string; fullPath: string }>> {
+    const config = await this.storage.getImportConfig(userId);
+    const libraryRoot = config.libraryRoot || "/data";
+    const games = (await this.storage.getUserGames(userId)).slice(0, 5);
+    const samples: Array<{ game: Game; releaseTitle: string }> = games.map((game) => ({
+      game,
+      releaseTitle: "",
+    }));
+    samples.push({
+      game: {
+        title: "The Example Quest: Remastered",
+        releaseDate: "2021-06-15",
+        igdbId: 12345,
+        steamAppId: 67890,
+        platforms: ["PC (Microsoft Windows)"],
+      } as unknown as Game,
+      releaseTitle: "The.Example.Quest.Remastered.v1.2.3-GROUP",
+    });
+    return samples.map(({ game, releaseTitle }) => {
+      const platformDir = this.resolvePlatformFolderName(
+        releaseTitle,
+        game,
+        config.importPlatformIds
+      );
+      const leafName = resolveLibraryLeafName(
+        game,
+        { renamePattern: pattern },
+        platformDir,
+        releaseTitle
+      );
+      return {
+        title: game.title,
+        leafName,
+        fullPath: path.join(libraryRoot, platformDir, leafName),
+      };
+    });
+  }
+
   async planConfirmImport(
     downloadId: string,
     overrideSourcePath?: string,
@@ -1081,8 +1129,16 @@ export class ImportManager {
       // Source resolution failed — still return a proposed path based on game title
     }
 
-    const platformDir = await this.resolvePlatformFolder(download.downloadTitle || "", game);
-    const fallbackProposedPath = path.join(libraryRoot, platformDir, sanitizeFsName(game.title));
+    const platformDir = await this.resolvePlatformFolder(
+      download.downloadTitle || "",
+      game,
+      config.importPlatformIds
+    );
+    const fallbackProposedPath = path.join(
+      libraryRoot,
+      platformDir,
+      resolveLibraryLeafName(game, config, platformDir, download.downloadTitle)
+    );
 
     if (resolvedOriginalPath) {
       const { files, hasArchive, totalCount } = await this.readSourceFiles(resolvedOriginalPath);
@@ -1093,7 +1149,8 @@ export class ImportManager {
           game,
           libraryRoot,
           config,
-          platformDir
+          platformDir,
+          { downloadTitle: download.downloadTitle }
         );
         return {
           originalPath: resolvedOriginalPath,

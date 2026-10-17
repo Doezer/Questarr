@@ -32,7 +32,7 @@ for optional PostgreSQL and data migration.
 
 For other installation options, see [home server deployments](HOME_SERVER_APPS.md)
 and [Proxmox](PROXMOX.md). See [reverse proxy setup](REVERSE_PROXY.md) before
-publishing Questarr behind a proxy, and [the changelog](CHANGELOG.md) when upgrading.
+publishing Questarr behind a proxy, and [the changelog](https://github.com/Doezer/Questarr/blob/main/docs/CHANGELOG.md) when upgrading.
 
 ## Forgot your password
 

@@ -22,6 +22,8 @@ import { selectedPlatformNames as resolveSelectedPlatformNames } from "@shared/p
 import { PathMappingSettings } from "./PathMappingSettings";
 import { FileBrowser } from "./FileBrowser";
 import { RommSettings } from "./RommSettings";
+import { validatePattern } from "@shared/naming";
+import { NamingPatternEditor } from "./NamingPatternEditor";
 import SecurityScanSettings from "./SecurityScanSettings";
 
 type HardlinkPairCheck = {
@@ -356,18 +358,12 @@ export default function ImportSettings() {
                     <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                       Naming
                     </p>
-                    <div className="space-y-1.5">
-                      <Label>Rename Pattern</Label>
-                      <Input
-                        value={localConfig.renamePattern}
-                        onChange={(e) =>
-                          setLocalConfig({ ...localConfig, renamePattern: e.target.value })
-                        }
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Available tokens: {"{Title}"}, {"{Region}"}, {"{Platform}"}, {"{Year}"}
-                      </p>
-                    </div>
+                    <NamingPatternEditor
+                      value={localConfig.renamePattern}
+                      onChange={(renamePattern) =>
+                        setLocalConfig({ ...localConfig, renamePattern })
+                      }
+                    />
                   </div>
                 </CardContent>
               </Card>
@@ -375,7 +371,9 @@ export default function ImportSettings() {
               <div className="flex justify-end">
                 <Button
                   onClick={() => localConfig && updateConfigMutation.mutate(localConfig)}
-                  disabled={updateConfigMutation.isPending}
+                  disabled={
+                    updateConfigMutation.isPending || !validatePattern(localConfig.renamePattern).ok
+                  }
                 >
                   {updateConfigMutation.isPending && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -524,8 +522,8 @@ export default function ImportSettings() {
                       desc: "Limits imports to the platforms chosen under Settings → Appearance → Platforms. If no platforms are checked, all platforms are eligible.",
                     },
                     {
-                      name: "Rename Pattern",
-                      desc: "Controls the file name after import. Tokens: {Title} = game title, {Region} = region tag from the release name, {Platform} = platform name, {Year} = release year. Example: {Title} ({Year}) ({Platform}).",
+                      name: "Naming Pattern",
+                      desc: "Controls the name of the game folder (or file, for single-file releases) after import. Tokens: {Title}, {TitleThe}, {Year}, {Platform}, {Version}, {Group}, {Source}, {IgdbId}, {SteamAppId}. Empty values and the brackets around them are dropped. Example: {Title} ({Year}).",
                     },
                   ].map(({ name, desc }) => (
                     <div key={name}>

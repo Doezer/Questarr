@@ -128,6 +128,27 @@ describe("ImportSettings", () => {
     });
   });
 
+  it("inserts a token at the caret and shows a live preview", async () => {
+    renderComponent();
+    const input = await screen.findByLabelText("Naming Pattern");
+    expect(screen.getByTestId("naming-instant-preview")).toHaveTextContent(
+      "The Example Quest (2021)"
+    );
+    fireEvent.click(screen.getByRole("button", { name: /insert \{Group\}/i }));
+    expect((input as HTMLInputElement).value).toBe("{Title} ({Year}){Group}");
+    expect(screen.getByTestId("naming-instant-preview")).toHaveTextContent(
+      "The Example Quest (2021)GROUP"
+    );
+  });
+
+  it("flags an invalid pattern and blocks saving", async () => {
+    renderComponent();
+    const input = await screen.findByLabelText("Naming Pattern");
+    fireEvent.change(input, { target: { value: "../{Foo}" } });
+    expect(screen.getByText("Unknown token {Foo}")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save changes/i })).toBeDisabled();
+  });
+
   it("switches to the help tab and renders guidance content", async () => {
     renderComponent();
     await screen.findByText("Enable Post-Processing");

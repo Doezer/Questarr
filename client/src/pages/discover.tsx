@@ -1,3 +1,4 @@
+import { restoredListState, saveListState } from "@/lib/in-app-history";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -86,8 +87,15 @@ const SelectTriggerWithSpinner = ({
 };
 
 export default function DiscoverPage() {
-  const [selectedGenre, setSelectedGenre] = useState<string>("Adventure");
-  const [selectedPlatform, setSelectedPlatform] = useState<string>("PC");
+  // Coming back from a game page with Back restores the carousel the game was opened from.
+  const [restored] = useState(() =>
+    restoredListState<{ genre: string; platform: string }>("discover")
+  );
+  const [selectedGenre, setSelectedGenre] = useState<string>(restored?.genre ?? "Adventure");
+  const [selectedPlatform, setSelectedPlatform] = useState<string>(restored?.platform ?? "PC");
+  useEffect(() => {
+    saveListState("discover", { genre: selectedGenre, platform: selectedPlatform });
+  }, [selectedGenre, selectedPlatform]);
   const [showSettings, setShowSettings] = useState(false);
   const [hideOwned, setHideOwned] = useLocalStorageState("discoverHideOwned", false);
   const [hideWanted, setHideWanted] = useLocalStorageState("discoverHideWanted", false);

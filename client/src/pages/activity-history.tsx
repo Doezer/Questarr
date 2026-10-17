@@ -107,7 +107,9 @@ export default function ActivityHistoryPage() {
           {events.map((event) => (
             <li key={event.id} className="rounded-lg border border-[#374151]/40 bg-card p-4">
               <div className="flex items-start justify-between gap-3">
-                <p className="break-words text-sm font-medium text-white">{event.releaseTitle}</p>
+                <p className="break-words text-sm font-medium text-card-foreground">
+                  {event.releaseTitle}
+                </p>
                 <EventBadge type={event.eventType} />
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -136,7 +138,7 @@ export default function ActivityHistoryPage() {
               {events.map((event) => (
                 <tr key={event.id} className="border-b border-[#374151]/30 last:border-0">
                   <td className="px-4 py-3">
-                    <p className="break-all text-white">{event.releaseTitle}</p>
+                    <p className="break-all text-card-foreground">{event.releaseTitle}</p>
                     {event.message && (
                       <p className="mt-1 break-words text-xs text-red-400">{event.message}</p>
                     )}

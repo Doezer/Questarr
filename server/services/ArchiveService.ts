@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { accessSync, constants as fsConstants } from "node:fs";
+import { accessSync, constants as fsConstants, type Dir } from "node:fs";
+import { opendir } from "node:fs/promises";
 import path from "node:path";
 import fs from "fs-extra";
 import { logger } from "../logger.js";
@@ -791,16 +792,27 @@ export class ArchiveService {
     const sets: Array<{ primary: string; volumes: string[]; relDir: string }> = [];
     const archiveOptions = { includeDiscImages: options.includeDiscImages === true };
 
+    // Reads at most `limit` names (sorted) so a huge directory is never fully enumerated.
+    const readNames = async (dir: string, limit: number): Promise<string[]> => {
+      const names: string[] = [];
+      let handle: Dir | undefined;
+      try {
+        handle = await opendir(dir);
+        for await (const entry of handle) {
+          names.push(entry.name);
+          if (names.length >= limit) break;
+        }
+      } catch {
+        // Unreadable or vanished directory: report what was read so far.
+      } finally {
+        await handle?.close().catch(() => undefined);
+      }
+      return names.sort();
+    };
+
     const walk = async (dir: string, depth: number): Promise<void> => {
       if (budget <= 0) return;
-      let names: string[];
-      try {
-        names = (await fs.readdir(dir)).sort();
-      } catch {
-        return;
-      }
-      // Look at no more entries than the budget has left, even inside one huge directory.
-      names = names.slice(0, budget);
+      const names = await readNames(dir, budget);
       budget -= names.length;
 
       const files: string[] = [];
@@ -837,9 +849,22 @@ export class ArchiveService {
       }
 
       if (depth >= maxDepth) return;
-      for (const sub of subDirs) await walk(sub, depth + 1);
+      for (const sub of subDirs) {
+        // Re-check right before descending: a directory swapped for a symlink is not followed.
+        const current = await fs.lstat(sub).catch(() => null);
+        if (current?.isDirectory() && !current.isSymbolicLink()) await walk(sub, depth + 1);
+      }
     };
 
+    const rootStats = await fs.lstat(root).catch(() => null);
+    if (!rootStats || rootStats.isSymbolicLink()) return sets;
+    if (rootStats.isFile()) {
+      // A single-file import points at the file itself.
+      if (this.isArchive(root, archiveOptions)) {
+        sets.push({ primary: root, volumes: [path.resolve(root)], relDir: "" });
+      }
+      return sets;
+    }
     await walk(root, 0);
     return sets;
   }

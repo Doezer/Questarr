@@ -91,6 +91,7 @@ import { logger } from "./logger.js";
 import { normalizeDownloadHash } from "./download-hash.js";
 import {
   eq,
+  ne,
   like,
   or,
   sql,
@@ -2937,8 +2938,17 @@ export class DatabaseStorage implements IStorage {
     }
     const eventType = DOWNLOAD_STATUS_EVENTS[status];
     const previous = eventType ? await this.getDownloadEventContext(id) : undefined;
-    await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
-    if (eventType && previous && previous.status !== status) {
+    // Only the call that really changes the status gets to log it, even under concurrency.
+    const changed = await db
+      .update(gameDownloads)
+      .set(updates)
+      .where(
+        eventType
+          ? and(eq(gameDownloads.id, id), ne(gameDownloads.status, status as never))
+          : eq(gameDownloads.id, id)
+      )
+      .returning({ id: gameDownloads.id });
+    if (eventType && previous && changed.length > 0) {
       await this.recordDownloadEvent({
         userId: previous.userId,
         gameId: previous.gameId,
@@ -2952,6 +2962,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   private async getDownloadEventContext(id: string) {
+    try {
+      return await this.loadDownloadEventContext(id);
+    } catch (error) {
+      logger.warn({ error, downloadId: id }, "Failed to load download event context");
+      return undefined;
+    }
+  }
+
+  private async loadDownloadEventContext(id: string) {
     const [row] = await db
       .select({
         status: gameDownloads.status,

@@ -101,7 +101,9 @@ export default function ActivityBlocklistPage() {
         <ul className="flex flex-col gap-3 md:hidden" aria-label="Blocked releases">
           {entries.map((entry) => (
             <li key={entry.id} className="rounded-lg border border-[#374151]/40 bg-card p-4">
-              <p className="break-words text-sm font-medium text-white">{entry.releaseTitle}</p>
+              <p className="break-words text-sm font-medium text-card-foreground">
+                {entry.releaseTitle}
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {entry.gameTitle} · {entry.indexerName ?? "unknown indexer"} ·{" "}
                 {formatDate(entry.createdAt)}
@@ -135,7 +137,7 @@ export default function ActivityBlocklistPage() {
             <tbody>
               {entries.map((entry) => (
                 <tr key={entry.id} className="border-b border-[#374151]/30 last:border-0">
-                  <td className="break-all px-4 py-3 text-white">{entry.releaseTitle}</td>
+                  <td className="break-all px-4 py-3 text-card-foreground">{entry.releaseTitle}</td>
                   <td className="px-4 py-3 text-slate-300">{entry.gameTitle}</td>
                   <td className="px-4 py-3 text-slate-300">{entry.indexerName ?? "—"}</td>
                   <td className="px-4 py-3 text-slate-300">{formatDate(entry.createdAt)}</td>

@@ -75,12 +75,27 @@ describe("ArchiveService.findArchiveSets", () => {
     await touch("a.zip");
     await touch("b.zip");
     await touch("c.zip");
-    expect(await primaries({ maxEntries: 2 })).toEqual(["a.zip", "b.zip"]);
+    expect((await primaries({ maxEntries: 2 })).length).toBe(2);
   });
 
   it("stops after the entry budget is spent", async () => {
     await touch("a.zip");
     await touch("b/c.zip");
-    expect(await primaries({ maxEntries: 1 })).toEqual(["a.zip"]);
+    // Only one entry of the root directory is read, so at most one of its names is looked at.
+    expect((await primaries({ maxEntries: 1 })).length).toBeLessThanOrEqual(1);
+  });
+
+  it("reads inside a huge directory only up to the budget", async () => {
+    for (let i = 0; i < 20; i++) await touch(`f${i}.zip`);
+    expect((await primaries({ maxEntries: 5 })).length).toBe(5);
+  });
+
+  it("does not follow a symlinked root and handles a single archive file", async () => {
+    await touch("real/a.zip");
+    await fs.symlink(path.join(root, "real"), path.join(root, "link"));
+    const svc = new ArchiveService();
+    expect(await svc.findArchiveSets(path.join(root, "link"))).toEqual([]);
+    const single = await svc.findArchiveSets(path.join(root, "real", "a.zip"));
+    expect(single.map((s) => path.basename(s.primary))).toEqual(["a.zip"]);
   });
 });

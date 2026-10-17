@@ -384,6 +384,29 @@ describe("SeerrNG provider API", () => {
       expect(games.get("g9")?.status).toBe("owned");
     });
 
+    it("reports a request whose game was deleted as failed and retryable", async () => {
+      await request(app).post(`${base}/requests`).send(createBody);
+      ledger.set("user-1:seerrng:request:1", {
+        ...ledger.get("user-1:seerrng:request:1"),
+        gameId: null,
+        status: "searching",
+      });
+      games.clear();
+      const status = await request(app).get(`${base}/requests/seerrng:request:1`);
+      expect(status.body).toMatchObject({ status: "failed", actions: { retry: true } });
+    });
+
+    it("adds one game for concurrent exact-ID requests with different titles", async () => {
+      const [a, b] = await Promise.all([
+        request(app).post(`${base}/requests`).send(createBody),
+        request(app)
+          .post(`${base}/requests`)
+          .send({ ...createBody, externalRequestId: "seerrng:request:2", title: "Other Title" }),
+      ]);
+      expect([a.status, b.status].sort()).toEqual([201, 409]);
+      expect(games.size).toBe(1);
+    });
+
     it("lets a cancelled game be requested again under a new request ID", async () => {
       await request(app).post(`${base}/requests`).send(createBody);
       await request(app).post(`${base}/requests/seerrng:request:1/cancel`).send({});

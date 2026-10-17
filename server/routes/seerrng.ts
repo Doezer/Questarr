@@ -513,8 +513,12 @@ async function describeRequest(userId: string, ledger: IntegrationRequest) {
   if (ledger.status === "cancelled") {
     status = "cancelled";
   } else if (!game) {
-    status = ledger.status === "failed" ? "failed" : "accepted";
-    error = ledger.status === "failed" ? ledger.errorMessage : null;
+    // "accepted" is only legitimate while dispatch is still creating the game; a request that
+    // had reached "searching" and lost its game (deleted from the library) is retryable.
+    const lostGame = ledger.status === "searching";
+    status = ledger.status === "failed" || lostGame ? "failed" : "accepted";
+    if (lostGame) error = "The game was removed from the library.";
+    else if (ledger.status === "failed") error = ledger.errorMessage;
   } else {
     const [assets, downloads] = await Promise.all([
       listAssets(userId, game.id),
@@ -569,7 +573,17 @@ async function describeRequest(userId: string, ledger: IntegrationRequest) {
   };
 }
 
-/** Per (user, title) queue so two concurrent requests for one title cannot both add the game. */
+/** Exact IGDB requests queue by identity, others by title, so one game is never added twice. */
+function dispatchKey(
+  userId: string | number,
+  request: { title: string; igdbId?: number | null | undefined }
+) {
+  return request.igdbId
+    ? `${userId}:igdb:${request.igdbId}`
+    : `${userId}:${normalizeTitle(request.title)}`;
+}
+
+/** Per-key queue so two concurrent requests for one game cannot both add it. */
 const dispatchQueues = new Map<string, Promise<void>>();
 async function withDispatchQueue<T>(key: string, work: () => Promise<T>): Promise<T> {
   const previous = dispatchQueues.get(key) ?? Promise.resolve();
@@ -647,7 +661,7 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
   }
   const { externalRequestId, title, igdbId, variant } = parsed.data;
   const userId = req.user!.id;
-  return withDispatchQueue(`${userId}:${normalizeTitle(title)}`, async () => {
+  return withDispatchQueue(dispatchKey(userId, { title, igdbId }), async () => {
     try {
       const { request: ledger, created } = await storage.addIntegrationRequest({
         userId,
@@ -768,7 +782,7 @@ function requestAction(
       if (!ledger) return undefined;
       const userId = req.user!.id;
       // Same queue as request creation: retries cannot race each other or a new request.
-      return await withDispatchQueue(`${userId}:${normalizeTitle(ledger.title)}`, async () => {
+      return await withDispatchQueue(dispatchKey(userId, ledger), async () => {
         // Reload inside the queue so the guards see what the previous action left behind.
         const fresh =
           (await storage.getIntegrationRequest(userId, ledger.externalRequestId)) ?? ledger;

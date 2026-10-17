@@ -966,6 +966,16 @@ describe("IGDBClient - formatGameData metadata fields", () => {
       });
   }
 
+  it("maps IGDB videos to name and YouTube id", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    const result = igdbClient.formatGameData({
+      id: 1,
+      name: "Test Game",
+      videos: [{ name: "Trailer", video_id: "dQw4w9WgXcQ" }, { video_id: "bad" }],
+    });
+    expect(result.videos).toEqual([{ name: "Trailer", videoId: "dQw4w9WgXcQ" }]);
+  });
+
   it("returns null rating when IGDB game has no rating field", async () => {
     const { igdbClient } = await import("../igdb.js");
     const result = igdbClient.formatGameData({ id: 1, name: "Test Game" });

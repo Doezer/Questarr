@@ -152,6 +152,7 @@ export default function ClaimDownloadModal({
           rating: g.rating,
           aggregatedRating: g.aggregatedRating,
           screenshots: g.screenshots,
+          videos: g.videos,
           igdbWebsites: g.igdbWebsites,
           source: "api",
         };

@@ -38,4 +38,19 @@ describe("list state restore", () => {
     window.history.pushState({}, "", "/library");
     expect(restoredListState("library")).toBeUndefined();
   });
+
+  it("gives each entry its own snapshot", async () => {
+    window.history.pushState({}, "", "/library");
+    saveListState("library", { searchQuery: "zelda" });
+    window.history.pushState({}, "", "/games/g1");
+    window.history.pushState({}, "", "/library");
+    saveListState("library", { searchQuery: "mario" });
+    window.history.pushState({}, "", "/games/g2");
+    await back();
+    expect(restoredListState("library")).toEqual({ searchQuery: "mario" });
+    await back();
+    await back();
+    expect(window.location.pathname).toBe("/library");
+    expect(restoredListState("library")).toEqual({ searchQuery: "zelda" });
+  });
 });

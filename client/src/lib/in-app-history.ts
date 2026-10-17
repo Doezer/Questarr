@@ -14,10 +14,14 @@ if (typeof window !== "undefined" && !(window.history as { __marked?: boolean })
   const nativeReplaceState = window.history.replaceState.bind(window.history);
   window.history.pushState = (state: unknown, unused: string, url?: string | URL | null) => {
     const base = state && typeof state === "object" ? (state as Record<string, unknown>) : {};
-    // Flag the entry a game page is opened from, so Back to that very entry restores its filters.
+    // Snapshot the list state on the entry a game page is opened from, so Back to that very entry
+    // restores exactly what it showed.
     if (url && /\/games\/[^/?#]+/.test(String(url))) {
       const current = window.history.state as Record<string, unknown> | null;
-      nativeReplaceState({ ...(current ?? {}), [OPENED_GAME_MARKER]: true }, "");
+      nativeReplaceState(
+        { ...(current ?? {}), [OPENED_GAME_MARKER]: Object.fromEntries(listStates) },
+        ""
+      );
     }
     lastNavWasPop = false;
     pushState({ ...base, [IN_APP_MARKER]: true }, unused, url);
@@ -48,6 +52,7 @@ export function saveListState(key: string, state: unknown): void {
 export function restoredListState<T>(key: string): T | undefined {
   if (typeof window === "undefined") return undefined;
   const state = window.history.state as Record<string, unknown> | null;
-  if (!lastNavWasPop || !state?.[OPENED_GAME_MARKER]) return undefined;
-  return listStates.get(key) as T | undefined;
+  const snapshot = state?.[OPENED_GAME_MARKER] as Record<string, unknown> | undefined;
+  if (!lastNavWasPop || !snapshot) return undefined;
+  return snapshot[key] as T | undefined;
 }

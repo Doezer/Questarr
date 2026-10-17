@@ -72,6 +72,7 @@ vi.mock("../config.js", () => ({
 
 // Mock auth middleware to bypass authentication for these tests
 vi.mock("../auth.js", () => ({
+  requireScope: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   hashPassword: vi.fn(),
   comparePassword: vi.fn(),
   generateToken: vi.fn(),

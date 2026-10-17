@@ -64,6 +64,20 @@
       "when": 1791226213942,
       "tag": "0008_spotty_celestials",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791870887311,
+      "tag": "0009_supreme_northstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791871581193,
+      "tag": "0010_narrow_terrax",
+      "breakpoints": true
     }
   ]
 }

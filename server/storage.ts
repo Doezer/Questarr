@@ -42,7 +42,13 @@ import {
   type InsertGameFile,
   type GameFileCategory,
   type ApiKey,
+  DEFAULT_API_KEY_SCOPE,
   type ApiKeyPublic,
+  type NewApiKeyInput,
+  type IntegrationRequest,
+  type IntegrationRequestProvider,
+  type IntegrationRequestUpdate,
+  type NewIntegrationRequest,
   GAME_LINK_REQUIRED_STATUS,
   QUARANTINED_STATUS,
   USER_CURATED_GAME_STATUSES,
@@ -76,6 +82,7 @@ import {
   aiAutoDownloadHolds,
   gameFiles,
   apiKeys,
+  integrationRequests,
   rootFolders,
   gameJournalEntries,
   gameMilestones,
@@ -199,6 +206,9 @@ type ImportTaskUpdate = Pick<
  * - "noop": nothing changed (record missing or already has a real hash).
  */
 export type UpdateGameDownloadHashOutcome = "updated" | "merged" | "noop";
+
+/** Minimum gap between two "last used" writes for one API key. */
+export const API_KEY_TOUCH_INTERVAL_MS = 60_000;
 
 export interface IStorage {
   // System Config methods
@@ -475,13 +485,33 @@ export interface IStorage {
   // Integration API key methods
   getApiKeys(userId: string): Promise<ApiKeyPublic[]>;
   /** Throws "API key limit reached" (as a plain Error) if the user already has maxKeys. */
-  addApiKey(
-    key: { userId: string; name: string; keyHash: string; prefix: string },
-    maxKeys: number
-  ): Promise<ApiKeyPublic>;
+  addApiKey(key: NewApiKeyInput, maxKeys: number): Promise<ApiKeyPublic>;
   getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined>;
   touchApiKey(id: string): Promise<void>;
   removeApiKey(id: string, userId: string): Promise<boolean>;
+
+  // External request ledger (SeerrNG), always scoped to the owning user.
+  getIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    provider?: IntegrationRequestProvider
+  ): Promise<IntegrationRequest | undefined>;
+  /** Inserts a request, or returns the existing row for the same (user, provider, id) with created=false. */
+  addIntegrationRequest(
+    request: NewIntegrationRequest
+  ): Promise<{ request: IntegrationRequest; created: boolean }>;
+  updateIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    updates: IntegrationRequestUpdate,
+    provider?: IntegrationRequestProvider
+  ): Promise<IntegrationRequest | undefined>;
+  /** The request currently linked to a game, so one game never answers two requests. */
+  getIntegrationRequestByGameId(
+    userId: string,
+    gameId: string,
+    provider?: IntegrationRequestProvider
+  ): Promise<IntegrationRequest | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -503,6 +533,7 @@ export class MemStorage implements IStorage {
   private gameFiles: Map<string, GameFile>;
   private rootFolders: Map<string, RootFolder>;
   private apiKeys: Map<string, ApiKey>;
+  private integrationRequests: Map<string, IntegrationRequest>;
   private gameJournalEntries: Map<string, GameJournalEntry>;
   private gameMilestones: Map<string, GameMilestone>;
   private gameScreenshots: Map<string, GameScreenshot>;
@@ -526,6 +557,7 @@ export class MemStorage implements IStorage {
     this.gameFiles = new Map();
     this.rootFolders = new Map();
     this.apiKeys = new Map();
+    this.integrationRequests = new Map();
     this.gameJournalEntries = new Map();
     this.gameMilestones = new Map();
     this.gameScreenshots = new Map();
@@ -1999,10 +2031,7 @@ export class MemStorage implements IStorage {
       .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
   }
 
-  async addApiKey(
-    key: { userId: string; name: string; keyHash: string; prefix: string },
-    maxKeys: number
-  ): Promise<ApiKeyPublic> {
+  async addApiKey(key: NewApiKeyInput, maxKeys: number): Promise<ApiKeyPublic> {
     // MemStorage has no concurrent callers (single-threaded test usage), so a
     // plain count check is sufficient here; DatabaseStorage's transaction is
     // what actually closes the race for the real, multi-request server.
@@ -2014,7 +2043,14 @@ export class MemStorage implements IStorage {
     }
 
     const id = randomUUID();
-    const record: ApiKey = { ...key, id, createdAt: new Date(), lastUsedAt: null };
+    const record: ApiKey = {
+      ...key,
+      id,
+      createdAt: new Date(),
+      lastUsedAt: null,
+      scope: key.scope ?? DEFAULT_API_KEY_SCOPE,
+      expiresAt: key.expiresAt ?? null,
+    };
     this.apiKeys.set(id, record);
     const { keyHash: _keyHash, ...rest } = record;
     return rest;
@@ -2026,13 +2062,87 @@ export class MemStorage implements IStorage {
 
   async touchApiKey(id: string): Promise<void> {
     const existing = this.apiKeys.get(id);
-    if (existing) this.apiKeys.set(id, { ...existing, lastUsedAt: new Date() });
+    if (!existing) return;
+    const now = Date.now();
+    if (existing.lastUsedAt && now - existing.lastUsedAt.getTime() < API_KEY_TOUCH_INTERVAL_MS) {
+      return;
+    }
+    this.apiKeys.set(id, { ...existing, lastUsedAt: new Date(now) });
   }
 
   async removeApiKey(id: string, userId: string): Promise<boolean> {
     const existing = this.apiKeys.get(id);
     if (!existing || existing.userId !== userId) return false;
     return this.apiKeys.delete(id);
+  }
+
+  private integrationRequestKey(
+    userId: string,
+    provider: IntegrationRequestProvider,
+    externalRequestId: string
+  ): string {
+    return `${userId}\0${provider}\0${externalRequestId}`;
+  }
+
+  async getIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    return this.integrationRequests.get(
+      this.integrationRequestKey(userId, provider, externalRequestId)
+    );
+  }
+
+  async addIntegrationRequest(
+    request: NewIntegrationRequest
+  ): Promise<{ request: IntegrationRequest; created: boolean }> {
+    const provider = request.provider ?? "seerrng";
+    const key = this.integrationRequestKey(request.userId, provider, request.externalRequestId);
+    const existing = this.integrationRequests.get(key);
+    if (existing) return { request: existing, created: false };
+    const now = new Date();
+    const record: IntegrationRequest = {
+      id: randomUUID(),
+      userId: request.userId,
+      provider,
+      externalRequestId: request.externalRequestId,
+      igdbId: request.igdbId ?? null,
+      gameId: request.gameId ?? null,
+      title: request.title,
+      operatingSystem: request.operatingSystem ?? null,
+      architecture: request.architecture ?? null,
+      status: "accepted",
+      errorMessage: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.integrationRequests.set(key, record);
+    return { request: record, created: true };
+  }
+
+  async getIntegrationRequestByGameId(
+    userId: string,
+    gameId: string,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    return Array.from(this.integrationRequests.values()).find(
+      (r) => r.userId === userId && r.provider === provider && r.gameId === gameId
+    );
+  }
+
+  async updateIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    updates: IntegrationRequestUpdate,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    const key = this.integrationRequestKey(userId, provider, externalRequestId);
+    const existing = this.integrationRequests.get(key);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...stripUndefined(updates), updatedAt: new Date() };
+    this.integrationRequests.set(key, updated);
+    return updated;
   }
 }
 
@@ -2737,6 +2847,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         not(
           inArray(gameDownloads.status, [
+            "cancelled",
             "completed",
             "error",
             "failed",
@@ -3644,16 +3755,15 @@ export class DatabaseStorage implements IStorage {
         prefix: apiKeys.prefix,
         createdAt: apiKeys.createdAt,
         lastUsedAt: apiKeys.lastUsedAt,
+        scope: apiKeys.scope,
+        expiresAt: apiKeys.expiresAt,
       })
       .from(apiKeys)
       .where(eq(apiKeys.userId, userId))
       .orderBy(desc(apiKeys.createdAt));
   }
 
-  async addApiKey(
-    key: { userId: string; name: string; keyHash: string; prefix: string },
-    maxKeys: number
-  ): Promise<ApiKeyPublic> {
+  async addApiKey(key: NewApiKeyInput, maxKeys: number): Promise<ApiKeyPublic> {
     return transactionalOps.addApiKey(key, maxKeys);
   }
 
@@ -3663,7 +3773,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async touchApiKey(id: string): Promise<void> {
-    await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, id));
+    // Throttled in SQL (one write per interval per key) instead of one write
+    // per request; the same statement works on both dialects.
+    const now = Date.now();
+    await db
+      .update(apiKeys)
+      .set({ lastUsedAt: new Date(now) })
+      .where(
+        and(
+          eq(apiKeys.id, id),
+          or(
+            isNull(apiKeys.lastUsedAt),
+            lt(apiKeys.lastUsedAt, new Date(now - API_KEY_TOUCH_INTERVAL_MS))
+          )
+        )
+      );
   }
 
   async removeApiKey(id: string, userId: string): Promise<boolean> {
@@ -3671,6 +3795,84 @@ export class DatabaseStorage implements IStorage {
       .delete(apiKeys)
       .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)));
     return affectedRows(result) > 0;
+  }
+
+  async getIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    const [row] = await db
+      .select()
+      .from(integrationRequests)
+      .where(
+        and(
+          eq(integrationRequests.userId, userId),
+          eq(integrationRequests.provider, provider),
+          eq(integrationRequests.externalRequestId, externalRequestId)
+        )
+      );
+    return row ?? undefined;
+  }
+
+  async addIntegrationRequest(
+    request: NewIntegrationRequest
+  ): Promise<{ request: IntegrationRequest; created: boolean }> {
+    const provider = request.provider ?? "seerrng";
+    // The unique (user, provider, external id) index makes a concurrent replay
+    // insert nothing, and the loser reads the winner's row.
+    const inserted = await db
+      .insert(integrationRequests)
+      .values({ ...request, provider, id: randomUUID() })
+      .onConflictDoNothing()
+      .returning();
+    if (inserted[0]) return { request: inserted[0], created: true };
+    const existing = await this.getIntegrationRequest(
+      request.userId,
+      request.externalRequestId,
+      provider
+    );
+    if (!existing) throw new Error("Integration request insert conflicted but no row exists");
+    return { request: existing, created: false };
+  }
+
+  async getIntegrationRequestByGameId(
+    userId: string,
+    gameId: string,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    const [row] = await db
+      .select()
+      .from(integrationRequests)
+      .where(
+        and(
+          eq(integrationRequests.userId, userId),
+          eq(integrationRequests.provider, provider),
+          eq(integrationRequests.gameId, gameId)
+        )
+      )
+      .limit(1);
+    return row ?? undefined;
+  }
+
+  async updateIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    updates: IntegrationRequestUpdate,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    const [row] = await db
+      .update(integrationRequests)
+      .set({ ...stripUndefined(updates), updatedAt: new Date() })
+      .where(
+        and(
+          eq(integrationRequests.userId, userId),
+          eq(integrationRequests.provider, provider),
+          eq(integrationRequests.externalRequestId, externalRequestId)
+        )
+      )
+      .returning();
+    return row ?? undefined;
   }
 }
 

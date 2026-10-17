@@ -23,6 +23,7 @@ vi.mock("../steam-routes.js", () => ({
 }));
 
 vi.mock("../auth.js", () => ({
+  requireScope: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   authenticateToken: (
     req: import("express").Request & { user?: unknown },
     res: import("express").Response,
@@ -71,6 +72,7 @@ vi.mock("../logger.js", () => ({
 }));
 
 vi.mock("../middleware.js", () => ({
+  integrationRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   igdbRateLimiter: (
     req: import("express").Request,
     res: import("express").Response,

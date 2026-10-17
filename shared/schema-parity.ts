@@ -209,6 +209,18 @@ export type _SelectRootFolders = Expect<
 export type _InsertRootFolders = Expect<
   Equal<typeof sqliteSchema.rootFolders.$inferInsert, typeof pgSchema.rootFolders.$inferInsert>
 >;
+export type _SelectIntegrationRequests = Expect<
+  Equal<
+    typeof sqliteSchema.integrationRequests.$inferSelect,
+    typeof pgSchema.integrationRequests.$inferSelect
+  >
+>;
+export type _InsertIntegrationRequests = Expect<
+  Equal<
+    typeof sqliteSchema.integrationRequests.$inferInsert,
+    typeof pgSchema.integrationRequests.$inferInsert
+  >
+>;
 export type _SelectApiKeys = Expect<
   Equal<typeof sqliteSchema.apiKeys.$inferSelect, typeof pgSchema.apiKeys.$inferSelect>
 >;

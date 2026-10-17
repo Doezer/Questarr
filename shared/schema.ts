@@ -1304,6 +1304,17 @@ export type DownloaderDebugLoggingResponse = z.infer<typeof downloaderDebugLoggi
 // login flow (the Playnite extension, scripts, other self-hosted tools). Only a
 // SHA-256 hash of the key is stored, so a database leak never yields a usable
 // credential; the raw key is shown to the user once, at creation.
+// What a key may call. One scope per key; stored as plain text (no CHECK) and
+// validated here, so adding a scope never needs a migration.
+export const API_KEY_SCOPES = [
+  "integration:all",
+  "integration:playnite",
+  "integration:read",
+  "integration:seerrng",
+] as const;
+export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
+export const DEFAULT_API_KEY_SCOPE: ApiKeyScope = "integration:all";
+
 export const apiKeys = sqliteTable(
   "api_keys",
   {
@@ -1320,6 +1331,9 @@ export const apiKeys = sqliteTable(
       sql`(strftime('%s', 'now') * 1000)`
     ),
     lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+    // Existing keys migrate to integration:all with no expiry.
+    scope: text("scope").$type<ApiKeyScope>().notNull().default("integration:all"),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
   },
   (t) => [
     uniqueIndex("api_keys_key_hash_idx").on(t.keyHash),
@@ -1336,6 +1350,16 @@ export const insertApiKeySchema = createInsertSchema(apiKeys, {
 });
 
 export type ApiKey = typeof apiKeys.$inferSelect;
+
+/** Input to storage.addApiKey: omitted scope/expiresAt mean "all routes, never expires". */
+export type NewApiKeyInput = {
+  userId: string;
+  name: string;
+  keyHash: string;
+  prefix: string;
+  scope?: ApiKeyScope;
+  expiresAt?: Date | null;
+};
 export type InsertApiKey = (typeof insertApiKeySchema)["_output"];
 
 // An API key as returned to the client: never includes the hash.
@@ -1352,6 +1376,8 @@ export const apiKeyPublicResponseSchema = z.object({
   prefix: z.string(),
   createdAt: z.string().nullable(),
   lastUsedAt: z.string().nullable(),
+  scope: z.enum(API_KEY_SCOPES),
+  expiresAt: z.string().nullable(),
 });
 export type ApiKeyPublicResponse = z.infer<typeof apiKeyPublicResponseSchema>;
 
@@ -1363,3 +1389,70 @@ export const apiKeyCreatedResponseSchema = apiKeyPublicResponseSchema.extend({
   key: z.string(),
 });
 export type ApiKeyCreatedResponse = z.infer<typeof apiKeyCreatedResponseSchema>;
+
+// ── External requests ledger ─────────────────────────────────────────────────
+// Durable record of a request made by an external request app (SeerrNG). The
+// app owns users, approvals and quotas; Questarr only remembers which of its
+// own games answers which external request id, so a replayed POST is
+// idempotent and status can be read back after either service restarts.
+export const INTEGRATION_REQUEST_PROVIDERS = ["seerrng"] as const;
+export type IntegrationRequestProvider = (typeof INTEGRATION_REQUEST_PROVIDERS)[number];
+export const INTEGRATION_REQUEST_STATUSES = [
+  "accepted",
+  "searching",
+  "failed",
+  "cancelled",
+] as const;
+export type IntegrationRequestStatus = (typeof INTEGRATION_REQUEST_STATUSES)[number];
+export const SEERRNG_OPERATING_SYSTEMS = ["windows", "linux", "macos"] as const;
+export const SEERRNG_ARCHITECTURES = ["x64", "arm64", "x86", "universal"] as const;
+export type SeerrngOperatingSystem = (typeof SEERRNG_OPERATING_SYSTEMS)[number];
+export type SeerrngArchitecture = (typeof SEERRNG_ARCHITECTURES)[number];
+
+export const integrationRequests = sqliteTable(
+  "integration_requests",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").$type<IntegrationRequestProvider>().notNull().default("seerrng"),
+    externalRequestId: text("external_request_id").notNull(),
+    // Exact IGDB identity supplied by the request app; null when it sent a title only.
+    igdbId: integer("igdb_id"),
+    // The game answering the request. Set null if the game is deleted, so the
+    // request stays readable (and retryable) instead of vanishing.
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    operatingSystem: text("operating_system").$type<SeerrngOperatingSystem>(),
+    architecture: text("architecture").$type<SeerrngArchitecture>(),
+    status: text("status").$type<IntegrationRequestStatus>().notNull().default("accepted"),
+    errorMessage: text("error_message"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [
+    uniqueIndex("integration_requests_user_provider_external_idx").on(
+      t.userId,
+      t.provider,
+      t.externalRequestId
+    ),
+    index("integration_requests_game_id_idx").on(t.gameId),
+  ]
+);
+
+export type IntegrationRequest = typeof integrationRequests.$inferSelect;
+export type NewIntegrationRequest = Pick<
+  IntegrationRequest,
+  "userId" | "externalRequestId" | "title"
+> &
+  Partial<
+    Pick<IntegrationRequest, "provider" | "igdbId" | "gameId" | "operatingSystem" | "architecture">
+  >;
+export type IntegrationRequestUpdate = Partial<
+  Pick<IntegrationRequest, "gameId" | "status" | "errorMessage">
+>;

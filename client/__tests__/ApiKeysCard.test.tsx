@@ -35,6 +35,8 @@ const sampleKey: ApiKeyPublicResponse = {
   prefix: "qsr_abc12345",
   createdAt: "2026-01-01T00:00:00.000Z",
   lastUsedAt: null,
+  scope: "integration:playnite",
+  expiresAt: null,
 };
 
 function mockList(keys: ApiKeyPublicResponse[]) {
@@ -95,6 +97,35 @@ describe("ApiKeysCard", () => {
     expect(screen.getAllByText(/Created Unknown/).length).toBeGreaterThan(0);
   });
 
+  it("shows the scope and expiry state of each key", async () => {
+    const day = 86_400_000;
+    mockList([
+      { ...sampleKey, id: "k-never", name: "Never key" },
+      {
+        ...sampleKey,
+        id: "k-expired",
+        name: "Old key",
+        scope: "integration:read",
+        expiresAt: new Date(Date.now() - day).toISOString(),
+      },
+      {
+        ...sampleKey,
+        id: "k-soon",
+        name: "Soon key",
+        scope: "integration:all",
+        expiresAt: new Date(Date.now() + 3 * day - 1000).toISOString(),
+      },
+    ]);
+    renderCard();
+
+    expect(await screen.findByText("Never key")).toBeInTheDocument();
+    expect(screen.getByText("No expiry")).toBeInTheDocument();
+    expect(screen.getByText("Expired")).toBeInTheDocument();
+    expect(screen.getByText("Expires in 3 days")).toBeInTheDocument();
+    expect(screen.getAllByText("Read only").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("All routes").length).toBeGreaterThan(0);
+  });
+
   it("disables the create button until a non-blank name is entered", async () => {
     mockList([]);
     renderCard();
@@ -126,7 +157,11 @@ describe("ApiKeysCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create key" }));
 
     await waitFor(() => {
-      expect(apiRequest).toHaveBeenCalledWith("POST", "/api/api-keys", { name: "My PC" });
+      expect(apiRequest).toHaveBeenCalledWith("POST", "/api/api-keys", {
+        name: "My PC",
+        scope: "integration:playnite",
+        expiresInDays: 365,
+      });
     });
 
     expect(

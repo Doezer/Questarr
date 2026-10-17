@@ -50,6 +50,8 @@ import {
   type RootFolder,
   type InsertRootFolder,
   type UpdateRootFolder,
+  type Collection,
+  type InsertCollection,
   type GameJournalEntry,
   type InsertGameJournalEntry,
   type GameMilestone,
@@ -77,6 +79,8 @@ import {
   gameFiles,
   apiKeys,
   rootFolders,
+  collectionGames,
+  collections,
   gameJournalEntries,
   gameMilestones,
   gameScreenshots,
@@ -266,6 +270,21 @@ export interface IStorage {
   updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
   removeGame(id: string): Promise<boolean>;
   assignOrphanGamesToUser(userId: string): Promise<number>;
+
+  // Collections (manual lists and smart rule-based groups of games)
+  getCollections(userId: string): Promise<Collection[]>;
+  getCollection(id: string, userId: string): Promise<Collection | undefined>;
+  createCollection(collection: InsertCollection): Promise<Collection>;
+  updateCollection(
+    id: string,
+    userId: string,
+    patch: Partial<Omit<InsertCollection, "userId">>
+  ): Promise<Collection | undefined>;
+  deleteCollection(id: string, userId: string): Promise<boolean>;
+  /** Explicit game links of the user's manual collections, as collectionId/gameId pairs. */
+  getCollectionLinks(userId: string): Promise<{ collectionId: string; gameId: string }[]>;
+  addGameToCollection(collectionId: string, gameId: string): Promise<boolean>;
+  removeGameFromCollection(collectionId: string, gameId: string): Promise<boolean>;
 
   // Game journal methods (local-only notes while playing)
   getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]>;
@@ -503,6 +522,8 @@ export class MemStorage implements IStorage {
   private gameFiles: Map<string, GameFile>;
   private rootFolders: Map<string, RootFolder>;
   private apiKeys: Map<string, ApiKey>;
+  private collections: Map<string, Collection>;
+  private collectionGames: Map<string, { id: string; collectionId: string; gameId: string }>;
   private gameJournalEntries: Map<string, GameJournalEntry>;
   private gameMilestones: Map<string, GameMilestone>;
   private gameScreenshots: Map<string, GameScreenshot>;
@@ -526,6 +547,8 @@ export class MemStorage implements IStorage {
     this.gameFiles = new Map();
     this.rootFolders = new Map();
     this.apiKeys = new Map();
+    this.collections = new Map();
+    this.collectionGames = new Map();
     this.gameJournalEntries = new Map();
     this.gameMilestones = new Map();
     this.gameScreenshots = new Map();
@@ -773,6 +796,76 @@ export class MemStorage implements IStorage {
     if (!game || (game.installedVersion ?? null) !== expected) return Promise.resolve(false);
     this.games.set(id, { ...game, installedVersion });
     return Promise.resolve(true);
+  }
+
+  async getCollections(userId: string): Promise<Collection[]> {
+    return Array.from(this.collections.values())
+      .filter((c) => c.userId === userId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async getCollection(id: string, userId: string): Promise<Collection | undefined> {
+    const collection = this.collections.get(id);
+    return collection?.userId === userId ? collection : undefined;
+  }
+
+  async createCollection(collection: InsertCollection): Promise<Collection> {
+    const created: Collection = {
+      id: randomUUID(),
+      userId: collection.userId,
+      name: collection.name,
+      description: collection.description,
+      type: collection.type,
+      rules: collection.rules,
+      createdAt: new Date(),
+    };
+    this.collections.set(created.id, created);
+    return created;
+  }
+
+  async updateCollection(
+    id: string,
+    userId: string,
+    patch: Partial<Omit<InsertCollection, "userId">>
+  ): Promise<Collection | undefined> {
+    const existing = await this.getCollection(id, userId);
+    if (!existing) return undefined;
+    const updated: Collection = { ...existing, ...patch };
+    this.collections.set(id, updated);
+    return updated;
+  }
+
+  async deleteCollection(id: string, userId: string): Promise<boolean> {
+    if (!(await this.getCollection(id, userId))) return false;
+    for (const [linkId, link] of this.collectionGames) {
+      if (link.collectionId === id) this.collectionGames.delete(linkId);
+    }
+    return this.collections.delete(id);
+  }
+
+  async getCollectionLinks(userId: string): Promise<{ collectionId: string; gameId: string }[]> {
+    return Array.from(this.collectionGames.values())
+      .filter((link) => this.collections.get(link.collectionId)?.userId === userId)
+      .map(({ collectionId, gameId }) => ({ collectionId, gameId }));
+  }
+
+  async addGameToCollection(collectionId: string, gameId: string): Promise<boolean> {
+    const exists = Array.from(this.collectionGames.values()).some(
+      (link) => link.collectionId === collectionId && link.gameId === gameId
+    );
+    if (exists) return false;
+    const id = randomUUID();
+    this.collectionGames.set(id, { id, collectionId, gameId });
+    return true;
+  }
+
+  async removeGameFromCollection(collectionId: string, gameId: string): Promise<boolean> {
+    for (const [id, link] of this.collectionGames) {
+      if (link.collectionId === collectionId && link.gameId === gameId) {
+        return this.collectionGames.delete(id);
+      }
+    }
+    return false;
   }
 
   async getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]> {
@@ -2388,6 +2481,79 @@ export class DatabaseStorage implements IStorage {
       .set({ installedVersion })
       .where(and(eq(games.id, id), current));
     return affectedRows(result) > 0;
+  }
+
+  async getCollections(userId: string): Promise<Collection[]> {
+    return db
+      .select()
+      .from(collections)
+      .where(eq(collections.userId, userId))
+      .orderBy(collections.name);
+  }
+
+  async getCollection(id: string, userId: string): Promise<Collection | undefined> {
+    const [collection] = await db
+      .select()
+      .from(collections)
+      .where(and(eq(collections.id, id), eq(collections.userId, userId)));
+    return collection || undefined;
+  }
+
+  async createCollection(collection: InsertCollection): Promise<Collection> {
+    const rows = await db
+      .insert(collections)
+      .values({ id: randomUUID(), ...collection })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async updateCollection(
+    id: string,
+    userId: string,
+    patch: Partial<Omit<InsertCollection, "userId">>
+  ): Promise<Collection | undefined> {
+    if (Object.keys(patch).length === 0) return this.getCollection(id, userId);
+    const [updated] = await db
+      .update(collections)
+      .set(patch)
+      .where(and(eq(collections.id, id), eq(collections.userId, userId)))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteCollection(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(collections)
+      .where(and(eq(collections.id, id), eq(collections.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getCollectionLinks(userId: string): Promise<{ collectionId: string; gameId: string }[]> {
+    return db
+      .select({ collectionId: collectionGames.collectionId, gameId: collectionGames.gameId })
+      .from(collectionGames)
+      .innerJoin(collections, eq(collections.id, collectionGames.collectionId))
+      .where(eq(collections.userId, userId));
+  }
+
+  async addGameToCollection(collectionId: string, gameId: string): Promise<boolean> {
+    const rows = await db
+      .insert(collectionGames)
+      .values({ id: randomUUID(), collectionId, gameId })
+      .onConflictDoNothing()
+      .returning();
+    return rows.length > 0;
+  }
+
+  async removeGameFromCollection(collectionId: string, gameId: string): Promise<boolean> {
+    const result = await db
+      .delete(collectionGames)
+      .where(
+        and(eq(collectionGames.collectionId, collectionId), eq(collectionGames.gameId, gameId))
+      )
+      .returning();
+    return result.length > 0;
   }
 
   async getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]> {

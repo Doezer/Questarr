@@ -57,6 +57,8 @@ const TABLE_ORDER = [
   "releaseBlacklist",
   "aiAutoDownloadHolds",
   "importTaskItems",
+  "collections",
+  "collectionGames",
   "gameJournalEntries",
   "gameMilestones",
   "gameScreenshots",

@@ -292,6 +292,7 @@ import type { XrelGameStatus } from "../shared/xrel-types.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import { collectionRoutes } from "./collection-routes.js";
 import { gameJournalRoutes, screenshotDirForGame } from "./game-journal-routes.js";
 import {
   getContentFilterFlags,
@@ -938,6 +939,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Use Steam Routes
   app.use(steamRoutes);
   app.use(gameJournalRoutes);
+  app.use(collectionRoutes);
   // Use PCGamingWiki Routes
   app.use(pcgamingwikiRouter);
 

@@ -1035,17 +1035,21 @@ seerrngRouter.get(
         if (res.headersSent) res.destroy(error);
         else res.status(500).end();
       });
+      const streams = opened.map((entry) => entry.handle.createReadStream());
       res.on("close", () => {
-        if (!res.writableEnded) archive.abort();
+        if (res.writableEnded) return;
+        archive.abort();
+        // Streams the archive never reached would otherwise keep their file handles open.
+        for (const stream of streams) stream.destroy();
       });
       archive.pipe(res.status(200));
-      for (const entry of opened) {
-        archive.append(entry.handle.createReadStream(), {
+      opened.forEach((entry, index) => {
+        archive.append(streams[index]!, {
           name: entry.name,
           stats: entry.stats,
           date: entry.stats.mtime,
         });
-      }
+      });
       void archive.finalize().catch((error: unknown) => archive.emit("error", error));
       return undefined;
     } catch (error) {

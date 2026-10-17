@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Naming templates**: the import rename pattern is now a validated template with the tokens `{Title}`, `{TitleThe}`, `{Year}`, `{Platform}`, `{Version}`, `{Group}`, `{Source}`, `{IgdbId}`, `{SteamAppId}` and `{Region}` (#1197). See [Library import](LIBRARY_IMPORT.md).
+- **Weekly pre-releases**: a weekly workflow publishes a `vX.Y.Z-dev.YYYYMMDD` pre-release and the Docker tags `weekly` and `dev`, never `latest` (#1192). See [Operations](OPERATIONS.md).
+
+### Fixed
+
+- **Library import**: platform names, folders and Game Gear are now handled correctly (#1212).
+- **Home Assistant add-on**: the add-on starts the server with `node` directly instead of through npm (#1208).
+
+- **Legacy session token migration**: a pre-1.5.0 token left in `localStorage` is now carried over as an in-memory bearer token for the current tab and removed from `localStorage`, in a post-commit effect instead of during React render. The app waits for it before calling `/api/auth/me`, which also makes it safe under StrictMode. It is not stored as a cookie, so the next reload asks you to sign in again (#1193).
+
+### Dependencies
+
+- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14 (#1188, #1189, #1190, #1191, #1205, #1206).
+
 ## [1.5.0] - 2026-10-12
 
 ### Before you upgrade

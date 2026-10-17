@@ -39,7 +39,7 @@ export default function GameDetailsPage() {
   const isDiscovery = isDiscoveryId(id);
 
   const {
-    data: game,
+    data: cachedGame,
     isLoading,
     error,
   } = useQuery<Game>({
@@ -60,6 +60,10 @@ export default function GameDetailsPage() {
       !(err instanceof ApiError && err.status >= 400 && err.status < 500) && failureCount < 2,
   });
 
+  // A seeded game outlives a failed refresh: drop it when the server says it is gone or hidden.
+  const notFound = error instanceof ApiError && (error.status === 404 || error.status === 403);
+  const game = notFound ? undefined : cachedGame;
+
   // The tab name is the game's name: with a dozen tabs open that is what you scan.
   useEffect(() => {
     if (!game?.title) return;
@@ -79,7 +83,6 @@ export default function GameDetailsPage() {
   if (isLoading) return <DetailsSkeleton />;
 
   if (!game) {
-    const notFound = error instanceof ApiError && (error.status === 404 || error.status === 403);
     return (
       <div className="mx-auto flex max-w-md flex-col items-center gap-4 px-4 py-24 text-center">
         <AlertCircle className="h-10 w-10 text-muted-foreground" aria-hidden="true" />

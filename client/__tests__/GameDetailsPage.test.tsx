@@ -47,6 +47,19 @@ describe("GameDetailsPage", () => {
     expect(await screen.findByText("Game not found")).toBeInTheDocument();
   });
 
+  it("drops a card-seeded game when the server says it is gone", async () => {
+    window.history.replaceState({ game }, "", "/games/g1");
+    apiRequest.mockResolvedValue({
+      json: async () => {
+        throw new ApiError(404, "Not found");
+      },
+    });
+    renderAt("/games/g1");
+    expect(await screen.findByText("Game not found")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Quest One" })).toBeNull();
+    window.history.replaceState(null, "", "/");
+  });
+
   it("tells a server failure apart from a missing game", async () => {
     apiRequest.mockResolvedValue({
       json: async () => {

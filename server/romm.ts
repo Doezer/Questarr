@@ -35,7 +35,8 @@ export interface RommSettings {
 
 export interface RommRom {
   id: number;
-  name: string;
+  /** RomM may serialize an unidentified ROM's name as null. */
+  name?: string | null;
   platform_slug?: string;
   igdb_id?: number | null;
 }

@@ -4,6 +4,7 @@ import { normalizeTitle } from "../shared/title-utils.js";
 import type { Game } from "../shared/schema.js";
 import { rommSlugForPlatformId } from "../shared/romm-platforms.js";
 import { readRommSettings, rommClient, ROMM_CONFIG_KEYS } from "./romm.js";
+import type { RommRom } from "./romm.js";
 
 export interface RommSyncSummary {
   totalRoms: number;
@@ -22,13 +23,17 @@ const SETTLEABLE_STATUS = "wanted";
  * IGDB id first, then by normalized title. Games RomM has and Questarr does not know are only
  * counted; nothing is created, and nothing is ever downgraded.
  */
-export async function syncFromRomm(userId: string): Promise<RommSyncSummary> {
+export async function syncFromRomm(
+  userId: string,
+  preloadedRoms?: RommRom[]
+): Promise<RommSyncSummary> {
   const settings = await readRommSettings();
   if (!settings.enabled || !settings.url || !settings.apiToken) {
     throw new Error("RomM is not configured");
   }
 
-  const roms = await rommClient.listAllRoms(settings);
+  // A scheduled run fetches the shared library once and hands it to every user.
+  const roms = preloadedRoms ?? (await rommClient.listAllRoms(settings));
   const games = await storage.getUserGames(userId, true);
   const byIgdbId = new Map<number, Game>();
   // A title shared by several games is ambiguous: it is never used for matching.
@@ -54,7 +59,7 @@ export async function syncFromRomm(userId: string): Promise<RommSyncSummary> {
       game = byIgdbId.get(rom.igdb_id);
     } else {
       // Title fallback only without an IGDB id: an original and its remake must not be mixed up.
-      game = byTitle.get(normalizeTitle(rom.name));
+      game = rom.name ? byTitle.get(normalizeTitle(rom.name)) : undefined;
       // A game with a chosen target platform only matches a ROM of that platform.
       if (
         game?.targetPlatformId != null &&
@@ -93,9 +98,12 @@ export async function runScheduledRommSync(): Promise<void> {
   try {
     const settings = await readRommSettings();
     if (!settings.enabled || !settings.syncEnabled || !settings.apiToken) return;
-    for (const user of await storage.getAllUsers()) {
+    const users = await storage.getAllUsers();
+    if (users.length === 0) return;
+    const roms = await rommClient.listAllRoms(settings);
+    for (const user of users) {
       try {
-        await syncFromRomm(user.id);
+        await syncFromRomm(user.id, roms);
       } catch (error) {
         logger.warn({ userId: user.id, error }, "Scheduled RomM sync failed");
       }

@@ -222,6 +222,22 @@ describe("RomM sync", () => {
     expect((await syncFromRomm("user-1")).matched).toBe(1);
   });
 
+  it("survives a ROM without a name", async () => {
+    await configure();
+    mockStorage.getUserGames.mockResolvedValue([game("n", "Named", "wanted")]);
+    safeFetchMock.mockResolvedValue(
+      json({
+        items: [
+          { id: 1, name: null },
+          { id: 2, name: "Named" },
+        ],
+        total: 2,
+      })
+    );
+    const summary = await syncFromRomm("user-1");
+    expect(summary.matched).toBe(1);
+  });
+
   it("walks every page up to the reported total", async () => {
     await configure();
     const page = (from: number, n: number) =>
@@ -236,6 +252,15 @@ describe("RomM sync", () => {
 
   it("refuses to run without a configuration", async () => {
     await expect(syncFromRomm("user-1")).rejects.toThrow(/not configured/);
+  });
+
+  it("the scheduled run fetches the RomM library once for all users", async () => {
+    await configure({ syncEnabled: true });
+    mockStorage.getAllUsers.mockResolvedValue([{ id: "u1" }, { id: "u2" }]);
+    mockStorage.getUserGames.mockResolvedValue([]);
+    safeFetchMock.mockResolvedValue(json({ items: [], total: 0 }));
+    await runScheduledRommSync();
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("the scheduled run needs auto-sync switched on", async () => {

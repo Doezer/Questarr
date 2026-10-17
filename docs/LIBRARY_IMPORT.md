@@ -11,15 +11,15 @@ Enable **Post-Processing**, choose a **Library Root**, and save your changes.
 Questarr must be able to read the download source and write to the library root.
 In Docker, mount both locations and use their paths inside the container.
 
-| Setting                           | Behavior                                                                                                                                                |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Transfer Mode                     | Move removes the source as files transfer; Copy leaves it intact. Hardlink preserves the source for seeding and falls back to copying when unsupported. |
-| Auto-Unpack Archives              | Extract ZIP, RAR, and 7z downloads for import. Password-protected archives require manual input.                                                        |
-| Overwrite Existing Files          | Allow replacement of existing destination files. Keep disabled to protect existing files.                                                               |
-| Auto-delete source after import   | After a successful copy or move import, remove the download from the client and delete source files.                                                    |
-| Sort add-on files into subfolders | Organize detected DLC, updates, and extras in `dlc/`, `update/`, and `extra/` for directory imports.                                                    |
-| Rename Pattern                    | Use `{Title}`, `{Region}`, `{Platform}`, and `{Year}` to name the destination.                                                                          |
-| Platform Filter                   | Use **Settings → Appearance → Platforms** to limit eligible platforms; an empty list allows all platforms.                                              |
+| Setting                           | Behavior                                                                                                                                                                                                                                       |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transfer Mode                     | Move removes the source as files transfer; Copy leaves it intact. Hardlink preserves the source for seeding and falls back to copying when unsupported.                                                                                        |
+| Auto-Unpack Archives              | Extract ZIP, RAR, and 7z downloads for import. Password-protected archives require manual input.                                                                                                                                               |
+| Overwrite Existing Files          | Allow replacement of existing destination files. Keep disabled to protect existing files.                                                                                                                                                      |
+| Auto-delete source after import   | After a successful copy or move import, remove the download from the client and delete source files.                                                                                                                                           |
+| Sort add-on files into subfolders | Organize detected DLC, updates, and extras in `dlc/`, `update/`, and `extra/` for directory imports.                                                                                                                                           |
+| Rename Pattern                    | Naming template for the destination (default `{Title} ({Region})`, 200 bytes max). Tokens: `{Title}`, `{TitleThe}`, `{Year}`, `{Platform}`, `{Version}`, `{Group}`, `{Source}`, `{IgdbId}`, `{SteamAppId}`, `{Region}` (always empty for now). |
+| Platform Filter                   | Use **Settings → Appearance → Platforms** to limit eligible platforms; an empty list allows all platforms.                                                                                                                                     |
 
 ### Path mappings and security
 

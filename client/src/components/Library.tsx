@@ -256,10 +256,13 @@ export default function Library() {
   // Reset to "all" so a stale value cannot filter the grid invisibly (it would
   // leave an active-filter pill with no matching dropdown option).
   useEffect(() => {
+    // `visiblePlatforms` is built from the loaded games: until they arrive it is empty and would
+    // wrongly reject a filter restored from before a visit to a game page.
+    if (isLoading) return;
     if (platformFilter === "all") return;
     if (visiblePlatforms.includes(platformFilter)) return;
     setPlatformFilter("all");
-  }, [visiblePlatforms, platformFilter]);
+  }, [isLoading, visiblePlatforms, platformFilter]);
 
   const filteredGames = useMemo(() => {
     const filtered = games.filter((game) => {

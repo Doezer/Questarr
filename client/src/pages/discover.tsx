@@ -237,6 +237,10 @@ export default function DiscoverPage() {
     enabled: !!config?.igdb.configured,
   });
 
+  // The lists are "settled" once loaded or failed; before that only the defaults are known.
+  const genresSettled = genres.length > 0 || genresError;
+  const platformsSettled = platforms.length > 0 || platformsError;
+
   // Handle errors with toast notifications
 
   useEffect(() => {
@@ -283,10 +287,13 @@ export default function DiscoverPage() {
   // below it never disagree about which platform is being browsed.
   useEffect(() => {
     if (config && !config.igdb.configured) return;
+    // Until the real list (or its failure) is known, `displayPlatforms` is only the fallback and
+    // would reject a platform restored from before a visit to a game page.
+    if (!platformsSettled) return;
     if (displayPlatforms.length === 0) return;
     if (displayPlatforms.some((p) => p.name === selectedPlatform)) return;
     setSelectedPlatform(displayPlatforms[0]!.name);
-  }, [config, displayPlatforms, selectedPlatform]);
+  }, [config, platformsSettled, displayPlatforms, selectedPlatform]);
 
   const trackGameMutation = useMutation({
     mutationFn: async (game: Game) => {
@@ -499,9 +506,11 @@ export default function DiscoverPage() {
 
   const fetchGamesByGenre = useCallback(async (): Promise<Game[]> => {
     // Validate selectedGenre against known genres before making API call
+    // While the real list is still loading, defer to the server rather than caching an empty
+    // result for a genre the fallback list does not know.
     const validGenres: Genre[] = genres.length > 0 ? genres : DEFAULT_GENRES;
     const isValidGenre = validGenres.some((g: Genre) => g.name === debouncedGenre);
-    if (!isValidGenre) {
+    if (genresSettled && !isValidGenre) {
       // This case should ideally not be hit if UI is synced with state
       return []; // Return empty instead of throwing to prevent crash
     }
@@ -512,14 +521,14 @@ export default function DiscoverPage() {
     );
     const games = await response.json();
     return filterGames(games);
-  }, [debouncedGenre, genres, filterGames]);
+  }, [debouncedGenre, genres, genresSettled, filterGames]);
 
   const fetchGamesByPlatform = useCallback(async (): Promise<Game[]> => {
     // Validate selectedPlatform against the platforms the Platforms setting
     // leaves visible, so a stale selection cannot fetch an excluded platform.
     const validPlatforms: Platform[] = displayPlatforms;
     const isValidPlatform = validPlatforms.some((p: Platform) => p.name === debouncedPlatform);
-    if (!isValidPlatform) {
+    if (platformsSettled && !isValidPlatform) {
       // This case should ideally not be hit if UI is synced with state
       return []; // Return empty instead of throwing to prevent crash
     }
@@ -530,7 +539,7 @@ export default function DiscoverPage() {
     );
     const games = await response.json();
     return filterGames(games);
-  }, [debouncedPlatform, displayPlatforms, filterGames]);
+  }, [debouncedPlatform, displayPlatforms, platformsSettled, filterGames]);
 
   if (config && !config.igdb.configured) {
     return (

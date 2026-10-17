@@ -5,16 +5,20 @@
  */
 const IN_APP_MARKER = "__questarrInApp";
 
-let lastGameOrigin: string | null = null;
+const OPENED_GAME_MARKER = "__questarrOpenedGame";
 let lastNavWasPop = false;
 const listStates = new Map<string, unknown>();
 
 if (typeof window !== "undefined" && !(window.history as { __marked?: boolean }).__marked) {
   const pushState = window.history.pushState.bind(window.history);
+  const nativeReplaceState = window.history.replaceState.bind(window.history);
   window.history.pushState = (state: unknown, unused: string, url?: string | URL | null) => {
     const base = state && typeof state === "object" ? (state as Record<string, unknown>) : {};
-    // Remember which list a game page was opened from, so Back can restore that list's filters.
-    if (url && /\/games\/[^/?#]+/.test(String(url))) lastGameOrigin = window.location.pathname;
+    // Flag the entry a game page is opened from, so Back to that very entry restores its filters.
+    if (url && /\/games\/[^/?#]+/.test(String(url))) {
+      const current = window.history.state as Record<string, unknown> | null;
+      nativeReplaceState({ ...(current ?? {}), [OPENED_GAME_MARKER]: true }, "");
+    }
     lastNavWasPop = false;
     pushState({ ...base, [IN_APP_MARKER]: true }, unused, url);
   };
@@ -43,6 +47,7 @@ export function saveListState(key: string, state: unknown): void {
 /** The saved list state, only when this page is being returned to by Back from one of its games. */
 export function restoredListState<T>(key: string): T | undefined {
   if (typeof window === "undefined") return undefined;
-  if (!lastNavWasPop || lastGameOrigin !== window.location.pathname) return undefined;
+  const state = window.history.state as Record<string, unknown> | null;
+  if (!lastNavWasPop || !state?.[OPENED_GAME_MARKER]) return undefined;
   return listStates.get(key) as T | undefined;
 }

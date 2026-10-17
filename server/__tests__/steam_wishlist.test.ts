@@ -520,10 +520,10 @@ describe("checkSteamWishlist", () => {
     await firstRun;
   });
 
-  it("does not throw and clears the in-progress guard when getAllUsers fails", async () => {
+  it("rejects so the task registry records a failure, and clears the in-progress guard, when getAllUsers fails", async () => {
     vi.mocked(storage.getAllUsers).mockRejectedValueOnce(new Error("DB unavailable"));
 
-    await expect(checkSteamWishlist()).resolves.toBeUndefined();
+    await expect(checkSteamWishlist()).rejects.toThrow("DB unavailable");
 
     // The in-progress guard must have been cleared, so a subsequent run proceeds normally.
     vi.mocked(storage.getAllUsers).mockResolvedValueOnce([]);

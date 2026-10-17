@@ -215,3 +215,16 @@ export type _SelectApiKeys = Expect<
 export type _InsertApiKeys = Expect<
   Equal<typeof sqliteSchema.apiKeys.$inferInsert, typeof pgSchema.apiKeys.$inferInsert>
 >;
+
+export type _SelectDownloadEvents = Expect<
+  Equal<
+    typeof sqliteSchema.downloadEvents.$inferSelect,
+    typeof pgSchema.downloadEvents.$inferSelect
+  >
+>;
+export type _InsertDownloadEvents = Expect<
+  Equal<
+    typeof sqliteSchema.downloadEvents.$inferInsert,
+    typeof pgSchema.downloadEvents.$inferInsert
+  >
+>;

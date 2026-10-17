@@ -4,6 +4,7 @@ import path from "node:path";
 import { storage } from "../storage.js";
 import { routesLogger as logger } from "../logger.js";
 import { isSensitivePath } from "../path-security.js";
+import { executeTask, getTaskStatus, getTaskStatuses } from "../task-registry.js";
 
 // Allow browsing the entire container filesystem
 // Security is maintained by container isolation and explicit volume mounts
@@ -123,4 +124,22 @@ systemRouter.get("/browse", async (req, res) => {
     logger.error({ error }, "File browser error");
     return res.status(500).json({ error: "Internal server error" });
   }
+});
+
+// GET /api/system/tasks - scheduled background jobs with their last/next run
+systemRouter.get("/tasks", (_req, res) => {
+  res.json({ tasks: getTaskStatuses() });
+});
+
+// POST /api/system/tasks/:name/run - start a job now; returns immediately (progress over Socket.IO)
+systemRouter.post("/tasks/:name/run", (req, res) => {
+  const status = getTaskStatus(req.params.name ?? "");
+  if (!status) {
+    return res.status(404).json({ error: "Unknown task" });
+  }
+  if (status.running) {
+    return res.status(409).json({ error: "Task is already running", task: status });
+  }
+  void executeTask(status.name, "manual");
+  return res.status(202).json({ task: { ...status, running: true } });
 });

@@ -5,12 +5,22 @@
  */
 const IN_APP_MARKER = "__questarrInApp";
 
+let lastGameOrigin: string | null = null;
+let lastNavWasPop = false;
+const listStates = new Map<string, unknown>();
+
 if (typeof window !== "undefined" && !(window.history as { __marked?: boolean }).__marked) {
   const pushState = window.history.pushState.bind(window.history);
   window.history.pushState = (state: unknown, unused: string, url?: string | URL | null) => {
     const base = state && typeof state === "object" ? (state as Record<string, unknown>) : {};
+    // Remember which list a game page was opened from, so Back can restore that list's filters.
+    if (url && /\/games\/[^/?#]+/.test(String(url))) lastGameOrigin = window.location.pathname;
+    lastNavWasPop = false;
     pushState({ ...base, [IN_APP_MARKER]: true }, unused, url);
   };
+  window.addEventListener("popstate", () => {
+    lastNavWasPop = true;
+  });
   // A replace keeps the entry it replaces: if the app pushed it, it stays marked.
   const replaceState = window.history.replaceState.bind(window.history);
   window.history.replaceState = (state: unknown, unused: string, url?: string | URL | null) => {
@@ -23,4 +33,16 @@ if (typeof window !== "undefined" && !(window.history as { __marked?: boolean })
 export function canGoBackInApp(): boolean {
   const state = typeof window === "undefined" ? null : (window.history.state as unknown);
   return Boolean(state && typeof state === "object" && IN_APP_MARKER in state);
+}
+
+/** Keep a list page's search/filters in memory so they survive a detour to a game page. */
+export function saveListState(key: string, state: unknown): void {
+  listStates.set(key, state);
+}
+
+/** The saved list state, only when this page is being returned to by Back from one of its games. */
+export function restoredListState<T>(key: string): T | undefined {
+  if (typeof window === "undefined") return undefined;
+  if (!lastNavWasPop || lastGameOrigin !== window.location.pathname) return undefined;
+  return listStates.get(key) as T | undefined;
 }

@@ -1,3 +1,4 @@
+import { restoredListState, saveListState } from "@/lib/in-app-history";
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -69,26 +70,78 @@ function LabeledSwitch({
   );
 }
 
+type LibraryListState = {
+  searchQuery: string;
+  showFilters: boolean;
+  statusFilter: GameStatus | "all";
+  genreFilter: string;
+  platformFilter: string;
+  showSearchResultsOnly: boolean;
+  showDownloadsOnly: boolean;
+  minRating: number | null;
+  showUnratedOnly: boolean;
+  showShelvedOverride: boolean;
+  showOwnedInResultsOverride: boolean;
+};
+
 /** Display the user's collection with search, filters and status actions. */
 export default function Library() {
-  const [searchQuery, setSearchQuery] = useState("");
+  // Coming back from a game page with Back restores the search and filters that were active.
+  const [restored] = useState(() => restoredListState<LibraryListState>("library"));
+  const [searchQuery, setSearchQuery] = useState(restored?.searchQuery ?? "");
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  const [showFilters, setShowFilters] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<GameStatus | "all">("all");
-  const [genreFilter, setGenreFilter] = useState<string>("all");
-  const [platformFilter, setPlatformFilter] = useState<string>("all");
-  const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
-  const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
-  const [minRating, setMinRating] = useState<number | null>(null);
-  const [showUnratedOnly, setShowUnratedOnly] = useState(false);
+  const [showFilters, setShowFilters] = useState(restored?.showFilters ?? false);
+  const [statusFilter, setStatusFilter] = useState<GameStatus | "all">(
+    restored?.statusFilter ?? "all"
+  );
+  const [genreFilter, setGenreFilter] = useState<string>(restored?.genreFilter ?? "all");
+  const [platformFilter, setPlatformFilter] = useState<string>(restored?.platformFilter ?? "all");
+  const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(
+    restored?.showSearchResultsOnly ?? false
+  );
+  const [showDownloadsOnly, setShowDownloadsOnly] = useState(restored?.showDownloadsOnly ?? false);
+  const [minRating, setMinRating] = useState<number | null>(restored?.minRating ?? null);
+  const [showUnratedOnly, setShowUnratedOnly] = useState(restored?.showUnratedOnly ?? false);
   // Session-only overrides for the account-level default filters (see Settings
   // > Library Filtering). These don't persist so the defaults apply again next visit.
-  const [showShelvedOverride, setShowShelvedOverride] = useState(false);
-  const [showOwnedInResultsOverride, setShowOwnedInResultsOverride] = useState(false);
+  const [showShelvedOverride, setShowShelvedOverride] = useState(
+    restored?.showShelvedOverride ?? false
+  );
+  const [showOwnedInResultsOverride, setShowOwnedInResultsOverride] = useState(
+    restored?.showOwnedInResultsOverride ?? false
+  );
   const [sortBy, setSortBy] = useLocalStorageState<LibrarySortOption>(
     "librarySortBy",
     "added-desc"
   );
+
+  useEffect(() => {
+    saveListState("library", {
+      searchQuery,
+      showFilters,
+      statusFilter,
+      genreFilter,
+      platformFilter,
+      showSearchResultsOnly,
+      showDownloadsOnly,
+      minRating,
+      showUnratedOnly,
+      showShelvedOverride,
+      showOwnedInResultsOverride,
+    } satisfies LibraryListState);
+  }, [
+    searchQuery,
+    showFilters,
+    statusFilter,
+    genreFilter,
+    platformFilter,
+    showSearchResultsOnly,
+    showDownloadsOnly,
+    minRating,
+    showUnratedOnly,
+    showShelvedOverride,
+    showOwnedInResultsOverride,
+  ]);
 
   const clearAllFilters = useCallback(() => {
     setStatusFilter("all");

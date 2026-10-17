@@ -30,6 +30,8 @@ import { notifyUser } from "../socket.js";
 import { recordVersionFromCompletedDownload } from "../game-version.js";
 import { resolvePrefs } from "../notification-prefs.js";
 import { appriseClient } from "../apprise.js";
+import { isRommPlatformFoldersEnabled, requestRommScanAfterImport } from "../romm.js";
+import { isValidRommSlug, rommSlugForPlatformId } from "../../shared/romm-platforms.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
 
 const PLATFORM_FOLDER_NAMES: Record<string, string> = {
@@ -157,6 +159,29 @@ export class ImportManager {
     if (!releasePlatformKey) return undefined;
     return PLATFORM_CATALOG.find(({ canonical }) => canonical.toLowerCase() === releasePlatformKey)
       ?.igdbIds[0];
+  }
+
+  /**
+   * Platform folder for an import. With RomM platform folders on, it is the RomM platform slug
+   * ("snes", "ps2", "win") so RomM finds the files where it looks; a platform without a known
+   * slug keeps its readable folder name.
+   */
+  private async resolvePlatformFolder(
+    downloadTitle: string,
+    game: { platforms?: unknown; targetPlatformId?: number | null },
+    allowed: number[]
+  ): Promise<string> {
+    if (await isRommPlatformFoldersEnabled()) {
+      const releaseKey = this.getReleasePlatformKey(downloadTitle);
+      const platformId =
+        this.getReleasePlatformIgdbId(releaseKey) ??
+        game.targetPlatformId ??
+        this.getPrimaryPlatformId(game, allowed) ??
+        6;
+      const slug = rommSlugForPlatformId(platformId);
+      if (slug && isValidRommSlug(slug)) return slug;
+    }
+    return this.resolvePlatformFolderName(downloadTitle, game, allowed);
   }
 
   private resolvePlatformFolderName(
@@ -529,11 +554,13 @@ export class ImportManager {
   ): boolean {
     const releasePlatformKey = this.getReleasePlatformKey(downloadTitle);
     const releasePlatformId = this.getReleasePlatformIgdbId(releasePlatformKey);
-    // A detected release identifies the downloaded version. Otherwise the game
-    // can list several platforms, stored as IGDB names, and any selected one fits.
+    // A detected release identifies the downloaded version, then the platform the user chose for
+    // the game. Otherwise the game can list several platforms, stored as IGDB names, and any
+    // selected one fits.
+    const identifiedPlatformId = releasePlatformId ?? game.targetPlatformId ?? undefined;
     const enabled =
-      releasePlatformId !== undefined
-        ? this.isPlatformEnabled(releasePlatformId, importPlatformIds)
+      identifiedPlatformId !== undefined
+        ? this.isPlatformEnabled(identifiedPlatformId, importPlatformIds)
         : this.isPlatformEnabled(
             this.getPrimaryPlatformId(game, importPlatformIds),
             importPlatformIds
@@ -560,6 +587,7 @@ export class ImportManager {
     if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
       await this.storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
     }
+    requestRommScanAfterImport();
   }
 
   /** Best-effort: a version that can't be recorded must not fail an import that succeeded. */
@@ -955,7 +983,7 @@ export class ImportManager {
 
       await fs.ensureDir(libraryRoot);
 
-      const platformDir = this.resolvePlatformFolderName(
+      const platformDir = await this.resolvePlatformFolder(
         download.downloadTitle || "",
         game,
         config.importPlatformIds
@@ -1101,7 +1129,7 @@ export class ImportManager {
       // Source resolution failed — still return a proposed path based on game title
     }
 
-    const platformDir = this.resolvePlatformFolderName(
+    const platformDir = await this.resolvePlatformFolder(
       download.downloadTitle || "",
       game,
       config.importPlatformIds

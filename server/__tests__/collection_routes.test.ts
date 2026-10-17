@@ -251,6 +251,14 @@ describe("Collection routes", () => {
     expect(storage.updateCollection).not.toHaveBeenCalled();
   });
 
+  it("rejects unknown game statuses in smart rules", async () => {
+    const res = await request(app)
+      .post("/api/collections")
+      .send({ name: "Typo", type: "smart", rules: { statuses: ["complete"] } });
+    expect(res.status).toBe(400);
+    expect(storage.createCollection).not.toHaveBeenCalled();
+  });
+
   it("leaves out games hidden by the user's content filter", async () => {
     vi.mocked(storage.getUserSettings).mockResolvedValue({
       hideAdultContent: true,

@@ -658,7 +658,7 @@ const trimmedList = z.array(z.string().trim().min(1).max(100)).max(50);
 
 export const collectionRulesSchema = z
   .object({
-    statuses: trimmedList.optional(),
+    statuses: z.array(z.enum(GAME_STATUSES)).max(GAME_STATUSES.length).optional(),
     platforms: trimmedList.optional(),
     genres: trimmedList.optional(),
     minRating: z.number().min(0).max(10).optional(),

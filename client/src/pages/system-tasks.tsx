@@ -88,7 +88,7 @@ export default function SystemTasksPage() {
   const { toast } = useToast();
   const [now, setNow] = useState(() => Date.now());
 
-  const { data } = useQuery<{ tasks: SystemTask[] }>({
+  const { data, isError, refetch } = useQuery<{ tasks: SystemTask[] }>({
     queryKey: ["/api/system/tasks"],
     refetchInterval: (query) => (query.state.data?.tasks.some((t) => t.running) ? 3000 : false),
   });
@@ -154,7 +154,14 @@ export default function SystemTasksPage() {
         />
       </div>
 
-      {tasks.length === 0 ? (
+      {isError && !data ? (
+        <div className="flex items-center gap-3 text-sm text-destructive">
+          <span>Could not load the scheduled tasks.</span>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      ) : tasks.length === 0 ? (
         <div className="flex h-48 flex-col items-center justify-center text-slate-500">
           <Timer className="mb-3 h-10 w-10 opacity-30" aria-hidden="true" />
           <p className="text-sm">{filter ? "No task matches" : "No scheduled tasks"}</p>

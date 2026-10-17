@@ -680,11 +680,13 @@ const collectionBaseSchema = z.object({
   rules: collectionRulesSchema.nullish(),
 });
 
+type CollectionRulesInput = {
+  type?: "manual" | "smart" | undefined;
+  rules?: CollectionRules | null | undefined;
+};
+
 /** A smart collection needs at least one rule; a manual one never stores rules. */
-function refineCollectionRules(
-  value: { type?: "manual" | "smart" | undefined; rules?: CollectionRules | null | undefined },
-  ctx: z.RefinementCtx
-) {
+function refineCollectionRules(value: CollectionRulesInput, ctx: z.RefinementCtx) {
   if (value.type === "smart" && isEmptyCollectionRules(value.rules)) {
     ctx.addIssue({
       code: "custom",
@@ -692,6 +694,10 @@ function refineCollectionRules(
       message: "A smart collection needs at least one rule",
     });
   }
+  refineReversedYears(value, ctx);
+}
+
+function refineReversedYears(value: CollectionRulesInput, ctx: z.RefinementCtx) {
   if (hasReversedYearRange(value.rules)) {
     ctx.addIssue({
       code: "custom",
@@ -707,7 +713,9 @@ export const insertCollectionSchema = collectionBaseSchema
 
 export const updateCollectionSchema = collectionBaseSchema
   .partial()
-  .superRefine(refineCollectionRules)
+  // The "smart needs a rule" check runs in the PATCH route, on the patch merged with the stored
+  // collection, so a patch may omit rules that are already stored.
+  .superRefine(refineReversedYears)
   .transform((v) => (v.type === "manual" ? { ...v, rules: null } : v));
 
 export const addCollectionGameSchema = z.object({

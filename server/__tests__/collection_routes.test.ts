@@ -251,6 +251,21 @@ describe("Collection routes", () => {
     expect(storage.updateCollection).not.toHaveBeenCalled();
   });
 
+  it("keeps stored rules when a PATCH only sets the type to smart", async () => {
+    vi.mocked(storage.getCollection).mockResolvedValue(
+      makeCollection({ type: "smart", rules: { genres: ["Shooter"] } })
+    );
+    vi.mocked(storage.updateCollection).mockResolvedValue(makeCollection());
+    const res = await request(app)
+      .patch(`/api/collections/${collectionId}`)
+      .send({ type: "smart" });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(storage.updateCollection).mock.calls[0]?.[2]).toMatchObject({
+      type: "smart",
+      rules: { genres: ["Shooter"] },
+    });
+  });
+
   it("rejects unknown game statuses in smart rules", async () => {
     const res = await request(app)
       .post("/api/collections")

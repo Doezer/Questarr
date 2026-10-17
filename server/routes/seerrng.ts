@@ -768,9 +768,15 @@ function requestAction(
       if (!ledger) return undefined;
       const userId = req.user!.id;
       // Same queue as request creation: retries cannot race each other or a new request.
-      return await withDispatchQueue(`${userId}:${normalizeTitle(ledger.title)}`, async () =>
-        action({ userId, ledger, current: await describeRequest(userId, ledger) }, res)
-      );
+      return await withDispatchQueue(`${userId}:${normalizeTitle(ledger.title)}`, async () => {
+        // Reload inside the queue so the guards see what the previous action left behind.
+        const fresh =
+          (await storage.getIntegrationRequest(userId, ledger.externalRequestId)) ?? ledger;
+        return action(
+          { userId, ledger: fresh, current: await describeRequest(userId, fresh) },
+          res
+        );
+      });
     } catch (error) {
       logger.error({ error }, logMessage);
       return res.status(500).json({ error: failureError });

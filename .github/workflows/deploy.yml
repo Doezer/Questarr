@@ -17,6 +17,11 @@ on:
         description: "Docker image tag (leave empty for auto-generated tag)"
         required: false
         default: ""
+      weekly:
+        description: "Also move the weekly image tag (set by the weekly pre-release workflow only)"
+        required: false
+        default: false
+        type: boolean
       build_arm64:
         description: "Also build ARM64 (slows down build; always on for production)"
         required: false
@@ -183,6 +188,7 @@ jobs:
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=raw,value=latest,enable=${{ env.ENVIRONMENT == 'production' }}
             type=raw,value=dev,enable=${{ env.ENVIRONMENT == 'dev' }}
+            type=raw,value=weekly,enable=${{ env.ENVIRONMENT == 'dev' && inputs.weekly == true }}
             type=sha,prefix=${{ env.ENVIRONMENT }}-sha-,format=short,enable=${{ env.ENVIRONMENT != 'dev' }}
           labels: |
             org.opencontainers.image.title=Questarr

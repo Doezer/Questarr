@@ -831,9 +831,21 @@ describe("DatabaseStorage Extended Coverage", () => {
         fileSize: null,
       } as InsertGameDownload);
 
+      // A download cancelled through the integration API was already removed from the client.
+      const cancelled = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-cancelled",
+        downloadTitle: "Cancelled-GROUP",
+        status: "cancelled",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
       const ids = (await storage.getDownloadingGameDownloads()).map((d) => d.id);
       expect(ids).toContain(active!.id);
       expect(ids).not.toContain(failed!.id);
+      expect(ids).not.toContain(cancelled!.id);
     });
   });
 

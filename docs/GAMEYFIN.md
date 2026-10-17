@@ -21,8 +21,8 @@ library directory as one game.
    read-only is enough for Gameyfin).
 2. In Gameyfin, create a library and add the Questarr platform folder (for example `/data/PC`) as one of
    its directories.
-3. In Gameyfin, turn on **Enable automatic library scanning using file system watchers** (off by
-   default). When Questarr finishes an import, Gameyfin notices the new folder and scans that library.
+3. In Gameyfin, turn on **Enable automatic library scanning using file system watchers** (check that it is
+   enabled in your version). When Questarr finishes an import, Gameyfin notices the new folder and scans that library.
    Without the watcher, trigger a scan from Gameyfin or rely on its scheduled scan.
 4. In Questarr, keep **Sort add-on files into subfolders** and **Rename Pattern** as you like: Gameyfin
    reads the game name from the folder name, so a pattern such as `{Title}` or `{Title} ({Year})`

@@ -2847,6 +2847,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         not(
           inArray(gameDownloads.status, [
+            "cancelled",
             "completed",
             "error",
             "failed",

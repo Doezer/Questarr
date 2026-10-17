@@ -22,5 +22,6 @@ RUN chmod +x /ha-entrypoint.sh
 
 # nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint -- ha-entrypoint.sh must run as root first, then drops privileges with su-exec
 ENTRYPOINT ["/ha-entrypoint.sh"]
+# Invoke Node directly because the base image removes npm from the runtime.
 # nosemgrep: dockerfile.security.missing-user.missing-user -- runtime process is exec'd as the unprivileged questarr user by ha-entrypoint.sh
-CMD ["npm", "run", "start"]
+CMD ["node", "dist/server/index.js"]

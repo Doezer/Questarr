@@ -329,6 +329,49 @@ describe("ImportStrategies", () => {
       expect(plan.proposedPath).toMatch(/My Game\.exe$/);
     });
 
+    it("names the destination from the rename pattern", async () => {
+      const root = tempDir();
+      const folder = path.join(root, "downloads", "Release");
+      await fs.outputFile(path.join(folder, "game.exe"), "exe");
+      const single = path.join(root, "downloads", "single.exe");
+      await fs.writeFile(single, "exe");
+      const strategy = new PCImportStrategy();
+      const game = makeGame({ title: "My Game", releaseDate: "2019-03-02" });
+      const config = makeImportConfig({ renamePattern: "{Title} ({Year}) [{Group}]" });
+      const lib = path.join(root, "library");
+
+      const dirPlan = await strategy.planImport(folder, game, lib, config, "PC", {
+        downloadTitle: "My.Game.v1.0-FLT",
+      });
+      expect(dirPlan.proposedPath).toBe(path.join(lib, "PC", "My Game (2019) [FLT]"));
+
+      const filePlan = await strategy.planImport(single, game, lib, config, "PC", {
+        downloadTitle: "My.Game.v1.0-FLT",
+      });
+      expect(filePlan.proposedPath).toBe(path.join(lib, "PC", "My Game (2019) [FLT].exe"));
+
+      const unpacked = await strategy.planImport(single, game, lib, config, "PC", {
+        treatAsDirectory: true,
+      });
+      expect(unpacked.proposedPath).toBe(path.join(lib, "PC", "My Game (2019)"));
+    });
+
+    it("keeps a hostile release name inside the library", async () => {
+      const root = tempDir();
+      const folder = path.join(root, "downloads", "Release");
+      await fs.outputFile(path.join(folder, "game.exe"), "exe");
+      const lib = path.join(root, "library");
+      const plan = await new PCImportStrategy().planImport(
+        folder,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ renamePattern: "{Title} [{Group}] {Source} {Version}" }),
+        "PC",
+        { downloadTitle: "My.Game-..\\..\\x" }
+      );
+      expect(path.relative(lib, plan.proposedPath).split(path.sep)).toHaveLength(2);
+    });
+
     it("rejects a computed destination that would escape targetRoot", async () => {
       const root = tempDir();
       const source = path.join(root, "downloads", "game.exe");

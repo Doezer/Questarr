@@ -58,3 +58,22 @@ The installer job treats a missing matching release as a skipped attachment.
 If that occurs, attach the executable and checksum from the workflow artifact
 to the matching draft release before publishing. Tagging, dispatching the
 deployment workflow, and publication remain maintainer actions.
+
+## Weekly development pre-releases
+
+`.github/workflows/weekly-release.yml` runs every Monday at 06:00 UTC (and on demand from the Actions tab). If `main` has new commits since the last tag it:
+
+1. tags `main` as `v<next patch>-dev.<YYYYMMDD>` (for example `v1.5.1-dev.20261019`);
+2. publishes a GitHub **pre-release** whose notes list the merged pull requests (security and dependency fixes first) and any commit pushed straight to `main`;
+3. dispatches the Deploy workflow for the `dev` environment, which pushes `ghcr.io/doezer/questarr` and `doezer/questarr` images tagged with the release tag, `weekly` (moves only when a new pre-release is built; follow it to stay on the weekly build) and `dev` (moves with the daily dev build) (multi-arch), built from the tag. `latest` is only moved by production deployments.
+
+These builds are not functionally tested. Stable releases keep using a `vX.Y.Z` tag, which creates a draft release from `docs/CHANGELOG.md` (`release.yml` ignores `-dev.` tags).
+
+The optional Windows installer takes its file name and version from `package.json`, not from the pre-release tag.
+A second run on the same day gets a `.2` suffix (`-dev.20261019.2`). A run that fails after pushing the tag resumes on the next run (the tag has no release yet).
+
+The release is published as soon as the image build is dispatched, without waiting for it. If that build fails, run **Deploy Web App** manually with environment `dev` and the pre-release tag (leave `weekly` unchecked unless it is the newest pre-release).
+
+### Registry retention
+
+The daily dev build prunes GHCR (`deploy.yml`): versions tagged only `test-sha-*` and untagged versions older than 15 days are deleted. Weekly images are not affected, because they always carry their dated tag (`v1.5.1-dev.20261019`). The flip side is that those dated tags are never purged automatically and pile up at roughly one multi-arch image per week; delete old ones by hand from the package page when needed. Docker Hub is not pruned by any workflow.

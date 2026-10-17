@@ -496,6 +496,16 @@ If you run into an issue, go to the **Logs** page and click **Send Logs** before
 
 - Start with [docs/GITHUB_DOCUMENTATION.md](docs/GITHUB_DOCUMENTATION.md) for the canonical documentation map.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=doezer%2Fquestarr&type=timeline&logscale=&releases=&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=doezer/questarr&type=timeline&theme=dark&logscale&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=doezer/questarr&type=timeline&logscale&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=doezer/questarr&type=timeline&logscale&legend=bottom-right" />
+ </picture>
+</a>
+
 ## Contributing
 
 - See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.

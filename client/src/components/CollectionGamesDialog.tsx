@@ -52,9 +52,8 @@ export default function CollectionGamesDialog({
         await apiRequest("DELETE", `/api/collections/${collectionId}/games/${gameId}`);
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/collections"] });
-    },
+    // Returned so the mutation stays pending until membership is refetched (no duplicate click).
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/collections"] }),
     onError: (error: Error) => {
       toast({
         title: "Could not update the collection",

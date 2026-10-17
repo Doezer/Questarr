@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GAME_STATUSES, type CollectionRules, type Game } from "@shared/schema";
 import {
@@ -65,9 +65,17 @@ export default function CollectionDialog({
   const [yearTo, setYearTo] = useState("");
   const [titleContains, setTitleContains] = useState("");
 
-  // Reset the form each time the dialog opens, from the collection being edited if any.
+  // Reset the form each time the dialog opens, from the collection being edited if any. Background
+  // refetches hand back a new `collection` object; those must not wipe what the user is typing.
+  const resetKey = useRef<string | null>(null);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      resetKey.current = null;
+      return;
+    }
+    const key = collection?.id ?? "new";
+    if (resetKey.current === key) return;
+    resetKey.current = key;
     const rules = collection?.rules ?? {};
     setName(collection?.name ?? "");
     setDescription(collection?.description ?? "");

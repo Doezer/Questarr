@@ -257,6 +257,32 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
   });
 
   describe("download event log", () => {
+    it("still saves the error message when the status does not change", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      const downloader = await storage().addDownloader({
+        name: "same-status-qb",
+        type: "qbittorrent",
+        url: "http://same-status",
+      } as never);
+      const download = await storage().addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader!.id,
+        downloadType: "game",
+        downloadHash: "same-status-hash",
+        downloadTitle: "Same.Status-GRP",
+        status: "manual_review_required",
+      } as never);
+      const before = (await storage().getDownloadEvents(user.id, { eventType: "needs_review" }))
+        .total;
+      await storage().updateGameDownloadStatus(download!.id, "manual_review_required", "scan gap");
+      const row = await storage().getGameDownload(download!.id);
+      expect(row?.errorMessage).toBe("scan gap");
+      expect(
+        (await storage().getDownloadEvents(user.id, { eventType: "needs_review" })).total
+      ).toBe(before);
+    });
+
     it("records a completed event for rows inserted already completed", async () => {
       const [user] = await storage().getAllUsers();
       const [game] = await storage().getUserGames(user.id);

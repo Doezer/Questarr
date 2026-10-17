@@ -2939,15 +2939,15 @@ export class DatabaseStorage implements IStorage {
     const eventType = DOWNLOAD_STATUS_EVENTS[status];
     const previous = eventType ? await this.getDownloadEventContext(id) : undefined;
     // Only the call that really changes the status gets to log it, even under concurrency.
-    const changed = await db
-      .update(gameDownloads)
-      .set(updates)
-      .where(
-        eventType
-          ? and(eq(gameDownloads.id, id), ne(gameDownloads.status, status as never))
-          : eq(gameDownloads.id, id)
-      )
-      .returning({ id: gameDownloads.id });
+    const changed = eventType
+      ? await db
+          .update(gameDownloads)
+          .set({ status: updates.status })
+          .where(and(eq(gameDownloads.id, id), ne(gameDownloads.status, status as never)))
+          .returning({ id: gameDownloads.id })
+      : [];
+    // The remaining fields (error message, completion time) are always written.
+    await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
     if (eventType && previous && changed.length > 0) {
       await this.recordDownloadEvent({
         userId: previous.userId,
@@ -3494,16 +3494,20 @@ export class DatabaseStorage implements IStorage {
         );
       return firstOrThrow(existingRows);
     }
-    const [game] = await db.select().from(games).where(eq(games.id, entry.gameId));
-    if (game?.userId) {
-      await this.recordDownloadEvent({
-        userId: game.userId,
-        gameId: game.id,
-        gameTitle: game.title,
-        eventType: "blocklisted",
-        releaseTitle: entry.releaseTitle,
-        downloaderName: entry.indexerName ?? null,
-      });
+    try {
+      const [game] = await db.select().from(games).where(eq(games.id, entry.gameId));
+      if (game?.userId) {
+        await this.recordDownloadEvent({
+          userId: game.userId,
+          gameId: game.id,
+          gameTitle: game.title,
+          eventType: "blocklisted",
+          releaseTitle: entry.releaseTitle,
+          downloaderName: entry.indexerName ?? null,
+        });
+      }
+    } catch (error) {
+      logger.warn({ error, gameId: entry.gameId }, "Failed to record blocklist event");
     }
     return row;
   }

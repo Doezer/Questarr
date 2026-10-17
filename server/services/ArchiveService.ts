@@ -807,7 +807,7 @@ export class ArchiveService {
       } finally {
         await handle?.close().catch(() => undefined);
       }
-      return names.sort();
+      return names.sort((a, b) => a.localeCompare(b));
     };
 
     const walk = async (dir: string, depth: number): Promise<void> => {

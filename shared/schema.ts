@@ -471,6 +471,11 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export const insertGameSchema = createInsertSchema(games, {
   targetPlatformId: (schema) => schema.int().positive().nullable().optional(),
   targetPlatformName: (schema) => schema.trim().min(1).max(100).nullable().optional(),
+  videos: () =>
+    z
+      .array(z.object({ name: z.string(), videoId: z.string().regex(/^[\w-]{11}$/) }))
+      .nullable()
+      .optional(),
   status: (schema) =>
     schema
       .nullable()

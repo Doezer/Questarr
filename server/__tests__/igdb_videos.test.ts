@@ -33,3 +33,17 @@ describe("toVideos", () => {
     expect(toVideos(undefined)).toEqual([]);
   });
 });
+
+describe("insertGameSchema videos", () => {
+  it("rejects malformed video entries", async () => {
+    const { insertGameSchema } = await import("../../shared/schema.js");
+    expect(insertGameSchema.safeParse({ title: "T", videos: [null] }).success).toBe(false);
+    expect(
+      insertGameSchema.safeParse({ title: "T", videos: [{ name: "a", videoId: "short" }] }).success
+    ).toBe(false);
+    expect(
+      insertGameSchema.safeParse({ title: "T", videos: [{ name: "a", videoId: "dQw4w9WgXcQ" }] })
+        .success
+    ).toBe(true);
+  });
+});

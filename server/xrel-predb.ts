@@ -14,6 +14,8 @@ import type { XrelPredbEntry } from "../shared/release-scoring.js";
  */
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const LOOKUP_LIMIT = 100;
+// manual searches key the cache by whatever the user typed, so it is bounded
+const MAX_CACHE_ENTRIES = 200;
 
 const cache = new Map<string, { at: number; lookup: Promise<XrelPredbEntry[] | undefined> }>();
 
@@ -43,7 +45,17 @@ export async function getXrelPredb(gameTitle: string): Promise<XrelPredbEntry[] 
     logger.warn({ error, gameTitle }, "xREL PreDB lookup failed, scoring without it");
     return undefined;
   });
-  cache.set(key, { at: Date.now(), lookup });
+  const now = Date.now();
+  for (const [entryKey, entry] of cache) {
+    if (now - entry.at >= CACHE_TTL_MS) cache.delete(entryKey);
+  }
+  // Map keeps insertion order, so the oldest entries go first
+  while (cache.size >= MAX_CACHE_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+  cache.set(key, { at: now, lookup });
   return lookup;
 }
 

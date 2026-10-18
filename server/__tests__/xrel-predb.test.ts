@@ -41,6 +41,17 @@ describe("getXrelPredb", () => {
     expect(searchReleases).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the cache bounded and drops the oldest titles first", async () => {
+    searchReleases.mockResolvedValue([]);
+    for (let i = 0; i < 205; i++) await getXrelPredb(`Game number ${i} alpha`);
+    expect(searchReleases).toHaveBeenCalledTimes(205);
+    // the newest title is still cached, the oldest was evicted
+    await getXrelPredb("Game number 204 alpha");
+    expect(searchReleases).toHaveBeenCalledTimes(205);
+    await getXrelPredb("Game number 0 alpha");
+    expect(searchReleases).toHaveBeenCalledTimes(206);
+  });
+
   it("returns undefined on failure and tries again next time", async () => {
     searchReleases.mockRejectedValueOnce(new Error("rate limit"));
     expect(await getXrelPredb("Game")).toBeUndefined();

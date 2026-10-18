@@ -3572,6 +3572,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   /** Event logging must never break the operation that triggered it. */
+  private lastDownloadEventMs = 0;
+
   private async recordDownloadEvent(event: InsertDownloadEvent): Promise<void> {
     try {
       await this.addDownloadEvent(event);
@@ -3581,7 +3583,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addDownloadEvent(event: InsertDownloadEvent): Promise<void> {
-    await db.insert(downloadEvents).values({ ...event, id: randomUUID(), createdAt: new Date() });
+    // Strictly increasing timestamps keep events recorded back to back in insertion order.
+    const nowMs = Math.max(Date.now(), this.lastDownloadEventMs + 1);
+    this.lastDownloadEventMs = nowMs;
+    await db
+      .insert(downloadEvents)
+      .values({ ...event, id: randomUUID(), createdAt: new Date(nowMs) });
   }
 
   async getDownloadEvents(
@@ -3609,7 +3616,7 @@ export class DatabaseStorage implements IStorage {
         .select()
         .from(downloadEvents)
         .where(where)
-        .orderBy(desc(downloadEvents.createdAt))
+        .orderBy(desc(downloadEvents.createdAt), desc(downloadEvents.id))
         .limit(options.limit ?? 50)
         .offset(options.offset ?? 0),
       db.select({ total: count() }).from(downloadEvents).where(where),

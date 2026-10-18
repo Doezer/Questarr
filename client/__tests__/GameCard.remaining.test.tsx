@@ -195,7 +195,8 @@ describe("GameCard remaining coverage", () => {
     const detailsButton = screen.getByTestId("card-game-igdb-1");
     fireEvent.click(detailsButton);
     expect(onViewDetails).toHaveBeenCalledWith("igdb-1");
-    expect(window.location.pathname).toBe("/games/igdb-1");
+    // Once added to the library, the card opens the library game, not the Discover entry.
+    expect(window.location.pathname).toBe("/games/library-1");
 
     const content = screen.getByTestId("text-title-igdb-1").parentElement;
     expect(content).toBeTruthy();

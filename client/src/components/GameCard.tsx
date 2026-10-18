@@ -92,7 +92,7 @@ const GameCard = ({
     },
   });
 
-  const details = useGameDetailsLink(game);
+  const details = useGameDetailsLink(resolvedGame);
   const handleDetailsClick = (event?: React.MouseEvent) => {
     onViewDetails?.(game.id);
     details.openDetails(event);

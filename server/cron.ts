@@ -235,6 +235,14 @@ export function categorizeSearchItems(
       if (a.evaluation && b.evaluation && a.evaluation.score !== b.evaluation.score) {
         return b.evaluation.score - a.evaluation.score;
       }
+      // then the profile's preferred protocol, as in the engine and the download dialog
+      if (
+        a.evaluation &&
+        b.evaluation &&
+        a.evaluation.preferredProtocol !== b.evaluation.preferredProtocol
+      ) {
+        return a.evaluation.preferredProtocol ? -1 : 1;
+      }
       if (rules.sortBy === "seeders") {
         return releaseHealth(b) - releaseHealth(a);
       }

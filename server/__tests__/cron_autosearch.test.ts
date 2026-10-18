@@ -2545,6 +2545,30 @@ describe("release scoring in auto-search", () => {
     const result = categorizeSearchItems([scored[1]!, lowSeedHighScore], rules);
     expect(result.mainItems[0]?.seeders).toBe(1);
   });
+  it("breaks score ties on the preferred protocol before the user's sort order", () => {
+    const [torrent, usenet] = scoreReleasesForGame(
+      [
+        item("Dishonored-CODEX", { seeders: 500 }),
+        item("Dishonored-GOG", { downloadType: "usenet" as const, seeders: undefined, grabs: 3 }),
+      ],
+      game,
+      scoring
+    );
+    const tied = [
+      {
+        ...torrent!,
+        evaluation: { ...torrent!.evaluation!, score: 100, preferredProtocol: false },
+      },
+      { ...usenet!, evaluation: { ...usenet!.evaluation!, score: 100, preferredProtocol: true } },
+    ];
+    const rules = {
+      minSeeders: 0,
+      sortBy: "seeders" as const,
+      visibleCategoriesSet: new Set(["main", "update", "dlc", "extra", "packs"]),
+    };
+    const result = categorizeSearchItems(tied, rules);
+    expect(result.mainItems[0]?.downloadType).toBe("usenet");
+  });
   it("drops a nuked release and ranks the xREL-verified one first", () => {
     const kept = scoreReleasesForGame(
       [item("Dishonored-FLT"), item("Dishonored-CODEX"), item("Dishonored-SKIDROW")],

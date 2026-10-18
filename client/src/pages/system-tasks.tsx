@@ -112,9 +112,11 @@ export default function SystemTasksPage() {
     const refresh = () => queryClient.invalidateQueries({ queryKey: ["/api/system/tasks"] });
     socket.on("task:started", refresh);
     socket.on("task:finished", refresh);
+    socket.on("connect", refresh);
     return () => {
       socket.off("task:started", refresh);
       socket.off("task:finished", refresh);
+      socket.off("connect", refresh);
     };
   }, [queryClient]);
 

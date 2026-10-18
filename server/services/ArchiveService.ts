@@ -776,6 +776,35 @@ export class ArchiveService {
     return true;
   }
 
+  private groupArchiveSets(
+    files: string[],
+    archiveOptions: { includeDiscImages: boolean }
+  ): Array<{ primary: string; volumes: string[] }> {
+    const result: Array<{ primary: string; volumes: string[] }> = [];
+    const remaining = files.filter((f) => this.isArchive(f, archiveOptions));
+    while (remaining.length > 0) {
+      let primary = remaining[0]!;
+      // ".r00" sorts before ".rar" but is a continuation, not the entry point.
+      const continuation = /^(.*)\.r\d{2,3}$/i.exec(path.basename(primary));
+      if (continuation?.[1]) {
+        const stem = continuation[1].toLowerCase();
+        const rar = remaining.find(
+          (f) =>
+            /\.rar$/i.test(f) && path.basename(f).slice(0, -".rar".length).toLowerCase() === stem
+        );
+        if (rar) primary = rar;
+      }
+      const volumes = this.findVolumeSiblings(primary, files).map((f) => path.resolve(f));
+      if (!volumes.includes(path.resolve(primary))) volumes.push(path.resolve(primary));
+      result.push({ primary, volumes });
+      const taken = new Set(volumes);
+      for (let i = remaining.length - 1; i >= 0; i--) {
+        if (taken.has(path.resolve(remaining[i]!))) remaining.splice(i, 1);
+      }
+    }
+    return result;
+  }
+
   /**
    * Finds every archive set (one primary volume plus its continuations) below `root`, without
    * touching anything: `lstat` only, symlinks are never followed, and the walk is bounded by
@@ -826,26 +855,8 @@ export class ArchiveService {
         else if (stats.isFile()) files.push(full);
       }
 
-      const remaining = files.filter((f) => this.isArchive(f, archiveOptions));
-      while (remaining.length > 0) {
-        let primary = remaining[0]!;
-        // ".r00" sorts before ".rar" but is a continuation, not the entry point.
-        const continuation = /^(.*)\.r\d{2,3}$/i.exec(path.basename(primary));
-        if (continuation?.[1]) {
-          const stem = continuation[1].toLowerCase();
-          const rar = remaining.find(
-            (f) =>
-              /\.rar$/i.test(f) && path.basename(f).slice(0, -".rar".length).toLowerCase() === stem
-          );
-          if (rar) primary = rar;
-        }
-        const volumes = this.findVolumeSiblings(primary, files).map((f) => path.resolve(f));
-        if (!volumes.includes(path.resolve(primary))) volumes.push(path.resolve(primary));
-        sets.push({ primary, volumes, relDir: path.relative(root, dir) });
-        const taken = new Set(volumes);
-        for (let i = remaining.length - 1; i >= 0; i--) {
-          if (taken.has(path.resolve(remaining[i]!))) remaining.splice(i, 1);
-        }
+      for (const set of this.groupArchiveSets(files, archiveOptions)) {
+        sets.push({ ...set, relDir: path.relative(root, dir) });
       }
 
       if (depth >= maxDepth) return;

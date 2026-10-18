@@ -336,7 +336,7 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(total).toBe(before + 4);
       expect(
         events
-          .slice(0, 4)
+          .filter((e) => e.releaseTitle.startsWith("Events.Game-"))
           .map((e) => e.eventType)
           .sort()
       ).toEqual(["blocklisted", "completed", "grabbed", "removed"]);

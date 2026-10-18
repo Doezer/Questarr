@@ -468,7 +468,7 @@ export class ImportManager {
   async reportLeftoverArchives(
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     dir: string,
-    options: { checkRoots?: boolean } = {}
+    options: { checkRoots?: boolean; extractionAttempted?: boolean } = {}
   ): Promise<void> {
     try {
       if (isSensitivePath(dir)) return;
@@ -479,11 +479,14 @@ export class ImportManager {
       if (leftovers.length === 0) return;
       const shown = leftovers.slice(0, 3).join(", ");
       const more = leftovers.length > 3 ? ` and ${leftovers.length - 3} more` : "";
+      const hint = options.extractionAttempted
+        ? "Questarr already tried to extract this import; check for nested archives or extract them yourself."
+        : "Turn on Auto-unpack in the import settings, or extract them yourself.";
       const notification = await this.storage.addNotification({
         userId: game.userId ?? "",
         type: "warning",
         title: "Archives were not extracted",
-        message: `"${game.title}" still contains ${leftovers.length} archive${leftovers.length === 1 ? "" : "s"} that nothing unpacked (${shown}${more}). Turn on Auto-unpack in the import settings, or extract them yourself.`,
+        message: `"${game.title}" still contains ${leftovers.length} archive${leftovers.length === 1 ? "" : "s"} that nothing unpacked (${shown}${more}). ${hint}`,
         link: "/downloads",
       });
       notifyUser("notification", notification, notification.userId);
@@ -1045,7 +1048,9 @@ export class ImportManager {
       );
 
       await this.finalizeImport(downloadId, game, result.destDir);
-      await this.reportLeftoverArchives(game, result.destDir);
+      await this.reportLeftoverArchives(game, result.destDir, {
+        extractionAttempted: needsExtraction,
+      });
       await this.autoDeleteIfConfigured(downloadId, download, game, config);
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] Import failed");
@@ -1357,7 +1362,9 @@ export class ImportManager {
       );
 
       await this.finalizeImport(downloadId, game, result.destDir);
-      await this.reportLeftoverArchives(game, result.destDir);
+      await this.reportLeftoverArchives(game, result.destDir, {
+        extractionAttempted: needsExtraction,
+      });
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] confirmImport failed");
       try {

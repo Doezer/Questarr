@@ -6,6 +6,9 @@ import fs from "fs-extra";
 import { logger } from "../logger.js";
 import { EXTRACT_STAGING_PREFIX } from "./extract-staging.js";
 
+/** Archive sets reported per directory: the post-import scan is a best-effort warning. */
+const MAX_SETS_PER_DIR = 50;
+
 type ArchiveTool = "7zip" | "unrar";
 type ExecFileResult = { stdout: string; stderr: string };
 
@@ -778,11 +781,13 @@ export class ArchiveService {
 
   private groupArchiveSets(
     files: string[],
-    archiveOptions: { includeDiscImages: boolean }
+    archiveOptions: { includeDiscImages: boolean },
+    maxSets: number
   ): Array<{ primary: string; volumes: string[] }> {
     const result: Array<{ primary: string; volumes: string[] }> = [];
-    const remaining = files.filter((f) => this.isArchive(f, archiveOptions));
-    while (remaining.length > 0) {
+    let remaining = files.filter((f) => this.isArchive(f, archiveOptions));
+    // Each set costs one pass over the directory's files, so the number of sets is capped.
+    while (remaining.length > 0 && result.length < maxSets) {
       let primary = remaining[0]!;
       // ".r00" sorts before ".rar" but is a continuation, not the entry point.
       const continuation = /^(.*)\.r\d{2,3}$/i.exec(path.basename(primary));
@@ -798,9 +803,7 @@ export class ArchiveService {
       if (!volumes.includes(path.resolve(primary))) volumes.push(path.resolve(primary));
       result.push({ primary, volumes });
       const taken = new Set(volumes);
-      for (let i = remaining.length - 1; i >= 0; i--) {
-        if (taken.has(path.resolve(remaining[i]!))) remaining.splice(i, 1);
-      }
+      remaining = remaining.filter((f) => !taken.has(path.resolve(f)));
     }
     return result;
   }
@@ -855,7 +858,7 @@ export class ArchiveService {
         else if (stats.isFile()) files.push(full);
       }
 
-      for (const set of this.groupArchiveSets(files, archiveOptions)) {
+      for (const set of this.groupArchiveSets(files, archiveOptions, MAX_SETS_PER_DIR)) {
         sets.push({ ...set, relDir: path.relative(root, dir) });
       }
 

@@ -173,6 +173,7 @@ export default function Library() {
   const {
     data: games = [],
     isLoading,
+    isSuccess: gamesLoaded,
     isFetching,
   } = useQuery<Game[]>({
     queryKey: ["/api/games", debouncedSearchQuery, showHiddenGames],
@@ -258,11 +259,11 @@ export default function Library() {
   useEffect(() => {
     // `visiblePlatforms` is built from the loaded games: until they arrive it is empty and would
     // wrongly reject a filter restored from before a visit to a game page.
-    if (isLoading) return;
+    if (!gamesLoaded) return;
     if (platformFilter === "all") return;
     if (visiblePlatforms.includes(platformFilter)) return;
     setPlatformFilter("all");
-  }, [isLoading, visiblePlatforms, platformFilter]);
+  }, [gamesLoaded, visiblePlatforms, platformFilter]);
 
   const filteredGames = useMemo(() => {
     const filtered = games.filter((game) => {

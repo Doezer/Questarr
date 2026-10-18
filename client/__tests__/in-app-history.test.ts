@@ -53,4 +53,20 @@ describe("list state restore", () => {
     expect(window.location.pathname).toBe("/library");
     expect(restoredListState("library")).toEqual({ searchQuery: "zelda" });
   });
+
+  it("keeps the snapshot current when filters change after coming Back", async () => {
+    const forward = () =>
+      new Promise<void>((resolve) => {
+        window.addEventListener("popstate", () => resolve(), { once: true });
+        window.history.forward();
+      });
+    window.history.pushState({}, "", "/library");
+    saveListState("library", { searchQuery: "zelda" });
+    window.history.pushState({}, "", "/games/g1");
+    await back();
+    saveListState("library", { searchQuery: "mario" });
+    await forward();
+    await back();
+    expect(restoredListState("library")).toEqual({ searchQuery: "mario" });
+  });
 });

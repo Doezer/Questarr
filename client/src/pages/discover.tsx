@@ -197,6 +197,7 @@ export default function DiscoverPage() {
     data: genres = [],
 
     isError: genresError,
+    isSuccess: genresLoaded,
 
     isFetching: isFetchingGenres,
   } = useQuery<Genre[]>({
@@ -220,6 +221,7 @@ export default function DiscoverPage() {
     data: platforms = [],
 
     isError: platformsError,
+    isSuccess: platformsLoaded,
 
     isFetching: isFetchingPlatforms,
   } = useQuery<Platform[]>({
@@ -238,8 +240,8 @@ export default function DiscoverPage() {
   });
 
   // The lists are "settled" once loaded or failed; before that only the defaults are known.
-  const genresSettled = genres.length > 0 || genresError;
-  const platformsSettled = platforms.length > 0 || platformsError;
+  const genresSettled = genresLoaded || genresError;
+  const platformsSettled = platformsLoaded || platformsError;
 
   // Handle errors with toast notifications
 

@@ -8,10 +8,12 @@ const IN_APP_MARKER = "__questarrInApp";
 const OPENED_GAME_MARKER = "__questarrOpenedGame";
 let lastNavWasPop = false;
 const listStates = new Map<string, unknown>();
+let rewriteEntryState: (state: Record<string, unknown>) => void = () => {};
 
 if (typeof window !== "undefined" && !(window.history as { __marked?: boolean }).__marked) {
   const pushState = window.history.pushState.bind(window.history);
   const nativeReplaceState = window.history.replaceState.bind(window.history);
+  rewriteEntryState = (state) => nativeReplaceState(state, "");
   window.history.pushState = (state: unknown, unused: string, url?: string | URL | null) => {
     const base = state && typeof state === "object" ? (state as Record<string, unknown>) : {};
     // Snapshot the list state on the entry a game page is opened from, so Back to that very entry
@@ -46,6 +48,12 @@ export function canGoBackInApp(): boolean {
 /** Keep a list page's search/filters in memory so they survive a detour to a game page. */
 export function saveListState(key: string, state: unknown): void {
   listStates.set(key, state);
+  // An entry a game was opened from keeps its snapshot current, so Back, change filters, Forward
+  // and Back again restores the latest filters rather than the ones from the first visit.
+  const current = window.history.state as Record<string, unknown> | null;
+  const snapshot = current?.[OPENED_GAME_MARKER] as Record<string, unknown> | undefined;
+  if (current && snapshot)
+    rewriteEntryState({ ...current, [OPENED_GAME_MARKER]: { ...snapshot, [key]: state } });
 }
 
 /** The saved list state, only when this page is being returned to by Back from one of its games. */

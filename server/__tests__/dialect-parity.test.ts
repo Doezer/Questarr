@@ -304,6 +304,35 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(after).toBe(before + 1);
     });
 
+    it("records a needs_review event when an orphaned download is relinked", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      const downloader = await storage().addDownloader({
+        name: "relink-qb",
+        type: "qbittorrent",
+        url: "http://relink",
+      } as never);
+      const download = await storage().addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader!.id,
+        downloadType: "game",
+        downloadHash: "relink-hash",
+        downloadTitle: "Relink.Game-GRP",
+        status: "game_link_required",
+      } as never);
+      const before = (await storage().getDownloadEvents(user.id, { eventType: "needs_review" }))
+        .total;
+      const relinked = await storage().relinkGameDownload(download!.id, game.id);
+      expect(relinked?.status).toBe("manual_review_required");
+      const after = await storage().getDownloadEvents(user.id, { eventType: "needs_review" });
+      expect(after.total).toBe(before + 1);
+      // A second relink no longer matches game_link_required and logs nothing.
+      expect(await storage().relinkGameDownload(download!.id, game.id)).toBeUndefined();
+      expect(
+        (await storage().getDownloadEvents(user.id, { eventType: "needs_review" })).total
+      ).toBe(before + 1);
+    });
+
     it("records grabbed, completed, blocklisted and removed events, newest first", async () => {
       const [user] = await storage().getAllUsers();
       const [game] = await storage().getUserGames(user.id);

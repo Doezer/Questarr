@@ -2870,6 +2870,21 @@ export class DatabaseStorage implements IStorage {
       .set({ gameId, status: "manual_review_required", errorMessage: null })
       .where(and(eq(gameDownloads.id, id), eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS)))
       .returning();
+    const eventType = DOWNLOAD_STATUS_EVENTS["manual_review_required"];
+    if (updated && eventType) {
+      // Read after the write so the event carries the newly linked game.
+      const context = await this.getDownloadEventContext(id);
+      if (context) {
+        await this.recordDownloadEvent({
+          userId: context.userId,
+          gameId: context.gameId,
+          gameTitle: context.gameTitle,
+          eventType,
+          releaseTitle: context.releaseTitle,
+          downloaderName: context.downloaderName,
+        });
+      }
+    }
     return updated;
   }
 

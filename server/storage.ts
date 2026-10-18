@@ -91,7 +91,6 @@ import { logger } from "./logger.js";
 import { normalizeDownloadHash } from "./download-hash.js";
 import {
   eq,
-  ne,
   like,
   or,
   sql,
@@ -2938,17 +2937,10 @@ export class DatabaseStorage implements IStorage {
     }
     const eventType = DOWNLOAD_STATUS_EVENTS[status];
     const previous = eventType ? await this.getDownloadEventContext(id) : undefined;
-    // Only the call that really changes the status gets to log it, even under concurrency.
-    const changed = eventType
-      ? await db
-          .update(gameDownloads)
-          .set({ status: updates.status })
-          .where(and(eq(gameDownloads.id, id), ne(gameDownloads.status, status as never)))
-          .returning({ id: gameDownloads.id })
-      : [];
-    // The remaining fields (error message, completion time) are always written.
+    // One write carries the status and its metadata, so a failure or a concurrent transition
+    // never leaves them out of step. The event is logged only when the status really changed.
     await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
-    if (eventType && previous && changed.length > 0) {
+    if (eventType && previous && previous.status !== status) {
       await this.recordDownloadEvent({
         userId: previous.userId,
         gameId: previous.gameId,

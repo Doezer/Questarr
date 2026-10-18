@@ -2946,8 +2946,13 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(gameDownloads.id, id), ne(gameDownloads.status, status as never)))
       .returning({ id: gameDownloads.id });
     if (changed.length === 0) {
-      // Same status as before: only the metadata (error message, completion time) moves.
-      await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
+      // Same status as before: only the metadata (error message, completion time) moves, and
+      // only while the status still matches, so a newer transition is never overwritten.
+      const { status: _status, ...metadata } = updates;
+      await db
+        .update(gameDownloads)
+        .set(metadata)
+        .where(and(eq(gameDownloads.id, id), eq(gameDownloads.status, status as never)));
     }
     if (eventType && previous && changed.length > 0) {
       await this.recordDownloadEvent({

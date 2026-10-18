@@ -523,9 +523,9 @@ describe("GameDownloadDialog", () => {
         expect.stringContaining("/blacklist"),
         expect.objectContaining({
           method: "POST",
-          // Results are sorted desc by health. "Test Usenet NZB" has 50 grabs,
-          // "Test Torrent 1" has 10 seeders, so NZB is first.
-          body: expect.stringContaining("Test Usenet NZB"),
+          // Equal scores fall back to indexer priority, so "Test Torrent 2" (Indexer B,
+          // priority 1) is first.
+          body: expect.stringContaining("Test Torrent 2"),
         })
       );
     });
@@ -1191,7 +1191,7 @@ describe("GameDownloadDialog", () => {
     expect(await screen.findAllByText("Transmission")).not.toHaveLength(0);
 
     fireEvent.click(screen.getAllByText("Copy Torrent Link")[0]);
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://test.com/torrent1");
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://test.com/torrent2");
 
     fireEvent.click(screen.getAllByText("Transmission")[0]);
 

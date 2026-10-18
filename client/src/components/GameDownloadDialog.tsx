@@ -553,19 +553,28 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               return aEval.accepted ? -1 : 1;
             }
             comparison = (bEval?.score ?? 0) - (aEval?.score ?? 0);
-            if (
-              comparison === 0 &&
-              aEval &&
-              bEval &&
-              aEval.preferredProtocol !== bEval.preferredProtocol
-            ) {
-              // an equal score keeps the preferred protocol first, as the server ordered it
-              comparison = aEval.preferredProtocol ? -1 : 1;
-            }
             if (comparison === 0) {
-              const aHealth = isUsenetItem(a) ? (a.grabs ?? 0) : (a.seeders ?? 0);
-              const bHealth = isUsenetItem(b) ? (b.grabs ?? 0) : (b.seeders ?? 0);
-              comparison = bHealth - aHealth;
+              // Ties follow the server order (protocol, indexer priority, health) whichever
+              // way the score column is sorted, so they are negated ahead of the final flip.
+              let tie = 0;
+              if (aEval && bEval && aEval.preferredProtocol !== bEval.preferredProtocol) {
+                tie = aEval.preferredProtocol ? -1 : 1;
+              }
+              if (tie === 0) {
+                const aPriority = indexerPriorityMap.get(a.indexerName ?? "");
+                const bPriority = indexerPriorityMap.get(b.indexerName ?? "");
+                if (aPriority !== undefined && bPriority !== undefined) {
+                  tie = aPriority - bPriority;
+                } else if (aPriority !== bPriority) {
+                  tie = aPriority === undefined ? 1 : -1;
+                }
+              }
+              if (tie === 0) {
+                const aHealth = isUsenetItem(a) ? (a.grabs ?? 0) : (a.seeders ?? 0);
+                const bHealth = isUsenetItem(b) ? (b.grabs ?? 0) : (b.seeders ?? 0);
+                tie = bHealth - aHealth;
+              }
+              comparison = sortOrder === "desc" ? tie : -tie;
             }
           } else if (sortBy === "seeders") {
             const aHealth = isUsenetItem(a) ? (a.grabs ?? 0) : (a.seeders ?? 0);

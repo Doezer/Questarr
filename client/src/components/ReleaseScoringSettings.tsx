@@ -79,9 +79,8 @@ export default function ReleaseScoringSettings() {
     setProtocol(profile.protocolPreference);
     setRequiredTerms(profile.requiredTerms);
     setIgnoredTerms(profile.ignoredTerms);
-    setMaxSizeGb(
-      profile.maxSizeBytes == null ? "" : String(Math.round(profile.maxSizeBytes / 1e8) / 10)
-    );
+    // full precision, so saving an unrelated change never rewrites the stored limit
+    setMaxSizeGb(profile.maxSizeBytes == null ? "" : String(profile.maxSizeBytes / 1e9));
     setOverrides(profile.builtInOverrides as Record<string, BuiltInOverride>);
   }, [data?.profile]);
 

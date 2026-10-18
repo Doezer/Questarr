@@ -36,9 +36,12 @@ const response = {
   ],
 };
 
-function renderSettings() {
+function renderSettings(maxSizeBytes: number | null = null) {
   const client = createTestQueryClient();
-  client.setQueryData(["/api/release-scoring"], response);
+  client.setQueryData(["/api/release-scoring"], {
+    ...response,
+    profile: { ...response.profile, maxSizeBytes },
+  });
   return render(
     <QueryClientProvider client={client}>
       <ReleaseScoringSettings />
@@ -73,6 +76,21 @@ describe("ReleaseScoringSettings", () => {
           minScore: 30,
           builtInOverrides: { repack: { points: 20 } },
         })
+      )
+    );
+  });
+
+  it("keeps a maximum size that is not a multiple of 0.1 GB when saving", async () => {
+    renderSettings(1_250_000_000);
+    expect(screen.getByLabelText("Maximum size (GB)")).toHaveValue(1.25);
+    fireEvent.change(screen.getByLabelText("Minimum score"), { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save profile and rules/i }));
+
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith(
+        "PUT",
+        "/api/release-profile",
+        expect.objectContaining({ maxSizeBytes: 1_250_000_000 })
       )
     );
   });

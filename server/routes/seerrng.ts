@@ -19,7 +19,6 @@ import {
   type IntegrationRequest,
   type SeerrngOperatingSystem,
 } from "../../shared/schema.js";
-import { normalizeTitle } from "../../shared/title-utils.js";
 
 /**
  * Provider API for SeerrNG (https://github.com/snapetech/seerrng), a
@@ -184,18 +183,25 @@ async function pagedCatalog(
   if (platformIds === null || !filters.success) throw new z.ZodError([]);
   // Filters can drop entries, so over-fetch and walk the visible list: the cursor is the index of
   // the first visible entry not yet returned.
-  const windowSize = Math.min(offset + limit * 3 + 1, MAX_CATALOG_WINDOW);
-  const raw = await fetchWindow(windowSize);
-  const visible = (await visibleIgdbGames(req.user!.id, raw)).map(toCatalogGame);
-  const page: CatalogGame[] = [];
-  let index = offset;
-  for (; index < visible.length && page.length < limit; index += 1) {
-    const game = visible[index];
-    if (game && matchesCatalogFilters(game, { platformIds, ...filters.data })) page.push(game);
+  let windowSize = Math.min(offset + limit * 3 + 1, MAX_CATALOG_WINDOW);
+  for (;;) {
+    const raw = await fetchWindow(windowSize);
+    const visible = (await visibleIgdbGames(req.user!.id, raw)).map(toCatalogGame);
+    const page: CatalogGame[] = [];
+    let index = offset;
+    for (; index < visible.length && page.length < limit; index += 1) {
+      const game = visible[index];
+      if (game && matchesCatalogFilters(game, { platformIds, ...filters.data })) page.push(game);
+    }
+    const moreUpstream = raw.length >= windowSize && windowSize < MAX_CATALOG_WINDOW;
+    // A window the filters emptied cannot move the cursor: widen it instead of repeating it.
+    if (page.length === 0 && moreUpstream) {
+      windowSize = Math.min(windowSize * 2, MAX_CATALOG_WINDOW);
+      continue;
+    }
+    const hasMore = index < visible.length || moreUpstream;
+    return { results: await withTimeToBeats(page), next: hasMore ? index : null };
   }
-  const moreUpstream = raw.length >= windowSize && windowSize < MAX_CATALOG_WINDOW;
-  const hasMore = index < visible.length || moreUpstream;
-  return { results: await withTimeToBeats(page), next: hasMore ? index : null };
 }
 
 seerrngRouter.get("/ping", scope, (_req: Request, res: Response) => {
@@ -573,15 +579,11 @@ async function describeRequest(userId: string, ledger: IntegrationRequest) {
   };
 }
 
-/** Exact IGDB requests queue by identity, others by title, so one game is never added twice. */
-function dispatchKey(
-  userId: string | number,
-  request: { title: string; igdbId?: number | null | undefined }
-) {
-  return request.igdbId
-    ? `${userId}:igdb:${request.igdbId}`
-    : `${userId}:${normalizeTitle(request.title)}`;
-}
+/**
+ * Requests of one user share a single queue: an exact-ID request and a title-only one can resolve
+ * to the same game, and the games table has no unique constraint to catch the second insert.
+ */
+const dispatchKey = (userId: string | number) => `${userId}:requests`;
 
 /** Per-key queue so two concurrent requests for one game cannot both add it. */
 const dispatchQueues = new Map<string, Promise<void>>();
@@ -661,7 +663,7 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
   }
   const { externalRequestId, title, igdbId, variant } = parsed.data;
   const userId = req.user!.id;
-  return withDispatchQueue(dispatchKey(userId, { title, igdbId }), async () => {
+  return withDispatchQueue(dispatchKey(userId), async () => {
     try {
       const { request: ledger, created } = await storage.addIntegrationRequest({
         userId,
@@ -782,7 +784,7 @@ function requestAction(
       if (!ledger) return undefined;
       const userId = req.user!.id;
       // Same queue as request creation: retries cannot race each other or a new request.
-      return await withDispatchQueue(dispatchKey(userId, ledger), async () => {
+      return await withDispatchQueue(dispatchKey(userId), async () => {
         // Reload inside the queue so the guards see what the previous action left behind.
         const fresh =
           (await storage.getIntegrationRequest(userId, ledger.externalRequestId)) ?? ledger;
@@ -832,6 +834,12 @@ seerrngRouter.post(
       let game = await findGame(userId, ledger);
       if (!game) {
         // The game was deleted (or never created): add it again from the ledger.
+        if (ledger.igdbId) {
+          const requested = await igdbClient.getGameById(ledger.igdbId);
+          if (requested && !supportsDesktop(requested)) {
+            return res.status(404).json({ error: "No matching PC game was found." });
+          }
+        }
         const result = await quickAddGameByTitle(userId, ledger.title, {
           status: "wanted",
           source: "api",
@@ -879,7 +887,15 @@ seerrngRouter.post(
     "Request could not be cancelled.",
     "SeerrNG software request cancellation failed",
     async ({ userId, ledger, current }, res) => {
-      if (current.status === "cancelled") return res.json(current);
+      if (current.status === "cancelled") {
+        // Finish a cancellation that stopped before the game was shelved.
+        const interrupted = await findGame(userId, ledger);
+        if (interrupted && !isAcquired(interrupted)) {
+          await storage.updateGameStatus(interrupted.id, { status: "shelved" });
+          await storage.updateGameSearchResultsAvailable(interrupted.id, false);
+        }
+        return res.json(current);
+      }
       if (current.status === "available") {
         return res.status(409).json({ error: "An available game cannot be cancelled." });
       }
@@ -923,14 +939,17 @@ seerrngRouter.post(
             "Cancelled through SeerrNG."
           );
         }
-        // "shelved" is the existing "no longer wanted" state: auto-search skips it.
-        await storage.updateGameStatus(game.id, { status: "shelved" });
-        await storage.updateGameSearchResultsAvailable(game.id, false);
       }
+      // Recorded before the game is shelved, so an interruption leaves a state cancel can finish.
       const updated = await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
         status: "cancelled",
         errorMessage: null,
       });
+      if (game) {
+        // "shelved" is the existing "no longer wanted" state: auto-search skips it.
+        await storage.updateGameStatus(game.id, { status: "shelved" });
+        await storage.updateGameSearchResultsAvailable(game.id, false);
+      }
       return res.json(await describeRequest(userId, updated ?? ledger));
     }
   )

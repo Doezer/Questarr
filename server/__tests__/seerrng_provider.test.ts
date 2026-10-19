@@ -240,6 +240,21 @@ describe("SeerrNG provider API", () => {
       expect(second.body.nextOffset).toBeNull();
     });
 
+    it("widens the window when filters hide everything it fetched", async () => {
+      const consoleOnly = (id: number) =>
+        igdbGame(id, `C${id}`, { platformOptions: [{ id: 48, name: "PS4" }] });
+      const all = [
+        ...Array.from({ length: 61 }, (_, i) => consoleOnly(i + 1)),
+        igdbGame(100, "Reachable"),
+      ];
+      (igdb.searchGames as Mock).mockImplementation(async (_q: string, size: number) =>
+        all.slice(0, size)
+      );
+      const res = await request(app).get(`${base}/catalog/search-page?q=game&limit=5`);
+      expect(res.status).toBe(200);
+      expect(res.body.results.map((g: { igdbId: number }) => g.igdbId)).toEqual([100]);
+    });
+
     it("returns game details and 404 for a filtered or unknown game", async () => {
       const ok = await request(app).get(`${base}/catalog/games/42`);
       expect(ok.status).toBe(200);
@@ -407,6 +422,23 @@ describe("SeerrNG provider API", () => {
       expect(games.size).toBe(1);
     });
 
+    it("does not recreate a console-only game when retrying a request that lost it", async () => {
+      await request(app).post(`${base}/requests`).send(createBody);
+      ledger.set("user-1:seerrng:request:1", {
+        ...ledger.get("user-1:seerrng:request:1"),
+        gameId: null,
+        status: "failed",
+      });
+      games.clear();
+      (storage.addGame as Mock).mockClear();
+      (igdb.getGameById as Mock).mockResolvedValue(
+        igdbGame(42, "Console Only", { platformOptions: [{ id: 48, name: "PS4" }] })
+      );
+      const res = await request(app).post(`${base}/requests/seerrng:request:1/retry`).send({});
+      expect(res.status).toBe(404);
+      expect(storage.addGame).not.toHaveBeenCalled();
+    });
+
     it("lets a cancelled game be requested again under a new request ID", async () => {
       await request(app).post(`${base}/requests`).send(createBody);
       await request(app).post(`${base}/requests/seerrng:request:1/cancel`).send({});
@@ -558,6 +590,19 @@ describe("SeerrNG provider API", () => {
       expect((await request(app).post(`${base}/requests/seerrng:request:1/cancel`)).status).toBe(
         200
       );
+    });
+
+    it("finishes a cancellation that stopped before the game was shelved", async () => {
+      await request(app).post(`${base}/requests`).send(createBody);
+      ledger.set("user-1:seerrng:request:1", {
+        ...ledger.get("user-1:seerrng:request:1"),
+        status: "cancelled",
+      });
+      (storage.updateGameStatus as Mock).mockClear();
+      const res = await request(app).post(`${base}/requests/seerrng:request:1/cancel`);
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("cancelled");
+      expect(storage.updateGameStatus).toHaveBeenCalledWith("game-1", { status: "shelved" });
     });
 
     it("refuses to cancel while the download client is still confirming the add", async () => {

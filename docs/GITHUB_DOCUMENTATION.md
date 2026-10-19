@@ -15,6 +15,7 @@ maintainer procedures. This map follows the tabs, groups, and page order in
 ### Library
 
 - [Library imports, settings, manual review, and history](LIBRARY_IMPORT.md)
+- [Platform names, folders, and rename-pattern tokens](PLATFORM_NAMING.md)
 - [Pick your next game](BACKLOG_ROULETTE.md)
 
 ### Discovery & notifications

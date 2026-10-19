@@ -21,6 +21,9 @@ In Docker, mount both locations and use their paths inside the container.
 | Rename Pattern                    | Use `{Title}`, `{Region}`, `{Platform}`, and `{Year}` to name the destination.                                                                          |
 | Platform Filter                   | Use **Settings → Appearance → Platforms** to limit eligible platforms; an empty list allows all platforms.                                              |
 
+See [Platform Naming and Rename Patterns](PLATFORM_NAMING.md) for the complete
+platform key and folder list, all rename-pattern tokens, and examples.
+
 ### Path mappings and security
 
 If your downloader reports paths Questarr cannot access, open the **Path Mappings**

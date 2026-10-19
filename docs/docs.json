@@ -22,7 +22,7 @@
           },
           {
             "group": "Library",
-            "pages": ["LIBRARY_IMPORT", "BACKLOG_ROULETTE"]
+            "pages": ["LIBRARY_IMPORT", "PLATFORM_NAMING", "BACKLOG_ROULETTE"]
           },
           {
             "group": "Discovery & notifications",

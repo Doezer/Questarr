@@ -481,6 +481,20 @@ describe("custom formats", () => {
     expect(result.lines.map((line) => line.ruleId)).toEqual(["cf:f1"]);
   });
 
+  it("does not read an indexer tag on an ungrouped release as a release group", () => {
+    const anyGroup = format({
+      score: 50,
+      specs: [{ field: "group", mode: "regex", value: ".+" }],
+    });
+    const [result] = evaluateReleases(
+      [torrent("Dishonored [rarbg]")],
+      ctx,
+      DEFAULT_RELEASE_PROFILE,
+      [anyGroup]
+    );
+    expect(result?.evaluation.matchedFormats).toEqual([]);
+  });
+
   it("adds the score of a matching format", () => {
     const preferGog = format({
       name: "GOG",

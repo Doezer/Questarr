@@ -1024,8 +1024,9 @@ export function compileCustomFormats(formats: readonly CustomFormat[]): Compiled
  */
 function groupCandidates(title: string, parsed: string | undefined): string[] {
   const candidates = parsed ? [parsed] : [];
-  const suffix = withoutTrailingTags(title).split("-").pop()?.trim();
-  if (suffix && suffix !== parsed && suffix !== title && suffix.length <= 40) {
+  const parts = withoutTrailingTags(title).split("-");
+  const suffix = parts.length > 1 ? parts.pop()?.trim() : undefined;
+  if (suffix && suffix !== parsed && suffix.length <= 40) {
     candidates.push(suffix);
   }
   return candidates;

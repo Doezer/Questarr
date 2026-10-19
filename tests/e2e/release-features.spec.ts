@@ -33,9 +33,8 @@ test.describe("v1.5 release feature journeys", () => {
 
     await page.goto("/");
     await page.getByTestId("card-game-expansion-game").click();
-    const dialog = page.getByRole("dialog");
-    await dialog.getByRole("tab", { name: /DLC/ }).click();
-    const expansion = dialog.getByTestId("dlc-42");
+    await expect(page).toHaveURL(/\/games\/expansion-game$/);
+    const expansion = page.getByTestId("dlc-42");
     await expect(expansion).toBeVisible();
     await expect(expansion).toContainText("Base Quest: Winter Expansion");
     await expect(expansion).toContainText("2025");

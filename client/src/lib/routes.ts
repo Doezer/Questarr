@@ -23,6 +23,14 @@ export const routePaths = {
   systemTasks: "/system/tasks",
 } as const;
 
+/** Wouter pattern for the per-game details page. */
+export const gameDetailsRoutePattern = "/games/:id";
+
+/** Path of the details page for a library game or a Discover game (`igdb-<id>`). */
+export function gameDetailsPath(gameId: string): string {
+  return `/games/${encodeURIComponent(gameId)}`;
+}
+
 export const appRoutePaths = [
   routePaths.login,
   routePaths.setup,

@@ -14,8 +14,9 @@ import { AuthProvider } from "@/lib/auth";
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef } from "react";
 import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
+import "@/lib/in-app-history";
 import { routerBase } from "@/lib/app-path";
-import { routePaths } from "@/lib/routes";
+import { gameDetailsRoutePattern, routePaths } from "@/lib/routes";
 import { applyThemeClass, migrateLegacyTheme } from "@/lib/theme-mode";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
@@ -44,6 +45,7 @@ const ActivityHistoryPage = lazy(() => import("@/pages/activity-history"));
 const ActivityBlocklistPage = lazy(() => import("@/pages/activity-blocklist"));
 const SystemTasksPage = lazy(() => import("@/pages/system-tasks"));
 const PlayPage = lazy(() => import("@/pages/play"));
+const GameDetailsPage = lazy(() => import("@/pages/game-details"));
 
 // Konami code: an undocumented shortcut into the /play easter egg.
 const KONAMI_CODE = [
@@ -127,6 +129,7 @@ function Router() {
         <Route path={routePaths.setup} component={SetupPage} />
         <Route path={routePaths.play} component={PlayPage} />
         <Route path={routePaths.library} component={Library} />
+        <Route path={gameDetailsRoutePattern} component={GameDetailsPage} />
         <Route path={routePaths.discover} component={DiscoverPage} />
         <Route path={routePaths.search} component={SearchPage} />
         <Route path={routePaths.downloads} component={DownloadsPage} />

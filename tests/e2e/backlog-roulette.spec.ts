@@ -31,11 +31,11 @@ test.describe("Backlog roulette", () => {
     const chosen = await title.textContent();
     await page.screenshot({ path: testInfo.outputPath("backlog-roulette-desktop.png") });
     await dialog.getByRole("button", { name: "View game" }).click();
-    await expect(
-      page.getByRole("dialog").getByRole("heading", { name: chosen!, exact: true })
-    ).toBeVisible();
-    await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: chosen!, exact: true })).toBeVisible();
+    await page.getByTestId("button-back").click();
+    await expect(page).not.toHaveURL(/\/games\//);
+    await page.getByPlaceholder("Search your library...").fill(prefix);
+    await expect(page.getByTestId(`card-game-${first.id}`)).toBeVisible();
     await pick.click();
     const startedTitle = await dialog.getByTestId("roulette-title").textContent();
     const started = startedTitle === first.title ? first : second;

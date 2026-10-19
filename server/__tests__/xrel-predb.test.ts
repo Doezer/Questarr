@@ -60,15 +60,43 @@ describe("getXrelPredb", () => {
       // the 10 minute cache has expired by the next scheduled cycle
       await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
       searchReleases.mockReturnValue(new Promise(() => {}));
-      const onTimeout = vi.fn();
+      const onUnavailable = vi.fn();
       const slow = getXrelPredb(
         "Old Game",
         { scene: true, p2p: true },
-        { timeoutMs: 50, staleFallback: true, onTimeout }
+        { timeoutMs: 50, staleFallback: true, onUnavailable }
       );
       await vi.advanceTimersByTimeAsync(60);
       expect(await slow).toEqual([{ dirname: "Old.Game-CODEX", nukeReason: "bad" }]);
-      expect(onTimeout).not.toHaveBeenCalled();
+      expect(onUnavailable).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a quick failure as unavailable, or falls back on the last result", async () => {
+    vi.useFakeTimers();
+    try {
+      searchReleases.mockRejectedValueOnce(new Error("HTTP 500"));
+      const onUnavailable = vi.fn();
+      expect(
+        await getXrelPredb("Flaky", { scene: true, p2p: true }, { timeoutMs: 1000, onUnavailable })
+      ).toBeUndefined();
+      expect(onUnavailable).toHaveBeenCalledTimes(1);
+
+      searchReleases.mockResolvedValueOnce([{ dirname: "Flaky-CODEX" }]);
+      await getXrelPredb("Flaky", { scene: true, p2p: true });
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000); // the cache has expired
+      searchReleases.mockRejectedValueOnce(new Error("HTTP 500"));
+      const again = vi.fn();
+      expect(
+        await getXrelPredb(
+          "Flaky",
+          { scene: true, p2p: true },
+          { timeoutMs: 1000, staleFallback: true, onUnavailable: again }
+        )
+      ).toEqual([{ dirname: "Flaky-CODEX" }]);
+      expect(again).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

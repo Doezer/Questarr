@@ -523,19 +523,19 @@ export async function searchAndCategorizeItemsForGame(
     if (scoring?.xrelTypes && !xrelLookedUp) {
       xrelLookedUp = true;
       // bounded so a slow xREL cannot stall the whole cycle; the lookup still fills the cache
-      let xrelTimedOut = false;
+      let xrelUnavailable = false;
       xrelReleases = await getXrelPredb(game.title, scoring.xrelTypes, {
         timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
-        // cycles are hours apart, so a slow lookup falls back on the last completed one
+        // cycles are hours apart, so a slow or failed lookup falls back on the last completed one
         staleFallback: true,
-        onTimeout: () => {
-          xrelTimedOut = true;
+        onUnavailable: () => {
+          xrelUnavailable = true;
         },
       });
       // Nothing watches an automatic grab, so without the nuke check it waits for the next
       // cycle, when the finished lookup is cached. Only once per game: if xREL stays down, the
       // retry goes ahead without it rather than starving the game.
-      if (xrelTimedOut) {
+      if (xrelUnavailable) {
         if (!xrelDeferredGames.has(game.id)) {
           xrelDeferredGames.add(game.id);
           return AUTO_SEARCH_DEFERRED;

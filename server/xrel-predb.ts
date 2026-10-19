@@ -56,7 +56,7 @@ async function fetchPredb(
 export async function getXrelPredb(
   gameTitle: string,
   types: XrelPredbTypes = { scene: true, p2p: true },
-  options: { timeoutMs?: number; onTimeout?: () => void; staleFallback?: boolean } = {}
+  options: { timeoutMs?: number; onUnavailable?: () => void; staleFallback?: boolean } = {}
 ): Promise<XrelPredbEntry[] | undefined> {
   if (!types.scene && !types.p2p) return undefined;
   const title = normalizeTitle(gameTitle);
@@ -67,24 +67,26 @@ export async function getXrelPredb(
   if (timeoutMs === undefined) return lookup;
 
   let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<XrelPredbEntry[] | undefined>((resolve) => {
+  const timeout = new Promise<undefined>((resolve) => {
     timer = setTimeout(() => {
-      const stale = options.staleFallback ? staleResults.get(key) : undefined;
-      if (stale && Date.now() - stale.at < STALE_RETENTION_MS) {
-        logger.warn({ gameTitle, timeoutMs }, "xREL PreDB lookup is slow, using its last result");
-        resolve(stale.value);
-        return;
-      }
       logger.warn({ gameTitle, timeoutMs }, "xREL PreDB lookup is slow, scoring without it");
-      options.onTimeout?.();
       resolve(undefined);
     }, timeoutMs);
   });
+  let result: XrelPredbEntry[] | undefined;
   try {
-    return await Promise.race([lookup, timeout]);
+    result = await Promise.race([lookup, timeout]);
   } finally {
     clearTimeout(timer);
   }
+  if (result !== undefined) return result;
+
+  // slow or failed: callers that cannot proceed blind get the last completed result, or are
+  // told the lookup is unavailable
+  const stale = options.staleFallback ? staleResults.get(key) : undefined;
+  if (stale && Date.now() - stale.at < STALE_RETENTION_MS) return stale.value;
+  options.onUnavailable?.();
+  return undefined;
 }
 
 function rememberResult(key: string, value: XrelPredbEntry[]): void {

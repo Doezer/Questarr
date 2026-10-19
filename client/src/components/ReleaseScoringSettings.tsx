@@ -385,7 +385,7 @@ export default function ReleaseScoringSettings() {
             Test a release name
           </h3>
           <p className="text-sm text-muted-foreground">
-            Uses the saved formats and the weights above, without saving them.
+            Uses the saved formats and the profile above as shown, saved or not.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">

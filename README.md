@@ -472,7 +472,7 @@ Based on the [Product Requirements Document](docs/PRD.md), here is the release s
 - **P1 — Smart Game Backlog**: Installed-version tracking and update filtering are available; configurable automatic upgrades remain a priority.
 - **P2 — Direct Download Support**: Add debrid services (Real-Debrid and similar) as a downloader option, no seeding required.
 - **P3 — External Library Sync**: Import owned games from Steam/GOG libraries and local filesystem scans, not just wishlists.
-- **P4 — Integrations with External Tools**: ✅ Playnite extension shipped (library sync, request-to-download); RomM, Gameyfin, and a generic webhook for anything not explicitly supported are still planned.
+- **P4 — Integrations with External Tools**: ✅ Playnite extension shipped (library sync, request-to-download); ✅ RomM shipped (platform folders, rescan, ownership sync); Gameyfin and a generic webhook for anything not explicitly supported are still planned.
 - ✅ **P5 — Indexer Page Links**: A "View on indexer" link on search results and downloads.
 - ✅ **P6 — PostgreSQL Support**: PostgreSQL is available as an optional backend, with SQLite remaining the zero-config default.
 

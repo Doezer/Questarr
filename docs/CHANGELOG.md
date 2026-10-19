@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Naming templates**: the import rename pattern is now a validated template with the tokens `{Title}`, `{TitleThe}`, `{Year}`, `{Platform}`, `{Version}`, `{Group}`, `{Source}`, `{IgdbId}`, `{SteamAppId}` and `{Region}` (#1197). See [Library import](LIBRARY_IMPORT.md).
+- **RomM integration**: place imports in RomM's platform folders (`snes`, `ps2`, `win`...), ask RomM to rescan after an import, and mark wishlist games that RomM already has as owned, from **Settings → Import** (#1202). See [Library import](LIBRARY_IMPORT.md#romm-integration).
+- **Game videos**: IGDB trailers and gameplay clips are saved with each game when it is added, found by a library scan, or has its metadata refreshed, and shown in a carousel on the Media tab of the game details page. They play in a privacy-enhanced YouTube embed that loads only on click, so the Content-Security-Policy now allows `i.ytimg.com` thumbnails and the `youtube-nocookie.com` frame (#1194).
 - **Weekly pre-releases**: a weekly workflow publishes a `vX.Y.Z-dev.YYYYMMDD` pre-release and the Docker tags `weekly` and `dev`, never `latest` (#1192). See [Operations](OPERATIONS.md).
 
 ### Changed

@@ -28,18 +28,18 @@ platform folder: `<Library Root>/<Platform>/<name>`. Directory releases get a
 folder with that name. Single-file releases get a file with that name plus the
 original extension. The platform folder itself is not part of the pattern.
 
-| Token          | Value                                                       |
-| -------------- | ----------------------------------------------------------- |
-| `{Title}`      | Game title                                                  |
+| Token          | Value                                                        |
+| -------------- | ------------------------------------------------------------ |
+| `{Title}`      | Game title                                                   |
 | `{TitleThe}`   | Title with a leading "The" moved to the end (`Witcher, The`) |
-| `{Year}`       | Release year                                                |
-| `{Platform}`   | Platform name, as used for the platform folder              |
-| `{Version}`    | Version parsed from the release name                        |
-| `{Group}`      | Release group parsed from the release name                  |
-| `{Source}`     | Store or DRM parsed from the release name (GOG, Steam, ...) |
-| `{IgdbId}`     | IGDB ID of the game                                         |
-| `{SteamAppId}` | Steam App ID of the game                                    |
-| `{Region}`     | Reserved. Always empty for now.                             |
+| `{Year}`       | Release year                                                 |
+| `{Platform}`   | Platform name, as used for the platform folder               |
+| `{Version}`    | Version parsed from the release name                         |
+| `{Group}`      | Release group parsed from the release name                   |
+| `{Source}`     | Store or DRM parsed from the release name (GOG, Steam, ...)  |
+| `{IgdbId}`     | IGDB ID of the game                                          |
+| `{SteamAppId}` | Steam App ID of the game                                     |
+| `{Region}`     | Reserved. Always empty for now.                              |
 
 Token names are case-insensitive. For example, `{Title} ({Year}) [{Group}]`
 renders `The Example Quest (2021) [GROUP]`.
@@ -85,6 +85,26 @@ scanning before unpacking or transferring files. Configure each provider and use
 its connection test. A detection quarantines the download and produces a Security
 Alert instead of importing it. See [SECRETS.md](SECRETS.md) for archive limits and
 credential handling.
+
+## RomM integration
+
+[RomM](https://romm.app) scans `<library>/roms/<platform>/...` and recognizes a
+platform from the folder name. The **RomM** card in **Settings → Import** lets
+Questarr import into that layout and talk to RomM. Questarr does not ship RomM:
+you host your own instance.
+
+| Setting                           | Behavior                                                                                                                                                                                                                                         |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| RomM platform folders             | Imports go to `<library root>/<platform>/` using RomM folder names such as `snes`, `ps2` or `win`. Point the library root at RomM's `roms` folder. A platform without a known RomM name keeps its usual folder. Works without the API.           |
+| Connect to the RomM API           | Needed to rescan RomM and to read its library. Enter the RomM URL and an API token created in RomM under **Profile → Client API Tokens** (read access to platforms and ROMs, plus permission to run tasks for the rescan).                       |
+| Rescan RomM after an import       | Queues a RomM library scan once an import finishes. A RomM outage never fails or delays an import.                                                                                                                                               |
+| Mark games found in RomM as owned | Every 6 hours, wishlist games that RomM already has become owned. A ROM matches a game by IGDB ID, then by title, and a title shared by several games is never used. Nothing is created, and playing, shelved or completed games are left alone. |
+
+Use **Test connection** to check the URL and token without saving them, and
+**Sync now** to run the ownership sync on demand. The saved token is only ever
+sent to the saved URL, so changing the URL means entering the token again.
+Questarr warns when the URL uses `http://`, because the token then travels
+unencrypted. The token is encrypted at rest and never returned by the API.
 
 ## How completed downloads are imported
 

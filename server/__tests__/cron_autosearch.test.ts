@@ -2598,6 +2598,18 @@ describe("release scoring in auto-search", () => {
     const none = scoreReleasesForGame([item("Dishonored-GOG")], game, withFormat);
     expect(narrowToPreferredGroupFormat(none, withFormat)).toHaveLength(1);
     expect(narrowToPreferredGroupFormat(scored, scoring)).toHaveLength(3);
+    // a score the user lowered to zero no longer prefers the group
+    const lowered = {
+      ...withFormat,
+      config: {
+        ...withFormat.config,
+        profile: {
+          ...withFormat.config.profile,
+          formatScores: Object.fromEntries(withFormat.config.formats.map((f) => [f.id, 0])),
+        },
+      },
+    };
+    expect(narrowToPreferredGroupFormat(scored, lowered)).toHaveLength(3);
   });
   it("drops a nuked release and ranks the xREL-verified one first", () => {
     const kept = scoreReleasesForGame(

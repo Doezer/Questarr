@@ -307,7 +307,8 @@ function applyPreferredGroupsFilter(
  * Scoring counterpart of the non-strict preferred-groups filter: while the user still has the
  * "Preferred release group" format (created from the old setting), results that matched it win
  * over the others, so one preferred release among several still counts as the single candidate
- * for auto-download. Without that format, or without a match, every item stays.
+ * for auto-download. Without that format, with a score the user lowered to zero or below, or
+ * without a match, every item stays.
  */
 export function narrowToPreferredGroupFormat(
   items: SearchItem[],
@@ -317,6 +318,7 @@ export function narrowToPreferredGroupFormat(
     (f) => f.enabled && f.name === PREFERRED_GROUP_FORMAT_NAME
   );
   if (!format) return items;
+  if ((scoring.config.profile.formatScores[format.id] ?? format.score) <= 0) return items;
   const preferred = items.filter((item) => item.evaluation?.matchedFormats.includes(format.id));
   return preferred.length > 0 ? preferred : items;
 }

@@ -1306,14 +1306,9 @@ export type DownloaderDebugLoggingResponse = z.infer<typeof downloaderDebugLoggi
 // credential; the raw key is shown to the user once, at creation.
 // What a key may call. One scope per key; stored as plain text (no CHECK) and
 // validated here, so adding a scope never needs a migration.
-export const API_KEY_SCOPES = [
-  "integration:all",
-  "integration:playnite",
-  "integration:read",
-  "integration:seerrng",
-] as const;
+export const API_KEY_SCOPES = ["all", "library:write", "read", "requests"] as const;
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
-export const DEFAULT_API_KEY_SCOPE: ApiKeyScope = "integration:all";
+export const DEFAULT_API_KEY_SCOPE: ApiKeyScope = "all";
 
 export const apiKeys = sqliteTable(
   "api_keys",
@@ -1331,8 +1326,8 @@ export const apiKeys = sqliteTable(
       sql`(strftime('%s', 'now') * 1000)`
     ),
     lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
-    // Existing keys migrate to integration:all with no expiry.
-    scope: text("scope").$type<ApiKeyScope>().notNull().default("integration:all"),
+    // Existing keys migrate to all with no expiry.
+    scope: text("scope").$type<ApiKeyScope>().notNull().default("all"),
     expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
   },
   (t) => [

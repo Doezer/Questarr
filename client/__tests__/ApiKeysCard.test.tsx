@@ -35,7 +35,7 @@ const sampleKey: ApiKeyPublicResponse = {
   prefix: "qsr_abc12345",
   createdAt: "2026-01-01T00:00:00.000Z",
   lastUsedAt: null,
-  scope: "integration:playnite",
+  scope: "library:write",
   expiresAt: null,
 };
 
@@ -105,14 +105,14 @@ describe("ApiKeysCard", () => {
         ...sampleKey,
         id: "k-expired",
         name: "Old key",
-        scope: "integration:read",
+        scope: "read",
         expiresAt: new Date(Date.now() - day).toISOString(),
       },
       {
         ...sampleKey,
         id: "k-soon",
         name: "Soon key",
-        scope: "integration:all",
+        scope: "all",
         expiresAt: new Date(Date.now() + 3 * day - 1000).toISOString(),
       },
     ]);
@@ -123,7 +123,7 @@ describe("ApiKeysCard", () => {
     expect(screen.getByText("Expired")).toBeInTheDocument();
     expect(screen.getByText("Expires in 3 days")).toBeInTheDocument();
     expect(screen.getAllByText("Read only").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("All routes").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Full access").length).toBeGreaterThan(0);
   });
 
   it("disables the create button until a non-blank name is entered", async () => {
@@ -159,7 +159,7 @@ describe("ApiKeysCard", () => {
     await waitFor(() => {
       expect(apiRequest).toHaveBeenCalledWith("POST", "/api/api-keys", {
         name: "My PC",
-        scope: "integration:playnite",
+        scope: "library:write",
         expiresInDays: 365,
       });
     });

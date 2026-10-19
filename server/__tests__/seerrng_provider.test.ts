@@ -44,7 +44,7 @@ describe("SeerrNG provider API", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     vi.resetModules();
-    keyScope = "integration:seerrng";
+    keyScope = "requests";
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "seerrng-"));
     ledger = new Map();
     games = new Map();
@@ -134,14 +134,14 @@ describe("SeerrNG provider API", () => {
 
   describe("scope", () => {
     it("refuses keys scoped to something else", async () => {
-      keyScope = "integration:playnite";
+      keyScope = "library:write";
       expect((await request(app).get(`${base}/ping`)).status).toBe(403);
       expect((await request(app).post(`${base}/requests`).send(createBody)).status).toBe(403);
     });
 
-    it("accepts integration:seerrng and integration:all", async () => {
+    it("accepts requests and all", async () => {
       expect((await request(app).get(`${base}/ping`)).status).toBe(200);
-      keyScope = "integration:all";
+      keyScope = "all";
       expect((await request(app).get(`${base}/ping`)).status).toBe(200);
     });
 
@@ -493,7 +493,7 @@ describe("SeerrNG provider API", () => {
       other.use((req, _res, next) => {
         req.user = { id: "user-2", username: "other" } as never;
         req.apiKeyId = "key-2";
-        req.apiKeyScope = "integration:seerrng";
+        req.apiKeyScope = "requests";
         next();
       });
       other.use(base, seerrngRouter);

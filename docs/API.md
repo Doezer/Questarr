@@ -149,10 +149,10 @@ or 500 if IGDB search fails. Confirm a candidate using the match endpoint below.
 Mounted under `/api/imports` (JWT). See [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md#naming-pattern)
 for naming tokens and rendering rules.
 
-| Method | Path                          | Auth Required | Request Body                                                                                                                            | Response                                                                                                                                                                                                         |
-| ------ | ----------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/imports/naming/preview` | JWT           | `{ pattern: string (1–200) }` (strict, no other fields)                                                                                 | `{ samples: { title, leafName, fullPath }[] }` for up to 5 library games plus one sample release; nothing is renamed. 400 `{ error, errors: string[] }` if the pattern is invalid; 400 `{ error }` on bad body |
-| PATCH  | `/api/imports/config`         | JWT           | Partial import config. `renamePattern?` (1–200) must pass naming validation: known tokens only, no `/` or `\`, no `..`, no control characters, balanced braces | Updated import config; 400 `{ error }` listing the validation messages on an invalid `renamePattern` or body                                                                                                    |
+| Method | Path                          | Auth Required | Request Body                                                                                                                                                   | Response                                                                                                                                                                                                       |
+| ------ | ----------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/imports/naming/preview` | JWT           | `{ pattern: string (1–200) }` (strict, no other fields)                                                                                                        | `{ samples: { title, leafName, fullPath }[] }` for up to 5 library games plus one sample release; nothing is renamed. 400 `{ error, errors: string[] }` if the pattern is invalid; 400 `{ error }` on bad body |
+| PATCH  | `/api/imports/config`         | JWT           | Partial import config. `renamePattern?` (1–200) must pass naming validation: known tokens only, no `/` or `\`, no `..`, no control characters, balanced braces | Updated import config; 400 `{ error }` listing the validation messages on an invalid `renamePattern` or body                                                                                                   |
 
 Example preview request:
 
@@ -379,18 +379,18 @@ Bearer header is unambiguous between a key and a JWT).
 
 Each key carries one **scope** and an optional **expiry** (see
 [API Keys (management)](#api-keys-management)). A route declares the scopes that
-may call it with `requireScope(...)`; `integration:all` satisfies every route,
+may call it with `requireScope(...)`; `all` satisfies every route,
 and a JWT session is never restricted by scope. A key outside a route's scope
 gets 403 `{ error, code: "API_KEY_SCOPE_DENIED" }`; an expired key gets 401
 `{ error: "API key expired", code: "API_KEY_EXPIRED" }`. Requests are limited to
 300/min per key (`integrationRateLimiter`).
 
-| Route                                                | `integration:playnite` | `integration:read` | `integration:seerrng` | `integration:all` |
-| ---------------------------------------------------- | :--------------------: | :----------------: | :-------------------: | :---------------: |
-| `GET /ping`                                          |           ✓            |         ✓          |           ✓           |         ✓         |
-| `GET /library`                                       |           ✓            |         ✓          |           —           |         ✓         |
-| `POST /library/sync`, `POST /games/request`          |           ✓            |         —          |           —           |         ✓         |
-| `/seerrng/v1/*` (see [SeerrNG provider](SEERRNG.md)) |           —            |         —          |           ✓           |         ✓         |
+| Route                                                | `library:write` | `read` | `requests` | `all` |
+| ---------------------------------------------------- | :-------------: | :----: | :--------: | :---: |
+| `GET /ping`                                          |        ✓        |   ✓    |     ✓      |   ✓   |
+| `GET /library`                                       |        ✓        |   ✓    |     —      |   ✓   |
+| `POST /library/sync`, `POST /games/request`          |        ✓        |   —    |     —      |   ✓   |
+| `/seerrng/v1/*` (see [SeerrNG provider](SEERRNG.md)) |        —        |   —    |     ✓      |   ✓   |
 
 Authentication is handled by `authenticateApiKeyOrToken` in `server/auth.ts`,
 selected by `requireAuthenticationForApi` for paths under `/integration` only.
@@ -432,11 +432,11 @@ Keys are stored as a SHA-256 hash plus a short display prefix; the raw key is
 returned exactly once, in the 201 response that creates it, and is not
 recoverable afterwards. A user may hold at most 25 keys. `last_used_at` is written at most once per minute per key.
 
-| Method | Path                | Auth Required                    | Request Body                                                                                                                                                                                                     | Response                                                                                                                            |
-| ------ | ------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/api-keys`     | JWT                              | —                                                                                                                                                                                                                | `Array<{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt }>` — never includes the hash                            |
-| POST   | `/api/api-keys`     | JWT + `sensitiveEndpointLimiter` | `{ name: string (1–100 chars), scope?: "integration:all" \| "integration:playnite" \| "integration:read" \| "integration:seerrng" (default `integration:all`), expiresInDays?: 1–365 \| null (default: never) }` | 201 `{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt, key }` — `key` is shown only here; 409 once 25 keys exist |
-| DELETE | `/api/api-keys/:id` | JWT + `sensitiveEndpointLimiter` | —                                                                                                                                                                                                                | 204; 404 if the key does not exist or belongs to another user                                                                       |
+| Method | Path                | Auth Required                    | Request Body                                                                                                                                               | Response                                                                                                                            |
+| ------ | ------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/api-keys`     | JWT                              | —                                                                                                                                                          | `Array<{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt }>` — never includes the hash                            |
+| POST   | `/api/api-keys`     | JWT + `sensitiveEndpointLimiter` | `{ name: string (1–100 chars), scope?: "all" \| "library:write" \| "read" \| "requests" (default `all`), expiresInDays?: 1–365 \| null (default: never) }` | 201 `{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt, key }` — `key` is shown only here; 409 once 25 keys exist |
+| DELETE | `/api/api-keys/:id` | JWT + `sensitiveEndpointLimiter` | —                                                                                                                                                          | 204; 404 if the key does not exist or belongs to another user                                                                       |
 
 ## Error Format
 

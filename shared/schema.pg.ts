@@ -480,7 +480,7 @@ export const apiKeys = pgTable(
     prefix: text("prefix").notNull(),
     createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
     lastUsedAt: timestampMs("last_used_at"),
-    scope: text("scope").$type<ApiKeyScope>().notNull().default("integration:all"),
+    scope: text("scope").$type<ApiKeyScope>().notNull().default("all"),
     expiresAt: timestampMs("expires_at"),
   },
   (t) => [

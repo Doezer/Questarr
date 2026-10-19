@@ -51,7 +51,7 @@ const MAX_CATALOG_WINDOW = 100;
 const MAX_ASSETS = 100;
 const BASE_PATH = "/api/integration/seerrng/v1";
 
-const scope = requireScope("integration:seerrng");
+const scope = requireScope("requests");
 
 // ── Catalog ──────────────────────────────────────────────────────────────────
 

@@ -76,7 +76,7 @@ describe("integration API", () => {
             name: "Playnite",
             keyHash,
             prefix: "qsr_test-ra",
-            scope: "integration:all",
+            scope: "all",
             expiresAt: null,
             ...keyOverrides,
           }
@@ -194,10 +194,10 @@ describe("integration API", () => {
 
     it("accepts a key that expires in the future and reports scope + expiry in /ping", async () => {
       const expiresAt = new Date(Date.now() + 86_400_000);
-      keyOverrides = { expiresAt, scope: "integration:playnite" };
+      keyOverrides = { expiresAt, scope: "library:write" };
       const res = await withKey(request(app).get("/api/integration/ping"));
       expect(res.status).toBe(200);
-      expect(res.body.scope).toBe("integration:playnite");
+      expect(res.body.scope).toBe("library:write");
       expect(res.body.expiresAt).toBe(expiresAt.toISOString());
     });
 
@@ -207,8 +207,8 @@ describe("integration API", () => {
       expect(res.body.expiresAt).toBeNull();
     });
 
-    it("limits an integration:read key to read routes", async () => {
-      keyOverrides = { scope: "integration:read" };
+    it("limits an read key to read routes", async () => {
+      keyOverrides = { scope: "read" };
       (storage.getUserGames as Mock).mockResolvedValue([]);
       (storage.getUserSettings as Mock).mockResolvedValue({});
 
@@ -230,8 +230,8 @@ describe("integration API", () => {
       expect(reqGame.status).toBe(403);
     });
 
-    it("lets an integration:playnite key use every route the extension needs", async () => {
-      keyOverrides = { scope: "integration:playnite" };
+    it("lets an library:write key use every route the extension needs", async () => {
+      keyOverrides = { scope: "library:write" };
       (storage.getUserGames as Mock).mockResolvedValue([]);
       const sync = await withKey(
         request(app)

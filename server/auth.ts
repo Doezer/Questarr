@@ -225,7 +225,7 @@ function extractApiKey(req: Request): string | undefined {
 }
 
 /**
- * Declare which key scopes may call a route. `integration:all` satisfies every
+ * Declare which key scopes may call a route. `all` satisfies every
  * requirement, and requests without a key (a logged-in browser session) are
  * never restricted. Routes are denied by default for keys: a route that
  * declares no scope is not covered by this check, so a test asserts that every
@@ -235,7 +235,7 @@ export function requireScope(...allowed: ApiKeyScope[]) {
   const middleware = (req: Request, res: Response, next: NextFunction) => {
     if (!req.apiKeyId) return next();
     const scope = req.apiKeyScope;
-    if (scope && (scope === "integration:all" || allowed.includes(scope))) {
+    if (scope && (scope === "all" || allowed.includes(scope))) {
       return next();
     }
     return res

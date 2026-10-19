@@ -132,7 +132,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'integration:all'"
+          "default": "'all'"
         },
         "expires_at": {
           "name": "expires_at",

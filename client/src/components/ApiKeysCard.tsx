@@ -36,32 +36,32 @@ import {
 
 const SCOPE_OPTIONS: { value: ApiKeyScope; label: string; description: string }[] = [
   {
-    value: "integration:playnite",
-    label: "Playnite extension",
+    value: "library:write",
+    label: "Library sync (Playnite)",
     description: "Ping, read the library, sync and request games",
   },
   {
-    value: "integration:read",
+    value: "read",
     label: "Read only",
     description: "Ping and read the library (dashboards, widgets)",
   },
   {
-    value: "integration:seerrng",
-    label: "SeerrNG provider",
+    value: "requests",
+    label: "Game requests (SeerrNG)",
     description: "Let SeerrNG browse the catalog and request PC games",
   },
   {
-    value: "integration:all",
-    label: "All integration routes",
+    value: "all",
+    label: "Full access",
     description: "Everything the integration API offers",
   },
 ];
 
 const SCOPE_LABELS: Record<ApiKeyScope, string> = {
-  "integration:playnite": "Playnite",
-  "integration:read": "Read only",
-  "integration:seerrng": "SeerrNG",
-  "integration:all": "All routes",
+  "library:write": "Library sync",
+  read: "Read only",
+  requests: "Game requests",
+  all: "Full access",
 };
 
 const EXPIRY_OPTIONS = [
@@ -104,7 +104,7 @@ export function ApiKeysCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyScope, setNewKeyScope] = useState<ApiKeyScope>("integration:playnite");
+  const [newKeyScope, setNewKeyScope] = useState<ApiKeyScope>("library:write");
   const [newKeyExpiry, setNewKeyExpiry] = useState("365");
   const [createdKey, setCreatedKey] = useState<ApiKeyCreatedResponse | null>(null);
   const [copied, setCopied] = useState(false);

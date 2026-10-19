@@ -68,7 +68,7 @@ function toIntegrationGame(game: Game) {
 // real work, and surfaces the version pair in its own logs.
 integrationRouter.get(
   "/ping",
-  requireScope("integration:playnite", "integration:read", "integration:seerrng"),
+  requireScope("library:write", "read", "requests"),
   (req: Request, res: Response) => {
     res.json({
       service: "questarr",
@@ -104,7 +104,7 @@ const libraryQuerySchema = z.object({
 
 integrationRouter.get(
   "/library",
-  requireScope("integration:playnite", "integration:read"),
+  requireScope("library:write", "read"),
   async (req: Request, res: Response) => {
     try {
       const parsed = libraryQuerySchema.safeParse(req.query);
@@ -149,7 +149,7 @@ const syncSchema = z.object({
 
 integrationRouter.post(
   "/library/sync",
-  requireScope("integration:playnite"),
+  requireScope("library:write"),
   async (req: Request, res: Response) => {
     try {
       const parsed = syncSchema.safeParse(req.body);
@@ -241,7 +241,7 @@ const requestSchema = z.object({
 
 integrationRouter.post(
   "/games/request",
-  requireScope("integration:playnite"),
+  requireScope("library:write"),
   async (req: Request, res: Response) => {
     try {
       const parsed = requestSchema.safeParse(req.body);

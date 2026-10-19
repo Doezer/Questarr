@@ -43,7 +43,11 @@ import {
   type ScoringConfig,
 } from "./release-scoring-service.js";
 import { getXrelPredb, xrelEnabledFor, xrelTypesFor, type XrelPredbTypes } from "./xrel-predb.js";
-import { evaluateReleases, type XrelPredbEntry } from "../shared/release-scoring.js";
+import {
+  evaluateReleases,
+  type FormatSpec,
+  type XrelPredbEntry,
+} from "../shared/release-scoring.js";
 import {
   releaseMatchesGame,
   normalizeTitle,
@@ -305,6 +309,26 @@ function applyPreferredGroupsFilter(
 }
 
 /**
+ * The name is editable and not unique, so the narrowing also checks that the format still has
+ * the shape the migration gives it: only anchored "group matches" regex conditions, no reject.
+ */
+function hasMigratedGroupShape(format: { hardReject: boolean; specs: FormatSpec[] }): boolean {
+  return (
+    !format.hardReject &&
+    format.specs.length > 0 &&
+    format.specs.every(
+      (spec) =>
+        spec.field === "group" &&
+        spec.mode === "regex" &&
+        !spec.negate &&
+        !spec.required &&
+        spec.value.startsWith("^(?:") &&
+        spec.value.endsWith(")$")
+    )
+  );
+}
+
+/**
  * Scoring counterpart of the non-strict preferred-groups filter: while the user still has the
  * "Preferred release group" format (created from the old setting), results that matched it win
  * over the others, so one preferred release among several still counts as the single candidate
@@ -316,7 +340,7 @@ export function narrowToPreferredGroupFormat(
   scoring: AutoSearchScoring
 ): SearchItem[] {
   const format = scoring.config.formats.find(
-    (f) => f.enabled && f.name === PREFERRED_GROUP_FORMAT_NAME
+    (f) => f.enabled && f.name === PREFERRED_GROUP_FORMAT_NAME && hasMigratedGroupShape(f)
   );
   if (!format) return items;
   if ((scoring.config.profile.formatScores[format.id] ?? format.score) <= 0) return items;

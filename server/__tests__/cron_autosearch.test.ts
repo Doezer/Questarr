@@ -2578,7 +2578,7 @@ describe("release scoring in auto-search", () => {
           {
             id: "pg",
             name: "Preferred release group",
-            specs: [{ field: "group" as const, mode: "exact" as const, value: "CODEX" }],
+            specs: [{ field: "group" as const, mode: "regex" as const, value: "^(?:CODEX)$" }],
             score: 50,
             hardReject: false,
             enabled: true,
@@ -2610,6 +2610,18 @@ describe("release scoring in auto-search", () => {
       },
     };
     expect(narrowToPreferredGroupFormat(scored, lowered)).toHaveLength(3);
+    // a format that only reuses the name, but was edited away from the migrated shape
+    const edited = {
+      ...withFormat,
+      config: {
+        ...withFormat.config,
+        formats: withFormat.config.formats.map((f) => ({
+          ...f,
+          specs: [{ field: "group" as const, mode: "exact" as const, value: "CODEX" }],
+        })),
+      },
+    };
+    expect(narrowToPreferredGroupFormat(scored, edited)).toHaveLength(3);
   });
   it("drops a nuked release and ranks the xREL-verified one first", () => {
     const kept = scoreReleasesForGame(

@@ -149,19 +149,34 @@ async function createInitialConfig(store: IStorage, userId: string): Promise<voi
   );
 }
 
-/** Adds the recommended formats the user does not have yet (matched by name); returns them. */
-export async function installDefaultFormats(
+const installing = new Map<string, Promise<unknown>>();
+
+/**
+ * Adds the recommended formats the user does not have yet (matched by name); returns them.
+ * Calls for one user run one after the other, so overlapping requests cannot both insert the
+ * same default (the formats table has no unique name to fall back on).
+ */
+export function installDefaultFormats(
   userId: string,
   store: IStorage = defaultStorage
 ): Promise<CustomFormat[]> {
-  await ensureScoringConfig(userId, store);
-  const existing = new Set((await store.getCustomFormats(userId)).map((row) => row.name));
-  const added: CustomFormat[] = [];
-  for (const format of DEFAULT_CUSTOM_FORMATS) {
-    if (existing.has(format.name)) continue;
-    added.push(formatFromRow(await store.createCustomFormat(userId, { ...format, enabled: true })));
-  }
-  return added;
+  const run = (installing.get(userId) ?? Promise.resolve()).then(async () => {
+    await ensureScoringConfig(userId, store);
+    const existing = new Set((await store.getCustomFormats(userId)).map((row) => row.name));
+    const rows = [];
+    for (const format of DEFAULT_CUSTOM_FORMATS) {
+      if (existing.has(format.name)) continue;
+      // sequential on purpose: the order of the list is the order the user sees
+      rows.push(await store.createCustomFormat(userId, { ...format, enabled: true }));
+    }
+    return rows.map(formatFromRow);
+  });
+  const settled = run.catch(() => undefined);
+  installing.set(userId, settled);
+  void settled.then(() => {
+    if (installing.get(userId) === settled) installing.delete(userId);
+  });
+  return run;
 }
 
 export async function ensureScoringConfig(

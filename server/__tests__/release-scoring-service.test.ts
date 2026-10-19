@@ -136,4 +136,21 @@ describe.each(activeTestDialects())("release scoring storage and migration on %s
     expect(added.map((f) => f.name)).toEqual([removed!.name]);
     expect(await service.installDefaultFormats(uid, ctx.storage)).toEqual([]);
   });
+
+  it("does not duplicate defaults when installs overlap", async () => {
+    const uid = (await ctx.storage.createUser({ username: "overlap-user", passwordHash: "h" })).id;
+    const { formats } = await service.loadScoringConfig(uid, ctx.storage);
+    for (const format of formats) await ctx.storage.deleteCustomFormat(uid, format.id);
+
+    const results = await Promise.all([
+      service.installDefaultFormats(uid, ctx.storage),
+      service.installDefaultFormats(uid, ctx.storage),
+    ]);
+    expect(results.map((added) => added.length).sort((a, b) => a - b)).toEqual([
+      0,
+      DEFAULT_CUSTOM_FORMATS.length,
+    ]);
+    const names = (await ctx.storage.getCustomFormats(uid)).map((row) => row.name);
+    expect(new Set(names).size).toBe(DEFAULT_CUSTOM_FORMATS.length);
+  });
 });

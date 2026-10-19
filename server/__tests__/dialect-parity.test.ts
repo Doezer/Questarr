@@ -292,6 +292,15 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(await storage().removeGameFromCollection(manual.id, game.id)).toBe(true);
       expect(await storage().removeGameFromCollection(manual.id, game.id)).toBe(false);
 
+      // Switching to smart drops the manual links, so they cannot resurface on the way back.
+      await storage().addGameToCollection(manual.id, game.id);
+      await storage().updateCollection(manual.id, user.id, {
+        type: "smart",
+        rules: { genres: ["Shooter"] },
+      });
+      expect(await storage().getCollectionLinks(user.id)).toEqual([]);
+      await storage().updateCollection(manual.id, user.id, { type: "manual", rules: null });
+
       await storage().addGameToCollection(manual.id, game.id);
       expect(await storage().deleteCollection(manual.id, user.id)).toBe(true);
       expect(await storage().getCollectionLinks(user.id)).toEqual([]);

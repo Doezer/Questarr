@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GAME_STATUSES, type CollectionRules, type Game } from "@shared/schema";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { GAME_STATUSES, type CollectionRules } from "@shared/schema";
 import {
   gameMatchesCollectionRules,
   hasReversedYearRange,
   isEmptyCollectionRules,
 } from "@shared/collection-rules";
 import { apiRequest } from "@/lib/queryClient";
+import { useFreshGames } from "@/hooks/use-fresh-games";
 import { useToast } from "@/hooks/use-toast";
 import type { CollectionDto } from "@/lib/collections";
 import { getStatusLabel } from "@/components/StatusBadge";
@@ -90,16 +91,7 @@ export default function CollectionDialog({
     setTitleContains(rules.titleContains ?? "");
   }, [open, collection]);
 
-  const { data: games = [], refetch: refetchGames } = useQuery<Game[]>({
-    queryKey: ["/api/games"],
-    enabled: open,
-  });
-
-  // Content-filter settings change what /api/games returns, and staleTime is Infinity app-wide:
-  // refresh the list each time the dialog opens so filtered games never show from a stale cache.
-  useEffect(() => {
-    if (open) void refetchGames();
-  }, [open, refetchGames]);
+  const games = useFreshGames(open);
 
   const { genreOptions, platformOptions } = useMemo(() => {
     const genreSet = new Set<string>(genres);

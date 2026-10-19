@@ -832,6 +832,11 @@ export class MemStorage implements IStorage {
     if (!existing) return undefined;
     const updated: Collection = { ...existing, ...patch };
     this.collections.set(id, updated);
+    if (patch.type === "smart") {
+      for (const [linkId, link] of this.collectionGames) {
+        if (link.collectionId === id) this.collectionGames.delete(linkId);
+      }
+    }
     return updated;
   }
 
@@ -2518,6 +2523,11 @@ export class DatabaseStorage implements IStorage {
       .set(patch)
       .where(and(eq(collections.id, id), eq(collections.userId, userId)))
       .returning();
+    // A smart collection derives its members from rules: drop stale manual links so they
+    // cannot reappear if the collection is switched back to manual.
+    if (updated && patch.type === "smart") {
+      await db.delete(collectionGames).where(eq(collectionGames.collectionId, id));
+    }
     return updated || undefined;
   }
 

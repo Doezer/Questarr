@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { activeTestDialects, setupTestDb, type TestDb } from "./helpers/db-harness.js";
+import { DEFAULT_CUSTOM_FORMATS } from "../../shared/default-custom-formats.js";
 import {
   compileCustomFormats,
   evaluateRelease,
@@ -45,7 +46,7 @@ describe.each(activeTestDialects())("release scoring storage and migration on %s
     expect(profile.minScore).toBe(0);
     expect(profile.minSeeders).toBe(0);
     expect(profile.protocolPreference).toBe("either");
-    expect(formats).toEqual([]);
+    expect(formats.map((f) => f.name)).toEqual(DEFAULT_CUSTOM_FORMATS.map((f) => f.name));
   });
 
   it("keeps sizes above 2 GiB and edits custom formats", async () => {
@@ -90,6 +91,7 @@ describe.each(activeTestDialects())("release scoring storage and migration on %s
     expect(first.formats.map((f) => f.name)).toEqual([
       service.PREFERRED_GROUP_FORMAT_NAME,
       service.NON_PREFERRED_GROUP_FORMAT_NAME,
+      ...DEFAULT_CUSTOM_FORMATS.map((f) => f.name),
     ]);
     const again = await service.loadScoringConfig(strictUserId, ctx.storage);
     expect(again.formats.map((f) => f.id)).toEqual(first.formats.map((f) => f.id));
@@ -119,5 +121,36 @@ describe.each(activeTestDialects())("release scoring storage and migration on %s
     const [bonus] = service.preferredGroupFormats(groups, false);
     expect(bonus?.specs.length).toBeGreaterThan(1);
     for (const spec of bonus?.specs ?? []) expect(spec.value.length).toBeLessThanOrEqual(200);
+  });
+
+  it("seeds the recommended formats on a new profile and installs missing ones only once", async () => {
+    const uid = (await ctx.storage.createUser({ username: "defaults-user", passwordHash: "h" })).id;
+    const { formats } = await service.loadScoringConfig(uid, ctx.storage);
+    for (const def of DEFAULT_CUSTOM_FORMATS) {
+      expect(formats.map((f) => f.name)).toContain(def.name);
+    }
+
+    const [removed] = formats;
+    await ctx.storage.deleteCustomFormat(uid, removed!.id);
+    const added = await service.installDefaultFormats(uid, ctx.storage);
+    expect(added.map((f) => f.name)).toEqual([removed!.name]);
+    expect(await service.installDefaultFormats(uid, ctx.storage)).toEqual([]);
+  });
+
+  it("does not duplicate defaults when installs overlap", async () => {
+    const uid = (await ctx.storage.createUser({ username: "overlap-user", passwordHash: "h" })).id;
+    const { formats } = await service.loadScoringConfig(uid, ctx.storage);
+    for (const format of formats) await ctx.storage.deleteCustomFormat(uid, format.id);
+
+    const results = await Promise.all([
+      service.installDefaultFormats(uid, ctx.storage),
+      service.installDefaultFormats(uid, ctx.storage),
+    ]);
+    expect(results.map((added) => added.length).sort((a, b) => a - b)).toEqual([
+      0,
+      DEFAULT_CUSTOM_FORMATS.length,
+    ]);
+    const names = (await ctx.storage.getCustomFormats(uid)).map((row) => row.name);
+    expect(new Set(names).size).toBe(DEFAULT_CUSTOM_FORMATS.length);
   });
 });

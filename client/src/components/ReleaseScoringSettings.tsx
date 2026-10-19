@@ -132,6 +132,24 @@ export default function ReleaseScoringSettings() {
     onError,
   });
 
+  const installDefaults = useMutation({
+    mutationFn: async () =>
+      (await apiRequest("POST", "/api/custom-formats/install-defaults")).json() as Promise<{
+        added: unknown[];
+      }>,
+    onSuccess: ({ added }) => {
+      refresh();
+      toast({
+        title: added.length > 0 ? "Recommended formats added" : "Already up to date",
+        description:
+          added.length > 0
+            ? `${added.length} format${added.length === 1 ? "" : "s"} added.`
+            : "All recommended formats are already in your list.",
+      });
+    },
+    onError,
+  });
+
   const toggleFormat = useMutation({
     mutationFn: async (format: CustomFormat) =>
       (
@@ -276,16 +294,26 @@ export default function ReleaseScoringSettings() {
             <h3 id="scoring-formats" className="font-semibold">
               Custom formats
             </h3>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setEditing(null);
-                setDialogOpen(true);
-              }}
-            >
-              <Plus className="mr-1 h-4 w-4" /> Add format
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setEditing(null);
+                  setDialogOpen(true);
+                }}
+              >
+                <Plus className="mr-1 h-4 w-4" /> Add format
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={installDefaults.isPending}
+                onClick={() => installDefaults.mutate()}
+              >
+                Add recommended formats
+              </Button>
+            </div>
           </div>
           {formats.length === 0 ? (
             <p className="text-sm text-muted-foreground">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Plus, Scale, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -72,9 +72,15 @@ export default function ReleaseScoringSettings() {
   const [testName, setTestName] = useState("");
   const [testGame, setTestGame] = useState("");
 
+  // format mutations refetch the same query; only reset the form when the saved profile changed
+  const syncedProfile = useRef<string | null>(null);
+
   useEffect(() => {
     const profile = data?.profile;
     if (!profile) return;
+    const snapshot = JSON.stringify(profile);
+    if (snapshot === syncedProfile.current) return;
+    syncedProfile.current = snapshot;
     setMinScore(String(profile.minScore));
     setProtocol(profile.protocolPreference);
     setRequiredTerms(profile.requiredTerms);

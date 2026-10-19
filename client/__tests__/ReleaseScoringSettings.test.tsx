@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -42,11 +42,14 @@ function renderSettings(maxSizeBytes: number | null = null) {
     ...response,
     profile: { ...response.profile, maxSizeBytes },
   });
-  return render(
-    <QueryClientProvider client={client}>
-      <ReleaseScoringSettings />
-    </QueryClientProvider>
-  );
+  return {
+    client,
+    ...render(
+      <QueryClientProvider client={client}>
+        <ReleaseScoringSettings />
+      </QueryClientProvider>
+    ),
+  };
 }
 
 describe("ReleaseScoringSettings", () => {
@@ -93,6 +96,21 @@ describe("ReleaseScoringSettings", () => {
         expect.objectContaining({ maxSizeBytes: 1_250_000_000 })
       )
     );
+  });
+
+  it("keeps unsaved profile edits when a format refresh returns the same profile", async () => {
+    const { client } = renderSettings();
+    fireEvent.change(screen.getByLabelText("Minimum score"), { target: { value: "42" } });
+
+    act(() => {
+      client.setQueryData(["/api/release-scoring"], {
+        ...response,
+        profile: { ...response.profile },
+        formats: [...response.formats],
+      });
+    });
+
+    expect(screen.getByLabelText("Minimum score")).toHaveValue(42);
   });
 
   it("creates a custom format from the dialog", async () => {

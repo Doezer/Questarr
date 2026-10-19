@@ -1622,7 +1622,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
             >
               <div className="space-y-6">
                 {videos.length > 0 && <GameVideoCarousel videos={videos} />}
-                {game.screenshots && game.screenshots.length > 0 ? (
+                {screenshots.length > 0 && (
                   <section aria-label={videos.length > 0 ? "Screenshots" : undefined}>
                     {videos.length > 0 && (
                       <h3 className="mb-2 text-sm font-medium text-muted-foreground">
@@ -1630,7 +1630,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                       </h3>
                     )}
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {game.screenshots.map((screenshot, index) => (
+                      {screenshots.map((screenshot, index) => (
                         <button
                           key={index}
                           type="button"
@@ -1648,12 +1648,13 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                       ))}
                     </div>
                   </section>
-                ) : videos.length === 0 ? (
+                )}
+                {screenshots.length === 0 && videos.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
                     <Monitor className="w-8 h-8 opacity-40" />
                     <p className="text-sm">No screenshots or videos available.</p>
                   </div>
-                ) : null}
+                )}
               </div>
             </Section>
 

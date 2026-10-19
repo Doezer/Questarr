@@ -5,7 +5,12 @@ import { TarArchive } from "archiver";
 import { z } from "zod";
 import { requireScope } from "../auth.js";
 import { storage } from "../storage.js";
-import { igdbClient } from "../igdb.js";
+import {
+  igdbClient,
+  type DiscoverFilters,
+  type IGDBContentRef,
+  type IGDBGameContent,
+} from "../igdb.js";
 import { routesLogger as logger } from "../logger.js";
 import { getContentFilterFlags, isContentFiltered } from "../content-filter.js";
 import { assertWithinRoots } from "../path-security.js";
@@ -49,6 +54,8 @@ const MAX_CATALOG_RESULTS = 50;
 // IGDB clamps one upstream request to 100 results, so that is the browsable window.
 const MAX_CATALOG_WINDOW = 100;
 const MAX_ASSETS = 100;
+/** Discovery pages by offset; IGDB serves a bounded window, so the cursor is capped. */
+const MAX_DISCOVER_OFFSET = 500;
 const BASE_PATH = "/api/integration/seerrng/v1";
 
 const scope = requireScope("requests");
@@ -234,6 +241,8 @@ seerrngRouter.get("/ping", scope, (_req: Request, res: Response) => {
       requestActions: { retry: true, cancel: true },
       assetStreaming: true,
       assetBundles: true,
+      editions: true,
+      discover: true,
     },
   });
 });
@@ -338,6 +347,187 @@ seerrngRouter.get("/catalog/games/:igdbId", scope, async (req: Request, res: Res
   } catch (error) {
     logger.error({ error, igdbId: igdbId.data }, "SeerrNG catalog game fetch failed");
     return res.status(502).json({ error: "IGDB game details are unavailable." });
+  }
+});
+
+// ── Editions and discovery (contract v2.1) ───────────────────────────────────
+
+type ContentType =
+  "expansion" | "dlc" | "cosmetic" | "season-pass" | "bonus" | "soundtrack" | "unknown";
+
+/** IGDB game_type 14 is an update/patch, which is never content a user requests. */
+const IGDB_UPDATE_GAME_TYPE = 14;
+
+function contentTypeOf(ref: IGDBContentRef): ContentType {
+  const name = ref.name.toLocaleLowerCase();
+  if (/\bsoundtrack\b|\bost\b/.test(name)) return "soundtrack";
+  if (/season pass/.test(name)) return "season-pass";
+  if (/\b(skin|costume|outfit|cosmetic)s?\b/.test(name)) return "cosmetic";
+  if (/\b(bonus|pre-?order|digital extras?)\b/.test(name)) return "bonus";
+  switch (ref.game_type) {
+    case 2:
+    case 4:
+      return "expansion";
+    case 1:
+    case 6:
+      return "dlc";
+    case 7:
+      return "season-pass";
+    case 13:
+      return "bonus";
+    default:
+      return "unknown";
+  }
+}
+
+/** Story content is only claimed for what IGDB calls an expansion; cosmetics and extras never are. */
+function storyContentOf(type: ContentType): boolean | null {
+  if (type === "expansion") return true;
+  if (type === "cosmetic" || type === "soundtrack" || type === "bonus") return false;
+  return null;
+}
+
+function linkedContent(game: IGDBGameContent): IGDBContentRef[] {
+  const seen = new Set<number>();
+  return [...(game.expansions ?? []), ...(game.dlcs ?? []), ...(game.standalone_expansions ?? [])]
+    .filter((ref) => ref.game_type !== IGDB_UPDATE_GAME_TYPE)
+    .filter((ref) => !seen.has(ref.id) && seen.add(ref.id));
+}
+
+const coverUrlOf = (url?: string) =>
+  url ? `https:${url.replace("t_thumb", "t_cover_big")}` : undefined;
+
+const isoDate = (seconds?: number) =>
+  seconds ? new Date(seconds * 1000).toISOString().slice(0, 10) : undefined;
+
+/** Library games the account already has, keyed by IGDB id. */
+async function libraryByIgdbId(userId: string): Promise<Map<number, Game>> {
+  const games = await storage.getUserGames(userId, true);
+  return new Map(games.filter((game) => game.igdbId != null).map((game) => [game.igdbId!, game]));
+}
+
+const isOwned = (game: Game | undefined) =>
+  game !== undefined && (ACQUIRED_GAME_STATUSES as readonly string[]).includes(game.status);
+
+function toGameContent(ref: IGDBContentRef, library: Map<number, Game>) {
+  const type = contentTypeOf(ref);
+  const releaseDate = isoDate(ref.first_release_date);
+  const coverUrl = coverUrlOf(ref.cover?.url);
+  return {
+    igdbId: ref.id,
+    title: ref.name,
+    type,
+    storyContent: storyContentOf(type),
+    ...(releaseDate ? { releaseDate } : {}),
+    ...(coverUrl ? { coverUrl } : {}),
+    owned: isOwned(library.get(ref.id)),
+  };
+}
+
+seerrngRouter.get("/catalog/games/:igdbId/editions", scope, async (req: Request, res: Response) => {
+  const igdbId = z.coerce.number().int().positive().safeParse(req.params.igdbId);
+  if (!igdbId.success) return res.status(400).json({ error: "A valid IGDB ID is required." });
+  try {
+    const { base, editions } = await igdbClient.getGameEditions(igdbId.data);
+    const game = base ? await igdbClient.getGameById(base.id) : null;
+    const [visible] = game ? await visibleIgdbGames(req.user!.id, [game]) : [];
+    if (!base || !visible) return res.status(404).json({ error: "Game not found." });
+    const library = await libraryByIgdbId(req.user!.id);
+    const owner = library.get(base.id);
+    return res.json({
+      base: {
+        igdbId: base.id,
+        title: base.name,
+        owned: isOwned(owner),
+        ...(owner ? { status: owner.status } : {}),
+      },
+      editions: editions.map((edition) => {
+        const includes = linkedContent(edition).map((ref) => toGameContent(ref, library));
+        const releaseDate = isoDate(edition.first_release_date);
+        return {
+          igdbId: edition.id,
+          title: edition.name,
+          ...(edition.summary ? { summary: edition.summary } : {}),
+          ...(releaseDate ? { releaseDate } : {}),
+          includes,
+          contentKnown: includes.length > 0,
+          owned: isOwned(library.get(edition.id)),
+        };
+      }),
+      addons: linkedContent(base).map((ref) => toGameContent(ref, library)),
+    });
+  } catch (error) {
+    logger.error({ error, igdbId: igdbId.data }, "SeerrNG editions fetch failed");
+    return res.status(502).json({ error: "IGDB edition details are unavailable." });
+  }
+});
+
+const discoverQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
+  minYear: z.coerce.number().int().min(1970).max(2200).optional(),
+  maxHoursToBeat: z.coerce.number().positive().max(10000).optional(),
+  limit: z.coerce.number().int().min(1).max(48).default(24),
+  cursor: z
+    .string()
+    .regex(/^[0-9]{1,4}$/)
+    .optional(),
+});
+
+seerrngRouter.get("/catalog/discover", scope, async (req: Request, res: Response) => {
+  const parsed = discoverQuerySchema.safeParse(req.query);
+  const lists = Object.fromEntries(
+    [
+      "themes",
+      "gameModes",
+      "perspectives",
+      "genres",
+      "languages",
+      "excludeThemes",
+      "excludeGameModes",
+      "excludeGenres",
+    ].map((key) => [key, parseIdList(req.query[key], 30)])
+  );
+  if (!parsed.success || Object.values(lists).some((ids) => ids === null)) {
+    return res.status(400).json({ error: "Invalid discovery filters." });
+  }
+  const { q, minYear, maxHoursToBeat, limit, cursor } = parsed.data;
+  const offset = cursor ? Number(cursor) : 0;
+  if (offset > MAX_DISCOVER_OFFSET) {
+    return res.status(400).json({ error: "Invalid discovery filters." });
+  }
+  try {
+    const raw = await igdbClient.discoverGames(
+      { query: q, minYear, ...(lists as Record<string, number[]>) } as DiscoverFilters,
+      limit,
+      offset
+    );
+    const visible = await visibleIgdbGames(req.user!.id, raw);
+    const facets = new Map(raw.map((game) => [game.id, game]));
+    let results = await withTimeToBeats(visible.map(toCatalogGame));
+    if (maxHoursToBeat !== undefined) {
+      results = results.filter(
+        (game) =>
+          game.timeToBeat?.normally !== undefined && game.timeToBeat.normally <= maxHoursToBeat
+      );
+    }
+    return res.json({
+      results: results.map((game) => {
+        const source = facets.get(game.igdbId);
+        return {
+          ...game,
+          themes: (source?.themes ?? []).map((theme) => theme.name),
+          gameModes: (source?.game_modes ?? []).map((mode) => mode.name),
+          perspectives: (source?.player_perspectives ?? []).map((view) => view.name),
+        };
+      }),
+      nextCursor:
+        raw.length >= limit && offset + limit <= MAX_DISCOVER_OFFSET
+          ? String(offset + limit)
+          : null,
+    });
+  } catch (error) {
+    logger.error({ error }, "SeerrNG discovery failed");
+    return res.status(502).json({ error: "IGDB discovery is unavailable." });
   }
 });
 

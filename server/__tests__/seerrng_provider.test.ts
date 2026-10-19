@@ -303,6 +303,84 @@ describe("SeerrNG provider API", () => {
       expect((await request(app).get(`${base}/catalog/games/zero`)).status).toBe(400);
     });
 
+    it("lists editions and add-ons with ownership and unknown content", async () => {
+      games.set("g1", { id: "g1", userId: USER.id, igdbId: 42, status: "owned", title: "Base" });
+      games.set("g2", { id: "g2", userId: USER.id, igdbId: 71, status: "wanted", title: "Exp" });
+      (igdb.getGameEditions as Mock).mockResolvedValue({
+        base: {
+          id: 42,
+          name: "Base",
+          expansions: [
+            { id: 70, name: "Big Expansion", game_type: 2, first_release_date: 1600000000 },
+          ],
+          dlcs: [
+            { id: 71, name: "Cosmetic Skins Pack", game_type: 1 },
+            { id: 72, name: "Game Update 1.2", game_type: 14 },
+          ],
+        },
+        editions: [
+          {
+            id: 50,
+            name: "Deluxe Edition",
+            expansions: [{ id: 70, name: "Big Expansion", game_type: 2 }],
+          },
+          { id: 51, name: "Collector's Edition" },
+        ],
+      });
+      const res = await request(app).get(`${base}/catalog/games/42/editions`);
+      expect(res.status).toBe(200);
+      expect(res.body.base).toEqual({ igdbId: 42, title: "Base", owned: true, status: "owned" });
+      expect(res.body.addons.map((a: { igdbId: number }) => a.igdbId)).toEqual([70, 71]);
+      expect(res.body.addons[0]).toMatchObject({
+        type: "expansion",
+        storyContent: true,
+        owned: false,
+        releaseDate: "2020-09-13",
+      });
+      expect(res.body.addons[1]).toMatchObject({
+        type: "cosmetic",
+        storyContent: false,
+        owned: false,
+      });
+      expect(res.body.editions[0]).toMatchObject({ igdbId: 50, contentKnown: true });
+      expect(res.body.editions[1]).toMatchObject({ igdbId: 51, includes: [], contentKnown: false });
+      (igdb.getGameEditions as Mock).mockResolvedValue({ base: null, editions: [] });
+      expect((await request(app).get(`${base}/catalog/games/43/editions`)).status).toBe(404);
+    });
+
+    it("discovers games by IGDB ids, validating the filters", async () => {
+      (igdb.discoverGames as Mock).mockResolvedValue([
+        { ...igdbGame(11, "Short"), themes: [{ id: 1, name: "Action" }] },
+        { ...igdbGame(12, "Long"), themes: [] },
+      ]);
+      (igdb.getTimeToBeats as Mock).mockResolvedValue(
+        new Map([
+          [11, { normally: 5 }],
+          [12, { normally: 40 }],
+        ])
+      );
+      const res = await request(app).get(
+        `${base}/catalog/discover?q=zelda&themes=1,2&excludeGenres=9&minYear=2015&maxHoursToBeat=10&limit=2`
+      );
+      expect(res.status).toBe(200);
+      expect(igdb.discoverGames).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: "zelda",
+          themes: [1, 2],
+          excludeGenres: [9],
+          minYear: 2015,
+        }),
+        2,
+        0
+      );
+      expect(res.body.results.map((g: { igdbId: number }) => g.igdbId)).toEqual([11]);
+      expect(res.body.nextCursor).toBe("2");
+
+      for (const bad of ["themes=a", "limit=500", "cursor=abc", "minYear=1900"]) {
+        expect((await request(app).get(`${base}/catalog/discover?${bad}`)).status).toBe(400);
+      }
+    });
+
     it("looks up library games by IGDB id", async () => {
       games.set("g1", { id: "g1", userId: USER.id, igdbId: 42, status: "owned", title: "A" });
       games.set("g2", { id: "g2", userId: USER.id, igdbId: 7, status: "wanted", title: "B" });

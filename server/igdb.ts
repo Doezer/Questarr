@@ -119,6 +119,40 @@ export interface TimeToBeat {
   completely?: number | undefined;
 }
 
+export interface IGDBContentRef {
+  id: number;
+  name: string;
+  cover?: { url: string };
+  first_release_date?: number;
+  game_type?: number;
+}
+
+/** A game with the add-on content IGDB links to it (expansions, DLC, standalone expansions). */
+export interface IGDBGameContent extends IGDBContentRef {
+  summary?: string;
+  expansions?: IGDBContentRef[];
+  dlcs?: IGDBContentRef[];
+  standalone_expansions?: IGDBContentRef[];
+}
+
+export interface DiscoverFilters {
+  query?: string | undefined;
+  themes: number[];
+  gameModes: number[];
+  perspectives: number[];
+  genres: number[];
+  languages: number[];
+  excludeThemes: number[];
+  excludeGameModes: number[];
+  excludeGenres: number[];
+  minYear?: number | undefined;
+}
+
+export interface DiscoveredGame extends IGDBGame {
+  game_modes?: Array<{ id: number; name: string }>;
+  player_perspectives?: Array<{ id: number; name: string }>;
+}
+
 interface SearchGamesOptions {
   includeUndated?: boolean;
   undatedFirst?: boolean;
@@ -847,6 +881,81 @@ class IGDBClient {
     // ⚡ Bolt: Cache game data for 24 hours as it's unlikely to change frequently.
     const results = await this.makeRequest<IGDBGame[]>("games", igdbQuery, 24 * 60 * 60 * 1000);
     return results[0] ?? null;
+  }
+
+  /** The base game with its linked add-ons, and the editions that name it as `version_parent`. */
+  async getGameEditions(
+    id: number
+  ): Promise<{ base: IGDBGameContent | null; editions: IGDBGameContent[] }> {
+    if (!(await this.ensureConfigured())) return { base: null, editions: [] };
+
+    const refFields = (field: string) =>
+      ["name", "cover.url", "first_release_date", "game_type"]
+        .map((name) => `${field}.${name}`)
+        .join(", ");
+    const fields = [
+      "name, summary, first_release_date, game_type",
+      refFields("expansions"),
+      refFields("dlcs"),
+      refFields("standalone_expansions"),
+    ].join(", ");
+    const ttl = 24 * 60 * 60 * 1000;
+
+    const [bases, editions] = await Promise.all([
+      this.makeRequest<IGDBGameContent[]>("games", `fields ${fields}; where id = ${id};`, ttl),
+      this.makeRequest<IGDBGameContent[]>(
+        "games",
+        `fields ${fields}; where version_parent = ${id}; sort first_release_date asc; limit 30;`,
+        ttl
+      ),
+    ]);
+    return { base: bases[0] ?? null, editions };
+  }
+
+  /**
+   * Games matching IGDB theme, mode, perspective, genre and language ids. Included ids match any
+   * of the listed values, excluded ids drop a game carrying any of them. All ids are integers
+   * validated by the caller.
+   */
+  async discoverGames(
+    filters: DiscoverFilters,
+    limit: number,
+    offset: number
+  ): Promise<DiscoveredGame[]> {
+    if (!(await this.ensureConfigured())) return [];
+
+    const conditions = ["game_type = (0,8,9,10,11)", "cover != null"];
+    const includeAny = (field: string, ids: number[]) => {
+      if (ids.length > 0) conditions.push(`${field} = (${ids.join(",")})`);
+    };
+    const excludeAny = (field: string, ids: number[]) => {
+      if (ids.length > 0) conditions.push(`${field} != (${ids.join(",")})`);
+    };
+    includeAny("themes", filters.themes);
+    includeAny("game_modes", filters.gameModes);
+    includeAny("player_perspectives", filters.perspectives);
+    includeAny("genres", filters.genres);
+    includeAny("language_supports.language", filters.languages);
+    excludeAny("themes", filters.excludeThemes);
+    excludeAny("game_modes", filters.excludeGameModes);
+    excludeAny("genres", filters.excludeGenres);
+    if (filters.minYear) {
+      conditions.push(`first_release_date >= ${Date.UTC(filters.minYear, 0, 1) / 1000}`);
+    }
+
+    const text = filters.query ? sanitizeIgdbInput(filters.query) : "";
+    const search = text ? `search "${text}";` : "";
+    // Relevance ordering applies to searches; otherwise the better rated games come first.
+    const sort = text ? "" : "sort aggregated_rating_count desc;";
+    const igdbQuery = `
+      ${search}
+      fields ${IGDB_GAME_FIELDS}, themes.id, game_modes.name, player_perspectives.name;
+      where ${conditions.join(" & ")};
+      ${sort}
+      limit ${limit};
+      offset ${offset};
+    `;
+    return this.makeRequest<DiscoveredGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
   }
 
   async getGameIdBySteamAppId(steamAppId: number): Promise<number | null> {

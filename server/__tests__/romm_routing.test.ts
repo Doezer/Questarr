@@ -90,6 +90,32 @@ describe("RomM platform folders", () => {
   });
 });
 
+describe("RomM platform folders in the naming preview", () => {
+  it("shows the same folder as a real import", async () => {
+    const storage = {
+      getImportConfig: vi.fn().mockResolvedValue(makeImportConfig({ libraryRoot: "/roms" })),
+      getUserGames: vi
+        .fn()
+        .mockResolvedValue([{ id: "g1", title: "Some Game", platforms: [{ id: 19 }] }]),
+    };
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      {} as never, // NOSONAR
+      {} as never, // NOSONAR
+      {} as never // NOSONAR
+    );
+
+    rommMock.isRommPlatformFoldersEnabled.mockResolvedValue(true);
+    const withRomm = await manager.previewNaming("{Title}", "u1");
+    expect(withRomm[0]?.fullPath).toBe("/roms/snes/Some Game");
+    expect(withRomm.at(-1)?.fullPath).toBe("/roms/win/The Example Quest_ Remastered");
+
+    rommMock.isRommPlatformFoldersEnabled.mockResolvedValue(false);
+    const withoutRomm = await manager.previewNaming("{Title}", "u1");
+    expect(withoutRomm[0]?.fullPath).toBe("/roms/SNES/Some Game");
+  });
+});
+
 describe("RomM platform table", () => {
   it("uses RomM's universal slugs, which differ from IGDB's for a few platforms", () => {
     expect(ROMM_SLUG_BY_IGDB_PLATFORM_ID[7]).toBe("psx");

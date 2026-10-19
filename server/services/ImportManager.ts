@@ -1081,24 +1081,26 @@ export class ImportManager {
       } as unknown as Game,
       releaseTitle: "The.Example.Quest.Remastered.v1.2.3-GROUP",
     });
-    return samples.map(({ game, releaseTitle }) => {
-      const platformDir = this.resolvePlatformFolderName(
-        releaseTitle,
-        game,
-        config.importPlatformIds
-      );
-      const leafName = resolveLibraryLeafName(
-        game,
-        { renamePattern: pattern },
-        platformDir,
-        releaseTitle
-      );
-      return {
-        title: game.title,
-        leafName,
-        fullPath: path.join(libraryRoot, platformDir, leafName),
-      };
-    });
+    return Promise.all(
+      samples.map(async ({ game, releaseTitle }) => {
+        const platformDir = await this.resolvePlatformFolder(
+          releaseTitle,
+          game,
+          config.importPlatformIds
+        );
+        const leafName = resolveLibraryLeafName(
+          game,
+          { renamePattern: pattern },
+          platformDir,
+          releaseTitle
+        );
+        return {
+          title: game.title,
+          leafName,
+          fullPath: path.join(libraryRoot, platformDir, leafName),
+        };
+      })
+    );
   }
 
   async planConfirmImport(

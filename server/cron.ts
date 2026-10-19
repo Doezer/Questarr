@@ -38,8 +38,9 @@ import { recordVersionFromCompletedDownload } from "./game-version.js";
 import { rssService } from "./rss.js";
 import { registerTask, startTaskScheduler, type TaskDefinition } from "./task-registry.js";
 import {
+  activePreferredGroupFormat,
+  isAutoEligible,
   loadScoringConfig,
-  PREFERRED_GROUP_FORMAT_NAME,
   type ScoringConfig,
 } from "./release-scoring-service.js";
 import {
@@ -51,8 +52,6 @@ import {
 } from "./xrel-predb.js";
 import {
   evaluateReleases,
-  type CustomFormat,
-  type FormatSpec,
   type ReleaseEvaluation,
   type XrelPredbEntry,
 } from "../shared/release-scoring.js";
@@ -317,45 +316,17 @@ function applyPreferredGroupsFilter(
 }
 
 /**
- * The name is editable and not unique, so the narrowing also checks that the format still has
- * the shape the migration gives it: only anchored "group matches" regex conditions, no reject.
- */
-function hasMigratedGroupShape(format: { hardReject: boolean; specs: FormatSpec[] }): boolean {
-  return (
-    !format.hardReject &&
-    format.specs.length > 0 &&
-    format.specs.every(
-      (spec) =>
-        spec.field === "group" &&
-        spec.mode === "regex" &&
-        !spec.negate &&
-        !spec.required &&
-        spec.value.startsWith("^(?:") &&
-        spec.value.endsWith(")$")
-    )
-  );
-}
-
-/**
  * Scoring counterpart of the non-strict preferred-groups filter: while the user still has the
  * "Preferred release group" format (created from the old setting), results that matched it win
  * over the others, so one preferred release among several still counts as the single candidate
  * for auto-download. Without that format, with a score the user lowered to zero or below, or
  * without a match, every item stays.
  */
-function activePreferredGroupFormat(scoring: AutoSearchScoring): CustomFormat | undefined {
-  const format = scoring.config.formats.find(
-    (f) => f.enabled && f.name === PREFERRED_GROUP_FORMAT_NAME && hasMigratedGroupShape(f)
-  );
-  if (!format) return undefined;
-  return (scoring.config.profile.formatScores[format.id] ?? format.score) > 0 ? format : undefined;
-}
-
 export function narrowToPreferredGroupFormat(
   items: SearchItem[],
   scoring: AutoSearchScoring
 ): SearchItem[] {
-  const format = activePreferredGroupFormat(scoring);
+  const format = activePreferredGroupFormat(scoring.config);
   if (!format) return items;
   const preferred = items.filter((item) => item.evaluation?.matchedFormats.includes(format.id));
   return preferred.length > 0 ? preferred : items;
@@ -475,19 +446,8 @@ function keepEligibleEvaluations(
   evaluated: { item: SearchItem; evaluation: ReleaseEvaluation }[],
   scoring: AutoSearchScoring
 ): SearchItem[] {
-  // "Game-NEWGROUP" reads as ambiguous when the group is not a known one; a group the user
-  // explicitly preferred is a verified suffix, as it was for the old preferred-groups filter
-  const preferredId = activePreferredGroupFormat(scoring)?.id;
   return evaluated
-    .filter(
-      ({ evaluation }) =>
-        evaluation.accepted &&
-        (evaluation.titleMatch === "exact" ||
-          evaluation.titleMatch === "contains" ||
-          (evaluation.titleMatch === "ambiguous" &&
-            preferredId !== undefined &&
-            evaluation.matchedFormats.includes(preferredId)))
-    )
+    .filter(({ evaluation }) => isAutoEligible(evaluation, scoring.config))
     .map(({ item, evaluation }) => ({ ...item, evaluation }));
 }
 

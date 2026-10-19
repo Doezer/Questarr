@@ -8,6 +8,7 @@ import {
   type CustomFormat,
   type FormatSpec,
   type ProtocolPreference,
+  type ReleaseEvaluation,
   type ReleaseProfile,
 } from "../shared/release-scoring.js";
 import { parseJsonStringArray } from "../shared/title-utils.js";
@@ -177,4 +178,54 @@ export async function loadScoringConfig(
     profile: profileRow ? profileFromRow(profileRow) : DEFAULT_RELEASE_PROFILE,
     formats: formatRows.map(formatFromRow),
   };
+}
+
+/**
+ * The name is editable and not unique, so the narrowing also checks that the format still has
+ * the shape the migration gives it: only anchored "group matches" regex conditions, no reject.
+ */
+function hasMigratedGroupShape(format: { hardReject: boolean; specs: FormatSpec[] }): boolean {
+  return (
+    !format.hardReject &&
+    format.specs.length > 0 &&
+    format.specs.every(
+      (spec) =>
+        spec.field === "group" &&
+        spec.mode === "regex" &&
+        !spec.negate &&
+        !spec.required &&
+        spec.value.startsWith("^(?:") &&
+        spec.value.endsWith(")$")
+    )
+  );
+}
+
+/**
+ * The "Preferred release group" format created from the old setting, while the user still has
+ * it with a positive score; undefined once it is edited into something else, disabled or
+ * scored at zero or below.
+ */
+export function activePreferredGroupFormat(config: ScoringConfig): CustomFormat | undefined {
+  const format = config.formats.find(
+    (f) => f.enabled && f.name === PREFERRED_GROUP_FORMAT_NAME && hasMigratedGroupShape(f)
+  );
+  if (!format) return undefined;
+  return (config.profile.formatScores[format.id] ?? format.score) > 0 ? format : undefined;
+}
+
+/**
+ * Whether auto-search may take a release (and the "results available" badge counts it): it is
+ * accepted and a clear title match. "Game-NEWGROUP" reads as ambiguous when the group is not a
+ * known one; a group the user explicitly preferred is a verified suffix, as it was for the old
+ * preferred-groups filter.
+ */
+export function isAutoEligible(evaluation: ReleaseEvaluation, config: ScoringConfig): boolean {
+  if (!evaluation.accepted) return false;
+  if (evaluation.titleMatch === "exact" || evaluation.titleMatch === "contains") return true;
+  const preferredId = activePreferredGroupFormat(config)?.id;
+  return (
+    evaluation.titleMatch === "ambiguous" &&
+    preferredId !== undefined &&
+    evaluation.matchedFormats.includes(preferredId)
+  );
 }

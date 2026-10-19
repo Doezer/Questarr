@@ -295,7 +295,11 @@ import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { releaseScoringRoutes } from "./release-scoring-routes.js";
-import { loadScoringConfig } from "./release-scoring-service.js";
+import {
+  isAutoEligible,
+  loadScoringConfig,
+  type ScoringConfig,
+} from "./release-scoring-service.js";
 import {
   getXrelPredb,
   INTERACTIVE_LOOKUP_TIMEOUT_MS,
@@ -680,8 +684,8 @@ async function scoreManualSearchResults(
   query: string,
   preferredPlatform: string | null,
   xrelTypes: XrelPredbTypes
-): Promise<SearchItem[]> {
-  if (!userId || items.length === 0) return items;
+): Promise<{ items: SearchItem[]; config?: ScoringConfig }> {
+  if (!userId || items.length === 0) return { items };
   try {
     const config = await loadScoringConfig(userId);
     const platform = ownGame
@@ -692,15 +696,16 @@ async function scoreManualSearchResults(
     const xrelReleases = await getXrelPredb(gameTitle, xrelTypes, {
       timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
     });
-    return evaluateReleases(
+    const scored = evaluateReleases(
       items,
       { gameTitle, platform, ...(xrelReleases ? { xrelReleases } : {}) },
       config.profile,
       config.formats
     ).map(({ item, evaluation }) => ({ ...item, evaluation }));
+    return { items: scored, config };
   } catch (error) {
     routesLogger.warn({ error }, "Release scoring failed, returning unscored results");
-    return items;
+    return { items };
   }
 }
 
@@ -758,7 +763,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
     }
 
     const blacklistedCount = items.length - filteredItems.length;
-    const scoredItems = await scoreManualSearchResults(
+    const { items: scoredItems, config: scoringConfig } = await scoreManualSearchResults(
       filteredItems,
       req.user?.id,
       ownGame,
@@ -778,10 +783,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
         userSettings?.preferredPlatform ?? null
       );
       const usable = scoredItems.filter(({ evaluation }) =>
-        evaluation
-          ? evaluation.accepted &&
-            (evaluation.titleMatch === "exact" || evaluation.titleMatch === "contains")
-          : true
+        evaluation && scoringConfig ? isAutoEligible(evaluation, scoringConfig) : true
       );
       const platformFiltered = preferredPlatform
         ? usable.filter((item) => {

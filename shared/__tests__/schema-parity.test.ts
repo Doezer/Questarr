@@ -22,6 +22,7 @@ const EXPECTED_TABLES = [
   "aiAutoDownloadHolds",
   "apiKeys",
   "customFormats",
+  "downloadEvents",
   "downloaders",
   "gameDownloads",
   "gameFiles",

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d17a9a8d-8bb2-461f-8b52-3cef92c2c008",
+  "id": "41ce72ab-0263-4d75-8639-47bcf0401194",
   "prevId": "001e5cb4-05bf-4371-bda1-81a7ae5b05f2",
   "tables": {
     "ai_auto_download_holds": {
@@ -147,8 +147,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "custom_formats": {
-      "name": "custom_formats",
+    "download_events": {
+      "name": "download_events",
       "columns": {
         "id": {
           "name": "id",
@@ -164,52 +164,47 @@
           "notNull": true,
           "autoincrement": false
         },
-        "name": {
-          "name": "name",
+        "game_id": {
+          "name": "game_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "game_title": {
+          "name": "game_title",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "specs": {
-          "name": "specs",
+        "event_type": {
+          "name": "event_type",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
+          "autoincrement": false
         },
-        "score": {
-          "name": "score",
-          "type": "integer",
+        "release_title": {
+          "name": "release_title",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "autoincrement": false
         },
-        "hard_reject": {
-          "name": "hard_reject",
-          "type": "integer",
+        "downloader_name": {
+          "name": "downloader_name",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
+          "notNull": false,
+          "autoincrement": false
         },
-        "enabled": {
-          "name": "enabled",
-          "type": "integer",
+        "message": {
+          "name": "message",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
@@ -218,31 +213,32 @@
           "notNull": false,
           "autoincrement": false,
           "default": "(strftime('%s', 'now') * 1000)"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "(strftime('%s', 'now') * 1000)"
         }
       },
       "indexes": {
-        "custom_formats_user_idx": {
-          "name": "custom_formats_user_idx",
-          "columns": ["user_id"],
+        "download_events_user_created_idx": {
+          "name": "download_events_user_created_idx",
+          "columns": ["user_id", "created_at"],
           "isUnique": false
         }
       },
       "foreignKeys": {
-        "custom_formats_user_id_users_id_fk": {
-          "name": "custom_formats_user_id_users_id_fk",
-          "tableFrom": "custom_formats",
+        "download_events_user_id_users_id_fk": {
+          "name": "download_events_user_id_users_id_fk",
+          "tableFrom": "download_events",
           "tableTo": "users",
           "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "download_events_game_id_games_id_fk": {
+          "name": "download_events_game_id_games_id_fk",
+          "tableFrom": "download_events",
+          "tableTo": "games",
+          "columnsFrom": ["game_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -1714,125 +1710,6 @@
           "tableFrom": "release_blacklist",
           "tableTo": "games",
           "columnsFrom": ["game_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "release_profiles": {
-      "name": "release_profiles",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "min_score": {
-          "name": "min_score",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "protocol_preference": {
-          "name": "protocol_preference",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'either'"
-        },
-        "required_terms": {
-          "name": "required_terms",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "ignored_terms": {
-          "name": "ignored_terms",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "min_seeders": {
-          "name": "min_seeders",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "max_size_bytes": {
-          "name": "max_size_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "built_in_overrides": {
-          "name": "built_in_overrides",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'{}'"
-        },
-        "format_scores": {
-          "name": "format_scores",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'{}'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "(strftime('%s', 'now') * 1000)"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "(strftime('%s', 'now') * 1000)"
-        }
-      },
-      "indexes": {
-        "release_profiles_user_id_unique": {
-          "name": "release_profiles_user_id_unique",
-          "columns": ["user_id"],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "release_profiles_user_id_users_id_fk": {
-          "name": "release_profiles_user_id_users_id_fk",
-          "tableFrom": "release_profiles",
-          "tableTo": "users",
-          "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"

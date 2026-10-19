@@ -1,6 +1,9 @@
 import {
   Calendar,
   ClipboardList,
+  Ban,
+  History,
+  Timer,
   Compass,
   Database,
   Download,
@@ -65,7 +68,10 @@ export const managementNavigation: AppNavItem[] = [
 
 export const activityNavigation: AppNavItem[] = [
   { title: "Logs", url: "/logs", icon: ScrollText },
+  { title: "History", url: "/activity/history", icon: History },
+  { title: "Blocklist", url: "/activity/blocklist", icon: Ban },
   { title: "Import History", url: "/activity/imports", icon: ClipboardList },
+  { title: "System Tasks", url: "/system/tasks", icon: Timer },
 ];
 
 export const mobileBottomNavigation: AppNavItem[] = [

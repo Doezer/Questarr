@@ -36,6 +36,7 @@ import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isReleasePossiblyNewer } from "../shared/version-utils.js";
 import { recordVersionFromCompletedDownload } from "./game-version.js";
 import { rssService } from "./rss.js";
+import { registerTask, startTaskScheduler, type TaskDefinition } from "./task-registry.js";
 import {
   loadScoringConfig,
   PREFERRED_GROUP_FORMAT_NAME,
@@ -518,71 +519,92 @@ export async function searchAndCategorizeItemsForGame(
 
 export function startCronJobs() {
   igdbLogger.info("Starting cron jobs...");
-  igdbLogger.info(
+  registerCronTasks();
+  startTaskScheduler().catch((err) => igdbLogger.error({ err }, "Failed to start task scheduler"));
+}
+
+const IMPORT_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const DOWNLOAD_EVENT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const IMPORT_TASK_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function registerCronTasks(): void {
+  const tasks: TaskDefinition[] = [
     {
-      gameUpdates: `every ${CHECK_INTERVAL_MS / 1000 / 60 / 60} hours`,
-      downloadStatus: `every ${DOWNLOAD_CHECK_INTERVAL_MS / 1000} seconds`,
-      autoSearch: `every ${AUTO_SEARCH_CHECK_INTERVAL_MS / 1000 / 60} minutes`,
-      steamSync: `every ${STEAM_SYNC_CHECK_INTERVAL_MS / 1000 / 60} minutes (per-user interval gated)`,
-      rssFeeds: `every ${RSS_REFRESH_INTERVAL_MS / 1000 / 60} minutes`,
+      name: "game-updates",
+      title: "Game updates",
+      description: "Refresh release dates and metadata of tracked games from IGDB.",
+      intervalMs: CHECK_INTERVAL_MS,
+      runOnStartup: true,
+      run: checkGameUpdates,
     },
-    "Cron job intervals configured"
-  );
-
-  // Run immediately on startup (or after a slight delay to ensure DB is ready)
-  setTimeout(() => {
-    igdbLogger.info("Running initial cron job checks...");
-    checkGameUpdates().catch((err) => igdbLogger.error({ err }, "Error in checkGameUpdates"));
-    checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
-    checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
-    checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
-    checkSteamWishlist().catch((err) => igdbLogger.error({ err }, "Error in checkSteamWishlist"));
-    runScheduledRommSync().catch((err) => igdbLogger.error({ err }, "Error in RomM sync"));
-    logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
-    rssService.refreshFeeds().catch((err) => igdbLogger.error({ err }, "Error in refreshFeeds"));
-  }, 10000);
-
-  // Schedule periodic checks
-  setInterval(() => {
-    checkGameUpdates().catch((err) => igdbLogger.error({ err }, "Error in checkGameUpdates"));
-  }, CHECK_INTERVAL_MS);
-
-  setInterval(() => {
-    checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
-  }, DOWNLOAD_CHECK_INTERVAL_MS);
-
-  setInterval(() => {
-    checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
-  }, AUTO_SEARCH_CHECK_INTERVAL_MS);
-
-  setInterval(() => {
-    checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
-  }, XREL_CHECK_INTERVAL_MS);
-
-  setInterval(() => {
-    checkSteamWishlist().catch((err) => igdbLogger.error({ err }, "Error in checkSteamWishlist"));
-  }, STEAM_SYNC_CHECK_INTERVAL_MS);
-
-  setInterval(() => {
-    runScheduledRommSync().catch((err) => igdbLogger.error({ err }, "Error in RomM sync"));
-  }, ROMM_SYNC_INTERVAL_MS);
-
-  setInterval(() => {
-    logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
-  }, CLIENT_VERSION_LOG_INTERVAL_MS);
-
-  setInterval(() => {
-    rssService.refreshFeeds().catch((err) => igdbLogger.error({ err }, "Error in refreshFeeds"));
-  }, RSS_REFRESH_INTERVAL_MS);
-
-  const IMPORT_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-  const runImportTaskCleanup = () => {
-    const cutoff = Date.now() - IMPORT_TASK_RETENTION_MS;
-    storage
-      .deleteImportTasksOlderThan(cutoff)
-      .catch((err) => igdbLogger.warn({ err }, "Import task cleanup failed"));
-  };
-  setInterval(runImportTaskCleanup, 24 * 60 * 60 * 1000);
+    {
+      name: "download-status",
+      title: "Download status",
+      description: "Poll download clients, update progress and trigger imports.",
+      intervalMs: DOWNLOAD_CHECK_INTERVAL_MS,
+      runOnStartup: true,
+      run: checkDownloadStatus,
+    },
+    {
+      name: "auto-search",
+      title: "Auto search",
+      description: "Search indexers for wanted games and grab matching releases.",
+      intervalMs: AUTO_SEARCH_CHECK_INTERVAL_MS,
+      runOnStartup: true,
+      run: checkAutoSearch,
+    },
+    {
+      name: "xrel-releases",
+      title: "xREL.to releases",
+      description: "Check xREL.to for new scene releases of tracked games.",
+      intervalMs: XREL_CHECK_INTERVAL_MS,
+      runOnStartup: true,
+      run: checkXrelReleases,
+    },
+    {
+      name: "steam-wishlist",
+      title: "Steam wishlist sync",
+      description: "Import wishlists of users with Steam sync enabled (per-user interval applies).",
+      intervalMs: STEAM_SYNC_CHECK_INTERVAL_MS,
+      runOnStartup: true,
+      run: checkSteamWishlist,
+    },
+    {
+      name: "romm-sync",
+      title: "RomM sync",
+      description: "Synchronise the library with the configured RomM server.",
+      intervalMs: ROMM_SYNC_INTERVAL_MS,
+      runOnStartup: true,
+      run: runScheduledRommSync,
+    },
+    {
+      name: "client-versions",
+      title: "Client version check",
+      description: "Record the versions of the connected download clients and indexers.",
+      intervalMs: CLIENT_VERSION_LOG_INTERVAL_MS,
+      runOnStartup: true,
+      run: logClientVersions,
+    },
+    {
+      name: "rss-refresh",
+      title: "RSS feeds",
+      description: "Fetch every enabled RSS feed.",
+      intervalMs: RSS_REFRESH_INTERVAL_MS,
+      runOnStartup: true,
+      run: () => rssService.refreshFeeds(),
+    },
+    {
+      name: "import-task-cleanup",
+      title: "History cleanup",
+      description: "Delete import history older than 30 days and download events older than 90.",
+      intervalMs: IMPORT_TASK_CLEANUP_INTERVAL_MS,
+      run: async () => {
+        await storage.deleteImportTasksOlderThan(Date.now() - IMPORT_TASK_RETENTION_MS);
+        await storage.deleteDownloadEventsOlderThan(Date.now() - DOWNLOAD_EVENT_RETENTION_MS);
+      },
+    },
+  ];
+  for (const task of tasks) registerTask(task);
 }
 
 async function logClientVersions(): Promise<void> {
@@ -1986,6 +2008,8 @@ export async function checkAutoSearch() {
     }
   } catch (error) {
     igdbLogger.error({ error }, "Error in checkAutoSearch");
+    // Let the task registry record the run as failed.
+    throw error;
   }
 }
 
@@ -2101,6 +2125,8 @@ export async function checkXrelReleases() {
     }
   } catch (error) {
     igdbLogger.error({ error }, "Error in checkXrelReleases");
+    // Let the task registry record the run as failed.
+    throw error;
   }
 }
 
@@ -2139,6 +2165,8 @@ export async function checkSteamWishlist() {
     }
   } catch (error) {
     igdbLogger.error({ error }, "Failed scheduled Steam Wishlist auto-sync check");
+    // Let the task registry record the run as failed.
+    throw error;
   } finally {
     steamWishlistCheckInProgress = false;
   }

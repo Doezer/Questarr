@@ -1308,6 +1308,42 @@ export type InsertImportTask = (typeof insertImportTaskSchema)["_output"];
 export type ImportTaskItem = typeof importTaskItems.$inferSelect;
 export type InsertImportTaskItem = (typeof insertImportTaskItemSchema)["_output"];
 
+export const DOWNLOAD_EVENT_TYPES = [
+  "grabbed",
+  "completed",
+  "imported",
+  "failed",
+  "needs_review",
+  "removed",
+  "blocklisted",
+] as const;
+export type DownloadEventType = (typeof DOWNLOAD_EVENT_TYPES)[number];
+
+// Append-only log of what happened to a game's downloads. gameId survives the game being
+// deleted as null; gameTitle is a snapshot so the entry still reads sensibly afterwards.
+export const downloadEvents = sqliteTable(
+  "download_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    gameTitle: text("game_title").notNull(),
+    eventType: text("event_type").notNull().$type<DownloadEventType>(),
+    releaseTitle: text("release_title").notNull(),
+    downloaderName: text("downloader_name"),
+    message: text("message"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("download_events_user_created_idx").on(t.userId, t.createdAt)]
+);
+
+export type DownloadEvent = typeof downloadEvents.$inferSelect;
+export type InsertDownloadEvent = Omit<typeof downloadEvents.$inferInsert, "id" | "createdAt">;
+
 export const gameFileCategorySchema = z.enum(["main", "dlc", "update", "extra"]);
 export type GameFileCategory = z.infer<typeof gameFileCategorySchema>;
 

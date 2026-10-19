@@ -337,6 +337,13 @@
       "when": 1791871580385,
       "tag": "0046_last_vanisher",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1792407034876,
+      "tag": "0047_groovy_shadowcat",
+      "breakpoints": true
     }
   ]
 }

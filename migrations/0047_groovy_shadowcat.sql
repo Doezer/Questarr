@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `integration_requests_live_game_idx` ON `integration_requests` (`user_id`,`provider`,`game_id`) WHERE "integration_requests"."game_id" is not null and "integration_requests"."status" <> 'cancelled';

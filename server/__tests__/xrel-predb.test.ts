@@ -34,6 +34,40 @@ describe("getXrelPredb", () => {
     );
   });
 
+  it("passes only the enabled release types and caches them apart", async () => {
+    searchReleases.mockResolvedValue([]);
+    await getXrelPredb("Game", { scene: true, p2p: false });
+    await getXrelPredb("Game", { scene: false, p2p: true });
+    expect(searchReleases).toHaveBeenNthCalledWith(
+      1,
+      "Game",
+      expect.objectContaining({ scene: true, p2p: false })
+    );
+    expect(searchReleases).toHaveBeenNthCalledWith(
+      2,
+      "Game",
+      expect.objectContaining({ scene: false, p2p: true })
+    );
+    expect(await getXrelPredb("Game", { scene: false, p2p: false })).toBeUndefined();
+    expect(searchReleases).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up waiting after the timeout but keeps the lookup for the next caller", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveSearch: (value: { dirname: string }[]) => void = () => {};
+      searchReleases.mockReturnValue(new Promise((resolve) => (resolveSearch = resolve)));
+      const first = getXrelPredb("Slow Game", { scene: true, p2p: true }, { timeoutMs: 50 });
+      await vi.advanceTimersByTimeAsync(60);
+      expect(await first).toBeUndefined();
+      resolveSearch([{ dirname: "Slow.Game-CODEX" }]);
+      expect(await getXrelPredb("Slow Game")).toEqual([{ dirname: "Slow.Game-CODEX" }]);
+      expect(searchReleases).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shares one call between parallel and repeated lookups of a title", async () => {
     searchReleases.mockResolvedValue([{ dirname: "Game-CODEX" }]);
     await Promise.all([getXrelPredb("Game"), getXrelPredb("game!")]);

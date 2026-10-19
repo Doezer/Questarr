@@ -17,13 +17,24 @@ const LOOKUP_LIMIT = 100;
 // manual searches key the cache by whatever the user typed, so it is bounded
 const MAX_CACHE_ENTRIES = 200;
 
+// how long an interactive caller waits for xREL; the lookup keeps running and fills the cache
+export const INTERACTIVE_LOOKUP_TIMEOUT_MS = 3000;
+
+export interface XrelPredbTypes {
+  scene: boolean;
+  p2p: boolean;
+}
+
 const cache = new Map<string, { at: number; lookup: Promise<XrelPredbEntry[] | undefined> }>();
 
-async function fetchPredb(gameTitle: string): Promise<XrelPredbEntry[] | undefined> {
+async function fetchPredb(
+  gameTitle: string,
+  types: XrelPredbTypes
+): Promise<XrelPredbEntry[] | undefined> {
   const baseUrl = (await storage.getSystemConfig("xrel_api_base"))?.trim() || null;
   const releases = await xrelClient.searchReleases(gameTitle, {
-    scene: true,
-    p2p: true,
+    scene: types.scene,
+    p2p: types.p2p,
     limit: LOOKUP_LIMIT,
     baseUrl,
   });
@@ -33,14 +44,50 @@ async function fetchPredb(gameTitle: string): Promise<XrelPredbEntry[] | undefin
   }));
 }
 
-export async function getXrelPredb(gameTitle: string): Promise<XrelPredbEntry[] | undefined> {
-  const key = normalizeTitle(gameTitle);
-  if (!key) return undefined;
+/**
+ * Looks up the PreDB entries for a title, limited to the release types the user enabled.
+ * With `timeoutMs`, a slow lookup resolves to undefined for this caller only: it keeps running
+ * and its result is cached for the next one.
+ */
+export async function getXrelPredb(
+  gameTitle: string,
+  types: XrelPredbTypes = { scene: true, p2p: true },
+  options: { timeoutMs?: number } = {}
+): Promise<XrelPredbEntry[] | undefined> {
+  if (!types.scene && !types.p2p) return undefined;
+  const title = normalizeTitle(gameTitle);
+  if (!title) return undefined;
+  const lookup = cachedLookup(
+    gameTitle,
+    `${types.scene ? "s" : ""}${types.p2p ? "p" : ""}:${title}`,
+    types
+  );
+  const { timeoutMs } = options;
+  if (timeoutMs === undefined) return lookup;
 
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => {
+      logger.warn({ gameTitle, timeoutMs }, "xREL PreDB lookup is slow, scoring without it");
+      resolve(undefined);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([lookup, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function cachedLookup(
+  gameTitle: string,
+  key: string,
+  types: XrelPredbTypes
+): Promise<XrelPredbEntry[] | undefined> {
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.lookup;
 
-  const lookup = fetchPredb(gameTitle).catch((error: unknown) => {
+  const lookup = fetchPredb(gameTitle, types).catch((error: unknown) => {
     cache.delete(key);
     logger.warn({ error, gameTitle }, "xREL PreDB lookup failed, scoring without it");
     return undefined;
@@ -57,6 +104,13 @@ export async function getXrelPredb(gameTitle: string): Promise<XrelPredbEntry[] 
   }
   cache.set(key, { at: now, lookup });
   return lookup;
+}
+
+/** The release types the user follows on xREL, which also limit the PreDB check. */
+export function xrelTypesFor(
+  settings: { xrelSceneReleases?: boolean | null; xrelP2pReleases?: boolean | null } | undefined
+): XrelPredbTypes {
+  return { scene: settings?.xrelSceneReleases === true, p2p: settings?.xrelP2pReleases === true };
 }
 
 /** True when the user has any xREL feature on, which also allows the PreDB check. */

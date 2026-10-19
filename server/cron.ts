@@ -42,7 +42,7 @@ import {
   PREFERRED_GROUP_FORMAT_NAME,
   type ScoringConfig,
 } from "./release-scoring-service.js";
-import { getXrelPredb, xrelEnabledFor } from "./xrel-predb.js";
+import { getXrelPredb, xrelEnabledFor, xrelTypesFor, type XrelPredbTypes } from "./xrel-predb.js";
 import { evaluateReleases, type XrelPredbEntry } from "../shared/release-scoring.js";
 import {
   releaseMatchesGame,
@@ -401,7 +401,8 @@ export interface AutoSearchScoring {
   /** The user's default platform, used when the game has no target platform of its own. */
   preferredPlatform: string | null;
   /** Check the xREL PreDB (the user has an xREL feature on). */
-  useXrel: boolean;
+  /** release types to check on xREL PreDB; absent when xREL is off */
+  xrelTypes?: XrelPredbTypes;
 }
 
 /**
@@ -463,9 +464,9 @@ export async function searchAndCategorizeItemsForGame(
     }
 
     // looked up once per game, and only when there is something to score
-    if (scoring?.useXrel && !xrelLookedUp) {
+    if (scoring?.xrelTypes && !xrelLookedUp) {
       xrelLookedUp = true;
-      xrelReleases = await getXrelPredb(game.title);
+      xrelReleases = await getXrelPredb(game.title, scoring.xrelTypes);
     }
     matchedItems = scoring
       ? scoreReleasesForGame(items, game, scoring, xrelReleases)
@@ -1666,7 +1667,7 @@ export async function checkAutoSearch() {
           scoring = {
             config: await loadScoringConfig(userId),
             preferredPlatform,
-            useXrel: xrelEnabledFor(settings),
+            ...(xrelEnabledFor(settings) ? { xrelTypes: xrelTypesFor(settings) } : {}),
           };
         } catch (error) {
           igdbLogger.warn({ userId, error }, "Release scoring unavailable, using legacy filters");

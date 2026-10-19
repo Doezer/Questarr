@@ -2492,7 +2492,6 @@ describe("release scoring in auto-search", () => {
       formats: [],
     },
     preferredPlatform: null,
-    useXrel: false,
   };
 
   it("keeps the game and its updates but drops a sequel and a spinoff", () => {

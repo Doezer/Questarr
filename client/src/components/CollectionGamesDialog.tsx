@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Game } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -35,7 +35,16 @@ export default function CollectionGamesDialog({
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
 
-  const { data: games = [] } = useQuery<Game[]>({ queryKey: ["/api/games"], enabled: open });
+  const { data: games = [], refetch: refetchGames } = useQuery<Game[]>({
+    queryKey: ["/api/games"],
+    enabled: open,
+  });
+
+  // Content-filter settings change what /api/games returns, and staleTime is Infinity app-wide:
+  // refresh the list each time the dialog opens so filtered games never show from a stale cache.
+  useEffect(() => {
+    if (open) void refetchGames();
+  }, [open, refetchGames]);
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();

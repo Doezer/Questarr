@@ -90,7 +90,16 @@ export default function CollectionDialog({
     setTitleContains(rules.titleContains ?? "");
   }, [open, collection]);
 
-  const { data: games = [] } = useQuery<Game[]>({ queryKey: ["/api/games"], enabled: open });
+  const { data: games = [], refetch: refetchGames } = useQuery<Game[]>({
+    queryKey: ["/api/games"],
+    enabled: open,
+  });
+
+  // Content-filter settings change what /api/games returns, and staleTime is Infinity app-wide:
+  // refresh the list each time the dialog opens so filtered games never show from a stale cache.
+  useEffect(() => {
+    if (open) void refetchGames();
+  }, [open, refetchGames]);
 
   const { genreOptions, platformOptions } = useMemo(() => {
     const genreSet = new Set<string>(genres);

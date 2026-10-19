@@ -2114,6 +2114,7 @@ async function addNewSteamWishlistGames(
       developers: formatted.developers as string[],
       publishers: formatted.publishers as string[],
       screenshots: formatted.screenshots as string[],
+      videos: formatted.videos as Array<{ name: string; videoId: string }>,
       source: "steam",
       hidden: false,
       releaseStatus: formatted.isReleased ? "released" : undefined,

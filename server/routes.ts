@@ -893,6 +893,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             "'self'",
             "data:",
             "https://images.igdb.com",
+            // YouTube thumbnails for IGDB videos
+            "https://i.ytimg.com",
             "https://staticdelivery.nexusmods.com",
             // Steam achievement icons (GetSchemaForGame), served from Steam's CDN
             "https://steamcdn-a.akamaihd.net",
@@ -900,6 +902,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             "https://shared.cloudflare.steamstatic.com",
           ],
           "connect-src": connectSrc,
+          // IGDB trailers play in a privacy-enhanced YouTube embed (loaded only on click)
+          "frame-src": ["'self'", "https://www.youtube-nocookie.com"],
           // Narrower than helmet's defaults (which allow any "https:" origin): fonts and
           // styles are all self-hosted (@fontsource-variable, Tailwind), so there's no
           // third-party font/style CDN to allow for.
@@ -2061,6 +2065,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   platforms: updatedData.platforms as string[],
                   coverUrl: updatedData.coverUrl as string,
                   screenshots: updatedData.screenshots as string[],
+                  videos: updatedData.videos as Array<{ name: string; videoId: string }>,
                   releaseDate: updatedData.releaseDate as string,
                   earlyAccess: updatedData.earlyAccess as boolean,
                   igdbWebsites: z

@@ -255,4 +255,211 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(keys.has(`${downloader!.id}:${realHash}`)).toBe(true);
     });
   });
+  describe("collections", () => {
+    it("stores rules as JSON, links games once and cascades on delete", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+
+      const smart = await storage().createCollection({
+        userId: user.id,
+        name: "Shooters",
+        description: null,
+        type: "smart",
+        rules: { genres: ["Shooter"], minRating: 7 },
+      });
+      expect((await storage().getCollection(smart.id, user.id))?.rules).toEqual({
+        genres: ["Shooter"],
+        minRating: 7,
+      });
+      expect(await storage().getCollection(smart.id, "someone-else")).toBeUndefined();
+
+      const manual = await storage().createCollection({
+        userId: user.id,
+        name: "Backlog",
+        description: "to play",
+        type: "manual",
+        rules: null,
+      });
+      expect(await storage().addGameToCollection(manual.id, game.id)).toBe(true);
+      expect(await storage().addGameToCollection(manual.id, game.id)).toBe(false);
+      expect(await storage().getCollectionLinks(user.id)).toEqual([
+        { collectionId: manual.id, gameId: game.id },
+      ]);
+
+      const renamed = await storage().updateCollection(manual.id, user.id, { name: "Next up" });
+      expect(renamed?.name).toBe("Next up");
+
+      expect(await storage().removeGameFromCollection(manual.id, game.id)).toBe(true);
+      expect(await storage().removeGameFromCollection(manual.id, game.id)).toBe(false);
+
+      // Switching to smart drops the manual links, so they cannot resurface on the way back.
+      await storage().addGameToCollection(manual.id, game.id);
+      await storage().updateCollection(manual.id, user.id, {
+        type: "smart",
+        rules: { genres: ["Shooter"] },
+      });
+      expect(await storage().getCollectionLinks(user.id)).toEqual([]);
+      await storage().updateCollection(manual.id, user.id, { type: "manual", rules: null });
+
+      await storage().addGameToCollection(manual.id, game.id);
+      expect(await storage().deleteCollection(manual.id, user.id)).toBe(true);
+      expect(await storage().getCollectionLinks(user.id)).toEqual([]);
+      expect((await storage().getCollections(user.id)).map((c) => c.name)).toEqual(["Shooters"]);
+    });
+  });
+
+  describe("download event log", () => {
+    it("still saves the error message when the status does not change", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      const downloader = await storage().addDownloader({
+        name: "same-status-qb",
+        type: "qbittorrent",
+        url: "http://same-status",
+      } as never);
+      const download = await storage().addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader!.id,
+        downloadType: "game",
+        downloadHash: "same-status-hash",
+        downloadTitle: "Same.Status-GRP",
+        status: "manual_review_required",
+      } as never);
+      const before = (await storage().getDownloadEvents(user.id, { eventType: "needs_review" }))
+        .total;
+      await storage().updateGameDownloadStatus(download!.id, "manual_review_required", "scan gap");
+      const row = await storage().getGameDownload(download!.id);
+      expect(row?.errorMessage).toBe("scan gap");
+      expect(
+        (await storage().getDownloadEvents(user.id, { eventType: "needs_review" })).total
+      ).toBe(before);
+    });
+
+    it("records a completed event for rows inserted already completed", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      const downloader = await storage().addDownloader({
+        name: "claimed-qb",
+        type: "qbittorrent",
+        url: "http://claimed",
+      } as never);
+      const before = (await storage().getDownloadEvents(user.id, { eventType: "completed" })).total;
+      await storage().addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader!.id,
+        downloadType: "game",
+        downloadHash: "claimed-hash",
+        downloadTitle: "Claimed.Game-GRP",
+        status: "completed",
+      } as never);
+      const after = (await storage().getDownloadEvents(user.id, { eventType: "completed" })).total;
+      expect(after).toBe(before + 1);
+    });
+
+    it("records a needs_review event when an orphaned download is relinked", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      const downloader = await storage().addDownloader({
+        name: "relink-qb",
+        type: "qbittorrent",
+        url: "http://relink",
+      } as never);
+      const download = await storage().addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader!.id,
+        downloadType: "game",
+        downloadHash: "relink-hash",
+        downloadTitle: "Relink.Game-GRP",
+        status: "game_link_required",
+      } as never);
+      const before = (await storage().getDownloadEvents(user.id, { eventType: "needs_review" }))
+        .total;
+      const relinked = await storage().relinkGameDownload(download!.id, game.id);
+      expect(relinked?.status).toBe("manual_review_required");
+      const after = await storage().getDownloadEvents(user.id, { eventType: "needs_review" });
+      expect(after.total).toBe(before + 1);
+      // A second relink no longer matches game_link_required and logs nothing.
+      expect(await storage().relinkGameDownload(download!.id, game.id)).toBeUndefined();
+      expect(
+        (await storage().getDownloadEvents(user.id, { eventType: "needs_review" })).total
+      ).toBe(before + 1);
+    });
+
+    it("records grabbed, completed, blocklisted and removed events, newest first", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      const downloader = await storage().addDownloader({
+        name: "events-qb",
+        type: "qbittorrent",
+        url: "http://events",
+      } as never);
+      const before = (await storage().getDownloadEvents(user.id)).total;
+
+      const download = await storage().addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader!.id,
+        downloadType: "game",
+        downloadHash: "events-hash",
+        downloadTitle: "Events.Game-GRP",
+        status: "downloading",
+      } as never);
+      await storage().updateGameDownloadStatus(download!.id, "completed");
+      // Same status twice must not log a second event.
+      await storage().updateGameDownloadStatus(download!.id, "completed");
+      await storage().addReleaseBlacklist({
+        gameId: game.id,
+        releaseTitle: "Events.Game-BAD",
+        indexerName: "idx",
+      } as never);
+      await storage().removeGameDownload(download!.id, game.id);
+
+      const { events, total } = await storage().getDownloadEvents(user.id);
+      expect(total).toBe(before + 4);
+      expect(
+        events
+          .filter((e) => e.releaseTitle.startsWith("Events.Game-"))
+          .map((e) => e.eventType)
+          .sort()
+      ).toEqual(["blocklisted", "completed", "grabbed", "removed"]);
+      expect(events.find((e) => e.eventType === "grabbed")).toMatchObject({
+        gameTitle: game.title,
+        releaseTitle: "Events.Game-GRP",
+        downloaderName: "events-qb",
+      });
+
+      // Search matches the release or the game title, whatever the case.
+      const bySearch = await storage().getDownloadEvents(user.id, { search: "EVENTS.game-bad" });
+      expect(bySearch.total).toBe(1);
+      expect(bySearch.events[0]?.eventType).toBe("blocklisted");
+      expect((await storage().getDownloadEvents(user.id, { search: "no-such-thing" })).total).toBe(
+        0
+      );
+
+      // Unblock all removes every blocked release of the user's games, and only theirs.
+      const other = await storage().createUser({
+        username: "bob-unblock",
+        passwordHash: "h",
+      } as never);
+      const otherGame = await storage().addGame({
+        userId: other.id,
+        igdbId: 9001,
+        title: "Other Game",
+        status: "wanted",
+      } as never);
+      await storage().addReleaseBlacklist({
+        gameId: otherGame.id,
+        releaseTitle: "Other.Game-BAD",
+        indexerName: "idx",
+      } as never);
+      expect(await storage().removeAllReleaseBlacklists(user.id)).toBeGreaterThanOrEqual(1);
+      expect(await storage().getAllReleaseBlacklists(user.id)).toEqual([]);
+      expect(
+        (await storage().getAllReleaseBlacklists(other.id)).map((e) => e.releaseTitle)
+      ).toEqual(["Other.Game-BAD"]);
+
+      const completedOnly = await storage().getDownloadEvents(user.id, { eventType: "completed" });
+      expect(completedOnly.total).toBeGreaterThanOrEqual(1);
+      expect(completedOnly.events.every((e) => e.eventType === "completed")).toBe(true);
+    });
+  });
 });

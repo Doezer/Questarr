@@ -292,6 +292,7 @@ import type { XrelGameStatus } from "../shared/xrel-types.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import { collectionRoutes } from "./collection-routes.js";
 import { gameJournalRoutes, screenshotDirForGame } from "./game-journal-routes.js";
 import {
   getContentFilterFlags,
@@ -304,6 +305,7 @@ import { importRouter } from "./routes/import.js";
 import { rommRouter } from "./routes/romm.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
+import { activityRouter } from "./routes/activity.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 import { probeRootFolder, isWithinDeletableRootFolder, isStrictlyInside } from "./root-folders.js";
 import {
@@ -943,6 +945,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Use Steam Routes
   app.use(steamRoutes);
   app.use(gameJournalRoutes);
+  app.use(collectionRoutes);
   // Use PCGamingWiki Routes
   app.use(pcgamingwikiRouter);
 
@@ -1620,6 +1623,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/settings/romm", rommRouter);
   app.use("/api/import-tasks", importTasksRouter);
   app.use("/api/system", systemRouter);
+  app.use("/api/activity", activityRouter);
   // Authenticated by the /api gate above (JWT or integration API key); same
   // reasoning as the mounts above.
   app.use("/api/integration", integrationRouter);

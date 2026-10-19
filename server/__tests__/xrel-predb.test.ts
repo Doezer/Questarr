@@ -34,6 +34,14 @@ describe("getXrelPredb", () => {
     );
   });
 
+  it("looks up a title written in a non-ASCII script and caches it", async () => {
+    searchReleases.mockResolvedValue([{ dirname: "Eiyuu.Densetsu-GRP" }]);
+    expect(await getXrelPredb("英雄伝説")).toEqual([{ dirname: "Eiyuu.Densetsu-GRP" }]);
+    await getXrelPredb("英雄伝説");
+    expect(searchReleases).toHaveBeenCalledTimes(1);
+    expect(searchReleases).toHaveBeenCalledWith("英雄伝説", expect.anything());
+  });
+
   it("passes only the enabled release types and caches them apart", async () => {
     searchReleases.mockResolvedValue([]);
     await getXrelPredb("Game", { scene: true, p2p: false });

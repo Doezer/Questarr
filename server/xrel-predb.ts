@@ -59,7 +59,11 @@ export async function getXrelPredb(
   options: { timeoutMs?: number; onUnavailable?: () => void; staleFallback?: boolean } = {}
 ): Promise<XrelPredbEntry[] | undefined> {
   if (!types.scene && !types.p2p) return undefined;
-  const title = normalizeTitle(gameTitle);
+  // normalizeTitle is ASCII-only, so a title in another script (e.g. 英雄伝説) would normalize to
+  // nothing: key it by its Unicode-folded text instead
+  const title =
+    normalizeTitle(gameTitle) ||
+    gameTitle.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
   if (!title) return undefined;
   const key = `${types.scene ? "s" : ""}${types.p2p ? "p" : ""}:${title}`;
   const lookup = cachedLookup(gameTitle, key, types);

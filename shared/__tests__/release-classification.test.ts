@@ -131,4 +131,37 @@ describe("classifyReleaseByRules", () => {
       expect(classify("Another.Game-CODEX", "Dishonored").class).toBe("unknown");
     });
   });
+
+  describe("marker words inside the game's own title", () => {
+    it.each([
+      ["DLC.Quest-CODEX", "DLC Quest"],
+      ["Patch.Quest-GOG", "Patch Quest"],
+      ["Manual.Samuel-PLAZA", "Manual Samuel"],
+      ["The.Expansion-CODEX", "The Expansion"],
+      ["Half-Life-CODEX", "Half-Life"],
+    ])("%s is the full game %s", (title, gameTitle) => {
+      const result = classifyReleaseByRules({ title, gameTitle });
+      expect(result.class).toBe("full_game");
+      expect(result.ruleIds).toEqual(["full-game.bare-title"]);
+    });
+
+    it("still sees a marker after the title", () => {
+      expect(
+        classifyReleaseByRules({ title: "DLC.Quest.Update.v1.2-CODEX", gameTitle: "DLC Quest" })
+          .class
+      ).toBe("patch");
+      expect(
+        classifyReleaseByRules({ title: "DLC Quest Soundtrack", gameTitle: "DLC Quest" }).flags
+      ).toEqual(["soundtrack"]);
+    });
+
+    it("uses alternative titles", () => {
+      const result = classifyReleaseByRules({
+        title: "Patch.Quest-GOG",
+        gameTitle: "Quest of Patches",
+        alternativeTitles: ["Patch Quest"],
+      });
+      expect(result.class).toBe("full_game");
+    });
+  });
 });

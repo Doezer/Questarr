@@ -107,6 +107,31 @@ function normalizeName(title: string): string {
   );
 }
 
+/** A game title's words with separators opened up; no group stripping, "Half-Life" keeps its dash. */
+function titleWords(title: string): string {
+  return title
+    .replaceAll(/[_-]+/g, " ")
+    .replaceAll(/(?<!\d)\.|\.(?!\d)/g, " ")
+    .replaceAll(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * The release name without the known game title it starts with, so a marker word that is part
+ * of the title ("DLC Quest", "Patch Quest") is not read as content kind.
+ */
+function withoutLeadingTitle(text: string, input: ReleaseClassificationInput): string {
+  const lower = text.toLowerCase();
+  const titles = [input.gameTitle, ...(input.alternativeTitles ?? [])]
+    .filter((title): title is string => !!title)
+    .map(titleWords)
+    .filter((title) => title.length > 0)
+    .sort((a, b) => b.length - a.length);
+  const lead = titles.find((title) => lower === title || lower.startsWith(`${title} `));
+  return lead ? text.slice(lead.length).trim() : text;
+}
+
 function matching(rules: readonly Rule[], text: string): string[] {
   return rules.filter((rule) => rule.pattern.test(text)).map((rule) => rule.id);
 }
@@ -116,7 +141,10 @@ export function classifyReleaseByRules(input: ReleaseClassificationInput): Class
   const bundled = BUNDLE_PATTERN.test(name);
   BUNDLE_PATTERN.lastIndex = 0;
   // content named inside a bundle statement is shipped with the game, not the release itself
-  const text = bundled ? name.replaceAll(BUNDLE_PATTERN, " ") : name;
+  const text = withoutLeadingTitle(
+    bundled ? name.replaceAll(BUNDLE_PATTERN, " ").trim() : name,
+    input
+  );
 
   const flagHits = FLAG_RULES.filter((rule) => rule.pattern.test(text));
   const patch = matching(PATCH_RULES, text);

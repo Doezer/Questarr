@@ -354,6 +354,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       try {
         const rules = downloadRulesSchema.parse(JSON.parse(userSettings.downloadRules));
         setMinSeeders(rules.minSeeders);
+        setSortBy(rules.sortBy);
         setSortOrder("desc");
         if (rules.visibleCategories) {
           setVisibleCategories(new Set(rules.visibleCategories as DownloadCategory[]));

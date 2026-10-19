@@ -157,13 +157,33 @@ export default function ReleaseScoringSettings() {
 
   const testEvaluation = useMemo(() => {
     if (!data?.profile || !testName.trim() || !testGame.trim()) return null;
+    // the profile as shown in the form, saved or not
+    const maxGb = Number.parseFloat(maxSizeGb);
     return evaluateRelease(
       { title: testName.trim(), downloadType: "torrent", seeders: 10 },
       { gameTitle: testGame.trim() },
-      { ...data.profile, builtInOverrides: overrides },
+      {
+        ...data.profile,
+        minScore: Number.parseInt(minScore, 10) || 0,
+        protocolPreference: protocol,
+        requiredTerms,
+        ignoredTerms,
+        maxSizeBytes: Number.isFinite(maxGb) && maxGb > 0 ? Math.round(maxGb * 1e9) : null,
+        builtInOverrides: overrides,
+      },
       compileCustomFormats(data.formats)
     );
-  }, [data, overrides, testName, testGame]);
+  }, [
+    data,
+    minScore,
+    protocol,
+    requiredTerms,
+    ignoredTerms,
+    maxSizeGb,
+    overrides,
+    testName,
+    testGame,
+  ]);
 
   const formats = data?.formats ?? [];
 

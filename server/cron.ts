@@ -128,7 +128,7 @@ const GAME_UPDATE_TITLE_TO_EVENT: Record<string, NotificationEvent> = {
   "Game Delayed": "gameDelayed",
 };
 
-type DownloadSortBy = "seeders" | "date" | "size" | "priority";
+type DownloadSortBy = "score" | "seeders" | "date" | "size" | "priority";
 
 export interface AutoSearchRules {
   minSeeders: number;
@@ -250,7 +250,8 @@ export function categorizeSearchItems(
       ) {
         return a.evaluation.preferredProtocol ? -1 : 1;
       }
-      if (rules.sortBy === "seeders") {
+      if (rules.sortBy === "seeders" || rules.sortBy === "score") {
+        // "score" has nothing left to sort by once the score and protocol tie
         return releaseHealth(b) - releaseHealth(a);
       }
       if (rules.sortBy === "date") {

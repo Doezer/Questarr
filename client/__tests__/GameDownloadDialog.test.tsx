@@ -1039,6 +1039,23 @@ describe("GameDownloadDialog", () => {
     );
   });
 
+  describe("Default sort order", () => {
+    it("starts with the sort chosen in the download rules", async () => {
+      globalThis.fetch = createFetchMock({
+        settings: {
+          downloadRules: JSON.stringify({
+            minSeeders: 0,
+            sortBy: "date",
+            visibleCategories: ["main", "update", "dlc", "extra", "packs"],
+          }),
+        },
+        search: makeSearchResult([makeTorrentItem({ guid: "a", title: "Test Game-CODEX" })]),
+      });
+      renderComponent();
+      expect(await screen.findByText(/Sorted by: date/, {}, { timeout: 3000 })).toBeInTheDocument();
+    });
+  });
+
   describe("Preferred Platform preselection", () => {
     /** Render with a specific preferred platform and search result titles. */
     async function renderWithPlatform(

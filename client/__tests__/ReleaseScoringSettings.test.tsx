@@ -158,6 +158,17 @@ describe("ReleaseScoringSettings", () => {
     });
     expect(await screen.findByLabelText(/rejected\. Show breakdown/)).toBeInTheDocument();
   });
+
+  it("tests releases against the unsaved profile", async () => {
+    renderSettings();
+    fireEvent.change(screen.getByLabelText("Game title"), { target: { value: "Dishonored" } });
+    fireEvent.change(screen.getByLabelText("Release name"), {
+      target: { value: "Dishonored-CODEX" },
+    });
+    expect(await screen.findByLabelText(/accepted\. Show breakdown/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Minimum score"), { target: { value: "100000" } });
+    expect(await screen.findByLabelText(/rejected\. Show breakdown/)).toBeInTheDocument();
+  });
 });
 
 describe("ReleaseScoreBadge", () => {

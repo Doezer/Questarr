@@ -51,6 +51,7 @@ import {
 } from "./xrel-predb.js";
 import {
   evaluateReleases,
+  type CustomFormat,
   type FormatSpec,
   type ReleaseEvaluation,
   type XrelPredbEntry,
@@ -342,15 +343,20 @@ function hasMigratedGroupShape(format: { hardReject: boolean; specs: FormatSpec[
  * for auto-download. Without that format, with a score the user lowered to zero or below, or
  * without a match, every item stays.
  */
+function activePreferredGroupFormat(scoring: AutoSearchScoring): CustomFormat | undefined {
+  const format = scoring.config.formats.find(
+    (f) => f.enabled && f.name === PREFERRED_GROUP_FORMAT_NAME && hasMigratedGroupShape(f)
+  );
+  if (!format) return undefined;
+  return (scoring.config.profile.formatScores[format.id] ?? format.score) > 0 ? format : undefined;
+}
+
 export function narrowToPreferredGroupFormat(
   items: SearchItem[],
   scoring: AutoSearchScoring
 ): SearchItem[] {
-  const format = scoring.config.formats.find(
-    (f) => f.enabled && f.name === PREFERRED_GROUP_FORMAT_NAME && hasMigratedGroupShape(f)
-  );
+  const format = activePreferredGroupFormat(scoring);
   if (!format) return items;
-  if ((scoring.config.profile.formatScores[format.id] ?? format.score) <= 0) return items;
   const preferred = items.filter((item) => item.evaluation?.matchedFormats.includes(format.id));
   return preferred.length > 0 ? preferred : items;
 }
@@ -466,13 +472,21 @@ function evaluateItemsForGame(
 }
 
 function keepEligibleEvaluations(
-  evaluated: { item: SearchItem; evaluation: ReleaseEvaluation }[]
+  evaluated: { item: SearchItem; evaluation: ReleaseEvaluation }[],
+  scoring: AutoSearchScoring
 ): SearchItem[] {
+  // "Game-NEWGROUP" reads as ambiguous when the group is not a known one; a group the user
+  // explicitly preferred is a verified suffix, as it was for the old preferred-groups filter
+  const preferredId = activePreferredGroupFormat(scoring)?.id;
   return evaluated
     .filter(
       ({ evaluation }) =>
         evaluation.accepted &&
-        (evaluation.titleMatch === "exact" || evaluation.titleMatch === "contains")
+        (evaluation.titleMatch === "exact" ||
+          evaluation.titleMatch === "contains" ||
+          (evaluation.titleMatch === "ambiguous" &&
+            preferredId !== undefined &&
+            evaluation.matchedFormats.includes(preferredId)))
     )
     .map(({ item, evaluation }) => ({ ...item, evaluation }));
 }
@@ -483,7 +497,7 @@ export function scoreReleasesForGame(
   scoring: AutoSearchScoring,
   xrelReleases?: XrelPredbEntry[]
 ): SearchItem[] {
-  return keepEligibleEvaluations(evaluateItemsForGame(items, game, scoring, xrelReleases));
+  return keepEligibleEvaluations(evaluateItemsForGame(items, game, scoring, xrelReleases), scoring);
 }
 
 // games whose automatic grab already waited one cycle for a slow xREL lookup; they leave the
@@ -551,9 +565,10 @@ export async function searchAndCategorizeItemsForGame(
       }
     }
     const evaluated = scoring ? evaluateItemsForGame(items, game, scoring, xrelReleases) : null;
-    matchedItems = evaluated
-      ? keepEligibleEvaluations(evaluated)
-      : items.filter((item) => releaseMatchesGame(item.title, game.title));
+    matchedItems =
+      evaluated && scoring
+        ? keepEligibleEvaluations(evaluated, scoring)
+        : items.filter((item) => releaseMatchesGame(item.title, game.title));
     // A first page with no title match means the search is not about this game. Later pages
     // are only fetched because the blacklist hid a whole page, so an unrelated page there
     // should not stop the search.

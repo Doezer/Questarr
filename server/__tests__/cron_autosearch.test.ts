@@ -2575,6 +2575,31 @@ describe("release scoring in auto-search", () => {
     const result = categorizeSearchItems(tied, rules);
     expect(result.mainItems[0]?.downloadType).toBe("usenet");
   });
+  it("keeps a release from a preferred group that is not a known group", () => {
+    const withFormat = {
+      ...scoring,
+      config: {
+        ...scoring.config,
+        formats: [
+          {
+            id: "pg",
+            name: "Preferred release group",
+            specs: [{ field: "group" as const, mode: "regex" as const, value: "^(?:NEWGROUP)$" }],
+            score: 50,
+            hardReject: false,
+            enabled: true,
+          },
+        ],
+      },
+    };
+    const title = "Dishonored-NEWGROUP";
+    expect(scoreReleasesForGame([item(title)], game, withFormat).map((i) => i.title)).toEqual([
+      title,
+    ]);
+    // without the preferred format the same unknown suffix stays a manual-search release
+    expect(scoreReleasesForGame([item(title)], game, scoring)).toHaveLength(0);
+  });
+
   it("keeps a single preferred-group release as the only candidate (auto-download)", () => {
     const withFormat = {
       ...scoring,

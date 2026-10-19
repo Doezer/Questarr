@@ -124,6 +124,7 @@ type TorrentItemOverrides = {
   group?: string;
   downloadVolumeFactor?: number;
   uploadVolumeFactor?: number;
+  evaluation?: object;
 };
 
 type UsenetItemOverrides = {
@@ -156,6 +157,7 @@ const makeTorrentItem = (overrides: TorrentItemOverrides = {}) => ({
   ...(overrides.uploadVolumeFactor !== undefined && {
     uploadVolumeFactor: overrides.uploadVolumeFactor,
   }),
+  ...(overrides.evaluation !== undefined && { evaluation: overrides.evaluation }),
 });
 
 const makeUsenetItem = (overrides: UsenetItemOverrides = {}) => ({
@@ -384,10 +386,11 @@ describe("GameDownloadDialog", () => {
       expect(screen.getByText("Health")).toBeInTheDocument();
     });
 
-    // Click on Health sort header
-    // Initial state is Seeders Desc (ArrowDown). Clicking it should toggle to Asc (ArrowUp).
+    // Initial state is Score Desc. The first click on Health selects it (desc), the second
+    // toggles it to Asc (ArrowUp).
     const healthHeader = screen.getByText("Health");
     fireEvent.click(healthHeader);
+    fireEvent.click(screen.getByText("Health"));
 
     // Should trigger a re-sort -> Ascending -> ArrowUp
     expect(screen.getAllByTestId("icon-sort-up").length).toBeGreaterThan(0);
@@ -520,9 +523,9 @@ describe("GameDownloadDialog", () => {
         expect.stringContaining("/blacklist"),
         expect.objectContaining({
           method: "POST",
-          // Results are sorted desc by health. "Test Usenet NZB" has 50 grabs,
-          // "Test Torrent 1" has 10 seeders, so NZB is first.
-          body: expect.stringContaining("Test Usenet NZB"),
+          // Equal scores fall back to indexer priority, so "Test Torrent 2" (Indexer B,
+          // priority 1) is first.
+          body: expect.stringContaining("Test Torrent 2"),
         })
       );
     });
@@ -703,7 +706,7 @@ describe("GameDownloadDialog", () => {
   });
   const groupSearchResults = makeSearchResult([skidrowItem, codexItem]);
 
-  it("filters displayed results to preferred groups when filterByPreferredGroups is enabled", async () => {
+  it("no longer preselects a group filter from the old preferred-groups setting", async () => {
     globalThis.fetch = createFetchMock({
       search: groupSearchResults,
       settings: { filterByPreferredGroups: true, preferredReleaseGroups: '["SKIDROW"]' },
@@ -714,11 +717,105 @@ describe("GameDownloadDialog", () => {
     await waitFor(
       () => {
         expect(screen.getAllByText("Test Game SKIDROW").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("Test Game CODEX").length).toBeGreaterThan(0);
       },
       { timeout: 3000 }
     );
+  });
 
-    expect(screen.queryByText("Test Game CODEX")).toBeNull();
+  it("keeps rejected releases last under a seeders sort from the download rules", async () => {
+    const evaluation = (accepted: boolean) => ({
+      accepted,
+      score: accepted ? 120 : 180,
+      lines: [],
+      rejections: accepted ? [] : [{ code: "title_sequel", detail: "2" }],
+      titleMatch: accepted ? "exact" : "sequel",
+      indexerCategory: "unknown",
+      category: "main",
+      matchedFormats: [],
+      preferredProtocol: true,
+    });
+    globalThis.fetch = createFetchMock({
+      settings: {
+        downloadRules: JSON.stringify({
+          minSeeders: 0,
+          sortBy: "seeders",
+          visibleCategories: ["main", "update", "dlc", "extra", "packs"],
+        }),
+      },
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "rejected",
+          title: "Test Game Sequel",
+          link: "http://test.com/r",
+          seeders: 900,
+          evaluation: evaluation(false),
+        }),
+        makeTorrentItem({
+          guid: "good",
+          title: "Test Game Plain",
+          link: "http://test.com/g",
+          seeders: 3,
+          evaluation: evaluation(true),
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("Sorted by: seeders");
+        expect(text.indexOf("Test Game Plain")).toBeGreaterThan(-1);
+        expect(text.indexOf("Test Game Plain")).toBeLessThan(text.indexOf("Test Game Sequel"));
+      },
+      { timeout: 3000 }
+    );
+  });
+
+  it("ranks by score, shows the breakdown and dims rejected releases", async () => {
+    const evaluation = (score: number, accepted: boolean) => ({
+      accepted,
+      score,
+      lines: [{ ruleId: "title_exact", label: "Title matches the game", points: score }],
+      rejections: accepted ? [] : [{ code: "title_sequel", detail: "2" }],
+      titleMatch: accepted ? "exact" : "sequel",
+      indexerCategory: "unknown",
+      category: "main",
+      matchedFormats: [],
+      preferredProtocol: true,
+    });
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "rejected",
+          title: "Test Game Sequel",
+          link: "http://test.com/r",
+          seeders: 900,
+          evaluation: evaluation(180, false),
+        }),
+        makeTorrentItem({
+          guid: "good",
+          title: "Test Game Plain",
+          link: "http://test.com/g",
+          seeders: 3,
+          evaluation: evaluation(120, true),
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        const text = document.body.textContent ?? "";
+        expect(text.indexOf("Test Game Plain")).toBeGreaterThan(-1);
+        expect(text.indexOf("Test Game Plain")).toBeLessThan(text.indexOf("Test Game Sequel"));
+      },
+      { timeout: 3000 }
+    );
+    expect(screen.getAllByLabelText(/Score 180, rejected/).length).toBeGreaterThan(0);
   });
 
   it("shows all results when filterByPreferredGroups is false even if groups are configured", async () => {
@@ -993,6 +1090,23 @@ describe("GameDownloadDialog", () => {
     );
   });
 
+  describe("Default sort order", () => {
+    it("starts with the sort chosen in the download rules", async () => {
+      globalThis.fetch = createFetchMock({
+        settings: {
+          downloadRules: JSON.stringify({
+            minSeeders: 0,
+            sortBy: "date",
+            visibleCategories: ["main", "update", "dlc", "extra", "packs"],
+          }),
+        },
+        search: makeSearchResult([makeTorrentItem({ guid: "a", title: "Test Game-CODEX" })]),
+      });
+      renderComponent();
+      expect(await screen.findByText(/Sorted by: date/, {}, { timeout: 3000 })).toBeInTheDocument();
+    });
+  });
+
   describe("Preferred Platform preselection", () => {
     /** Render with a specific preferred platform and search result titles. */
     async function renderWithPlatform(
@@ -1145,7 +1259,7 @@ describe("GameDownloadDialog", () => {
     expect(await screen.findAllByText("Transmission")).not.toHaveLength(0);
 
     fireEvent.click(screen.getAllByText("Copy Torrent Link")[0]);
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://test.com/torrent1");
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://test.com/torrent2");
 
     fireEvent.click(screen.getAllByText("Transmission")[0]);
 

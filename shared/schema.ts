@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import type { FormatSpec, ReleaseProfile } from "./release-scoring.js";
 import { resolveTargetPlatform } from "./title-utils.js";
 import { hasReversedYearRange, isEmptyCollectionRules } from "./collection-rules.js";
 
@@ -385,6 +386,61 @@ export const releaseBlacklist = sqliteTable(
     ),
   },
   (t) => [uniqueIndex("release_blacklist_game_title_idx").on(t.gameId, t.releaseTitle)]
+);
+
+// Release scoring (Questarr-mgmt #12). One profile per user holds the thresholds, the
+// built-in rule overrides and the per-format scores; custom formats are rows of their own so
+// they can be created, edited and deleted one at a time. The built-in rules themselves are
+// code constants (shared/release-scoring.ts), not rows.
+export const releaseProfiles = sqliteTable("release_profiles", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  minScore: integer("min_score").notNull().default(0),
+  protocolPreference: text("protocol_preference").notNull().default("either"),
+  requiredTerms: text("required_terms", { mode: "json" }).$type<string[]>().notNull().default([]),
+  ignoredTerms: text("ignored_terms", { mode: "json" }).$type<string[]>().notNull().default([]),
+  minSeeders: integer("min_seeders").notNull().default(0),
+  maxSizeBytes: integer("max_size_bytes"),
+  builtInOverrides: text("built_in_overrides", { mode: "json" })
+    .$type<ReleaseProfile["builtInOverrides"]>()
+    .notNull()
+    .default({}),
+  formatScores: text("format_scores", { mode: "json" })
+    .$type<Record<string, number>>()
+    .notNull()
+    .default({}),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+});
+
+export const customFormats = sqliteTable(
+  "custom_formats",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    specs: text("specs", { mode: "json" }).$type<FormatSpec[]>().notNull().default([]),
+    score: integer("score").notNull().default(0),
+    hardReject: integer("hard_reject", { mode: "boolean" }).notNull().default(false),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("custom_formats_user_idx").on(t.userId)]
 );
 
 // Local-only journaling entries for a game (e.g. while playing it). Never
@@ -833,7 +889,7 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
 // Download rules schema for auto-download filtering
 export const downloadRulesSchema = z.object({
   minSeeders: z.number().int().min(0).default(0),
-  sortBy: z.enum(["seeders", "date", "size", "priority"]).default("seeders"),
+  sortBy: z.enum(["score", "seeders", "date", "size", "priority"]).default("seeders"),
   visibleCategories: z
     .array(z.enum(["main", "update", "dlc", "extra", "packs"]))
     .default(["main", "update", "dlc", "extra", "packs"]),
@@ -917,6 +973,59 @@ function isJsonStringArray(raw: unknown): boolean {
     return false;
   }
 }
+
+export type ReleaseProfileRow = typeof releaseProfiles.$inferSelect;
+export type CustomFormatRow = typeof customFormats.$inferSelect;
+
+const formatSpecInputSchema = z.object({
+  field: z.enum(["title", "group", "uploader", "category", "protocol", "indexer"]),
+  mode: z.enum(["contains", "exact", "regex"]),
+  value: z.string().trim().min(1).max(200),
+  negate: z.boolean().optional(),
+  required: z.boolean().optional(),
+});
+
+/** Body of POST /api/custom-formats and PATCH (every field optional there). */
+export const customFormatInputSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  specs: z.array(formatSpecInputSchema).min(1).max(20),
+  score: z.number().int().min(-10000).max(10000),
+  hardReject: z.boolean().default(false),
+  enabled: z.boolean().default(true),
+});
+export type ParsedCustomFormatInput = z.infer<typeof customFormatInputSchema>;
+export type CustomFormatInput = Omit<ParsedCustomFormatInput, "specs"> & { specs: FormatSpec[] };
+
+export type CustomFormatUpdate = {
+  [K in keyof CustomFormatInput]?: CustomFormatInput[K] | undefined;
+};
+
+/** Drops the undefined flags zod leaves on optional keys (exactOptionalPropertyTypes). */
+export function toFormatSpecs(specs: ParsedCustomFormatInput["specs"]): FormatSpec[] {
+  return specs.map(({ negate, required, ...spec }) => ({
+    ...spec,
+    ...(negate !== undefined ? { negate } : {}),
+    ...(required !== undefined ? { required } : {}),
+  }));
+}
+
+const builtInOverrideSchema = z.object({
+  points: z.number().int().min(-10000).max(10000).optional(),
+  enabled: z.boolean().optional(),
+});
+
+/** Body of PUT /api/release-profile. */
+export const releaseProfileInputSchema = z.object({
+  minScore: z.number().int().min(-10000).max(10000),
+  protocolPreference: z.enum(["torrent", "usenet", "either"]),
+  requiredTerms: z.array(z.string().trim().min(1).max(200)).max(50),
+  ignoredTerms: z.array(z.string().trim().min(1).max(200)).max(50),
+  minSeeders: z.number().int().min(0).max(100000),
+  maxSizeBytes: z.number().int().positive().nullable(),
+  builtInOverrides: z.record(z.string().max(64), builtInOverrideSchema),
+  formatScores: z.record(z.string().max(64), z.number().int().min(-10000).max(10000)),
+});
+export type ReleaseProfileInput = z.infer<typeof releaseProfileInputSchema>;
 
 export const insertReleaseBlacklistSchema = createInsertSchema(releaseBlacklist).omit({
   id: true,

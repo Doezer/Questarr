@@ -55,7 +55,8 @@ export type RejectionCode =
   | "max_size"
   | "below_min_score"
   | "custom_format_reject"
-  | "risky_file";
+  | "risky_file"
+  | "xrel_nuked";
 
 export interface Rejection {
   code: RejectionCode;
@@ -150,6 +151,8 @@ export interface ReleaseContext {
   platform?: string | null;
   /** Typical size of the game, when known; releases far from it lose points. */
   expectedSizeBytes?: number;
+  /** xREL releases of the game. Leave undefined when the lookup failed or is off. */
+  xrelReleases?: readonly XrelPredbEntry[];
 }
 
 /** The subset of an indexer result the evaluation reads (SearchItem satisfies it). */
@@ -167,6 +170,20 @@ export interface ReleaseInput {
   aiReleaseTypeConfidence?: number | undefined;
 }
 
+/** A release xREL lists for the game (the scene/P2P PreDB), as far as scoring needs it. */
+export interface XrelPredbEntry {
+  dirname: string;
+  /** Set when the release is nuked, with the reason xREL gives. */
+  nukeReason?: string;
+}
+
+/**
+ * How a release compares with the xREL PreDB: verified (listed), nuked (listed and nuked) or
+ * not_found. Only set when the lookup worked; "not_found" is informational, not a penalty,
+ * because P2P and usenet releases are often missing from xREL.
+ */
+export type XrelStatus = "verified" | "nuked" | "not_found";
+
 export interface ReleaseEvaluation {
   accepted: boolean;
   score: number;
@@ -179,6 +196,10 @@ export interface ReleaseEvaluation {
   matchedFormats: string[];
   /** False when the profile prefers the other protocol. Only breaks ties. */
   preferredProtocol: boolean;
+  /** Absent when no xREL data was given. */
+  xrel?: XrelStatus;
+  /** The reason xREL gives for a nuked release. */
+  xrelNukeReason?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -400,9 +421,10 @@ function normalizeForMatch(title: string): string {
   const words = normalizeTerm(title.replaceAll(/['’`]/g, "")).split(" ");
   const joined: string[] = [];
   let letters = "";
-  for (const word of words) {
-    // "Assassin.s.Creed": an apostrophe the indexer turned into a separator
-    if (word === "s" && !letters && joined.length > 0) {
+  for (const [index, word] of words.entries()) {
+    // "Assassin.s.Creed": an apostrophe the indexer turned into a separator. Not when more
+    // single letters follow, as in "PC.S.T.A.L.K.E.R.", where the "s" starts an initialism.
+    if (word === "s" && !letters && joined.length > 0 && !/^[a-z]$/.test(words[index + 1] ?? "")) {
       joined[joined.length - 1] += "s";
       continue;
     }
@@ -591,6 +613,28 @@ interface ReleaseFacts {
   metadata: ReleaseMetadata;
   titleMatch: TitleMatch;
   indexerCategory: IndexerCategoryClass;
+  xrel: { status: XrelStatus; nukeReason?: string } | undefined;
+}
+
+/** Dots for spaces and underscores, lower case: the form scene names are compared in. */
+function releaseKey(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[\s._]+/g, ".");
+}
+
+function lookupXrel(
+  title: string,
+  entries: readonly XrelPredbEntry[] | undefined
+): ReleaseFacts["xrel"] {
+  if (!entries) return undefined;
+  const key = releaseKey(splitTrailingTags(title).name);
+  const entry = entries.find((candidate) => releaseKey(candidate.dirname) === key);
+  if (!entry) return { status: "not_found" };
+  return entry.nukeReason !== undefined
+    ? { status: "nuked", nukeReason: entry.nukeReason }
+    : { status: "verified" };
 }
 
 const NON_GAME_MEDIA_PATTERNS = [
@@ -718,6 +762,8 @@ export const BUILT_IN_RULE_IDS = [
   "storefront_source",
   "size_mismatch",
   "risky_file",
+  "xrel_predb_match",
+  "xrel_nuked",
 ] as const;
 
 export type BuiltInRuleId = (typeof BUILT_IN_RULE_IDS)[number];
@@ -844,6 +890,19 @@ export const BUILT_IN_RULES: readonly BuiltInRule[] = [
     },
   },
   {
+    id: "xrel_predb_match",
+    label: "Verified on xREL",
+    points: 125,
+    applies: (f) => f.xrel?.status === "verified",
+  },
+  {
+    id: "xrel_nuked",
+    label: "Nuked on xREL",
+    points: -500,
+    rejection: "xrel_nuked",
+    applies: (f) => f.xrel?.status === "nuked",
+  },
+  {
     id: "risky_file",
     label: "Executable or disguised file",
     points: -1000,
@@ -958,13 +1017,34 @@ export function compileCustomFormats(formats: readonly CustomFormat[]): Compiled
   return { formats: compiled, errors };
 }
 
+/**
+ * The group parser only reads word characters, so "Game-R.G. Mechanics" yields "Mechanics".
+ * The whole text after the last dash is offered too, so a group written with dots or spaces
+ * can still be named in a format.
+ */
+function groupCandidates(title: string, parsed: string | undefined): string[] {
+  const candidates = parsed ? [parsed] : [];
+  const parts = withoutTrailingTags(title).split("-");
+  const suffix = parts.length > 1 ? parts.pop()?.trim() : undefined;
+  // a plain word with no parsed group is a title fragment ("Half-Life [rarbg]"), not a group
+  if (
+    suffix &&
+    suffix !== parsed &&
+    suffix.length <= 40 &&
+    (parsed !== undefined || /[.\s]/.test(suffix))
+  ) {
+    candidates.push(suffix);
+  }
+  return candidates;
+}
+
 function fieldValues(field: FormatField, facts: ReleaseFacts): string[] {
   const { input, metadata } = facts;
   switch (field) {
     case "title":
       return [input.title];
     case "group":
-      return metadata.group ? [metadata.group] : [];
+      return groupCandidates(input.title, metadata.group);
     case "uploader":
       return input.poster ? [input.poster] : [];
     case "category":
@@ -1114,6 +1194,7 @@ export function evaluateRelease(
     metadata: releaseMetadata(input.title),
     titleMatch: classifyTitleMatch(input.title, ctx.gameTitle, ctx.alternativeTitles),
     indexerCategory: classifyIndexerCategories(input.category),
+    xrel: lookupXrel(input.title, ctx.xrelReleases),
   };
 
   const lines: ScoreLine[] = [];
@@ -1126,6 +1207,9 @@ export function evaluateRelease(
   if (score < profile.minScore) {
     rejections.push({ code: "below_min_score", detail: String(score) });
   }
+
+  const nuked = rejections.find((rejection) => rejection.code === "xrel_nuked");
+  if (nuked && facts.xrel?.nukeReason) nuked.detail = facts.xrel.nukeReason;
 
   const { category } = categorizeDownload(
     input.title,
@@ -1144,6 +1228,8 @@ export function evaluateRelease(
     matchedFormats,
     preferredProtocol:
       profile.protocolPreference === "either" || input.downloadType === profile.protocolPreference,
+    ...(facts.xrel ? { xrel: facts.xrel.status } : {}),
+    ...(facts.xrel?.nukeReason !== undefined ? { xrelNukeReason: facts.xrel.nukeReason } : {}),
   };
 }
 

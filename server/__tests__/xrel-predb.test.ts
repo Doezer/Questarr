@@ -1,0 +1,166 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const searchReleases = vi.fn();
+vi.mock("../xrel.js", () => ({
+  xrelClient: { searchReleases: (...a: unknown[]) => searchReleases(...a) },
+}));
+vi.mock("../storage.js", () => ({
+  storage: { getSystemConfig: vi.fn().mockResolvedValue(null) },
+}));
+vi.mock("../logger.js", () => ({
+  logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() },
+}));
+
+const { getXrelPredb, clearXrelPredbCache, xrelEnabledFor } = await import("../xrel-predb.js");
+
+describe("getXrelPredb", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearXrelPredbCache();
+  });
+
+  it("maps releases to dirname and nuke reason", async () => {
+    searchReleases.mockResolvedValue([
+      { dirname: "Game-CODEX", nukeReason: "dupe" },
+      { dirname: "Game-FLT" },
+    ]);
+    expect(await getXrelPredb("Game")).toEqual([
+      { dirname: "Game-CODEX", nukeReason: "dupe" },
+      { dirname: "Game-FLT" },
+    ]);
+    expect(searchReleases).toHaveBeenCalledWith(
+      "Game",
+      expect.objectContaining({ scene: true, p2p: true, limit: 100 })
+    );
+  });
+
+  it("looks up a title written in a non-ASCII script and caches it", async () => {
+    searchReleases.mockResolvedValue([{ dirname: "Eiyuu.Densetsu-GRP" }]);
+    expect(await getXrelPredb("英雄伝説")).toEqual([{ dirname: "Eiyuu.Densetsu-GRP" }]);
+    await getXrelPredb("英雄伝説");
+    expect(searchReleases).toHaveBeenCalledTimes(1);
+    expect(searchReleases).toHaveBeenCalledWith("英雄伝説", expect.anything());
+  });
+
+  it("does not share a cache entry between mixed-script titles ending in the same number", async () => {
+    searchReleases.mockResolvedValue([]);
+    await getXrelPredb("英雄伝説 2");
+    await getXrelPredb("閃の軌跡 2");
+    expect(searchReleases).toHaveBeenCalledTimes(2);
+  });
+
+  it("passes only the enabled release types and caches them apart", async () => {
+    searchReleases.mockResolvedValue([]);
+    await getXrelPredb("Game", { scene: true, p2p: false });
+    await getXrelPredb("Game", { scene: false, p2p: true });
+    expect(searchReleases).toHaveBeenNthCalledWith(
+      1,
+      "Game",
+      expect.objectContaining({ scene: true, p2p: false })
+    );
+    expect(searchReleases).toHaveBeenNthCalledWith(
+      2,
+      "Game",
+      expect.objectContaining({ scene: false, p2p: true })
+    );
+    expect(await getXrelPredb("Game", { scene: false, p2p: false })).toBeUndefined();
+    expect(searchReleases).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back on the last completed result when a later lookup is too slow", async () => {
+    vi.useFakeTimers();
+    try {
+      searchReleases.mockResolvedValueOnce([{ dirname: "Old.Game-CODEX", nukeReason: "bad" }]);
+      await getXrelPredb("Old Game", { scene: true, p2p: true });
+      // the 10 minute cache has expired by the next scheduled cycle
+      await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+      searchReleases.mockReturnValue(new Promise(() => {}));
+      const onUnavailable = vi.fn();
+      const slow = getXrelPredb(
+        "Old Game",
+        { scene: true, p2p: true },
+        { timeoutMs: 50, staleFallback: true, onUnavailable }
+      );
+      await vi.advanceTimersByTimeAsync(60);
+      expect(await slow).toEqual([{ dirname: "Old.Game-CODEX", nukeReason: "bad" }]);
+      expect(onUnavailable).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a quick failure as unavailable, or falls back on the last result", async () => {
+    vi.useFakeTimers();
+    try {
+      searchReleases.mockRejectedValueOnce(new Error("HTTP 500"));
+      const onUnavailable = vi.fn();
+      expect(
+        await getXrelPredb("Flaky", { scene: true, p2p: true }, { timeoutMs: 1000, onUnavailable })
+      ).toBeUndefined();
+      expect(onUnavailable).toHaveBeenCalledTimes(1);
+
+      searchReleases.mockResolvedValueOnce([{ dirname: "Flaky-CODEX" }]);
+      await getXrelPredb("Flaky", { scene: true, p2p: true });
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000); // the cache has expired
+      searchReleases.mockRejectedValueOnce(new Error("HTTP 500"));
+      const again = vi.fn();
+      expect(
+        await getXrelPredb(
+          "Flaky",
+          { scene: true, p2p: true },
+          { timeoutMs: 1000, staleFallback: true, onUnavailable: again }
+        )
+      ).toEqual([{ dirname: "Flaky-CODEX" }]);
+      expect(again).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up waiting after the timeout but keeps the lookup for the next caller", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveSearch: (value: { dirname: string }[]) => void = () => {};
+      searchReleases.mockReturnValue(new Promise((resolve) => (resolveSearch = resolve)));
+      const first = getXrelPredb("Slow Game", { scene: true, p2p: true }, { timeoutMs: 50 });
+      await vi.advanceTimersByTimeAsync(60);
+      expect(await first).toBeUndefined();
+      resolveSearch([{ dirname: "Slow.Game-CODEX" }]);
+      expect(await getXrelPredb("Slow Game")).toEqual([{ dirname: "Slow.Game-CODEX" }]);
+      expect(searchReleases).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shares one call between parallel and repeated lookups of a title", async () => {
+    searchReleases.mockResolvedValue([{ dirname: "Game-CODEX" }]);
+    await Promise.all([getXrelPredb("Game"), getXrelPredb("game!")]);
+    await getXrelPredb("Game");
+    expect(searchReleases).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the cache bounded and drops the oldest titles first", async () => {
+    searchReleases.mockResolvedValue([]);
+    for (let i = 0; i < 205; i++) await getXrelPredb(`Game number ${i} alpha`);
+    expect(searchReleases).toHaveBeenCalledTimes(205);
+    // the newest title is still cached, the oldest was evicted
+    await getXrelPredb("Game number 204 alpha");
+    expect(searchReleases).toHaveBeenCalledTimes(205);
+    await getXrelPredb("Game number 0 alpha");
+    expect(searchReleases).toHaveBeenCalledTimes(206);
+  });
+
+  it("returns undefined on failure and tries again next time", async () => {
+    searchReleases.mockRejectedValueOnce(new Error("rate limit"));
+    expect(await getXrelPredb("Game")).toBeUndefined();
+    searchReleases.mockResolvedValueOnce([{ dirname: "Game-CODEX" }]);
+    expect(await getXrelPredb("Game")).toEqual([{ dirname: "Game-CODEX" }]);
+  });
+
+  it("is only used when an xREL feature is on", () => {
+    expect(xrelEnabledFor({ xrelSceneReleases: true, xrelP2pReleases: false })).toBe(true);
+    expect(xrelEnabledFor({ xrelSceneReleases: false, xrelP2pReleases: false })).toBe(false);
+    expect(xrelEnabledFor(undefined)).toBe(false);
+  });
+});

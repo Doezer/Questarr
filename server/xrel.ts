@@ -50,14 +50,12 @@ let hourlyCount = 0;
 let hourStart = Date.now();
 
 function waitSearchInterval(): Promise<void> {
+  // each caller reserves the next free slot, so concurrent callers queue instead of sharing one deadline
   const now = Date.now();
-  const elapsed = now - lastSearchTime;
-  if (elapsed >= SEARCH_MIN_INTERVAL_MS || lastSearchTime === 0) {
-    lastSearchTime = now;
-    return Promise.resolve();
-  }
-  const wait = SEARCH_MIN_INTERVAL_MS - elapsed;
-  return new Promise((r) => setTimeout(r, wait));
+  const slot = lastSearchTime === 0 ? now : Math.max(now, lastSearchTime + SEARCH_MIN_INTERVAL_MS);
+  lastSearchTime = slot;
+  if (slot <= now) return Promise.resolve();
+  return new Promise((r) => setTimeout(r, slot - now));
 }
 
 function checkHourlyLimit(): void {

@@ -40,6 +40,7 @@ describe("classifyTitleMatch", () => {
     ["Dishonored.Update.2-CODEX", "Dishonored", "exact"],
     // spelling differences between IGDB titles and release names
     ["STALKER.Shadow.of.Chernobyl-GOG", "S.T.A.L.K.E.R.: Shadow of Chernobyl", "exact"],
+    ["[PC] S.T.A.L.K.E.R.Shadow.of.Chernobyl-GOG", "S.T.A.L.K.E.R.: Shadow of Chernobyl", "exact"],
     ["Tom.Clancys.Rainbow.Six.Siege-CODEX", "Tom Clancy's Rainbow Six Siege", "exact"],
     ["Tales.And.Tactics-TENOKE", "Tales & Tactics", "exact"],
     ["Witcher.3.Wild.Hunt-GOG", "The Witcher 3", "contains"],
@@ -480,6 +481,20 @@ describe("custom formats", () => {
     expect(result.lines.map((line) => line.ruleId)).toEqual(["cf:f1"]);
   });
 
+  it("does not read an indexer tag on an ungrouped release as a release group", () => {
+    const anyGroup = format({
+      score: 50,
+      specs: [{ field: "group", mode: "regex", value: ".+" }],
+    });
+    const [result] = evaluateReleases(
+      [torrent("Dishonored [rarbg]")],
+      ctx,
+      DEFAULT_RELEASE_PROFILE,
+      [anyGroup]
+    );
+    expect(result?.evaluation.matchedFormats).toEqual([]);
+  });
+
   it("adds the score of a matching format", () => {
     const preferGog = format({
       name: "GOG",
@@ -557,6 +572,17 @@ describe("custom formats", () => {
       code: "custom_format_reject",
       detail: "Not a preferred group",
     });
+  });
+
+  it("matches a group written with dots or spaces by its whole name", () => {
+    const rgMechanics = format({
+      specs: [{ field: "group", mode: "exact", value: "R.G. Mechanics" }],
+    });
+    const compiled = compileCustomFormats([rgMechanics]);
+    const run = (title: string) =>
+      evaluateRelease(torrent(title), ctx, DEFAULT_RELEASE_PROFILE, compiled).matchedFormats;
+    expect(run("Dishonored-R.G. Mechanics")).toEqual(["f1"]);
+    expect(run("Dishonored-RUNE")).toEqual([]);
   });
 
   it("matches title, uploader, category, protocol and indexer fields", () => {
@@ -713,5 +739,62 @@ describe("evaluateReleases", () => {
       gameTitle: "Dishonored",
     });
     expect(sorted.map((r) => r.item.title)).toEqual(["Dishonored-CODEX", "Dishonored-RUNE"]);
+  });
+});
+
+describe("xREL PreDB", () => {
+  const ctx = (xrelReleases?: { dirname: string; nukeReason?: string }[]) => ({
+    gameTitle: "Dishonored",
+    ...(xrelReleases ? { xrelReleases } : {}),
+  });
+  const title = "Dishonored.Definitive.Edition-CODEX";
+
+  it("adds points for a release listed on xREL, whatever the separators", () => {
+    const listed = evaluateRelease(torrent(title), ctx([{ dirname: title }]));
+    const spaced = evaluateRelease(
+      torrent("Dishonored Definitive Edition-CODEX"),
+      ctx([{ dirname: title }])
+    );
+    const plain = evaluateRelease(torrent(title), ctx());
+    expect(listed.xrel).toBe("verified");
+    expect(spaced.xrel).toBe("verified");
+    expect(listed.score).toBe(plain.score + 125);
+    expect(listed.lines.map((line) => line.ruleId)).toContain("xrel_predb_match");
+  });
+
+  it("reports not_found without a penalty, and nothing when xREL data is absent", () => {
+    const missing = evaluateRelease(torrent(title), ctx([{ dirname: "Dishonored-FLT" }]));
+    const plain = evaluateRelease(torrent(title), ctx());
+    expect(missing.xrel).toBe("not_found");
+    expect(missing.score).toBe(plain.score);
+    expect(missing.accepted).toBe(true);
+    expect(plain.xrel).toBeUndefined();
+  });
+
+  it("rejects a nuked release and keeps the reason", () => {
+    const nuked = evaluateRelease(
+      torrent(title),
+      ctx([{ dirname: title, nukeReason: "bad crack" }])
+    );
+    expect(nuked.xrel).toBe("nuked");
+    expect(nuked.xrelNukeReason).toBe("bad crack");
+    expect(nuked.accepted).toBe(false);
+    expect(nuked.rejections).toContainEqual({ code: "xrel_nuked", detail: "bad crack" });
+  });
+
+  it("lets a profile override or disable the xREL boost", () => {
+    const entries = [{ dirname: title }];
+    const off = evaluateRelease(
+      torrent(title),
+      ctx(entries),
+      profile({ builtInOverrides: { xrel_predb_match: { enabled: false } } })
+    );
+    expect(off.lines.map((line) => line.ruleId)).not.toContain("xrel_predb_match");
+    const heavier = evaluateRelease(
+      torrent(title),
+      ctx(entries),
+      profile({ builtInOverrides: { xrel_predb_match: { points: 300 } } })
+    );
+    expect(heavier.score).toBe(off.score + 300);
   });
 });

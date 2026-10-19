@@ -12,7 +12,7 @@ const createMockLogger = () => ({
 
 // Mock logger to avoid noise and missing exports
 vi.mock("../logger.js", () => ({
-  logger: { child: vi.fn().mockReturnThis() },
+  logger: { child: vi.fn().mockReturnThis(), warn: vi.fn() },
   igdbLogger: createMockLogger(),
   searchLogger: createMockLogger(),
   torznabLogger: createMockLogger(),
@@ -57,7 +57,8 @@ vi.mock("../storage.js", () => ({
     getEnabledIndexers: mockGetEnabledIndexers,
     hasAiAutoDownloadHold: mockHasAiAutoDownloadHold,
     recordAiAutoDownloadHold: mockRecordAiAutoDownloadHold,
-    clearAiAutoDownloadHold: mockClearAiAutoDownloadHold,
+    getDownloadsByGameId: mockGetDownloadsByGameId,
+    getSystemConfig: vi.fn().mockResolvedValue(null),
     getDownloadsByGameId: mockGetDownloadsByGameId,
   },
 }));
@@ -116,10 +117,13 @@ vi.mock("../igdb.js", () => ({
   },
 }));
 
+const mockXrelSearchReleases = vi.hoisted(() => vi.fn());
+
 // Mock xrel
 vi.mock("../xrel.js", () => ({
   xrelClient: {
     getLatestReleases: vi.fn(),
+    searchReleases: mockXrelSearchReleases,
   },
   DEFAULT_XREL_BASE: "http://example.com",
 }));
@@ -2677,5 +2681,30 @@ describe("release scoring in auto-search", () => {
       scoring
     );
     expect(result?.mainItems.map((i) => i.title)).toEqual(["英雄伝説-GOG"]);
+  });
+
+  it("defers the automatic grab once when xREL is too slow, then goes ahead without it", async () => {
+    vi.useFakeTimers();
+    try {
+      mockXrelSearchReleases.mockReturnValue(new Promise(() => {}));
+      mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
+      mockSearchAllIndexers.mockResolvedValue({ items: [item("Slowgame-CODEX")], errors: [] });
+      const withXrel = { ...scoring, xrelTypes: { scene: true, p2p: false } };
+      const run = async () => {
+        const pending = searchAndCategorizeItemsForGame(
+          { id: "slow-1", title: "Slowgame", targetPlatformId: null, targetPlatformName: null },
+          null,
+          undefined,
+          [],
+          withXrel
+        );
+        await vi.advanceTimersByTimeAsync(3500);
+        return pending;
+      };
+      expect(await run()).toBeNull();
+      expect((await run())?.mainItems.map((i) => i.title)).toEqual(["Slowgame-CODEX"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

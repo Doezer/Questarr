@@ -52,7 +52,7 @@ async function fetchPredb(
 export async function getXrelPredb(
   gameTitle: string,
   types: XrelPredbTypes = { scene: true, p2p: true },
-  options: { timeoutMs?: number } = {}
+  options: { timeoutMs?: number; onTimeout?: () => void } = {}
 ): Promise<XrelPredbEntry[] | undefined> {
   if (!types.scene && !types.p2p) return undefined;
   const title = normalizeTitle(gameTitle);
@@ -69,6 +69,7 @@ export async function getXrelPredb(
   const timeout = new Promise<undefined>((resolve) => {
     timer = setTimeout(() => {
       logger.warn({ gameTitle, timeoutMs }, "xREL PreDB lookup is slow, scoring without it");
+      options.onTimeout?.();
       resolve(undefined);
     }, timeoutMs);
   });

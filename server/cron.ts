@@ -480,6 +480,9 @@ export function scoreReleasesForGame(
   return keepEligibleEvaluations(evaluateItemsForGame(items, game, scoring, xrelReleases));
 }
 
+// games whose automatic grab already waited one cycle for a slow xREL lookup
+const xrelDeferredGames = new Set<string>();
+
 /**
  * Searches all indexers for a game and returns its eligible releases, categorized by type.
  * Releases are title-matched, then filtered by the user's global release-name blacklist and
@@ -516,9 +519,24 @@ export async function searchAndCategorizeItemsForGame(
     if (scoring?.xrelTypes && !xrelLookedUp) {
       xrelLookedUp = true;
       // bounded so a slow xREL cannot stall the whole cycle; the lookup still fills the cache
+      let xrelTimedOut = false;
       xrelReleases = await getXrelPredb(game.title, scoring.xrelTypes, {
         timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
+        onTimeout: () => {
+          xrelTimedOut = true;
+        },
       });
+      // Nothing watches an automatic grab, so without the nuke check it waits for the next
+      // cycle, when the finished lookup is cached. Only once per game: if xREL stays down, the
+      // retry goes ahead without it rather than starving the game.
+      if (xrelTimedOut) {
+        if (!xrelDeferredGames.delete(game.id)) {
+          xrelDeferredGames.add(game.id);
+          return null;
+        }
+      } else {
+        xrelDeferredGames.delete(game.id);
+      }
     }
     const evaluated = scoring ? evaluateItemsForGame(items, game, scoring, xrelReleases) : null;
     matchedItems = evaluated

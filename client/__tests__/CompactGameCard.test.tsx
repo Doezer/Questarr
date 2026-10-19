@@ -137,13 +137,13 @@ describe("CompactGameCard", () => {
     });
   });
 
-  it("shows a loading fallback when opening details", async () => {
+  it("opens the game's own page from the details button", () => {
     renderWithProviders(<CompactGameCard game={mockGame} />);
 
     const infoButton = screen.getByLabelText(`View details for ${mockGame.title}`);
     fireEvent.click(infoButton);
 
-    expect(await screen.findByText("Loading game details...")).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/games/${mockGame.id}`);
   });
 
   it("shows Early Access badge when earlyAccess is true", () => {

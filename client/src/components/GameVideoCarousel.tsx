@@ -37,7 +37,7 @@ export default function GameVideoCarousel({ videos }: GameVideoCarouselProps) {
   const multiple = videos.length > 1;
 
   return (
-    <section aria-label="Videos" className="mb-4">
+    <section aria-label="Videos">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-medium">Videos</h3>
         {multiple && (

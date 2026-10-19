@@ -3120,6 +3120,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     (platform, fetchLimit, offset) => igdbClient.getGamesByPlatform(platform, fetchLimit, offset)
   );
 
+  // Get one game from the collection (the game details page opens straight from a URL).
+  // Registered after /api/games/discover so that literal path is never read as an id.
+  app.get(
+    "/api/games/:id",
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params as { id: string };
+        const game = await resolveOwnedGame(id, req.user!.id, res);
+        if (!game) return;
+        // Same rule as the library list: a hidden category is not reachable by a bookmarked URL.
+        const filterFlags = await getContentFilterFlags(req.user!.id);
+        if (isContentFiltered(game, filterFlags)) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+        return res.json(game);
+      } catch (error) {
+        routesLogger.error({ error }, "error fetching game");
+        return res.status(500).json({ error: "Failed to fetch game" });
+      }
+    }
+  );
+
   // Get available genres (for UI dropdowns/filters)
   app.get("/api/igdb/genres", igdbRateLimiter, async (_req, res) => {
     try {

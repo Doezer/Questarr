@@ -1,0 +1,2073 @@
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { TagList } from "@/components/ui/tag-list";
+import { Card, CardContent } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Calendar,
+  Clock,
+  Star,
+  Monitor,
+  Gamepad2,
+  Tag,
+  Download,
+  Eye,
+  EyeOff,
+  X,
+  Search,
+  UserRound,
+  Zap,
+  TrendingUp,
+  HardDrive,
+  CheckCircle2,
+  Loader2,
+  AlertCircle,
+  PauseCircle,
+  Trash2,
+  ExternalLink,
+  Users,
+  Building2,
+  ThumbsUp,
+  FlaskConical,
+  Info,
+  Image,
+  File,
+  Layers,
+  ChevronLeft,
+  ChevronRight,
+  ShieldCheck,
+  BookOpen,
+} from "lucide-react";
+import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
+import {
+  SiGogdotcom,
+  SiEpicgames,
+  SiProtondb,
+  SiPcgamingwiki,
+  SiMetacritic,
+  SiItchdotio,
+} from "react-icons/si";
+import { NexusModsIcon } from "./NexusModsIcon";
+import GameJournalTab from "./GameJournalTab";
+import FileCategorySelect from "./FileCategorySelect";
+import InstalledVersionField from "./InstalledVersionField";
+import { coverSrc } from "@/lib/cover";
+import { getSocket } from "@/lib/socket";
+import { useToast } from "@/hooks/use-toast";
+import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { type Game, type GameDownload, type ScannedGameFile } from "@shared/schema";
+import { resolveTargetPlatform } from "@shared/title-utils";
+import { type XrelGameStatus } from "@shared/xrel-types";
+import StatusBadge from "./StatusBadge";
+import GameVideoCarousel from "./GameVideoCarousel";
+import { apiRequest } from "@/lib/queryClient";
+import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
+import { addDiscoveryGameToLibrary, hideDiscoveryGame } from "@/lib/discover-hidden-mutation";
+import { carriesBaseGameVersion } from "@shared/version-utils";
+
+const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
+
+/** Derives the target-platform Select value, falling back to "default" for malformed or unsupported saved pairs. */
+function getTargetPlatformSelectValue(
+  target:
+    | {
+        targetPlatformId?: number | null | undefined;
+        targetPlatformName?: string | null | undefined;
+      }
+    | null
+    | undefined
+): string {
+  if (target?.targetPlatformId == null) return "default";
+  return resolveTargetPlatform(target.targetPlatformId, target.targetPlatformName)
+    ? String(target.targetPlatformId)
+    : "default";
+}
+
+interface GameDetailsProps {
+  game: Game;
+  /** Leaves the page: back to where the user came from. */
+  onClose: () => void;
+}
+
+type GameDownloadWithDownloader = GameDownload & { downloaderName: string | null };
+
+type FileDeletionResult =
+  | { deleted: true; path: string | null }
+  | { deleted: false; reason: "outside-library-root" | "delete-failed"; path: string };
+
+interface IgdbPlatformOption {
+  id: number;
+  name: string;
+}
+
+interface NexusMod {
+  mod_id: number;
+  name: string;
+  summary: string;
+  picture_url: string | null;
+  mod_downloads: number;
+  mod_unique_downloads: number;
+  endorsement_count: number;
+  version: string;
+  updated_timestamp: number;
+  domain_name: string;
+  user: { name: string };
+}
+
+function scoreColor(score: number): string {
+  if (score >= 7.5) return "bg-emerald-600 text-white";
+  if (score >= 6.0) return "bg-amber-500 text-white";
+  return "bg-red-600 text-white";
+}
+
+const EXPANSION_CATEGORY_LABELS: Record<string, string> = {
+  main: "Main",
+  dlc: "DLC",
+  update: "Update",
+  extra: "Extra",
+  packs: "Packs",
+};
+
+interface SectionProps {
+  readonly id: string;
+  readonly title: string;
+  readonly icon?: React.ReactNode;
+  readonly count?: number | undefined;
+  readonly innerRef?: React.Ref<HTMLElement>;
+  readonly children: React.ReactNode;
+}
+
+/** A titled block of the details page. The heading names the region for assistive tech. */
+function Section({ id, title, icon, count, innerRef, children }: SectionProps) {
+  return (
+    <section
+      id={id}
+      ref={innerRef}
+      aria-labelledby={`${id}-heading`}
+      className="min-w-0 scroll-mt-16"
+    >
+      <h2
+        id={`${id}-heading`}
+        className="mb-4 flex items-center gap-2 text-lg font-semibold tracking-tight"
+      >
+        {icon}
+        {title}
+        {count !== undefined && count > 0 && (
+          <span className="text-sm font-normal tabular-nums text-muted-foreground">{count}</span>
+        )}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+/** A group in the side column: a quiet heading over its content, separated by a hairline. */
+function SideBlock({
+  title,
+  icon,
+  children,
+}: {
+  readonly title: string;
+  readonly icon?: React.ReactNode;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-3 border-t border-border pt-5 first:border-t-0 first:pt-0">
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+        {icon}
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+interface SectionNavItem {
+  readonly id: string;
+  readonly label: string;
+  readonly count?: number | undefined;
+}
+
+/** Sticky jump bar: every part of the game stays on one page, this just gets you there. */
+function SectionNav({
+  items,
+  active,
+  onSelect,
+}: {
+  readonly items: readonly SectionNavItem[];
+  readonly active: string;
+  readonly onSelect: (id: string) => void;
+}) {
+  return (
+    <nav
+      aria-label="Game sections"
+      className="sticky top-0 z-20 -mx-4 border-b border-border bg-background/95 px-4 backdrop-blur sm:mx-0 sm:px-0"
+    >
+      <ul className="flex gap-1 overflow-x-auto py-1.5 [scrollbar-width:none]">
+        {items.map((item) => (
+          <li key={item.id} className="shrink-0">
+            <button
+              type="button"
+              onClick={() => onSelect(item.id)}
+              aria-current={active === item.id ? "true" : undefined}
+              data-testid={`nav-section-${item.id}`}
+              className={cn(
+                "inline-flex h-10 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors sm:h-9",
+                active === item.id
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              {item.label}
+              {item.count !== undefined && item.count > 0 && (
+                <span className="text-xs tabular-nums opacity-70">{item.count}</span>
+              )}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+// ── Website links config ──────────────────────────────────────────────────────
+
+type IconComponent = React.ComponentType<{ size?: number; className?: string }>;
+
+interface SiteLinkConfig {
+  label: string;
+  Icon: IconComponent;
+  colorClass: string;
+}
+
+const IGDB_WEBSITE_CONFIG: Record<number, SiteLinkConfig> = {
+  1: { label: "Official Site", Icon: ExternalLink as IconComponent, colorClass: "text-blue-400" },
+  3: { label: "Wikipedia", Icon: FaWikipediaW as IconComponent, colorClass: "text-gray-300" },
+  5: { label: "Twitch", Icon: FaTwitch as IconComponent, colorClass: "text-purple-500" },
+  13: { label: "Steam", Icon: FaSteam as IconComponent, colorClass: "text-sky-400" },
+  14: { label: "Reddit", Icon: FaRedditAlien as IconComponent, colorClass: "text-orange-500" },
+  15: { label: "itch.io", Icon: SiItchdotio as IconComponent, colorClass: "text-red-400" },
+  16: { label: "Epic Games", Icon: SiEpicgames as IconComponent, colorClass: "text-gray-200" },
+  17: { label: "GOG", Icon: SiGogdotcom as IconComponent, colorClass: "text-purple-400" },
+  18: { label: "Discord", Icon: FaDiscord as IconComponent, colorClass: "text-indigo-400" },
+};
+
+const URL_WEBSITE_PATTERNS: Array<{ pattern: RegExp; config: SiteLinkConfig }> = [
+  { pattern: /store\.steampowered\.com/i, config: IGDB_WEBSITE_CONFIG[13]! },
+  { pattern: /reddit\.com/i, config: IGDB_WEBSITE_CONFIG[14]! },
+  { pattern: /itch\.io/i, config: IGDB_WEBSITE_CONFIG[15]! },
+  { pattern: /epicgames\.com/i, config: IGDB_WEBSITE_CONFIG[16]! },
+  { pattern: /gog\.com/i, config: IGDB_WEBSITE_CONFIG[17]! },
+  { pattern: /discord\.(gg|com)/i, config: IGDB_WEBSITE_CONFIG[18]! },
+  { pattern: /twitch\.tv/i, config: IGDB_WEBSITE_CONFIG[5]! },
+  { pattern: /wikipedia\.org/i, config: IGDB_WEBSITE_CONFIG[3]! },
+];
+
+function resolveWebsiteConfig(w: { category?: number; url: string }): SiteLinkConfig | null {
+  if (w.category && IGDB_WEBSITE_CONFIG[w.category]) return IGDB_WEBSITE_CONFIG[w.category]!;
+  for (const { pattern, config } of URL_WEBSITE_PATTERNS) {
+    if (pattern.test(w.url)) return config;
+  }
+  return null;
+}
+
+function getDerivedLinks(
+  game: Game,
+  pcgwUrl?: string | null
+): Array<SiteLinkConfig & { href: string }> {
+  const t = encodeURIComponent(game.title);
+
+  return [
+    {
+      label: "PCGamingWiki",
+      Icon: SiPcgamingwiki as IconComponent,
+      colorClass: "text-teal-400",
+      href:
+        pcgwUrl ??
+        (game.steamAppId
+          ? `https://www.pcgamingwiki.com/api/redirect?steamappid=${game.steamAppId}`
+          : `https://www.pcgamingwiki.com/w/index.php?search=${t}`),
+    },
+    ...(game.steamAppId
+      ? [
+          {
+            label: "ProtonDB",
+            Icon: SiProtondb as IconComponent,
+            colorClass: "text-orange-400",
+            href: `https://www.protondb.com/app/${game.steamAppId}`,
+          },
+        ]
+      : []),
+    {
+      label: "IsThereAnyDeal",
+      Icon: Tag as IconComponent,
+      colorClass: "text-green-400",
+      href: `https://isthereanydeal.com/search/?q=${t}`,
+    },
+  ];
+}
+
+// ── Download status icon ──────────────────────────────────────────────────────
+
+function DownloadStatusIcon({ status }: { status: string }) {
+  switch (status) {
+    case "completed":
+      return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
+    case "downloading":
+      return <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />;
+    case "paused":
+      return <PauseCircle className="w-4 h-4 text-amber-400" />;
+    case "failed":
+      return <AlertCircle className="w-4 h-4 text-red-400" />;
+    default:
+      return <HardDrive className="w-4 h-4 text-muted-foreground" />;
+  }
+}
+
+function getTrackedDownloadStatusLabel(status: string): string {
+  return status === "failed" ? "Aborted" : status;
+}
+
+// ── Source badge ──────────────────────────────────────────────────────────────
+
+function SourceBadge({ source }: { source: string | null | undefined }) {
+  if (source === "steam") {
+    return (
+      <Badge variant="outline" className="gap-1.5 text-sky-400 border-sky-400/30">
+        <FaSteam size={11} />
+        <span className="hidden sm:inline">Steam Wishlist</span>
+      </Badge>
+    );
+  }
+  if (source === "api") {
+    return (
+      <Badge variant="outline" className="gap-1.5 text-purple-400 border-purple-400/30">
+        <Zap className="w-3 h-3" />
+        <span className="hidden sm:inline">Via API</span>
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="gap-1.5 text-muted-foreground">
+      <UserRound className="w-3 h-3" />
+      <span className="hidden sm:inline">Added Manually</span>
+    </Badge>
+  );
+}
+
+interface CrackStatusContentProps {
+  isLoading: boolean;
+  isError: boolean;
+  crackTypes: ("cracked" | "hypervisor")[] | undefined;
+  testId: string;
+}
+
+function CrackStatusContent({ isLoading, isError, crackTypes, testId }: CrackStatusContentProps) {
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Checking xREL…</p>;
+  }
+  if (isError) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid={testId}>
+        Couldn't check crack status
+      </p>
+    );
+  }
+  if (!crackTypes || crackTypes.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid={testId}>
+        No known crack yet
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid={testId}>
+      {crackTypes.includes("cracked") && (
+        <Badge variant="secondary" className="text-xs">
+          Cracked
+        </Badge>
+      )}
+      {crackTypes.includes("hypervisor") && (
+        <Badge
+          variant="outline"
+          className="text-xs border-amber-500 text-amber-500 dark:text-amber-400"
+        >
+          Hypervisor Bypass
+        </Badge>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+/** Click target for a half-star or full-star position within StarRatingInput. */
+function StarHitTarget({
+  ratingValue,
+  currentValue,
+  isRightHalf,
+  onHover,
+  onChange,
+}: {
+  ratingValue: number;
+  currentValue: number | null;
+  isRightHalf: boolean;
+  onHover: (v: number | null) => void;
+  onChange: (v: number | null) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`absolute inset-0 ${isRightHalf ? "left-1/2 " : ""}w-1/2 z-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:rounded-sm`}
+      aria-label={`Rate ${ratingValue / 2} out of 5`}
+      onMouseEnter={() => onHover(ratingValue)}
+      onMouseLeave={() => onHover(null)}
+      onClick={() => onChange(currentValue === ratingValue ? null : ratingValue)}
+    />
+  );
+}
+
+/** Interactive star rating: 0.5–10 in 0.5 increments, keyboard + mouse accessible. */
+function StarRatingInput({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (rating: number | null) => void;
+}) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  const display = hovered ?? value;
+
+  return (
+    <fieldset className="flex items-center gap-2 border-0 p-0 sm:gap-1">
+      <legend className="sr-only">Your rating</legend>
+      {[1, 2, 3, 4, 5].map((star) => {
+        const fullValue = star * 2; // e.g. star=3 → fullValue=6
+        const halfValue = star * 2 - 1; // e.g. star=3 → halfValue=5
+        const isFull = display !== null && display >= fullValue;
+        const isHalf = display !== null && display >= halfValue && display < fullValue;
+
+        return (
+          <span key={star} className="relative inline-flex w-7 h-7 sm:w-5 sm:h-5 overflow-visible">
+            <StarHitTarget
+              ratingValue={halfValue}
+              currentValue={value}
+              isRightHalf={false}
+              onHover={setHovered}
+              onChange={onChange}
+            />
+            <StarHitTarget
+              ratingValue={fullValue}
+              currentValue={value}
+              isRightHalf={true}
+              onHover={setHovered}
+              onChange={onChange}
+            />
+            {/* Background star first so the accent star renders on top */}
+            {isHalf && (
+              <Star
+                className="w-7 h-7 sm:w-5 sm:h-5 pointer-events-none text-muted-foreground absolute inset-0"
+                aria-hidden="true"
+              />
+            )}
+            {/* Visual star (accent-filled when full/half, muted otherwise) */}
+            <Star
+              className={`w-7 h-7 sm:w-5 sm:h-5 pointer-events-none transition-colors ${
+                isFull
+                  ? "text-accent fill-current"
+                  : isHalf
+                    ? "text-accent fill-current [clip-path:inset(0_50%_0_0)]"
+                    : "text-muted-foreground"
+              }`}
+              aria-hidden="true"
+            />
+          </span>
+        );
+      })}
+      {/* Always rendered so aria-live is a stable region for screen readers */}
+      <span className="text-sm text-muted-foreground ml-1" aria-live="polite">
+        {value !== null ? (
+          <>
+            {value % 2 === 0 ? value / 2 : `${Math.floor(value / 2)}.5`}/5
+            <span className="sr-only"> ({value}/10)</span>
+          </>
+        ) : (
+          "Not rated"
+        )}
+      </span>
+    </fieldset>
+  );
+}
+
+export default function GameDetails({ game, onClose }: GameDetailsProps) {
+  const isMobile = useIsMobile();
+  const [selectedScreenshotIndex, setSelectedScreenshotIndex] = useState<number | null>(null);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
+  const [targetPlatformValue, setTargetPlatformValue] = useState("default");
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+  const [removeFromClient, setRemoveFromClient] = useState(true);
+  const [deleteFiles, setDeleteFiles] = useState(true);
+  const [activeSection, setActiveSection] = useState("overview");
+  const [filesWanted, setFilesWanted] = useState(false);
+  const filesRef = useRef<HTMLElement>(null);
+  const open = true;
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Full reset when switching to a different game.
+  useEffect(() => {
+    setIsSummaryExpanded(false);
+    setTargetPlatformValue(getTargetPlatformSelectValue(game));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.id]);
+
+  // Keep targetPlatformValue in sync with the server value for the same game
+  // (e.g. after the target-platform mutation's invalidateQueries refetch lands).
+  useEffect(() => {
+    setTargetPlatformValue(
+      getTargetPlatformSelectValue({
+        targetPlatformId: game.targetPlatformId,
+        targetPlatformName: game.targetPlatformName,
+      })
+    );
+  }, [game.targetPlatformId, game.targetPlatformName]);
+
+  useEffect(() => {
+    setSelectedScreenshotIndex(null);
+  }, [game.id]);
+
+  const screenshots = game.screenshots ?? [];
+  const videos = game.videos ?? [];
+
+  // Clear the selection if it falls outside the current screenshots list
+  // (e.g. the list shrinks while the lightbox is open).
+  useEffect(() => {
+    setSelectedScreenshotIndex((index) =>
+      index !== null && (index < 0 || index >= screenshots.length) ? null : index
+    );
+  }, [screenshots.length]);
+
+  const showPreviousScreenshot = React.useCallback(() => {
+    if (screenshots.length === 0) return;
+    setSelectedScreenshotIndex((prev) =>
+      prev === null ? prev : (prev - 1 + screenshots.length) % screenshots.length
+    );
+  }, [screenshots.length]);
+
+  const showNextScreenshot = React.useCallback(() => {
+    if (screenshots.length === 0) return;
+    setSelectedScreenshotIndex((prev) => (prev === null ? prev : (prev + 1) % screenshots.length));
+  }, [screenshots.length]);
+
+  const isLightboxOpen = selectedScreenshotIndex !== null;
+
+  useEffect(() => {
+    if (!isLightboxOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        showPreviousScreenshot();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        showNextScreenshot();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isLightboxOpen, showPreviousScreenshot, showNextScreenshot]);
+
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  const handleScreenshotTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+  };
+
+  const handleScreenshotTouchCancel = () => {
+    touchStart.current = null;
+  };
+
+  const handleScreenshotTouchEnd = (e: React.TouchEvent) => {
+    if (touchStart.current === null) return;
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const deltaX = touch.clientX - touchStart.current.x;
+    const deltaY = touch.clientY - touchStart.current.y;
+    touchStart.current = null;
+    const SWIPE_THRESHOLD = 50;
+    if (Math.abs(deltaX) <= Math.abs(deltaY)) return;
+    if (deltaX > SWIPE_THRESHOLD) {
+      showPreviousScreenshot();
+    } else if (deltaX < -SWIPE_THRESHOLD) {
+      showNextScreenshot();
+    }
+  };
+
+  // GDM-2: Subscribe to socket download updates and invalidate the downloads query.
+  // The shared socket connection stays alive app-wide, so only register/unregister handlers here.
+  useEffect(() => {
+    if (!open || !game.id) return;
+    const socket = getSocket();
+    const handler = (gameId: string) => {
+      if (gameId === game.id) {
+        queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/downloads`] });
+      }
+    };
+    socket.on("downloadUpdate", handler);
+    return () => {
+      socket.off("downloadUpdate", handler);
+    };
+  }, [open, game.id, queryClient]);
+
+  const { data: targetPlatformOptions = [] } = useQuery<IgdbPlatformOption[]>({
+    queryKey: ["/api/igdb/platforms"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/igdb/platforms");
+      return res.json();
+    },
+    enabled: open && !!game.id && !isDiscoveryId(game.id),
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  const supportedTargetPlatformOptions = useMemo(() => {
+    const options = targetPlatformOptions.filter(({ id, name }) => resolveTargetPlatform(id, name));
+    if (
+      game.targetPlatformId &&
+      game.targetPlatformName &&
+      resolveTargetPlatform(game.targetPlatformId, game.targetPlatformName) &&
+      !options.some(({ id }) => id === game.targetPlatformId)
+    ) {
+      return [{ id: game.targetPlatformId, name: game.targetPlatformName }, ...options];
+    }
+    return options;
+  }, [targetPlatformOptions, game.targetPlatformId, game.targetPlatformName]);
+
+  const { data: gameDownloads = [], isLoading: downloadsLoading } = useQuery<
+    GameDownloadWithDownloader[]
+  >({
+    queryKey: [`/api/games/${game.id}/downloads`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/games/${game!.id}/downloads`);
+      return res.json();
+    },
+    enabled: open && !!game.id && !isDiscoveryId(game.id),
+    refetchInterval: 5000,
+  });
+
+  const downloadReleaseNames = useMemo(
+    () =>
+      gameDownloads
+        // Only downloads that really landed: a failed or pending one was never installed.
+        .filter(
+          (download) =>
+            (download.status === "completed" || download.status === "imported") &&
+            carriesBaseGameVersion(download.downloadTitle, download.category)
+        )
+        .map((download) => download.downloadTitle),
+    [gameDownloads]
+  );
+
+  const {
+    data: xrelStatus,
+    isLoading: xrelStatusLoading,
+    isError: xrelStatusError,
+  } = useQuery<XrelGameStatus>({
+    queryKey: [`/api/games/${game.id}/xrel-status`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/games/${game!.id}/xrel-status`);
+      return res.json();
+    },
+    enabled: open && !!game.id && !isDiscoveryId(game.id),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: nexusGameData, isError: nexusDomainError } = useQuery<{
+    configured: boolean;
+    domain: string | null;
+  }>({
+    queryKey: [`/api/nexusmods/game-domain`, game.title],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/nexusmods/game-domain?title=${encodeURIComponent(game!.title)}`
+      );
+      return res.json();
+    },
+    enabled: open && !!game,
+  });
+
+  const nexusDomain = nexusGameData?.configured ? nexusGameData.domain : undefined;
+
+  const { data: trendingMods = [], isLoading: trendingLoading } = useQuery<NexusMod[]>({
+    queryKey: [`/api/nexusmods/trending-mods`, nexusDomain],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/nexusmods/trending-mods?domain=${encodeURIComponent(nexusDomain!)}&limit=10`
+      );
+      return res.json();
+    },
+    enabled: !!nexusDomain,
+    staleTime: 60 * 60 * 1000,
+  });
+
+  // Discover and search results carry a temporary "igdb-<id>" id that the
+  // game endpoints reject. Look up the library row for the same IGDB game so
+  // Hide, Remove and the rating act on it instead.
+  const isDiscoveryGame = isDiscoveryId(game.id);
+  const { data: libraryGames } = useQuery<Game[]>({
+    queryKey: ["/api/games", "", true],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/games?includeHidden=true");
+      return res.json();
+    },
+    enabled: open && isDiscoveryGame,
+  });
+  const libraryGame = useMemo(() => {
+    if (!isDiscoveryGame) return game ?? undefined;
+    if (!game.igdbId) return undefined;
+    return libraryGames?.find((g) => g.igdbId === game.igdbId);
+  }, [isDiscoveryGame, game, libraryGames]);
+
+  const removeGameMutation = useMutation({
+    mutationFn: async ({
+      gameId,
+      removeFromClient,
+      deleteFiles,
+    }: {
+      gameId: string;
+      removeFromClient: boolean;
+      deleteFiles: boolean;
+    }) => {
+      if (removeFromClient) {
+        await Promise.allSettled(
+          gameDownloads
+            .filter((dl) => dl.downloaderId && dl.downloadHash)
+            .map((dl) =>
+              apiRequest(
+                "DELETE",
+                `/api/downloaders/${dl.downloaderId}/downloads/${dl.downloadHash}?deleteFiles=${deleteFiles}`
+              )
+            )
+        );
+      }
+      const res = await apiRequest("DELETE", `/api/games/${gameId}?deleteFiles=${deleteFiles}`);
+      const data = await res.json();
+      return { fileDeletion: data.fileDeletion as FileDeletionResult | null };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      if (data?.fileDeletion?.deleted === false) {
+        const reasonText =
+          data.fileDeletion.reason === "outside-library-root"
+            ? "stored path is outside your configured library folder"
+            : "deletion failed, check server logs";
+        toast({
+          description: `Game removed, but files were not deleted (${reasonText}): ${data.fileDeletion.path}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ description: "Game removed from collection" });
+      }
+      onClose();
+    },
+    onError: () => {
+      toast({ description: "Failed to remove game", variant: "destructive" });
+    },
+  });
+
+  const userRatingMutation = useMutation<
+    void,
+    Error,
+    { gameId: string; userRating: number | null }
+  >({
+    mutationFn: async ({ gameId, userRating }) => {
+      // Rating a Discover game that isn't in the library yet adds it as wanted,
+      // like downloading it does.
+      const targetId =
+        isDiscoveryId(gameId) && game ? (await addDiscoveryGameToLibrary(game)).id : gameId;
+      await apiRequest("PATCH", `/api/games/${targetId}/user-rating`, { userRating });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    },
+    onError: () => {
+      toast({ description: "Failed to save your rating", variant: "destructive" });
+    },
+  });
+
+  const targetPlatformMutation = useMutation({
+    mutationFn: async (target: {
+      targetPlatformId: number | null;
+      targetPlatformName: string | null;
+    }) => {
+      await apiRequest("PATCH", `/api/games/${game.id}/target-platform`, target);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      toast({ description: "Download target updated" });
+    },
+    onError: () => {
+      setTargetPlatformValue(getTargetPlatformSelectValue(game));
+      toast({ description: "Failed to update download target", variant: "destructive" });
+    },
+  });
+
+  const handleTargetPlatformChange = useCallback(
+    (value: string) => {
+      setTargetPlatformValue(value);
+      const selected = supportedTargetPlatformOptions.find(({ id }) => String(id) === value);
+      targetPlatformMutation.mutate(
+        selected
+          ? { targetPlatformId: selected.id, targetPlatformName: selected.name }
+          : { targetPlatformId: null, targetPlatformName: null }
+      );
+    },
+    [supportedTargetPlatformOptions, targetPlatformMutation]
+  );
+
+  const hiddenMutation = useHiddenMutation({
+    hiddenSuccessMessage: "Game hidden from library",
+    unhiddenSuccessMessage: "Game unhidden",
+    errorMessage: "Failed to update game visibility",
+  });
+
+  const discoveryHiddenMutation = useHiddenMutation<Game>({
+    mutationFn: (discoveryGame) => hideDiscoveryGame(discoveryGame, libraryGame?.id),
+    hiddenSuccessMessage: "Game hidden from discovery",
+    errorMessage: "Failed to hide game",
+  });
+  const isHidden = !!libraryGame?.hidden;
+  const hideLabel = isHidden ? "Unhide" : "Hide";
+  const isHiddenPending = hiddenMutation.isPending || discoveryHiddenMutation.isPending;
+
+  const removeDownloadMutation = useMutation({
+    mutationFn: async (downloadId: string) => {
+      await apiRequest("DELETE", `/api/games/${game!.id}/downloads/${downloadId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/games/${game!.id}/downloads`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/imports/pending"] });
+      toast({ description: "Download record removed" });
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to remove download record" });
+    },
+  });
+
+  const { data: pcgwData } = useQuery<{ url: string | null }>({
+    queryKey: ["/api/external/pcgamingwiki", game.steamAppId],
+    queryFn: async ({ queryKey }) => {
+      const [, steamAppId] = queryKey;
+      const res = await apiRequest("GET", `/api/external/pcgamingwiki?steamAppId=${steamAppId}`);
+      return res.json();
+    },
+    enabled: open && !!game.steamAppId,
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  const {
+    data: gameFiles = [],
+    isLoading: filesLoading,
+    isError: filesError,
+  } = useQuery<ScannedGameFile[]>({
+    queryKey: [`/api/games/${game.id}/files`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/games/${game!.id}/files`);
+      const data = await res.json();
+      return data.files;
+    },
+    // The endpoint recursively scans the game's library folder, so only fetch it once the
+    // Files section is close to the viewport rather than on every page open.
+    enabled: filesWanted && !isDiscoveryId(game.id),
+  });
+
+  const groupedGameFiles = useMemo(() => {
+    const groups = new Map<string, typeof gameFiles>();
+    for (const file of gameFiles) {
+      const group = groups.get(file.category) ?? [];
+      group.push(file);
+      groups.set(file.category, group);
+    }
+    return groups;
+  }, [gameFiles]);
+
+  const categoryOrder = useMemo(() => {
+    const known = ["main", "dlc", "update", "extra", "packs"];
+    return [
+      ...known,
+      ...Array.from(groupedGameFiles.keys()).filter((category) => !known.includes(category)),
+    ];
+  }, [groupedGameFiles]);
+  const SUMMARY_LIMIT = 280;
+  const isSummaryLong = game.summary && game.summary.length > SUMMARY_LIMIT;
+  const isLibraryGame = !isDiscoveryId(game.id);
+
+  // Include Steam link derived from steamAppId if IGDB didn't provide one (category 13)
+  const rawWebsites = (game.igdbWebsites ?? []) as Array<{ category: number; url: string }>;
+  const igdbWebsites =
+    game.steamAppId && !rawWebsites.some((w) => w.category === 13)
+      ? [
+          ...rawWebsites,
+          { category: 13, url: `https://store.steampowered.com/app/${game.steamAppId}` },
+        ]
+      : rawWebsites;
+
+  const derivedLinks = getDerivedLinks(game, pcgwData?.url);
+  // Optimistic display: show pending value immediately while the mutation is in flight.
+  const currentUserRating = userRatingMutation.isPending
+    ? (userRatingMutation.variables?.userRating ?? null)
+    : (libraryGame?.userRating ?? null);
+
+  const handleUserRatingChange = (rating: number | null) => {
+    userRatingMutation.mutate({ gameId: libraryGame?.id ?? game.id, userRating: rating });
+  };
+
+  const handleToggleHidden = () => {
+    if (isDiscoveryGame && !isHidden) {
+      // Hiding drops the game from Discover, so leave the page it was opened from.
+      discoveryHiddenMutation.mutate(game, { onSuccess: onClose });
+    } else if (libraryGame) {
+      hiddenMutation.mutate({ gameId: libraryGame.id, hidden: !isHidden });
+    }
+  };
+
+  const hasExpansions = !!game.expansions && game.expansions.length > 0;
+  const backdrop = screenshots[0] ?? null;
+  const releaseYear = game.releaseDate ? new Date(game.releaseDate).getFullYear() : null;
+  const hasScores = !!game.rating || !!game.aggregatedRating;
+  const hasTimeToBeat = [
+    game.timeToBeatHastily,
+    game.timeToBeatNormally,
+    game.timeToBeatCompletely,
+  ].some((value) => value != null);
+
+  const navItems: SectionNavItem[] = [
+    { id: "overview", label: "Overview" },
+    ...(isLibraryGame
+      ? [{ id: "downloads", label: "Downloads", count: gameDownloads.length }]
+      : []),
+    ...(isLibraryGame ? [{ id: "journal", label: "Journal" }] : []),
+    { id: "media", label: "Media", count: screenshots.length + videos.length },
+    ...(hasExpansions ? [{ id: "dlc", label: "DLC", count: game.expansions?.length ?? 0 }] : []),
+    ...(nexusDomain ? [{ id: "mods", label: "Mods" }] : []),
+    ...(isLibraryGame ? [{ id: "files", label: "Files" }] : []),
+    { id: "details", label: "Details & links" },
+  ];
+  const navIds = navItems.map((item) => item.id).join(",");
+
+  // Highlight the section being read in the jump bar.
+  useEffect(() => {
+    const elements = navIds
+      .split(",")
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (elements.length === 0 || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((entry) => entry.isIntersecting);
+        const first = visible[0];
+        if (first) setActiveSection(first.target.id);
+      },
+      { rootMargin: "-15% 0px -70% 0px" }
+    );
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [navIds]);
+
+  // The Files section scans the library folder: start only when it is about to be seen.
+  useEffect(() => {
+    const el = filesRef.current;
+    if (!el || !isLibraryGame) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setFilesWanted(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setFilesWanted(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "400px 0px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isLibraryGame, game.id]);
+
+  const scrollToSection = (id: string) => {
+    if (id === "files") setFilesWanted(true);
+    document.getElementById(id)?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "start",
+    });
+  };
+
+  return (
+    <TooltipProvider>
+      <div className="h-full overflow-y-auto" data-testid={`page-game-details-${game.id}`}>
+        <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-4 sm:px-6 sm:pt-6">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mb-3 -ml-2 h-10 gap-1.5 text-muted-foreground sm:h-9"
+            onClick={onClose}
+            data-testid="button-back"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Back
+          </Button>
+
+          {/* ── Hero ── */}
+          <header className="relative isolate overflow-hidden rounded-2xl border border-border bg-card">
+            {backdrop && (
+              <img
+                src={backdrop}
+                alt=""
+                aria-hidden="true"
+                className="absolute inset-0 -z-20 h-full w-full object-cover opacity-30"
+              />
+            )}
+            <div className="absolute inset-0 -z-10 bg-gradient-to-t from-card via-card/85 to-card/40" />
+            <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 gap-y-3 p-4 sm:grid-cols-[13rem_minmax(0,1fr)] sm:gap-x-8 sm:p-8">
+              <img
+                src={coverSrc(game.coverUrl)}
+                alt={`${game.title} cover`}
+                className="row-span-2 h-fit w-full rounded-lg object-cover shadow-xl sm:row-span-1"
+                style={{ aspectRatio: "3/4" }}
+                data-testid={`img-cover-${game.id}`}
+              />
+
+              <div className="contents sm:flex sm:min-w-0 sm:flex-col sm:justify-end sm:gap-4">
+                <div className="min-w-0">
+                  <h1
+                    className="text-balance text-2xl font-bold leading-tight tracking-tight sm:text-4xl"
+                    data-testid={`text-game-title-${game.id}`}
+                  >
+                    {game.title}
+                  </h1>
+                  {(releaseYear || (game.developers && game.developers.length > 0)) && (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {[releaseYear, game.developers?.slice(0, 2).join(", ")]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge status={game.status} />
+                  {game.earlyAccess && (
+                    <Badge className="gap-1 border-amber-600 bg-amber-500 text-xs text-white">
+                      <FlaskConical className="h-3 w-3" />
+                      Early Access
+                    </Badge>
+                  )}
+                  {game.rating ? (
+                    <span className="flex items-center gap-1 text-sm">
+                      <Star className="h-4 w-4 text-accent" />
+                      <span data-testid={`text-rating-${game.id}`}>{game.rating}/10</span>
+                    </span>
+                  ) : null}
+                  {game.releaseDate && (
+                    <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                      <Calendar className="h-4 w-4" />
+                      <span data-testid={`text-release-date-${game.id}`}>
+                        {new Date(game.releaseDate).toLocaleDateString(undefined, {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </span>
+                    </span>
+                  )}
+                  {game.searchResultsAvailable && (
+                    <Badge
+                      variant="outline"
+                      className="gap-1 border-violet-500 text-violet-400"
+                      data-testid={`badge-search-results-${game.id}`}
+                    >
+                      <Search className="h-3 w-3" />
+                      Results available
+                    </Badge>
+                  )}
+                  <SourceBadge source={game.source} />
+                </div>
+                <div className="col-span-2 flex flex-wrap gap-2 sm:col-span-1">
+                  <Button
+                    className="h-10 flex-1 gap-2 sm:h-9 sm:flex-none"
+                    onClick={() => setDownloadOpen(true)}
+                    data-testid="button-download-game"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={handleToggleHidden}
+                    disabled={isHiddenPending}
+                    className="h-10 flex-1 gap-2 sm:h-9 sm:flex-none"
+                    data-testid={`button-toggle-hidden-quick-${game.id}`}
+                  >
+                    {isHidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                    {isHiddenPending ? "Updating..." : hideLabel}
+                  </Button>
+                  {/* A Discover game that isn't in the library has nothing to remove. */}
+                  {libraryGame && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowRemoveConfirm(true)}
+                      disabled={removeGameMutation.isPending}
+                      className="h-10 flex-1 gap-2 text-destructive hover:text-destructive sm:h-9 sm:flex-none"
+                      data-testid={`button-remove-game-quick-${game.id}`}
+                    >
+                      <X className="h-4 w-4" />
+                      {removeGameMutation.isPending ? "Removing..." : "Remove"}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </header>
+
+          <div className="mt-4">
+            <SectionNav items={navItems} active={activeSection} onSelect={scrollToSection} />
+          </div>
+
+          <div className="mt-8 grid gap-x-12 gap-y-12 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            {/* ── Overview ── */}
+            <Section id="overview" title="Overview" icon={<Info className="h-5 w-5" />}>
+              <div className="space-y-6">
+                {game.summary ? (
+                  <div>
+                    <p
+                      className={cn(
+                        "max-w-[70ch] text-pretty text-sm leading-relaxed text-muted-foreground break-words [overflow-wrap:anywhere] sm:text-base",
+                        !isSummaryExpanded && "line-clamp-4 sm:line-clamp-6"
+                      )}
+                      data-testid={`text-summary-${game.id}`}
+                    >
+                      {game.summary}
+                    </p>
+                    {isSummaryLong && (
+                      <Button
+                        variant="link"
+                        className="mt-1 h-auto p-0 font-semibold"
+                        onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                      >
+                        {isSummaryExpanded ? "Show less" : "Read more"}
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No description available.</p>
+                )}
+
+                {/* Crack status (sourced from xREL) */}
+                {isLibraryGame && (
+                  <div>
+                    <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                      <ShieldCheck className="h-4 w-4" />
+                      Crack Status
+                    </h3>
+                    <CrackStatusContent
+                      isLoading={xrelStatusLoading}
+                      isError={xrelStatusError}
+                      crackTypes={xrelStatus?.crackTypes}
+                      testId={`text-crack-status-${game.id}`}
+                    />
+                  </div>
+                )}
+              </div>
+            </Section>
+
+            {/* ── Downloads ── */}
+            {isLibraryGame && (
+              <Section
+                id="downloads"
+                title="Downloads"
+                icon={<Download className="h-5 w-5" />}
+                count={gameDownloads.length}
+              >
+                <div className="space-y-3">
+                  {downloadsLoading ? (
+                    <div className="flex items-center justify-center py-8 text-muted-foreground">
+                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      Loading downloads…
+                    </div>
+                  ) : gameDownloads.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                      <HardDrive className="w-8 h-8 opacity-40" />
+                      <p className="text-sm">No downloads recorded for this game.</p>
+                    </div>
+                  ) : (
+                    gameDownloads.map((dl) => (
+                      <Card key={dl.id} className="bg-card/60">
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-2 min-w-0">
+                              <DownloadStatusIcon status={dl.status} />
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium leading-snug truncate">
+                                  {dl.downloadTitle}
+                                </p>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                                  {dl.downloaderName && (
+                                    <span className="text-xs text-muted-foreground">
+                                      via {dl.downloaderName}
+                                    </span>
+                                  )}
+                                  <Badge variant="outline" className="text-xs px-1.5 py-0">
+                                    {dl.downloadType}
+                                  </Badge>
+                                  <span className="text-xs text-muted-foreground capitalize">
+                                    {getTrackedDownloadStatusLabel(dl.status)}
+                                  </span>
+                                  {dl.errorMessage && (
+                                    <span className="text-xs text-red-400 break-words max-w-full">
+                                      {dl.errorMessage}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-start gap-3 flex-shrink-0">
+                              <div className="text-right">
+                                {dl.fileSize ? (
+                                  <p className="text-sm font-medium">{formatBytes(dl.fileSize)}</p>
+                                ) : null}
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {dl.addedAt ? new Date(dl.addedAt).toLocaleDateString() : "—"}
+                                </p>
+                                {dl.completedAt && (
+                                  <p className="text-xs text-emerald-400 mt-0.5">
+                                    Done {new Date(dl.completedAt).toLocaleDateString()}
+                                  </p>
+                                )}
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                aria-label={`Remove download record ${dl.downloadTitle}`}
+                                disabled={
+                                  removeDownloadMutation.isPending &&
+                                  removeDownloadMutation.variables === dl.id
+                                }
+                                onClick={() => removeDownloadMutation.mutate(dl.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </Section>
+            )}
+
+            {/* ── Side column: facts, your game, scores, links ── */}
+            <aside
+              id="details"
+              aria-label="Game details"
+              className="scroll-mt-16 space-y-6 lg:col-start-2 lg:row-start-1 lg:row-span-[12] lg:self-start"
+            >
+              <SideBlock title="Facts" icon={<Info className="h-4 w-4" />}>
+                <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+                  {game.releaseDate && (
+                    <>
+                      <dt className="text-muted-foreground">Release date</dt>
+                      <dd data-testid={`text-full-release-date-${game.id}`}>
+                        {new Date(game.releaseDate).toLocaleDateString()}
+                      </dd>
+                    </>
+                  )}
+                  {game.addedAt && (
+                    <>
+                      <dt className="text-muted-foreground">Added</dt>
+                      <dd>{new Date(game.addedAt).toLocaleDateString()}</dd>
+                    </>
+                  )}
+                  {game.developers && game.developers.length > 0 && (
+                    <>
+                      <dt className="flex items-center gap-1 text-muted-foreground">
+                        <Building2 className="h-3.5 w-3.5" />
+                        Developer{game.developers.length > 1 ? "s" : ""}
+                      </dt>
+                      <dd>{game.developers.join(", ")}</dd>
+                    </>
+                  )}
+                  {game.publishers && game.publishers.length > 0 && (
+                    <>
+                      <dt className="flex items-center gap-1 text-muted-foreground">
+                        <Building2 className="h-3.5 w-3.5" />
+                        Publisher{game.publishers.length > 1 ? "s" : ""}
+                      </dt>
+                      <dd>{game.publishers.join(", ")}</dd>
+                    </>
+                  )}
+                </dl>
+                {game.genres && game.genres.length > 0 && (
+                  <div>
+                    <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <Tag className="h-3.5 w-3.5" />
+                      Genres
+                    </h4>
+                    <TagList
+                      items={game.genres}
+                      variant="secondary"
+                      maxVisible={6}
+                      getTestId={(g) => `badge-genre-${g.toLowerCase().replace(/\s+/g, "-")}`}
+                    />
+                  </div>
+                )}
+                {game.platforms && game.platforms.length > 0 && (
+                  <div>
+                    <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <Monitor className="h-3.5 w-3.5" />
+                      Platforms
+                    </h4>
+                    <TagList
+                      items={game.platforms}
+                      variant="outline"
+                      maxVisible={8}
+                      getTestId={(p) => `badge-platform-${p.toLowerCase().replace(/\s+/g, "-")}`}
+                    />
+                  </div>
+                )}
+              </SideBlock>
+
+              <SideBlock title="Your game" icon={<Gamepad2 className="h-4 w-4" />}>
+                <div data-testid="section-user-rating">
+                  <h4 className="font-medium text-sm text-muted-foreground mb-2">Your rating</h4>
+                  <StarRatingInput value={currentUserRating} onChange={handleUserRatingChange} />
+                </div>
+                {isLibraryGame && (
+                  <div>
+                    <label
+                      htmlFor="target-platform"
+                      className="mb-1.5 block text-xs font-medium text-muted-foreground"
+                    >
+                      Automatic download target
+                    </label>
+                    <Select
+                      value={targetPlatformValue}
+                      disabled={targetPlatformMutation.isPending}
+                      onValueChange={handleTargetPlatformChange}
+                    >
+                      <SelectTrigger
+                        id="target-platform"
+                        aria-label="Automatic download target"
+                        className="w-full"
+                      >
+                        <SelectValue placeholder="Use account default" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Use account default</SelectItem>
+                        {supportedTargetPlatformOptions.map((platform) => (
+                          <SelectItem key={platform.id} value={String(platform.id)}>
+                            {platform.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Overrides the account platform for automatic release matching.
+                    </p>
+                  </div>
+                )}
+                {isLibraryGame && (
+                  <InstalledVersionField
+                    key={game.id}
+                    gameId={game.id}
+                    installedVersion={game.installedVersion ?? null}
+                    releaseNames={downloadReleaseNames}
+                  />
+                )}
+              </SideBlock>
+
+              {(hasScores || hasTimeToBeat) && (
+                <SideBlock title="Scores" icon={<Star className="h-4 w-4" />}>
+                  {hasScores && (
+                    <div className="flex flex-wrap gap-4 mb-4">
+                      {game.rating ? (
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold ${scoreColor(game.rating)}`}
+                          >
+                            {game.rating.toFixed(1)}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5 text-sm font-medium">
+                              <Users className="w-3.5 h-3.5" />
+                              IGDB Users
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">Community score</p>
+                          </div>
+                        </div>
+                      ) : null}
+                      {game.aggregatedRating ? (
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold ${scoreColor(game.aggregatedRating)}`}
+                          >
+                            {game.aggregatedRating.toFixed(1)}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5 text-sm font-medium">
+                              <SiMetacritic size={14} />
+                              Critics
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">Aggregate score</p>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                  {[
+                    game.timeToBeatHastily,
+                    game.timeToBeatNormally,
+                    game.timeToBeatCompletely,
+                  ].some((value) => value != null) && (
+                    <div data-testid="section-time-to-beat">
+                      <h3 className="font-semibold mb-3 flex items-center gap-2">
+                        <Clock className="w-4 h-4" />
+                        Time to Beat
+                      </h3>
+                      <div className="flex flex-wrap gap-4">
+                        {[
+                          { label: "Hastily", value: game.timeToBeatHastily },
+                          { label: "Normally", value: game.timeToBeatNormally },
+                          { label: "Completely", value: game.timeToBeatCompletely },
+                        ]
+                          .filter(
+                            (entry): entry is { label: string; value: number } =>
+                              entry.value != null
+                          )
+                          .map((entry) => (
+                            <div key={entry.label} className="flex items-center gap-3">
+                              <div className="w-14 h-14 rounded-xl flex items-center justify-center text-sm font-bold bg-muted">
+                                {entry.value % 1 === 0 ? entry.value : entry.value.toFixed(1)}h
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium">{entry.label}</div>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  Estimated hours (IGDB)
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </SideBlock>
+              )}
+
+              <SideBlock title="Links" icon={<ExternalLink className="h-4 w-4" />}>
+                <div className="space-y-5">
+                  {/* IGDB website links */}
+                  {igdbWebsites.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold mb-3 flex items-center gap-2">
+                        <ExternalLink className="w-4 h-4" />
+                        Official &amp; Store Pages
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {igdbWebsites
+                          .map((w) => ({ w, cfg: resolveWebsiteConfig(w) }))
+                          .filter(({ cfg }) => cfg !== null)
+                          .map(({ w, cfg }, i) => {
+                            const { Icon, colorClass, label } = cfg!;
+                            return (
+                              <Tooltip key={i}>
+                                <TooltipTrigger asChild>
+                                  <a
+                                    href={safeUrl(w.url)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="gap-2 h-10 sm:h-9"
+                                    >
+                                      <Icon size={16} className={colorClass} />
+                                      <span className="hidden sm:inline">{label}</span>
+                                    </Button>
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent className="sm:hidden">{label}</TooltipContent>
+                              </Tooltip>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Derived community links */}
+                  <div>
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4" />
+                      Community Resources
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {derivedLinks.map((link, i) => (
+                        <Tooltip key={i}>
+                          <TooltipTrigger asChild>
+                            <a href={safeUrl(link.href)} target="_blank" rel="noopener noreferrer">
+                              <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
+                                <link.Icon size={16} className={link.colorClass} />
+                                <span className="hidden sm:inline">{link.label}</span>
+                              </Button>
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent className="sm:hidden">{link.label}</TooltipContent>
+                        </Tooltip>
+                      ))}
+                      {/* NexusMods: direct link when configured + found, fallback search when unconfigured or on error */}
+                      {(nexusGameData || nexusDomainError) &&
+                        (nexusDomain ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <a
+                                href={safeUrl(`https://www.nexusmods.com/${nexusDomain}/mods/`)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
+                                  <NexusModsIcon size={16} className="text-amber-500" />
+                                  <span className="hidden sm:inline">NexusMods</span>
+                                </Button>
+                              </a>
+                            </TooltipTrigger>
+                            <TooltipContent className="sm:hidden">NexusMods</TooltipContent>
+                          </Tooltip>
+                        ) : !nexusGameData?.configured || nexusDomainError ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <a
+                                href={safeUrl(
+                                  `https://www.nexusmods.com/games?keyword=${encodeURIComponent(game.title)}`
+                                )}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
+                                  <NexusModsIcon size={16} className="text-amber-500" />
+                                  <span className="hidden sm:inline">NexusMods</span>
+                                </Button>
+                              </a>
+                            </TooltipTrigger>
+                            <TooltipContent className="sm:hidden">NexusMods</TooltipContent>
+                          </Tooltip>
+                        ) : null)}
+                    </div>
+                  </div>
+                </div>
+              </SideBlock>
+            </aside>
+
+            {/* ── Journal ── */}
+            {isLibraryGame && (
+              <Section id="journal" title="Journal" icon={<BookOpen className="h-5 w-5" />}>
+                <GameJournalTab gameId={game.id} steamAppId={game.steamAppId ?? null} />
+              </Section>
+            )}
+
+            {/* ── Media ── */}
+            <Section
+              id="media"
+              title="Media"
+              icon={<Image className="h-5 w-5" />}
+              count={screenshots.length + videos.length}
+            >
+              <div className="space-y-6">
+                {videos.length > 0 && <GameVideoCarousel videos={videos} />}
+                {game.screenshots && game.screenshots.length > 0 ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {game.screenshots.map((screenshot, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        aria-label={`Open screenshot ${index + 1}`}
+                        className="shadcn-card overflow-hidden cursor-pointer hover-elevate rounded-xl border bg-card border-card-border text-card-foreground shadow-sm"
+                        onClick={() => setSelectedScreenshotIndex(index)}
+                        data-testid={`screenshot-${index}`}
+                      >
+                        <img
+                          src={screenshot}
+                          alt={`${game.title} screenshot ${index + 1}`}
+                          className="w-full h-24 object-cover"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                ) : videos.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                    <Monitor className="w-8 h-8 opacity-40" />
+                    <p className="text-sm">No screenshots or videos available.</p>
+                  </div>
+                ) : null}
+              </div>
+            </Section>
+
+            {/* ── DLC ── */}
+            {hasExpansions && (
+              <Section
+                id="dlc"
+                title="DLC"
+                icon={<Layers className="h-5 w-5" />}
+                count={game.expansions?.length ?? 0}
+              >
+                <div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {game.expansions?.map((expansion) => {
+                      const content = (
+                        <>
+                          <div className="w-full aspect-[3/4] bg-muted overflow-hidden">
+                            {expansion.coverUrl ? (
+                              <img
+                                src={expansion.coverUrl}
+                                alt={expansion.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <Layers className="w-8 h-8 text-muted-foreground opacity-40" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-2.5 space-y-1">
+                            <p className="text-sm font-medium truncate" title={expansion.name}>
+                              {expansion.name}
+                            </p>
+                            <div className="flex items-center justify-between gap-2">
+                              {expansion.releaseDate ? (
+                                <span className="text-xs text-muted-foreground">
+                                  {new Date(expansion.releaseDate).getFullYear()}
+                                </span>
+                              ) : (
+                                <span />
+                              )}
+                              <Badge variant="secondary" className="px-1.5 py-0 text-xs capitalize">
+                                {EXPANSION_CATEGORY_LABELS[expansion.category] ??
+                                  expansion.category}
+                              </Badge>
+                            </div>
+                          </div>
+                        </>
+                      );
+                      const className =
+                        "shadcn-card overflow-hidden rounded-xl border bg-card border-card-border text-card-foreground shadow-sm block";
+                      return expansion.igdbUrl ? (
+                        <a
+                          key={expansion.id}
+                          href={safeUrl(expansion.igdbUrl)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={cn(className, "hover-elevate cursor-pointer")}
+                          data-testid={`dlc-${expansion.id}`}
+                        >
+                          {content}
+                        </a>
+                      ) : (
+                        <div
+                          key={expansion.id}
+                          className={className}
+                          data-testid={`dlc-${expansion.id}`}
+                        >
+                          {content}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </Section>
+            )}
+
+            {/* ── Mods ── */}
+            {nexusDomain && (
+              <Section
+                id="mods"
+                title="Trending mods on Nexus Mods"
+                icon={<NexusModsIcon className="h-5 w-5 text-amber-500" />}
+              >
+                <div className="space-y-4">
+                  {trendingLoading ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
+                      ))}
+                    </div>
+                  ) : trendingMods.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No trending mods found.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {trendingMods.map((mod) => (
+                        <a
+                          key={mod.mod_id}
+                          href={safeUrl(
+                            `https://www.nexusmods.com/${nexusDomain}/mods/${mod.mod_id}`
+                          )}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group"
+                        >
+                          <Card className="overflow-hidden hover:ring-1 hover:ring-amber-500 transition-all">
+                            <CardContent className="p-0 flex gap-3">
+                              {mod.picture_url ? (
+                                <img
+                                  src={mod.picture_url}
+                                  alt={mod.name}
+                                  className="w-20 h-20 object-cover flex-shrink-0"
+                                />
+                              ) : (
+                                <div className="w-20 h-20 flex-shrink-0 bg-muted flex items-center justify-center">
+                                  <NexusModsIcon className="w-6 h-6 text-muted-foreground" />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0 py-2 pr-2">
+                                <p className="text-sm font-medium truncate group-hover:text-amber-400 transition-colors">
+                                  {mod.name}
+                                </p>
+                                {mod.summary && (
+                                  <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                                    {mod.summary}
+                                  </p>
+                                )}
+                                <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                  <span className="flex items-center gap-1">
+                                    <Download className="w-3 h-3" />
+                                    {(mod.mod_unique_downloads ?? 0).toLocaleString()}
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    <ThumbsUp className="w-3 h-3" />
+                                    {(mod.endorsement_count ?? 0).toLocaleString()}
+                                  </span>
+                                  {mod.user?.name && (
+                                    <span className="truncate">by {mod.user.name}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Section>
+            )}
+
+            {/* ── Files ── */}
+            {isLibraryGame && (
+              <Section
+                id="files"
+                title="Files on disk"
+                icon={<File className="h-5 w-5" />}
+                innerRef={filesRef}
+              >
+                <div>
+                  {filesLoading ? (
+                    <div className="flex items-center justify-center py-8 text-muted-foreground">
+                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      Loading files…
+                    </div>
+                  ) : filesError ? (
+                    <div className="flex items-center justify-center py-8 text-sm text-destructive">
+                      Failed to load files.
+                    </div>
+                  ) : gameFiles.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                      <HardDrive className="w-8 h-8 opacity-40" />
+                      <p className="text-sm">No files found on disk.</p>
+                    </div>
+                  ) : (
+                    (() => {
+                      const groups = groupedGameFiles;
+                      const hasMultipleGroups = groups.size > 1;
+                      const categoryLabels: Record<string, string> = {
+                        main: "Main Game",
+                        dlc: "DLC & Expansions",
+                        update: "Updates & Patches",
+                        extra: "Extras",
+                        packs: "Packs/Addons",
+                      };
+
+                      if (!hasMultipleGroups) {
+                        return (
+                          <div className="space-y-2">
+                            {gameFiles.map((f) => (
+                              <div key={f.path} className="flex items-center gap-2 text-sm py-2">
+                                <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                                <span className="min-w-0 flex-1 truncate" title={f.name}>
+                                  {f.name}
+                                </span>
+                                <FileCategorySelect gameId={game.id} file={f} />
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-4">
+                          {categoryOrder.map((cat) => {
+                            const catFiles = groups.get(cat);
+                            if (!catFiles || catFiles.length === 0) return null;
+                            return (
+                              <div key={cat}>
+                                <h4 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+                                  {categoryLabels[cat] || cat}
+                                </h4>
+                                <div className="space-y-2">
+                                  {catFiles.map((f) => (
+                                    <div
+                                      key={f.path}
+                                      className="flex items-center gap-2 text-sm py-2"
+                                    >
+                                      <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                                      <span className="min-w-0 flex-1 truncate" title={f.name}>
+                                        {f.name}
+                                      </span>
+                                      <FileCategorySelect gameId={game.id} file={f} />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+              </Section>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Screenshot Lightbox */}
+      {selectedScreenshotIndex !== null &&
+        screenshots[selectedScreenshotIndex] &&
+        (() => {
+          const lightboxImage = (
+            <div
+              className={cn(
+                "relative flex justify-center items-center",
+                isMobile && "flex-1 min-h-0"
+              )}
+              onTouchStart={handleScreenshotTouchStart}
+              onTouchEnd={handleScreenshotTouchEnd}
+              onTouchCancel={handleScreenshotTouchCancel}
+            >
+              {screenshots.length > 1 && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  className="absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 z-10 h-11 w-11 rounded-full shadow-lg"
+                  onClick={showPreviousScreenshot}
+                  aria-label="Previous screenshot"
+                  data-testid="screenshot-lightbox-prev"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </Button>
+              )}
+              <img
+                src={screenshots[selectedScreenshotIndex]}
+                alt={`${game.title} screenshot ${selectedScreenshotIndex + 1}`}
+                className={cn(
+                  "max-w-full object-contain rounded-lg select-none",
+                  isMobile ? "max-h-full" : "max-h-[70vh]"
+                )}
+                data-testid="screenshot-lightbox"
+                draggable={false}
+              />
+              {screenshots.length > 1 && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  className="absolute right-1 sm:right-2 top-1/2 -translate-y-1/2 z-10 h-11 w-11 rounded-full shadow-lg"
+                  onClick={showNextScreenshot}
+                  aria-label="Next screenshot"
+                  data-testid="screenshot-lightbox-next"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </Button>
+              )}
+            </div>
+          );
+
+          const lightboxCounter = screenshots.length > 1 && (
+            <p
+              className="text-center text-sm text-muted-foreground flex-shrink-0"
+              data-testid="screenshot-lightbox-counter"
+              aria-live="polite"
+              role="status"
+            >
+              {selectedScreenshotIndex + 1} / {screenshots.length}
+            </p>
+          );
+
+          return isMobile ? (
+            <Sheet
+              open={selectedScreenshotIndex !== null}
+              onOpenChange={() => setSelectedScreenshotIndex(null)}
+            >
+              <SheetContent
+                side="fullscreen"
+                className="flex flex-col gap-4 bg-black/95 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+              >
+                <SheetHeader>
+                  <SheetTitle>
+                    Screenshot {selectedScreenshotIndex + 1} of {screenshots.length}
+                  </SheetTitle>
+                  <SheetDescription className="sr-only">Full size game screenshot</SheetDescription>
+                </SheetHeader>
+                {lightboxImage}
+                {lightboxCounter}
+              </SheetContent>
+            </Sheet>
+          ) : (
+            <Dialog
+              open={selectedScreenshotIndex !== null}
+              onOpenChange={() => setSelectedScreenshotIndex(null)}
+            >
+              <DialogContent className="max-w-4xl">
+                <DialogHeader>
+                  <DialogTitle>
+                    Screenshot {selectedScreenshotIndex + 1} of {screenshots.length}
+                  </DialogTitle>
+                  <DialogDescription className="sr-only">
+                    Full size game screenshot
+                  </DialogDescription>
+                </DialogHeader>
+                {lightboxImage}
+                {lightboxCounter}
+              </DialogContent>
+            </Dialog>
+          );
+        })()}
+
+      {downloadOpen && (
+        <Suspense fallback={null}>
+          <GameDownloadDialog game={game} open={downloadOpen} onOpenChange={setDownloadOpen} />
+        </Suspense>
+      )}
+
+      <AlertDialog open={showRemoveConfirm} onOpenChange={setShowRemoveConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove game?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove <strong>{game?.title}</strong> from your library. This action cannot
+              be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {(gameDownloads.some((dl) => dl.downloaderId && dl.downloadHash) ||
+            game?.libraryPath) && (
+            <div className="space-y-3 py-1">
+              {gameDownloads.some((dl) => dl.downloaderId && dl.downloadHash) && (
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <Checkbox
+                    checked={removeFromClient}
+                    onCheckedChange={(checked) => setRemoveFromClient(!!checked)}
+                  />
+                  <div>
+                    <div className="text-sm font-medium leading-none">
+                      Remove from download client
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Removes the{" "}
+                      {gameDownloads.some((dl) => dl.downloadType === "usenet") &&
+                      gameDownloads.some((dl) => dl.downloadType !== "usenet")
+                        ? "torrent/NZB"
+                        : gameDownloads.some((dl) => dl.downloadType === "usenet")
+                          ? ".nzb"
+                          : ".torrent"}{" "}
+                      metadata from your downloader
+                    </div>
+                  </div>
+                </label>
+              )}
+              <label className="flex items-start gap-3 cursor-pointer">
+                <Checkbox
+                  checked={deleteFiles}
+                  onCheckedChange={(checked) => setDeleteFiles(!!checked)}
+                />
+                <div>
+                  <div className="text-sm font-medium leading-none">
+                    Delete downloaded files from disk
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Permanently removes the game files
+                  </div>
+                </div>
+              </label>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!libraryGame) return;
+                // The file and download-client options above are only offered for
+                // library games; from a Discover card, remove the library row alone.
+                removeGameMutation.mutate(
+                  isDiscoveryGame
+                    ? { gameId: libraryGame.id, removeFromClient: false, deleteFiles: false }
+                    : { gameId: libraryGame.id, removeFromClient, deleteFiles }
+                );
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </TooltipProvider>
+  );
+}

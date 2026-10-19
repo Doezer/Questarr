@@ -133,6 +133,17 @@ describe("SeerrNG provider API", () => {
   };
 
   describe("scope", () => {
+    it("refuses an edition selection instead of queueing the base game only", async () => {
+      const res = await request(app)
+        .post(`${base}/requests`)
+        .send({
+          ...createBody,
+          selection: { kind: "game-content", mode: "edition", editionId: 7 },
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/not supported/);
+    });
+
     it("refuses keys scoped to something else", async () => {
       keyScope = "library:write";
       expect((await request(app).get(`${base}/ping`)).status).toBe(403);

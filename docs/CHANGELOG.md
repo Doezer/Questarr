@@ -13,7 +13,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- **Game details page**: the game details modal is now a full page at `/games/:id`, for library games and for Discover results (`igdb-<id>`). The card title is a real link (right-click to copy or open it), and middle-click or ctrl/cmd/shift-click anywhere on a card opens the game in a new tab. A game can be bookmarked or shared by URL. Back returns to where you came from, or to the library when the page was opened directly. A game that does not exist, belongs to someone else, or sits in a hidden content category shows "Game not found" (#1203). New `GET /api/games/:id` endpoint, see [API](API.md).
+- **Game details page**: the game details modal is now a full page at `/games/:id`, for library games and for Discover results (`igdb-<id>`). The card title is a real link (right-click to copy or open it), and on grid and desktop list cards, middle-click or ctrl/cmd/shift-click anywhere on the card opens the game in a new tab. A game can be bookmarked or shared by URL. Back returns to where you came from, or to the library when the page was opened directly. A game that does not exist, belongs to someone else, or sits in a hidden content category shows "Game not found" (#1203). New `GET /api/games/:id` endpoint, see [API](API.md).
 
 ### Fixed
 

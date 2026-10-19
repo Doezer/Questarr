@@ -326,8 +326,19 @@ function applyPreferredPlatformFilter(
 
 const AUTO_SEARCH_PAGE_SIZE = 10;
 // How many result pages auto-search walks when the global release-name blacklist hides a
-// whole page, before concluding that no eligible release exists.
+// whole page, or when a wanted game has no main release on the pages fetched so far, before
+// concluding that no eligible release exists.
 const AUTO_SEARCH_MAX_PAGES = 5;
+
+/**
+ * True when any of the items is a main (full game) release for the given platform, using the
+ * same strict platform filter the auto-download decision applies afterwards.
+ */
+function hasMainReleaseForPlatform(items: SearchItem[], platform: string | null): boolean {
+  return applyPreferredPlatformFilter(items, platform).some(
+    (item) => categorizeDownload(item.title).category === "main"
+  );
+}
 
 /** Logs indexer errors from an auto-search, flagging when every error is network-related. */
 function logAutoSearchErrors(gameTitle: string, errors: string[]): void {
@@ -359,16 +370,22 @@ function logAutoSearchErrors(gameTitle: string, errors: string[]): void {
  * Searches all indexers for a game and returns its eligible releases, categorized by type.
  * Releases are title-matched, then filtered by the user's global release-name blacklist and
  * the game's own blacklist. When the global blacklist hides a whole page, later pages are
- * fetched (up to AUTO_SEARCH_MAX_PAGES). Returns null when no eligible release is found.
+ * fetched (up to AUTO_SEARCH_MAX_PAGES). When `mainReleasePlatform` is given (wanted games),
+ * later pages are also fetched until a main release for that platform turns up: indexers
+ * return newest first, so a game with many update releases can push its base release off
+ * the first page. Eligible releases from every fetched page are kept. Returns null when no
+ * eligible release is found.
  */
 async function searchAndCategorizeItemsForGame(
   game: Pick<Game, "id" | "title">,
   downloadRules: string | null,
   indexerPriorityMap?: Map<string, number>,
-  blacklistTerms: string[] = []
+  blacklistTerms: string[] = [],
+  mainReleasePlatform?: string | null
 ): Promise<AutoSearchCategorizedItems | null> {
   let matchedItems: SearchItem[] = [];
-  let globallyFiltered: SearchItem[] = [];
+  const globallyFiltered: SearchItem[] = [];
+  const blacklisted = await storage.getReleaseBlacklistSet(game.id);
 
   for (let page = 0; page < AUTO_SEARCH_MAX_PAGES; page++) {
     const { items, errors } = await searchAllIndexers({
@@ -398,14 +415,22 @@ async function searchAndCategorizeItemsForGame(
 
     // Filter out releases matching the user's global release-name blacklist before anything
     // else touches them (including the AI auto-download check further down the pipeline).
-    globallyFiltered = filterByReleaseNameBlacklist(matchedItems, blacklistTerms);
+    const pageFiltered = filterByReleaseNameBlacklist(matchedItems, blacklistTerms);
+    globallyFiltered.push(...pageFiltered);
 
-    // Only page further when the blacklist hid this whole page and more results may exist.
-    if (globallyFiltered.length > 0 || items.length < AUTO_SEARCH_PAGE_SIZE) break;
+    // Only page further when more results may exist and either the blacklist hid this whole
+    // page or a wanted game still has no main release for its platform.
+    if (items.length < AUTO_SEARCH_PAGE_SIZE) break;
+    const stillMissingMain =
+      mainReleasePlatform !== undefined &&
+      !hasMainReleaseForPlatform(
+        filterBlacklistedReleases(globallyFiltered, blacklisted),
+        mainReleasePlatform
+      );
+    if (pageFiltered.length > 0 && !stillMissingMain) break;
   }
 
   // Filter out per-game blacklisted releases
-  const blacklisted = await storage.getReleaseBlacklistSet(game.id);
   const nonBlacklisted = filterBlacklistedReleases(globallyFiltered, blacklisted);
 
   if (nonBlacklisted.length === 0) {
@@ -1554,11 +1579,13 @@ export async function checkAutoSearch() {
               continue;
             }
 
+            const effectivePlatform = resolveGamePlatformPreference(game, preferredPlatform);
             const searchResult = await searchAndCategorizeItemsForGame(
               game,
               settings.downloadRules,
               indexerPriorityMap,
-              blacklistTerms
+              blacklistTerms,
+              effectivePlatform
             );
             if (!searchResult) {
               // No results at all (zero results or all blacklisted) — clear the badge
@@ -1572,7 +1599,6 @@ export async function checkAutoSearch() {
 
             // Apply platform filter first (strict), then preferred groups filter, then
             // de-duplicate releases that appear on multiple indexers (keep highest-priority indexer).
-            const effectivePlatform = resolveGamePlatformPreference(game, preferredPlatform);
             const platformFilteredMain = applyPreferredPlatformFilter(
               searchResult.mainItems,
               effectivePlatform

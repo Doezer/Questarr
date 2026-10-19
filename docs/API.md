@@ -375,6 +375,17 @@ documented under [Settings](#settings).
 Per-game blacklist management (`POST`/`GET`/`DELETE /api/games/:gameId/blacklist*`)
 is documented under [Games](#games).
 
+## Activity and System Tasks
+
+Mounted under `/api/activity` and `/api/system` (JWT). Activity only sees the requester's own downloads and games.
+
+| Method | Path                          | Request                                                                                                                                                                      | Response                                                                                                                                                                                                                                              |
+| ------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/activity/history`       | Query: `eventType?` (`grabbed`, `completed`, `imported`, `failed`, `needs_review`, `removed`, `blocklisted`), `search?` (≤200), `limit?` (1–200, default 50), `offset?` (≥0) | `{ events, total }`, newest first; 400 on invalid query                                                                                                                                                                                               |
+| DELETE | `/api/activity/blocklist`     | —                                                                                                                                                                            | `{ removed }`: unblocks every release of the user's games                                                                                                                                                                                             |
+| GET    | `/api/system/tasks`           | —                                                                                                                                                                            | `{ tasks }`: each task has `name`, `title`, `description`, `intervalMs`, `running`, `lastStartedAt`, `lastFinishedAt`, `lastDurationMs`, `lastResult` (`success`\|`error`), `lastError`, `lastTrigger` (`schedule`\|`manual`\|`startup`), `nextRunAt` |
+| POST   | `/api/system/tasks/:name/run` | —                                                                                                                                                                            | 202 `{ task }` and the job runs in the background (progress over Socket.io: `task:started`, `task:finished`); 404 unknown task; 409 if already running                                                                                                |
+
 ## Steam
 
 `server/steam-routes.ts` — 2 routes, mounted directly on the app (no prefix

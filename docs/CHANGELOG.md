@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Collections**: group games into manual collections or smart collections whose games are computed from rules (status, platform, genre, rating, release year, title), from the new **Collections** page under Library (#1199). See [API](API.md#collections).
+- **Activity History and Blocklist**: the Activity section gains **History**, a searchable log of what happened to each download (grabbed, completed, imported, failed, needs review, removed, blocklisted), and **Blocklist**, every blocked release with an **Unblock all** button (#1195). See [API](API.md#activity-and-system-tasks).
+- **System Tasks**: a new page under Activity lists the scheduled background jobs (game updates, download status, auto search, xREL, Steam and RomM sync, RSS feeds, history cleanup...) with their last and next run, and a **Run now** button for each (#1195). See [API](API.md#activity-and-system-tasks).
+- **Leftover archive warning**: after an import, Questarr raises a warning notification when a finished download still holds archives that nothing unpacked, with a hint to turn on Auto-unpack or extract them by hand (#1195).
 - **Naming templates**: the import rename pattern is now a validated template with the tokens `{Title}`, `{TitleThe}`, `{Year}`, `{Platform}`, `{Version}`, `{Group}`, `{Source}`, `{IgdbId}`, `{SteamAppId}` and `{Region}` (#1197). See [Library import](LIBRARY_IMPORT.md).
 - **RomM integration**: place imports in RomM's platform folders (`snes`, `ps2`, `win`...), ask RomM to rescan after an import, and mark wishlist games that RomM already has as owned, from **Settings → Import** (#1202). See [Library import](LIBRARY_IMPORT.md#romm-integration).
 - **Game videos**: IGDB trailers and gameplay clips are saved with each game when it is added, found by a library scan, or has its metadata refreshed, and shown in a carousel on the Media tab of the game details page. They play in a privacy-enhanced YouTube embed that loads only on click, so the Content-Security-Policy now allows `i.ytimg.com` thumbnails and the `youtube-nocookie.com` frame (#1194).

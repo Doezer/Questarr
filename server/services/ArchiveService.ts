@@ -1,9 +1,13 @@
 import { execFile } from "node:child_process";
-import { accessSync, constants as fsConstants } from "node:fs";
+import { accessSync, constants as fsConstants, type Dir } from "node:fs";
+import { opendir } from "node:fs/promises";
 import path from "node:path";
 import fs from "fs-extra";
 import { logger } from "../logger.js";
 import { EXTRACT_STAGING_PREFIX } from "./extract-staging.js";
+
+/** Archive sets reported per directory: the post-import scan is a best-effort warning. */
+const MAX_SETS_PER_DIR = 50;
 
 type ArchiveTool = "7zip" | "unrar";
 type ExecFileResult = { stdout: string; stderr: string };
@@ -773,6 +777,110 @@ export class ArchiveService {
     }
 
     return true;
+  }
+
+  private groupArchiveSets(
+    files: string[],
+    archiveOptions: { includeDiscImages: boolean },
+    maxSets: number
+  ): Array<{ primary: string; volumes: string[] }> {
+    const result: Array<{ primary: string; volumes: string[] }> = [];
+    let remaining = files.filter((f) => this.isArchive(f, archiveOptions));
+    // Each set costs one pass over the directory's files, so the number of sets is capped.
+    while (remaining.length > 0 && result.length < maxSets) {
+      let primary = remaining[0]!;
+      // ".r00" sorts before ".rar" but is a continuation, not the entry point.
+      const continuation = /^(.*)\.r\d{2,3}$/i.exec(path.basename(primary));
+      if (continuation?.[1]) {
+        const stem = continuation[1].toLowerCase();
+        const rar = remaining.find(
+          (f) =>
+            /\.rar$/i.test(f) && path.basename(f).slice(0, -".rar".length).toLowerCase() === stem
+        );
+        if (rar) primary = rar;
+      }
+      const volumes = this.findVolumeSiblings(primary, files).map((f) => path.resolve(f));
+      if (!volumes.includes(path.resolve(primary))) volumes.push(path.resolve(primary));
+      result.push({ primary, volumes });
+      const taken = new Set(volumes);
+      remaining = remaining.filter((f) => !taken.has(path.resolve(f)));
+    }
+    return result;
+  }
+
+  /**
+   * Finds every archive set (one primary volume plus its continuations) below `root`, without
+   * touching anything: `lstat` only, symlinks are never followed, and the walk is bounded by
+   * depth and by the number of directory entries it looks at. Staging directories left by a
+   * running extraction are skipped. Only the primary volume of each set is returned, so a
+   * release split in ten parts counts once.
+   */
+  async findArchiveSets(
+    root: string,
+    options: { maxDepth?: number; maxEntries?: number; includeDiscImages?: boolean } = {}
+  ): Promise<Array<{ primary: string; volumes: string[]; relDir: string }>> {
+    const maxDepth = options.maxDepth ?? 3;
+    let budget = options.maxEntries ?? 5000;
+    const sets: Array<{ primary: string; volumes: string[]; relDir: string }> = [];
+    const archiveOptions = { includeDiscImages: options.includeDiscImages === true };
+
+    // Reads at most `limit` names (sorted) so a huge directory is never fully enumerated.
+    const readNames = async (dir: string, limit: number): Promise<string[]> => {
+      const names: string[] = [];
+      let handle: Dir | undefined;
+      try {
+        handle = await opendir(dir);
+        for await (const entry of handle) {
+          names.push(entry.name);
+          if (names.length >= limit) break;
+        }
+      } catch {
+        // Unreadable or vanished directory: report what was read so far.
+      } finally {
+        await handle?.close().catch(() => undefined);
+      }
+      return names.sort((a, b) => a.localeCompare(b));
+    };
+
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      if (budget <= 0) return;
+      const names = await readNames(dir, budget);
+      budget -= names.length;
+
+      const files: string[] = [];
+      const subDirs: string[] = [];
+      for (const name of names) {
+        if (name.startsWith(EXTRACT_STAGING_PREFIX)) continue;
+        const full = path.join(dir, name);
+        const stats = await fs.lstat(full).catch(() => null);
+        if (!stats || stats.isSymbolicLink()) continue;
+        if (stats.isDirectory()) subDirs.push(full);
+        else if (stats.isFile()) files.push(full);
+      }
+
+      for (const set of this.groupArchiveSets(files, archiveOptions, MAX_SETS_PER_DIR)) {
+        sets.push({ ...set, relDir: path.relative(root, dir) });
+      }
+
+      if (depth >= maxDepth) return;
+      for (const sub of subDirs) {
+        // Re-check right before descending: a directory swapped for a symlink is not followed.
+        const current = await fs.lstat(sub).catch(() => null);
+        if (current?.isDirectory() && !current.isSymbolicLink()) await walk(sub, depth + 1);
+      }
+    };
+
+    const rootStats = await fs.lstat(root).catch(() => null);
+    if (!rootStats || rootStats.isSymbolicLink()) return sets;
+    if (rootStats.isFile()) {
+      // A single-file import points at the file itself.
+      if (this.isArchive(root, archiveOptions)) {
+        sets.push({ primary: root, volumes: [path.resolve(root)], relDir: "" });
+      }
+      return sets;
+    }
+    await walk(root, 0);
+    return sets;
   }
 
   /**

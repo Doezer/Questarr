@@ -204,6 +204,10 @@ export const sanitizeDownloadId = [
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Sanitization rules for the game journal/milestone/screenshot sub-resource ID params
+export const sanitizeCollectionId = [
+  param("collectionId").trim().matches(UUID_PATTERN).withMessage("Invalid collection ID format"),
+];
+
 export const sanitizeJournalEntryId = [
   param("entryId").trim().matches(UUID_PATTERN).withMessage("Invalid journal entry ID format"),
 ];

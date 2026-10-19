@@ -252,6 +252,37 @@ describe("NZBGet remaining coverage", () => {
     }
   );
 
+  it.each([
+    ["NONE", undefined],
+    ["SUCCESS", "completed"],
+    ["FAILURE", "failed"],
+  ])("maps history UnpackStatus %s to %s", async (unpack, expected) => {
+    const client = new NZBGetClient(createDownloader());
+    const privateClient = client as unknown as {
+      makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+      getFromHistory: (id: string) => Promise<{ unpackStatus?: string }>;
+    };
+    vi.spyOn(privateClient, "makeXMLRPCRequest").mockResolvedValueOnce([
+      {
+        NZBID: 8,
+        Name: "Finished Game",
+        Status: "SUCCESS/ALL",
+        FileSizeMB: 20,
+        Category: "games",
+        DownloadTimeSec: 90,
+        ParStatus: "SUCCESS",
+        UnpackStatus: unpack,
+        FailedArticles: 0,
+        DeleteStatus: "NONE",
+        DestDir: "/downloads",
+      },
+    ]);
+
+    // NONE means NZBGet never unpacked, so no unpack state is claimed.
+    const result = await privateClient.getFromHistory("8");
+    expect(result.unpackStatus).toBe(expected);
+  });
+
   it("does not treat an unrelated overall status as completed", async () => {
     const client = new NZBGetClient(createDownloader());
     const privateClient = client as unknown as {

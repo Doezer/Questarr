@@ -3146,6 +3146,69 @@ describe("API Routes - Extended Coverage", () => {
       expect(storage.getReleaseBlacklistSet).toHaveBeenCalledWith("game-1");
     });
 
+    it("attaches a score to each result and ranks the sequel last", async () => {
+      const mockGame = { id: "game-1", userId: "user-1", title: "Dishonored" };
+      vi.mocked(storage.getGame).mockResolvedValue(
+        mockGame as Awaited<ReturnType<typeof storage.getGame>>
+      );
+      vi.mocked(storage.getReleaseBlacklistSet).mockResolvedValue(new Set());
+      const profile = {
+        id: "p1",
+        userId: "user-1",
+        minScore: 0,
+        protocolPreference: "either",
+        requiredTerms: [],
+        ignoredTerms: [],
+        minSeeders: 0,
+        maxSizeBytes: null,
+        builtInOverrides: {},
+        formatScores: {},
+      };
+      Object.assign(storage, {
+        getReleaseProfile: vi.fn().mockResolvedValue(profile),
+        getCustomFormats: vi.fn().mockResolvedValue([]),
+      });
+      vi.mocked(searchAllIndexers).mockResolvedValue({
+        items: [
+          {
+            title: "Dishonored.2-CODEX",
+            link: "http://example.com/1",
+            downloadType: "torrent" as const,
+            category: [],
+          },
+          {
+            title: "Dishonored-CODEX",
+            link: "http://example.com/2",
+            downloadType: "torrent" as const,
+            category: [],
+          },
+        ],
+        total: 2,
+        errors: [],
+      });
+
+      try {
+        const response = await request(app).get("/api/search?query=Dishonored&gameId=game-1");
+
+        expect(response.status).toBe(200);
+        expect(response.body.items.map((i: { title: string }) => i.title)).toEqual([
+          "Dishonored-CODEX",
+          "Dishonored.2-CODEX",
+        ]);
+        expect(response.body.items[0].evaluation).toMatchObject({
+          accepted: true,
+          titleMatch: "exact",
+        });
+        expect(response.body.items[1].evaluation).toMatchObject({
+          accepted: false,
+          titleMatch: "sequel",
+        });
+      } finally {
+        Reflect.deleteProperty(storage, "getReleaseProfile");
+        Reflect.deleteProperty(storage, "getCustomFormats");
+      }
+    });
+
     it("should include blacklistedCount in response when items are blacklisted", async () => {
       const mockGame = { id: "game-1", userId: "user-1", title: "Test Game" };
       vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);

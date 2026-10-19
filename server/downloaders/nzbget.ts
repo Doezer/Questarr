@@ -480,8 +480,10 @@ export class NZBGetClient implements DownloaderClient {
         status = "completed";
         repairStatus =
           item.ParStatus === "SUCCESS" || item.ParStatus === "NONE" ? "good" : "failed";
-        unpackStatus =
-          item.UnpackStatus === "SUCCESS" || item.UnpackStatus === "NONE" ? "completed" : "failed";
+        // NONE means NZBGet did not unpack at all (unpacking disabled for the category), so
+        // the job can still hold archives: report no unpack state rather than "completed".
+        if (item.UnpackStatus === "SUCCESS") unpackStatus = "completed";
+        else if (item.UnpackStatus !== "NONE") unpackStatus = "failed";
       } else {
         status = "error";
         repairStatus = item.ParStatus === "FAILURE" ? "failed" : "good";

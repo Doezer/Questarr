@@ -56,6 +56,8 @@ for (const pr of prs.values()) {
     );
     pr.title = info.title;
     pr.author = info.author?.login;
+    // gh reports bot authors as "app/<name>" with is_bot, not with a "[bot]" suffix.
+    pr.isBot = Boolean(info.author?.is_bot) || /^app\//.test(pr.author ?? "");
     pr.labels = info.labels.map((l) => l.name);
   } catch {
     // gh unavailable: fall back to the merge commit message.
@@ -72,9 +74,29 @@ const isSecurity = (title, labels = []) =>
 
 const fmtPr = (pr) => `- ${pr.title} (#${pr.number})${pr.author ? ` by @${pr.author}` : ""}`.trim();
 
+// Direct commits only carry a git name: resolve the GitHub login when gh can, else keep the name.
+for (const c of direct) {
+  try {
+    c.login =
+      run("gh", ["api", `repos/${repo}/commits/${c.sha}`, "--jq", ".author.login // empty"]) ||
+      undefined;
+  } catch {
+    // gh unavailable: the git author name is used instead.
+  }
+}
+
 const sorted = [...prs.values()].sort((a, b) => a.number - b.number);
 const security = sorted.filter((pr) => isSecurity(pr.title, pr.labels));
 const others = sorted.filter((pr) => !security.includes(pr));
+
+// Contributors: PR authors and direct committers, deduplicated, bots left out.
+const contributors = new Map();
+for (const label of [
+  ...sorted.map((pr) => (pr.author && !pr.isBot ? `@${pr.author}` : undefined)),
+  ...direct.map((c) => (c.login ? `@${c.login}` : c.author)),
+]) {
+  if (label && !/\[bot\]$/i.test(label)) contributors.set(label.toLowerCase(), label);
+}
 
 const out = [
   "> **Weekly development build** — automatically generated from `main`, not functionally tested.",
@@ -90,6 +112,9 @@ if (direct.length) {
     ...direct.map((c) => `- ${c.subject} (${c.sha.slice(0, 7)})`),
     ""
   );
+}
+if (contributors.size) {
+  out.push("## Contributors", "", `Thanks to ${[...contributors.values()].join(", ")}.`, "");
 }
 if (!sorted.length && !direct.length) out.push("No changes since the previous build.", "");
 if (repo)

@@ -17,6 +17,7 @@ import {
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
+import { runScheduledRommSync } from "./romm-sync.js";
 import { appriseClient } from "./apprise.js";
 import { importManager } from "./services/index.js";
 import {
@@ -35,6 +36,25 @@ import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isReleasePossiblyNewer } from "../shared/version-utils.js";
 import { recordVersionFromCompletedDownload } from "./game-version.js";
 import { rssService } from "./rss.js";
+import { registerTask, startTaskScheduler, type TaskDefinition } from "./task-registry.js";
+import {
+  activePreferredGroupFormat,
+  isAutoEligible,
+  loadScoringConfig,
+  type ScoringConfig,
+} from "./release-scoring-service.js";
+import {
+  getXrelPredb,
+  INTERACTIVE_LOOKUP_TIMEOUT_MS,
+  xrelEnabledFor,
+  xrelTypesFor,
+  type XrelPredbTypes,
+} from "./xrel-predb.js";
+import {
+  evaluateReleases,
+  type ReleaseEvaluation,
+  type XrelPredbEntry,
+} from "../shared/release-scoring.js";
 import {
   releaseMatchesGame,
   normalizeTitle,
@@ -105,6 +125,7 @@ export function resetDownloadStatusTracking(): void {
   downloadStatusCheckRunning = false;
 }
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const ROMM_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interval gates actual sync)
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 const CLIENT_VERSION_LOG_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
@@ -118,7 +139,7 @@ const GAME_UPDATE_TITLE_TO_EVENT: Record<string, NotificationEvent> = {
   "Game Delayed": "gameDelayed",
 };
 
-type DownloadSortBy = "seeders" | "date" | "size" | "priority";
+type DownloadSortBy = "score" | "seeders" | "date" | "size" | "priority";
 
 export interface AutoSearchRules {
   minSeeders: number;
@@ -228,7 +249,20 @@ export function categorizeSearchItems(
     // for sorting is the grab count instead.
     .filter((item) => item.downloadType === "usenet" || (item.seeders ?? 0) >= rules.minSeeders)
     .sort((a, b) => {
-      if (rules.sortBy === "seeders") {
+      // Release scoring decides first; the user's sort order only breaks ties.
+      if (a.evaluation && b.evaluation && a.evaluation.score !== b.evaluation.score) {
+        return b.evaluation.score - a.evaluation.score;
+      }
+      // then the profile's preferred protocol, as in the engine and the download dialog
+      if (
+        a.evaluation &&
+        b.evaluation &&
+        a.evaluation.preferredProtocol !== b.evaluation.preferredProtocol
+      ) {
+        return a.evaluation.preferredProtocol ? -1 : 1;
+      }
+      if (rules.sortBy === "seeders" || rules.sortBy === "score") {
+        // "score" has nothing left to sort by once the score and protocol tie
         return releaseHealth(b) - releaseHealth(a);
       }
       if (rules.sortBy === "date") {
@@ -282,11 +316,28 @@ function applyPreferredGroupsFilter(
 }
 
 /**
+ * Scoring counterpart of the non-strict preferred-groups filter: while the user still has the
+ * "Preferred release group" format (created from the old setting), results that matched it win
+ * over the others, so one preferred release among several still counts as the single candidate
+ * for auto-download. Without that format, with a score the user lowered to zero or below, or
+ * without a match, every item stays.
+ */
+export function narrowToPreferredGroupFormat(
+  items: SearchItem[],
+  scoring: AutoSearchScoring
+): SearchItem[] {
+  const format = activePreferredGroupFormat(scoring.config);
+  if (!format) return items;
+  const preferred = items.filter((item) => item.evaluation?.matchedFormats.includes(format.id));
+  return preferred.length > 0 ? preferred : items;
+}
+
+/**
  * De-duplicates search items that represent the same release (identical normalized title).
  * When duplicates exist (e.g. the same torrent listed by multiple indexers), the item
  * from the highest-priority indexer (lowest priority number) is kept.
  */
-function deduplicateByTitle(
+export function deduplicateByTitle(
   items: SearchItem[],
   indexerPriorityMap: Map<string, number>
 ): SearchItem[] {
@@ -297,10 +348,16 @@ function deduplicateByTitle(
     if (!existing) {
       seen.set(key, item);
     } else {
-      // Keep the item from the higher-priority indexer (lower number = higher priority)
+      // Keep the better-scored copy; on equal scores (or without scoring) keep the item from
+      // the higher-priority indexer (lower number = higher priority)
+      const itemScore = item.evaluation?.score ?? 0;
+      const existingScore = existing.evaluation?.score ?? 0;
       const itemPriority = indexerPriorityMap.get(item.indexerId) ?? Infinity;
       const existingPriority = indexerPriorityMap.get(existing.indexerId) ?? Infinity;
-      if (itemPriority < existingPriority) {
+      if (
+        itemScore > existingScore ||
+        (itemScore === existingScore && itemPriority < existingPriority)
+      ) {
         seen.set(key, item);
       }
     }
@@ -355,20 +412,78 @@ function logAutoSearchErrors(gameTitle: string, errors: string[]): void {
   }
 }
 
+/** Release scoring inputs for one auto-search cycle of one user. */
+export interface AutoSearchScoring {
+  config: ScoringConfig;
+  /** The user's default platform, used when the game has no target platform of its own. */
+  preferredPlatform: string | null;
+  /** Check the xREL PreDB (the user has an xREL feature on). */
+  /** release types to check on xREL PreDB; absent when xREL is off */
+  xrelTypes?: XrelPredbTypes;
+}
+
+/**
+ * Scores the results for a game and keeps the ones auto-search may take: accepted, and a clear
+ * title match. "Ambiguous" names (a match followed by an unverified suffix) stay in manual
+ * search. Each kept item carries its evaluation.
+ */
+function evaluateItemsForGame(
+  items: SearchItem[],
+  game: Pick<Game, "title" | "targetPlatformId" | "targetPlatformName">,
+  scoring: AutoSearchScoring,
+  xrelReleases?: XrelPredbEntry[]
+): { item: SearchItem; evaluation: ReleaseEvaluation }[] {
+  const platform = resolveGamePlatformPreference(game, scoring.preferredPlatform);
+  return evaluateReleases(
+    items,
+    { gameTitle: game.title, platform, ...(xrelReleases ? { xrelReleases } : {}) },
+    scoring.config.profile,
+    scoring.config.formats
+  );
+}
+
+function keepEligibleEvaluations(
+  evaluated: { item: SearchItem; evaluation: ReleaseEvaluation }[],
+  scoring: AutoSearchScoring
+): SearchItem[] {
+  return evaluated
+    .filter(({ evaluation }) => isAutoEligible(evaluation, scoring.config))
+    .map(({ item, evaluation }) => ({ ...item, evaluation }));
+}
+
+export function scoreReleasesForGame(
+  items: SearchItem[],
+  game: Pick<Game, "title" | "targetPlatformId" | "targetPlatformName">,
+  scoring: AutoSearchScoring,
+  xrelReleases?: XrelPredbEntry[]
+): SearchItem[] {
+  return keepEligibleEvaluations(evaluateItemsForGame(items, game, scoring, xrelReleases), scoring);
+}
+
+// games whose automatic grab already waited one cycle for a slow xREL lookup; they leave the
+// set once a lookup completes in time
+const xrelDeferredGames = new Set<string>();
+
+/** Returned instead of null when the game is skipped for this cycle, so its badge stays as is. */
+export const AUTO_SEARCH_DEFERRED = Symbol("auto-search-deferred");
+
 /**
  * Searches all indexers for a game and returns its eligible releases, categorized by type.
  * Releases are title-matched, then filtered by the user's global release-name blacklist and
  * the game's own blacklist. When the global blacklist hides a whole page, later pages are
  * fetched (up to AUTO_SEARCH_MAX_PAGES). Returns null when no eligible release is found.
  */
-async function searchAndCategorizeItemsForGame(
-  game: Pick<Game, "id" | "title">,
+export async function searchAndCategorizeItemsForGame(
+  game: Pick<Game, "id" | "title" | "targetPlatformId" | "targetPlatformName">,
   downloadRules: string | null,
   indexerPriorityMap?: Map<string, number>,
-  blacklistTerms: string[] = []
-): Promise<AutoSearchCategorizedItems | null> {
+  blacklistTerms: string[] = [],
+  scoring?: AutoSearchScoring
+): Promise<AutoSearchCategorizedItems | typeof AUTO_SEARCH_DEFERRED | null> {
   let matchedItems: SearchItem[] = [];
   let globallyFiltered: SearchItem[] = [];
+  let xrelLookedUp = false;
+  let xrelReleases: XrelPredbEntry[] | undefined;
 
   for (let page = 0; page < AUTO_SEARCH_MAX_PAGES; page++) {
     const { items, errors } = await searchAllIndexers({
@@ -384,11 +499,46 @@ async function searchAndCategorizeItemsForGame(
       break;
     }
 
-    matchedItems = items.filter((item) => releaseMatchesGame(item.title, game.title));
+    // looked up once per game, and only when there is something to score
+    if (scoring?.xrelTypes && !xrelLookedUp) {
+      xrelLookedUp = true;
+      // bounded so a slow xREL cannot stall the whole cycle; the lookup still fills the cache
+      let xrelUnavailable = false;
+      xrelReleases = await getXrelPredb(game.title, scoring.xrelTypes, {
+        timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
+        // cycles are hours apart, so a slow or failed lookup falls back on the last completed one
+        staleFallback: true,
+        onUnavailable: () => {
+          xrelUnavailable = true;
+        },
+      });
+      // Nothing watches an automatic grab, so without the nuke check it waits for the next
+      // cycle, when the finished lookup is cached. Only once per game: if xREL stays down, the
+      // retry goes ahead without it rather than starving the game.
+      if (xrelUnavailable) {
+        if (!xrelDeferredGames.has(game.id)) {
+          xrelDeferredGames.add(game.id);
+          return AUTO_SEARCH_DEFERRED;
+        }
+      } else {
+        xrelDeferredGames.delete(game.id);
+      }
+    }
+    const evaluated = scoring ? evaluateItemsForGame(items, game, scoring, xrelReleases) : null;
+    matchedItems =
+      evaluated && scoring
+        ? keepEligibleEvaluations(evaluated, scoring)
+        : items.filter((item) => releaseMatchesGame(item.title, game.title));
     // A first page with no title match means the search is not about this game. Later pages
     // are only fetched because the blacklist hid a whole page, so an unrelated page there
     // should not stop the search.
-    if (matchedItems.length === 0 && page === 0) {
+    // With scoring, an empty result may only mean every title match was rejected, so the
+    // unrelated-search decision is made on the scorer's title class (which also handles
+    // non-Latin titles) and paging continues otherwise.
+    const unrelated = evaluated
+      ? page === 0 && evaluated.every(({ evaluation }) => evaluation.titleMatch === "mismatch")
+      : matchedItems.length === 0 && page === 0;
+    if (unrelated) {
       igdbLogger.debug(
         { gameTitle: game.title, originalCount: items.length },
         "No items passed strict title matching"
@@ -429,66 +579,92 @@ async function searchAndCategorizeItemsForGame(
 
 export function startCronJobs() {
   igdbLogger.info("Starting cron jobs...");
-  igdbLogger.info(
+  registerCronTasks();
+  startTaskScheduler().catch((err) => igdbLogger.error({ err }, "Failed to start task scheduler"));
+}
+
+const IMPORT_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const DOWNLOAD_EVENT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const IMPORT_TASK_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function registerCronTasks(): void {
+  const tasks: TaskDefinition[] = [
     {
-      gameUpdates: `every ${CHECK_INTERVAL_MS / 1000 / 60 / 60} hours`,
-      downloadStatus: `every ${DOWNLOAD_CHECK_INTERVAL_MS / 1000} seconds`,
-      autoSearch: `every ${AUTO_SEARCH_CHECK_INTERVAL_MS / 1000 / 60} minutes`,
-      steamSync: `every ${STEAM_SYNC_CHECK_INTERVAL_MS / 1000 / 60} minutes (per-user interval gated)`,
-      rssFeeds: `every ${RSS_REFRESH_INTERVAL_MS / 1000 / 60} minutes`,
+      name: "game-updates",
+      title: "Game updates",
+      description: "Refresh release dates and metadata of tracked games from IGDB.",
+      intervalMs: CHECK_INTERVAL_MS,
+      runOnStartup: true,
+      run: checkGameUpdates,
     },
-    "Cron job intervals configured"
-  );
-
-  // Run immediately on startup (or after a slight delay to ensure DB is ready)
-  setTimeout(() => {
-    igdbLogger.info("Running initial cron job checks...");
-    checkGameUpdates().catch((err) => igdbLogger.error({ err }, "Error in checkGameUpdates"));
-    checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
-    checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
-    checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
-    checkSteamWishlist().catch((err) => igdbLogger.error({ err }, "Error in checkSteamWishlist"));
-    logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
-    rssService.refreshFeeds().catch((err) => igdbLogger.error({ err }, "Error in refreshFeeds"));
-  }, 10000);
-
-  // Schedule periodic checks
-  setInterval(() => {
-    checkGameUpdates().catch((err) => igdbLogger.error({ err }, "Error in checkGameUpdates"));
-  }, CHECK_INTERVAL_MS);
-
-  setInterval(() => {
-    checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
-  }, DOWNLOAD_CHECK_INTERVAL_MS);
-
-  setInterval(() => {
-    checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
-  }, AUTO_SEARCH_CHECK_INTERVAL_MS);
-
-  setInterval(() => {
-    checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
-  }, XREL_CHECK_INTERVAL_MS);
-
-  setInterval(() => {
-    checkSteamWishlist().catch((err) => igdbLogger.error({ err }, "Error in checkSteamWishlist"));
-  }, STEAM_SYNC_CHECK_INTERVAL_MS);
-
-  setInterval(() => {
-    logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
-  }, CLIENT_VERSION_LOG_INTERVAL_MS);
-
-  setInterval(() => {
-    rssService.refreshFeeds().catch((err) => igdbLogger.error({ err }, "Error in refreshFeeds"));
-  }, RSS_REFRESH_INTERVAL_MS);
-
-  const IMPORT_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-  const runImportTaskCleanup = () => {
-    const cutoff = Date.now() - IMPORT_TASK_RETENTION_MS;
-    storage
-      .deleteImportTasksOlderThan(cutoff)
-      .catch((err) => igdbLogger.warn({ err }, "Import task cleanup failed"));
-  };
-  setInterval(runImportTaskCleanup, 24 * 60 * 60 * 1000);
+    {
+      name: "download-status",
+      title: "Download status",
+      description: "Poll download clients, update progress and trigger imports.",
+      intervalMs: DOWNLOAD_CHECK_INTERVAL_MS,
+      runOnStartup: true,
+      run: checkDownloadStatus,
+    },
+    {
+      name: "auto-search",
+      title: "Auto search",
+      description: "Search indexers for wanted games and grab matching releases.",
+      intervalMs: AUTO_SEARCH_CHECK_INTERVAL_MS,
+      runOnStartup: true,
+      run: checkAutoSearch,
+    },
+    {
+      name: "xrel-releases",
+      title: "xREL.to releases",
+      description: "Check xREL.to for new scene releases of tracked games.",
+      intervalMs: XREL_CHECK_INTERVAL_MS,
+      runOnStartup: true,
+      run: checkXrelReleases,
+    },
+    {
+      name: "steam-wishlist",
+      title: "Steam wishlist sync",
+      description: "Import wishlists of users with Steam sync enabled (per-user interval applies).",
+      intervalMs: STEAM_SYNC_CHECK_INTERVAL_MS,
+      runOnStartup: true,
+      run: checkSteamWishlist,
+    },
+    {
+      name: "romm-sync",
+      title: "RomM sync",
+      description: "Synchronise the library with the configured RomM server.",
+      intervalMs: ROMM_SYNC_INTERVAL_MS,
+      runOnStartup: true,
+      run: runScheduledRommSync,
+    },
+    {
+      name: "client-versions",
+      title: "Client version check",
+      description: "Record the versions of the connected download clients and indexers.",
+      intervalMs: CLIENT_VERSION_LOG_INTERVAL_MS,
+      runOnStartup: true,
+      run: logClientVersions,
+    },
+    {
+      name: "rss-refresh",
+      title: "RSS feeds",
+      description: "Fetch every enabled RSS feed.",
+      intervalMs: RSS_REFRESH_INTERVAL_MS,
+      runOnStartup: true,
+      run: () => rssService.refreshFeeds(),
+    },
+    {
+      name: "import-task-cleanup",
+      title: "History cleanup",
+      description: "Delete import history older than 30 days and download events older than 90.",
+      intervalMs: IMPORT_TASK_CLEANUP_INTERVAL_MS,
+      run: async () => {
+        await storage.deleteImportTasksOlderThan(Date.now() - IMPORT_TASK_RETENTION_MS);
+        await storage.deleteDownloadEventsOlderThan(Date.now() - DOWNLOAD_EVENT_RETENTION_MS);
+      },
+    },
+  ];
+  for (const task of tasks) registerTask(task);
 }
 
 async function logClientVersions(): Promise<void> {
@@ -1543,6 +1719,19 @@ export async function checkAutoSearch() {
         const preferredPlatform = settings.preferredPlatform ?? null;
         const blacklistTerms = parseJsonStringArray(settings.releaseNameBlacklist);
 
+        // Release scoring replaces the title match and the preferred-groups filter. If the
+        // profile cannot be loaded, this cycle falls back to the previous behavior.
+        let scoring: AutoSearchScoring | undefined;
+        try {
+          scoring = {
+            config: await loadScoringConfig(userId),
+            preferredPlatform,
+            ...(xrelEnabledFor(settings) ? { xrelTypes: xrelTypesFor(settings) } : {}),
+          };
+        } catch (error) {
+          igdbLogger.warn({ userId, error }, "Release scoring unavailable, using legacy filters");
+        }
+
         for (const game of wantedGames) {
           try {
             // Skip unreleased games if configured to do so
@@ -1558,8 +1747,10 @@ export async function checkAutoSearch() {
               game,
               settings.downloadRules,
               indexerPriorityMap,
-              blacklistTerms
+              blacklistTerms,
+              scoring
             );
+            if (searchResult === AUTO_SEARCH_DEFERRED) continue;
             if (!searchResult) {
               // No results at all (zero results or all blacklisted) — clear the badge
               await storage.updateGameSearchResultsAvailable(game.id, false);
@@ -1577,11 +1768,13 @@ export async function checkAutoSearch() {
               searchResult.mainItems,
               effectivePlatform
             );
-            const groupFilteredMain = applyPreferredGroupsFilter(
-              platformFilteredMain,
-              preferredGroups,
-              settings.filterByPreferredGroups ?? false
-            );
+            const groupFilteredMain = scoring
+              ? narrowToPreferredGroupFormat(platformFilteredMain, scoring)
+              : applyPreferredGroupsFilter(
+                  platformFilteredMain,
+                  preferredGroups,
+                  settings.filterByPreferredGroups ?? false
+                );
             const mainItems = deduplicateByTitle(groupFilteredMain, indexerPriorityMap);
 
             // Handle main items
@@ -1775,8 +1968,10 @@ export async function checkAutoSearch() {
               game,
               settings.downloadRules,
               indexerPriorityMap,
-              blacklistTerms
+              blacklistTerms,
+              scoring
             );
+            if (searchResult === AUTO_SEARCH_DEFERRED) continue;
             if (!searchResult) {
               await storage.updateGameSearchResultsAvailable(game.id, false);
               continue;
@@ -1790,11 +1985,13 @@ export async function checkAutoSearch() {
               searchResult.updateItems,
               effectivePlatform
             );
-            const groupFilteredUpdate = applyPreferredGroupsFilter(
-              platformFilteredUpdate,
-              preferredGroups,
-              settings.filterByPreferredGroups ?? false
-            );
+            const groupFilteredUpdate = scoring
+              ? platformFilteredUpdate
+              : applyPreferredGroupsFilter(
+                  platformFilteredUpdate,
+                  preferredGroups,
+                  settings.filterByPreferredGroups ?? false
+                );
             // Drop update releases whose version is provably not newer than the one the user
             // has installed, so a game already on v1.5 isn't flagged for a v1.4 patch.
             const versionFilteredUpdate = groupFilteredUpdate.filter((item) =>
@@ -1807,11 +2004,13 @@ export async function checkAutoSearch() {
               searchResult.packsItems,
               effectivePlatform
             );
-            const groupFilteredPacks = applyPreferredGroupsFilter(
-              platformFilteredPacks,
-              preferredGroups,
-              settings.filterByPreferredGroups ?? false
-            );
+            const groupFilteredPacks = scoring
+              ? platformFilteredPacks
+              : applyPreferredGroupsFilter(
+                  platformFilteredPacks,
+                  preferredGroups,
+                  settings.filterByPreferredGroups ?? false
+                );
             const packsItems = deduplicateByTitle(groupFilteredPacks, indexerPriorityMap);
 
             await storage.updateGameSearchResultsByCategory(game.id, {
@@ -1871,6 +2070,8 @@ export async function checkAutoSearch() {
     }
   } catch (error) {
     igdbLogger.error({ error }, "Error in checkAutoSearch");
+    // Let the task registry record the run as failed.
+    throw error;
   }
 }
 
@@ -1986,6 +2187,8 @@ export async function checkXrelReleases() {
     }
   } catch (error) {
     igdbLogger.error({ error }, "Error in checkXrelReleases");
+    // Let the task registry record the run as failed.
+    throw error;
   }
 }
 
@@ -2024,6 +2227,8 @@ export async function checkSteamWishlist() {
     }
   } catch (error) {
     igdbLogger.error({ error }, "Failed scheduled Steam Wishlist auto-sync check");
+    // Let the task registry record the run as failed.
+    throw error;
   } finally {
     steamWishlistCheckInProgress = false;
   }
@@ -2107,6 +2312,7 @@ async function addNewSteamWishlistGames(
       developers: formatted.developers as string[],
       publishers: formatted.publishers as string[],
       screenshots: formatted.screenshots as string[],
+      videos: formatted.videos as Array<{ name: string; videoId: string }>,
       source: "steam",
       hidden: false,
       releaseStatus: formatted.isReleased ? "released" : undefined,

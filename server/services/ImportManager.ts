@@ -30,6 +30,8 @@ import { notifyUser } from "../socket.js";
 import { recordVersionFromCompletedDownload } from "../game-version.js";
 import { resolvePrefs } from "../notification-prefs.js";
 import { appriseClient } from "../apprise.js";
+import { isRommPlatformFoldersEnabled, requestRommScanAfterImport } from "../romm.js";
+import { isValidRommSlug, rommSlugForPlatformId } from "../../shared/romm-platforms.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
 
 const PLATFORM_FOLDER_NAMES: Record<string, string> = {
@@ -86,6 +88,9 @@ interface ArchiveResolution {
   excludePaths: Set<string>;
   hasRemainingFiles: boolean;
 }
+
+// Upper bound on archive sets inspected when looking for leftovers after an import.
+const MAX_LEFTOVER_SETS_CHECKED = 25;
 
 export class ImportManager {
   private readonly pathRetryCount = new Map<string, number>();
@@ -157,6 +162,29 @@ export class ImportManager {
     if (!releasePlatformKey) return undefined;
     return PLATFORM_CATALOG.find(({ canonical }) => canonical.toLowerCase() === releasePlatformKey)
       ?.igdbIds[0];
+  }
+
+  /**
+   * Platform folder for an import. With RomM platform folders on, it is the RomM platform slug
+   * ("snes", "ps2", "win") so RomM finds the files where it looks; a platform without a known
+   * slug keeps its readable folder name.
+   */
+  private async resolvePlatformFolder(
+    downloadTitle: string,
+    game: { platforms?: unknown; targetPlatformId?: number | null },
+    allowed: number[]
+  ): Promise<string> {
+    if (await isRommPlatformFoldersEnabled()) {
+      const releaseKey = this.getReleasePlatformKey(downloadTitle);
+      const platformId =
+        this.getReleasePlatformIgdbId(releaseKey) ??
+        game.targetPlatformId ??
+        this.getPrimaryPlatformId(game, allowed) ??
+        6;
+      const slug = rommSlugForPlatformId(platformId);
+      if (slug && isValidRommSlug(slug)) return slug;
+    }
+    return this.resolvePlatformFolderName(downloadTitle, game, allowed);
   }
 
   private resolvePlatformFolderName(
@@ -440,6 +468,58 @@ export class ImportManager {
     return { archiveInDest, siblingsInDest };
   }
 
+  /**
+   * Archive sets below `dir` that still hold packed content. A set whose contents are already
+   * sitting next to it (the client unpacked but kept the archive) does not count.
+   */
+  private async findUnextractedArchiveSets(dir: string): Promise<string[]> {
+    const sets = await this.archiveService.findArchiveSets(dir);
+    const unextracted: string[] = [];
+    // Each check may spawn 7z/unrar; this is a best-effort warning, so bound the work.
+    for (const set of sets.slice(0, MAX_LEFTOVER_SETS_CHECKED)) {
+      if (!(await this.archiveService.isAlreadyExtracted(set.primary, path.dirname(set.primary)))) {
+        unextracted.push(path.relative(dir, set.primary));
+      }
+    }
+    return unextracted;
+  }
+
+  /**
+   * Tells the user when a finished download still contains archives nothing unpacked: the
+   * download client marks a job complete even when it left archives behind, and Questarr's
+   * own import only unpacks when auto-unpack is on. Informational and best effort: it never
+   * changes the download or the import.
+   */
+  async reportLeftoverArchives(
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    dir: string,
+    options: { checkRoots?: boolean; extractionAttempted?: boolean } = {}
+  ): Promise<void> {
+    try {
+      if (isSensitivePath(dir)) return;
+      if (options.checkRoots) {
+        await assertWithinRoots(dir, await this.pathService.getConfiguredRoots(), "outside roots");
+      }
+      const leftovers = await this.findUnextractedArchiveSets(dir);
+      if (leftovers.length === 0) return;
+      const shown = leftovers.slice(0, 3).join(", ");
+      const more = leftovers.length > 3 ? ` and ${leftovers.length - 3} more` : "";
+      const hint = options.extractionAttempted
+        ? "Questarr already tried to extract this import; check for nested archives or extract them yourself."
+        : "Turn on Auto-unpack in the import settings, or extract them yourself.";
+      const notification = await this.storage.addNotification({
+        userId: game.userId ?? "",
+        type: "warning",
+        title: "Archives were not extracted",
+        message: `"${game.title}" still contains ${leftovers.length} archive${leftovers.length === 1 ? "" : "s"} that nothing unpacked (${shown}${more}). ${hint}`,
+        link: "/downloads",
+      });
+      notifyUser("notification", notification, notification.userId);
+    } catch (err) {
+      logger.debug({ err, dir }, "[ImportManager] Leftover archive check skipped");
+    }
+  }
+
   private async notifyStrandedImport(
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     archiveInDest: string,
@@ -529,11 +609,13 @@ export class ImportManager {
   ): boolean {
     const releasePlatformKey = this.getReleasePlatformKey(downloadTitle);
     const releasePlatformId = this.getReleasePlatformIgdbId(releasePlatformKey);
-    // A detected release identifies the downloaded version. Otherwise the game
-    // can list several platforms, stored as IGDB names, and any selected one fits.
+    // A detected release identifies the downloaded version, then the platform the user chose for
+    // the game. Otherwise the game can list several platforms, stored as IGDB names, and any
+    // selected one fits.
+    const identifiedPlatformId = releasePlatformId ?? game.targetPlatformId ?? undefined;
     const enabled =
-      releasePlatformId !== undefined
-        ? this.isPlatformEnabled(releasePlatformId, importPlatformIds)
+      identifiedPlatformId !== undefined
+        ? this.isPlatformEnabled(identifiedPlatformId, importPlatformIds)
         : this.isPlatformEnabled(
             this.getPrimaryPlatformId(game, importPlatformIds),
             importPlatformIds
@@ -560,6 +642,7 @@ export class ImportManager {
     if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
       await this.storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
     }
+    requestRommScanAfterImport();
   }
 
   /** Best-effort: a version that can't be recorded must not fail an import that succeeded. */
@@ -955,7 +1038,7 @@ export class ImportManager {
 
       await fs.ensureDir(libraryRoot);
 
-      const platformDir = this.resolvePlatformFolderName(
+      const platformDir = await this.resolvePlatformFolder(
         download.downloadTitle || "",
         game,
         config.importPlatformIds
@@ -993,6 +1076,9 @@ export class ImportManager {
       );
 
       await this.finalizeImport(downloadId, game, result.destDir);
+      await this.reportLeftoverArchives(game, result.destDir, {
+        extractionAttempted: needsExtraction,
+      });
       await this.autoDeleteIfConfigured(downloadId, download, game, config);
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] Import failed");
@@ -1053,24 +1139,26 @@ export class ImportManager {
       } as unknown as Game,
       releaseTitle: "The.Example.Quest.Remastered.v1.2.3-GROUP",
     });
-    return samples.map(({ game, releaseTitle }) => {
-      const platformDir = this.resolvePlatformFolderName(
-        releaseTitle,
-        game,
-        config.importPlatformIds
-      );
-      const leafName = resolveLibraryLeafName(
-        game,
-        { renamePattern: pattern },
-        platformDir,
-        releaseTitle
-      );
-      return {
-        title: game.title,
-        leafName,
-        fullPath: path.join(libraryRoot, platformDir, leafName),
-      };
-    });
+    return Promise.all(
+      samples.map(async ({ game, releaseTitle }) => {
+        const platformDir = await this.resolvePlatformFolder(
+          releaseTitle,
+          game,
+          config.importPlatformIds
+        );
+        const leafName = resolveLibraryLeafName(
+          game,
+          { renamePattern: pattern },
+          platformDir,
+          releaseTitle
+        );
+        return {
+          title: game.title,
+          leafName,
+          fullPath: path.join(libraryRoot, platformDir, leafName),
+        };
+      })
+    );
   }
 
   async planConfirmImport(
@@ -1101,7 +1189,7 @@ export class ImportManager {
       // Source resolution failed — still return a proposed path based on game title
     }
 
-    const platformDir = this.resolvePlatformFolderName(
+    const platformDir = await this.resolvePlatformFolder(
       download.downloadTitle || "",
       game,
       config.importPlatformIds
@@ -1304,6 +1392,9 @@ export class ImportManager {
       );
 
       await this.finalizeImport(downloadId, game, result.destDir);
+      await this.reportLeftoverArchives(game, result.destDir, {
+        extractionAttempted: needsExtraction,
+      });
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] confirmImport failed");
       try {

@@ -131,6 +131,7 @@ const {
   categorizeSearchItems,
   scoreReleasesForGame,
   searchAndCategorizeItemsForGame,
+  narrowToPreferredGroupFormat,
 } = await import("../cron.js");
 const { igdbLogger } = await import("../logger.js");
 
@@ -2568,6 +2569,36 @@ describe("release scoring in auto-search", () => {
     };
     const result = categorizeSearchItems(tied, rules);
     expect(result.mainItems[0]?.downloadType).toBe("usenet");
+  });
+  it("keeps a single preferred-group release as the only candidate (auto-download)", () => {
+    const withFormat = {
+      ...scoring,
+      config: {
+        ...scoring.config,
+        formats: [
+          {
+            id: "pg",
+            name: "Preferred release group",
+            specs: [{ field: "group" as const, mode: "exact" as const, value: "CODEX" }],
+            score: 50,
+            hardReject: false,
+            enabled: true,
+          },
+        ],
+      },
+    };
+    const scored = scoreReleasesForGame(
+      [item("Dishonored-CODEX"), item("Dishonored-GOG"), item("Dishonored-SKIDROW")],
+      game,
+      withFormat
+    );
+    expect(narrowToPreferredGroupFormat(scored, withFormat).map((i) => i.title)).toEqual([
+      "Dishonored-CODEX",
+    ]);
+    // no preferred match: every item stays; no format: untouched
+    const none = scoreReleasesForGame([item("Dishonored-GOG")], game, withFormat);
+    expect(narrowToPreferredGroupFormat(none, withFormat)).toHaveLength(1);
+    expect(narrowToPreferredGroupFormat(scored, scoring)).toHaveLength(3);
   });
   it("drops a nuked release and ranks the xREL-verified one first", () => {
     const kept = scoreReleasesForGame(

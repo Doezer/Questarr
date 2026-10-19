@@ -35,7 +35,11 @@ import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isReleasePossiblyNewer } from "../shared/version-utils.js";
 import { recordVersionFromCompletedDownload } from "./game-version.js";
 import { rssService } from "./rss.js";
-import { loadScoringConfig, type ScoringConfig } from "./release-scoring-service.js";
+import {
+  loadScoringConfig,
+  PREFERRED_GROUP_FORMAT_NAME,
+  type ScoringConfig,
+} from "./release-scoring-service.js";
 import { getXrelPredb, xrelEnabledFor } from "./xrel-predb.js";
 import { evaluateReleases, type XrelPredbEntry } from "../shared/release-scoring.js";
 import {
@@ -294,6 +298,24 @@ function applyPreferredGroupsFilter(
   // When strict filtering is enabled, return nothing rather than falling back to all items.
   // This respects the user's intent to only accept releases from preferred groups.
   return strict ? [] : items;
+}
+
+/**
+ * Scoring counterpart of the non-strict preferred-groups filter: while the user still has the
+ * "Preferred release group" format (created from the old setting), results that matched it win
+ * over the others, so one preferred release among several still counts as the single candidate
+ * for auto-download. Without that format, or without a match, every item stays.
+ */
+export function narrowToPreferredGroupFormat(
+  items: SearchItem[],
+  scoring: AutoSearchScoring
+): SearchItem[] {
+  const format = scoring.config.formats.find(
+    (f) => f.enabled && f.name === PREFERRED_GROUP_FORMAT_NAME
+  );
+  if (!format) return items;
+  const preferred = items.filter((item) => item.evaluation?.matchedFormats.includes(format.id));
+  return preferred.length > 0 ? preferred : items;
 }
 
 /**
@@ -1657,7 +1679,7 @@ export async function checkAutoSearch() {
               effectivePlatform
             );
             const groupFilteredMain = scoring
-              ? platformFilteredMain
+              ? narrowToPreferredGroupFormat(platformFilteredMain, scoring)
               : applyPreferredGroupsFilter(
                   platformFilteredMain,
                   preferredGroups,

@@ -704,6 +704,7 @@ async function scoreManualSearchResults(
     ).map(({ item, evaluation }) => ({ ...item, evaluation }));
     return { items: scored, config };
   } catch (error) {
+    // safe: unscored items are still valid results, the client shows them without badges
     routesLogger.warn({ error }, "Release scoring failed, returning unscored results");
     return { items };
   }

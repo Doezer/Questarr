@@ -1026,7 +1026,13 @@ function groupCandidates(title: string, parsed: string | undefined): string[] {
   const candidates = parsed ? [parsed] : [];
   const parts = withoutTrailingTags(title).split("-");
   const suffix = parts.length > 1 ? parts.pop()?.trim() : undefined;
-  if (suffix && suffix !== parsed && suffix.length <= 40) {
+  // a plain word with no parsed group is a title fragment ("Half-Life [rarbg]"), not a group
+  if (
+    suffix &&
+    suffix !== parsed &&
+    suffix.length <= 40 &&
+    (parsed !== undefined || /[.\s]/.test(suffix))
+  ) {
     candidates.push(suffix);
   }
   return candidates;

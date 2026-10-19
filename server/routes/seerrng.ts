@@ -657,11 +657,12 @@ async function attachExistingGameLocked(
       return undefined;
     }
     await storage.updateIntegrationRequest(userId, holder.externalRequestId, { gameId: null });
-  }
-  if (owner.status === "shelved") {
-    // Shelved (by a cancellation or by hand) means "not wanted"; a new request wants it again.
-    await storage.updateGameStatus(owner.id, { status: "wanted" });
-    owner = { ...owner, status: "wanted" };
+    if (owner.status === "shelved") {
+      // Our cancellation shelved the game; a new request wants it again. A game the user
+      // shelved by hand is a curated, owned entry and keeps its state.
+      await storage.updateGameStatus(owner.id, { status: "wanted" });
+      owner = { ...owner, status: "wanted" };
+    }
   }
   const platform = TARGET_PLATFORMS[operatingSystem];
   if (!isAcquired(owner) && owner.targetPlatformId !== platform.id) {

@@ -545,14 +545,14 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           return selectedPlatforms.some((sp) => matchesPlatformFilter(platform, sp));
         })
         .sort((a, b) => {
+          // Rejected releases sort below accepted ones whatever the sort field or direction.
+          const aEval = a.evaluation;
+          const bEval = b.evaluation;
+          if (aEval && bEval && aEval.accepted !== bEval.accepted) {
+            return aEval.accepted ? -1 : 1;
+          }
           let comparison;
           if (sortBy === "score") {
-            // Rejected releases sort below accepted ones whatever their score.
-            const aEval = a.evaluation;
-            const bEval = b.evaluation;
-            if (aEval && bEval && aEval.accepted !== bEval.accepted) {
-              return aEval.accepted ? -1 : 1;
-            }
             comparison = (bEval?.score ?? 0) - (aEval?.score ?? 0);
             if (comparison === 0) {
               // Ties follow the server order (protocol, indexer priority, health) whichever

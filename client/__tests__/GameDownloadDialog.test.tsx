@@ -723,6 +723,57 @@ describe("GameDownloadDialog", () => {
     );
   });
 
+  it("keeps rejected releases last under a seeders sort from the download rules", async () => {
+    const evaluation = (accepted: boolean) => ({
+      accepted,
+      score: accepted ? 120 : 180,
+      lines: [],
+      rejections: accepted ? [] : [{ code: "title_sequel", detail: "2" }],
+      titleMatch: accepted ? "exact" : "sequel",
+      indexerCategory: "unknown",
+      category: "main",
+      matchedFormats: [],
+      preferredProtocol: true,
+    });
+    globalThis.fetch = createFetchMock({
+      settings: {
+        downloadRules: JSON.stringify({
+          minSeeders: 0,
+          sortBy: "seeders",
+          visibleCategories: ["main", "update", "dlc", "extra", "packs"],
+        }),
+      },
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "rejected",
+          title: "Test Game Sequel",
+          link: "http://test.com/r",
+          seeders: 900,
+          evaluation: evaluation(false),
+        }),
+        makeTorrentItem({
+          guid: "good",
+          title: "Test Game Plain",
+          link: "http://test.com/g",
+          seeders: 3,
+          evaluation: evaluation(true),
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("Sorted by: seeders");
+        expect(text.indexOf("Test Game Plain")).toBeGreaterThan(-1);
+        expect(text.indexOf("Test Game Plain")).toBeLessThan(text.indexOf("Test Game Sequel"));
+      },
+      { timeout: 3000 }
+    );
+  });
+
   it("ranks by score, shows the breakdown and dims rejected releases", async () => {
     const evaluation = (score: number, accepted: boolean) => ({
       accepted,

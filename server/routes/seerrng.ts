@@ -128,6 +128,23 @@ function supportsDesktop(game: IgdbGame): boolean {
 }
 
 /**
+ * The IGDB id a request resolves to (free-text titles take the top result, as quick-add does),
+ * or null when that game has no desktop release. A missing game is left to quick-add to report.
+ */
+async function resolveDesktopMatch(
+  title: string,
+  igdbId?: number | null
+): Promise<{ igdbId?: number } | null> {
+  const found = igdbId
+    ? await igdbClient.getGameById(igdbId)
+    : (await igdbClient.searchGames(title, 1))[0];
+  if (!found) return igdbId ? { igdbId } : {};
+  if (!supportsDesktop(found)) return null;
+  const resolved = Number(igdbClient.formatGameData(found).igdbId ?? igdbId ?? 0);
+  return resolved > 0 ? { igdbId: resolved } : {};
+}
+
+/**
  * Drops adult/age-restricted titles the account's content filters hide everywhere else, and
  * titles that cannot be acquired for a desktop OS.
  */
@@ -691,23 +708,22 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
         return res.status(200).json(await describeRequest(userId, ledger));
       }
 
-      if (igdbId) {
-        // An exact IGDB id bypasses the catalog filters: refuse titles with no desktop release.
-        const requested = await igdbClient.getGameById(igdbId);
-        if (requested && !supportsDesktop(requested)) {
-          await storage.updateIntegrationRequest(userId, externalRequestId, {
-            status: "failed",
-            errorMessage: "No matching PC game was found.",
-          });
-          return res.status(404).json({ error: "No matching PC game was found." });
-        }
+      // An exact IGDB id bypasses the catalog filters, and a title takes whatever ranks first:
+      // refuse both when the game has no desktop release.
+      const match = await resolveDesktopMatch(title, igdbId);
+      if (!match) {
+        await storage.updateIntegrationRequest(userId, externalRequestId, {
+          status: "failed",
+          errorMessage: "No matching PC game was found.",
+        });
+        return res.status(404).json({ error: "No matching PC game was found." });
       }
 
       const result = await quickAddGameByTitle(userId, title, {
         status: "wanted",
         source: "api",
         targetPlatform: TARGET_PLATFORMS[variant.operatingSystem],
-        ...(igdbId ? { igdbId } : {}),
+        ...(match.igdbId ? { igdbId: match.igdbId } : {}),
       });
 
       if (result.outcome === "not_found") {
@@ -837,16 +853,14 @@ seerrngRouter.post(
       let game = await findGame(userId, ledger);
       if (!game) {
         // The game was deleted (or never created): add it again from the ledger.
-        if (ledger.igdbId) {
-          const requested = await igdbClient.getGameById(ledger.igdbId);
-          if (requested && !supportsDesktop(requested)) {
-            return res.status(404).json({ error: "No matching PC game was found." });
-          }
+        const match = await resolveDesktopMatch(ledger.title, ledger.igdbId);
+        if (!match) {
+          return res.status(404).json({ error: "No matching PC game was found." });
         }
         const result = await quickAddGameByTitle(userId, ledger.title, {
           status: "wanted",
           source: "api",
-          ...(ledger.igdbId ? { igdbId: ledger.igdbId } : {}),
+          ...(match.igdbId ? { igdbId: match.igdbId } : {}),
           ...(ledger.operatingSystem
             ? { targetPlatform: TARGET_PLATFORMS[ledger.operatingSystem] }
             : {}),

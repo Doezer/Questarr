@@ -478,6 +478,16 @@ describe("SeerrNG provider API", () => {
       expect(storage.addGame).not.toHaveBeenCalled();
     });
 
+    it("refuses a title-only request whose top match is console-only", async () => {
+      (igdb.searchGames as Mock).mockResolvedValue([
+        igdbGame(42, "Console Only", { platformOptions: [{ id: 48, name: "PS4" }] }),
+      ]);
+      const { igdbId: _omitted, ...titleOnly } = createBody as Record<string, unknown>;
+      const res = await request(app).post(`${base}/requests`).send(titleOnly);
+      expect(res.status).toBe(404);
+      expect(storage.addGame).not.toHaveBeenCalled();
+    });
+
     it("refuses a game already answering another request", async () => {
       await request(app).post(`${base}/requests`).send(createBody);
       const res = await request(app)

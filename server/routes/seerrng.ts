@@ -647,6 +647,7 @@ async function attachExistingGameLocked(
   owner: Game,
   operatingSystem: keyof typeof TARGET_PLATFORMS
 ): Promise<IntegrationRequest | undefined> {
+  let releasedCancelled = false;
   const holder = await storage.getIntegrationRequestByGameId(userId, owner.id);
   if (holder && holder.externalRequestId !== externalRequestId) {
     if (holder.status !== "cancelled") {
@@ -657,9 +658,18 @@ async function attachExistingGameLocked(
       return undefined;
     }
     await storage.updateIntegrationRequest(userId, holder.externalRequestId, { gameId: null });
+    releasedCancelled = true;
   }
-  if (owner.status === "shelved") {
-    // Shelved (by a cancellation or by hand) means "not wanted"; a new request wants it again.
+  // Claim the game in the ledger first: the live-game unique index rejects a concurrent claim
+  // here, before this request has touched the game's status or target platform.
+  const claimed = await storage.updateIntegrationRequest(userId, externalRequestId, {
+    gameId: owner.id,
+    status: "searching",
+    errorMessage: null,
+  });
+  if (releasedCancelled && owner.status === "shelved") {
+    // Our cancellation shelved the game; a new request wants it again. A game the user
+    // shelved by hand is a curated, owned entry and keeps its state.
     await storage.updateGameStatus(owner.id, { status: "wanted" });
     owner = { ...owner, status: "wanted" };
   }
@@ -670,11 +680,7 @@ async function attachExistingGameLocked(
       targetPlatformName: platform.name,
     });
   }
-  return storage.updateIntegrationRequest(userId, externalRequestId, {
-    gameId: owner.id,
-    status: "searching",
-    errorMessage: null,
-  });
+  return claimed;
 }
 
 seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {

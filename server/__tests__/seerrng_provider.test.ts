@@ -147,6 +147,20 @@ describe("SeerrNG provider API", () => {
       (storage.updateIntegrationRequest as Mock).mockImplementation(original);
     });
 
+    it("keeps a game the user shelved by hand instead of wanting it again", async () => {
+      games.set("g-shelved", {
+        id: "g-shelved",
+        userId: USER.id,
+        igdbId: 42,
+        status: "shelved",
+        title: "Example Game",
+      });
+      const res = await request(app).post(`${base}/requests`).send(createBody);
+      expect(res.status).toBe(201);
+      expect(storage.updateGameStatus).not.toHaveBeenCalledWith("g-shelved", { status: "wanted" });
+      expect(games.get("g-shelved")).toMatchObject({ status: "shelved" });
+    });
+
     it("refuses an edition selection instead of queueing the base game only", async () => {
       const res = await request(app)
         .post(`${base}/requests`)

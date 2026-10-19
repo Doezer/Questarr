@@ -1361,8 +1361,10 @@ class IGDBClient {
       );
 
     try {
-      // Only get major gaming platforms, but fetch all pages.
-      const primary = await fetchAllPlatforms("category = (1, 5, 6)");
+      // Only get major gaming platforms, but fetch all pages. IGDB replaced the deprecated
+      // `category` field with `platform_type`: 1 console, 4 operating system (PC, Mac, Linux),
+      // 5 portable console, 6 computer.
+      const primary = await fetchAllPlatforms("platform_type = (1, 4, 5, 6)");
       if (primary.length > 0) {
         return processPlatforms(primary);
       }

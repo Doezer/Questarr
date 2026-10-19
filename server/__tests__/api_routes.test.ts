@@ -1555,9 +1555,17 @@ describe("API Routes - Extended Coverage", () => {
 
     describe("GET /api/igdb/platforms", () => {
       it("should return platforms", async () => {
+        vi.mocked(igdbClient.getPlatforms).mockResolvedValue([{ id: 1, name: "Platform 1" }]);
+        const response = await request(app).get("/api/igdb/platforms");
+        expect(response.status).toBe(200);
+        expect(response.headers["cache-control"]).toContain("max-age=86400");
+      });
+
+      it("should not let browsers cache an empty platform list", async () => {
         vi.mocked(igdbClient.getPlatforms).mockResolvedValue([]);
         const response = await request(app).get("/api/igdb/platforms");
         expect(response.status).toBe(200);
+        expect(response.headers["cache-control"]).toBe("no-store");
       });
     });
 

@@ -132,6 +132,23 @@ describe("classifyReleaseByRules", () => {
     });
   });
 
+  describe("repack flag", () => {
+    it("is kept next to every kind of result", () => {
+      expect(classifyReleaseByRules({ title: "Game.DLC.Repack-GRP" })).toMatchObject({
+        class: "dlc",
+        flags: ["repack"],
+      });
+      expect(classifyReleaseByRules({ title: "Game.Update.v1.2.Repack-GRP" })).toMatchObject({
+        class: "patch",
+        flags: ["repack"],
+      });
+      expect(classifyReleaseByRules({ title: "Game.Soundtrack.Repack-GRP" }).flags).toEqual([
+        "soundtrack",
+        "repack",
+      ]);
+    });
+  });
+
   describe("a spaced dash is not a scene group", () => {
     it("keeps a trailing marker word after ' - '", () => {
       expect(classifyReleaseByRules({ title: "Game - Soundtrack" }).flags).toEqual(["soundtrack"]);

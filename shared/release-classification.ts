@@ -147,6 +147,14 @@ export function classifyReleaseByRules(input: ReleaseClassificationInput): Class
     input
   );
 
+  const repack = /\brepack\b/i.test(input.title.replaceAll(/[._-]+/g, " "))
+    ? (["repack"] as ClassificationFlag[])
+    : undefined;
+  const withFlags = (classification: Classification): Classification =>
+    repack
+      ? { ...classification, flags: [...(classification.flags ?? []), ...repack] }
+      : classification;
+
   const flagHits = FLAG_RULES.filter((rule) => rule.pattern.test(text));
   const patch = matching(PATCH_RULES, text);
   const dlc = matching(DLC_RULES, text);
@@ -158,36 +166,30 @@ export function classifyReleaseByRules(input: ReleaseClassificationInput): Class
   const contentIds = [...patch, ...dlc, ...expansion];
 
   if (flagHits.length > 0) {
-    return {
+    return withFlags({
       class: "unknown",
       confidence: null,
       source: "rules",
       ruleIds: [...flagHits.map((rule) => rule.id), ...contentIds],
       flags: flagHits.map((rule) => rule.flag),
-    };
+    });
   }
   if (classes.length === 1) {
-    return {
+    return withFlags({
       class: classes[0] as ReleaseClass,
       confidence: null,
       source: "rules",
       ruleIds: contentIds,
-    };
+    });
   }
   if (classes.length > 1) {
-    return {
+    return withFlags({
       class: "unknown",
       confidence: null,
       source: "rules",
       ruleIds: ["unknown.conflict", ...contentIds],
-    };
+    });
   }
-
-  const repack = /\brepack\b/i.test(input.title.replaceAll(/[._-]+/g, " "))
-    ? (["repack"] as ClassificationFlag[])
-    : undefined;
-  const withFlags = (classification: Classification): Classification =>
-    repack ? { ...classification, flags: repack } : classification;
 
   if (bundled) {
     return withFlags({

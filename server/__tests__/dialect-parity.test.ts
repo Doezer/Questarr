@@ -383,9 +383,27 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
         0
       );
 
-      // Unblock all removes every blocked release of the user's games.
+      // Unblock all removes every blocked release of the user's games, and only theirs.
+      const other = await storage().createUser({
+        username: "bob-unblock",
+        passwordHash: "h",
+      } as never);
+      const otherGame = await storage().addGame({
+        userId: other.id,
+        igdbId: 9001,
+        title: "Other Game",
+        status: "wanted",
+      } as never);
+      await storage().addReleaseBlacklist({
+        gameId: otherGame.id,
+        releaseTitle: "Other.Game-BAD",
+        indexerName: "idx",
+      } as never);
       expect(await storage().removeAllReleaseBlacklists(user.id)).toBeGreaterThanOrEqual(1);
       expect(await storage().getAllReleaseBlacklists(user.id)).toEqual([]);
+      expect(
+        (await storage().getAllReleaseBlacklists(other.id)).map((e) => e.releaseTitle)
+      ).toEqual(["Other.Game-BAD"]);
 
       const completedOnly = await storage().getDownloadEvents(user.id, { eventType: "completed" });
       expect(completedOnly.total).toBeGreaterThanOrEqual(1);

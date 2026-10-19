@@ -47,6 +47,11 @@ function resolveBasePathFromRuntimeAsset(runtimeAssetHref?: string): string | un
 function findMatchedRoute(pathname: string): string | undefined {
   const normalizedPathname = trimTrailingSlashes(pathname);
 
+  const gameDetailsMatch = /\/games\/[^/]+$/.exec(normalizedPathname);
+  if (gameDetailsMatch) {
+    return gameDetailsMatch[0];
+  }
+
   return [...appRoutePaths]
     .filter((route) => route !== "/")
     .sort((left, right) => right.length - left.length)

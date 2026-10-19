@@ -40,6 +40,7 @@ test.describe("Discover details release actions", () => {
       const searches: string[] = [];
       await page.route("/api/igdb/**", (route) => {
         const url = route.request().url();
+        if (/\/api\/igdb\/game\//.test(url)) return route.fulfill({ json: game });
         return route.fulfill({ json: /genres|platforms/.test(url) ? [] : [game] });
       });
       await page.route("/api/games?*", (route) => route.fulfill({ json: [] }));
@@ -88,6 +89,7 @@ test.describe("Discover details release actions", () => {
       });
       await page.goto("/discover");
       await page.getByTestId(`card-game-${game.id}`).first().click();
+      await expect(page).toHaveURL(/\/games\/igdb-/);
       await page.getByTestId("button-download-game").click();
       const dialog = page.getByRole("dialog").last();
       await expect(dialog.getByText(release.title, { exact: true })).toBeVisible();
@@ -151,9 +153,11 @@ test.describe("Discover details library actions", () => {
         localStorage.setItem("discoverHideOwned", "false");
         localStorage.setItem("discoverHideWanted", JSON.stringify(hideWanted));
       }, scenario === "rating-filter");
-      await page.route("/api/igdb/**", (route) =>
-        route.fulfill({ json: /genres|platforms/.test(route.request().url()) ? [] : [game] })
-      );
+      await page.route("/api/igdb/**", (route) => {
+        const url = route.request().url();
+        if (/\/api\/igdb\/game\//.test(url)) return route.fulfill({ json: game });
+        return route.fulfill({ json: /genres|platforms/.test(url) ? [] : [game] });
+      });
       await page.route("/api/games?*", (route) => {
         reads++;
         return route.fulfill({ json: library });
@@ -190,31 +194,31 @@ test.describe("Discover details library actions", () => {
 
       await page.goto("/discover");
       await page.getByTestId(`card-game-${game.id}`).first().click();
-      const modal = page.getByRole("dialog").first();
+      await expect(page).toHaveURL(/\/games\/igdb-/);
+      const details = page.getByTestId(`page-game-details-${game.id}`);
       await expect.poll(() => reads).toBeGreaterThan(0);
       const initialReads = reads;
       if (scenario.startsWith("hide")) {
-        await modal.getByRole("button", { name: "Hide", exact: true }).click();
-        await expect(modal).not.toBeVisible();
+        await details.getByRole("button", { name: "Hide", exact: true }).click();
+        await expect(page).toHaveURL(/\/discover/);
         await expect(page.getByTestId(`card-game-${game.id}`)).toHaveCount(0);
       } else if (scenario.startsWith("rating")) {
-        await expect(modal.getByRole("button", { name: "Remove", exact: true })).toHaveCount(0);
-        await modal.getByRole("tab", { name: /links/i }).click();
-        await modal.getByRole("button", { name: "Rate 4 out of 5" }).click();
+        await expect(details.getByRole("button", { name: "Remove", exact: true })).toHaveCount(0);
+        await details.getByRole("button", { name: "Rate 4 out of 5" }).click();
         if (scenario === "rating-filter") {
           // Hide wanted was already enabled: adding via rating must refresh the carousel.
           await expect(page.getByTestId(`card-game-${game.id}`)).toHaveCount(0);
         } else {
-          await expect(modal.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
+          await expect(details.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
           await page.screenshot({ path: testInfo.outputPath("discover-rating.png") });
         }
       } else {
-        await modal.getByRole("button", { name: "Remove", exact: true }).click();
+        await details.getByRole("button", { name: "Remove", exact: true }).click();
         await page
           .getByRole("alertdialog")
           .getByRole("button", { name: "Remove", exact: true })
           .click();
-        await expect(modal).not.toBeVisible();
+        await expect(page).toHaveURL(/\/discover/);
         await expect(page.getByTestId(`card-game-${game.id}`).first()).toBeVisible();
       }
       await expect.poll(() => writes).toBe(1);

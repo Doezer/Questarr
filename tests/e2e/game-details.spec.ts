@@ -5,22 +5,21 @@ test.describe("Game Details", () => {
 
   test("should view game details", async ({ page }) => {
     // Mock the games API to ensure we have a game to click
-    await page.route("/api/games*", async (route) => {
-      const json = [
-        {
-          id: "test-game-id-123",
-          title: "Cyberpunk 2077",
-          coverUrl: "https://images.igdb.com/igdb/image/upload/t_cover_big/co2mjs.jpg",
-          platforms: ["PC", "PS5"],
-          genres: ["RPG"],
-          status: "wanted",
-          addedAt: new Date().toISOString(),
-          igdbId: 1877,
-          hidden: false,
-        },
-      ];
-      await route.fulfill({ json });
-    });
+    const game = {
+      id: "test-game-id-123",
+      title: "Cyberpunk 2077",
+      coverUrl: "https://images.igdb.com/igdb/image/upload/t_cover_big/co2mjs.jpg",
+      platforms: ["PC", "PS5"],
+      genres: ["RPG"],
+      status: "wanted",
+      addedAt: new Date().toISOString(),
+      igdbId: 1877,
+      hidden: false,
+    };
+    await page.route("**/api/games?*", (route) => route.fulfill({ json: [game] }));
+    await page.route("**/api/games", (route) => route.fulfill({ json: [game] }));
+    // The details page loads its game by id, so it can be opened straight from a URL.
+    await page.route("**/api/games/test-game-id-123", (route) => route.fulfill({ json: game }));
 
     await page.goto("/");
 
@@ -29,17 +28,33 @@ test.describe("Game Details", () => {
     const card = page.getByTestId("card-game-test-game-id-123");
     await expect(card).toBeVisible();
 
-    // The whole card opens the details dialog
+    // The whole card opens the game's own page
     await card.click();
+    await expect(page).toHaveURL(/\/games\/test-game-id-123$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Cyberpunk 2077" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Game sections" })).toBeVisible();
 
-    // Expect a modal
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Cyberpunk 2077" })).toBeVisible();
+    // Back returns to the library
+    await page.getByTestId("button-back").click();
+    await expect(page).not.toHaveURL(/\/games\//);
+  });
 
-    // Close the modal. The dialog auto-focuses the Download button, whose tooltip opens on
-    // focus; Radix dismisses one layer per Escape, so the first press closes the tooltip.
-    await page.keyboard.press("Escape");
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog")).not.toBeVisible();
+  test("opens a game directly from its URL, as in a new tab", async ({ page }) => {
+    await page.route("**/api/games/test-game-id-123", (route) =>
+      route.fulfill({
+        json: {
+          id: "test-game-id-123",
+          title: "Cyberpunk 2077",
+          platforms: ["PC"],
+          genres: ["RPG"],
+          status: "wanted",
+          addedAt: new Date().toISOString(),
+          hidden: false,
+        },
+      })
+    );
+    await page.goto("/games/test-game-id-123");
+    await expect(page.getByRole("heading", { level: 1, name: "Cyberpunk 2077" })).toBeVisible();
+    await expect(page).toHaveTitle(/Cyberpunk 2077/);
   });
 });

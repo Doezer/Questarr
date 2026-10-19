@@ -5,16 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Game } from "@shared/schema";
 import BacklogRoulette from "../src/components/BacklogRoulette";
 
-vi.mock("@/components/GameDetailsModal", () => ({
-  default: ({ game, onOpenChange }: { game: Game; onOpenChange: (open: boolean) => void }) => (
-    <div role="dialog" aria-label="Game details">
-      <h2>{game.title}</h2>
-      <p>Rating: {game.userRating}</p>
-      <button onClick={() => onOpenChange(false)}>Close details</button>
-    </div>
-  ),
-}));
-
 /** Build a Library fixture with the fields used by roulette. */
 function game(id: string, status = "owned", hidden = false): Game {
   return {
@@ -120,36 +110,12 @@ describe("Backlog roulette", () => {
     expect(screen.queryByRole("dialog", { name: "Backlog roulette" })).not.toBeInTheDocument();
   });
 
-  it("opens the chosen game's details and closes them again", async () => {
+  it("opens the chosen game's own page", () => {
     render(<BacklogRoulette games={[game("a")]} loading={false} onStartPlaying={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
     fireEvent.click(screen.getByRole("button", { name: "View game" }));
-    expect(await screen.findByRole("dialog", { name: "Game details" })).toHaveTextContent(
-      "Quest a"
-    );
+    expect(window.location.pathname).toBe("/games/a");
     expect(screen.queryByRole("dialog", { name: "Backlog roulette" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close details" }));
-    expect(screen.queryByRole("dialog", { name: "Game details" })).not.toBeInTheDocument();
-  });
-
-  it("keeps open details synchronized with refreshed Library data", async () => {
-    const props = {
-      games: [{ ...game("a"), userRating: 3 }],
-      loading: false,
-      onStartPlaying: vi.fn(),
-    };
-    const { rerender } = render(<BacklogRoulette {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
-    fireEvent.click(screen.getByRole("button", { name: "View game" }));
-    expect(await screen.findByRole("dialog", { name: "Game details" })).toHaveTextContent(
-      "Rating: 3"
-    );
-    rerender(<BacklogRoulette {...props} games={[{ ...game("a"), userRating: 5 }]} />);
-    expect(screen.getByRole("dialog", { name: "Game details" })).toHaveTextContent("Rating: 5");
-    rerender(<BacklogRoulette {...props} games={[]} />);
-    expect(screen.queryByRole("dialog", { name: "Game details" })).not.toBeInTheDocument();
-    rerender(<BacklogRoulette {...props} />);
-    expect(screen.queryByRole("dialog", { name: "Game details" })).not.toBeInTheDocument();
   });
 
   it("keeps a failed save open for retry and closes only after a successful save", async () => {

@@ -23,6 +23,7 @@ import fs from "fs-extra";
 import { randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
 import { extractHostnameFromUrl } from "../url-utils.js";
+import { validatePattern } from "../../shared/naming.js";
 
 export const importRouter = Router();
 
@@ -43,7 +44,16 @@ const importConfigPatchSchema = z
   .object({
     enablePostProcessing: z.boolean().optional(),
     autoUnpack: z.boolean().optional(),
-    renamePattern: z.string().min(1).max(200).optional(),
+    renamePattern: z
+      .string()
+      .min(1)
+      .max(200)
+      .superRefine((value, ctx) => {
+        for (const message of validatePattern(value).errors) {
+          ctx.addIssue({ code: "custom", message });
+        }
+      })
+      .optional(),
     overwriteExisting: z.boolean().optional(),
     transferMode: importTransferModeSchema.optional(),
     importPlatformIds: z.array(z.number().int().min(1)).optional(),
@@ -317,6 +327,29 @@ importRouter.get("/config", async (_req, res) => {
   } catch (error) {
     logger.error({ error }, "Error fetching import config");
     res.status(500).json({ error: "Failed to fetch import config" });
+  }
+});
+
+const namingPreviewSchema = z.object({ pattern: z.string().min(1).max(200) }).strict();
+
+importRouter.post("/naming/preview", async (req, res) => {
+  try {
+    const userId = res.locals.userId as string;
+    const { pattern } = namingPreviewSchema.parse(req.body);
+    const validation = validatePattern(pattern);
+    if (!validation.ok) {
+      return res
+        .status(400)
+        .json({ error: validation.errors.join(", "), errors: validation.errors });
+    }
+    const samples = await importManager.previewNaming(pattern, userId);
+    return res.json({ samples });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: zodErrorMessage(error) });
+    }
+    logger.error({ error }, "Error previewing naming pattern");
+    return res.status(500).json({ error: "Failed to preview naming pattern" });
   }
 });
 

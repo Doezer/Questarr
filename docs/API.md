@@ -158,6 +158,25 @@ or 500 if IGDB search fails. Confirm a candidate using the match endpoint below.
 | GET    | `/api/library/scan/unmatched`        | JWT                                                                                                         | —                                                                                                                                                             | `UnmatchedEntry[]` — folders that didn't confidently match an IGDB game                                                         |
 | POST   | `/api/library/scan/unmatched/match`  | JWT + `sensitiveEndpointLimiter`, `sanitizeUnmatchedMatchData`, `validateRequest`                           | `{ rootFolderId (1–200 chars), folderName (1–1000 chars), igdbId (positive integer) }` via `sanitizeUnmatchedMatchData`                                       | `{ gameId, filesAdded }`; 400 `{ error: "Validation failed", details }` on invalid body; 500 with message on resolution failure |
 
+## Import Settings
+
+Mounted under `/api/imports` (JWT). See [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md#naming-pattern)
+for naming tokens and rendering rules.
+
+| Method | Path                          | Auth Required | Request Body                                                                                                                            | Response                                                                                                                                                                                                         |
+| ------ | ----------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/imports/naming/preview` | JWT           | `{ pattern: string (1–200) }` (strict, no other fields)                                                                                 | `{ samples: { title, leafName, fullPath }[] }` for up to 5 library games plus one sample release; nothing is renamed. 400 `{ error, errors: string[] }` if the pattern is invalid; 400 `{ error }` on bad body |
+| PATCH  | `/api/imports/config`         | JWT           | Partial import config. `renamePattern?` (1–200) must pass naming validation: known tokens only, no `/` or `\`, no `..`, no control characters, balanced braces | Updated import config; 400 `{ error }` listing the validation messages on an invalid `renamePattern` or body                                                                                                    |
+
+Example preview request:
+
+```bash
+curl -X POST http://localhost:5000/api/imports/naming/preview \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"pattern":"{Title} ({Year})"}'
+```
+
 ## Indexers
 
 | Method | Path                              | Auth Required                                                                                                                                                                | Request Body                                                                                                                                                                                                                                                                          | Response                                                                                                     |

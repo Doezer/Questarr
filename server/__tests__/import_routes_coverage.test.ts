@@ -24,6 +24,7 @@ const { mockStorage, mockImportManager, mockPlatformMappingService, fsMock } = v
   mockImportManager: {
     confirmImport: vi.fn(),
     planConfirmImport: vi.fn(),
+    previewNaming: vi.fn(),
   },
   mockPlatformMappingService: {
     initializeDefaults: vi.fn(),
@@ -314,6 +315,44 @@ describe("PATCH /api/imports/config — createUserSettings branch", () => {
       expect.objectContaining({ userId: "user-1", renamePattern: "{Title}" })
     );
     expect(mockStorage.updateUserSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe("naming pattern validation", () => {
+  it.each(["../{Title}", "a/{Title}", "{Foo}", "{Title"])("PATCH rejects %s", async (pattern) => {
+    const res = await request(createApp())
+      .patch("/api/imports/config")
+      .send({ renamePattern: pattern });
+    expect(res.status).toBe(400);
+    expect(mockStorage.updateUserSettings).not.toHaveBeenCalled();
+    expect(mockStorage.createUserSettings).not.toHaveBeenCalled();
+  });
+
+  it("POST /naming/preview returns samples for a valid pattern", async () => {
+    mockImportManager.previewNaming.mockResolvedValue([
+      { title: "Hades", leafName: "Hades (2020)", fullPath: "/data/PC/Hades (2020)" },
+    ]);
+    const res = await request(createApp())
+      .post("/api/imports/naming/preview")
+      .send({ pattern: "{Title} ({Year})" });
+    expect(res.status).toBe(200);
+    expect(res.body.samples[0].leafName).toBe("Hades (2020)");
+    expect(mockImportManager.previewNaming).toHaveBeenCalledWith("{Title} ({Year})", "user-1");
+  });
+
+  it("POST /naming/preview rejects an unsafe pattern", async () => {
+    const res = await request(createApp())
+      .post("/api/imports/naming/preview")
+      .send({ pattern: "../{Title}" });
+    expect(res.status).toBe(400);
+    expect(mockImportManager.previewNaming).not.toHaveBeenCalled();
+  });
+
+  it("POST /naming/preview requires authentication", async () => {
+    const res = await request(createApp(false))
+      .post("/api/imports/naming/preview")
+      .send({ pattern: "{Title}" });
+    expect(res.status).toBe(401);
   });
 });
 

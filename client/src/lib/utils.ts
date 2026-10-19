@@ -68,6 +68,7 @@ export function mapGameToInsertGame(game: Game): InsertGame {
     genres: game.genres,
     themes: game.themes,
     screenshots: game.screenshots,
+    videos: game.videos,
     igdbWebsites: game.igdbWebsites,
     aggregatedRating: game.aggregatedRating,
     source: game.source,

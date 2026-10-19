@@ -40,6 +40,7 @@ describe("classifyTitleMatch", () => {
     ["Dishonored.Update.2-CODEX", "Dishonored", "exact"],
     // spelling differences between IGDB titles and release names
     ["STALKER.Shadow.of.Chernobyl-GOG", "S.T.A.L.K.E.R.: Shadow of Chernobyl", "exact"],
+    ["[PC] S.T.A.L.K.E.R.Shadow.of.Chernobyl-GOG", "S.T.A.L.K.E.R.: Shadow of Chernobyl", "exact"],
     ["Tom.Clancys.Rainbow.Six.Siege-CODEX", "Tom Clancy's Rainbow Six Siege", "exact"],
     ["Tales.And.Tactics-TENOKE", "Tales & Tactics", "exact"],
     ["Witcher.3.Wild.Hunt-GOG", "The Witcher 3", "contains"],

@@ -86,6 +86,7 @@ vi.mock("lucide-react", () => ({
   Plus: (props: Record<string, unknown>) => <div data-testid="icon-plus" {...props} />,
   Calendar: (props: Record<string, unknown>) => <div data-testid="icon-calendar" {...props} />,
   Star: (props: Record<string, unknown>) => <div data-testid="icon-star" {...props} />,
+  Play: (props: Record<string, unknown>) => <div data-testid="icon-play" {...props} />,
   Monitor: (props: Record<string, unknown>) => <div data-testid="icon-monitor" {...props} />,
   Gamepad2: (props: Record<string, unknown>) => <div data-testid="icon-gamepad2" {...props} />,
   Tag: (props: Record<string, unknown>) => <div data-testid="icon-tag" {...props} />,
@@ -329,6 +330,18 @@ describe("GameDetails", () => {
     // Media tab uses forceMount so screenshots are always in the DOM (hidden until tab activated)
     expect(screen.getByTestId("screenshot-0")).toBeInTheDocument();
     expect(screen.getByTestId("screenshot-1")).toBeInTheDocument();
+  });
+
+  it("renders the video carousel above the screenshots when the game has videos", () => {
+    renderComponent({
+      ...mockGame,
+      videos: [
+        { name: "Trailer", videoId: "dQw4w9WgXcQ" },
+        { name: "Gameplay", videoId: "9bZkp7q19f0" },
+      ],
+    });
+    expect(screen.getByTestId("video-play-dQw4w9WgXcQ")).toBeInTheDocument();
+    expect(screen.getByTestId("screenshot-0")).toBeInTheDocument();
   });
 
   it("opens the screenshot lightbox and navigates with the carousel controls", async () => {

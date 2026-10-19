@@ -421,9 +421,10 @@ function normalizeForMatch(title: string): string {
   const words = normalizeTerm(title.replaceAll(/['’`]/g, "")).split(" ");
   const joined: string[] = [];
   let letters = "";
-  for (const word of words) {
-    // "Assassin.s.Creed": an apostrophe the indexer turned into a separator
-    if (word === "s" && !letters && joined.length > 0) {
+  for (const [index, word] of words.entries()) {
+    // "Assassin.s.Creed": an apostrophe the indexer turned into a separator. Not when more
+    // single letters follow, as in "PC.S.T.A.L.K.E.R.", where the "s" starts an initialism.
+    if (word === "s" && !letters && joined.length > 0 && !/^[a-z]$/.test(words[index + 1] ?? "")) {
       joined[joined.length - 1] += "s";
       continue;
     }

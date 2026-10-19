@@ -42,10 +42,17 @@ import {
   PREFERRED_GROUP_FORMAT_NAME,
   type ScoringConfig,
 } from "./release-scoring-service.js";
-import { getXrelPredb, xrelEnabledFor, xrelTypesFor, type XrelPredbTypes } from "./xrel-predb.js";
+import {
+  getXrelPredb,
+  INTERACTIVE_LOOKUP_TIMEOUT_MS,
+  xrelEnabledFor,
+  xrelTypesFor,
+  type XrelPredbTypes,
+} from "./xrel-predb.js";
 import {
   evaluateReleases,
   type FormatSpec,
+  type ReleaseEvaluation,
   type XrelPredbEntry,
 } from "../shared/release-scoring.js";
 import {
@@ -437,25 +444,40 @@ export interface AutoSearchScoring {
  * title match. "Ambiguous" names (a match followed by an unverified suffix) stay in manual
  * search. Each kept item carries its evaluation.
  */
-export function scoreReleasesForGame(
+function evaluateItemsForGame(
   items: SearchItem[],
   game: Pick<Game, "title" | "targetPlatformId" | "targetPlatformName">,
   scoring: AutoSearchScoring,
   xrelReleases?: XrelPredbEntry[]
-): SearchItem[] {
+): { item: SearchItem; evaluation: ReleaseEvaluation }[] {
   const platform = resolveGamePlatformPreference(game, scoring.preferredPlatform);
   return evaluateReleases(
     items,
     { gameTitle: game.title, platform, ...(xrelReleases ? { xrelReleases } : {}) },
     scoring.config.profile,
     scoring.config.formats
-  )
+  );
+}
+
+function keepEligibleEvaluations(
+  evaluated: { item: SearchItem; evaluation: ReleaseEvaluation }[]
+): SearchItem[] {
+  return evaluated
     .filter(
       ({ evaluation }) =>
         evaluation.accepted &&
         (evaluation.titleMatch === "exact" || evaluation.titleMatch === "contains")
     )
     .map(({ item, evaluation }) => ({ ...item, evaluation }));
+}
+
+export function scoreReleasesForGame(
+  items: SearchItem[],
+  game: Pick<Game, "title" | "targetPlatformId" | "targetPlatformName">,
+  scoring: AutoSearchScoring,
+  xrelReleases?: XrelPredbEntry[]
+): SearchItem[] {
+  return keepEligibleEvaluations(evaluateItemsForGame(items, game, scoring, xrelReleases));
 }
 
 /**
@@ -493,18 +515,23 @@ export async function searchAndCategorizeItemsForGame(
     // looked up once per game, and only when there is something to score
     if (scoring?.xrelTypes && !xrelLookedUp) {
       xrelLookedUp = true;
-      xrelReleases = await getXrelPredb(game.title, scoring.xrelTypes);
+      // bounded so a slow xREL cannot stall the whole cycle; the lookup still fills the cache
+      xrelReleases = await getXrelPredb(game.title, scoring.xrelTypes, {
+        timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
+      });
     }
-    matchedItems = scoring
-      ? scoreReleasesForGame(items, game, scoring, xrelReleases)
+    const evaluated = scoring ? evaluateItemsForGame(items, game, scoring, xrelReleases) : null;
+    matchedItems = evaluated
+      ? keepEligibleEvaluations(evaluated)
       : items.filter((item) => releaseMatchesGame(item.title, game.title));
     // A first page with no title match means the search is not about this game. Later pages
     // are only fetched because the blacklist hid a whole page, so an unrelated page there
     // should not stop the search.
     // With scoring, an empty result may only mean every title match was rejected, so the
-    // unrelated-search decision is made on the raw title match and paging continues otherwise.
-    const unrelated = scoring
-      ? page === 0 && !items.some((item) => releaseMatchesGame(item.title, game.title))
+    // unrelated-search decision is made on the scorer's title class (which also handles
+    // non-Latin titles) and paging continues otherwise.
+    const unrelated = evaluated
+      ? page === 0 && evaluated.every(({ evaluation }) => evaluation.titleMatch === "mismatch")
       : matchedItems.length === 0 && page === 0;
     if (unrelated) {
       igdbLogger.debug(

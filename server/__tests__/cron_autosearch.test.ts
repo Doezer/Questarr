@@ -2662,4 +2662,20 @@ describe("release scoring in auto-search", () => {
     expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
     expect(result?.mainItems.map((i) => i.title)).toContain("Dishonored-CODEX");
   });
+
+  it("does not treat a non-Latin title as an unrelated search", async () => {
+    mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
+    mockSearchAllIndexers.mockResolvedValueOnce({
+      items: [item("英雄伝説-GOG")],
+      errors: [],
+    });
+    const result = await searchAndCategorizeItemsForGame(
+      { id: "g2", title: "英雄伝説", targetPlatformId: null, targetPlatformName: null },
+      null,
+      undefined,
+      [],
+      scoring
+    );
+    expect(result?.mainItems.map((i) => i.title)).toEqual(["英雄伝説-GOG"]);
+  });
 });

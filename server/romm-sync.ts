@@ -20,13 +20,14 @@ const SETTLEABLE_STATUS = "wanted";
 
 /**
  * The game a ROM settles, or undefined. By IGDB id first (several games can share one: the one
- * whose target platform fits the ROM wins), then by normalized title for a ROM without an id.
+ * whose target platform fits the ROM best wins), then by normalized title for a ROM without an id.
  * A target platform is enforced on a title match, and on an id match when it has a RomM slug.
  */
 function matchRomToGame(
   rom: RommRom,
   byIgdbId: Map<number, Game[]>,
-  byTitle: Map<string, Game | null>
+  byTitle: Map<string, Game | null>,
+  seen: ReadonlySet<string>
 ): Game | undefined {
   const fits = (game: Game): boolean => {
     if (game.targetPlatformId == null) return true;
@@ -35,7 +36,15 @@ function matchRomToGame(
     return targetSlug === rom.platform_slug;
   };
   if (rom.igdb_id != null) {
-    return (byIgdbId.get(rom.igdb_id) ?? []).find(fits);
+    const all = byIgdbId.get(rom.igdb_id) ?? [];
+    // Games a previous ROM already settled come last; an exact platform match beats a lenient one.
+    const candidates = [
+      ...all.filter((g) => !seen.has(g.id)),
+      ...all.filter((g) => seen.has(g.id)),
+    ];
+    const exact = (g: Game) =>
+      g.targetPlatformId != null && rommSlugForPlatformId(g.targetPlatformId) === rom.platform_slug;
+    return candidates.find(exact) ?? candidates.find(fits);
   }
   // Title fallback only without an IGDB id: an original and its remake must not be mixed up.
   const game = rom.name ? byTitle.get(normalizeTitle(rom.name)) : undefined;
@@ -80,7 +89,7 @@ export async function syncFromRomm(
   const seen = new Set<string>();
 
   for (const rom of roms) {
-    const game = matchRomToGame(rom, byIgdbId, byTitle);
+    const game = matchRomToGame(rom, byIgdbId, byTitle, seen);
     if (!game) {
       summary.notInLibrary++;
       continue;

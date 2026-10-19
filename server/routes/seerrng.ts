@@ -741,6 +741,18 @@ async function findGame(userId: string, ledger: IntegrationRequest): Promise<Gam
   return game?.userId === userId ? game : undefined;
 }
 
+/** IGDB ids of the add-ons this request itself added to the library. */
+function queuedAddonIds(ledger: IntegrationRequest): number[] {
+  try {
+    const parsed = z
+      .object({ queuedAddonIds: z.array(z.number().int().positive()).max(30) })
+      .safeParse(JSON.parse(ledger.selection ?? "null"));
+    return parsed.success ? parsed.data.queuedAddonIds : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * What is still outstanding for an edition or add-on request. An edition is the linked game
  * itself; add-ons are separate library games matched by IGDB id.
@@ -958,26 +970,39 @@ async function attachExistingGameLocked(
   return claimed;
 }
 
-/** Adds the selected add-ons the library does not know yet as wanted games; failures are logged only. */
+/**
+ * Adds the selected add-ons the library does not know yet as wanted games and remembers which ones
+ * this request created, so cancelling it never shelves a game someone else wanted. Failures are
+ * logged only.
+ */
 async function queueAddons(
   userId: string,
+  ledger: IntegrationRequest,
   addons: IGDBContentRef[],
   operatingSystem: keyof typeof TARGET_PLATFORMS
 ): Promise<void> {
-  if (addons.length === 0) return;
+  const selection = storedSelection(ledger);
+  if (addons.length === 0 || selection?.mode !== "missing-selected") return;
   const library = await libraryByIgdbId(userId);
+  const queued: number[] = [];
   for (const addon of addons) {
     if (library.has(addon.id)) continue;
     try {
-      await quickAddGameByTitle(userId, addon.name, {
+      const result = await quickAddGameByTitle(userId, addon.name, {
         status: "wanted",
         source: "api",
         targetPlatform: TARGET_PLATFORMS[operatingSystem],
         igdbId: addon.id,
       });
+      if (result.outcome === "added") queued.push(addon.id);
     } catch (error) {
       logger.warn({ error, igdbId: addon.id }, "SeerrNG add-on could not be queued");
     }
+  }
+  if (queued.length > 0) {
+    await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
+      selection: JSON.stringify({ ...selection, queuedAddonIds: queued }),
+    });
   }
 }
 
@@ -1073,7 +1098,7 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
         if (!linked) {
           return res.status(409).json({ error: "Game is already linked to another request." });
         }
-        await queueAddons(userId, addons, variant.operatingSystem);
+        await queueAddons(userId, linked, addons, variant.operatingSystem);
         return res.status(201).json(await describeRequest(userId, linked));
       }
 
@@ -1082,7 +1107,7 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
         status: "searching",
         errorMessage: null,
       });
-      await queueAddons(userId, addons, variant.operatingSystem);
+      await queueAddons(userId, linked ?? ledger, addons, variant.operatingSystem);
       return res.status(201).json(await describeRequest(userId, linked ?? ledger));
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -1256,12 +1281,12 @@ seerrngRouter.post(
   )
 );
 
-/** Add-ons queued for a cancelled request stop being searched unless already acquired. */
+/** Add-ons this request queued stop being searched on cancel, unless they were acquired since. */
 async function shelvePendingAddons(userId: string, ledger: IntegrationRequest): Promise<void> {
-  const selection = storedSelection(ledger);
-  if (selection?.mode !== "missing-selected") return;
+  const queued = queuedAddonIds(ledger);
+  if (queued.length === 0) return;
   const library = await libraryByIgdbId(userId);
-  for (const id of selection.addonIds) {
+  for (const id of queued) {
     const addon = library.get(id);
     if (addon?.status === "wanted") {
       await storage.updateGameStatus(addon.id, { status: "shelved" });

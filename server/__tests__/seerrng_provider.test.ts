@@ -461,6 +461,27 @@ describe("SeerrNG provider API", () => {
         expect(byIgdb(42)).toMatchObject({ status: "shelved" });
       });
 
+      it("keeps an add-on someone else wanted when the request is cancelled", async () => {
+        games.set("mine", {
+          id: "mine",
+          userId: USER.id,
+          igdbId: 71,
+          status: "wanted",
+          title: "Side Quest",
+        });
+        const res = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70, 71] },
+          });
+        expect(res.status).toBe(201);
+        await request(app).post(`${base}/requests/${createBody.externalRequestId}/cancel`).send({});
+        const byIgdb = (id: number) => [...games.values()].find((g) => g.igdbId === id);
+        expect(byIgdb(70)).toMatchObject({ status: "shelved" });
+        expect(byIgdb(71)).toMatchObject({ status: "wanted" });
+      });
+
       it("refuses an edition or add-on that does not belong to the game", async () => {
         const edition = await request(app)
           .post(`${base}/requests`)

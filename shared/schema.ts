@@ -1750,5 +1750,5 @@ export type NewIntegrationRequest = Pick<
     >
   >;
 export type IntegrationRequestUpdate = Partial<
-  Pick<IntegrationRequest, "gameId" | "status" | "errorMessage">
+  Pick<IntegrationRequest, "gameId" | "status" | "errorMessage" | "selection">
 >;

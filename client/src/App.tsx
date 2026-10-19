@@ -33,6 +33,7 @@ const NotFound = lazy(() => import("@/pages/not-found"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
 const WishlistPage = lazy(() => import("@/pages/wishlist"));
 const PlayingPage = lazy(() => import("@/pages/playing"));
+const CollectionsPage = lazy(() => import("@/pages/collections"));
 const LibraryImportPage = lazy(() => import("@/pages/library-import"));
 const XrelReleasesPage = lazy(() => import("@/pages/xrel-releases"));
 const RssPage = lazy(() => import("@/pages/rss"));
@@ -139,6 +140,7 @@ function Router() {
         <Route path={routePaths.calendar} component={CalendarPage} />
         <Route path={routePaths.wishlist} component={WishlistPage} />
         <Route path={routePaths.playing} component={PlayingPage} />
+        <Route path={routePaths.collections} component={CollectionsPage} />
         <Route path={routePaths.libraryImport} component={LibraryImportPage} />
         <Route path={routePaths.xrel} component={XrelReleasesPage} />
         <Route path={routePaths.rss} component={RssPage} />

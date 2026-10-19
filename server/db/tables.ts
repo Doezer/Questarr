@@ -22,6 +22,8 @@ export const {
   aiAutoDownloadHolds,
   apiKeys,
   customFormats,
+  collectionGames,
+  collections,
   downloaders,
   gameDownloads,
   gameFiles,

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "90c40dda-5f52-439e-8b3d-e366116d88e1",
+  "id": "d689db8f-2eaa-4070-8b8d-3ad183c43f61",
   "prevId": "41ce72ab-0263-4d75-8639-47bcf0401194",
   "tables": {
     "ai_auto_download_holds": {
@@ -147,8 +147,72 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "custom_formats": {
-      "name": "custom_formats",
+    "collection_games": {
+      "name": "collection_games",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "collection_id": {
+          "name": "collection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "game_id": {
+          "name": "game_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "added_at": {
+          "name": "added_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "(strftime('%s', 'now') * 1000)"
+        }
+      },
+      "indexes": {
+        "collection_games_collection_game_idx": {
+          "name": "collection_games_collection_game_idx",
+          "columns": ["collection_id", "game_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "collection_games_collection_id_collections_id_fk": {
+          "name": "collection_games_collection_id_collections_id_fk",
+          "tableFrom": "collection_games",
+          "tableTo": "collections",
+          "columnsFrom": ["collection_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "collection_games_game_id_games_id_fk": {
+          "name": "collection_games_game_id_games_id_fk",
+          "tableFrom": "collection_games",
+          "tableTo": "games",
+          "columnsFrom": ["game_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "collections": {
+      "name": "collections",
       "columns": {
         "id": {
           "name": "id",
@@ -171,45 +235,27 @@
           "notNull": true,
           "autoincrement": false
         },
-        "specs": {
-          "name": "specs",
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'[]'"
+          "default": "'manual'"
         },
-        "score": {
-          "name": "score",
-          "type": "integer",
+        "rules": {
+          "name": "rules",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "hard_reject": {
-          "name": "hard_reject",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
@@ -218,27 +264,19 @@
           "notNull": false,
           "autoincrement": false,
           "default": "(strftime('%s', 'now') * 1000)"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "(strftime('%s', 'now') * 1000)"
         }
       },
       "indexes": {
-        "custom_formats_user_idx": {
-          "name": "custom_formats_user_idx",
+        "collections_user_idx": {
+          "name": "collections_user_idx",
           "columns": ["user_id"],
           "isUnique": false
         }
       },
       "foreignKeys": {
-        "custom_formats_user_id_users_id_fk": {
-          "name": "custom_formats_user_id_users_id_fk",
-          "tableFrom": "custom_formats",
+        "collections_user_id_users_id_fk": {
+          "name": "collections_user_id_users_id_fk",
+          "tableFrom": "collections",
           "tableTo": "users",
           "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
@@ -1813,125 +1851,6 @@
           "tableFrom": "release_blacklist",
           "tableTo": "games",
           "columnsFrom": ["game_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "release_profiles": {
-      "name": "release_profiles",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "min_score": {
-          "name": "min_score",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "protocol_preference": {
-          "name": "protocol_preference",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'either'"
-        },
-        "required_terms": {
-          "name": "required_terms",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "ignored_terms": {
-          "name": "ignored_terms",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "min_seeders": {
-          "name": "min_seeders",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "max_size_bytes": {
-          "name": "max_size_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "built_in_overrides": {
-          "name": "built_in_overrides",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'{}'"
-        },
-        "format_scores": {
-          "name": "format_scores",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'{}'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "(strftime('%s', 'now') * 1000)"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "(strftime('%s', 'now') * 1000)"
-        }
-      },
-      "indexes": {
-        "release_profiles_user_id_unique": {
-          "name": "release_profiles_user_id_unique",
-          "columns": ["user_id"],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "release_profiles_user_id_users_id_fk": {
-          "name": "release_profiles_user_id_users_id_fk",
-          "tableFrom": "release_profiles",
-          "tableTo": "users",
-          "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"

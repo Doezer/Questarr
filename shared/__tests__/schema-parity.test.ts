@@ -21,6 +21,8 @@ import * as pgSchema from "../schema.pg.js";
 const EXPECTED_TABLES = [
   "aiAutoDownloadHolds",
   "apiKeys",
+  "collectionGames",
+  "collections",
   "customFormats",
   "downloadEvents",
   "downloaders",

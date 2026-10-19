@@ -60,6 +60,8 @@ const TABLE_ORDER = [
   "downloadEvents",
   "aiAutoDownloadHolds",
   "importTaskItems",
+  "collections",
+  "collectionGames",
   "gameJournalEntries",
   "gameMilestones",
   "gameScreenshots",

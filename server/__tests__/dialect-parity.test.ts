@@ -255,6 +255,58 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(keys.has(`${downloader!.id}:${realHash}`)).toBe(true);
     });
   });
+  describe("collections", () => {
+    it("stores rules as JSON, links games once and cascades on delete", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+
+      const smart = await storage().createCollection({
+        userId: user.id,
+        name: "Shooters",
+        description: null,
+        type: "smart",
+        rules: { genres: ["Shooter"], minRating: 7 },
+      });
+      expect((await storage().getCollection(smart.id, user.id))?.rules).toEqual({
+        genres: ["Shooter"],
+        minRating: 7,
+      });
+      expect(await storage().getCollection(smart.id, "someone-else")).toBeUndefined();
+
+      const manual = await storage().createCollection({
+        userId: user.id,
+        name: "Backlog",
+        description: "to play",
+        type: "manual",
+        rules: null,
+      });
+      expect(await storage().addGameToCollection(manual.id, game.id)).toBe(true);
+      expect(await storage().addGameToCollection(manual.id, game.id)).toBe(false);
+      expect(await storage().getCollectionLinks(user.id)).toEqual([
+        { collectionId: manual.id, gameId: game.id },
+      ]);
+
+      const renamed = await storage().updateCollection(manual.id, user.id, { name: "Next up" });
+      expect(renamed?.name).toBe("Next up");
+
+      expect(await storage().removeGameFromCollection(manual.id, game.id)).toBe(true);
+      expect(await storage().removeGameFromCollection(manual.id, game.id)).toBe(false);
+
+      // Switching to smart drops the manual links, so they cannot resurface on the way back.
+      await storage().addGameToCollection(manual.id, game.id);
+      await storage().updateCollection(manual.id, user.id, {
+        type: "smart",
+        rules: { genres: ["Shooter"] },
+      });
+      expect(await storage().getCollectionLinks(user.id)).toEqual([]);
+      await storage().updateCollection(manual.id, user.id, { type: "manual", rules: null });
+
+      await storage().addGameToCollection(manual.id, game.id);
+      expect(await storage().deleteCollection(manual.id, user.id)).toBe(true);
+      expect(await storage().getCollectionLinks(user.id)).toEqual([]);
+      expect((await storage().getCollections(user.id)).map((c) => c.name)).toEqual(["Shooters"]);
+    });
+  });
 
   describe("download event log", () => {
     it("still saves the error message when the status does not change", async () => {

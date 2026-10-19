@@ -814,6 +814,9 @@ export default function SettingsPage() {
         description: data.successMessage,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      // Content-filter settings change what the library returns, collections included.
+      queryClient.removeQueries({ queryKey: ["/api/collections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
     },
     onError: (error: Error) => {
       console.error("Settings update error:", error);
@@ -859,6 +862,9 @@ export default function SettingsPage() {
         });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      // Content-filter settings change what the library returns, collections included.
+      queryClient.removeQueries({ queryKey: ["/api/collections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
     },
     onError: (error: Error) => {
       console.error("Settings update error:", error);
@@ -1012,6 +1018,9 @@ export default function SettingsPage() {
         description: "xREL.to options have been saved.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      // Content-filter settings change what the library returns, collections included.
+      queryClient.removeQueries({ queryKey: ["/api/collections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       queryClient.invalidateQueries({ queryKey: ["/api/config"] });
     },
     onError: (error: Error) => {

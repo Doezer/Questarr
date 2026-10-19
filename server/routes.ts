@@ -303,6 +303,7 @@ import {
   type XrelPredbTypes,
 } from "./xrel-predb.js";
 import { evaluateReleases } from "../shared/release-scoring.js";
+import { collectionRoutes } from "./collection-routes.js";
 import { gameJournalRoutes, screenshotDirForGame } from "./game-journal-routes.js";
 import {
   getContentFilterFlags,
@@ -1015,6 +1016,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(steamRoutes);
   app.use(releaseScoringRoutes);
   app.use(gameJournalRoutes);
+  app.use(collectionRoutes);
   // Use PCGamingWiki Routes
   app.use(pcgamingwikiRouter);
 

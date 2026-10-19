@@ -185,6 +185,24 @@ export type _SelectGameFiles = Expect<
 export type _InsertGameFiles = Expect<
   Equal<typeof sqliteSchema.gameFiles.$inferInsert, typeof pgSchema.gameFiles.$inferInsert>
 >;
+export type _SelectCollections = Expect<
+  Equal<typeof sqliteSchema.collections.$inferSelect, typeof pgSchema.collections.$inferSelect>
+>;
+export type _InsertCollections = Expect<
+  Equal<typeof sqliteSchema.collections.$inferInsert, typeof pgSchema.collections.$inferInsert>
+>;
+export type _SelectCollectionGames = Expect<
+  Equal<
+    typeof sqliteSchema.collectionGames.$inferSelect,
+    typeof pgSchema.collectionGames.$inferSelect
+  >
+>;
+export type _InsertCollectionGames = Expect<
+  Equal<
+    typeof sqliteSchema.collectionGames.$inferInsert,
+    typeof pgSchema.collectionGames.$inferInsert
+  >
+>;
 export type _SelectGameJournalEntries = Expect<
   Equal<
     typeof sqliteSchema.gameJournalEntries.$inferSelect,

@@ -52,6 +52,28 @@ describe("getXrelPredb", () => {
     expect(searchReleases).toHaveBeenCalledTimes(2);
   });
 
+  it("falls back on the last completed result when a later lookup is too slow", async () => {
+    vi.useFakeTimers();
+    try {
+      searchReleases.mockResolvedValueOnce([{ dirname: "Old.Game-CODEX", nukeReason: "bad" }]);
+      await getXrelPredb("Old Game", { scene: true, p2p: true });
+      // the 10 minute cache has expired by the next scheduled cycle
+      await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+      searchReleases.mockReturnValue(new Promise(() => {}));
+      const onTimeout = vi.fn();
+      const slow = getXrelPredb(
+        "Old Game",
+        { scene: true, p2p: true },
+        { timeoutMs: 50, staleFallback: true, onTimeout }
+      );
+      await vi.advanceTimersByTimeAsync(60);
+      expect(await slow).toEqual([{ dirname: "Old.Game-CODEX", nukeReason: "bad" }]);
+      expect(onTimeout).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("gives up waiting after the timeout but keeps the lookup for the next caller", async () => {
     vi.useFakeTimers();
     try {

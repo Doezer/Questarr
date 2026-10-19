@@ -16,6 +16,9 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 const LOOKUP_LIMIT = 100;
 // manual searches key the cache by whatever the user typed, so it is bounded
 const MAX_CACHE_ENTRIES = 200;
+// Last completed results, kept much longer than the cache so a slow lookup in a later scheduled
+// cycle can still fall back on them (auto-search runs hours apart, the cache lives 10 minutes).
+const STALE_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 // how long an interactive caller waits for xREL; the lookup keeps running and fills the cache
 export const INTERACTIVE_LOOKUP_TIMEOUT_MS = 3000;
@@ -26,6 +29,7 @@ export interface XrelPredbTypes {
 }
 
 const cache = new Map<string, { at: number; lookup: Promise<XrelPredbEntry[] | undefined> }>();
+const staleResults = new Map<string, { at: number; value: XrelPredbEntry[] }>();
 
 async function fetchPredb(
   gameTitle: string,
@@ -52,22 +56,25 @@ async function fetchPredb(
 export async function getXrelPredb(
   gameTitle: string,
   types: XrelPredbTypes = { scene: true, p2p: true },
-  options: { timeoutMs?: number; onTimeout?: () => void } = {}
+  options: { timeoutMs?: number; onTimeout?: () => void; staleFallback?: boolean } = {}
 ): Promise<XrelPredbEntry[] | undefined> {
   if (!types.scene && !types.p2p) return undefined;
   const title = normalizeTitle(gameTitle);
   if (!title) return undefined;
-  const lookup = cachedLookup(
-    gameTitle,
-    `${types.scene ? "s" : ""}${types.p2p ? "p" : ""}:${title}`,
-    types
-  );
+  const key = `${types.scene ? "s" : ""}${types.p2p ? "p" : ""}:${title}`;
+  const lookup = cachedLookup(gameTitle, key, types);
   const { timeoutMs } = options;
   if (timeoutMs === undefined) return lookup;
 
   let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<undefined>((resolve) => {
+  const timeout = new Promise<XrelPredbEntry[] | undefined>((resolve) => {
     timer = setTimeout(() => {
+      const stale = options.staleFallback ? staleResults.get(key) : undefined;
+      if (stale && Date.now() - stale.at < STALE_RETENTION_MS) {
+        logger.warn({ gameTitle, timeoutMs }, "xREL PreDB lookup is slow, using its last result");
+        resolve(stale.value);
+        return;
+      }
       logger.warn({ gameTitle, timeoutMs }, "xREL PreDB lookup is slow, scoring without it");
       options.onTimeout?.();
       resolve(undefined);
@@ -80,6 +87,20 @@ export async function getXrelPredb(
   }
 }
 
+function rememberResult(key: string, value: XrelPredbEntry[]): void {
+  const now = Date.now();
+  staleResults.delete(key);
+  for (const [entryKey, entry] of staleResults) {
+    if (now - entry.at >= STALE_RETENTION_MS) staleResults.delete(entryKey);
+  }
+  while (staleResults.size >= MAX_CACHE_ENTRIES) {
+    const oldest = staleResults.keys().next().value;
+    if (oldest === undefined) break;
+    staleResults.delete(oldest);
+  }
+  staleResults.set(key, { at: now, value });
+}
+
 function cachedLookup(
   gameTitle: string,
   key: string,
@@ -88,11 +109,16 @@ function cachedLookup(
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.lookup;
 
-  const lookup = fetchPredb(gameTitle, types).catch((error: unknown) => {
-    cache.delete(key);
-    logger.warn({ error, gameTitle }, "xREL PreDB lookup failed, scoring without it");
-    return undefined;
-  });
+  const lookup = fetchPredb(gameTitle, types)
+    .then((value) => {
+      if (value) rememberResult(key, value);
+      return value;
+    })
+    .catch((error: unknown) => {
+      cache.delete(key);
+      logger.warn({ error, gameTitle }, "xREL PreDB lookup failed, scoring without it");
+      return undefined;
+    });
   const now = Date.now();
   for (const [entryKey, entry] of cache) {
     if (now - entry.at >= CACHE_TTL_MS) cache.delete(entryKey);
@@ -123,4 +149,5 @@ export function xrelEnabledFor(
 
 export function clearXrelPredbCache(): void {
   cache.clear();
+  staleResults.clear();
 }

@@ -526,6 +526,8 @@ export async function searchAndCategorizeItemsForGame(
       let xrelTimedOut = false;
       xrelReleases = await getXrelPredb(game.title, scoring.xrelTypes, {
         timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
+        // cycles are hours apart, so a slow lookup falls back on the last completed one
+        staleFallback: true,
         onTimeout: () => {
           xrelTimedOut = true;
         },

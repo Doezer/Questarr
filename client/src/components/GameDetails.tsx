@@ -94,6 +94,7 @@ import { type Game, type GameDownload, type ScannedGameFile } from "@shared/sche
 import { resolveTargetPlatform } from "@shared/title-utils";
 import { type XrelGameStatus } from "@shared/xrel-types";
 import StatusBadge from "./StatusBadge";
+import GameVideoCarousel from "./GameVideoCarousel";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
 import { addDiscoveryGameToLibrary, hideDiscoveryGame } from "@/lib/discover-hidden-mutation";
@@ -572,6 +573,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
   }, [game.id]);
 
   const screenshots = game.screenshots ?? [];
+  const videos = game.videos ?? [];
 
   // Clear the selection if it falls outside the current screenshots list
   // (e.g. the list shrinks while the lightbox is open).
@@ -983,7 +985,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
       ? [{ id: "downloads", label: "Downloads", count: gameDownloads.length }]
       : []),
     ...(isLibraryGame ? [{ id: "journal", label: "Journal" }] : []),
-    { id: "media", label: "Media", count: screenshots.length },
+    { id: "media", label: "Media", count: screenshots.length + videos.length },
     ...(hasExpansions ? [{ id: "dlc", label: "DLC", count: game.expansions?.length ?? 0 }] : []),
     ...(nexusDomain ? [{ id: "mods", label: "Mods" }] : []),
     ...(isLibraryGame ? [{ id: "files", label: "Files" }] : []),
@@ -1616,32 +1618,41 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
               id="media"
               title="Media"
               icon={<Image className="h-5 w-5" />}
-              count={screenshots.length}
+              count={screenshots.length + videos.length}
             >
-              <div>
-                {game.screenshots && game.screenshots.length > 0 ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {game.screenshots.map((screenshot, index) => (
-                      <button
-                        key={index}
-                        type="button"
-                        aria-label={`Open screenshot ${index + 1}`}
-                        className="shadcn-card overflow-hidden cursor-pointer hover-elevate rounded-xl border bg-card border-card-border text-card-foreground shadow-sm"
-                        onClick={() => setSelectedScreenshotIndex(index)}
-                        data-testid={`screenshot-${index}`}
-                      >
-                        <img
-                          src={screenshot}
-                          alt={`${game.title} screenshot ${index + 1}`}
-                          className="w-full h-24 object-cover"
-                        />
-                      </button>
-                    ))}
-                  </div>
-                ) : (
+              <div className="space-y-6">
+                {videos.length > 0 && <GameVideoCarousel videos={videos} />}
+                {screenshots.length > 0 && (
+                  <section aria-label={videos.length > 0 ? "Screenshots" : undefined}>
+                    {videos.length > 0 && (
+                      <h3 className="mb-2 text-sm font-medium text-muted-foreground">
+                        Screenshots
+                      </h3>
+                    )}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {screenshots.map((screenshot, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          aria-label={`Open screenshot ${index + 1}`}
+                          className="shadcn-card overflow-hidden cursor-pointer hover-elevate rounded-xl border bg-card border-card-border text-card-foreground shadow-sm"
+                          onClick={() => setSelectedScreenshotIndex(index)}
+                          data-testid={`screenshot-${index}`}
+                        >
+                          <img
+                            src={screenshot}
+                            alt={`${game.title} screenshot ${index + 1}`}
+                            className="w-full h-24 object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {screenshots.length === 0 && videos.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
                     <Monitor className="w-8 h-8 opacity-40" />
-                    <p className="text-sm">No screenshots available.</p>
+                    <p className="text-sm">No screenshots or videos available.</p>
                   </div>
                 )}
               </div>

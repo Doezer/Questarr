@@ -156,6 +156,7 @@ export const games = pgTable("games", {
   publishers: jsonb("publishers").$type<string[]>(),
   developers: jsonb("developers").$type<string[]>(),
   screenshots: jsonb("screenshots").$type<string[]>(),
+  videos: jsonb("videos").$type<Array<{ name: string; videoId: string }>>(),
   source: text("source").default("manual"), // "manual" | "steam" | "api"
   igdbWebsites: jsonb("igdb_websites").$type<Array<{ category: number; url: string }>>(),
   expansions: jsonb("expansions").$type<GameExpansion[]>(),

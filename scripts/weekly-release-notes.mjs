@@ -56,6 +56,8 @@ for (const pr of prs.values()) {
     );
     pr.title = info.title;
     pr.author = info.author?.login;
+    // gh reports bot authors as "app/<name>" with is_bot, not with a "[bot]" suffix.
+    pr.isBot = Boolean(info.author?.is_bot) || /^app\//.test(pr.author ?? "");
     pr.labels = info.labels.map((l) => l.name);
   } catch {
     // gh unavailable: fall back to the merge commit message.
@@ -90,7 +92,7 @@ const others = sorted.filter((pr) => !security.includes(pr));
 // Contributors: PR authors and direct committers, deduplicated, bots left out.
 const contributors = new Map();
 for (const label of [
-  ...sorted.map((pr) => (pr.author ? `@${pr.author}` : undefined)),
+  ...sorted.map((pr) => (pr.author && !pr.isBot ? `@${pr.author}` : undefined)),
   ...direct.map((c) => (c.login ? `@${c.login}` : c.author)),
 ]) {
   if (label && !/\[bot\]$/i.test(label)) contributors.set(label.toLowerCase(), label);

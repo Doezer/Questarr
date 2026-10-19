@@ -560,6 +560,17 @@ describe("custom formats", () => {
     });
   });
 
+  it("matches a group written with dots or spaces by its whole name", () => {
+    const rgMechanics = format({
+      specs: [{ field: "group", mode: "exact", value: "R.G. Mechanics" }],
+    });
+    const compiled = compileCustomFormats([rgMechanics]);
+    const run = (title: string) =>
+      evaluateRelease(torrent(title), ctx, DEFAULT_RELEASE_PROFILE, compiled).matchedFormats;
+    expect(run("Dishonored-R.G. Mechanics")).toEqual(["f1"]);
+    expect(run("Dishonored-RUNE")).toEqual([]);
+  });
+
   it("matches title, uploader, category, protocol and indexer fields", () => {
     const item = torrent("Dishonored.MULTi8-CODEX", {
       poster: "uploader@example.com",

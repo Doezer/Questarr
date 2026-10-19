@@ -1017,13 +1017,27 @@ export function compileCustomFormats(formats: readonly CustomFormat[]): Compiled
   return { formats: compiled, errors };
 }
 
+/**
+ * The group parser only reads word characters, so "Game-R.G. Mechanics" yields "Mechanics".
+ * The whole text after the last dash is offered too, so a group written with dots or spaces
+ * can still be named in a format.
+ */
+function groupCandidates(title: string, parsed: string | undefined): string[] {
+  const candidates = parsed ? [parsed] : [];
+  const suffix = withoutTrailingTags(title).split("-").pop()?.trim();
+  if (suffix && suffix !== parsed && suffix !== title && suffix.length <= 40) {
+    candidates.push(suffix);
+  }
+  return candidates;
+}
+
 function fieldValues(field: FormatField, facts: ReleaseFacts): string[] {
   const { input, metadata } = facts;
   switch (field) {
     case "title":
       return [input.title];
     case "group":
-      return metadata.group ? [metadata.group] : [];
+      return groupCandidates(input.title, metadata.group);
     case "uploader":
       return input.poster ? [input.poster] : [];
     case "category":

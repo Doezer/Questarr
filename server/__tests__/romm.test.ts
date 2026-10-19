@@ -222,6 +222,27 @@ describe("RomM sync", () => {
     expect((await syncFromRomm("user-1")).matched).toBe(1);
   });
 
+  it("keeps an IGDB id match to the chosen target platform too", async () => {
+    await configure();
+    mockStorage.getUserGames.mockResolvedValue([
+      { ...game("z", "Cross Platform", "wanted"), igdbId: 77, targetPlatformId: 19 },
+    ]);
+    safeFetchMock.mockResolvedValue(
+      json({
+        items: [{ id: 1, name: "Cross Platform", igdb_id: 77, platform_slug: "psx" }],
+        total: 1,
+      })
+    );
+    expect((await syncFromRomm("user-1")).matched).toBe(0);
+    safeFetchMock.mockResolvedValue(
+      json({
+        items: [{ id: 1, name: "Cross Platform", igdb_id: 77, platform_slug: "snes" }],
+        total: 1,
+      })
+    );
+    expect((await syncFromRomm("user-1")).matched).toBe(1);
+  });
+
   it("survives a ROM without a name", async () => {
     await configure();
     mockStorage.getUserGames.mockResolvedValue([game("n", "Named", "wanted")]);

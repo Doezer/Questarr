@@ -60,13 +60,13 @@ export async function syncFromRomm(
     } else {
       // Title fallback only without an IGDB id: an original and its remake must not be mixed up.
       game = rom.name ? byTitle.get(normalizeTitle(rom.name)) : undefined;
-      // A game with a chosen target platform only matches a ROM of that platform.
-      if (
-        game?.targetPlatformId != null &&
-        rommSlugForPlatformId(game.targetPlatformId) !== rom.platform_slug
-      ) {
-        game = undefined;
-      }
+    }
+    // A game with a chosen target platform only matches a ROM of that platform, by id or title.
+    if (
+      game?.targetPlatformId != null &&
+      rommSlugForPlatformId(game.targetPlatformId) !== rom.platform_slug
+    ) {
+      game = undefined;
     }
     if (!game) {
       summary.notInLibrary++;

@@ -9,6 +9,10 @@ All notable changes to this project will be documented in this file.
 - **Naming templates**: the import rename pattern is now a validated template with the tokens `{Title}`, `{TitleThe}`, `{Year}`, `{Platform}`, `{Version}`, `{Group}`, `{Source}`, `{IgdbId}`, `{SteamAppId}` and `{Region}` (#1197). See [Library import](LIBRARY_IMPORT.md).
 - **Weekly pre-releases**: a weekly workflow publishes a `vX.Y.Z-dev.YYYYMMDD` pre-release and the Docker tags `weekly` and `dev`, never `latest` (#1192). See [Operations](OPERATIONS.md).
 
+### Changed
+
+- **Game details page**: the game details modal is now a full page at `/games/:id`, for library games and for Discover results (`igdb-<id>`). Cards are real links, so right-click, middle-click and ctrl/cmd/shift-click open the game in a new tab, and a game can be bookmarked or shared by URL. Back returns to where you came from, or to the library when the page was opened directly. A game that does not exist, belongs to someone else, or sits in a hidden content category shows "Game not found" (#1203). New `GET /api/games/:id` endpoint, see [API](API.md).
+
 ### Fixed
 
 - **Library import**: platform names, folders and Game Gear are now handled correctly (#1212).

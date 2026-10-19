@@ -202,7 +202,7 @@ event types are:
   `client/src/components/NotificationCenter.tsx`.
 - `"downloadUpdate"` — emitted from `cron.ts::checkDownloadStatus` whenever a
   tracked download's status changes; consumed by
-  `client/src/components/GameDetailsModal.tsx` to refresh download state for
+  `client/src/components/GameDetails.tsx` to refresh download state for
   the affected game.
 
 ## 7. Scheduled/background actors (cron jobs)

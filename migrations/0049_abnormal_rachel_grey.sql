@@ -17,4 +17,6 @@ CREATE TABLE `integration_requests` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `integration_requests_user_provider_external_idx` ON `integration_requests` (`user_id`,`provider`,`external_request_id`);--> statement-breakpoint
-CREATE INDEX `integration_requests_game_id_idx` ON `integration_requests` (`game_id`);
+CREATE INDEX `integration_requests_game_id_idx` ON `integration_requests` (`game_id`);--> statement-breakpoint
+ALTER TABLE `api_keys` ADD `scope` text DEFAULT 'all' NOT NULL;--> statement-breakpoint
+ALTER TABLE `api_keys` ADD `expires_at` integer;

@@ -20,6 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { storage } from "./storage.js";
 import { igdbClient, type IGDBGame } from "./igdb.js";
+import { toVideos } from "./igdb-videos.js";
 import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { igdbLogger, routesLogger } from "./logger.js";
@@ -284,6 +285,10 @@ async function bestIgdbMatch(folderName: string): Promise<{
 
 // ---------- Ingestion ----------
 
+/**
+ * Maps IGDB metadata, including validated videos, to a game for the scanning user.
+ * Sets the scanned game as owned and released, with its source marked as a library scan.
+ */
 function igdbToInsertGame(igdb: IGDBGame, userId: string): InsertGame {
   const releaseDate = igdb.first_release_date
     ? new Date(igdb.first_release_date * 1000).toISOString().slice(0, 10)
@@ -304,6 +309,7 @@ function igdbToInsertGame(igdb: IGDBGame, userId: string): InsertGame {
       igdb.involved_companies?.filter((c) => c.developer).map((c) => c.company.name) ?? [],
     screenshots:
       igdb.screenshots?.map((s) => `https:${s.url.replace("t_thumb", "t_screenshot_big")}`) ?? [],
+    videos: toVideos(igdb.videos),
     status: "owned",
     releaseStatus: "released",
     source: "scan",

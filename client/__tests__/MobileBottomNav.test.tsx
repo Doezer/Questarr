@@ -9,7 +9,10 @@ import MobileBottomNav from "../src/components/MobileBottomNav";
 vi.mock("lucide-react", () => {
   const Icon = () => <svg data-testid="icon" />;
   return {
+    Ban: Icon,
     ClipboardList: Icon,
+    History: Icon,
+    Timer: Icon,
     MoreHorizontal: Icon,
     Calendar: Icon,
     Compass: Icon,
@@ -17,6 +20,7 @@ vi.mock("lucide-react", () => {
     Download: Icon,
     FolderInput: Icon,
     Gamepad2: Icon,
+    Layers: Icon,
     HardDrive: Icon,
     Home: Icon,
     Newspaper: Icon,

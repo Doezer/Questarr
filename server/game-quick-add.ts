@@ -75,6 +75,7 @@ export async function quickAddGameByTitle(
     publishers: match.publishers,
     developers: match.developers,
     screenshots: match.screenshots,
+    videos: match.videos,
     rating: match.rating,
     ...(options.source ? { source: options.source } : {}),
     ...(options.targetPlatform

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6d50c63a-daa8-456c-9b33-54ca0d897e87",
+  "id": "001e5cb4-05bf-4371-bda1-81a7ae5b05f2",
   "prevId": "8becd653-a284-42c9-8ffb-f9a8776285c8",
   "tables": {
     "ai_auto_download_holds": {
@@ -114,21 +114,6 @@
         },
         "last_used_at": {
           "name": "last_used_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'all'"
-        },
-        "expires_at": {
-          "name": "expires_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -915,6 +900,13 @@
         },
         "screenshots": {
           "name": "screenshots",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "videos": {
+          "name": "videos",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

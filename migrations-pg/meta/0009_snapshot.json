@@ -1,5 +1,5 @@
 {
-  "id": "9e2db25a-448a-4867-a9a3-0df58f85ed23",
+  "id": "419419c1-f0e2-433d-921f-08747b8a151b",
   "prevId": "961d0664-04d8-4424-82a2-e6864113f154",
   "version": "7",
   "dialect": "postgresql",
@@ -123,19 +123,6 @@
         },
         "last_used_at": {
           "name": "last_used_at",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'all'"
-        },
-        "expires_at": {
-          "name": "expires_at",
           "type": "bigint",
           "primaryKey": false,
           "notNull": false
@@ -969,6 +956,12 @@
         },
         "screenshots": {
           "name": "screenshots",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "videos": {
+          "name": "videos",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false

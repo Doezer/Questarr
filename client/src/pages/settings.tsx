@@ -47,7 +47,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { ApiKeysCard } from "@/components/ApiKeysCard";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
-import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
+import ReleaseScoringSettings from "@/components/ReleaseScoringSettings";
 import ReleaseNameBlacklistSettings from "@/components/ReleaseNameBlacklistSettings";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
@@ -365,8 +365,6 @@ export default function SettingsPage() {
   const [igdbClientSecret, setIgdbClientSecret] = useState("");
   const [showClientSecret, setShowClientSecret] = useState(false);
   const [downloadRules, setDownloadRules] = useState<DownloadRules | null>(null);
-  const [preferredReleaseGroups, setPreferredReleaseGroups] = useState<string[]>([]);
-  const [filterByPreferredGroups, setFilterByPreferredGroups] = useState(false);
   const [releaseNameBlacklist, setReleaseNameBlacklist] = useState<string[]>([]);
   const [preferredPlatform, setPreferredPlatform] = useState<string>("");
   const [xrelSceneReleases, setXrelSceneReleases] = useState(true);
@@ -425,8 +423,6 @@ export default function SettingsPage() {
       } else {
         setDownloadRules(null);
       }
-      setPreferredReleaseGroups(parseJsonStringArray(userSettings.preferredReleaseGroups));
-      setFilterByPreferredGroups(userSettings.filterByPreferredGroups ?? false);
       setReleaseNameBlacklist(parseJsonStringArray(userSettings.releaseNameBlacklist));
       setPreferredPlatform(userSettings.preferredPlatform ?? "");
       setXrelSceneReleases(userSettings.xrelSceneReleases ?? true);
@@ -818,6 +814,9 @@ export default function SettingsPage() {
         description: data.successMessage,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      // Content-filter settings change what the library returns, collections included.
+      queryClient.removeQueries({ queryKey: ["/api/collections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
     },
     onError: (error: Error) => {
       console.error("Settings update error:", error);
@@ -863,6 +862,9 @@ export default function SettingsPage() {
         });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      // Content-filter settings change what the library returns, collections included.
+      queryClient.removeQueries({ queryKey: ["/api/collections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
     },
     onError: (error: Error) => {
       console.error("Settings update error:", error);
@@ -1016,6 +1018,9 @@ export default function SettingsPage() {
         description: "xREL.to options have been saved.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      // Content-filter settings change what the library returns, collections included.
+      queryClient.removeQueries({ queryKey: ["/api/collections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       queryClient.invalidateQueries({ queryKey: ["/api/config"] });
     },
     onError: (error: Error) => {
@@ -1480,12 +1485,7 @@ export default function SettingsPage() {
               onChange={setDownloadRules}
               onReset={() => setDownloadRules(null)}
             />
-            <PreferredReleaseGroupsSettings
-              preferredGroups={preferredReleaseGroups}
-              filterByPreferredGroups={filterByPreferredGroups}
-              onGroupsChange={setPreferredReleaseGroups}
-              onFilterChange={setFilterByPreferredGroups}
-            />
+            <ReleaseScoringSettings />
             <ReleaseNameBlacklistSettings
               blacklistTerms={releaseNameBlacklist}
               onTermsChange={setReleaseNameBlacklist}

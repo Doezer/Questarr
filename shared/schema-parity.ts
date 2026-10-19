@@ -125,6 +125,24 @@ export type _InsertAiAutoDownloadHolds = Expect<
     typeof pgSchema.aiAutoDownloadHolds.$inferInsert
   >
 >;
+export type _SelectReleaseProfiles = Expect<
+  Equal<
+    typeof sqliteSchema.releaseProfiles.$inferSelect,
+    typeof pgSchema.releaseProfiles.$inferSelect
+  >
+>;
+export type _InsertReleaseProfiles = Expect<
+  Equal<
+    typeof sqliteSchema.releaseProfiles.$inferInsert,
+    typeof pgSchema.releaseProfiles.$inferInsert
+  >
+>;
+export type _SelectCustomFormats = Expect<
+  Equal<typeof sqliteSchema.customFormats.$inferSelect, typeof pgSchema.customFormats.$inferSelect>
+>;
+export type _InsertCustomFormats = Expect<
+  Equal<typeof sqliteSchema.customFormats.$inferInsert, typeof pgSchema.customFormats.$inferInsert>
+>;
 export type _SelectNotifications = Expect<
   Equal<typeof sqliteSchema.notifications.$inferSelect, typeof pgSchema.notifications.$inferSelect>
 >;
@@ -166,6 +184,24 @@ export type _SelectGameFiles = Expect<
 >;
 export type _InsertGameFiles = Expect<
   Equal<typeof sqliteSchema.gameFiles.$inferInsert, typeof pgSchema.gameFiles.$inferInsert>
+>;
+export type _SelectCollections = Expect<
+  Equal<typeof sqliteSchema.collections.$inferSelect, typeof pgSchema.collections.$inferSelect>
+>;
+export type _InsertCollections = Expect<
+  Equal<typeof sqliteSchema.collections.$inferInsert, typeof pgSchema.collections.$inferInsert>
+>;
+export type _SelectCollectionGames = Expect<
+  Equal<
+    typeof sqliteSchema.collectionGames.$inferSelect,
+    typeof pgSchema.collectionGames.$inferSelect
+  >
+>;
+export type _InsertCollectionGames = Expect<
+  Equal<
+    typeof sqliteSchema.collectionGames.$inferInsert,
+    typeof pgSchema.collectionGames.$inferInsert
+  >
 >;
 export type _SelectGameJournalEntries = Expect<
   Equal<
@@ -226,4 +262,17 @@ export type _SelectApiKeys = Expect<
 >;
 export type _InsertApiKeys = Expect<
   Equal<typeof sqliteSchema.apiKeys.$inferInsert, typeof pgSchema.apiKeys.$inferInsert>
+>;
+
+export type _SelectDownloadEvents = Expect<
+  Equal<
+    typeof sqliteSchema.downloadEvents.$inferSelect,
+    typeof pgSchema.downloadEvents.$inferSelect
+  >
+>;
+export type _InsertDownloadEvents = Expect<
+  Equal<
+    typeof sqliteSchema.downloadEvents.$inferInsert,
+    typeof pgSchema.downloadEvents.$inferInsert
+  >
 >;

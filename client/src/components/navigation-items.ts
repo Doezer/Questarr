@@ -1,6 +1,9 @@
 import {
   Calendar,
   ClipboardList,
+  Ban,
+  History,
+  Timer,
   Compass,
   Database,
   Download,
@@ -8,6 +11,7 @@ import {
   Gamepad2,
   HardDrive,
   Home,
+  Layers,
   Newspaper,
   PieChart,
   Rss,
@@ -37,6 +41,7 @@ export const primaryNavigation: AppNavItem[] = [
       { title: "All Games", url: "/", icon: Home },
       { title: "Wishlist", url: "/wishlist", icon: Star },
       { title: "Playing", url: "/playing", icon: Gamepad2 },
+      { title: "Collections", url: "/collections", icon: Layers },
       { title: "Library Import", url: "/library-import", icon: FolderInput },
     ],
   },
@@ -65,7 +70,10 @@ export const managementNavigation: AppNavItem[] = [
 
 export const activityNavigation: AppNavItem[] = [
   { title: "Logs", url: "/logs", icon: ScrollText },
+  { title: "History", url: "/activity/history", icon: History },
+  { title: "Blocklist", url: "/activity/blocklist", icon: Ban },
   { title: "Import History", url: "/activity/imports", icon: ClipboardList },
+  { title: "System Tasks", url: "/system/tasks", icon: Timer },
 ];
 
 export const mobileBottomNavigation: AppNavItem[] = [

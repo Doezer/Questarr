@@ -19,6 +19,30 @@ export interface RommSyncSummary {
 const SETTLEABLE_STATUS = "wanted";
 
 /**
+ * The game a ROM settles, or undefined. By IGDB id first (several games can share one: the one
+ * whose target platform fits the ROM wins), then by normalized title for a ROM without an id.
+ * A target platform is enforced on a title match, and on an id match when it has a RomM slug.
+ */
+function matchRomToGame(
+  rom: RommRom,
+  byIgdbId: Map<number, Game[]>,
+  byTitle: Map<string, Game | null>
+): Game | undefined {
+  const fits = (game: Game): boolean => {
+    if (game.targetPlatformId == null) return true;
+    const targetSlug = rommSlugForPlatformId(game.targetPlatformId);
+    if (targetSlug === undefined && rom.igdb_id != null) return true;
+    return targetSlug === rom.platform_slug;
+  };
+  if (rom.igdb_id != null) {
+    return (byIgdbId.get(rom.igdb_id) ?? []).find(fits);
+  }
+  // Title fallback only without an IGDB id: an original and its remake must not be mixed up.
+  const game = rom.name ? byTitle.get(normalizeTitle(rom.name)) : undefined;
+  return game && fits(game) ? game : undefined;
+}
+
+/**
  * Pulls the RomM library and marks matching Questarr games as owned. A ROM matches a game by
  * IGDB id first, then by normalized title. Games RomM has and Questarr does not know are only
  * counted; nothing is created, and nothing is ever downgraded.
@@ -35,11 +59,13 @@ export async function syncFromRomm(
   // A scheduled run fetches the shared library once and hands it to every user.
   const roms = preloadedRoms ?? (await rommClient.listAllRoms(settings));
   const games = await storage.getUserGames(userId, true);
-  const byIgdbId = new Map<number, Game>();
+  // games.igdbId is not unique: the same title can sit in the library once per platform.
+  const byIgdbId = new Map<number, Game[]>();
   // A title shared by several games is ambiguous: it is never used for matching.
   const byTitle = new Map<string, Game | null>();
   for (const game of games) {
-    if (game.igdbId != null) byIgdbId.set(game.igdbId, game);
+    if (game.igdbId != null)
+      byIgdbId.set(game.igdbId, [...(byIgdbId.get(game.igdbId) ?? []), game]);
     const key = normalizeTitle(game.title);
     if (key) byTitle.set(key, byTitle.has(key) ? null : game);
   }
@@ -54,20 +80,7 @@ export async function syncFromRomm(
   const seen = new Set<string>();
 
   for (const rom of roms) {
-    let game: Game | null | undefined;
-    if (rom.igdb_id != null) {
-      game = byIgdbId.get(rom.igdb_id);
-    } else {
-      // Title fallback only without an IGDB id: an original and its remake must not be mixed up.
-      game = rom.name ? byTitle.get(normalizeTitle(rom.name)) : undefined;
-    }
-    // A game with a chosen target platform only matches a ROM of that platform. An IGDB id match
-    // is lenient when the platform has no known RomM slug; a title match stays strict.
-    if (game?.targetPlatformId != null) {
-      const targetSlug = rommSlugForPlatformId(game.targetPlatformId);
-      const enforce = rom.igdb_id == null || targetSlug !== undefined;
-      if (enforce && targetSlug !== rom.platform_slug) game = undefined;
-    }
+    const game = matchRomToGame(rom, byIgdbId, byTitle);
     if (!game) {
       summary.notInLibrary++;
       continue;

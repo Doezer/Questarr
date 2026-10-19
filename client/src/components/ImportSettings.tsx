@@ -381,10 +381,10 @@ export default function ImportSettings() {
                   Save Changes
                 </Button>
               </div>
-
-              <RommSettings />
             </>
           )}
+
+          <RommSettings />
         </TabsContent>
 
         <TabsContent value="paths" className="space-y-4">

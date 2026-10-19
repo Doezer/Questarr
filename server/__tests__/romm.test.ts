@@ -272,6 +272,20 @@ describe("RomM sync", () => {
     expect(mockStorage.updateGameStatus).not.toHaveBeenCalled();
   });
 
+  it("picks the game whose target platform fits when several share an IGDB id", async () => {
+    await configure();
+    mockStorage.getUserGames.mockResolvedValue([
+      { ...game("a", "Twin", "wanted", 9), targetPlatformId: 19 },
+      { ...game("b", "Twin", "wanted", 9), targetPlatformId: 8 },
+    ]);
+    safeFetchMock.mockResolvedValue(
+      json({ items: [{ id: 1, name: "Twin", igdb_id: 9, platform_slug: "snes" }], total: 1 })
+    );
+    await syncFromRomm("user-1");
+    expect(mockStorage.updateGameStatus).toHaveBeenCalledTimes(1);
+    expect(mockStorage.updateGameStatus.mock.calls[0]?.[0]).toBe("a");
+  });
+
   it("survives a ROM without a name", async () => {
     await configure();
     mockStorage.getUserGames.mockResolvedValue([game("n", "Named", "wanted")]);

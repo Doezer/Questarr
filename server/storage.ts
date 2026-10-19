@@ -858,7 +858,7 @@ export class MemStorage implements IStorage {
     const exists = Array.from(this.collectionGames.values()).some(
       (link) => link.collectionId === collectionId && link.gameId === gameId
     );
-    if (exists) return false;
+    if (exists || this.collections.get(collectionId)?.type === "smart") return false;
     const id = randomUUID();
     this.collectionGames.set(id, { id, collectionId, gameId });
     return true;
@@ -2553,7 +2553,22 @@ export class DatabaseStorage implements IStorage {
       .values({ id: randomUUID(), collectionId, gameId })
       .onConflictDoNothing()
       .returning();
-    return rows.length > 0;
+    if (rows.length === 0) return false;
+    // A concurrent switch to smart clears links before or after this insert: re-check the
+    // type so a link can never survive on a smart collection.
+    const [collection] = await db
+      .select({ type: collections.type })
+      .from(collections)
+      .where(eq(collections.id, collectionId));
+    if (collection?.type === "smart") {
+      await db
+        .delete(collectionGames)
+        .where(
+          and(eq(collectionGames.collectionId, collectionId), eq(collectionGames.gameId, gameId))
+        );
+      return false;
+    }
+    return true;
   }
 
   async removeGameFromCollection(collectionId: string, gameId: string): Promise<boolean> {

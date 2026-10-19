@@ -91,7 +91,8 @@ const EXPANSION_RULES: readonly Rule[] = [
 function normalizeName(title: string): string {
   let name = title.trim().replace(/\s*\[[^\]]*\]\s*$/, "");
   const dash = name.lastIndexOf("-");
-  if (dash > 0) {
+  // a scene group sits right after the dash ("Game-GROUP"); "Game - Soundtrack" is part of the title
+  if (dash > 0 && !/\s/.test(name.charAt(dash - 1))) {
     const suffix = name.slice(dash + 1).trim();
     if (suffix.length > 0 && suffix.length <= 24 && !/\s/.test(suffix)) {
       name = name.slice(0, dash);

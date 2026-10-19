@@ -132,6 +132,21 @@ describe("classifyReleaseByRules", () => {
     });
   });
 
+  describe("a spaced dash is not a scene group", () => {
+    it("keeps a trailing marker word after ' - '", () => {
+      expect(classifyReleaseByRules({ title: "Game - Soundtrack" }).flags).toEqual(["soundtrack"]);
+      expect(classifyReleaseByRules({ title: "Elden Ring - DLC" }).class).toBe("dlc");
+      expect(classifyReleaseByRules({ title: "Game - Update" }).class).toBe("patch");
+    });
+
+    it("still strips a scene group written right after the dash", () => {
+      expect(classifyReleaseByRules({ title: "Dishonored-UPDATE" }).class).toBe("unknown");
+      expect(
+        classifyReleaseByRules({ title: "Dishonored-CODEX", gameTitle: "Dishonored" }).class
+      ).toBe("full_game");
+    });
+  });
+
   describe("marker words inside the game's own title", () => {
     it.each([
       ["DLC.Quest-CODEX", "DLC Quest"],

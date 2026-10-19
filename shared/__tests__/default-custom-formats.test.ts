@@ -52,6 +52,16 @@ describe("DEFAULT_CUSTOM_FORMATS", () => {
     expect(score("Elden.Ring.v1.10-RUNE")?.matchedFormats).toEqual([]);
   });
 
+  it.each([
+    "Elden Ring v1.2 + Crack",
+    "Elden.Ring.incl.Crack-GRP",
+    "Elden Ring [Crack]",
+    "Elden Ring Portable",
+    "Elden Ring Prologue",
+  ])("leaves %s alone", (title) => {
+    expect(score(title)?.matchedFormats).toEqual([]);
+  });
+
   it("does not match inside other words", () => {
     expect(score("Elden Ring Crackdown Trials")?.matchedFormats).toEqual([]);
   });

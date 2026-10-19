@@ -19,7 +19,7 @@ export const DEFAULT_CUSTOM_FORMATS: readonly DefaultCustomFormat[] = [
     name: "Crack, fix or NoCD only",
     specs: [
       title(
-        String.raw`(^|[^a-z0-9])(crack(ed)?[ ._-]?only|crack(fix)?|nocd|no[ ._-]?dvd|(online|steam|multiplayer)[ ._-]?fix|fix[ ._-]?only|unlocker)([^a-z0-9]|$)`
+        String.raw`(^|[^a-z0-9])(crack(ed)?[ ._-]?only|crack[ ._-]?fix|nocd|no[ ._-]?dvd|(online|steam|multiplayer)[ ._-]?fix|fix[ ._-]?only|unlocker)([^a-z0-9]|$)`
       ),
     ],
     score: -300,
@@ -29,7 +29,7 @@ export const DEFAULT_CUSTOM_FORMATS: readonly DefaultCustomFormat[] = [
     name: "Demo, playtest or trial",
     specs: [
       title(
-        String.raw`(^|[^a-z0-9])(demo|playtest|trial|beta[ ._-]?test|closed[ ._-]?beta|prologue)([^a-z0-9]|$)`
+        String.raw`(^|[^a-z0-9])(demo|playtest|trial|beta[ ._-]?test|closed[ ._-]?beta)([^a-z0-9]|$)`
       ),
     ],
     score: -150,
@@ -46,10 +46,10 @@ export const DEFAULT_CUSTOM_FORMATS: readonly DefaultCustomFormat[] = [
     hardReject: true,
   },
   {
-    name: "Pre-installed or portable",
+    name: "Pre-installed",
     specs: [
       title(
-        String.raw`(^|[^a-z0-9])(pre[ ._-]?installed|preinstalled|portable|already[ ._-]?installed)([^a-z0-9]|$)`
+        String.raw`(^|[^a-z0-9])(pre[ ._-]?installed|preinstalled|already[ ._-]?installed)([^a-z0-9]|$)`
       ),
     ],
     score: -40,

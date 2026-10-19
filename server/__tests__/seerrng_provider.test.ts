@@ -133,6 +133,19 @@ describe("SeerrNG provider API", () => {
   };
 
   describe("scope", () => {
+    it("answers 409 when the live-game index rejects a concurrent claim", async () => {
+      const original = (storage.updateIntegrationRequest as Mock).getMockImplementation()!;
+      (storage.updateIntegrationRequest as Mock).mockImplementationOnce(async () => {
+        throw Object.assign(new Error("UNIQUE constraint failed"), {
+          code: "SQLITE_CONSTRAINT_UNIQUE",
+        });
+      });
+      const res = await request(app).post(`${base}/requests`).send(createBody);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/already linked/);
+      (storage.updateIntegrationRequest as Mock).mockImplementation(original);
+    });
+
     it("refuses an edition selection instead of queueing the base game only", async () => {
       const res = await request(app)
         .post(`${base}/requests`)

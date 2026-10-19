@@ -760,6 +760,16 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
       });
       return res.status(201).json(await describeRequest(userId, linked ?? ledger));
     } catch (error) {
+      if (isUniqueViolation(error)) {
+        // Another process claimed the game between our holder check and this write.
+        await storage
+          .updateIntegrationRequest(userId, externalRequestId, {
+            status: "failed",
+            errorMessage: "Game is already linked to another request.",
+          })
+          .catch(() => undefined);
+        return res.status(409).json({ error: "Game is already linked to another request." });
+      }
       logger.error({ error, externalRequestId }, "SeerrNG software request failed");
       // Leave the ledger row retryable instead of stuck in "accepted" with no game.
       await storage
@@ -772,6 +782,16 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
     }
   });
 });
+
+/** SQLite and Postgres report a unique-index violation with different shapes; accept both. */
+function isUniqueViolation(error: unknown): boolean {
+  const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
+  return (
+    code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    code === "23505" ||
+    (typeof message === "string" && /UNIQUE constraint failed|duplicate key value/i.test(message))
+  );
+}
 
 async function loadRequest(req: Request, res: Response): Promise<IntegrationRequest | undefined> {
   const externalRequestId = requestIdSchema.safeParse(req.params.externalRequestId);
@@ -819,6 +839,9 @@ function requestAction(
         );
       });
     } catch (error) {
+      if (isUniqueViolation(error)) {
+        return res.status(409).json({ error: "Game is already linked to another request." });
+      }
       logger.error({ error }, logMessage);
       return res.status(500).json({ error: failureError });
     }

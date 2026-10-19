@@ -360,7 +360,7 @@ export function narrowToPreferredGroupFormat(
  * When duplicates exist (e.g. the same torrent listed by multiple indexers), the item
  * from the highest-priority indexer (lowest priority number) is kept.
  */
-function deduplicateByTitle(
+export function deduplicateByTitle(
   items: SearchItem[],
   indexerPriorityMap: Map<string, number>
 ): SearchItem[] {
@@ -371,10 +371,16 @@ function deduplicateByTitle(
     if (!existing) {
       seen.set(key, item);
     } else {
-      // Keep the item from the higher-priority indexer (lower number = higher priority)
+      // Keep the better-scored copy; on equal scores (or without scoring) keep the item from
+      // the higher-priority indexer (lower number = higher priority)
+      const itemScore = item.evaluation?.score ?? 0;
+      const existingScore = existing.evaluation?.score ?? 0;
       const itemPriority = indexerPriorityMap.get(item.indexerId) ?? Infinity;
       const existingPriority = indexerPriorityMap.get(existing.indexerId) ?? Infinity;
-      if (itemPriority < existingPriority) {
+      if (
+        itemScore > existingScore ||
+        (itemScore === existingScore && itemPriority < existingPriority)
+      ) {
         seen.set(key, item);
       }
     }

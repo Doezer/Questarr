@@ -136,6 +136,7 @@ const {
   scoreReleasesForGame,
   searchAndCategorizeItemsForGame,
   AUTO_SEARCH_DEFERRED,
+  deduplicateByTitle,
   narrowToPreferredGroupFormat,
 } = await import("../cron.js");
 const { igdbLogger } = await import("../logger.js");
@@ -2666,6 +2667,22 @@ describe("release scoring in auto-search", () => {
     );
     expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
     expect(result?.mainItems.map((i) => i.title)).toContain("Dishonored-CODEX");
+  });
+
+  it("keeps the better-scored copy of a duplicate, and the higher-priority indexer on a tie", () => {
+    const scored = (indexerId: string, score: number) =>
+      item("Dishonored-CODEX", {
+        indexerId,
+        evaluation: { score, accepted: true, matchedFormats: [] },
+      });
+    const priority = new Map([
+      ["a", 1],
+      ["b", 2],
+    ]);
+    const better = deduplicateByTitle([scored("a", 10), scored("b", 50)] as never, priority);
+    expect(better.map((i) => i.indexerId)).toEqual(["b"]);
+    const tie = deduplicateByTitle([scored("b", 10), scored("a", 10)] as never, priority);
+    expect(tie.map((i) => i.indexerId)).toEqual(["a"]);
   });
 
   it("does not treat a non-Latin title as an unrelated search", async () => {

@@ -83,6 +83,24 @@ describe("ReleaseScoringSettings", () => {
     );
   });
 
+  it("lets a rule weight be cleared and typed as a negative number", async () => {
+    renderSettings();
+    const input = screen.getByLabelText("Repack points") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "" } });
+    expect(input.value).toBe("");
+    fireEvent.change(input, { target: { value: "-5" } });
+    expect(input.value).toBe("-5");
+    fireEvent.click(screen.getByRole("button", { name: /Save profile and rules/i }));
+
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith(
+        "PUT",
+        "/api/release-profile",
+        expect.objectContaining({ builtInOverrides: { repack: { points: -5 } } })
+      )
+    );
+  });
+
   it("keeps a maximum size that is not a multiple of 0.1 GB when saving", async () => {
     renderSettings(1_250_000_000);
     expect(screen.getByLabelText("Maximum size (GB)")).toHaveValue(1.25);

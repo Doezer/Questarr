@@ -66,6 +66,7 @@ export default function ReleaseScoringSettings() {
   const [ignoredTerms, setIgnoredTerms] = useState<string[]>([]);
   const [maxSizeGb, setMaxSizeGb] = useState("");
   const [overrides, setOverrides] = useState<Record<string, BuiltInOverride>>({});
+  const [pointDrafts, setPointDrafts] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<CustomFormat | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState<CustomFormat | null>(null);
@@ -353,11 +354,20 @@ export default function ReleaseScoringSettings() {
                     inputMode="numeric"
                     className="w-24"
                     aria-label={`${rule.label} points`}
-                    value={override?.points ?? rule.points}
+                    value={pointDrafts[rule.id] ?? String(override?.points ?? rule.points)}
                     onChange={(event) => {
-                      const points = Number.parseInt(event.target.value, 10);
+                      // an empty or half-typed value ("-") stays in the field until it is valid
+                      const raw = event.target.value;
+                      setPointDrafts((current) => ({ ...current, [rule.id]: raw }));
+                      const points = Number.parseInt(raw, 10);
                       if (Number.isFinite(points)) setOverride(rule.id, { points });
                     }}
+                    onBlur={() =>
+                      setPointDrafts((current) => {
+                        const { [rule.id]: _discarded, ...rest } = current;
+                        return rest;
+                      })
+                    }
                   />
                   <Switch
                     checked={override?.enabled !== false}

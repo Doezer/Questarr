@@ -3148,7 +3148,9 @@ describe("API Routes - Extended Coverage", () => {
 
     it("attaches a score to each result and ranks the sequel last", async () => {
       const mockGame = { id: "game-1", userId: "user-1", title: "Dishonored" };
-      vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+      vi.mocked(storage.getGame).mockResolvedValue(
+        mockGame as Awaited<ReturnType<typeof storage.getGame>>
+      );
       vi.mocked(storage.getReleaseBlacklistSet).mockResolvedValue(new Set());
       const profile = {
         id: "p1",

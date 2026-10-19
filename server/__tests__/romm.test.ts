@@ -14,6 +14,7 @@ const { store, mockStorage, safeFetchMock } = vi.hoisted(() => {
       }),
       getUserGames: vi.fn(),
       getAllUsers: vi.fn(),
+      getGame: vi.fn(),
       updateGameStatus: vi.fn(),
     },
     safeFetchMock: vi.fn(),
@@ -54,6 +55,11 @@ async function configure(extra: Record<string, unknown> = {}) {
 beforeEach(() => {
   store.clear();
   vi.clearAllMocks();
+  // By default the stored row is the one the library read returned.
+  mockStorage.getGame.mockImplementation(async (id: string) => {
+    const games = (await mockStorage.getUserGames()) as Array<{ id: string }> | undefined;
+    return games?.find((g) => g.id === id);
+  });
 });
 
 describe("RomM settings", () => {
@@ -252,6 +258,18 @@ describe("RomM sync", () => {
       json({ items: [{ id: 1, name: "Odd Platform", igdb_id: 78, platform_slug: "x" }], total: 1 })
     );
     expect((await syncFromRomm("user-1")).matched).toBe(1);
+  });
+
+  it("leaves a game alone when it stopped being wanted during the sync", async () => {
+    await configure();
+    mockStorage.getUserGames.mockResolvedValue([game("d", "Racing Game", "wanted", 55)]);
+    mockStorage.getGame.mockResolvedValue({ ...game("d", "Racing Game", "downloading", 55) });
+    safeFetchMock.mockResolvedValue(
+      json({ items: [{ id: 1, name: "Racing Game", igdb_id: 55 }], total: 1 })
+    );
+    const summary = await syncFromRomm("user-1");
+    expect(summary.markedOwned).toBe(0);
+    expect(mockStorage.updateGameStatus).not.toHaveBeenCalled();
   });
 
   it("survives a ROM without a name", async () => {

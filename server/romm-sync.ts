@@ -79,6 +79,12 @@ export async function syncFromRomm(
       summary.alreadyOwned++;
       continue;
     }
+    // The library was read before the ROM walk: a game that started downloading meanwhile stays.
+    const current = await storage.getGame(game.id);
+    if (current?.status !== SETTLEABLE_STATUS) {
+      summary.alreadyOwned++;
+      continue;
+    }
     // The status updater also clears the search-availability flags a wanted game carries.
     await storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
     summary.markedOwned++;

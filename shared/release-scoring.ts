@@ -1,0 +1,1195 @@
+/**
+ * Release scoring
+ *
+ * Pure, I/O-free evaluation of an indexer result against the wanted game: how well its title
+ * matches, built-in quality rules, the user's release profile and custom formats. It produces
+ * a score, the lines that make up that score, and typed rejections. Importable by the server
+ * (auto-search) and the client (search dialog, "test a release name" preview).
+ *
+ * Design adapted from the release-profile work in the Jessomadic/Questarr fork (GPL-3.0) and
+ * from Radarr/Sonarr custom formats: built-in rules are code constants whose weight a profile
+ * can override, so default weights can change without a data migration.
+ */
+
+import { RE2JS } from "re2js";
+
+import { categorizeDownload, type DownloadCategory } from "./download-categorizer.js";
+import {
+  isSequelOf,
+  matchesPlatformFilter,
+  parseReleaseMetadata,
+  TITLE_STOP_WORDS,
+  withoutStopWords,
+  type ReleaseMetadata,
+} from "./title-utils.js";
+import type { ReleaseType } from "./typesafe-types.js";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/**
+ * How a release title relates to the wanted game:
+ * - exact: the game title plus release metadata only ("Dishonored.Definitive.Edition-GOG")
+ * - contains: the game title plus other words, for a title that is already numbered or has a
+ *   prefix ("The.Witcher.3.Wild.Hunt" for "The Witcher 3")
+ * - spinoff: the game title followed by other words ("DOOM.Eternal" for "DOOM")
+ * - ambiguous: an otherwise matching name ends in an unverified group/subtitle suffix
+ * - sequel: the game title followed by a sequel number ("Dishonored.2" for "Dishonored")
+ * - mismatch: the game title is not in the release name
+ */
+export type TitleMatch = "exact" | "contains" | "ambiguous" | "spinoff" | "sequel" | "mismatch";
+
+/** Indexer category family: Newznab 1xxx/4000/4050 are games, 2xxx/3xxx/5xxx-7xxx are not. */
+export type IndexerCategoryClass = "game" | "non_game" | "unknown";
+
+export type RejectionCode =
+  | "title_mismatch"
+  | "title_sequel"
+  | "non_game_category"
+  | "non_game_media"
+  | "wrong_platform"
+  | "required_term_missing"
+  | "ignored_term"
+  | "min_seeders"
+  | "max_size"
+  | "below_min_score"
+  | "custom_format_reject"
+  | "risky_file";
+
+export interface Rejection {
+  code: RejectionCode;
+  detail?: string;
+  /**
+   * Set when the rejection can clear on its own (too few seeders right now). Auto-search
+   * should try the release again later instead of treating it as unwanted.
+   */
+  temporary?: boolean;
+}
+
+export interface ScoreLine {
+  /** A built-in rule id, or `cf:<custom format id>`. */
+  ruleId: string;
+  label: string;
+  points: number;
+}
+
+export type FormatField = "title" | "group" | "uploader" | "category" | "protocol" | "indexer";
+export type FormatMatchMode = "contains" | "exact" | "regex";
+
+/**
+ * One condition of a custom format. `negate` inverts it ("group is not X"); `required`
+ * makes it mandatory within its field (see CustomFormat).
+ */
+export interface FormatSpec {
+  field: FormatField;
+  mode: FormatMatchMode;
+  value: string;
+  negate?: boolean;
+  required?: boolean;
+}
+
+/**
+ * A user-defined rule, combined like a Radarr/Sonarr custom format: specs on the same field
+ * are alternatives (one is enough, "group is A or B") unless marked `required`, which must
+ * all hold; every field used must be satisfied. A match adds the score (the profile's
+ * `formatScores` entry when it has one, else `score`); with `hardReject` it also rejects.
+ */
+export interface CustomFormat {
+  id: string;
+  name: string;
+  specs: FormatSpec[];
+  score: number;
+  hardReject: boolean;
+  enabled: boolean;
+}
+
+export type ProtocolPreference = "torrent" | "usenet" | "either";
+
+export interface BuiltInOverride {
+  points?: number;
+  enabled?: boolean;
+}
+
+export interface ReleaseProfile {
+  /** Releases scoring below this are rejected. */
+  minScore: number;
+  protocolPreference: ProtocolPreference;
+  /**
+   * When non-empty, at least one term must appear in the release name. Terms are
+   * case-insensitive words, or a regex written `/pattern/` (as in Radarr).
+   */
+  requiredTerms: string[];
+  /** No term may appear in the release name. Same syntax as requiredTerms. */
+  ignoredTerms: string[];
+  /** Torrents with fewer seeders are rejected. 0 disables the check. */
+  minSeeders: number;
+  maxSizeBytes: number | null;
+  builtInOverrides: Partial<Record<BuiltInRuleId, BuiltInOverride>>;
+  /** Per-profile score of a custom format, by format id; overrides the format's own score. */
+  formatScores: Record<string, number>;
+}
+
+export const DEFAULT_RELEASE_PROFILE: ReleaseProfile = {
+  minScore: 0,
+  protocolPreference: "either",
+  requiredTerms: [],
+  ignoredTerms: [],
+  minSeeders: 0,
+  maxSizeBytes: null,
+  builtInOverrides: {},
+  formatScores: {},
+};
+
+/** What the evaluation knows about the wanted game. */
+export interface ReleaseContext {
+  gameTitle: string;
+  /** Other known names of the game (IGDB alternative names); the best match wins. */
+  alternativeTitles?: string[];
+  /** Preferred platform label (see resolveGamePlatformPreference), or null for any. */
+  platform?: string | null;
+  /** Typical size of the game, when known; releases far from it lose points. */
+  expectedSizeBytes?: number;
+}
+
+/** The subset of an indexer result the evaluation reads (SearchItem satisfies it). */
+export interface ReleaseInput {
+  title: string;
+  downloadType: "torrent" | "usenet";
+  size?: number | undefined;
+  seeders?: number | undefined;
+  category?: string[] | undefined;
+  indexerName?: string | undefined;
+  /** Lower is preferred, as in the indexer settings. Only breaks ties. */
+  indexerPriority?: number | undefined;
+  poster?: string | undefined;
+  aiReleaseType?: ReleaseType | undefined;
+  aiReleaseTypeConfidence?: number | undefined;
+}
+
+export interface ReleaseEvaluation {
+  accepted: boolean;
+  score: number;
+  lines: ScoreLine[];
+  rejections: Rejection[];
+  titleMatch: TitleMatch;
+  indexerCategory: IndexerCategoryClass;
+  category: DownloadCategory;
+  /** Ids of the custom formats that matched. */
+  matchedFormats: string[];
+  /** False when the profile prefers the other protocol. Only breaks ties. */
+  preferredProtocol: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Title classification
+// ---------------------------------------------------------------------------
+
+/**
+ * Words that describe a release rather than name a game: editions, sources, platforms,
+ * languages, scene and repack tags. Leftover words outside this list make a title a
+ * spinoff or a longer title rather than the game itself.
+ */
+// Edition words also start other titles ("Final Fantasy", "Ultimate Chicken Horse"), so they only
+// count as metadata after the game name; the same goes for content and store words.
+const EDITION_TOKENS = new Set([
+  "edition",
+  "goty",
+  "deluxe",
+  "complete",
+  "gold",
+  "ultimate",
+  "collectors",
+  "collector",
+  "definitive",
+  "remastered",
+  "remaster",
+  "enhanced",
+  "anniversary",
+  "directors",
+  "director",
+  "cut",
+  "special",
+  "standard",
+  "premium",
+  "digital",
+  "legendary",
+  "royal",
+  "platinum",
+  "limited",
+  "classic",
+  "hd",
+  "redux",
+  "final",
+  "extended",
+]);
+
+// Content and store words also start other titles ("DLC Quest", "Epic Mickey").
+const CONTENT_TOKENS = new Set([
+  // content
+  "dlc",
+  "dlcs",
+  "incl",
+  "including",
+  "plus",
+  "bonus",
+  "ost",
+  "soundtrack",
+  "artbook",
+  "content",
+  "season",
+  "pass",
+  "expansion",
+  "expansions",
+  "addon",
+  "addons",
+  "update",
+  "updates",
+  "patch",
+  "hotfix",
+  "fix",
+  "crackfix",
+  "crack",
+  "cracked",
+  "unlocker",
+  "build",
+  // sources and stores
+  "gog",
+  "steam",
+  "steamrip",
+  "epic",
+  "uplay",
+  "origin",
+  "drm",
+  "free",
+  "rip",
+  "iso",
+]);
+
+// Platform, language and scene words describe a release wherever they appear.
+const RELEASE_TOKENS = new Set([
+  // platforms
+  "pc",
+  "win",
+  "windows",
+  "linux",
+  "mac",
+  "macos",
+  "osx",
+  "switch",
+  "nsw",
+  "nsp",
+  "xci",
+  "ps3",
+  "ps4",
+  "ps5",
+  "xbox",
+  "x360",
+  "xbox360",
+  "wii",
+  "wiiu",
+  "3ds",
+  "nds",
+  "vita",
+  "psvita",
+  "psp",
+  // languages
+  "multi",
+  "multilingual",
+  "english",
+  "french",
+  "german",
+  "spanish",
+  "italian",
+  "russian",
+  "japanese",
+  "polish",
+  "portuguese",
+  "chinese",
+  "korean",
+  "nordic",
+  "eng",
+  "fr",
+  "de",
+  // scene and repack tags
+  "repack",
+  "rerepack",
+  "proper",
+  "internal",
+  "readnfo",
+  "nfo",
+  "setup",
+  "portable",
+  "preinstalled",
+  "selective",
+  "download",
+  "lossless",
+  "compressed",
+  "repacks",
+  "fitgirl",
+  "dodi",
+  "elamigos",
+  "kaos",
+  "xatab",
+  "tinyrepacks",
+  "masquerade",
+  "empress",
+  "codex",
+  "rune",
+  "flt",
+  "tenoke",
+  "skidrow",
+  "reloaded",
+  "plaza",
+  "razor1911",
+  "cpy",
+  "hoodlum",
+  "darksiders",
+  "p2p",
+  "gls",
+  "scene",
+]);
+
+const METADATA_TOKENS = new Set([...EDITION_TOKENS, ...CONTENT_TOKENS, ...RELEASE_TOKENS]);
+
+const METADATA_TOKEN_PATTERNS = [
+  /^v\d+$/, // v1, v2 (normalization splits v1.0 into "v1" "0")
+  /^b\d+$/, // build numbers
+  /^multi\d+$/,
+  /^x(64|86)$/,
+  /^win(32|64)$/,
+];
+
+const VERSION_MARKERS = new Set(["update", "patch", "hotfix", "build", "version"]);
+const YEAR = /^(19|20)\d\d$/;
+
+/**
+ * A bare number is release metadata only in context: a year, part of a dotted version
+ * ("1.0.5", "v1.2"), or after a version marker ("Update.3"). On its own it can name another
+ * game ("Pac-Man.256").
+ */
+function isMetadataNumber(words: readonly string[], index: number): boolean {
+  const isNumber = (word: string | undefined) => word !== undefined && /^\d+$/.test(word);
+  const word = words[index];
+  if (!isNumber(word)) return false;
+  if (YEAR.test(word as string)) return true;
+  const previous = words[index - 1];
+  if (isNumber(previous) || isNumber(words[index + 1])) return true;
+  return previous !== undefined && (VERSION_MARKERS.has(previous) || /^[vb]\d+$/.test(previous));
+}
+
+function isPrefixMetadata(token: string): boolean {
+  return RELEASE_TOKENS.has(token) || TITLE_STOP_WORDS.has(token);
+}
+
+function isMetadataToken(token: string): boolean {
+  return (
+    METADATA_TOKENS.has(token) ||
+    TITLE_STOP_WORDS.has(token) ||
+    METADATA_TOKEN_PATTERNS.some((pattern) => pattern.test(token))
+  );
+}
+
+/**
+ * Lowercase words in any script, without accents ("Pokémon" -> "pokemon"; "英雄伝説" stays a
+ * word), plus two fixes for how release names spell titles: apostrophes are dropped
+ * ("Tom Clancy's" -> "tom clancys", as is "Assassin.s") and runs of single letters are joined
+ * ("S.T.A.L.K.E.R." -> "stalker").
+ */
+function normalizeForMatch(title: string): string {
+  const words = normalizeTerm(title.replaceAll(/['’`]/g, "")).split(" ");
+  const joined: string[] = [];
+  let letters = "";
+  for (const word of words) {
+    // "Assassin.s.Creed": an apostrophe the indexer turned into a separator
+    if (word === "s" && !letters && joined.length > 0) {
+      joined[joined.length - 1] += "s";
+      continue;
+    }
+    if (/^[a-z]$/.test(word)) {
+      letters += word;
+      continue;
+    }
+    if (letters) joined.push(letters);
+    letters = "";
+    joined.push(word);
+  }
+  if (letters) joined.push(letters);
+  return joined.filter(Boolean).join(" ");
+}
+
+function findSequence(haystack: string[], needle: string[]): number {
+  if (needle.length === 0) return -1;
+  for (let i = 0; i + needle.length <= haystack.length; i++) {
+    if (needle.every((word, j) => haystack[i + j] === word)) return i;
+  }
+  return -1;
+}
+
+const TITLE_MATCH_RANK: Record<TitleMatch, number> = {
+  exact: 4,
+  contains: 3,
+  ambiguous: 2.5,
+  spinoff: 2,
+  sequel: 1,
+  mismatch: 0,
+};
+
+/** "Game of the Year" is an edition; "game" and "year" alone can be part of another title. */
+function withGotyPhrase(normalized: string): string {
+  return normalized.replaceAll(/\bgame of the year\b/g, "goty");
+}
+
+function classifyAgainstTitle(
+  releaseName: string,
+  gameTitle: string,
+  group: string | undefined
+): TitleMatch {
+  const titleName =
+    group && releaseName.endsWith(`-${group}`)
+      ? releaseName.slice(0, -(group.length + 1))
+      : releaseName;
+  const release = withGotyPhrase(normalizeForMatch(titleName));
+  const game = withGotyPhrase(normalizeForMatch(gameTitle));
+  if (!release || !game) return "mismatch";
+  if (release === game) return "exact";
+
+  if (isSequelOf(release, game) || isSequelOf(withoutStopWords(release), withoutStopWords(game))) {
+    return "sequel";
+  }
+
+  let releaseWords = release.split(" ");
+  let gameWords = game.split(" ");
+  let start = findSequence(releaseWords, gameWords);
+  if (start === -1) {
+    // Indexers often drop "The", or write "And" where the title has "&"
+    releaseWords = withoutStopWords(release).split(" ");
+    gameWords = withoutStopWords(game).split(" ");
+    start = findSequence(releaseWords, gameWords);
+  }
+  if (start === -1) return "mismatch";
+
+  const groupWord = group ? normalizeForMatch(group) : undefined;
+  const end = start + gameWords.length;
+  const extraWords = (from: number, to: number) => {
+    const extra: string[] = [];
+    for (let index = from; index < to; index++) {
+      const word = releaseWords[index] as string;
+      if (word === groupWord) continue;
+      // before the game name only words that never start a title are metadata
+      if (index >= start ? isMetadataToken(word) : isPrefixMetadata(word)) continue;
+      if (!isMetadataNumber(releaseWords, index)) extra.push(word);
+    }
+    return extra;
+  };
+  const before = extraWords(0, start);
+  const after = extraWords(end, releaseWords.length);
+
+  if (before.length === 0 && after.length === 0) return "exact";
+  // A title that already carries a number is usually followed by its official subtitle
+  // ("The Witcher 3" -> "Wild Hunt"); an unnumbered one by another game ("DOOM Eternal").
+  // "Sons of the Forest" for "The Forest": a distinguishing prefix names another game too
+  if (after.length + before.length > 0 && !gameWords.some((word) => /\d/.test(word))) {
+    return "spinoff";
+  }
+  return "contains";
+}
+
+/**
+ * A bracketed prefix or a known group suffix identifies the release group. Separators in the
+ * title, uppercase letters and digits alone cannot distinguish a group from a subtitle.
+ * Unknown suffixes stay in the title; title classification treats an otherwise exact
+ * match as ambiguous rather than awarding a bonus or assuming a spinoff.
+ */
+function releaseGroup(releaseName: string): string | undefined {
+  const { group } = parseReleaseMetadata(releaseName);
+  if (!group) return undefined;
+  const dash = releaseName.lastIndexOf("-");
+  if (dash === -1) return group; // a [GROUP] prefix
+  return KNOWN_RELEASE_GROUPS.has(group.toLowerCase()) ? group : undefined;
+}
+
+/**
+ * Preserve the raw group for custom formats, but only verified groups earn scene points.
+ */
+function releaseMetadata(releaseName: string): ReleaseMetadata {
+  const name = withoutTrailingTags(releaseName);
+  const metadata = parseReleaseMetadata(name);
+  const group = releaseGroup(name);
+  return { ...metadata, isScene: metadata.isScene && group !== undefined };
+}
+
+/**
+ * Classifies how a release name relates to the wanted game, trying the main title and any
+ * alternative titles and keeping the best result.
+ */
+export function classifyTitleMatch(
+  releaseName: string,
+  gameTitle: string,
+  alternativeTitles: readonly string[] = []
+): TitleMatch {
+  const name = withoutTrailingTags(releaseName);
+  const group = releaseGroup(name);
+  let best: TitleMatch = "mismatch";
+  for (const title of [gameTitle, ...alternativeTitles]) {
+    if (!title) continue;
+    let match = classifyAgainstTitle(name, title, group);
+    // A lone unverified dash suffix could be a new group or a subtitle. Neither
+    // uppercase spelling nor title separators resolve that ambiguity.
+    if (!group && (match === "spinoff" || match === "contains")) {
+      const rawGroup = parseReleaseMetadata(name).group;
+      const dash = name.lastIndexOf("-");
+      if (
+        rawGroup &&
+        dash !== -1 &&
+        classifyAgainstTitle(name.slice(0, dash), title, undefined) === "exact"
+      ) {
+        match = "ambiguous";
+      }
+    }
+    if (TITLE_MATCH_RANK[match] > TITLE_MATCH_RANK[best]) best = match;
+    if (best === "exact") break;
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
+// Indexer categories
+// ---------------------------------------------------------------------------
+
+/**
+ * Classifies Newznab/Torznab category ids. Any game category wins; the release is only
+ * "non_game" when every category is a known non-game family. Unknown, custom (100000+) or
+ * missing categories never count against a release.
+ */
+export function classifyIndexerCategories(
+  categories: readonly string[] | undefined
+): IndexerCategoryClass {
+  if (!categories || categories.length === 0) return "unknown";
+  let allNonGame = true;
+  for (const raw of categories) {
+    const id = Number.parseInt(raw, 10);
+    if (!Number.isFinite(id)) {
+      allNonGame = false;
+      continue;
+    }
+    if ((id >= 1000 && id < 2000) || id === 4000 || id === 4050) return "game";
+    const family = Math.floor(id / 1000);
+    const isNonGame = id < 100000 && [2, 3, 5, 6, 7].includes(family);
+    if (!isNonGame) allNonGame = false;
+  }
+  return allNonGame ? "non_game" : "unknown";
+}
+
+// ---------------------------------------------------------------------------
+// Built-in rules
+// ---------------------------------------------------------------------------
+
+/** What the rules read about one release, computed once. */
+interface ReleaseFacts {
+  input: ReleaseInput;
+  metadata: ReleaseMetadata;
+  titleMatch: TitleMatch;
+  indexerCategory: IndexerCategoryClass;
+}
+
+const NON_GAME_MEDIA_PATTERNS = [
+  /\b(480p|720p|1080p|2160p|x26[45]|h26[45]|hevc)\b/i, // video
+  /\b(bluray|bdrip|brrip|webrip|web-dl|hdtv|dvdrip)\b/i, // video sources
+  /\b(mkv|avi|mp4|flac|mp3)\b/i, // video and music files
+  /\b(epub|mobi|pdf|cbr|cbz)\b/i, // books and comics
+  /\bs\d{2}e\d{2}\b/i, // TV episodes
+];
+const REPACKERS = ["fitgirl", "dodi", "elamigos", "kaos", "xatab", "tinyrepacks"];
+const REPACK_PATTERN = new RegExp(String.raw`\b(repack|${REPACKERS.join("|")})\b`, "i");
+// Suffixes that parseReleaseMetadata reads as a group but that name a store or a repacker
+const NON_SCENE_GROUPS = new Set(["gog", "steam", "epic", ...REPACKERS]);
+const KNOWN_RELEASE_GROUPS = new Set([
+  ...NON_SCENE_GROUPS,
+  "masquerade",
+  "empress",
+  "codex",
+  "rune",
+  "flt",
+  "tenoke",
+  "skidrow",
+  "reloaded",
+  "plaza",
+  "razor1911",
+  "cpy",
+  "hoodlum",
+  "darksiders",
+  "venom",
+  "goldberg",
+  "tinyiso",
+  "ali213",
+  "3dm",
+  "p2p",
+  "gls",
+  "initial",
+  "rarbg",
+  "crack",
+  "prophet",
+  "doge",
+  "simplex",
+  "anomaly",
+  "i_know",
+]);
+
+/** A bundle introducer covers its whole metadata list, including "OST and Artbook". */
+function hasStandaloneExtra(title: string): boolean {
+  let bundled = false;
+  for (const word of normalizeTerm(title).split(" ")) {
+    if (["incl", "including", "with", "plus"].includes(word)) {
+      bundled = true;
+    } else if (["ost", "soundtrack", "artbook"].includes(word)) {
+      if (!bundled) return true;
+    } else if (!isMetadataToken(word) && !/^\d+$/.test(word)) {
+      bundled = false;
+    }
+  }
+  return false;
+}
+const SIZE_MISMATCH_RATIO = 0.5;
+// An executable or script as the release itself, or hidden behind a media extension
+const RISKY_FILE_PATTERNS = [
+  /\.ps1$/i, // PS1 before release metadata is a platform marker
+  /\.ps1[\])]/i, // but an enclosed "[setup.ps1]" is a file
+  // and so is a payload-named file anywhere, for the extensions that are ambiguous elsewhere
+  /\b(setup|install|installer|launcher|run|start|crack|keygen)\.(ps1|sh|com)\b/i,
+  // .com is left out: "[www.site.com]" indexer tags and site names are far more common than
+  // COM payloads, and the rule is locked
+  /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk|sh)(-\w+)?$/i, // with or without a -GROUP suffix
+  // unambiguous ones anywhere as a dotted part, even before metadata: Game.exe.MULTi8-CODEX
+  /\.(exe|scr|bat|cmd|vbs|js|jar|msi|lnk)(?=[.\s_\])-]|$)/i,
+  /\.(mkv|mp4|avi|pdf|zip|rar|iso)\.(exe|scr|com|lnk)\b/i,
+];
+
+/** "_" is a word character for \b, so Game_1080p_x264 would hide every marker. */
+function withSpacedUnderscores(title: string): string {
+  return title.replaceAll("_", " ");
+}
+
+/** Splits indexer tags such as "[rarbg]" off the end of a release name. */
+function splitTrailingTags(title: string): { name: string; tags: string[] } {
+  let name = title.trim();
+  const tags: string[] = [];
+  while (name.endsWith("]")) {
+    const open = name.lastIndexOf("[");
+    if (open === -1) break;
+    tags.push(name.slice(open + 1, -1).trim());
+    name = name.slice(0, open).trimEnd();
+  }
+  return { name, tags };
+}
+
+// "[rarbg]", "[1337x.to]", "[EZTV]": one word, single-case or with a digit or a dot. A tag like
+// "[Eternal]" may be part of the title and is kept.
+function isIndexerTag(tag: string): boolean {
+  if (!/^\S+$/.test(tag)) return false;
+  return /^[a-z0-9.]+$/.test(tag) || /^[A-Z0-9.]+$/.test(tag) || /[\d.]/.test(tag);
+}
+
+/** The release name without the trailing tags that look like indexer annotations. */
+function withoutTrailingTags(title: string): string {
+  const { name, tags } = splitTrailingTags(title);
+  // Preserve numbers and Roman numerals: "Hades [II]" names a sequel, not an indexer.
+  const kept = tags
+    .filter((tag) => /^\d+$|^[ivxlcdm]+$/i.test(tag) || !isIndexerTag(tag))
+    .reverse();
+  if (kept.length === 0) return name;
+  const suffix = kept.map((tag) => "[" + tag + "]").join(" ");
+  return `${name} ${suffix}`;
+}
+
+export const BUILT_IN_RULE_IDS = [
+  "title_exact",
+  "title_contains",
+  "title_spinoff",
+  "title_sequel",
+  "title_mismatch",
+  "category_game",
+  "category_non_game",
+  "non_game_media",
+  "platform_match",
+  "platform_mismatch",
+  "scene_release",
+  "repack",
+  "storefront_source",
+  "size_mismatch",
+  "risky_file",
+] as const;
+
+export type BuiltInRuleId = (typeof BUILT_IN_RULE_IDS)[number];
+
+export interface BuiltInRule {
+  id: BuiltInRuleId;
+  label: string;
+  /** Default points; a profile can override them. */
+  points: number;
+  /** When set, a matching release is also rejected with this code. */
+  rejection?: RejectionCode;
+  /** Locked rules cannot be disabled by a profile (their points can still change). */
+  locked?: boolean;
+  applies(facts: ReleaseFacts, ctx: ReleaseContext, profile: ReleaseProfile): boolean;
+}
+
+export const BUILT_IN_RULES: readonly BuiltInRule[] = [
+  {
+    id: "title_exact",
+    label: "Title matches the game",
+    points: 100,
+    applies: (f) => f.titleMatch === "exact",
+  },
+  {
+    id: "title_contains",
+    label: "Title contains the game",
+    points: 70,
+    applies: (f) => f.titleMatch === "contains",
+  },
+  {
+    id: "title_spinoff",
+    label: "Title continues past the game name (possible spinoff)",
+    // outweighs every positive built-in rule but the title ones, so a spinoff stays below
+    // the default minimum score whatever bonuses it collects
+    points: -150,
+    applies: (f) => f.titleMatch === "spinoff",
+  },
+  {
+    id: "title_sequel",
+    label: "Title is a sequel of the game",
+    points: -1000,
+    rejection: "title_sequel",
+    locked: true,
+    applies: (f) => f.titleMatch === "sequel",
+  },
+  {
+    id: "title_mismatch",
+    label: "Title does not match the game",
+    points: -1000,
+    rejection: "title_mismatch",
+    locked: true,
+    applies: (f) => f.titleMatch === "mismatch",
+  },
+  {
+    id: "category_game",
+    label: "Indexer category is games",
+    points: 35,
+    applies: (f) => f.indexerCategory === "game",
+  },
+  {
+    id: "category_non_game",
+    label: "Indexer category is not games",
+    points: -60,
+    rejection: "non_game_category",
+    applies: (f) => f.indexerCategory === "non_game",
+  },
+  {
+    id: "non_game_media",
+    label: "Looks like video, music or a book",
+    points: -120,
+    rejection: "non_game_media",
+    applies: (f) => {
+      const title = withSpacedUnderscores(f.input.title);
+      return (
+        NON_GAME_MEDIA_PATTERNS.some((pattern) => pattern.test(title)) || hasStandaloneExtra(title)
+      );
+    },
+  },
+  {
+    id: "platform_match",
+    label: "Platform marker matches",
+    points: 25,
+    applies: (f, ctx) =>
+      !!ctx.platform &&
+      !!f.metadata.platform &&
+      matchesPlatformFilter(f.metadata.platform, ctx.platform),
+  },
+  {
+    id: "platform_mismatch",
+    label: "Wrong platform",
+    points: -80,
+    rejection: "wrong_platform",
+    applies: (f, ctx) =>
+      !!ctx.platform && !matchesPlatformFilter(f.metadata.platform, ctx.platform),
+  },
+  {
+    id: "scene_release",
+    label: "Scene release",
+    points: 20,
+    applies: (f) =>
+      f.metadata.isScene && !NON_SCENE_GROUPS.has(f.metadata.group?.toLowerCase() ?? ""),
+  },
+  {
+    id: "repack",
+    label: "Repack",
+    points: 8,
+    applies: (f) => REPACK_PATTERN.test(withSpacedUnderscores(f.input.title)),
+  },
+  {
+    id: "storefront_source",
+    label: "Storefront or DRM-free source",
+    points: 15,
+    applies: (f) => !!f.metadata.drm,
+  },
+  {
+    id: "size_mismatch",
+    label: "Size far from the expected size",
+    points: -50,
+    applies: (f, ctx) => {
+      const expected = ctx.expectedSizeBytes;
+      const size = f.input.size;
+      if (!expected || !size) return false;
+      return Math.abs(size - expected) / expected > SIZE_MISMATCH_RATIO;
+    },
+  },
+  {
+    id: "risky_file",
+    label: "Executable or disguised file",
+    points: -1000,
+    rejection: "risky_file",
+    locked: true,
+    applies: (f) => {
+      // the name and each tag on its own: "Game [setup.exe]" hides the file in a tag
+      const { name, tags } = splitTrailingTags(f.input.title);
+      return [name, ...tags].some((part) =>
+        RISKY_FILE_PATTERNS.some((pattern) => pattern.test(part))
+      );
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Custom formats
+// ---------------------------------------------------------------------------
+
+/**
+ * User regexes run on RE2 (re2js), which matches in linear time: no pattern a user types can
+ * freeze scoring through catastrophic backtracking. RE2 has no lookarounds or backreferences;
+ * such patterns are reported as invalid.
+ */
+export const MAX_FORMAT_REGEX_LENGTH = 200;
+
+function compileUserRegex(pattern: string): RE2JS {
+  return RE2JS.compile(pattern, RE2JS.CASE_INSENSITIVE);
+}
+
+/** Returns why a user regex cannot be used, or null when it compiles. */
+function regexProblem(pattern: string): string | null {
+  if (pattern.length > MAX_FORMAT_REGEX_LENGTH) {
+    return `Regex is longer than ${MAX_FORMAT_REGEX_LENGTH} characters`;
+  }
+  try {
+    compileUserRegex(pattern);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "Invalid regex";
+  }
+}
+
+function regexTester(pattern: string): (value: string) => boolean {
+  const regex = compileUserRegex(pattern);
+  return (value) => regex.matcher(value).find();
+}
+
+/** Returns why a spec is invalid, or null when it can be used. */
+export function validateFormatSpec(spec: FormatSpec): string | null {
+  if (!spec.value.trim()) return "Value is empty";
+  if (spec.mode !== "regex") return null;
+  return regexProblem(spec.value);
+}
+
+interface CompiledSpec {
+  field: FormatField;
+  negate: boolean;
+  required: boolean;
+  test: (value: string) => boolean;
+}
+
+export interface CompiledCustomFormat {
+  format: CustomFormat;
+  specs: CompiledSpec[];
+}
+
+export interface CompiledCustomFormats {
+  formats: CompiledCustomFormat[];
+  /** Formats left out because a spec is invalid. */
+  errors: { formatId: string; message: string }[];
+}
+
+function compileSpec(spec: FormatSpec): CompiledSpec {
+  const needle = spec.value.trim().toLowerCase();
+  let test: (value: string) => boolean;
+  if (spec.mode === "regex") {
+    test = regexTester(spec.value);
+  } else if (spec.mode === "exact") {
+    test = (value) => value.toLowerCase() === needle;
+  } else {
+    test = (value) => value.toLowerCase().includes(needle);
+  }
+  return {
+    field: spec.field,
+    negate: spec.negate === true,
+    required: spec.required === true,
+    test,
+  };
+}
+
+/**
+ * Compiles enabled custom formats once per batch. A format with an invalid spec, or with no
+ * spec at all, is left out rather than half-applied.
+ */
+export function compileCustomFormats(formats: readonly CustomFormat[]): CompiledCustomFormats {
+  const compiled: CompiledCustomFormat[] = [];
+  const errors: CompiledCustomFormats["errors"] = [];
+  for (const format of formats) {
+    if (!format.enabled) continue;
+    if (format.specs.length === 0) {
+      errors.push({ formatId: format.id, message: "Format has no conditions" });
+      continue;
+    }
+    const invalid = format.specs.map(validateFormatSpec).find((message) => message !== null);
+    if (invalid) {
+      errors.push({ formatId: format.id, message: invalid });
+      continue;
+    }
+    compiled.push({ format, specs: format.specs.map(compileSpec) });
+  }
+  return { formats: compiled, errors };
+}
+
+function fieldValues(field: FormatField, facts: ReleaseFacts): string[] {
+  const { input, metadata } = facts;
+  switch (field) {
+    case "title":
+      return [input.title];
+    case "group":
+      return metadata.group ? [metadata.group] : [];
+    case "uploader":
+      return input.poster ? [input.poster] : [];
+    case "category":
+      return input.category ?? [];
+    case "protocol":
+      return [input.downloadType];
+    case "indexer":
+      return input.indexerName ? [input.indexerName] : [];
+  }
+}
+
+function formatMatches(compiled: CompiledCustomFormat, facts: ReleaseFacts): boolean {
+  const byField = new Map<FormatField, { required: boolean[]; optional: boolean[] }>();
+  for (const spec of compiled.specs) {
+    const found = fieldValues(spec.field, facts).some((value) => spec.test(value));
+    const holds = spec.negate ? !found : found;
+    const group = byField.get(spec.field) ?? { required: [], optional: [] };
+    (spec.required ? group.required : group.optional).push(holds);
+    byField.set(spec.field, group);
+  }
+  for (const { required, optional } of byField.values()) {
+    if (!required.every(Boolean)) return false;
+    if (optional.length > 0 && !optional.some(Boolean)) return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Evaluation
+// ---------------------------------------------------------------------------
+
+function normalizeTerm(value: string): string {
+  // any script counts as letters ("日本語", "русский"); accents are dropped so "Français"
+  // matches "Francais"
+  return value
+    .normalize("NFD")
+    .replaceAll(/\p{M}/gu, "")
+    .toLowerCase()
+    .replaceAll(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+/**
+ * Builds a matcher for a required or ignored term: `/pattern/` is a case-insensitive regex
+ * (checked like custom formats; an unusable one is read as plain text), anything else a word
+ * sequence matched as whole words, without regard to punctuation or case.
+ */
+function termMatcher(term: string): ((title: string) => boolean) | null {
+  const regexTerm = /^\/(.+)\/i?$/.exec(term.trim());
+  if (regexTerm?.[1] && regexProblem(regexTerm[1]) === null) {
+    return regexTester(regexTerm[1]);
+  }
+  const normalized = normalizeTerm(term);
+  if (!normalized) return null;
+  // whole words only: "crack" must not match "Crackdown"
+  return (title) => ` ${normalizeTerm(title)} `.includes(` ${normalized} `);
+}
+
+function applyBuiltInRules(
+  facts: ReleaseFacts,
+  ctx: ReleaseContext,
+  profile: ReleaseProfile,
+  lines: ScoreLine[],
+  rejections: Rejection[]
+): void {
+  for (const rule of BUILT_IN_RULES) {
+    const override = profile.builtInOverrides[rule.id];
+    if (override?.enabled === false && !rule.locked) continue;
+    if (!rule.applies(facts, ctx, profile)) continue;
+    lines.push({ ruleId: rule.id, label: rule.label, points: override?.points ?? rule.points });
+    if (rule.rejection) rejections.push({ code: rule.rejection });
+  }
+}
+
+/** Adds the lines of matching custom formats and returns their ids. */
+function applyCustomFormats(
+  facts: ReleaseFacts,
+  profile: ReleaseProfile,
+  formats: CompiledCustomFormats,
+  lines: ScoreLine[],
+  rejections: Rejection[]
+): string[] {
+  const matchedFormats: string[] = [];
+  for (const compiled of formats.formats) {
+    if (!formatMatches(compiled, facts)) continue;
+    const { format } = compiled;
+    matchedFormats.push(format.id);
+    const points = profile.formatScores[format.id] ?? format.score;
+    lines.push({ ruleId: `cf:${format.id}`, label: format.name, points });
+    if (format.hardReject) {
+      rejections.push({ code: "custom_format_reject", detail: format.name });
+    }
+  }
+  return matchedFormats;
+}
+
+/** The profile's term, seeder and size checks, which reject without scoring. */
+function checkProfileLimits(input: ReleaseInput, profile: ReleaseProfile): Rejection[] {
+  const rejections: Rejection[] = [];
+  const required = profile.requiredTerms
+    .map((term) => ({ term, matches: termMatcher(term) }))
+    .filter((entry) => entry.matches !== null);
+  if (required.length > 0 && !required.some((entry) => entry.matches?.(input.title))) {
+    rejections.push({
+      code: "required_term_missing",
+      detail: required.map((entry) => entry.term).join(", "),
+    });
+  }
+  for (const term of profile.ignoredTerms) {
+    if (termMatcher(term)?.(input.title)) {
+      rejections.push({ code: "ignored_term", detail: term });
+    }
+  }
+
+  if (
+    profile.minSeeders > 0 &&
+    input.downloadType === "torrent" &&
+    (input.seeders ?? 0) < profile.minSeeders
+  ) {
+    rejections.push({
+      code: "min_seeders",
+      detail: String(input.seeders ?? 0),
+      temporary: true,
+    });
+  }
+  if (profile.maxSizeBytes != null && input.size != null && input.size > profile.maxSizeBytes) {
+    rejections.push({ code: "max_size", detail: String(input.size) });
+  }
+
+  return rejections;
+}
+
+const NO_FORMATS: CompiledCustomFormats = { formats: [], errors: [] };
+
+/**
+ * Scores one release. Pass formats compiled with compileCustomFormats (once per batch), or
+ * use evaluateReleases for a whole result list.
+ */
+export function evaluateRelease(
+  input: ReleaseInput,
+  ctx: ReleaseContext,
+  profile: ReleaseProfile = DEFAULT_RELEASE_PROFILE,
+  formats: CompiledCustomFormats = NO_FORMATS
+): ReleaseEvaluation {
+  const facts: ReleaseFacts = {
+    input,
+    metadata: releaseMetadata(input.title),
+    titleMatch: classifyTitleMatch(input.title, ctx.gameTitle, ctx.alternativeTitles),
+    indexerCategory: classifyIndexerCategories(input.category),
+  };
+
+  const lines: ScoreLine[] = [];
+  const rejections: Rejection[] = [];
+  applyBuiltInRules(facts, ctx, profile, lines, rejections);
+  const matchedFormats = applyCustomFormats(facts, profile, formats, lines, rejections);
+  rejections.push(...checkProfileLimits(input, profile));
+
+  const score = lines.reduce((total, line) => total + line.points, 0);
+  if (score < profile.minScore) {
+    rejections.push({ code: "below_min_score", detail: String(score) });
+  }
+
+  const { category } = categorizeDownload(
+    input.title,
+    input.aiReleaseType,
+    input.aiReleaseTypeConfidence
+  );
+
+  return {
+    accepted: rejections.length === 0,
+    score,
+    lines,
+    rejections,
+    titleMatch: facts.titleMatch,
+    indexerCategory: facts.indexerCategory,
+    category,
+    matchedFormats,
+    preferredProtocol:
+      profile.protocolPreference === "either" || input.downloadType === profile.protocolPreference,
+  };
+}
+
+export interface EvaluatedRelease<T extends ReleaseInput> {
+  item: T;
+  evaluation: ReleaseEvaluation;
+}
+
+/**
+ * Orders releases the way Radarr's DownloadDecisionComparer does, adapted: accepted first,
+ * then score, preferred protocol, indexer priority, and torrent health (seeders by order of
+ * magnitude, so 900 and 1000 seeders tie). Remaining ties keep their order (stable sort).
+ */
+export function compareEvaluatedReleases<T extends ReleaseInput>(
+  a: EvaluatedRelease<T>,
+  b: EvaluatedRelease<T>
+): number {
+  const ea = a.evaluation;
+  const eb = b.evaluation;
+  if (ea.accepted !== eb.accepted) return ea.accepted ? -1 : 1;
+  if (ea.score !== eb.score) return eb.score - ea.score;
+  if (ea.preferredProtocol !== eb.preferredProtocol) return ea.preferredProtocol ? -1 : 1;
+  const pa = a.item.indexerPriority ?? Number.MAX_SAFE_INTEGER;
+  const pb = b.item.indexerPriority ?? Number.MAX_SAFE_INTEGER;
+  if (pa !== pb) return pa - pb;
+  return seederMagnitude(b.item) - seederMagnitude(a.item);
+}
+
+function seederMagnitude(item: ReleaseInput): number {
+  if (item.downloadType !== "torrent" || !item.seeders || item.seeders < 1) return -1;
+  return Math.floor(Math.log10(item.seeders));
+}
+
+/**
+ * Scores a result list with one compilation of the custom formats and returns it sorted
+ * with compareEvaluatedReleases. Rejected releases stay in the list so a manual search can
+ * show why they were rejected.
+ */
+export function evaluateReleases<T extends ReleaseInput>(
+  items: readonly T[],
+  ctx: ReleaseContext,
+  profile: ReleaseProfile = DEFAULT_RELEASE_PROFILE,
+  formats: readonly CustomFormat[] = []
+): EvaluatedRelease<T>[] {
+  const compiled = compileCustomFormats(formats);
+  return items
+    .map((item) => ({ item, evaluation: evaluateRelease(item, ctx, profile, compiled) }))
+    .sort(compareEvaluatedReleases);
+}

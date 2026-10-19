@@ -568,7 +568,8 @@ describe("SeerrNG provider API", () => {
         request(app).post(`${base}/requests/seerrng:request:1/retry`).send({}),
       ]);
       expect(cancel.status).toBe(200);
-      expect(retry.status).toBe(409);
+      // Either arrival order is valid; the cancellation must win in both.
+      expect([200, 409]).toContain(retry.status);
       const status = await request(app).get(`${base}/requests/seerrng:request:1`);
       expect(status.body).toMatchObject({ status: "cancelled" });
     });

@@ -438,7 +438,7 @@ function Invoke-QuestarrConnect {
     if ($ping.scope -and $ping.scope -notin @("library:write", "all")) {
         $PlayniteApi.Dialogs.ShowErrorMessage(
             "This API key has the access '$($ping.scope)', which cannot sync or request games. " +
-            "Create a key with the 'Playnite extension' access in Questarr (Settings -> Integrations -> API Keys).",
+            "Create a key with the 'Library sync (Playnite)' access in Questarr (Settings -> Integrations -> API Keys).",
             "Questarr")
         return
     }

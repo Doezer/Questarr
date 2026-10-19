@@ -597,12 +597,27 @@ describe("SeerrNG provider API", () => {
       ledger.set("user-1:seerrng:request:1", {
         ...ledger.get("user-1:seerrng:request:1"),
         status: "cancelled",
+        errorMessage: "cancellation-pending",
       });
       (storage.updateGameStatus as Mock).mockClear();
       const res = await request(app).post(`${base}/requests/seerrng:request:1/cancel`);
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("cancelled");
       expect(storage.updateGameStatus).toHaveBeenCalledWith("game-1", { status: "shelved" });
+    });
+
+    it("leaves a game alone when a cancelled request is cancelled again after it changed", async () => {
+      await request(app).post(`${base}/requests`).send(createBody);
+      const stored = ledger.get("user-1:seerrng:request:1");
+      ledger.set("user-1:seerrng:request:1", {
+        ...stored,
+        status: "cancelled",
+        errorMessage: null,
+      });
+      (storage.updateGameStatus as Mock).mockClear();
+      const res = await request(app).post(`${base}/requests/seerrng:request:1/cancel`);
+      expect(res.status).toBe(200);
+      expect(storage.updateGameStatus).not.toHaveBeenCalled();
     });
 
     it("refuses to cancel while the download client is still confirming the add", async () => {

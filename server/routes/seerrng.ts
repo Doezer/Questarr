@@ -478,6 +478,9 @@ const TARGET_PLATFORMS: Record<SeerrngOperatingSystem, { id: number; name: strin
 type RequestStatus =
   "accepted" | "searching" | "downloading" | "importing" | "available" | "failed" | "cancelled";
 
+/** Ledger note on a cancelled request whose game has not been shelved yet. */
+const CANCEL_PENDING_MARKER = "cancellation-pending";
+
 const ACTIVE_DOWNLOAD_STATUSES = new Set(["downloading", "queued", "paused"]);
 const IMPORTING_DOWNLOAD_STATUSES = new Set([
   "completed",
@@ -888,11 +891,17 @@ seerrngRouter.post(
     "SeerrNG software request cancellation failed",
     async ({ userId, ledger, current }, res) => {
       if (current.status === "cancelled") {
-        // Finish a cancellation that stopped before the game was shelved.
-        const interrupted = await findGame(userId, ledger);
-        if (interrupted && !isAcquired(interrupted)) {
-          await storage.updateGameStatus(interrupted.id, { status: "shelved" });
-          await storage.updateGameSearchResultsAvailable(interrupted.id, false);
+        // Finish a cancellation that stopped before the game was shelved; the marker tells it
+        // apart from a game someone wanted again afterwards.
+        if (ledger.errorMessage === CANCEL_PENDING_MARKER) {
+          const interrupted = await findGame(userId, ledger);
+          if (interrupted && !isAcquired(interrupted)) {
+            await storage.updateGameStatus(interrupted.id, { status: "shelved" });
+            await storage.updateGameSearchResultsAvailable(interrupted.id, false);
+          }
+          await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
+            errorMessage: null,
+          });
         }
         return res.json(current);
       }
@@ -940,15 +949,18 @@ seerrngRouter.post(
           );
         }
       }
-      // Recorded before the game is shelved, so an interruption leaves a state cancel can finish.
+      // Recorded before the game is shelved, with a marker, so an interruption can be finished.
       const updated = await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
         status: "cancelled",
-        errorMessage: null,
+        errorMessage: game ? CANCEL_PENDING_MARKER : null,
       });
       if (game) {
         // "shelved" is the existing "no longer wanted" state: auto-search skips it.
         await storage.updateGameStatus(game.id, { status: "shelved" });
         await storage.updateGameSearchResultsAvailable(game.id, false);
+        await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
+          errorMessage: null,
+        });
       }
       return res.json(await describeRequest(userId, updated ?? ledger));
     }

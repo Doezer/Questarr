@@ -26,20 +26,14 @@ test.describe("Playing journey", () => {
 
     // Write a note in the game's journal.
     await playingCard.click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("heading", { name: title })).toBeVisible();
-    await dialog.getByRole("tab", { name: /Journal/ }).click();
-    await dialog.getByRole("textbox", { name: "New journal note" }).fill("Beat the first boss");
-    await dialog.getByRole("button", { name: "Add", exact: true }).click();
-    await expect(dialog.getByText("Beat the first boss")).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/games/${game.id}$`));
+    await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
+    await page.getByRole("textbox", { name: "New journal note" }).fill("Beat the first boss");
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.getByText("Beat the first boss")).toBeVisible();
 
-    // The note is stored server-side, not just in the open dialog.
+    // The note is stored server-side, and the game has its own address to reopen.
     await page.reload();
-    await page.getByTestId(`card-game-${game.id}`).click();
-    await page
-      .getByRole("dialog")
-      .getByRole("tab", { name: /Journal/ })
-      .click();
-    await expect(page.getByRole("dialog").getByText("Beat the first boss")).toBeVisible();
+    await expect(page.getByText("Beat the first boss")).toBeVisible();
   });
 });

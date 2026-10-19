@@ -11,6 +11,7 @@ import {
   type ReleaseEvaluation,
   type ReleaseProfile,
 } from "../shared/release-scoring.js";
+import { DEFAULT_CUSTOM_FORMATS } from "../shared/default-custom-formats.js";
 import { parseJsonStringArray } from "../shared/title-utils.js";
 
 /** Points a release from a preferred group gains; the old setting only reordered. */
@@ -128,7 +129,7 @@ async function createInitialConfig(store: IStorage, userId: string): Promise<voi
     parseJsonStringArray(settings?.preferredReleaseGroups),
     settings?.filterByPreferredGroups ?? false
   );
-  for (const format of formats) {
+  for (const format of [...formats, ...DEFAULT_CUSTOM_FORMATS]) {
     await store.createCustomFormat(userId, { ...format, enabled: true });
   }
   await store.saveReleaseProfile(userId, {
@@ -142,7 +143,25 @@ async function createInitialConfig(store: IStorage, userId: string): Promise<voi
     builtInOverrides: {},
     formatScores: {},
   });
-  logger.info({ userId, formats: formats.length }, "Created release scoring profile");
+  logger.info(
+    { userId, formats: formats.length + DEFAULT_CUSTOM_FORMATS.length },
+    "Created release scoring profile"
+  );
+}
+
+/** Adds the recommended formats the user does not have yet (matched by name); returns them. */
+export async function installDefaultFormats(
+  userId: string,
+  store: IStorage = defaultStorage
+): Promise<CustomFormat[]> {
+  await ensureScoringConfig(userId, store);
+  const existing = new Set((await store.getCustomFormats(userId)).map((row) => row.name));
+  const added: CustomFormat[] = [];
+  for (const format of DEFAULT_CUSTOM_FORMATS) {
+    if (existing.has(format.name)) continue;
+    added.push(formatFromRow(await store.createCustomFormat(userId, { ...format, enabled: true })));
+  }
+  return added;
 }
 
 export async function ensureScoringConfig(

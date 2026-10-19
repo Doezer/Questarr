@@ -14,7 +14,12 @@ import {
   validateFormatSpec,
   type FormatSpec,
 } from "../shared/release-scoring.js";
-import { ensureScoringConfig, formatFromRow, profileFromRow } from "./release-scoring-service.js";
+import {
+  ensureScoringConfig,
+  formatFromRow,
+  installDefaultFormats,
+  profileFromRow,
+} from "./release-scoring-service.js";
 
 const router = Router();
 
@@ -99,6 +104,16 @@ router.post("/api/custom-formats", async (req: Request, res: Response) => {
     if (error instanceof z.ZodError) return invalid(res, error, "Invalid custom format");
     routesLogger.error({ error }, "error creating custom format");
     return res.status(500).json({ error: "Failed to create custom format" });
+  }
+});
+
+router.post("/api/custom-formats/install-defaults", async (req: Request, res: Response) => {
+  try {
+    const added = await installDefaultFormats((req.user as User).id);
+    return res.status(201).json({ added });
+  } catch (error) {
+    routesLogger.error({ error }, "error installing default custom formats");
+    return res.status(500).json({ error: "Failed to install recommended formats" });
   }
 });
 

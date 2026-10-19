@@ -135,6 +135,7 @@ const {
   categorizeSearchItems,
   scoreReleasesForGame,
   searchAndCategorizeItemsForGame,
+  AUTO_SEARCH_DEFERRED,
   narrowToPreferredGroupFormat,
 } = await import("../cron.js");
 const { igdbLogger } = await import("../logger.js");
@@ -2701,7 +2702,7 @@ describe("release scoring in auto-search", () => {
         await vi.advanceTimersByTimeAsync(3500);
         return pending;
       };
-      expect(await run()).toBeNull();
+      expect(await run()).toBe(AUTO_SEARCH_DEFERRED);
       expect((await run())?.mainItems.map((i) => i.title)).toEqual(["Slowgame-CODEX"]);
     } finally {
       vi.useRealTimers();

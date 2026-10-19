@@ -480,8 +480,12 @@ export function scoreReleasesForGame(
   return keepEligibleEvaluations(evaluateItemsForGame(items, game, scoring, xrelReleases));
 }
 
-// games whose automatic grab already waited one cycle for a slow xREL lookup
+// games whose automatic grab already waited one cycle for a slow xREL lookup; they leave the
+// set once a lookup completes in time
 const xrelDeferredGames = new Set<string>();
+
+/** Returned instead of null when the game is skipped for this cycle, so its badge stays as is. */
+export const AUTO_SEARCH_DEFERRED = Symbol("auto-search-deferred");
 
 /**
  * Searches all indexers for a game and returns its eligible releases, categorized by type.
@@ -495,7 +499,7 @@ export async function searchAndCategorizeItemsForGame(
   indexerPriorityMap?: Map<string, number>,
   blacklistTerms: string[] = [],
   scoring?: AutoSearchScoring
-): Promise<AutoSearchCategorizedItems | null> {
+): Promise<AutoSearchCategorizedItems | typeof AUTO_SEARCH_DEFERRED | null> {
   let matchedItems: SearchItem[] = [];
   let globallyFiltered: SearchItem[] = [];
   let xrelLookedUp = false;
@@ -530,9 +534,9 @@ export async function searchAndCategorizeItemsForGame(
       // cycle, when the finished lookup is cached. Only once per game: if xREL stays down, the
       // retry goes ahead without it rather than starving the game.
       if (xrelTimedOut) {
-        if (!xrelDeferredGames.delete(game.id)) {
+        if (!xrelDeferredGames.has(game.id)) {
           xrelDeferredGames.add(game.id);
-          return null;
+          return AUTO_SEARCH_DEFERRED;
         }
       } else {
         xrelDeferredGames.delete(game.id);
@@ -1763,6 +1767,7 @@ export async function checkAutoSearch() {
               blacklistTerms,
               scoring
             );
+            if (searchResult === AUTO_SEARCH_DEFERRED) continue;
             if (!searchResult) {
               // No results at all (zero results or all blacklisted) — clear the badge
               await storage.updateGameSearchResultsAvailable(game.id, false);
@@ -1983,6 +1988,7 @@ export async function checkAutoSearch() {
               blacklistTerms,
               scoring
             );
+            if (searchResult === AUTO_SEARCH_DEFERRED) continue;
             if (!searchResult) {
               await storage.updateGameSearchResultsAvailable(game.id, false);
               continue;

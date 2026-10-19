@@ -682,6 +682,11 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid software request payload." });
   }
+  if (req.body && typeof req.body === "object" && "selection" in req.body) {
+    // Editions and add-ons (contract v2.1) are not advertised in the handshake; refuse
+    // rather than silently queue the base game only.
+    return res.status(400).json({ error: "Edition and add-on selections are not supported." });
+  }
   const { externalRequestId, title, igdbId, variant } = parsed.data;
   const userId = req.user!.id;
   return withDispatchQueue(dispatchKey(userId), async () => {

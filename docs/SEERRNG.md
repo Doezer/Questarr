@@ -53,3 +53,9 @@ before this feature (`all`) still work, and rate limiting is 300 requests per mi
   confirm after a restart. `confirmNoExistingDownload` is accepted and ignored.
 - Paged catalog routes walk the first 100 IGDB results; deeper paging is not supported.
 - `library/lookup` answers IGDB ids only (no Steam App ids).
+- Not implemented from the QuestarrNG v2.1 contract: `catalog/games/{igdbId}/editions`, `catalog/discover`
+  and the `selection` field of a request (editions and add-ons). The handshake does not advertise the
+  `editions`, `discover` or `wantedContent` capabilities, and a request carrying `selection` is refused
+  with a 400 instead of being queued as the base game only.
+- The handshake reports `service: "Questarr"`; SeerrNG only checks `apiVersion` and
+  `requestContractVersion`.

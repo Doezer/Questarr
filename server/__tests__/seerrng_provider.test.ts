@@ -136,8 +136,9 @@ describe("SeerrNG provider API", () => {
     it("answers 409 when the live-game index rejects a concurrent claim", async () => {
       const original = (storage.updateIntegrationRequest as Mock).getMockImplementation()!;
       (storage.updateIntegrationRequest as Mock).mockImplementationOnce(async () => {
-        throw Object.assign(new Error("UNIQUE constraint failed"), {
-          code: "SQLITE_CONSTRAINT_UNIQUE",
+        // Drizzle wraps the driver error: the code only exists on `cause`.
+        throw Object.assign(new Error("Failed query: update integration_requests"), {
+          cause: Object.assign(new Error("boom"), { code: "SQLITE_CONSTRAINT_UNIQUE" }),
         });
       });
       const res = await request(app).post(`${base}/requests`).send(createBody);

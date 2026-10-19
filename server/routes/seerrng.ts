@@ -783,14 +783,20 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
   });
 });
 
-/** SQLite and Postgres report a unique-index violation with different shapes; accept both. */
+/**
+ * SQLite and Postgres report a unique-index violation with different shapes, and Drizzle wraps
+ * the driver error (code and message sit on `cause`); accept both.
+ */
 function isUniqueViolation(error: unknown): boolean {
-  const { code, message } = (error ?? {}) as { code?: unknown; message?: unknown };
-  return (
-    code === "SQLITE_CONSTRAINT_UNIQUE" ||
-    code === "23505" ||
-    (typeof message === "string" && /UNIQUE constraint failed|duplicate key value/i.test(message))
-  );
+  const candidates = [error, (error as { cause?: unknown } | null)?.cause];
+  return candidates.some((candidate) => {
+    const { code, message } = (candidate ?? {}) as { code?: unknown; message?: unknown };
+    return (
+      code === "SQLITE_CONSTRAINT_UNIQUE" ||
+      code === "23505" ||
+      (typeof message === "string" && /UNIQUE constraint failed|duplicate key value/i.test(message))
+    );
+  });
 }
 
 async function loadRequest(req: Request, res: Response): Promise<IntegrationRequest | undefined> {

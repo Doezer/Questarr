@@ -23,8 +23,8 @@ may still label the provider "QuestarrNG" in its own UI.
    `wanted` and picked up by the normal search cycle, exactly like a game you add by hand. If
    auto-search is off, the request stays at `searching`.
 
-A SeerrNG-only key is refused on every other route, including the Playnite routes. Keys created
-before this feature (`all`) still work, and rate limiting is 300 requests per minute per key.
+A SeerrNG-only key is refused on every other route except `GET /api/integration/ping`, including
+the Playnite library and request routes. Keys created before this feature (`all`) still work, and rate limiting is 300 requests per minute per key.
 
 ## What it does
 

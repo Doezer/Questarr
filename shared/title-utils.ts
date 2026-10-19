@@ -462,6 +462,12 @@ export const PLATFORM_CATALOG = [
     releasePattern: /(?:^|[^a-z0-9])(megadrive|mega\s*drive|genesis)(?=$|[^a-z0-9])/i,
   },
   {
+    canonical: "Game Gear",
+    igdbIds: [35],
+    igdbNames: ["Sega Game Gear"],
+    releasePattern: /(?:^|[^a-z0-9])(game\s*gear)(?=$|[^a-z0-9])/i,
+  },
+  {
     canonical: "Master System",
     igdbIds: [64],
     igdbNames: ["Sega Master System/Mark III"],

@@ -1053,6 +1053,47 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  describe("GET /api/games/:id", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("returns the user's game", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        title: "Quest",
+      } as unknown as Game);
+      const response = await request(app).get(`/api/games/${gameId}`);
+      expect(response.status).toBe(200);
+      expect(response.body.title).toBe("Quest");
+    });
+
+    it("returns 404 for an unknown game and 403 for another user's game", async () => {
+      vi.mocked(storage.getGame).mockResolvedValueOnce(undefined);
+      expect((await request(app).get(`/api/games/${gameId}`)).status).toBe(404);
+      vi.mocked(storage.getGame).mockResolvedValueOnce({
+        id: gameId,
+        userId: "someone-else",
+      } as unknown as Game);
+      expect((await request(app).get(`/api/games/${gameId}`)).status).toBe(403);
+    });
+
+    it("returns 404 for a game hidden by the content filter", async () => {
+      vi.mocked(storage.getGame).mockResolvedValueOnce({
+        id: gameId,
+        userId: "user-1",
+        isAdultContent: true,
+      } as unknown as Game);
+      vi.mocked(storage.getUserSettings).mockResolvedValueOnce({
+        hideAdultContent: true,
+      } as unknown as Awaited<ReturnType<typeof storage.getUserSettings>>);
+      expect((await request(app).get(`/api/games/${gameId}`)).status).toBe(404);
+    });
+
+    it("rejects a malformed id", async () => {
+      expect((await request(app).get("/api/games/not-a-uuid")).status).toBe(400);
+    });
+  });
+
   describe("PATCH /api/games/:id/user-rating", () => {
     const gameId = "123e4567-e89b-12d3-a456-426614174000";
 

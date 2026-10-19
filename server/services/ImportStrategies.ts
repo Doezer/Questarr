@@ -5,6 +5,11 @@ import path from "node:path";
 import { logger } from "../logger.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { EXTRACT_STAGING_PREFIX } from "./extract-staging.js";
+import {
+  buildNamingContext,
+  DEFAULT_NAMING_PATTERN,
+  renderNameOrFallback,
+} from "../../shared/naming.js";
 export type TransferMode = "copy" | "move" | "hardlink" | "symlink";
 
 export function sanitizeFsName(name: string | null | undefined): string {
@@ -43,6 +48,22 @@ export interface PlanImportOptions {
   // the library — the destination is a directory of extracted files, not a
   // file sharing the archive's own extension.
   treatAsDirectory?: boolean;
+  // Release name the game was downloaded as; feeds the {Version}, {Group} and {Source}
+  // tokens of the naming template.
+  downloadTitle?: string | null;
+}
+
+/** Name of the library leaf (folder, or file of a single-file release) for a game. */
+export function resolveLibraryLeafName(
+  game: Game,
+  config: Pick<ImportConfig, "renamePattern">,
+  platformDir?: string,
+  downloadTitle?: string | null
+): string {
+  return renderNameOrFallback(
+    config.renamePattern || DEFAULT_NAMING_PATTERN,
+    buildNamingContext(game, platformDir ?? "PC", downloadTitle)
+  );
 }
 
 export interface ImportStrategy {
@@ -534,7 +555,7 @@ export class PCImportStrategy implements ImportStrategy {
     );
 
     const stats = await fs.stat(sourcePath);
-    const cleanTitle = sanitizeFsName(game.title);
+    const cleanTitle = resolveLibraryLeafName(game, config, platformDir, options?.downloadTitle);
     const ext = options?.treatAsDirectory || stats.isDirectory() ? "" : path.extname(sourcePath);
     const destination = path.join(targetRoot, platformDir ?? "PC", cleanTitle + ext);
 

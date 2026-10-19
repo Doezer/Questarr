@@ -243,6 +243,17 @@ describe("RomM sync", () => {
     expect((await syncFromRomm("user-1")).matched).toBe(1);
   });
 
+  it("keeps an IGDB id match when the target platform has no RomM slug", async () => {
+    await configure();
+    mockStorage.getUserGames.mockResolvedValue([
+      { ...game("z", "Odd Platform", "wanted"), igdbId: 78, targetPlatformId: 999999 },
+    ]);
+    safeFetchMock.mockResolvedValue(
+      json({ items: [{ id: 1, name: "Odd Platform", igdb_id: 78, platform_slug: "x" }], total: 1 })
+    );
+    expect((await syncFromRomm("user-1")).matched).toBe(1);
+  });
+
   it("survives a ROM without a name", async () => {
     await configure();
     mockStorage.getUserGames.mockResolvedValue([game("n", "Named", "wanted")]);

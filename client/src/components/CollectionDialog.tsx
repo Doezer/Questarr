@@ -91,7 +91,7 @@ export default function CollectionDialog({
     setTitleContains(rules.titleContains ?? "");
   }, [open, collection]);
 
-  const games = useFreshGames(open);
+  const { games, isLoading: gamesLoading, isError: gamesError, retry } = useFreshGames(open);
 
   const { genreOptions, platformOptions } = useMemo(() => {
     const genreSet = new Set<string>(genres);
@@ -342,9 +342,18 @@ export default function CollectionDialog({
               <p className="text-sm text-muted-foreground" aria-live="polite">
                 {reversedYears
                   ? "“Released until” cannot be before “Released from”."
-                  : hasRules
-                    ? `${matchCount} ${matchCount === 1 ? "game matches" : "games match"} right now.`
-                    : "Set at least one rule."}
+                  : gamesError
+                    ? "Could not load your library to count matches."
+                    : gamesLoading
+                      ? "Counting matches…"
+                      : hasRules
+                        ? `${matchCount} ${matchCount === 1 ? "game matches" : "games match"} right now.`
+                        : "Set at least one rule."}
+                {gamesError && (
+                  <Button type="button" size="sm" variant="link" onClick={retry}>
+                    Retry
+                  </Button>
+                )}
               </p>
             </fieldset>
           )}

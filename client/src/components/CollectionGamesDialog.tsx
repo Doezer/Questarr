@@ -35,7 +35,7 @@ export default function CollectionGamesDialog({
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
 
-  const games = useFreshGames(open);
+  const { games, isLoading, isError, retry } = useFreshGames(open);
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -82,7 +82,18 @@ export default function CollectionGamesDialog({
           className="-mx-1 min-h-0 flex-1 space-y-1 overflow-y-auto px-1"
           aria-label="Library games"
         >
-          {visible.length === 0 && (
+          {isLoading && (
+            <li className="py-6 text-center text-sm text-muted-foreground">Loading games…</li>
+          )}
+          {isError && (
+            <li className="flex flex-col items-center gap-2 py-6 text-sm text-muted-foreground">
+              Could not load your library.
+              <Button size="sm" variant="outline" onClick={retry}>
+                Retry
+              </Button>
+            </li>
+          )}
+          {!isLoading && !isError && visible.length === 0 && (
             <li className="py-6 text-center text-sm text-muted-foreground">No games found.</li>
           )}
           {visible.map((game) => {

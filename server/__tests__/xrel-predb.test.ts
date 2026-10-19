@@ -42,6 +42,13 @@ describe("getXrelPredb", () => {
     expect(searchReleases).toHaveBeenCalledWith("英雄伝説", expect.anything());
   });
 
+  it("does not share a cache entry between mixed-script titles ending in the same number", async () => {
+    searchReleases.mockResolvedValue([]);
+    await getXrelPredb("英雄伝説 2");
+    await getXrelPredb("閃の軌跡 2");
+    expect(searchReleases).toHaveBeenCalledTimes(2);
+  });
+
   it("passes only the enabled release types and caches them apart", async () => {
     searchReleases.mockResolvedValue([]);
     await getXrelPredb("Game", { scene: true, p2p: false });

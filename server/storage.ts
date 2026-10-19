@@ -2371,6 +2371,7 @@ export class MemStorage implements IStorage {
       title: request.title,
       operatingSystem: request.operatingSystem ?? null,
       architecture: request.architecture ?? null,
+      selection: request.selection ?? null,
       status: "accepted",
       errorMessage: null,
       createdAt: now,

@@ -598,6 +598,8 @@ export const integrationRequests = pgTable(
     architecture: text("architecture").$type<SeerrngArchitecture>(),
     status: text("status").$type<IntegrationRequestStatus>().notNull().default("accepted"),
     errorMessage: text("error_message"),
+    // JSON of the edition or add-ons the request app selected (contract v2.1); null for a plain game.
+    selection: text("selection"),
     createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
     updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
   },

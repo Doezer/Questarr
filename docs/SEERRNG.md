@@ -53,9 +53,24 @@ the Playnite library and request routes. Keys created before this feature (`all`
   confirm after a restart. `confirmNoExistingDownload` is accepted and ignored.
 - Paged catalog routes walk the first 100 IGDB results; deeper paging is not supported.
 - `library/lookup` answers IGDB ids only (no Steam App ids).
-- Not implemented from the QuestarrNG v2.1 contract: `catalog/games/{igdbId}/editions`, `catalog/discover`
-  and the `selection` field of a request (editions and add-ons). The handshake does not advertise the
-  `editions`, `discover` or `wantedContent` capabilities, and a request carrying `selection` is refused
-  with a 400 instead of being queued as the base game only.
+- **Editions and add-ons** (contract v2.1, advertised as the `editions` capability):
+  `catalog/games/{igdbId}/editions` returns the editions IGDB lists under the game (`version_parent`)
+  and its expansions and DLC. An edition's `includes` are the content IGDB links to that edition; one
+  with none has `contentKnown: false`, and `storyContent` is `null` unless IGDB calls the item an
+  expansion (`true`) or the title is a soundtrack, bonus or cosmetic (`false`).
+- **`selection` on a request**: `edition` makes Questarr acquire that edition as the game; the request
+  keeps the base game's `identity` and `content.pending` lists the edition until it is acquired.
+  `missing-selected` requests the base game and adds each selected add-on to the library as a wanted
+  game (the same wanted state as any game; add-ons already in the library are left alone). Status,
+  retry and asset delivery follow the base game; `content` reports the add-ons still missing.
+  Cancelling shelves the add-ons that are still wanted. An unknown edition or add-on id is a 400, and
+  a selection needs the `igdbId`.
+- **Discovery** (`discover` capability): `catalog/discover` takes comma-separated IGDB ids for
+  `themes`, `gameModes`, `perspectives`, `genres` and `languages` (a game matching any listed id
+  qualifies) and `excludeThemes`, `excludeGameModes`, `excludeGenres` (a game with any of them is
+  dropped), plus `q`, `minYear`, `maxHoursToBeat` (games without a time-to-beat estimate are left
+  out) and an offset `cursor`. Results carry the usual catalog fields and the theme, mode and
+  perspective names.
+- Not implemented: the `wantedContent` capability. The IGDB queries behind editions and discovery follow IGDB's documented syntax but were not run against the live API.
 - The handshake reports `service: "Questarr"`; SeerrNG only checks `apiVersion` and
   `requestContractVersion`.

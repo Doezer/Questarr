@@ -76,9 +76,11 @@ platform available from IGDB.
    that matches the platform selection. Stored IGDB names such as
    `PC (Microsoft Windows)` resolve to the catalog's IDs. For a game listing
    PlayStation 3 before PC, selecting only PC still chooses the `PC` folder.
-3. Folder planning falls back to the first resolvable game platform, then `PC`
-   if it cannot find a folder mapping. This naming fallback does not bypass the
-   automatic import filter.
+3. If no selected game platform is found, folder planning uses the first game
+   platform value it can resolve to an ID. If the chosen ID has no folder mapping,
+   or no ID can be resolved, the folder is `PC`. It does not check later IDs just
+   because the chosen ID has no folder mapping. This naming fallback does not
+   bypass the automatic import filter.
 
 Configure the filter in **Settings → Appearance → Platforms**. An empty
 selection allows every platform. With a nonempty selection, a detected release

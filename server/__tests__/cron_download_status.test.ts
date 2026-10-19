@@ -62,10 +62,12 @@ vi.mock("../downloaders.js", () => ({
 }));
 
 const mockProcessImport = vi.fn();
+const mockIsImportInFlight = vi.fn().mockReturnValue(false);
 
 vi.mock("../services/index.js", () => ({
   importManager: {
     processImport: mockProcessImport,
+    isImportInFlight: mockIsImportInFlight,
   },
 }));
 
@@ -96,7 +98,7 @@ vi.mock("../apprise.js", () => ({
   appriseClient: { send: mockAppriseSend },
 }));
 
-const { checkDownloadStatus } = await import("../cron.js");
+const { checkDownloadStatus, resetDownloadStatusTracking } = await import("../cron.js");
 
 const baseDownloader = {
   id: "dl-sabnzbd",
@@ -136,6 +138,8 @@ const baseDownload = {
 describe("Cron - checkDownloadStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDownloadStatusTracking();
+    mockIsImportInFlight.mockReturnValue(false);
     mockGetGame.mockResolvedValue({
       id: "game-1",
       title: "Test Game",
@@ -577,6 +581,7 @@ describe("Cron - checkDownloadStatus", () => {
     mockGetDownloadingGameDownloads.mockResolvedValue([unpackingDownload]);
     mockGetDownloader.mockResolvedValue(baseDownloader);
     mockGetImportConfig.mockResolvedValue({ enablePostProcessing: true });
+    mockIsImportInFlight.mockReturnValue(true);
 
     // Remote client still reports the download as completed/available while
     // the extraction (which can take minutes for large archives) is running.
@@ -608,5 +613,321 @@ describe("Cron - checkDownloadStatus", () => {
     expect(mockProcessImport).not.toHaveBeenCalled();
     expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
     expect(mockUpdateGameStatus).not.toHaveBeenCalled();
+  });
+
+  // --- Release 1.5.0 review, download tracking (M1-M4) ---
+
+  const torrentDownloader = {
+    ...baseDownloader,
+    id: "dl-qbit",
+    name: "qBittorrent",
+    type: "qbittorrent" as const,
+  };
+  const torrentDownload = {
+    ...baseDownload,
+    id: "dlrecord-torrent",
+    downloaderId: "dl-qbit",
+    downloadHash: "abcdef0123456789",
+    downloadType: "torrent" as const,
+  };
+  const remoteTorrent = (overrides: Record<string, unknown> = {}) => ({
+    id: "abcdef0123456789",
+    name: "Test Game",
+    status: "downloading",
+    progress: 40,
+    downloadType: "torrent",
+    ...overrides,
+  });
+
+  it("asks the client to throw instead of returning an empty list when unreachable", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([torrentDownload]);
+    mockGetDownloader.mockResolvedValue(torrentDownloader);
+    mockGetAllDownloads.mockResolvedValue([remoteTorrent()]);
+
+    await checkDownloadStatus();
+
+    expect(mockGetAllDownloads).toHaveBeenCalledWith(torrentDownloader, { throwOnError: true });
+  });
+
+  it("never fails downloads while the client is unreachable, however long it lasts", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([torrentDownload]);
+    mockGetDownloader.mockResolvedValue(torrentDownloader);
+    mockGetAllDownloads.mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+    for (let i = 0; i < 6; i++) await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
+    expect(mockUpdateGameStatus).not.toHaveBeenCalled();
+    expect(mockAddNotification).not.toHaveBeenCalled();
+  });
+
+  it("keeps tracking a torrent through a transient client error and clears it on recovery", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([torrentDownload]);
+    mockGetDownloader.mockResolvedValue(torrentDownloader);
+    mockGetAllDownloads.mockResolvedValue([
+      remoteTorrent({ status: "error", error: "Tracker: connection timed out" }),
+    ]);
+
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      torrentDownload.id,
+      "downloading",
+      "Tracker: connection timed out"
+    );
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalledWith(
+      torrentDownload.id,
+      "failed",
+      expect.anything()
+    );
+    expect(statusWritesFor(torrentDownload.gameId)).not.toContainEqual({ status: "wanted" });
+    expect(mockAddNotification).not.toHaveBeenCalled();
+
+    // The tracker came back: the row (now carrying the error) is cleaned up.
+    mockUpdateGameDownloadStatus.mockClear();
+    mockGetDownloadingGameDownloads.mockResolvedValue([
+      { ...torrentDownload, errorMessage: "Tracker: connection timed out" },
+    ]);
+    mockGetAllDownloads.mockResolvedValue([remoteTorrent({ progress: 60 })]);
+
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      torrentDownload.id,
+      "downloading",
+      null
+    );
+  });
+
+  it("imports a torrent that finishes after a transient error", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([torrentDownload]);
+    mockGetDownloader.mockResolvedValue(torrentDownloader);
+    mockGetImportConfig.mockResolvedValue({ enablePostProcessing: true });
+    mockGetAllDownloads.mockResolvedValue([
+      remoteTorrent({ status: "error", error: "missingFiles" }),
+    ]);
+    await checkDownloadStatus();
+
+    mockGetAllDownloads.mockResolvedValue([remoteTorrent({ status: "seeding", progress: 100 })]);
+    mockGetDownloadDetails.mockResolvedValue({
+      ...remoteTorrent({ status: "seeding", progress: 100 }),
+      downloadDir: "/downloads/Test Game",
+      files: [],
+      trackers: [],
+    });
+    await checkDownloadStatus();
+
+    expect(mockProcessImport).toHaveBeenCalledWith(torrentDownload.id, expect.any(String));
+  });
+
+  it("fails a torrent whose error outlasts the grace period", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-11T12:00:00Z"));
+      mockGetDownloadingGameDownloads.mockResolvedValue([torrentDownload]);
+      mockGetDownloadsByGameId.mockResolvedValue([torrentDownload]);
+      mockGetDownloader.mockResolvedValue(torrentDownloader);
+      mockGetAllDownloads.mockResolvedValue([
+        remoteTorrent({ status: "error", error: "Torrent error" }),
+      ]);
+      await checkDownloadStatus();
+      expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalledWith(
+        torrentDownload.id,
+        "failed",
+        expect.anything()
+      );
+
+      vi.setSystemTime(new Date("2026-10-11T12:31:00Z"));
+      await checkDownloadStatus();
+
+      expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+        torrentDownload.id,
+        "failed",
+        "Torrent error"
+      );
+      expect(mockUpdateGameStatus).toHaveBeenCalledWith(
+        torrentDownload.gameId,
+        { status: "wanted" },
+        { preserveCurated: true }
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails a usenet download as soon as the client reports it failed", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetAllDownloads.mockResolvedValue([
+      {
+        id: "SABnzbd_nzo_abc123",
+        name: "Test Game",
+        status: "error",
+        progress: 0,
+        downloadType: "usenet",
+        error: "Repair failed, not enough repair blocks",
+      },
+    ]);
+
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      baseDownload.id,
+      "failed",
+      "Repair failed, not enough repair blocks"
+    );
+  });
+
+  it("sends a download the client purged on completion to manual review, not back to wanted", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([torrentDownload]);
+    mockGetDownloader.mockResolvedValue(torrentDownloader);
+    mockGetImportConfig.mockResolvedValue({ enablePostProcessing: true });
+    mockGetDownloadsByGameId.mockResolvedValue([torrentDownload]);
+    mockGetAllDownloads.mockResolvedValue([remoteTorrent({ progress: 97 })]);
+    await checkDownloadStatus();
+
+    // qBittorrent removed it at ratio 0 right after it finished.
+    mockGetAllDownloads.mockResolvedValue([]);
+    mockGetDownloadStatus.mockResolvedValue(null);
+    for (let i = 0; i < 3; i++) await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      torrentDownload.id,
+      "manual_review_required",
+      expect.stringContaining("removed this download once it finished")
+    );
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalledWith(
+      torrentDownload.id,
+      "failed",
+      expect.anything()
+    );
+    expect(statusWritesFor(torrentDownload.gameId)).not.toContainEqual({ status: "wanted" });
+    expect(mockAddNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Import needs attention", type: "warning" })
+    );
+  });
+
+  it("marks a purged-on-completion download completed when post-processing is off", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetAllDownloads.mockResolvedValue([
+      {
+        id: "SABnzbd_nzo_abc123",
+        name: "Test Game",
+        status: "unpacking",
+        progress: 100,
+        downloadType: "usenet",
+      },
+    ]);
+    await checkDownloadStatus();
+
+    // SABnzbd with history disabled drops the job once post-processing ends.
+    mockGetAllDownloads.mockResolvedValue([]);
+    mockGetDownloadStatus.mockResolvedValue(null);
+    for (let i = 0; i < 3; i++) await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed");
+    expect(mockUpdateGameStatus).toHaveBeenCalledWith(
+      baseDownload.gameId,
+      { status: "owned" },
+      { preserveCurated: true }
+    );
+    expect(statusWritesFor(baseDownload.gameId)).not.toContainEqual({ status: "wanted" });
+  });
+
+  it("still fails a download that vanished well before finishing", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([torrentDownload]);
+    mockGetDownloader.mockResolvedValue(torrentDownloader);
+    mockGetDownloadsByGameId.mockResolvedValue([torrentDownload]);
+    mockGetAllDownloads.mockResolvedValue([remoteTorrent({ progress: 30 })]);
+    await checkDownloadStatus();
+
+    mockGetAllDownloads.mockResolvedValue([]);
+    mockGetDownloadStatus.mockResolvedValue(null);
+    for (let i = 0; i < 3; i++) await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      torrentDownload.id,
+      "failed",
+      expect.any(String)
+    );
+  });
+
+  it.each(["unpacking", "completed_pending_import"] as const)(
+    "moves a row left in %s by a restart to manual review",
+    async (status) => {
+      mockGetDownloadingGameDownloads.mockResolvedValue([{ ...baseDownload, status }]);
+      mockGetDownloader.mockResolvedValue(baseDownloader);
+      mockGetImportConfig.mockResolvedValue({ enablePostProcessing: true });
+      mockGetAllDownloads.mockResolvedValue([]);
+      mockIsImportInFlight.mockReturnValue(false);
+
+      await checkDownloadStatus();
+
+      expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+        baseDownload.id,
+        "manual_review_required",
+        expect.stringContaining("interrupted")
+      );
+      expect(mockProcessImport).not.toHaveBeenCalled();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Import needs attention" })
+      );
+    }
+  );
+
+  it("skips a tick while the previous status check is still running", async () => {
+    let release!: (rows: unknown[]) => void;
+    mockGetDownloadingGameDownloads.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+
+    const first = checkDownloadStatus();
+    await checkDownloadStatus();
+    expect(mockGetDownloadingGameDownloads).toHaveBeenCalledTimes(1);
+
+    release([]);
+    await first;
+
+    // Once the first run is done, the next tick runs normally.
+    mockGetDownloadingGameDownloads.mockResolvedValueOnce([]);
+    await checkDownloadStatus();
+    expect(mockGetDownloadingGameDownloads).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not hold the status check while an import runs", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetImportConfig.mockResolvedValue({ enablePostProcessing: true });
+    mockGetAllDownloads.mockResolvedValue([
+      {
+        id: "SABnzbd_nzo_abc123",
+        name: "Test Game",
+        status: "completed",
+        progress: 100,
+        downloadType: "usenet",
+      },
+    ]);
+    mockGetDownloadDetails.mockResolvedValue({
+      id: "SABnzbd_nzo_abc123",
+      name: "Test Game",
+      status: "completed",
+      progress: 100,
+      downloadType: "usenet",
+      downloadDir: "/downloads/complete/Test Game",
+      files: [],
+      trackers: [],
+    });
+    // A long extraction that hasn't finished.
+    mockProcessImport.mockReturnValue(new Promise(() => {}));
+
+    await checkDownloadStatus();
+
+    expect(mockProcessImport).toHaveBeenCalledTimes(1);
+    expect(mockAddNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Download Completed" })
+    );
   });
 });

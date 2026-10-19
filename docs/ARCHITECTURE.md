@@ -16,7 +16,7 @@ how data flows between existing actors.
 Questarr is a three-layer TypeScript application in a single `package.json`
 (not a monorepo):
 
-- **`/client`** — a React 18 single-page app (Wouter routing, TanStack Query
+- **`/client`** — a React 19 single-page app (Wouter routing, TanStack Query
   for server state).
 - **`/server`** — an Express REST API plus a Socket.io WebSocket channel.
 - **`/shared`** — the Drizzle ORM schema and Zod validation schemas used by
@@ -25,6 +25,10 @@ Questarr is a three-layer TypeScript application in a single `package.json`
 The client never talks to the database, external services, or download
 clients directly — every action is mediated by the server, which is the
 system's central trust boundary (§8).
+
+SQLite is the default database. PostgreSQL is an opt-in dialect selected with
+`DB_DIALECT=postgres` and `DATABASE_URL`; see [DATABASE.md](DATABASE.md) for setup
+and migration. The storage facade keeps the same API for both implementations.
 
 ## 2. System actors
 
@@ -38,11 +42,11 @@ of the system — by writing data, triggering a request, or emitting an event.
 | Server — routes (`server/routes.ts`, `server/steam-routes.ts`, `server/pcgamingwiki-router.ts`, `server/routes/integration.ts`, `server/routes/api-keys.ts`) | Validates input, orchestrates business logic                                               | Storage layer, downloaders, search, Socket.io                                                                                                                             |
 | Server — `auth.ts`                                                                                                                                           | Issues/verifies JWTs, hashes passwords, mints/validates integration API keys               | Storage (`system_config` for the JWT secret; `api_keys` table), request `req.user`                                                                                        |
 | Playnite extension (`extensions/playnite-questarr/`)                                                                                                         | External couch-PC client                                                                   | Server, via `/api/integration` (through an API key, not a JWT) — pushes the local library, requests games                                                                 |
-| Server — `storage.ts` (Drizzle ORM)                                                                                                                          | Sole writer/reader of the SQLite DB                                                        | SQLite database                                                                                                                                                           |
-| SQLite database                                                                                                                                              | Persists all app state                                                                     | Read by every server module via `storage.ts`                                                                                                                              |
+| Server — `storage.ts` (Drizzle ORM)                                                                                                                          | Database access facade for the selected dialect                                            | SQLite / PostgreSQL database                                                                                                                                              |
+| SQLite / PostgreSQL database                                                                                                                                 | Persists all app state                                                                     | Read by every server module via `storage.ts`                                                                                                                              |
 | Server — `ssrf.ts` (`safeFetch`)                                                                                                                             | Validates and pins outbound URLs                                                           | Every outbound HTTP(S) call to indexers, downloaders, and most metadata services                                                                                          |
 | Server — `cron.ts` (scheduler)                                                                                                                               | Runs unattended background jobs                                                            | Storage, IGDB, indexers (via `search.ts`), downloaders, Socket.io                                                                                                         |
-| Server — `socket.ts` (Socket.io)                                                                                                                             | Pushes real-time events                                                                    | Client SPA (owner's `user:<id>` room for notifications, broadcast to authenticated sockets otherwise)                                                                   |
+| Server — `socket.ts` (Socket.io)                                                                                                                             | Pushes real-time events                                                                    | Client SPA (owner's `user:<id>` room for notifications, broadcast to authenticated sockets otherwise)                                                                     |
 | Server — `search.ts`                                                                                                                                         | Orchestrates indexer search, applies filtering/dedup                                       | Torznab/Newznab indexers (read), routes/cron (results)                                                                                                                    |
 | Server — `downloaders.ts` (`DownloaderManager`)                                                                                                              | Abstracts the 5 download-client integrations                                               | qBittorrent/Transmission/rTorrent/SABnzbd/NZBGet (write: submit; read: status)                                                                                            |
 | Server — `library-scanner.ts` / `root-folders.ts`                                                                                                            | Discovers games already on disk in user-configured root folders (outside the library root) | Reads the local filesystem directly (not via `safeFetch` — local paths, not URLs); queries IGDB for matching; writes `games`/`game_files`/`root_folders` via `storage.ts` |
@@ -76,7 +80,7 @@ flowchart TB
         DLManager["downloaders.ts (DownloaderManager)"]
     end
 
-    DB[("SQLite (Drizzle)")]
+    DB[("SQLite / PostgreSQL (Drizzle)")]
 
     subgraph Metadata["Metadata & Discovery Services"]
         IGDB["IGDB (Twitch OAuth)"]
@@ -140,7 +144,7 @@ sequenceDiagram
     participant S as search.ts
     participant I as Torznab/Newznab Indexers
     participant D as DownloaderManager
-    participant DB as SQLite
+    participant DB as Database
 
     U->>C: Click "Search" on a game
     C->>R: GET /api/indexers/search (JWT)
@@ -211,13 +215,26 @@ client versions for logging) and a daily import-task cleanup (deletes
 `import_tasks` rows older than 30 days), neither of which reads/writes
 domain data covered by this table:
 
-| Job                   | Interval                                                                                  | Upstream read                                                                           | Downstream write                                                                                                 |
-| --------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `checkGameUpdates`    | 24 hours                                                                                  | IGDB (batch fetch by ID)                                                                | `games` table (release date/status), `notifications` table, Socket.io `notification`                             |
-| `checkDownloadStatus` | 1 minute                                                                                  | Configured download clients (via `DownloaderManager`)                                   | `game_downloads`/`games` status, `notifications`, Socket.io `downloadUpdate`/`notification`                      |
-| `checkAutoSearch`     | 1 hour (per user, gated by their configured search interval)                              | Torznab/Newznab indexers (via `search.ts`), download clients (if auto-download enabled) | `games` search-results flag, `game_downloads`, `notifications`, Socket.io `notification`                         |
-| `checkXrelReleases`   | 6 hours                                                                                   | xREL.to latest releases                                                                 | `xrel_notified_releases`, `notifications`, Socket.io `notification`                                              |
-| `checkSteamWishlist`  | 1 hour (per user, gated by their configured sync interval, opt-in via `steamSyncEnabled`) | Steam Web API wishlist, IGDB (Steam App ID lookup)                                      | `games` table (new/linked entries), `import_tasks`, `notifications`, Socket.io `importTaskUpdate`/`notification` |
+| Job                       | Interval                                                                                  | Upstream read                                                                           | Downstream write                                                                                                 |
+| ------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `checkGameUpdates`        | 24 hours                                                                                  | IGDB (batch fetch by ID)                                                                | `games` table (release date/status), `notifications` table, Socket.io `notification`                             |
+| `checkDownloadStatus`     | 1 minute                                                                                  | Configured download clients (via `DownloaderManager`)                                   | `game_downloads`/`games` status, `notifications`, Socket.io `downloadUpdate`/`notification`                      |
+| `checkAutoSearch`         | 1 hour (per user, gated by their configured search interval)                              | Torznab/Newznab indexers (via `search.ts`), download clients (if auto-download enabled) | `games` search-results flag, `game_downloads`, `notifications`, Socket.io `notification`                         |
+| `checkXrelReleases`       | 6 hours                                                                                   | xREL.to latest releases                                                                 | `xrel_notified_releases`, `notifications`, Socket.io `notification`                                              |
+| `checkSteamWishlist`      | 1 hour (per user, gated by their configured sync interval, opt-in via `steamSyncEnabled`) | Steam Web API wishlist, IGDB (Steam App ID lookup)                                      | `games` table (new/linked entries), `import_tasks`, `notifications`, Socket.io `importTaskUpdate`/`notification` |
+| `rssService.refreshFeeds` | 1 hour (also 10 seconds after startup)                                                    | Enabled RSS feeds via SSRF-safe fetch, IGDB matching                                    | `rss_feeds` check status and `rss_feed_items`                                                                    |
+
+RSS scheduled and manual full refreshes share an in-flight promise. Full and
+single-feed refreshes use one queue to prevent overlapping writes and duplicate
+items. New-feed refreshes join that queue rather than racing the hourly check.
+
+Root-folder discovery lives in **Library → Library Import**. Add/enable/path
+changes and enabling post-processing trigger scans; changes during a running
+scan queue a follow-up. `library-scan-progress` carries scan timestamps and
+counts. Clients invalidate games after new matches or a scan finishes (including
+failure after partial writes), and refresh review candidates when progress changes.
+Unmatched-folder IGDB name searches update candidates without importing; explicit
+confirmation writes the game and file records. See [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md).
 
 Steam wishlist sync (`syncUserSteamWishlist` in `server/cron.ts`) also runs
 on-demand when a user explicitly triggers it via

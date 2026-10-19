@@ -21,6 +21,9 @@ import type { ImportConfig, UserSettings } from "@shared/schema";
 import { selectedPlatformNames as resolveSelectedPlatformNames } from "@shared/platforms";
 import { PathMappingSettings } from "./PathMappingSettings";
 import { FileBrowser } from "./FileBrowser";
+import { RommSettings } from "./RommSettings";
+import { validatePattern } from "@shared/naming";
+import { NamingPatternEditor } from "./NamingPatternEditor";
 import SecurityScanSettings from "./SecurityScanSettings";
 
 type HardlinkPairCheck = {
@@ -53,7 +56,7 @@ export default function ImportSettings() {
   const { data: hardlinkCapability } = useQuery<HardlinkCapabilityResponse>({
     queryKey: ["/api/imports/hardlink/check"],
   });
-  // Read-only mirror of the Platforms tab, which owns this setting.
+  // Read-only mirror of the Platforms card (Appearance tab), which owns this setting.
   const { data: userSettings } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
   });
@@ -97,7 +100,7 @@ export default function ImportSettings() {
   // Mutations
   const updateConfigMutation = useMutation({
     mutationFn: async (data: ImportConfig) => {
-      // `importPlatformIds` is owned by the Platforms tab. Sending it from here
+      // `importPlatformIds` is owned by the Platforms card. Sending it from here
       // would let a stale copy revert a change saved on that tab, so omit it and
       // let the route keep the stored value.
       const { importPlatformIds: _unused, ...rest } = data;
@@ -140,7 +143,9 @@ export default function ImportSettings() {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="config" className="w-full">
-        <TabsList>
+        {/* Two-by-two grid on phones so all four sub-tabs stay visible instead of
+            overflowing the screen; a single row from sm up. */}
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:inline-flex sm:h-10 sm:w-auto sm:gap-0">
           <TabsTrigger value="config">General Config</TabsTrigger>
           <TabsTrigger value="paths">Path Mappings</TabsTrigger>
           <TabsTrigger value="security">Security & Scanning</TabsTrigger>
@@ -247,7 +252,11 @@ export default function ImportSettings() {
                           </Button>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Where files are placed after import.
+                          Where files are placed after import, in a platform folder:{" "}
+                          <code>
+                            {(localConfig.libraryRoot || "/data").replace(/\/+$/, "")}/PC/Game Name
+                          </code>
+                          . For RomM, switch on RomM platform folders below.
                         </p>
                       </div>
                       <div className="space-y-1.5">
@@ -334,8 +343,8 @@ export default function ImportSettings() {
                     </p>
                     <div className="mb-6">
                       <p className="text-xs text-muted-foreground">
-                        Imports are restricted to the platforms chosen in the{" "}
-                        <span className="font-medium text-foreground">Platforms</span> settings tab.
+                        Imports are restricted to the platforms chosen under{" "}
+                        <span className="font-medium text-foreground">Appearance → Platforms</span>.
                         Leave that list empty to make all platforms eligible.
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -349,18 +358,12 @@ export default function ImportSettings() {
                     <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                       Naming
                     </p>
-                    <div className="space-y-1.5">
-                      <Label>Rename Pattern</Label>
-                      <Input
-                        value={localConfig.renamePattern}
-                        onChange={(e) =>
-                          setLocalConfig({ ...localConfig, renamePattern: e.target.value })
-                        }
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Available tokens: {"{Title}"}, {"{Region}"}, {"{Platform}"}, {"{Year}"}
-                      </p>
-                    </div>
+                    <NamingPatternEditor
+                      value={localConfig.renamePattern}
+                      onChange={(renamePattern) =>
+                        setLocalConfig({ ...localConfig, renamePattern })
+                      }
+                    />
                   </div>
                 </CardContent>
               </Card>
@@ -368,7 +371,9 @@ export default function ImportSettings() {
               <div className="flex justify-end">
                 <Button
                   onClick={() => localConfig && updateConfigMutation.mutate(localConfig)}
-                  disabled={updateConfigMutation.isPending}
+                  disabled={
+                    updateConfigMutation.isPending || !validatePattern(localConfig.renamePattern).ok
+                  }
                 >
                   {updateConfigMutation.isPending && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -378,6 +383,8 @@ export default function ImportSettings() {
               </div>
             </>
           )}
+
+          <RommSettings />
         </TabsContent>
 
         <TabsContent value="paths" className="space-y-4">
@@ -512,11 +519,11 @@ export default function ImportSettings() {
                     },
                     {
                       name: "Platform Filter",
-                      desc: "Limits imports to the platforms chosen in the Platforms settings tab. If no platforms are checked, all platforms are eligible.",
+                      desc: "Limits imports to the platforms chosen under Settings → Appearance → Platforms. If no platforms are checked, all platforms are eligible.",
                     },
                     {
-                      name: "Rename Pattern",
-                      desc: "Controls the file name after import. Tokens: {Title} = game title, {Region} = region tag from the release name, {Platform} = platform name, {Year} = release year. Example: {Title} ({Year}) ({Platform}).",
+                      name: "Naming Pattern",
+                      desc: "Controls the name of the game folder (or file, for single-file releases) after import. Tokens: {Title}, {TitleThe}, {Year}, {Platform}, {Version}, {Group}, {Source}, {IgdbId}, {SteamAppId}. Empty values and the brackets around them are dropped. Example: {Title} ({Year}).",
                     },
                   ].map(({ name, desc }) => (
                     <div key={name}>
@@ -579,6 +586,15 @@ export default function ImportSettings() {
                         "Set Library Root to where you want games stored (e.g. /data/library).",
                         "Set Transfer Mode to Hardlink if the download folder is on the same volume, otherwise Copy.",
                         "Leave Path Mappings empty.",
+                      ],
+                    },
+                    {
+                      title: "Feeding RomM (or ES-DE, Playnite)",
+                      steps: [
+                        "Enable Post-Processing.",
+                        "Set Library Root to the folder your frontend scans (for RomM, its roms folder).",
+                        "Under RomM, switch on RomM platform folders: games go to <library root>/<platform>/, e.g. roms/snes or roms/win.",
+                        "Optionally add your RomM URL and an API token: Questarr then asks RomM to rescan after each import and can mark games already in RomM as owned.",
                       ],
                     },
                     {

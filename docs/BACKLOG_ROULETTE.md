@@ -27,3 +27,11 @@ Drawing a game never changes your collection; only Mark as Playing changes statu
 
 No API key, command line or additional setup is needed. The feature uses the
 Library's existing authenticated data and status update endpoint.
+
+## Pick from Playing
+
+On **Playing**, **Pick a game** draws only from your currently playing games
+that match the page search and filters. The pool is fixed to **Currently
+playing**, and there is no **Mark as Playing** action because those games
+already have that status. The toolbar wraps at narrower widths to keep the
+picker reachable in both Library and Playing.

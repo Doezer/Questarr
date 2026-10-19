@@ -1,4 +1,6 @@
-import React, { lazy, Suspense, useEffect, useState } from "react";
+import React, { useState } from "react";
+import { useLocation } from "wouter";
+import { gameDetailsPath } from "@/lib/routes";
 import { Dices, Gamepad2, Loader2 } from "lucide-react";
 import type { Game } from "@shared/schema";
 import { coverSrc } from "@/lib/cover";
@@ -20,36 +22,39 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import StatusBadge from "./StatusBadge";
-import LazyModalFallback from "./LazyModalFallback";
 
-const GameDetailsModal = lazy(() => import("./GameDetailsModal"));
 type Pool = "owned" | "playing" | "all";
 
-/** Draw from the filtered Library and let users inspect or mark a game as Playing. */
+const POOL_LABELS: Record<Pool, string> = {
+  owned: "Owned games",
+  playing: "Currently playing",
+  all: "All visible games",
+};
+const ALL_POOLS: Pool[] = ["owned", "playing", "all"];
+
+/** Draw from a filtered game list and let users inspect or mark a game as Playing. */
 export default function BacklogRoulette({
   games,
   loading,
   onStartPlaying,
+  pools = ALL_POOLS,
 }: {
   games: Game[];
   loading: boolean;
-  onStartPlaying: (gameId: string) => Promise<void>;
+  /** Omit to hide the "Mark as Playing" action (e.g. when every game is already playing). */
+  onStartPlaying?: (gameId: string) => Promise<void>;
+  /** Pools offered in the "Pick from" select; the first one is the default draw. */
+  pools?: Pool[];
 }) {
   const [open, setOpen] = useState(false);
-  const [pool, setPool] = useState<Pool>("owned");
+  const [pool, setPool] = useState<Pool>(pools[0] ?? "all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detailsGameId, setDetailsGameId] = useState<string | null>(null);
+  const [, navigate] = useLocation();
   const [starting, setStarting] = useState(false);
   const candidates = games.filter(
     (game) => !game.hidden && (pool === "all" || game.status === pool)
   );
   const selected = candidates.find((game) => game.id === selectedId);
-  const detailsGame = games.find((game) => game.id === detailsGameId);
-
-  // Read the latest query data, and close details if a refresh removes the game.
-  useEffect(() => {
-    if (detailsGameId && !detailsGame) setDetailsGameId(null);
-  }, [detailsGameId, detailsGame]);
 
   /** Draw uniformly from the chosen pool, skipping the previous game when possible. */
   function roll(nextPool = pool) {
@@ -73,7 +78,7 @@ export default function BacklogRoulette({
 
   /** Save the selected game's status; keep the dialog open if the save fails. */
   async function startPlaying() {
-    if (!selected) return;
+    if (!selected || !onStartPlaying) return;
     setStarting(true);
     try {
       await onStartPlaying(selected.id);
@@ -132,13 +137,15 @@ export default function BacklogRoulette({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="owned">Owned games</SelectItem>
-                <SelectItem value="playing">Currently playing</SelectItem>
-                <SelectItem value="all">All visible games</SelectItem>
+                {pools.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {POOL_LABELS[value]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Your Library search and filters apply. Hidden games stay out of the draw.
+              Your current search and filters apply. Hidden games stay out of the draw.
             </p>
           </div>
           <div aria-live="polite" aria-atomic="true">
@@ -180,8 +187,8 @@ export default function BacklogRoulette({
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {candidates.length
-                    ? "Roll again to pick from your updated Library."
-                    : "Choose another pool or adjust your Library filters to find a game."}
+                    ? "Roll again to pick from your updated list."
+                    : "Choose another pool or adjust your filters to find a game."}
                 </p>
               </div>
             )}
@@ -203,13 +210,13 @@ export default function BacklogRoulette({
                   variant="outline"
                   disabled={starting || loading}
                   onClick={() => {
-                    setDetailsGameId(selected.id);
                     setOpen(false);
+                    navigate(gameDetailsPath(selected.id));
                   }}
                 >
                   View game
                 </Button>
-                {selected.status === "owned" && (
+                {selected.status === "owned" && onStartPlaying && (
                   <Button
                     className="sm:ml-auto"
                     onClick={startPlaying}
@@ -228,17 +235,6 @@ export default function BacklogRoulette({
           </div>
         </DialogContent>
       </Dialog>
-      {detailsGame && (
-        <Suspense fallback={<LazyModalFallback />}>
-          <GameDetailsModal
-            game={detailsGame}
-            open
-            onOpenChange={(value) => {
-              if (!value) setDetailsGameId(null);
-            }}
-          />
-        </Suspense>
-      )}
     </>
   );
 }

@@ -5,7 +5,7 @@ import React from "react";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import GameDetailsModal from "../src/components/GameDetailsModal";
+import GameDetails from "../src/components/GameDetails";
 import { Toaster } from "@/components/ui/toaster";
 
 // Mocking external dependencies
@@ -78,9 +78,15 @@ vi.mock("@/components/ui/select", () => {
   };
 });
 
+vi.mock("../src/components/GameJournalTab", () => ({
+  default: () => <div data-testid="game-journal-tab" />,
+}));
+
 vi.mock("lucide-react", () => ({
+  Plus: (props: Record<string, unknown>) => <div data-testid="icon-plus" {...props} />,
   Calendar: (props: Record<string, unknown>) => <div data-testid="icon-calendar" {...props} />,
   Star: (props: Record<string, unknown>) => <div data-testid="icon-star" {...props} />,
+  Play: (props: Record<string, unknown>) => <div data-testid="icon-play" {...props} />,
   Monitor: (props: Record<string, unknown>) => <div data-testid="icon-monitor" {...props} />,
   Gamepad2: (props: Record<string, unknown>) => <div data-testid="icon-gamepad2" {...props} />,
   Tag: (props: Record<string, unknown>) => <div data-testid="icon-tag" {...props} />,
@@ -211,13 +217,13 @@ function makeFetchMock(overrides: Record<string, unknown> = {}) {
 const renderComponent = (game = mockGame) => {
   return render(
     <QueryClientProvider client={createQueryClient()}>
-      <GameDetailsModal game={game} open={true} onOpenChange={() => {}} />
+      <GameDetails game={game} onClose={() => {}} />
       <Toaster />
     </QueryClientProvider>
   );
 };
 
-describe("GameDetailsModal", () => {
+describe("GameDetails", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(makeFetchMock());
@@ -324,6 +330,18 @@ describe("GameDetailsModal", () => {
     // Media tab uses forceMount so screenshots are always in the DOM (hidden until tab activated)
     expect(screen.getByTestId("screenshot-0")).toBeInTheDocument();
     expect(screen.getByTestId("screenshot-1")).toBeInTheDocument();
+  });
+
+  it("renders the video carousel above the screenshots when the game has videos", () => {
+    renderComponent({
+      ...mockGame,
+      videos: [
+        { name: "Trailer", videoId: "dQw4w9WgXcQ" },
+        { name: "Gameplay", videoId: "9bZkp7q19f0" },
+      ],
+    });
+    expect(screen.getByTestId("video-play-dQw4w9WgXcQ")).toBeInTheDocument();
+    expect(screen.getByTestId("screenshot-0")).toBeInTheDocument();
   });
 
   it("opens the screenshot lightbox and navigates with the carousel controls", async () => {
@@ -542,7 +560,6 @@ describe("GameDetailsModal", () => {
     renderComponent();
 
     // Links tab is forceMount-ed; activate the tab so the button is interactive
-    fireEvent.click(screen.getByRole("tab", { name: /links/i }));
 
     const rateButton = await screen.findByRole("button", { name: "Rate 4 out of 5" });
     fireEvent.click(rateButton);
@@ -558,20 +575,16 @@ describe("GameDetailsModal", () => {
     });
   });
 
-  it("uses 'IGDB score' label instead of 'Rating' in the metadata section", () => {
+  it("labels the community score as IGDB Users in the scores block", () => {
     renderComponent();
-    expect(screen.getByText("IGDB score")).toBeInTheDocument();
+    expect(screen.getByText("IGDB Users")).toBeInTheDocument();
     expect(screen.queryByText("Rating")).not.toBeInTheDocument();
   });
 
   it("renders source labels for steam, api, and manual games", () => {
     const { rerender } = render(
       <QueryClientProvider client={createQueryClient()}>
-        <GameDetailsModal
-          game={{ ...mockGame, source: "steam" }}
-          open={true}
-          onOpenChange={() => {}}
-        />
+        <GameDetails game={{ ...mockGame, source: "steam" }} onClose={() => {}} />
         <Toaster />
       </QueryClientProvider>
     );
@@ -579,11 +592,7 @@ describe("GameDetailsModal", () => {
 
     rerender(
       <QueryClientProvider client={createQueryClient()}>
-        <GameDetailsModal
-          game={{ ...mockGame, source: "api" }}
-          open={true}
-          onOpenChange={() => {}}
-        />
+        <GameDetails game={{ ...mockGame, source: "api" }} onClose={() => {}} />
         <Toaster />
       </QueryClientProvider>
     );
@@ -591,11 +600,7 @@ describe("GameDetailsModal", () => {
 
     rerender(
       <QueryClientProvider client={createQueryClient()}>
-        <GameDetailsModal
-          game={{ ...mockGame, source: "manual" }}
-          open={true}
-          onOpenChange={() => {}}
-        />
+        <GameDetails game={{ ...mockGame, source: "manual" }} onClose={() => {}} />
         <Toaster />
       </QueryClientProvider>
     );
@@ -606,7 +611,6 @@ describe("GameDetailsModal", () => {
     it("shows fallback search link when Nexus Mods is not configured", async () => {
       // default beforeEach mock: configured: false, domain: null → fallback link shown
       renderComponent();
-      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
 
       await waitFor(() => {
         expect(global.fetch).toHaveBeenCalledWith(
@@ -629,7 +633,6 @@ describe("GameDetailsModal", () => {
       );
 
       renderComponent();
-      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
 
       const nexusLink = await screen.findByRole("link", { name: /nexusmods/i });
       expect(nexusLink).toHaveAttribute(
@@ -644,7 +647,6 @@ describe("GameDetailsModal", () => {
       );
 
       renderComponent();
-      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
 
       await waitFor(() => {
         expect(global.fetch).toHaveBeenCalledWith(
@@ -664,7 +666,7 @@ describe("GameDetailsModal", () => {
       renderComponent();
 
       await waitFor(() => {
-        expect(screen.getByRole("tab", { name: /mods/i })).toBeInTheDocument();
+        expect(screen.getByTestId("nav-section-mods")).toBeInTheDocument();
       });
     });
 
@@ -678,7 +680,7 @@ describe("GameDetailsModal", () => {
         );
       });
 
-      expect(screen.queryByRole("tab", { name: /^mods$/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("nav-section-mods")).not.toBeInTheDocument();
     });
   });
 
@@ -690,7 +692,6 @@ describe("GameDetailsModal", () => {
         timeToBeatNormally: 10,
         timeToBeatCompletely: null,
       } as unknown as import("@shared/schema").Game);
-      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
 
       const section = screen.getByTestId("section-time-to-beat");
       expect(section).toHaveTextContent("Hastily");
@@ -705,22 +706,8 @@ describe("GameDetailsModal", () => {
         timeToBeatNormally: null,
         timeToBeatCompletely: null,
       } as unknown as import("@shared/schema").Game);
-      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
 
       expect(screen.queryByTestId("section-time-to-beat")).not.toBeInTheDocument();
-    });
-  });
-
-  describe("null game handling", () => {
-    it("renders a placeholder Dialog instead of null when game is null", () => {
-      const onOpenChange = vi.fn();
-      render(
-        <QueryClientProvider client={createQueryClient()}>
-          <GameDetailsModal game={null} open={true} onOpenChange={onOpenChange} />
-        </QueryClientProvider>
-      );
-      // No game title rendered, no crash
-      expect(screen.queryByTestId("text-game-title-1")).not.toBeInTheDocument();
     });
   });
 
@@ -763,7 +750,6 @@ describe("GameDetailsModal", () => {
         ...mockGame,
         steamAppId: 12345,
       } as unknown as import("@shared/schema").Game);
-      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
 
       const protonLink = await screen.findByRole("link", { name: /protondb/i });
       expect(protonLink).toHaveAttribute("href", "https://www.protondb.com/app/12345");
@@ -774,7 +760,6 @@ describe("GameDetailsModal", () => {
         ...mockGame,
         steamAppId: null,
       } as unknown as import("@shared/schema").Game);
-      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
       expect(screen.queryByRole("link", { name: /protondb/i })).not.toBeInTheDocument();
     });
   });
@@ -782,7 +767,7 @@ describe("GameDetailsModal", () => {
   describe("DLC tab", () => {
     it("does not show a DLC tab when the game has no expansions", () => {
       renderComponent({ ...mockGame, expansions: [] } as unknown as import("@shared/schema").Game);
-      expect(screen.queryByRole("tab", { name: /dlc/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("nav-section-dlc")).not.toBeInTheDocument();
     });
 
     it("lists expansions with cover, name, release year and category", () => {
@@ -808,8 +793,6 @@ describe("GameDetailsModal", () => {
         ],
       } as unknown as import("@shared/schema").Game);
 
-      fireEvent.click(screen.getByRole("tab", { name: /dlc/i }));
-
       expect(screen.getByText("Some Expansion")).toBeInTheDocument();
       expect(screen.getByText("2024")).toBeInTheDocument();
       const link = screen.getByTestId("dlc-7");
@@ -831,7 +814,6 @@ describe("GameDetailsModal", () => {
         ...mockGame,
         steamAppId: 12345,
       } as unknown as import("@shared/schema").Game);
-      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
 
       await waitFor(() => {
         const pcgwLinks = screen.getAllByRole("link", { name: /pcgamingwiki/i });
@@ -846,7 +828,7 @@ describe("GameDetailsModal", () => {
       qc.setQueryData(["/api/games/1/downloads"], []);
       render(
         <QueryClientProvider client={qc}>
-          <GameDetailsModal game={mockGame} open={true} onOpenChange={() => {}} />
+          <GameDetails game={mockGame} onClose={() => {}} />
           <Toaster />
         </QueryClientProvider>
       );
@@ -873,7 +855,7 @@ describe("GameDetailsModal", () => {
       );
       render(
         <QueryClientProvider client={qc}>
-          <GameDetailsModal game={mockGame} open={true} onOpenChange={() => {}} />
+          <GameDetails game={mockGame} onClose={() => {}} />
           <Toaster />
         </QueryClientProvider>
       );
@@ -903,7 +885,7 @@ describe("GameDetailsModal", () => {
 
       render(
         <QueryClientProvider client={qc}>
-          <GameDetailsModal game={mockGame} open={true} onOpenChange={() => {}} />
+          <GameDetails game={mockGame} onClose={() => {}} />
           <Toaster />
         </QueryClientProvider>
       );
@@ -918,14 +900,30 @@ describe("GameDetailsModal", () => {
     });
   });
 
-  describe("Files tab", () => {
+  describe("Files section", () => {
+    beforeEach(() => {
+      // The section loads once it nears the viewport: report it as visible straight away.
+      vi.stubGlobal(
+        "IntersectionObserver",
+        class {
+          constructor(private readonly callback: (entries: unknown[], observer: unknown) => void) {}
+          observe(target: Element) {
+            this.callback([{ isIntersecting: true, target }], this);
+          }
+          unobserve() {}
+          disconnect() {}
+        }
+      );
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     it("shows a loading state while files are being fetched", async () => {
       (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
         () => new Promise(() => {}) // never resolves
       );
       renderComponent();
-
-      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
 
       expect(await screen.findByText(/loading files/i)).toBeInTheDocument();
     });
@@ -939,8 +937,6 @@ describe("GameDetailsModal", () => {
       });
       renderComponent();
 
-      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
-
       expect(await screen.findByText(/failed to load files/i)).toBeInTheDocument();
     });
 
@@ -949,8 +945,6 @@ describe("GameDetailsModal", () => {
         makeFetchMock({ "/api/games/1/files": { files: [] } })
       );
       renderComponent();
-
-      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
 
       expect(await screen.findByText(/no files found on disk/i)).toBeInTheDocument();
     });
@@ -967,8 +961,6 @@ describe("GameDetailsModal", () => {
         })
       );
       renderComponent();
-
-      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
 
       expect(await screen.findByText("game.exe")).toBeInTheDocument();
       expect(screen.getByText("readme.txt")).toBeInTheDocument();
@@ -993,8 +985,6 @@ describe("GameDetailsModal", () => {
       );
       renderComponent();
 
-      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
-
       expect(await screen.findByText("Main Game")).toBeInTheDocument();
       expect(screen.getByText("DLC & Expansions")).toBeInTheDocument();
       expect(screen.getByText("game.exe")).toBeInTheDocument();
@@ -1008,39 +998,122 @@ describe("GameDetailsModal", () => {
       } as unknown as import("@shared/schema").Game;
       renderComponent(discoveryGame);
 
-      expect(screen.queryByRole("tab", { name: /files/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("nav-section-files")).not.toBeInTheDocument();
     });
   });
 
-  describe("modal state reset", () => {
-    it("resets summary expansion when modal closes", async () => {
-      const { rerender } = renderComponent();
+  describe("Discover games (temporary igdb- id)", () => {
+    const discoveryGame = {
+      ...mockGame,
+      id: "igdb-123",
+      igdbId: 123,
+    } as unknown as import("@shared/schema").Game;
+    const libraryId = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const libraryGame = { ...mockGame, id: libraryId, igdbId: 123, userRating: 6 };
 
-      // Expand the summary
-      const expandBtn = screen.queryByRole("button", { name: /show more/i });
-      if (expandBtn) {
-        fireEvent.click(expandBtn);
-        expect(screen.getByRole("button", { name: /show less/i })).toBeInTheDocument();
+    type FetchCall = [string, RequestInit | undefined];
+    const fetchCalls = () => (global.fetch as ReturnType<typeof vi.fn>).mock.calls as FetchCall[];
+    const callsTo = (method: string, url: string) =>
+      fetchCalls().filter(([u, init]) => u === url && (init?.method ?? "GET") === method);
+
+    function mockLibrary(games: unknown[], postResponse?: unknown) {
+      const base = makeFetchMock({ "/api/games?includeHidden=true": games });
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, init?: RequestInit) => {
+          if (url === "/api/games" && init?.method === "POST") {
+            return Promise.resolve({
+              ok: true,
+              status: 201,
+              json: vi.fn().mockResolvedValue(postResponse),
+            });
+          }
+          return base(url);
+        }
+      );
+    }
+
+    it("hides a game that isn't in the library by adding it as hidden", async () => {
+      mockLibrary([], { ...libraryGame, hidden: true });
+      renderComponent(discoveryGame);
+
+      fireEvent.click(screen.getByTestId("button-toggle-hidden-quick-igdb-123"));
+
+      await waitFor(() => expect(callsTo("POST", "/api/games")).toHaveLength(1));
+      const body = JSON.parse(String(callsTo("POST", "/api/games")[0]![1]!.body));
+      expect(body).toMatchObject({ igdbId: 123, hidden: true });
+      expect(fetchCalls().some(([url]) => url.includes("igdb-123"))).toBe(false);
+    });
+
+    it("hides the library copy when the game is already tracked", async () => {
+      mockLibrary([libraryGame]);
+      renderComponent(discoveryGame);
+
+      await waitFor(() => expect(callsTo("GET", "/api/games?includeHidden=true")).toHaveLength(1));
+      // Wait for the library list to land: the rating shows the library value.
+      expect(await screen.findByText("3/5")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("button-toggle-hidden-quick-igdb-123"));
+
+      await waitFor(() =>
+        expect(callsTo("PATCH", `/api/games/${libraryId}/hidden`)).toHaveLength(1)
+      );
+      expect(callsTo("POST", "/api/games")).toHaveLength(0);
+    });
+
+    it("offers no Remove button for a game that isn't in the library", async () => {
+      mockLibrary([]);
+      renderComponent(discoveryGame);
+
+      await waitFor(() => expect(callsTo("GET", "/api/games?includeHidden=true")).toHaveLength(1));
+      expect(screen.queryByTestId("button-remove-game-quick-igdb-123")).not.toBeInTheDocument();
+    });
+
+    it("removes the library copy without touching files", async () => {
+      mockLibrary([libraryGame]);
+      renderComponent(discoveryGame);
+
+      fireEvent.click(await screen.findByTestId("button-remove-game-quick-igdb-123"));
+      const dialog = await screen.findByRole("alertdialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+
+      await waitFor(() =>
+        expect(callsTo("DELETE", `/api/games/${libraryId}?deleteFiles=false`)).toHaveLength(1)
+      );
+    });
+
+    it("adds an untracked game to the library before saving its rating", async () => {
+      mockLibrary([], libraryGame);
+      renderComponent(discoveryGame);
+
+      fireEvent.click(await screen.findByRole("button", { name: "Rate 4 out of 5" }));
+
+      await waitFor(() =>
+        expect(callsTo("PATCH", `/api/games/${libraryId}/user-rating`)).toHaveLength(1)
+      );
+      const body = JSON.parse(String(callsTo("POST", "/api/games")[0]![1]!.body));
+      expect(body).toMatchObject({ igdbId: 123, status: "wanted" });
+    });
+  });
+
+  describe("page layout", () => {
+    it("calls onClose from the Back button", () => {
+      const onClose = vi.fn();
+      render(
+        <QueryClientProvider client={createQueryClient()}>
+          <GameDetails game={mockGame} onClose={onClose} />
+          <Toaster />
+        </QueryClientProvider>
+      );
+      fireEvent.click(screen.getByTestId("button-back"));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows every section on one page with a jump bar instead of tabs", () => {
+      renderComponent();
+      expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+      expect(screen.getByRole("navigation", { name: /game sections/i })).toBeInTheDocument();
+      for (const name of [/^overview/i, /^downloads/i, /^journal/i, /^media/i, /files on disk/i]) {
+        expect(screen.getByRole("heading", { level: 2, name })).toBeInTheDocument();
       }
-
-      // Close the modal
-      rerender(
-        <QueryClientProvider client={createQueryClient()}>
-          <GameDetailsModal game={mockGame} open={false} onOpenChange={() => {}} />
-          <Toaster />
-        </QueryClientProvider>
-      );
-
-      // Reopen
-      rerender(
-        <QueryClientProvider client={createQueryClient()}>
-          <GameDetailsModal game={mockGame} open={true} onOpenChange={() => {}} />
-          <Toaster />
-        </QueryClientProvider>
-      );
-
-      // Summary should be collapsed again
-      expect(screen.queryByRole("button", { name: /show less/i })).not.toBeInTheDocument();
     });
   });
 });

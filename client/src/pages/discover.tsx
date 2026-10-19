@@ -1,3 +1,4 @@
+import { restoredListState, saveListState } from "@/lib/in-app-history";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -8,7 +9,7 @@ import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
-import { hideDiscoveryGame } from "@/lib/discover-hidden-mutation";
+import { addDiscoveryGameToLibrary, hideDiscoveryGame } from "@/lib/discover-hidden-mutation";
 import {
   Select,
   SelectContent,
@@ -86,8 +87,15 @@ const SelectTriggerWithSpinner = ({
 };
 
 export default function DiscoverPage() {
-  const [selectedGenre, setSelectedGenre] = useState<string>("Adventure");
-  const [selectedPlatform, setSelectedPlatform] = useState<string>("PC");
+  // Coming back from a game page with Back restores the carousel the game was opened from.
+  const [restored] = useState(() =>
+    restoredListState<{ genre: string; platform: string }>("discover")
+  );
+  const [selectedGenre, setSelectedGenre] = useState<string>(restored?.genre ?? "Adventure");
+  const [selectedPlatform, setSelectedPlatform] = useState<string>(restored?.platform ?? "PC");
+  useEffect(() => {
+    saveListState("discover", { genre: selectedGenre, platform: selectedPlatform });
+  }, [selectedGenre, selectedPlatform]);
   const [showSettings, setShowSettings] = useState(false);
   const [hideOwned, setHideOwned] = useLocalStorageState("discoverHideOwned", false);
   const [hideWanted, setHideWanted] = useLocalStorageState("discoverHideWanted", false);
@@ -108,7 +116,9 @@ export default function DiscoverPage() {
 
   // Fetch local games to filter hidden ones
   const { data: localGames = EMPTY_GAMES } = useQuery<Game[]>({
-    queryKey: ["/api/games?includeHidden=true"], // We need all games to know which are hidden
+    // Same key as Library and Stats with hidden games shown: it sits under
+    // ["/api/games"], so every game mutation's invalidation refreshes it.
+    queryKey: ["/api/games", "", true], // We need all games to know which are hidden
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/games?includeHidden=true");
       return response.json();
@@ -151,6 +161,18 @@ export default function DiscoverPage() {
       };
     }, [localGames]);
 
+  // Carousels cache their already-filtered lists, so their keys carry what the
+  // filter depends on: tracking, hiding or changing a game's status refetches them.
+  // The IDs themselves, not counts, so a swap that keeps a count still re-keys.
+  const carouselFilterKey = useMemo(() => {
+    const signature = (ids: Set<number>) => [...ids].sort((a, b) => a - b).join(",");
+    return [
+      signature(hiddenIgdbIds),
+      hideOwned ? signature(ownedIgdbIds) : "owned-shown",
+      hideWanted ? signature(wantedIgdbIds) : "wanted-shown",
+    ];
+  }, [hiddenIgdbIds, ownedIgdbIds, wantedIgdbIds, hideOwned, hideWanted]);
+
   const filterGames = useCallback(
     (games: Game[]) => {
       return games.filter((g: Game) => {
@@ -175,6 +197,7 @@ export default function DiscoverPage() {
     data: genres = [],
 
     isError: genresError,
+    isSuccess: genresLoaded,
 
     isFetching: isFetchingGenres,
   } = useQuery<Genre[]>({
@@ -198,6 +221,7 @@ export default function DiscoverPage() {
     data: platforms = [],
 
     isError: platformsError,
+    isSuccess: platformsLoaded,
 
     isFetching: isFetchingPlatforms,
   } = useQuery<Platform[]>({
@@ -214,6 +238,10 @@ export default function DiscoverPage() {
     retry: 2,
     enabled: !!config?.igdb.configured,
   });
+
+  // The lists are "settled" once loaded or failed; before that only the defaults are known.
+  const genresSettled = genresLoaded || genresError;
+  const platformsSettled = platformsLoaded || platformsError;
 
   // Handle errors with toast notifications
 
@@ -261,10 +289,13 @@ export default function DiscoverPage() {
   // below it never disagree about which platform is being browsed.
   useEffect(() => {
     if (config && !config.igdb.configured) return;
+    // Until the real list (or its failure) is known, `displayPlatforms` is only the fallback and
+    // would reject a platform restored from before a visit to a game page.
+    if (!platformsSettled) return;
     if (displayPlatforms.length === 0) return;
     if (displayPlatforms.some((p) => p.name === selectedPlatform)) return;
     setSelectedPlatform(displayPlatforms[0]!.name);
-  }, [config, displayPlatforms, selectedPlatform]);
+  }, [config, platformsSettled, displayPlatforms, selectedPlatform]);
 
   const trackGameMutation = useMutation({
     mutationFn: async (game: Game) => {
@@ -341,16 +372,11 @@ export default function DiscoverPage() {
 
         return response.json();
       } else {
-        // Add new game with status
-
-        const gameData = mapGameToInsertGame(game);
-
-        const response = await apiRequest("POST", "/api/games", {
-          ...gameData,
-
-          status,
-        });
-
+        // Add new game with status. If it is already in the library (the
+        // local list was stale), update that row's status instead.
+        const added = await addDiscoveryGameToLibrary(game, status);
+        if (added.status === status) return added;
+        const response = await apiRequest("PATCH", `/api/games/${added.id}/status`, { status });
         return response.json();
       }
     },
@@ -482,9 +508,11 @@ export default function DiscoverPage() {
 
   const fetchGamesByGenre = useCallback(async (): Promise<Game[]> => {
     // Validate selectedGenre against known genres before making API call
+    // While the real list is still loading, defer to the server rather than caching an empty
+    // result for a genre the fallback list does not know.
     const validGenres: Genre[] = genres.length > 0 ? genres : DEFAULT_GENRES;
     const isValidGenre = validGenres.some((g: Genre) => g.name === debouncedGenre);
-    if (!isValidGenre) {
+    if (genresSettled && !isValidGenre) {
       // This case should ideally not be hit if UI is synced with state
       return []; // Return empty instead of throwing to prevent crash
     }
@@ -495,14 +523,14 @@ export default function DiscoverPage() {
     );
     const games = await response.json();
     return filterGames(games);
-  }, [debouncedGenre, genres, filterGames]);
+  }, [debouncedGenre, genres, genresSettled, filterGames]);
 
   const fetchGamesByPlatform = useCallback(async (): Promise<Game[]> => {
     // Validate selectedPlatform against the platforms the Platforms setting
     // leaves visible, so a stale selection cannot fetch an excluded platform.
     const validPlatforms: Platform[] = displayPlatforms;
     const isValidPlatform = validPlatforms.some((p: Platform) => p.name === debouncedPlatform);
-    if (!isValidPlatform) {
+    if (platformsSettled && !isValidPlatform) {
       // This case should ideally not be hit if UI is synced with state
       return []; // Return empty instead of throwing to prevent crash
     }
@@ -513,7 +541,7 @@ export default function DiscoverPage() {
     );
     const games = await response.json();
     return filterGames(games);
-  }, [debouncedPlatform, displayPlatforms, filterGames]);
+  }, [debouncedPlatform, displayPlatforms, platformsSettled, filterGames]);
 
   if (config && !config.igdb.configured) {
     return (
@@ -583,7 +611,7 @@ export default function DiscoverPage() {
             {/* Popular Games Section */}
             <GameCarouselSection
               title="Popular Games"
-              queryKey={["/api/igdb/popular", hiddenIgdbIds.size, hideOwned, hideWanted]}
+              queryKey={["/api/igdb/popular", ...carouselFilterKey]}
               queryFn={fetchPopularGames}
               staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
@@ -595,7 +623,7 @@ export default function DiscoverPage() {
             {/* Recent Releases Section */}
             <GameCarouselSection
               title="Recent Releases"
-              queryKey={["/api/igdb/recent", hiddenIgdbIds.size, hideOwned, hideWanted]}
+              queryKey={["/api/igdb/recent", ...carouselFilterKey]}
               queryFn={fetchRecentGames}
               staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
@@ -607,7 +635,7 @@ export default function DiscoverPage() {
             {/* Upcoming Releases Section */}
             <GameCarouselSection
               title="Coming Soon"
-              queryKey={["/api/igdb/upcoming", hiddenIgdbIds.size, hideOwned, hideWanted]}
+              queryKey={["/api/igdb/upcoming", ...carouselFilterKey]}
               queryFn={fetchUpcomingGames}
               staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
@@ -639,13 +667,7 @@ export default function DiscoverPage() {
               </div>
               <GameCarouselSection
                 title={`${selectedGenre} Games`}
-                queryKey={[
-                  "/api/igdb/genre",
-                  debouncedGenre,
-                  hiddenIgdbIds.size,
-                  hideOwned,
-                  hideWanted,
-                ]}
+                queryKey={["/api/igdb/genre", debouncedGenre, ...carouselFilterKey]}
                 queryFn={fetchGamesByGenre}
                 staleTime={DISCOVERY_STALE_TIME}
                 onStatusChange={handleStatusChange}
@@ -683,13 +705,7 @@ export default function DiscoverPage() {
                 </div>
                 <GameCarouselSection
                   title={`${selectedPlatform} Games`}
-                  queryKey={[
-                    "/api/igdb/platform",
-                    debouncedPlatform,
-                    hiddenIgdbIds.size,
-                    hideOwned,
-                    hideWanted,
-                  ]}
+                  queryKey={["/api/igdb/platform", debouncedPlatform, ...carouselFilterKey]}
                   queryFn={fetchGamesByPlatform}
                   staleTime={DISCOVERY_STALE_TIME}
                   onStatusChange={handleStatusChange}

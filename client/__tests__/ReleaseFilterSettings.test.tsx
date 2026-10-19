@@ -52,7 +52,7 @@ describe("ReleaseNameBlacklistSettings", () => {
     );
     await waitFor(() =>
       expect(mockToast).toHaveBeenCalledWith(
-        expect.objectContaining({ title: "Release Name Blacklist Saved" })
+        expect.objectContaining({ title: "Release Blacklist Saved" })
       )
     );
   });

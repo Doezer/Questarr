@@ -1,10 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   INDEXER,
   LIBRARY_ROOT,
   PAYLOAD_FILE,
+  PATCH_PAYLOAD,
   QBITTORRENT,
   RELEASES,
   SABNZBD,
@@ -99,6 +100,17 @@ test("first-run setup creates the admin account", async () => {
   await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
 });
 
+test("SQLite upgrade opts in existing HTTP connections and keeps HTTPS opted out", async () => {
+  for (const endpoint of ["/api/indexers", "/api/downloaders"]) {
+    const connections = await api<Array<{ id: string; allowInsecureLan: boolean }>>(
+      "GET",
+      endpoint
+    );
+    expect(connections.find((row) => row.id === "upgrade-http")?.allowInsecureLan).toBe(true);
+    expect(connections.find((row) => row.id === "upgrade-https")?.allowInsecureLan).toBe(false);
+  }
+});
+
 test("indexers and download clients connect", async () => {
   const torznab = await api<{ id: string }>("POST", "/api/indexers", {
     name: "Stack Torznab",
@@ -130,7 +142,7 @@ test("indexers and download clients connect", async () => {
     qbittorrent: {
       name: "Stack qBittorrent",
       type: "qbittorrent",
-      url: `http://127.0.0.1:${QBITTORRENT.port}`,
+      url: `http://127.0.0.1:${QBITTORRENT.proxyPort}`,
       username: QBITTORRENT.username,
       password: QBITTORRENT.password,
       downloadPath: QBITTORRENT.downloads,
@@ -151,6 +163,7 @@ test("indexers and download clients connect", async () => {
       url: `http://127.0.0.1:${SABNZBD.port}`,
       // Questarr keeps the SABnzbd API key in the username field.
       username: SABNZBD.apiKey,
+      category: "questarr-release",
       priority: 3,
     },
   } as const;
@@ -182,7 +195,8 @@ test("indexers and download clients connect", async () => {
       title: release.game,
       igdbId: 990_000 + Object.keys(RELEASES).indexOf(key),
       status: "wanted",
-      platforms: ["PC (Microsoft Windows)"],
+      // Exercise Wii U destination selection from its IGDB platform ID.
+      platforms: key === "transmission" ? ["41"] : ["PC (Microsoft Windows)"],
       genres: ["Adventure"],
       releaseDate: "2020-01-15",
     });
@@ -191,7 +205,20 @@ test("indexers and download clients connect", async () => {
 });
 
 for (const key of ["qbittorrent", "transmission"] as const) {
-  test(`${key}: grab from the library, download, import into the library`, async () => {
+  const platformFolder = key === "transmission" ? "Wii U" : "PC";
+  test(`${key}: grab, download, import into ${platformFolder}`, async () => {
+    const gameDir = path.join(LIBRARY_ROOT, platformFolder, RELEASES[key].game);
+    if (key === "qbittorrent") {
+      // Import a ZIP update over an installed game: only archive entries may change.
+      mkdirSync(path.join(gameDir, "saves"), { recursive: true });
+      writeFileSync(path.join(gameDir, "game.exe"), "installed game");
+      writeFileSync(path.join(gameDir, "saves", "slot1.sav"), "existing save");
+      writeFileSync(path.join(gameDir, PAYLOAD_FILE), "old payload");
+    }
+    await api("PATCH", "/api/settings", {
+      autoUnpack: key === "qbittorrent",
+      overwriteExisting: key === "qbittorrent",
+    });
     // Only the client under test takes torrents, so the grab cannot fall back elsewhere.
     for (const other of ["qbittorrent", "transmission"] as const) {
       await api("PATCH", `/api/downloaders/${downloaderIds[other]}`, { enabled: other === key });
@@ -207,7 +234,18 @@ for (const key of ["qbittorrent", "transmission"] as const) {
     // Imported as <libraryRoot>/<platform>/<game>/ with the payload intact.
     await expect
       .poll(() => listFiles(LIBRARY_ROOT), { timeout: 30_000 })
-      .toContain(path.join("PC", RELEASES[key].game, PAYLOAD_FILE));
+      .toContain(path.join(platformFolder, RELEASES[key].game, PAYLOAD_FILE));
+    if (key === "qbittorrent") {
+      // The proxy deliberately ignored ?tag= and returned an unrelated torrent first.
+      expect(readFileSync(QBITTORRENT.tagLookupLog, "utf8")).toContain("questarr-add-");
+      expect(readFileSync(path.join(gameDir, "game.exe"), "utf8")).toBe("installed game");
+      expect(readFileSync(path.join(gameDir, "saves", "slot1.sav"), "utf8")).toBe("existing save");
+      expect(readFileSync(path.join(gameDir, PAYLOAD_FILE), "utf8")).toBe(PATCH_PAYLOAD);
+      expect(readFileSync(path.join(gameDir, "Data", "patch.bin"), "utf8")).toBe("new patch data");
+      expect(readdirSync(gameDir).filter((name) => name.startsWith(".questarr-extract-"))).toEqual(
+        []
+      );
+    }
   });
 }
 
@@ -216,8 +254,11 @@ test("sabnzbd: grab a usenet release and see it queued in the client", async () 
   await expect.poll(() => gameStatus("sabnzbd"), POLL).toBe("downloading");
   const queue = await fetch(
     `http://127.0.0.1:${SABNZBD.port}/api?mode=queue&output=json&apikey=${SABNZBD.apiKey}`
-  ).then((r) => r.json() as Promise<{ queue: { slots: { filename: string }[] } }>);
+  ).then((r) => r.json() as Promise<{ queue: { slots: { filename: string; cat: string }[] } }>);
   expect(queue.queue.slots.map((s) => s.filename)).toContain(RELEASES.sabnzbd.title);
+  expect(queue.queue.slots.find((s) => s.filename === RELEASES.sabnzbd.title)?.cat).toBe(
+    "questarr-release"
+  );
 
   const downloads = await api<{ name?: string; title?: string }[]>(
     "GET",

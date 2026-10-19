@@ -14,10 +14,16 @@ const VT_LOOKUP_TIMEOUT_MS = 10_000;
 // trickling bytes back and forth for an arbitrarily long time.
 const CLAMAV_SCAN_TIMEOUT_MS = 5 * 60 * 1000;
 const CLAMAV_CHUNK_SIZE = 64 * 1024;
-// Matches ImportManager's own MAX_LISTED_FILES cap. Without a limit, a directory
-// download with thousands of loose files would serialize that many sequential
-// ClamAV round-trips before an import could proceed.
-const MAX_CLAMAV_SCAN_FILES = 100;
+// Budget for scanning every file of one download. A slow but responsive clamd never
+// trips the per-file deadline, so without it a large download could hold the import
+// for hours; past it the download is held for manual review as not fully scanned.
+export const CLAMAV_TOTAL_SCAN_BUDGET_MS = 30 * 60 * 1000;
+// Without a limit, a pathological download with an enormous number of loose files
+// would serialize that many sequential ClamAV round-trips before an import could
+// proceed. Set well above the file count of an extracted game install, so that a
+// normal download is always scanned in full; past it, the import is held for
+// manual review rather than quarantined.
+export const MAX_CLAMAV_SCAN_FILES = 10_000;
 
 export interface VirusTotalSettings {
   enabled: boolean;
@@ -36,6 +42,12 @@ export type ScanVerdictSource = "virustotal" | "clamav";
 
 export interface ScanResult {
   blocked: boolean;
+  /**
+   * Set (with blocked false) when a scanner could not examine every file. Nothing
+   * was detected, but the download isn't known to be clean either, so it needs
+   * the user's review before it is imported.
+   */
+  incomplete?: boolean;
   source?: ScanVerdictSource;
   reason?: string;
   hash?: string;
@@ -239,7 +251,12 @@ export async function checkVirusTotalHash(
 export type ClamAvVerdict =
   | { status: "clean" }
   | { status: "infected"; signature: string }
-  | { status: "error"; error: string };
+  | {
+      status: "error";
+      error: string;
+      /** True when clamd itself failed (connection error, timeout), not just this file. */
+      outage?: boolean;
+    };
 
 /** Strips clamd's "stream: " prefix and trailing " FOUND" from an INSTREAM reply. */
 function extractClamAvSignature(reply: string): string {
@@ -255,6 +272,16 @@ function extractClamAvSignature(reply: string): string {
 }
 
 /** Streams a single file to clamd over its INSTREAM protocol and parses the verdict. */
+/** Reads clamd's INSTREAM reply; anything but OK or FOUND is a refusal that names its reason. */
+function verdictFromReply(reply: string): ClamAvVerdict {
+  if (reply.includes("FOUND")) {
+    const signature = extractClamAvSignature(reply);
+    return { status: "infected", signature: signature || "unknown signature" };
+  }
+  if (reply.includes("OK")) return { status: "clean" };
+  return { status: "error", error: reply };
+}
+
 function scanFileWithClamAv(
   filePath: string,
   connectAddress: string,
@@ -280,11 +307,19 @@ function scanFileWithClamAv(
     };
 
     const deadline = setTimeout(
-      () => finish({ status: "error", error: "ClamAV scan exceeded the time limit" }),
+      () => finish({ status: "error", error: "ClamAV scan exceeded the time limit", outage: true }),
       CLAMAV_SCAN_TIMEOUT_MS
     );
 
-    socket.once("error", (err) => finish({ status: "error", error: err.message }));
+    socket.once("error", (err) => {
+      // clamd answers a refused stream (e.g. one over its StreamMaxLength) and then
+      // resets the connection while the file is still being sent, so the reset
+      // arrives as an error after the reply. That reply is the real verdict.
+      const reply = responseBuf.replaceAll("\0", "").trim();
+      finish(
+        reply ? verdictFromReply(reply) : { status: "error", error: err.message, outage: true }
+      );
+    });
 
     socket.connect(port, connectAddress, () => {
       socket.write("zINSTREAM\0");
@@ -317,14 +352,13 @@ function scanFileWithClamAv(
     socket.on("close", () => {
       if (settled) return;
       const reply = responseBuf.replaceAll("\0", "").trim();
-      if (reply.includes("FOUND")) {
-        const signature = extractClamAvSignature(reply);
-        finish({ status: "infected", signature: signature || "unknown signature" });
-      } else if (reply.includes("OK")) {
-        finish({ status: "clean" });
-      } else {
-        finish({ status: "error", error: reply || "Empty response from ClamAV" });
-      }
+      // A connection closed with no reply means clamd itself is broken or
+      // restarting, which is an outage like a socket error.
+      finish(
+        reply
+          ? verdictFromReply(reply)
+          : { status: "error", error: "Empty response from ClamAV", outage: true }
+      );
     });
   });
 }
@@ -341,10 +375,11 @@ export interface SecurityScanServiceDeps {
 
 /**
  * Orchestrates the pre-import security scan: an optional VirusTotal hash lookup
- * followed by an optional local ClamAV deep scan. Both providers fail open on
- * network/timeout errors (a scanner outage should never itself hang or corrupt
- * the import queue) — only an actual detection, or an unknown hash under a
- * strict "block unknown hashes" policy, blocks the import.
+ * followed by an optional local ClamAV deep scan. VirusTotal fails open on
+ * network/timeout errors. Only an actual detection, or an unknown hash under a
+ * strict "block unknown hashes" policy, blocks the import. When ClamAV cannot
+ * scan every file (outage, refused file, file cap, time budget), the result is
+ * incomplete: not blocked, but held for the user to review.
  */
 export class SecurityScanService {
   constructor(private readonly storage: SecurityScanServiceDeps) {}
@@ -408,7 +443,10 @@ export class SecurityScanService {
     return null;
   }
 
-  /** Returns a blocking ScanResult, or null when ClamAV is disabled, unreachable, or found nothing. */
+  /**
+   * Returns a blocking ScanResult, an incomplete (non-blocking) one when not every
+   * file could be scanned, or null when ClamAV is disabled or every file scanned clean.
+   */
   private async runClamAvCheck(localPath: string): Promise<ScanResult | null> {
     const clamAvSettings = await readClamAvSettings(this.storage);
     if (!clamAvSettings.enabled || !clamAvSettings.host) return null;
@@ -420,21 +458,41 @@ export class SecurityScanService {
         // A partially- or incompletely-scanned directory must never be treated
         // as clean — an infected file past the enumeration cap, or hidden behind
         // a directory ClamAV's scanner couldn't read, would otherwise bypass
-        // scanning entirely and be imported along with everything else.
+        // scanning entirely and be imported along with everything else. It isn't
+        // a detection either, so it must not be quarantined (which moves the
+        // files out of the client and breaks seeding): the caller holds it for
+        // the user to review instead.
         securityScanLogger.warn(
           { localPath, limit: MAX_CLAMAV_SCAN_FILES, truncated, incomplete },
-          "ClamAV scan could not examine every file; blocking rather than treating a partial scan as clean"
+          "ClamAV scan could not examine every file; holding the import for manual review"
         );
         return {
-          blocked: true,
+          blocked: false,
+          incomplete: true,
           source: "clamav",
           reason: incomplete
-            ? "ClamAV scan could not enumerate every file in this download"
-            : "ClamAV could not scan every file in this download",
+            ? "ClamAV scan could not enumerate every file in this download. Review it before importing."
+            : `ClamAV did not scan this download: it has more than ${MAX_CLAMAV_SCAN_FILES} files. Review it before importing.`,
         };
       }
 
+      const scanStartedAt = Date.now();
+      const refusedFiles: string[] = [];
+      let refusal = "";
       for (const file of files) {
+        if (Date.now() - scanStartedAt > CLAMAV_TOTAL_SCAN_BUDGET_MS) {
+          securityScanLogger.warn(
+            { localPath, budgetMs: CLAMAV_TOTAL_SCAN_BUDGET_MS },
+            "ClamAV scan ran out of time; holding the import for manual review"
+          );
+          return {
+            blocked: false,
+            incomplete: true,
+            source: "clamav",
+            reason:
+              "ClamAV ran out of time before scanning every file. Review it before importing.",
+          };
+        }
         const verdict = await scanFileWithClamAv(file, connectAddress, clamAvSettings.port);
         if (verdict.status === "infected") {
           return {
@@ -446,15 +504,52 @@ export class SecurityScanService {
         if (verdict.status === "error") {
           securityScanLogger.warn(
             { file, error: verdict.error },
-            "ClamAV scan failed for file, proceeding without a verdict"
+            /size limit exceeded/i.test(verdict.error)
+              ? "ClamAV skipped a file over its size limit; raise StreamMaxLength, MaxFileSize and MaxScanSize in clamd.conf to scan it"
+              : "ClamAV could not scan a file"
           );
+          // Stop once clamd itself is down: with thousands of files, a clamd that
+          // stopped answering would otherwise cost a full timeout for each of them.
+          if (verdict.outage) {
+            return {
+              blocked: false,
+              incomplete: true,
+              source: "clamav",
+              reason:
+                "ClamAV stopped responding before scanning every file. Review it before importing.",
+            };
+          }
+          // A file-level refusal (e.g. over clamd's stream size limit) only skips
+          // that file: the remaining files are still scanned, so a detection in
+          // one of them still blocks, and the download is held for review after.
+          refusedFiles.push(file);
+          refusal ||= verdict.error;
         }
+      }
+      if (refusedFiles.length > 0) {
+        // The raw error (which can name server paths) stays in the log above; the
+        // reason shown to the user only says which kind of failure it was.
+        const cause = /size limit exceeded/i.test(refusal)
+          ? " over clamd's size limit. Raise StreamMaxLength, MaxFileSize and MaxScanSize in clamd.conf to scan large files."
+          : ".";
+        return {
+          blocked: false,
+          incomplete: true,
+          source: "clamav",
+          reason: `ClamAV could not scan ${refusedFiles.length} file(s), including ${path.basename(refusedFiles[0] ?? "")}${cause} Review it before importing.`,
+        };
       }
     } catch (error) {
       securityScanLogger.warn(
         { error, host: clamAvSettings.host },
-        "Could not reach ClamAV, proceeding without a scan"
+        "Could not reach ClamAV; holding the import for manual review"
       );
+      return {
+        blocked: false,
+        incomplete: true,
+        source: "clamav",
+        reason: "ClamAV could not be reached to scan this download. Review it before importing.",
+      };
     }
 
     return null;

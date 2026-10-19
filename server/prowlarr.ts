@@ -1,6 +1,7 @@
 import { type Indexer } from "../shared/schema.js";
 import { torznabLogger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
+import { normalizeProwlarrUrl } from "./url-utils.js";
 
 interface ProwlarrIndexer {
   id: number;
@@ -42,10 +43,7 @@ export class ProwlarrClient {
     overrides: ProwlarrSyncOverrides = {}
   ): Promise<Partial<Indexer>[]> {
     // Normalize URL
-    let baseUrl = prowlarrUrl.replace(/\/+$/, "");
-    if (!baseUrl.startsWith("http")) {
-      baseUrl = `http://${baseUrl}`;
-    }
+    const baseUrl = normalizeProwlarrUrl(prowlarrUrl);
 
     const apiUrl = `${baseUrl}/api/v1/indexer`;
 
@@ -56,6 +54,9 @@ export class ProwlarrClient {
           "User-Agent": "Questarr/1.0",
         },
         signal: AbortSignal.timeout(30000),
+        requireHttps: overrides.allowInsecureLan !== true,
+        // The key is scoped to this configured endpoint, even when HTTP is opted in.
+        redirect: "manual",
       });
 
       if (!response.ok) {

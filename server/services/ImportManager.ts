@@ -8,7 +8,7 @@ import {
   ImportResult,
   PCImportStrategy,
   TransferMode,
-  sanitizeFsName,
+  resolveLibraryLeafName,
   gatherFiles,
   reorganizeBySortExtras,
 } from "./ImportStrategies.js";
@@ -16,11 +16,12 @@ import { DownloaderManager } from "../downloaders.js";
 import { resolveRemoteImportPath } from "../downloaders/utils.js";
 import fs from "fs-extra";
 import path from "node:path";
-import { parseReleaseMetadata } from "../../shared/title-utils.js";
+import { parseReleaseMetadata, PLATFORM_CATALOG } from "../../shared/title-utils.js";
 import {
   GAME_LINK_REQUIRED_STATUS,
   QUARANTINED_STATUS,
   isUserCuratedGameStatus,
+  type Game,
 } from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
@@ -29,39 +30,20 @@ import { notifyUser } from "../socket.js";
 import { recordVersionFromCompletedDownload } from "../game-version.js";
 import { resolvePrefs } from "../notification-prefs.js";
 import { appriseClient } from "../apprise.js";
+import { isRommPlatformFoldersEnabled, requestRommScanAfterImport } from "../romm.js";
+import { isValidRommSlug, rommSlugForPlatformId } from "../../shared/romm-platforms.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
 
-const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
-  nes: 18,
-  snes: 19,
-  n64: 4,
-  gamecube: 21,
-  wii: 5,
-  gb: 33,
-  gbc: 22,
-  gba: 24,
-  nds: 20,
-  "3ds": 37,
-  switch: 130,
-  ps1: 7,
-  ps2: 8,
-  ps3: 9,
-  psp: 38,
-  "game gear": 35,
-  "master system": 64,
-  "mega drive": 29,
-  dreamcast: 23,
-  "atari 2600": 59,
-  "neo geo": 80,
-  pc: 6,
-};
-
 const PLATFORM_FOLDER_NAMES: Record<string, string> = {
+  ...Object.fromEntries(
+    PLATFORM_CATALOG.map(({ canonical }) => [canonical.toLowerCase(), canonical])
+  ),
   nes: "NES",
   snes: "SNES",
   n64: "N64",
   gamecube: "GameCube",
   wii: "Wii",
+  "wii u": "Wii U",
   gb: "Game Boy",
   gbc: "Game Boy Color",
   gba: "Game Boy Advance",
@@ -82,7 +64,9 @@ const PLATFORM_FOLDER_NAMES: Record<string, string> = {
 };
 
 const IGDB_ID_TO_PLATFORM_KEY: Record<number, string> = Object.fromEntries(
-  Object.entries(RELEASE_PLATFORM_TO_IGDB_ID).map(([key, id]) => [id, key])
+  PLATFORM_CATALOG.flatMap(({ canonical, igdbIds }) =>
+    igdbIds.map((id) => [id, canonical.toLowerCase()])
+  )
 );
 
 const MAX_PATH_RETRY = 5;
@@ -94,6 +78,9 @@ const MAX_LISTED_FILES = 100;
 // UI can show a password field instead of the normal path-review form.
 export const ARCHIVE_PASSWORD_REQUIRED_PREFIX = "ARCHIVE_PASSWORD_REQUIRED:";
 
+/** Thrown when a confirmation is the first to learn the security scan was incomplete. */
+export class IncompleteScanError extends Error {}
+
 interface ArchiveResolution {
   archivePath: string;
   isDirectorySource: boolean;
@@ -104,6 +91,11 @@ interface ArchiveResolution {
 
 export class ImportManager {
   private readonly pathRetryCount = new Map<string, number>();
+  // Downloads whose processImport() is running in this process. The
+  // "unpacking"/"completed_pending_import" statuses outlive a restart, so this
+  // is the only way to tell an import that is still running from one that a
+  // restart cut short.
+  private readonly importsInFlight = new Set<string>();
 
   // Optional and defaulted (rather than required) so existing call sites — and
   // the many unit tests that construct an ImportManager directly — don't all
@@ -124,7 +116,13 @@ export class ImportManager {
 
   private extractPlatformIdFromElement(p: unknown): number | undefined {
     if (typeof p === "number") return p;
-    if (typeof p === "string" && /^\d+$/.test(p)) return Number(p);
+    if (typeof p === "string") {
+      if (/^\d+$/.test(p)) return Number(p);
+      const normalizedName = p.trim().toLowerCase().replaceAll(/\s+/g, " ");
+      return PLATFORM_CATALOG.find(({ igdbNames }) =>
+        igdbNames.some((name) => name.toLowerCase() === normalizedName)
+      )?.igdbIds[0];
+    }
     if (p && typeof p === "object" && "id" in p) {
       const id = (p as { id?: unknown }).id;
       if (typeof id === "number") return id;
@@ -133,11 +131,15 @@ export class ImportManager {
     return undefined;
   }
 
-  private getPrimaryPlatformId(game: { platforms?: unknown }): number | undefined {
+  private getPrimaryPlatformId(
+    game: { platforms?: unknown },
+    allowed: number[] = []
+  ): number | undefined {
     if (!Array.isArray(game.platforms)) return undefined;
     for (const p of game.platforms) {
       const platformId = this.extractPlatformIdFromElement(p);
-      if (platformId !== undefined) return platformId;
+      if (platformId !== undefined && this.isPlatformEnabled(platformId, allowed))
+        return platformId;
     }
     return undefined;
   }
@@ -155,14 +157,42 @@ export class ImportManager {
 
   private getReleasePlatformIgdbId(releasePlatformKey: string | null): number | undefined {
     if (!releasePlatformKey) return undefined;
-    return RELEASE_PLATFORM_TO_IGDB_ID[releasePlatformKey];
+    return PLATFORM_CATALOG.find(({ canonical }) => canonical.toLowerCase() === releasePlatformKey)
+      ?.igdbIds[0];
   }
 
-  private resolvePlatformFolderName(downloadTitle: string, game: { platforms?: unknown }): string {
+  /**
+   * Platform folder for an import. With RomM platform folders on, it is the RomM platform slug
+   * ("snes", "ps2", "win") so RomM finds the files where it looks; a platform without a known
+   * slug keeps its readable folder name.
+   */
+  private async resolvePlatformFolder(
+    downloadTitle: string,
+    game: { platforms?: unknown; targetPlatformId?: number | null },
+    allowed: number[]
+  ): Promise<string> {
+    if (await isRommPlatformFoldersEnabled()) {
+      const releaseKey = this.getReleasePlatformKey(downloadTitle);
+      const platformId =
+        this.getReleasePlatformIgdbId(releaseKey) ??
+        game.targetPlatformId ??
+        this.getPrimaryPlatformId(game, allowed) ??
+        6;
+      const slug = rommSlugForPlatformId(platformId);
+      if (slug && isValidRommSlug(slug)) return slug;
+    }
+    return this.resolvePlatformFolderName(downloadTitle, game, allowed);
+  }
+
+  private resolvePlatformFolderName(
+    downloadTitle: string,
+    game: { platforms?: unknown },
+    allowed: number[]
+  ): string {
     const key = this.getReleasePlatformKey(downloadTitle);
     if (key && PLATFORM_FOLDER_NAMES[key]) return PLATFORM_FOLDER_NAMES[key];
 
-    const igdbId = this.getPrimaryPlatformId(game);
+    const igdbId = this.getPrimaryPlatformId(game, allowed) ?? this.getPrimaryPlatformId(game);
     if (igdbId !== undefined) {
       const igdbKey = IGDB_ID_TO_PLATFORM_KEY[igdbId];
       if (igdbKey && PLATFORM_FOLDER_NAMES[igdbKey]) return PLATFORM_FOLDER_NAMES[igdbKey];
@@ -189,7 +219,10 @@ export class ImportManager {
    * are only meaningful for directory sources, since a lone file has no
    * reliable sibling scope to check against.
    */
-  private async resolveArchive(sourcePath: string): Promise<ArchiveResolution | null> {
+  private async resolveArchive(
+    sourcePath: string,
+    options?: { includeDiscImages?: boolean }
+  ): Promise<ArchiveResolution | null> {
     if (isSensitivePath(sourcePath)) {
       throw new Error("Refusing to process a sensitive system path");
     }
@@ -203,7 +236,7 @@ export class ImportManager {
     const stats = await fs.stat(sourcePath);
 
     if (!stats.isDirectory()) {
-      if (!this.archiveService.isArchive(sourcePath)) return null;
+      if (!this.archiveService.isArchive(sourcePath, options)) return null;
       return {
         archivePath: sourcePath,
         isDirectorySource: false,
@@ -214,7 +247,9 @@ export class ImportManager {
     }
 
     const entries = await fs.readdir(sourcePath);
-    const archiveEntries = entries.filter((name) => this.archiveService.isArchive(name)).sort();
+    const archiveEntries = entries
+      .filter((name) => this.archiveService.isArchive(name, options))
+      .sort();
     if (archiveEntries.length === 0) return null;
 
     // Lexicographic sort puts "Game.r00" before "Game.rar" (since '0' < 'a'), but
@@ -323,7 +358,7 @@ export class ImportManager {
 
     return {
       destDir,
-      filesPlaced: await gatherFiles(destDir),
+      filesPlaced: await gatherFiles(destDir, { skipExtractStaging: true }),
       modeUsed,
       conflictsResolved: [],
     };
@@ -376,7 +411,7 @@ export class ImportManager {
 
     return {
       destDir,
-      filesPlaced: await gatherFiles(destDir),
+      filesPlaced: await gatherFiles(destDir, { skipExtractStaging: true }),
       modeUsed,
       conflictsResolved: [],
     };
@@ -384,10 +419,9 @@ export class ImportManager {
 
   // Relocates only the archive's own volume family into destDir — never the whole
   // source directory. A directory source can hold other legitimate files alongside
-  // the archive (a readme, bonus content); extract()'s own in-place cleanup treats
-  // anything in destDir it doesn't recognize as an archive volume as a stale leftover
-  // and deletes it, so those files must stay put in the source until after extraction
-  // runs, then get transferred separately (see unpackViaRelocatedExtraction above).
+  // the archive (a readme, bonus content); those stay put in the source until after
+  // extraction runs, then get transferred separately (see unpackViaRelocatedExtraction
+  // above), so the archive family is the only thing deleted from destDir afterward.
   private async relocateArchiveToDest(
     transferMode: TransferMode,
     resolution: ArchiveResolution,
@@ -518,14 +552,23 @@ export class ImportManager {
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     importPlatformIds: number[]
   ): boolean {
-    const gamePrimaryPlatformId = this.getPrimaryPlatformId(game);
     const releasePlatformKey = this.getReleasePlatformKey(downloadTitle);
     const releasePlatformId = this.getReleasePlatformIgdbId(releasePlatformKey);
-    const effectivePlatformId = releasePlatformId ?? gamePrimaryPlatformId;
+    // A detected release identifies the downloaded version, then the platform the user chose for
+    // the game. Otherwise the game can list several platforms, stored as IGDB names, and any
+    // selected one fits.
+    const identifiedPlatformId = releasePlatformId ?? game.targetPlatformId ?? undefined;
+    const enabled =
+      identifiedPlatformId !== undefined
+        ? this.isPlatformEnabled(identifiedPlatformId, importPlatformIds)
+        : this.isPlatformEnabled(
+            this.getPrimaryPlatformId(game, importPlatformIds),
+            importPlatformIds
+          );
 
-    if (!this.isPlatformEnabled(effectivePlatformId, importPlatformIds)) {
+    if (!enabled) {
       logger.info(
-        { gameTitle: game.title, effectivePlatformId },
+        { gameTitle: game.title, releasePlatformId, gamePlatforms: game.platforms },
         "[ImportManager] Skipping import: platform not in filter"
       );
       return true;
@@ -544,6 +587,7 @@ export class ImportManager {
     if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
       await this.storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
     }
+    requestRommScanAfterImport();
   }
 
   /** Best-effort: a version that can't be recorded must not fail an import that succeeded. */
@@ -798,7 +842,31 @@ export class ImportManager {
     }
   }
 
+  isImportInFlight(downloadId: string): boolean {
+    return this.importsInFlight.has(downloadId);
+  }
+
   async processImport(
+    downloadId: string,
+    remoteDownloadPath: string,
+    password?: string
+  ): Promise<void> {
+    if (this.importsInFlight.has(downloadId)) {
+      logger.warn(
+        { downloadId },
+        "[ImportManager] Import already running, ignoring a second start"
+      );
+      return;
+    }
+    this.importsInFlight.add(downloadId);
+    try {
+      await this.runImport(downloadId, remoteDownloadPath, password);
+    } finally {
+      this.importsInFlight.delete(downloadId);
+    }
+  }
+
+  private async runImport(
     downloadId: string,
     remoteDownloadPath: string,
     password?: string
@@ -880,6 +948,20 @@ export class ImportManager {
         );
         return;
       }
+      if (scanResult.incomplete) {
+        // Not a detection, so the files stay where the client put them (seeding
+        // keeps working); the user decides from Pending Manual Imports.
+        logger.warn(
+          { downloadId, gameTitle: game.title, reason: scanResult.reason },
+          "[ImportManager] Security scan incomplete, holding the import for manual review"
+        );
+        await this.storage.updateGameDownloadStatus(
+          downloadId,
+          "manual_review_required",
+          scanResult.reason ?? "Security scan could not examine every file"
+        );
+        return;
+      }
 
       const archiveResolution = config.autoUnpack ? await this.resolveArchive(localPath) : null;
       const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
@@ -901,17 +983,17 @@ export class ImportManager {
 
       await fs.ensureDir(libraryRoot);
 
-      const platformDir = this.resolvePlatformFolderName(download.downloadTitle || "", game);
-      const plan = await strategy.planImport(
-        localPath,
+      const platformDir = await this.resolvePlatformFolder(
+        download.downloadTitle || "",
         game,
-        libraryRoot,
-        config,
-        platformDir,
-        needsExtraction && !archiveResolution!.isDirectorySource
-          ? { treatAsDirectory: true }
-          : undefined
+        config.importPlatformIds
       );
+      const plan = await strategy.planImport(localPath, game, libraryRoot, config, platformDir, {
+        ...(needsExtraction && !archiveResolution!.isDirectorySource
+          ? { treatAsDirectory: true }
+          : {}),
+        downloadTitle: download.downloadTitle,
+      });
 
       if (plan.needsReview) {
         await this.flagNeedsReview(downloadId, game, plan);
@@ -974,6 +1056,53 @@ export class ImportManager {
     return this.pathService.translatePath(remotePath, remoteHost);
   }
 
+  /**
+   * Renders a naming pattern on a few of the user's own games, plus one synthetic release so
+   * the release-derived tokens (Version, Group, Source) show up too. Nothing touches the disk.
+   */
+  async previewNaming(
+    pattern: string,
+    userId: string
+  ): Promise<Array<{ title: string; leafName: string; fullPath: string }>> {
+    const config = await this.storage.getImportConfig(userId);
+    const libraryRoot = config.libraryRoot || "/data";
+    const games = (await this.storage.getUserGames(userId)).slice(0, 5);
+    const samples: Array<{ game: Game; releaseTitle: string }> = games.map((game) => ({
+      game,
+      releaseTitle: "",
+    }));
+    samples.push({
+      game: {
+        title: "The Example Quest: Remastered",
+        releaseDate: "2021-06-15",
+        igdbId: 12345,
+        steamAppId: 67890,
+        platforms: ["PC (Microsoft Windows)"],
+      } as unknown as Game,
+      releaseTitle: "The.Example.Quest.Remastered.v1.2.3-GROUP",
+    });
+    return Promise.all(
+      samples.map(async ({ game, releaseTitle }) => {
+        const platformDir = await this.resolvePlatformFolder(
+          releaseTitle,
+          game,
+          config.importPlatformIds
+        );
+        const leafName = resolveLibraryLeafName(
+          game,
+          { renamePattern: pattern },
+          platformDir,
+          releaseTitle
+        );
+        return {
+          title: game.title,
+          leafName,
+          fullPath: path.join(libraryRoot, platformDir, leafName),
+        };
+      })
+    );
+  }
+
   async planConfirmImport(
     downloadId: string,
     overrideSourcePath?: string,
@@ -1002,8 +1131,16 @@ export class ImportManager {
       // Source resolution failed — still return a proposed path based on game title
     }
 
-    const platformDir = this.resolvePlatformFolderName(download.downloadTitle || "", game);
-    const fallbackProposedPath = path.join(libraryRoot, platformDir, sanitizeFsName(game.title));
+    const platformDir = await this.resolvePlatformFolder(
+      download.downloadTitle || "",
+      game,
+      config.importPlatformIds
+    );
+    const fallbackProposedPath = path.join(
+      libraryRoot,
+      platformDir,
+      resolveLibraryLeafName(game, config, platformDir, download.downloadTitle)
+    );
 
     if (resolvedOriginalPath) {
       const { files, hasArchive, totalCount } = await this.readSourceFiles(resolvedOriginalPath);
@@ -1014,7 +1151,8 @@ export class ImportManager {
           game,
           libraryRoot,
           config,
-          platformDir
+          platformDir,
+          { downloadTitle: download.downloadTitle }
         );
         return {
           originalPath: resolvedOriginalPath,
@@ -1115,13 +1253,29 @@ export class ImportManager {
       );
       throw new Error(scanResult.reason ?? "Flagged by security scan");
     }
+    if (scanResult.incomplete) {
+      const reason = scanResult.reason ?? "Security scan could not examine every file";
+      // Importing an incompletely scanned download needs the user to have seen why.
+      // processImport records the reason on the pending import; when this
+      // confirmation is the first scan (e.g. right after linking a game), record it
+      // now and stop, so the next confirmation is an informed one.
+      if (download.status !== "manual_review_required" || download.errorMessage !== reason) {
+        await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required", reason);
+        throw new IncompleteScanError(`${reason} Confirm again to import it anyway.`);
+      }
+      logger.warn(
+        { downloadId, reason: scanResult.reason },
+        "[ImportManager] Importing a download the security scan could not fully examine, as confirmed by the user"
+      );
+    }
 
     if (!overridePlan.proposedPath) {
       throw new Error("Proposed path is required for import validation");
     }
 
     const archiveResolution = overridePlan.unpack
-      ? await this.resolveArchive(resolvedOriginalPath)
+      ? // An explicit unpack request may extract a disc image; auto-unpack never does.
+        await this.resolveArchive(resolvedOriginalPath, { includeDiscImages: true })
       : null;
     const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
 

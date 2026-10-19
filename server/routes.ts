@@ -1,3 +1,4 @@
+import { isSameProwlarrUrl } from "../shared/prowlarr-url.js";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
@@ -84,7 +85,11 @@ import {
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
 import { prowlarrClient } from "./prowlarr.js";
-import { loadProwlarrSyncSettings, saveProwlarrSyncSettings } from "./prowlarr-settings.js";
+import {
+  loadProwlarrSyncSettings,
+  saveProwlarrSyncSettings,
+  revokeProwlarrHttpOptIn,
+} from "./prowlarr-settings.js";
 import { isSafeUrl, safeFetch, resolveSafeAddress, normalizeHostname } from "./ssrf.js";
 import {
   hashPassword,
@@ -296,6 +301,7 @@ import {
 import { normalizeInitialReleaseStatus } from "./game-status.js";
 import { quickAddGameByTitle } from "./game-quick-add.js";
 import { importRouter } from "./routes/import.js";
+import { rommRouter } from "./routes/romm.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
@@ -887,6 +893,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             "'self'",
             "data:",
             "https://images.igdb.com",
+            // YouTube thumbnails for IGDB videos
+            "https://i.ytimg.com",
             "https://staticdelivery.nexusmods.com",
             // Steam achievement icons (GetSchemaForGame), served from Steam's CDN
             "https://steamcdn-a.akamaihd.net",
@@ -894,6 +902,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             "https://shared.cloudflare.steamstatic.com",
           ],
           "connect-src": connectSrc,
+          // IGDB trailers play in a privacy-enhanced YouTube embed (loaded only on click)
+          "frame-src": ["'self'", "https://www.youtube-nocookie.com"],
           // Narrower than helmet's defaults (which allow any "https:" origin): fonts and
           // styles are all self-hosted (@fontsource-variable, Tailwind), so there's no
           // third-party font/style CDN to allow for.
@@ -1607,6 +1617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // the identical jwt.verify + storage.getUser after the same middleware
   // already accepted the request) while doubling the per-request auth cost.
   app.use("/api/imports", importRouter);
+  app.use("/api/settings/romm", rommRouter);
   app.use("/api/import-tasks", importTasksRouter);
   app.use("/api/system", systemRouter);
   // Authenticated by the /api gate above (JWT or integration API key); same
@@ -1652,11 +1663,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // be sent to a different host.
         if (isUnchangedSentinel(apiKey)) {
           const saved = await loadProwlarrSyncSettings();
-          if (!saved?.apiKey || saved.url !== url) {
+          if (!saved?.apiKey || !isSameProwlarrUrl(saved.url, url)) {
             return res.status(400).json({ error: "Enter the Prowlarr API key again for this URL" });
           }
           apiKey = saved.apiKey;
         }
+
+        // Revocation is local: it must also work when DNS validation fails.
+        if (allowInsecureLan === false) await revokeProwlarrHttpOptIn(url);
 
         if (!(await isSafeUrl(url))) {
           return res.status(400).json({ error: "Invalid or unsafe URL" });
@@ -2051,6 +2065,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   platforms: updatedData.platforms as string[],
                   coverUrl: updatedData.coverUrl as string,
                   screenshots: updatedData.screenshots as string[],
+                  videos: updatedData.videos as Array<{ name: string; videoId: string }>,
                   releaseDate: updatedData.releaseDate as string,
                   earlyAccess: updatedData.earlyAccess as boolean,
                   igdbWebsites: z
@@ -3105,6 +3120,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "platform",
     "platform",
     (platform, fetchLimit, offset) => igdbClient.getGamesByPlatform(platform, fetchLimit, offset)
+  );
+
+  // Get one game from the collection (the game details page opens straight from a URL).
+  // Registered after /api/games/discover so that literal path is never read as an id.
+  app.get(
+    "/api/games/:id",
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params as { id: string };
+        const game = await resolveOwnedGame(id, req.user!.id, res);
+        if (!game) return;
+        // Same rule as the library list: a hidden category is not reachable by a bookmarked URL.
+        const filterFlags = await getContentFilterFlags(req.user!.id);
+        if (isContentFiltered(game, filterFlags)) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+        return res.json(game);
+      } catch (error) {
+        routesLogger.error({ error }, "error fetching game");
+        return res.status(500).json({ error: "Failed to fetch game" });
+      }
+    }
   );
 
   // Get available genres (for UI dropdowns/filters)

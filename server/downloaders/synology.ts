@@ -1041,12 +1041,18 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     };
   }
 
-  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(
+    id: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<DownloadStatus | null> {
     try {
       const task = await this.getTask(id, "detail,transfer,tracker");
       return task ? this.mapSynologyStatus(task) : null;
     } catch (error) {
       downloadersLogger.error({ error, id }, "Failed to get Synology download status");
+      // An API-level rejection means the NAS answered (an unknown task id comes back as
+      // `success: false`), so only transport failures count as "couldn't check".
+      if (options?.throwOnError && !(error instanceof SynologyApiError)) throw error;
       return null;
     }
   }
@@ -1061,7 +1067,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     }
   }
 
-  async getAllDownloads(): Promise<DownloadStatus[]> {
+  async getAllDownloads(options?: { throwOnError?: boolean }): Promise<DownloadStatus[]> {
     try {
       const response = await this.requestTaskApi<SynologyTaskResponse>("list", {
         httpMethod: "GET",
@@ -1073,6 +1079,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       return (response.data?.tasks ?? []).map((task) => this.mapSynologyStatus(task));
     } catch (error) {
       downloadersLogger.error({ error }, "Failed to list Synology downloads");
+      if (options?.throwOnError) throw error;
       return [];
     }
   }

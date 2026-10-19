@@ -24,7 +24,7 @@ vi.mock("../downloaders.js", () => ({
   DownloaderManager: downloadersMock,
 }));
 
-import { ImportManager } from "../services/ImportManager.js";
+import { ImportManager, IncompleteScanError } from "../services/ImportManager.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
 describe("ImportManager", () => {
@@ -79,6 +79,32 @@ describe("ImportManager", () => {
     await manager.processImport("dl-1", "/remote/path");
 
     expect(storage.updateGameDownloadStatus).not.toHaveBeenCalled();
+  });
+
+  it("reports an import as in flight until it finishes and ignores a second start", async () => {
+    let releaseDownload!: (value: unknown) => void;
+    storage.getGameDownload.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releaseDownload = resolve;
+      })
+    );
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    const first = manager.processImport("dl-1", "/remote/path");
+    expect(manager.isImportInFlight("dl-1")).toBe(true);
+    expect(manager.isImportInFlight("dl-2")).toBe(false);
+
+    await manager.processImport("dl-1", "/remote/path");
+    expect(storage.getGameDownload).toHaveBeenCalledTimes(1);
+
+    releaseDownload(undefined);
+    await first;
+    expect(manager.isImportInFlight("dl-1")).toBe(false);
   });
 
   it("marks download game_link_required when game is missing", async () => {
@@ -779,6 +805,10 @@ describe("ImportManager", () => {
       unpack: true,
     });
 
+    // An explicit unpack request is the one path allowed to extract disc images.
+    expect(archiveService.isArchive).toHaveBeenCalledWith(expect.any(String), {
+      includeDiscImages: true,
+    });
     // move mode relocates the raw archive into the library first (game.zip's basename,
     // under the confirmed proposedPath), then extracts it in place there.
     expect(archiveService.extract).toHaveBeenCalledWith(
@@ -1120,12 +1150,68 @@ describe("ImportManager", () => {
       expect.anything(),
       expect.anything(),
       "PC",
-      undefined
+      expect.objectContaining({ downloadTitle: expect.anything() })
     );
 
     planSpy.mockRestore();
     execSpy.mockRestore();
   });
+
+  it.each([
+    ["release title", "Some Game (2013) [Wii U / Multi-Language]", [6]],
+    ["IGDB platform", "", [41]],
+  ])(
+    "processImport: Wii U detected from %s goes to the Wii U folder",
+    async (_, title, platforms) => {
+      storage.getGameDownload.mockResolvedValue({
+        id: "dl-1",
+        gameId: "g1",
+        downloaderId: "d1",
+        downloadTitle: title,
+      });
+      storage.getGame.mockResolvedValue({
+        id: "g1",
+        title: "Some Game",
+        userId: "u1",
+        status: "wanted",
+        platforms,
+      });
+      storage.getDownloader.mockResolvedValue({
+        id: "d1",
+        name: "Downloader",
+        url: "http://remote:9091",
+      });
+      pathService.translatePath.mockResolvedValue("/local/downloads/game.wux");
+
+      const { PCImportStrategy } = await import("../services/ImportStrategies.js");
+      const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+        needsReview: true,
+        originalPath: "/local/downloads/game.wux",
+        proposedPath: "/data/Wii U/Some Game",
+        strategy: "pc",
+      });
+
+      const manager = new ImportManager(
+        storage as never, // NOSONAR
+        pathService as never, // NOSONAR
+        platformService as never, // NOSONAR
+        archiveService as never // NOSONAR
+      );
+
+      await manager.processImport("dl-1", "/remote/downloads/game.wux");
+
+      expect(planSpy).toHaveBeenCalledWith(
+        "/local/downloads/game.wux",
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        "Wii U",
+        expect.objectContaining({ downloadTitle: expect.anything() })
+      );
+
+      planSpy.mockRestore();
+    }
+  );
 
   // ─── processImport: needsReview → manual_review_required ────────────────────
 
@@ -1445,6 +1531,153 @@ describe("ImportManager", () => {
           ([id, status]) => id === "dl-1" && status === "imported"
         )
       ).toBe(false);
+    });
+
+    it("holds an incompletely scanned download for review without quarantining it", async () => {
+      storage.getGameDownload.mockResolvedValue({
+        id: "dl-1",
+        gameId: "g1",
+        downloaderId: "d1",
+      });
+      storage.getGame.mockResolvedValue({
+        id: "g1",
+        title: "Huge Game",
+        userId: "u1",
+        status: "wanted",
+        platforms: [6],
+      });
+      storage.getImportConfig.mockResolvedValue({ ...baseConfig, libraryRoot: "/data/library" });
+
+      const reason = "ClamAV did not scan this download: it has more than 10000 files.";
+      const securityScanService = {
+        scan: vi.fn().mockResolvedValue({
+          blocked: false,
+          incomplete: true,
+          source: "clamav",
+          reason,
+        }),
+      };
+
+      const manager = new ImportManager(
+        storage as never, // NOSONAR
+        pathService as never, // NOSONAR
+        platformService as never, // NOSONAR
+        archiveService as never, // NOSONAR
+        securityScanService as never // NOSONAR
+      );
+
+      await manager.processImport("dl-1", "/remote/path");
+
+      // The files stay in the client's folder so the torrent keeps seeding.
+      expect(fsMock.move).not.toHaveBeenCalled();
+      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+        "dl-1",
+        "manual_review_required",
+        reason
+      );
+      expect(
+        storage.updateGameDownloadStatus.mock.calls.some(
+          ([id, status]) => id === "dl-1" && (status === "quarantined" || status === "imported")
+        )
+      ).toBe(false);
+      expect(storage.addNotification).not.toHaveBeenCalled();
+    });
+
+    it("stops a first confirmation of an incompletely scanned download to show the reason", async () => {
+      storage.getGameDownload.mockResolvedValue({
+        id: "dl-1",
+        gameId: "g1",
+        downloaderId: "d1",
+        status: "game_link_required",
+      });
+      storage.getGame.mockResolvedValue({
+        id: "g1",
+        title: "Huge Game",
+        userId: "u1",
+        status: "wanted",
+        platforms: [6],
+      });
+      storage.getImportConfig.mockResolvedValue({ ...baseConfig, libraryRoot: "/safe/root" });
+
+      const securityScanService = {
+        scan: vi.fn().mockResolvedValue({
+          blocked: false,
+          incomplete: true,
+          source: "clamav",
+          reason: "not fully scanned",
+        }),
+      };
+
+      const manager = new ImportManager(
+        storage as never, // NOSONAR
+        pathService as never, // NOSONAR
+        platformService as never, // NOSONAR
+        archiveService as never, // NOSONAR
+        securityScanService as never // NOSONAR
+      );
+
+      await expect(
+        manager.confirmImport("dl-1", {
+          strategy: "pc",
+          originalPath: "/downloads/source-folder",
+          proposedPath: "/safe/root/PC/Huge Game",
+          needsReview: false,
+          transferMode: "move",
+        })
+      ).rejects.toThrow(IncompleteScanError);
+
+      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+        "dl-1",
+        "manual_review_required",
+        "not fully scanned"
+      );
+      expect(fsMock.move).not.toHaveBeenCalled();
+    });
+
+    it("lets the user confirm the import of an incompletely scanned download", async () => {
+      storage.getGameDownload.mockResolvedValue({
+        id: "dl-1",
+        gameId: "g1",
+        downloaderId: "d1",
+        status: "manual_review_required",
+        errorMessage: "not fully scanned",
+      });
+      storage.getGame.mockResolvedValue({
+        id: "g1",
+        title: "Huge Game",
+        userId: "u1",
+        status: "wanted",
+        platforms: [6],
+      });
+      storage.getImportConfig.mockResolvedValue({ ...baseConfig, libraryRoot: "/safe/root" });
+
+      const securityScanService = {
+        scan: vi.fn().mockResolvedValue({
+          blocked: false,
+          incomplete: true,
+          source: "clamav",
+          reason: "not fully scanned",
+        }),
+      };
+
+      const manager = new ImportManager(
+        storage as never, // NOSONAR
+        pathService as never, // NOSONAR
+        platformService as never, // NOSONAR
+        archiveService as never, // NOSONAR
+        securityScanService as never // NOSONAR
+      );
+
+      await manager.confirmImport("dl-1", {
+        strategy: "pc",
+        originalPath: "/downloads/source-folder",
+        proposedPath: "/safe/root/PC/Huge Game",
+        needsReview: false,
+        transferMode: "move",
+      });
+
+      expect(securityScanService.scan).toHaveBeenCalled();
+      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
     });
 
     it("does not create a notification when the securityAlert.inApp preference is disabled", async () => {

@@ -118,6 +118,20 @@ JWT even where a table row doesn't repeat `authenticateToken`.
 
 Extra directories scanned (read-only discovery) for games already on disk outside the configured library root (e.g. an older library, a secondary drive). Separate from the library root used by the download-import pipeline — matched games get a `libraryPath` outside that root. Discovery itself never moves, renames, or deletes files there; the game-delete flow (`DELETE /api/games/:id?deleteFiles=true`) only touches files under a root folder when that folder's `allowDelete` is explicitly turned on (off by default).
 
+The UI is **Library → Library Import**. Adding/enabling a folder or changing an
+enabled folder's path starts an asynchronous scan. Enabling post-processing also
+scans enabled roots. Settings changes during an active scan queue a rescan.
+`ScanProgress` includes `startedAt`, optional `finishedAt`, status, candidate
+counts and match/review/error counts; updates also arrive as `library-scan-progress`.
+See [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md) for the operator workflow.
+
+`POST /api/library/scan/unmatched/search` requires authentication, CSRF for cookie
+sessions, and the IGDB rate limiter. Body: `{ rootFolderId, folderName, query }`
+(trimmed strings, limits 200/1000/200 respectively). Returns an array of
+`{ igdbId, name, releaseYear }` candidates; searching does not import a game.
+Returns 400 for invalid input, 404 when the folder is no longer awaiting review,
+or 500 if IGDB search fails. Confirm a candidate using the match endpoint below.
+
 | Method | Path                                 | Auth Required                                                                                               | Request Body                                                                                                                                                  | Response                                                                                                                        |
 | ------ | ------------------------------------ | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/root-folders`                  | JWT                                                                                                         | —                                                                                                                                                             | `RootFolder[]`                                                                                                                  |
@@ -129,6 +143,25 @@ Extra directories scanned (read-only discovery) for games already on disk outsid
 | GET    | `/api/library/scan/status`           | JWT                                                                                                         | —                                                                                                                                                             | `ScanProgress[]` — one entry per root folder scanned since server start                                                         |
 | GET    | `/api/library/scan/unmatched`        | JWT                                                                                                         | —                                                                                                                                                             | `UnmatchedEntry[]` — folders that didn't confidently match an IGDB game                                                         |
 | POST   | `/api/library/scan/unmatched/match`  | JWT + `sensitiveEndpointLimiter`, `sanitizeUnmatchedMatchData`, `validateRequest`                           | `{ rootFolderId (1–200 chars), folderName (1–1000 chars), igdbId (positive integer) }` via `sanitizeUnmatchedMatchData`                                       | `{ gameId, filesAdded }`; 400 `{ error: "Validation failed", details }` on invalid body; 500 with message on resolution failure |
+
+## Import Settings
+
+Mounted under `/api/imports` (JWT). See [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md#naming-pattern)
+for naming tokens and rendering rules.
+
+| Method | Path                          | Auth Required | Request Body                                                                                                                            | Response                                                                                                                                                                                                         |
+| ------ | ----------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/imports/naming/preview` | JWT           | `{ pattern: string (1–200) }` (strict, no other fields)                                                                                 | `{ samples: { title, leafName, fullPath }[] }` for up to 5 library games plus one sample release; nothing is renamed. 400 `{ error, errors: string[] }` if the pattern is invalid; 400 `{ error }` on bad body |
+| PATCH  | `/api/imports/config`         | JWT           | Partial import config. `renamePattern?` (1–200) must pass naming validation: known tokens only, no `/` or `\`, no `..`, no control characters, balanced braces | Updated import config; 400 `{ error }` listing the validation messages on an invalid `renamePattern` or body                                                                                                    |
+
+Example preview request:
+
+```bash
+curl -X POST http://localhost:5000/api/imports/naming/preview \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"pattern":"{Title} ({Year})"}'
+```
 
 ## Indexers
 
@@ -183,7 +216,30 @@ Extra directories scanned (read-only discovery) for games already on disk outsid
 | GET    | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                            | —                                                                                                                                                           | `{ configured: boolean, source?: "env"\|"database" }`                                          |
 | POST   | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                            | `{ apiKey: string (required) }`                                                                                                                             | `{ success: true }`; 400 if missing                                                            |
 
+### Apprise settings
+
+These authenticated endpoints configure the shared Apprise service. Cookie
+sessions require the usual CSRF header on POST requests.
+
+| Method | Path                         | Request / response                                                                                                                                                                                            |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/settings/apprise`      | `{ configured, mode, apiUrl, key, urls, username, password }`; the password is masked as `********` when saved, including in CLI mode.                                                                        |
+| POST   | `/api/settings/apprise`      | `{ mode: "api" or "cli", apiUrl?, key?, urls?, username?, password? }`; returns `{ success: true }`. API mode requires an API URL and a config key or notification URLs; CLI mode requires notification URLs. |
+| POST   | `/api/settings/apprise/test` | Sends a test using saved settings; `{ success: true }`, or 502 with an error if delivery fails.                                                                                                               |
+
+The optional API login is for Apprise API servers with `APPRISE_AUTH_REQUIRED=yes`.
+Usernames cannot contain a colon. The password is encrypted at rest; sending the
+masked placeholder keeps it, an empty string clears it, and omitting the field
+leaves it unchanged. HTTPS login requests reject plaintext or cross-origin
+redirects. An HTTP login sends credentials unencrypted and the UI warns about
+it; use HTTPS unless the connection is on a trusted network.
+
 ## RSS
+
+Enabled feeds refresh 10 seconds after startup and every hour. Manual full
+refreshes share a queued/running scheduled refresh; single-feed refreshes after
+creation run in the same serialized queue. Disabled feeds are skipped by full
+refreshes. The browser polls items every five minutes.
 
 | Method | Path                 | Auth Required | Request Body                                                | Response                                                                      |
 | ------ | -------------------- | ------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------- |
@@ -195,6 +251,12 @@ Extra directories scanned (read-only discovery) for games already on disk outsid
 | POST   | `/api/rss/refresh`   | JWT           | —                                                           | `{ success: true }` (triggers refresh of all feeds)                           |
 
 ## Notifications
+
+`PATCH /api/settings` accepts `notificationPreferences` as a JSON-encoded string.
+Within `gameUpdates`, `includeShelved` and `includeCompleted` independently control
+update and pack/add-on notifications for those statuses, for both In-App and
+Apprise. Missing values mean `true` for compatibility with older preferences.
+Availability searches and badges still update when notifications are muted.
 
 | Method | Path                              | Auth Required  | Request Body                                   | Response                                                             |
 | ------ | --------------------------------- | -------------- | ---------------------------------------------- | -------------------------------------------------------------------- |

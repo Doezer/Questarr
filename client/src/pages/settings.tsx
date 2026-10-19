@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Server,
@@ -16,7 +16,6 @@ import {
   ShieldAlert,
   Upload,
   Gamepad2,
-  Ban,
   Trash2,
   Bell,
   Monitor,
@@ -70,7 +69,6 @@ import {
   type Config,
   type UserSettings,
   type DownloadRules,
-  type ReleaseBlacklist,
   type NotificationPreferences,
   type NotificationEvent,
   type DownloaderDebugLoggingResponse,
@@ -283,36 +281,6 @@ export default function SettingsPage() {
   const { data: user } = useQuery<{ id: string; username: string; steamId64?: string }>({
     queryKey: ["/api/auth/me"],
   });
-
-  const { data: blacklistEntries, isLoading: blacklistLoading } = useQuery<
-    (ReleaseBlacklist & { gameTitle: string })[]
-  >({
-    queryKey: ["/api/blacklist"],
-  });
-
-  const removeBlacklistMutation = useMutation({
-    mutationFn: async ({ gameId, id }: { gameId: string; id: string }) => {
-      await apiRequest("DELETE", `/api/games/${gameId}/blacklist/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/blacklist"] });
-      toast({ description: "Release removed from blacklist" });
-    },
-    onError: () => {
-      toast({ variant: "destructive", description: "Failed to remove from blacklist" });
-    },
-  });
-
-  const blacklistByGame = useMemo(() => {
-    if (!blacklistEntries) return {};
-    return blacklistEntries.reduce<Record<string, (ReleaseBlacklist & { gameTitle: string })[]>>(
-      (acc, entry) => {
-        (acc[entry.gameId] ??= []).push(entry);
-        return acc;
-      },
-      {}
-    );
-  }, [blacklistEntries]);
 
   // Mobile tab scroller: tracks whether the tab strip has more content to
   // reveal on either side, so we can show a fade hint (tabs overflow on
@@ -1286,7 +1254,6 @@ export default function SettingsPage() {
                 <TabsTrigger value="appearance">Appearance</TabsTrigger>
                 <TabsTrigger value="discovery">Discovery & Downloads</TabsTrigger>
                 <TabsTrigger value="notifications">Notifications</TabsTrigger>
-                <TabsTrigger value="platforms">Platforms</TabsTrigger>
                 <TabsTrigger value="integrations">Integrations</TabsTrigger>
                 <TabsTrigger value="import">Import</TabsTrigger>
                 <TabsTrigger value="account-security">Account & Security</TabsTrigger>
@@ -1362,9 +1329,7 @@ export default function SettingsPage() {
             {contentFilteringCard}
 
             {libraryFilteringCard}
-          </TabsContent>
 
-          <TabsContent value="platforms" className="space-y-6">
             <PlatformsSettings />
           </TabsContent>
 
@@ -1525,70 +1490,6 @@ export default function SettingsPage() {
               blacklistTerms={releaseNameBlacklist}
               onTermsChange={setReleaseNameBlacklist}
             />
-
-            {/* Blacklisted Releases */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Ban className="h-5 w-5" />
-                  Blacklisted Releases
-                </CardTitle>
-                <CardDescription>
-                  Releases hidden from search results. They will not appear in game download
-                  searches or be auto-downloaded.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {blacklistLoading ? (
-                  <div className="text-sm text-muted-foreground">Loading...</div>
-                ) : !blacklistEntries || blacklistEntries.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">No blacklisted releases.</div>
-                ) : (
-                  <div className="space-y-4">
-                    {Object.entries(blacklistByGame).map(([gameId, entries]) => (
-                      <div key={gameId}>
-                        <h4 className="text-sm font-semibold mb-2">
-                          {entries[0]?.gameTitle ?? "Unknown game"}
-                        </h4>
-                        <div className="space-y-2">
-                          {entries.map((entry) => (
-                            <div
-                              key={entry.id}
-                              className="flex items-center justify-between rounded-md border p-3"
-                            >
-                              <div className="space-y-1">
-                                <p className="text-sm font-medium leading-none">
-                                  {entry.releaseTitle}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {entry.indexerName ? `${entry.indexerName} · ` : ""}
-                                  {entry.createdAt
-                                    ? new Date(entry.createdAt).toISOString().split("T")[0]
-                                    : ""}
-                                </p>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                aria-label={`Remove ${entry.releaseTitle} from blacklist`}
-                                onClick={() =>
-                                  removeBlacklistMutation.mutate({
-                                    gameId: entry.gameId,
-                                    id: entry.id,
-                                  })
-                                }
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </TabsContent>
 
           <TabsContent value="notifications" className="space-y-6">

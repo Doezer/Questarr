@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import React, { createContext, useContext, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiFetch, apiRequest, setBearerToken } from "./queryClient";
@@ -25,19 +25,35 @@ type FetchUserError = Error & { status?: number };
 
 /**
  * Auth is primarily cookie-based (httpOnly JWT cookie set by the server on
- * login/setup, sent automatically via credentials: "include"). This runs
- * once, synchronously, before anything else in AuthProvider mounts: it
- * migrates a session that logged in before this change (localStorage-token
- * only, no cookie yet) into an in-memory bearer token for the current tab,
- * and scrubs the token out of localStorage immediately so it's no longer
- * sitting in persistent storage. New logins never write here again -- from
- * their perspective, everything after this migration is cookie-only.
+ * login/setup, sent automatically via credentials: "include"). Sessions that
+ * logged in before this change only have a localStorage token (no cookie
+ * yet). Reading it is side-effect free, so it is safe to do during render;
+ * the actual migration (below) runs after commit.
  */
-function migrateLegacyLocalStorageToken(): void {
-  const legacyToken = localStorage.getItem("token");
+function readLegacyLocalStorageToken(): string | null {
+  try {
+    return localStorage.getItem("token");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Post-commit migration of the legacy token: carries it forward as an
+ * in-memory bearer token for the current tab and scrubs it out of
+ * localStorage so it no longer sits in persistent storage. Idempotent: the
+ * token is captured once at render time, so re-running this (StrictMode's
+ * dev-only effect re-invocation) re-applies the same value instead of
+ * resetting it to null once localStorage has been scrubbed.
+ */
+function migrateLegacyLocalStorageToken(legacyToken: string | null): void {
   if (legacyToken) {
     setBearerToken(legacyToken);
-    localStorage.removeItem("token");
+    try {
+      localStorage.removeItem("token");
+    } catch {
+      // Storage unavailable: nothing to scrub.
+    }
   } else {
     // Deterministically reset the in-memory bearer token on every mount
     // (rather than only ever setting it), so a stale value from a prior
@@ -58,18 +74,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  // Runs during render, before any child effect (including React Query's
-  // own fetch-triggering effects) can fire -- see
-  // migrateLegacyLocalStorageToken's doc comment for why that ordering
-  // matters. Guarded by a ref (rather than a useState lazy initializer) so
-  // a second render of this same component instance -- e.g. under
-  // React.StrictMode's dev-only double-invocation -- can't run the
-  // migration twice and clobber a just-migrated bearer token back to null.
-  const migrationRanRef = useRef(false);
-  if (!migrationRanRef.current) {
-    migrationRanRef.current = true;
-    migrateLegacyLocalStorageToken();
-  }
+  // Captured once, without side effects (a lazy initializer may be invoked
+  // twice under StrictMode, which is harmless for a read).
+  const [legacyToken] = useState(readLegacyLocalStorageToken);
+  const [migrated, setMigrated] = useState(false);
+
+  // Post-commit migration. Children are not rendered and "/api/auth/me" is
+  // not enabled until it completes, so no request can go out before the
+  // migrated bearer token is in place.
+  useEffect(() => {
+    migrateLegacyLocalStorageToken(legacyToken);
+    setMigrated(true);
+  }, [legacyToken]);
 
   const {
     isLoading: isCheckingSetup,
@@ -102,7 +118,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     queryFn: async () => {
       // No Authorization header needed for the common case -- the httpOnly
       // auth cookie is sent automatically. apiFetch also attaches an
-      // in-memory bearer token here if migrateLegacyLocalStorageToken found
+      // in-memory bearer token here if the legacy-token migration found
       // one for this tab.
       const res = await apiFetch("/api/auth/me");
 
@@ -131,8 +147,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       error.status = res.status;
       throw error;
     },
-    // Always attempt this -- a valid session may exist purely via the
-    // httpOnly cookie, with nothing for the client to check beforehand.
+    // Always attempt this once legacy-token migration has completed -- a
+    // valid session may exist purely via the httpOnly cookie, with nothing
+    // for the client to check beforehand.
+    enabled: migrated,
     retry: (failureCount, error) => {
       const status = (error as FetchUserError).status;
       if (typeof status === "number") {
@@ -227,7 +245,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Redirect logic
   useEffect(() => {
-    if (isCheckingSetup || isFetchingUser) return;
+    if (!migrated || isCheckingSetup || isFetchingUser) return;
 
     // Show error if setup check failed after retries
     if (setupCheckError) {
@@ -259,6 +277,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setLocation,
     isCheckingSetup,
     isFetchingUser,
+    migrated,
     setupCheckError,
     toast,
   ]);
@@ -267,14 +286,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     <AuthContext.Provider
       value={{
         user,
-        isLoading: isCheckingSetup || isFetchingUser || loginMutation.isPending,
+        isLoading: !migrated || isCheckingSetup || isFetchingUser || loginMutation.isPending,
         login,
         logout,
         needsSetup,
         checkSetup,
       }}
     >
-      {children}
+      {migrated ? children : null}
     </AuthContext.Provider>
   );
 }

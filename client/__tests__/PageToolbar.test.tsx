@@ -116,4 +116,18 @@ describe("PageToolbar", () => {
     expect(screen.getByTestId("filter-pills")).toBeInTheDocument();
     expect(screen.getByTestId("action-btn")).toBeInTheDocument();
   });
+
+  it("lets the actions wrap instead of overflowing narrow desktop widths", () => {
+    render(
+      <PageToolbar
+        search=""
+        onSearchChange={vi.fn()}
+        actions={<button type="button">Pick a game</button>}
+      />
+    );
+    const actionsRow = screen.getByRole("button", { name: "Pick a game" }).parentElement;
+    expect(actionsRow).toHaveClass("flex-wrap", "md:max-w-full");
+    expect(actionsRow).not.toHaveClass("md:flex-nowrap");
+    expect(actionsRow?.parentElement).toHaveClass("md:flex-wrap");
+  });
 });

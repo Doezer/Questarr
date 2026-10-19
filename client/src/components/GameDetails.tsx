@@ -1623,24 +1623,31 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
               <div className="space-y-6">
                 {videos.length > 0 && <GameVideoCarousel videos={videos} />}
                 {game.screenshots && game.screenshots.length > 0 ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {game.screenshots.map((screenshot, index) => (
-                      <button
-                        key={index}
-                        type="button"
-                        aria-label={`Open screenshot ${index + 1}`}
-                        className="shadcn-card overflow-hidden cursor-pointer hover-elevate rounded-xl border bg-card border-card-border text-card-foreground shadow-sm"
-                        onClick={() => setSelectedScreenshotIndex(index)}
-                        data-testid={`screenshot-${index}`}
-                      >
-                        <img
-                          src={screenshot}
-                          alt={`${game.title} screenshot ${index + 1}`}
-                          className="w-full h-24 object-cover"
-                        />
-                      </button>
-                    ))}
-                  </div>
+                  <section aria-label={videos.length > 0 ? "Screenshots" : undefined}>
+                    {videos.length > 0 && (
+                      <h3 className="mb-2 text-sm font-medium text-muted-foreground">
+                        Screenshots
+                      </h3>
+                    )}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {game.screenshots.map((screenshot, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          aria-label={`Open screenshot ${index + 1}`}
+                          className="shadcn-card overflow-hidden cursor-pointer hover-elevate rounded-xl border bg-card border-card-border text-card-foreground shadow-sm"
+                          onClick={() => setSelectedScreenshotIndex(index)}
+                          data-testid={`screenshot-${index}`}
+                        >
+                          <img
+                            src={screenshot}
+                            alt={`${game.title} screenshot ${index + 1}`}
+                            className="w-full h-24 object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </section>
                 ) : videos.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
                     <Monitor className="w-8 h-8 opacity-40" />

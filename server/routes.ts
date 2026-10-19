@@ -302,8 +302,10 @@ import {
 import { normalizeInitialReleaseStatus } from "./game-status.js";
 import { quickAddGameByTitle } from "./game-quick-add.js";
 import { importRouter } from "./routes/import.js";
+import { rommRouter } from "./routes/romm.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
+import { activityRouter } from "./routes/activity.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 import { probeRootFolder, isWithinDeletableRootFolder, isStrictlyInside } from "./root-folders.js";
 import {
@@ -893,6 +895,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             "'self'",
             "data:",
             "https://images.igdb.com",
+            // YouTube thumbnails for IGDB videos
+            "https://i.ytimg.com",
             "https://staticdelivery.nexusmods.com",
             // Steam achievement icons (GetSchemaForGame), served from Steam's CDN
             "https://steamcdn-a.akamaihd.net",
@@ -900,6 +904,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             "https://shared.cloudflare.steamstatic.com",
           ],
           "connect-src": connectSrc,
+          // IGDB trailers play in a privacy-enhanced YouTube embed (loaded only on click)
+          "frame-src": ["'self'", "https://www.youtube-nocookie.com"],
           // Narrower than helmet's defaults (which allow any "https:" origin): fonts and
           // styles are all self-hosted (@fontsource-variable, Tailwind), so there's no
           // third-party font/style CDN to allow for.
@@ -1614,8 +1620,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // the identical jwt.verify + storage.getUser after the same middleware
   // already accepted the request) while doubling the per-request auth cost.
   app.use("/api/imports", importRouter);
+  app.use("/api/settings/romm", rommRouter);
   app.use("/api/import-tasks", importTasksRouter);
   app.use("/api/system", systemRouter);
+  app.use("/api/activity", activityRouter);
   // Authenticated by the /api gate above (JWT or integration API key); same
   // reasoning as the mounts above.
   app.use("/api/integration", integrationRouter);
@@ -2061,6 +2069,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   platforms: updatedData.platforms as string[],
                   coverUrl: updatedData.coverUrl as string,
                   screenshots: updatedData.screenshots as string[],
+                  videos: updatedData.videos as Array<{ name: string; videoId: string }>,
                   releaseDate: updatedData.releaseDate as string,
                   earlyAccess: updatedData.earlyAccess as boolean,
                   igdbWebsites: z

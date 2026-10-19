@@ -13,6 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type {
   CollectionRules,
+  DownloadEventType,
   GameExpansion,
   GameFileCategory,
   ImportTaskItemResult,
@@ -156,6 +157,7 @@ export const games = pgTable("games", {
   publishers: jsonb("publishers").$type<string[]>(),
   developers: jsonb("developers").$type<string[]>(),
   screenshots: jsonb("screenshots").$type<string[]>(),
+  videos: jsonb("videos").$type<Array<{ name: string; videoId: string }>>(),
   source: text("source").default("manual"), // "manual" | "steam" | "api"
   igdbWebsites: jsonb("igdb_websites").$type<Array<{ category: number; url: string }>>(),
   expansions: jsonb("expansions").$type<GameExpansion[]>(),
@@ -283,6 +285,24 @@ export const releaseBlacklist = pgTable(
     createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
   },
   (t) => [uniqueIndex("release_blacklist_game_title_idx").on(t.gameId, t.releaseTitle)]
+);
+
+export const downloadEvents = pgTable(
+  "download_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    gameTitle: text("game_title").notNull(),
+    eventType: text("event_type").notNull().$type<DownloadEventType>(),
+    releaseTitle: text("release_title").notNull(),
+    downloaderName: text("downloader_name"),
+    message: text("message"),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("download_events_user_created_idx").on(t.userId, t.createdAt)]
 );
 
 export const aiAutoDownloadHolds = pgTable(

@@ -23,6 +23,7 @@ const EXPECTED_TABLES = [
   "apiKeys",
   "collectionGames",
   "collections",
+  "downloadEvents",
   "downloaders",
   "gameDownloads",
   "gameFiles",

@@ -37,6 +37,7 @@ export const {
   pathMappings,
   platformMappings,
   releaseBlacklist,
+  downloadEvents,
   rootFolders,
   rssFeedItems,
   rssFeeds,

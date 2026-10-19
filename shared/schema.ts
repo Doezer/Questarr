@@ -225,6 +225,8 @@ export const games = sqliteTable("games", {
   publishers: text("publishers", { mode: "json" }).$type<string[]>(),
   developers: text("developers", { mode: "json" }).$type<string[]>(),
   screenshots: text("screenshots", { mode: "json" }).$type<string[]>(),
+  // IGDB trailers/gameplay clips: `videoId` is the YouTube video id
+  videos: text("videos", { mode: "json" }).$type<Array<{ name: string; videoId: string }>>(),
   source: text("source").default("manual"), // "manual" | "steam" | "api"
   igdbWebsites: text("igdb_websites", { mode: "json" }).$type<
     Array<{ category: number; url: string }>
@@ -526,6 +528,11 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export const insertGameSchema = createInsertSchema(games, {
   targetPlatformId: (schema) => schema.int().positive().nullable().optional(),
   targetPlatformName: (schema) => schema.trim().min(1).max(100).nullable().optional(),
+  videos: () =>
+    z
+      .array(z.object({ name: z.string(), videoId: z.string().regex(/^[\w-]{11}$/) }))
+      .nullable()
+      .optional(),
   status: (schema) =>
     schema
       .nullable()
@@ -810,6 +817,7 @@ export const claimDownloadRequestSchema = z.object({
       rating: z.number().optional(),
       aggregatedRating: z.number().optional(),
       screenshots: z.array(z.string()).optional(),
+      videos: z.array(z.object({ name: z.string(), videoId: z.string() })).optional(),
       igdbWebsites: z.array(z.object({ category: z.number(), url: z.string() })).optional(),
     })
     .optional(),
@@ -1324,6 +1332,42 @@ export type InsertImportTask = (typeof insertImportTaskSchema)["_output"];
 
 export type ImportTaskItem = typeof importTaskItems.$inferSelect;
 export type InsertImportTaskItem = (typeof insertImportTaskItemSchema)["_output"];
+
+export const DOWNLOAD_EVENT_TYPES = [
+  "grabbed",
+  "completed",
+  "imported",
+  "failed",
+  "needs_review",
+  "removed",
+  "blocklisted",
+] as const;
+export type DownloadEventType = (typeof DOWNLOAD_EVENT_TYPES)[number];
+
+// Append-only log of what happened to a game's downloads. gameId survives the game being
+// deleted as null; gameTitle is a snapshot so the entry still reads sensibly afterwards.
+export const downloadEvents = sqliteTable(
+  "download_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    gameTitle: text("game_title").notNull(),
+    eventType: text("event_type").notNull().$type<DownloadEventType>(),
+    releaseTitle: text("release_title").notNull(),
+    downloaderName: text("downloader_name"),
+    message: text("message"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("download_events_user_created_idx").on(t.userId, t.createdAt)]
+);
+
+export type DownloadEvent = typeof downloadEvents.$inferSelect;
+export type InsertDownloadEvent = Omit<typeof downloadEvents.$inferInsert, "id" | "createdAt">;
 
 export const gameFileCategorySchema = z.enum(["main", "dlc", "update", "extra"]);
 export type GameFileCategory = z.infer<typeof gameFileCategorySchema>;

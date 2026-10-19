@@ -55,6 +55,7 @@ const TABLE_ORDER = [
   "gameDownloads",
   "xrelNotifiedReleases",
   "releaseBlacklist",
+  "downloadEvents",
   "aiAutoDownloadHolds",
   "importTaskItems",
   "collections",

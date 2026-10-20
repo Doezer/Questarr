@@ -1,6 +1,7 @@
 import { dialect } from "../db.js";
 import type {
   ApiKeyPublic,
+  NewApiKeyInput,
   Game,
   Indexer,
   InsertPlatformMapping,
@@ -60,10 +61,7 @@ export interface TransactionalOps {
   ): Promise<SyncIndexersResult>;
 
   /** Create an API key, enforcing the per-user cap inside the transaction. */
-  addApiKey(
-    key: { userId: string; name: string; keyHash: string; prefix: string },
-    maxKeys: number
-  ): Promise<ApiKeyPublic>;
+  addApiKey(key: NewApiKeyInput, maxKeys: number): Promise<ApiKeyPublic>;
 
   /** Upsert many config entries as one unit. */
   setSystemConfigBatch(entries: { key: string; value: string }[]): Promise<void>;

@@ -34,7 +34,8 @@ game from the couch without opening a browser.
 ## Connect
 
 1. In Questarr, open **Settings → Integrations → API Keys** and create a key
-   (name it after the machine, e.g. "Playnite on the living room PC"). Copy it
+   (name it after the machine, e.g. "Playnite on the living room PC", and choose
+   the **Playnite extension** access). Copy it
    immediately — Questarr stores only a hash and cannot show it again.
 2. In Playnite, open **Extensions → Questarr → Connect to Questarr…**
 3. Enter the server address (`https://questarr.example.com`, or whatever your
@@ -69,6 +70,13 @@ routes. It cannot read your settings, manage indexers or download clients, or
 create or revoke other API keys — those stay behind an interactive login. Revoke
 a key at any time from **Settings → Integrations → API Keys**; it stops working
 immediately.
+
+Keys have an **access** level (the extension needs **Playnite extension**; a
+**Read only** key can ping and read the library but not sync or request games) and
+an optional **expiry**. Once a key expires Questarr answers 401 with
+`code: "API_KEY_EXPIRED"`: create a new key and reconnect. Choose **Never** when
+creating the key if you prefer not to rotate it. `/api/integration/ping` returns the
+key's `scope` and `expiresAt`.
 
 ## How matching works
 

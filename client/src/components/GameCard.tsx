@@ -235,6 +235,7 @@ const GameCard = ({
         >
           <Link
             href={details.path}
+            state={{ game: resolvedGame }}
             onClick={(e) => {
               e.stopPropagation();
               onViewDetails?.(game.id);

@@ -97,6 +97,22 @@ export const generalApiLimiter = rateLimit({
   skip: rateLimitsDisabled,
 });
 
+// Integration API limiter: keyed by API key (then user, then IP) so one noisy
+// client cannot starve another behind the same NAT. Mounted after auth.
+export const integrationRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  keyGenerator: (req) => {
+    if (req.apiKeyId) return `api-key:${req.apiKeyId}`;
+    if (req.user?.id) return `user:${req.user.id}`;
+    return ipKeyGenerator(req.ip ?? "unknown");
+  },
+  message: { error: "Too many requests, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: rateLimitsDisabled,
+});
+
 // Rate limiter for the SPA catch-all route (vite's dev middleware transform and the
 // production static/index.html fallback). generalApiLimiter only covers "/api", so
 // without this, that wildcard handler — which does a disk read (and, in dev, a full
@@ -188,6 +204,10 @@ export const sanitizeDownloadId = [
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Sanitization rules for the game journal/milestone/screenshot sub-resource ID params
+export const sanitizeCollectionId = [
+  param("collectionId").trim().matches(UUID_PATTERN).withMessage("Invalid collection ID format"),
+];
+
 export const sanitizeJournalEntryId = [
   param("entryId").trim().matches(UUID_PATTERN).withMessage("Invalid journal entry ID format"),
 ];

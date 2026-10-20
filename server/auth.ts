@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { type Request, Response, NextFunction } from "express";
 import { storage } from "./storage.js";
 import { config } from "./config.js";
-import { type User } from "@shared/schema";
+import { type ApiKeyScope, type User } from "@shared/schema";
 import crypto from "crypto";
 import { logger } from "./logger.js";
 import { AUTH_COOKIE_NAME, getCookie } from "./security.js";
@@ -225,6 +225,28 @@ function extractApiKey(req: Request): string | undefined {
 }
 
 /**
+ * Declare which key scopes may call a route. `all` satisfies every
+ * requirement, and requests without a key (a logged-in browser session) are
+ * never restricted. Routes are denied by default for keys: a route that
+ * declares no scope is not covered by this check, so a test asserts that every
+ * integration route declares one.
+ */
+export function requireScope(...allowed: ApiKeyScope[]) {
+  const middleware = (req: Request, res: Response, next: NextFunction) => {
+    if (!req.apiKeyId) return next();
+    const scope = req.apiKeyScope;
+    if (scope && (scope === "all" || allowed.includes(scope))) {
+      return next();
+    }
+    return res
+      .status(403)
+      .json({ error: "API key scope does not allow this route", code: "API_KEY_SCOPE_DENIED" });
+  };
+  middleware.requiredScopes = allowed;
+  return middleware;
+}
+
+/**
  * Authenticate a request carrying an integration API key, populating req.user
  * with the key's owner. Falls through to JWT authentication when no API key is
  * presented, so the same routes stay usable from the browser UI.
@@ -242,6 +264,13 @@ export async function authenticateApiKeyOrToken(req: Request, res: Response, nex
       return res.status(401).json({ error: "Invalid API key" });
     }
 
+    // Checked before loading the owner so an expired key costs one lookup.
+    // The stable `code` lets clients (the Playnite extension) tell "expired"
+    // apart from "wrong key" and prompt for a new one.
+    if (record.expiresAt && record.expiresAt.getTime() <= Date.now()) {
+      return res.status(401).json({ error: "API key expired", code: "API_KEY_EXPIRED" });
+    }
+
     const user = await storage.getUser(record.userId);
     if (!user) {
       return res.status(401).json({ error: "Invalid API key" });
@@ -249,6 +278,8 @@ export async function authenticateApiKeyOrToken(req: Request, res: Response, nex
 
     req.user = user;
     req.apiKeyId = record.id;
+    req.apiKeyScope = record.scope;
+    req.apiKeyExpiresAt = record.expiresAt;
 
     // Best-effort usage stamp: it powers the "last used" column in Settings and
     // must never fail the request it is describing.

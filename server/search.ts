@@ -3,6 +3,7 @@ import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { searchLogger } from "./logger.js";
 import { parseReleaseMetadata } from "../shared/title-utils.js";
+import type { ReleaseEvaluation } from "../shared/release-scoring.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 
 // Cap how many top results get AI-enriched per search so an optional, user-supplied
@@ -36,6 +37,9 @@ export interface SearchItem {
   aiReleaseType?: ReleaseType;
   aiReleaseTypeConfidence?: number;
   aiLegitimacyScore?: number;
+  // Release scoring decision (shared/release-scoring.ts), attached by the manual search route
+  // and by auto-search. Absent when scoring was unavailable.
+  evaluation?: ReleaseEvaluation;
 }
 
 export interface AggregatedSearchOptions {

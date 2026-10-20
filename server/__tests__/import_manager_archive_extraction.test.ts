@@ -455,3 +455,63 @@ describe("ImportManager archive extraction (library-side)", () => {
     );
   });
 });
+
+describe("ImportManager.reportLeftoverArchives", () => {
+  it("warns once about archives nothing extracted, naming them", async () => {
+    const dir = tempDir();
+    await fs.ensureDir(path.join(dir, "Disc2"));
+    await fs.writeFile(path.join(dir, "Game.rar"), "x");
+    await fs.writeFile(path.join(dir, "Game.r00"), "x");
+    await fs.writeFile(path.join(dir, "Disc2", "data.zip"), "x");
+    await fs.writeFile(path.join(dir, "setup.exe"), "x");
+
+    const storage = makeStorage();
+    const { archiveService } = makeArchiveService({});
+    const manager = createManager(archiveService, storage, {});
+    await manager.reportLeftoverArchives(
+      makeGame({ id: "g1", userId: "u1", title: "My Game" }),
+      dir
+    );
+
+    expect(storage.addNotification).toHaveBeenCalledTimes(1);
+    const notification = storage.addNotification.mock.calls[0]![0] as {
+      type: string;
+      message: string;
+    };
+    expect(notification.type).toBe("warning");
+    expect(notification.message).toContain("2 archives");
+    expect(notification.message).toContain("Game.rar");
+  });
+
+  it("stays quiet when the contents already sit next to the archive", async () => {
+    const dir = tempDir();
+    await fs.ensureDir(dir);
+    await fs.writeFile(path.join(dir, "Game.rar"), "x");
+
+    const storage = makeStorage();
+    const { archiveService } = makeArchiveService({ alreadyExtracted: true });
+    const manager = createManager(archiveService, storage, {});
+    await manager.reportLeftoverArchives(
+      makeGame({ id: "g1", userId: "u1", title: "My Game" }),
+      dir
+    );
+
+    expect(storage.addNotification).not.toHaveBeenCalled();
+  });
+
+  it("stays quiet when there is no archive", async () => {
+    const dir = tempDir();
+    await fs.ensureDir(dir);
+    await fs.writeFile(path.join(dir, "setup.exe"), "x");
+
+    const storage = makeStorage();
+    const { archiveService } = makeArchiveService({});
+    const manager = createManager(archiveService, storage, {});
+    await manager.reportLeftoverArchives(
+      makeGame({ id: "g1", userId: "u1", title: "My Game" }),
+      dir
+    );
+
+    expect(storage.addNotification).not.toHaveBeenCalled();
+  });
+});

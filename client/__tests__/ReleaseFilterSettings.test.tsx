@@ -7,7 +7,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestQueryClient } from "./test-utils";
 import ReleaseNameBlacklistSettings from "@/components/ReleaseNameBlacklistSettings";
-import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 
 const mockToast = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
@@ -81,62 +80,5 @@ describe("ReleaseNameBlacklistSettings", () => {
         expect.objectContaining({ title: "Save Failed", variant: "destructive" })
       )
     );
-  });
-});
-
-describe("PreferredReleaseGroupsSettings", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    apiRequest.mockResolvedValue({ json: async () => ({}) });
-  });
-
-  it("saves the groups and the pre-filter flag", async () => {
-    withClient(
-      <PreferredReleaseGroupsSettings
-        preferredGroups={[]}
-        filterByPreferredGroups={false}
-        onGroupsChange={vi.fn()}
-        onFilterChange={vi.fn()}
-      />
-    );
-    const input = screen.getByLabelText("Release Group Names");
-    fireEvent.change(input, { target: { value: "CODEX" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.click(screen.getByRole("switch"));
-    fireEvent.click(screen.getByRole("button", { name: /Save Groups/i }));
-
-    await waitFor(() =>
-      expect(apiRequest).toHaveBeenCalledWith("PATCH", "/api/settings", {
-        preferredReleaseGroups: JSON.stringify(["CODEX"]),
-        filterByPreferredGroups: true,
-      })
-    );
-  });
-
-  it("disables the pre-filter switch when there are no groups", () => {
-    withClient(
-      <PreferredReleaseGroupsSettings
-        preferredGroups={[]}
-        filterByPreferredGroups={false}
-        onGroupsChange={vi.fn()}
-        onFilterChange={vi.fn()}
-      />
-    );
-    expect(screen.getByRole("switch")).toBeDisabled();
-  });
-
-  it("clears groups and the pre-filter flag on reset", () => {
-    const onFilterChange = vi.fn();
-    withClient(
-      <PreferredReleaseGroupsSettings
-        preferredGroups={["SKIDROW"]}
-        filterByPreferredGroups={true}
-        onGroupsChange={vi.fn()}
-        onFilterChange={onFilterChange}
-      />
-    );
-    fireEvent.click(screen.getByRole("button", { name: /Reset/i }));
-    expect(screen.queryByText("SKIDROW")).not.toBeInTheDocument();
-    expect(onFilterChange).toHaveBeenLastCalledWith(false);
   });
 });

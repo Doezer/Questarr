@@ -43,7 +43,13 @@
         "groups": [
           {
             "group": "Integrations",
-            "pages": ["API", "DOWNLOADERS_COMPATIBILITY", "synology-download-station-api-notes"]
+            "pages": [
+              "API",
+              "SEERRNG",
+              "GAMEYFIN",
+              "DOWNLOADERS_COMPATIBILITY",
+              "synology-download-station-api-notes"
+            ]
           },
           {
             "group": "Architecture & security",

@@ -52,6 +52,8 @@ describe("integration API", () => {
   let app: express.Express;
   let storage: Awaited<typeof import("../storage.js")>["storage"];
   let keyHash: string;
+  // Fields of the key record that individual tests override (scope, expiry).
+  let keyOverrides: Record<string, unknown>;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -60,6 +62,7 @@ describe("integration API", () => {
     ({ storage } = await import("../storage.js"));
     const { hashApiKey } = await import("../auth.js");
     keyHash = hashApiKey(RAW_KEY);
+    keyOverrides = {};
 
     (storage.countUsers as Mock).mockResolvedValue(1);
     (storage.getSystemConfig as Mock).mockResolvedValue(undefined);
@@ -67,7 +70,16 @@ describe("integration API", () => {
     (storage.getUserSettings as Mock).mockResolvedValue({});
     (storage.getApiKeyByHash as Mock).mockImplementation(async (hash: string) =>
       hash === keyHash
-        ? { id: "key-1", userId: USER.id, name: "Playnite", keyHash, prefix: "qsr_test-ra" }
+        ? {
+            id: "key-1",
+            userId: USER.id,
+            name: "Playnite",
+            keyHash,
+            prefix: "qsr_test-ra",
+            scope: "all",
+            expiresAt: null,
+            ...keyOverrides,
+          }
         : undefined
     );
 
@@ -168,6 +180,87 @@ describe("integration API", () => {
         .set("X-Api-Key", RAW_KEY)
         .send({ name: "escalation" });
       expect(create.status).toBe(401);
+    });
+  });
+
+  describe("key scope and expiry", () => {
+    it("rejects an expired key with a stable error code", async () => {
+      keyOverrides = { expiresAt: new Date(Date.now() - 1000) };
+      const res = await withKey(request(app).get("/api/integration/ping"));
+      expect(res.status).toBe(401);
+      expect(res.body).toMatchObject({ error: "API key expired", code: "API_KEY_EXPIRED" });
+      expect(storage.getUser).not.toHaveBeenCalled();
+    });
+
+    it("accepts a key that expires in the future and reports scope + expiry in /ping", async () => {
+      const expiresAt = new Date(Date.now() + 86_400_000);
+      keyOverrides = { expiresAt, scope: "library:write" };
+      const res = await withKey(request(app).get("/api/integration/ping"));
+      expect(res.status).toBe(200);
+      expect(res.body.scope).toBe("library:write");
+      expect(res.body.expiresAt).toBe(expiresAt.toISOString());
+    });
+
+    it("accepts a key with no expiry (legacy keys)", async () => {
+      const res = await withKey(request(app).get("/api/integration/ping"));
+      expect(res.status).toBe(200);
+      expect(res.body.expiresAt).toBeNull();
+    });
+
+    it("limits an read key to read routes", async () => {
+      keyOverrides = { scope: "read" };
+      (storage.getUserGames as Mock).mockResolvedValue([]);
+      (storage.getUserSettings as Mock).mockResolvedValue({});
+
+      const ping = await withKey(request(app).get("/api/integration/ping"));
+      expect(ping.status).toBe(200);
+      const lib = await withKey(request(app).get("/api/integration/library"));
+      expect(lib.status).toBe(200);
+
+      const sync = await withKey(
+        request(app)
+          .post("/api/integration/library/sync")
+          .send({ games: [{ title: "Hades" }] })
+      );
+      expect(sync.status).toBe(403);
+      expect(sync.body.code).toBe("API_KEY_SCOPE_DENIED");
+      const reqGame = await withKey(
+        request(app).post("/api/integration/games/request").send({ title: "Hades" })
+      );
+      expect(reqGame.status).toBe(403);
+    });
+
+    it("lets an library:write key use every route the extension needs", async () => {
+      keyOverrides = { scope: "library:write" };
+      (storage.getUserGames as Mock).mockResolvedValue([]);
+      const sync = await withKey(
+        request(app)
+          .post("/api/integration/library/sync")
+          .send({ games: [{ title: "Hades" }] })
+      );
+      expect(sync.status).toBe(200);
+    });
+
+    it("does not restrict a JWT session by key scope", async () => {
+      const res = await request(app)
+        .post("/api/integration/library/sync")
+        .set("Authorization", `Bearer ${tokenFor(USER.id)}`)
+        .send({ games: [{ title: "Hades" }] });
+      expect(res.status).toBe(200);
+    });
+
+    it("declares a scope on every integration route", async () => {
+      const { integrationRouter } = await import("../routes/integration.js");
+      const routes = (
+        integrationRouter.stack as Array<{
+          route?: { path: string; stack: Array<{ handle: { requiredScopes?: string[] } }> };
+        }>
+      ).filter((layer) => layer.route);
+      expect(routes.length).toBeGreaterThan(0);
+      for (const layer of routes) {
+        const declared = layer.route!.stack.some((l) => Array.isArray(l.handle.requiredScopes));
+        expect(declared, `${layer.route!.path} must call requireScope()`).toBe(true);
+      }
     });
   });
 

@@ -33,6 +33,7 @@ const NotFound = lazy(() => import("@/pages/not-found"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
 const WishlistPage = lazy(() => import("@/pages/wishlist"));
 const PlayingPage = lazy(() => import("@/pages/playing"));
+const CollectionsPage = lazy(() => import("@/pages/collections"));
 const LibraryImportPage = lazy(() => import("@/pages/library-import"));
 const XrelReleasesPage = lazy(() => import("@/pages/xrel-releases"));
 const RssPage = lazy(() => import("@/pages/rss"));
@@ -41,6 +42,9 @@ const SetupPage = lazy(() => import("@/pages/auth/setup"));
 const StatsPage = lazy(() => import("@/pages/stats"));
 const LogsPage = lazy(() => import("@/pages/logs"));
 const ImportHistoryPage = lazy(() => import("@/pages/import-history"));
+const ActivityHistoryPage = lazy(() => import("@/pages/activity-history"));
+const ActivityBlocklistPage = lazy(() => import("@/pages/activity-blocklist"));
+const SystemTasksPage = lazy(() => import("@/pages/system-tasks"));
 const PlayPage = lazy(() => import("@/pages/play"));
 const GameDetailsPage = lazy(() => import("@/pages/game-details"));
 
@@ -136,12 +140,16 @@ function Router() {
         <Route path={routePaths.calendar} component={CalendarPage} />
         <Route path={routePaths.wishlist} component={WishlistPage} />
         <Route path={routePaths.playing} component={PlayingPage} />
+        <Route path={routePaths.collections} component={CollectionsPage} />
         <Route path={routePaths.libraryImport} component={LibraryImportPage} />
         <Route path={routePaths.xrel} component={XrelReleasesPage} />
         <Route path={routePaths.rss} component={RssPage} />
         <Route path={routePaths.stats} component={StatsPage} />
         <Route path={routePaths.logs} component={LogsPage} />
         <Route path={routePaths.importHistory} component={ImportHistoryPage} />
+        <Route path={routePaths.activityHistory} component={ActivityHistoryPage} />
+        <Route path={routePaths.activityBlocklist} component={ActivityBlocklistPage} />
+        <Route path={routePaths.systemTasks} component={SystemTasksPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

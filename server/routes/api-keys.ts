@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { param } from "express-validator";
 import { z } from "zod";
+import { API_KEY_SCOPES, DEFAULT_API_KEY_SCOPE } from "../../shared/schema.js";
 import { storage } from "../storage.js";
 import { generateApiKey } from "../auth.js";
 import { routesLogger as logger } from "../logger.js";
@@ -38,7 +39,18 @@ const MAX_KEYS_PER_USER = 25;
 
 const createKeySchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(100, "Name is too long"),
+  scope: z.enum(API_KEY_SCOPES, { message: "Invalid scope" }).default(DEFAULT_API_KEY_SCOPE),
+  // Omitted or null = never expires, which keeps existing clients that only
+  // send a name behaving as before. The UI offers a finite default.
+  expiresInDays: z
+    .number({ message: "expiresInDays must be a number" })
+    .int()
+    .min(1, "expiresInDays must be between 1 and 365")
+    .max(365, "expiresInDays must be between 1 and 365")
+    .nullish(),
 });
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 apiKeysRouter.get("/", async (req: Request, res: Response) => {
   try {
@@ -64,7 +76,16 @@ apiKeysRouter.post("/", sensitiveEndpointLimiter, async (req: Request, res: Resp
       // Count-then-insert happens atomically inside storage.addApiKey, so two
       // concurrent requests from the same user can't both slip past the cap.
       created = await storage.addApiKey(
-        { userId, name: parsed.data.name, keyHash, prefix },
+        {
+          userId,
+          name: parsed.data.name,
+          keyHash,
+          prefix,
+          scope: parsed.data.scope,
+          expiresAt: parsed.data.expiresInDays
+            ? new Date(Date.now() + parsed.data.expiresInDays * DAY_MS)
+            : null,
+        },
         MAX_KEYS_PER_USER
       );
     } catch (error) {
@@ -77,7 +98,7 @@ apiKeysRouter.post("/", sensitiveEndpointLimiter, async (req: Request, res: Resp
     }
 
     logger.info(
-      { userId, apiKeyId: created.id, name: created.name },
+      { userId, apiKeyId: created.id, name: created.name, scope: created.scope },
       "Integration API key created"
     );
 

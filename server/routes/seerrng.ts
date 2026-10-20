@@ -834,7 +834,11 @@ async function describeRequest(userId: string, ledger: IntegrationRequest) {
     const activeDownload = downloads.some((download) =>
       ACTIVE_DOWNLOAD_STATUSES.has(download.status.toLowerCase())
     );
-    if (deliverable || isAcquired(game)) {
+    if (hasAddonFailure(ledger)) {
+      // Add-ons that never got queued must stay visible (and retryable) behind an owned base game.
+      status = "failed";
+      error = ledger.errorMessage;
+    } else if (deliverable || isAcquired(game)) {
       status = "available";
     } else if (activeDownload) {
       status = "downloading";
@@ -1017,14 +1021,41 @@ async function queueAddons(
   return failed;
 }
 
+const ADDON_FAILURE_MESSAGE = "Some add-ons could not be queued. Retry to queue them again.";
+
+const hasAddonFailure = (ledger: IntegrationRequest) =>
+  ledger.status === "failed" && ledger.errorMessage === ADDON_FAILURE_MESSAGE;
+
 /** An incomplete add-on queue leaves the request failed, which is what makes it retryable. */
 async function flagIncompleteAddons(userId: string, ledger: IntegrationRequest, failed: number) {
   if (failed === 0) return ledger;
   const updated = await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
     status: "failed",
-    errorMessage: "Some add-ons could not be queued. Retry to queue them again.",
+    errorMessage: ADDON_FAILURE_MESSAGE,
   });
   return updated ?? ledger;
+}
+
+/**
+ * The selected add-ons IGDB still links to the base game. A selected add-on that cannot be
+ * resolved (IGDB unavailable, link gone) and is not in the library counts as failed.
+ */
+async function resolveSelectedAddons(
+  userId: string,
+  ledger: IntegrationRequest
+): Promise<{ addons: IGDBContentRef[]; unresolved: number }> {
+  const selection = storedSelection(ledger);
+  if (selection?.mode !== "missing-selected" || !ledger.igdbId)
+    return { addons: [], unresolved: 0 };
+  const { base } = await igdbClient.getGameEditions(ledger.igdbId);
+  const wanted = new Set(selection.addonIds);
+  const addons = base
+    ? linkedContent(base, await getContentFilterFlags(userId)).filter((ref) => wanted.has(ref.id))
+    : [];
+  const library = await libraryByIgdbId(userId);
+  const resolved = new Set(addons.map((ref) => ref.id));
+  const unresolved = selection.addonIds.filter((id) => !resolved.has(id) && !library.has(id));
+  return { addons, unresolved: unresolved.length };
 }
 
 seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
@@ -1272,6 +1303,8 @@ seerrngRouter.post(
       }
 
       let game = await findGame(userId, ledger);
+      // Only the add-on queue failed: the base game is left exactly as it is.
+      const addonsOnly = game !== undefined && hasAddonFailure(ledger);
       if (!game) {
         // The game was deleted (or never created): add it again from the ledger. An edition
         // request acquires the edition, not the base game the ledger title and id name.
@@ -1309,31 +1342,25 @@ seerrngRouter.post(
           }
         }
       }
-      // An already-acquired game found again (added manually since) keeps its state.
-      if (!isAcquired(game) && game.status !== "wanted") {
-        await storage.updateGameStatus(game.id, { status: "wanted" });
+      if (!addonsOnly) {
+        // An already-acquired game found again (added manually since) keeps its state.
+        if (!isAcquired(game) && game.status !== "wanted") {
+          await storage.updateGameStatus(game.id, { status: "wanted" });
+        }
+        if (!isAcquired(game)) await storage.updateGameSearchResultsAvailable(game.id, false);
       }
-      if (!isAcquired(game)) await storage.updateGameSearchResultsAvailable(game.id, false);
-      let updated =
+      // Add-ons are queued again before the failed state is cleared, so a lookup error here
+      // leaves the request retryable.
+      const { addons, unresolved } = await resolveSelectedAddons(userId, ledger);
+      const failed =
+        (await queueAddons(userId, ledger, addons, ledger.operatingSystem ?? "windows")) +
+        unresolved;
+      const updated =
         (await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
           gameId: game.id,
-          status: "searching",
-          errorMessage: null,
+          status: failed > 0 ? "failed" : "searching",
+          errorMessage: failed > 0 ? ADDON_FAILURE_MESSAGE : null,
         })) ?? ledger;
-      const selection = storedSelection(updated);
-      if (selection?.mode === "missing-selected" && updated.igdbId) {
-        const { base } = await igdbClient.getGameEditions(updated.igdbId);
-        const flags = await getContentFilterFlags(userId);
-        const wanted = new Set(selection.addonIds);
-        const addons = base ? linkedContent(base, flags).filter((ref) => wanted.has(ref.id)) : [];
-        const failed = await queueAddons(
-          userId,
-          updated,
-          addons,
-          updated.operatingSystem ?? "windows"
-        );
-        updated = await flagIncompleteAddons(userId, updated, failed);
-      }
       return res.json(await describeRequest(userId, updated));
     }
   )

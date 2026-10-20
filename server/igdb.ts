@@ -28,7 +28,12 @@ const ADULT_AGE_RATINGS = [
   { category: 2, rating: 5 }, // PEGI 18
 ];
 
-function hasEroticTheme(igdbGame: IGDBGame): boolean {
+type ContentFlagSource = {
+  themes?: IGDBGame["themes"] | undefined;
+  age_ratings?: IGDBGame["age_ratings"] | undefined;
+};
+
+function hasEroticTheme(igdbGame: ContentFlagSource): boolean {
   return igdbGame.themes?.some((t) => ADULT_THEME_NAMES.has(t.name)) ?? false;
 }
 
@@ -39,7 +44,7 @@ function mapIGDBGameType(gameType?: number): DownloadCategory {
   return "main";
 }
 
-function hasAdultAgeRating(igdbGame: IGDBGame): boolean {
+function hasAdultAgeRating(igdbGame: ContentFlagSource): boolean {
   return (
     igdbGame.age_ratings?.some((r) =>
       ADULT_AGE_RATINGS.some((a) => a.category === r.category && a.rating === r.rating)
@@ -125,6 +130,8 @@ export interface IGDBContentRef {
   cover?: { url: string };
   first_release_date?: number;
   game_type?: number;
+  themes?: IGDBGame["themes"] | undefined;
+  age_ratings?: IGDBGame["age_ratings"] | undefined;
 }
 
 /** A game with the add-on content IGDB links to it (expansions, DLC, standalone expansions). */
@@ -883,6 +890,11 @@ class IGDBClient {
     return results[0] ?? null;
   }
 
+  /** The adult-content flags the account's content filters act on. */
+  contentFlags(game: ContentFlagSource): { isAdultContent: boolean; isAgeRestricted: boolean } {
+    return { isAdultContent: hasEroticTheme(game), isAgeRestricted: hasAdultAgeRating(game) };
+  }
+
   /** The base game with its linked add-ons, and the editions that name it as `version_parent`. */
   async getGameEditions(
     id: number
@@ -890,11 +902,19 @@ class IGDBClient {
     if (!(await this.ensureConfigured())) return { base: null, editions: [] };
 
     const refFields = (field: string) =>
-      ["name", "cover.url", "first_release_date", "game_type"]
+      [
+        "name",
+        "cover.url",
+        "first_release_date",
+        "game_type",
+        "themes.name",
+        "age_ratings.category",
+        "age_ratings.rating",
+      ]
         .map((name) => `${field}.${name}`)
         .join(", ");
     const fields = [
-      "name, summary, first_release_date, game_type",
+      "name, summary, first_release_date, game_type, themes.name, age_ratings.category, age_ratings.rating",
       refFields("expansions"),
       refFields("dlcs"),
       refFields("standalone_expansions"),

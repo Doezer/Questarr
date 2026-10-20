@@ -12,7 +12,11 @@ import {
   type IGDBGameContent,
 } from "../igdb.js";
 import { routesLogger as logger } from "../logger.js";
-import { getContentFilterFlags, isContentFiltered } from "../content-filter.js";
+import {
+  getContentFilterFlags,
+  isContentFiltered,
+  type ContentFilterFlags,
+} from "../content-filter.js";
 import { assertWithinRoots } from "../path-security.js";
 import { DownloaderManager } from "../downloaders/manager.js";
 import { quickAddGameByTitle } from "../game-quick-add.js";
@@ -388,10 +392,11 @@ function storyContentOf(type: ContentType): boolean | null {
   return null;
 }
 
-function linkedContent(game: IGDBGameContent): IGDBContentRef[] {
+function linkedContent(game: IGDBGameContent, flags: ContentFilterFlags): IGDBContentRef[] {
   const seen = new Set<number>();
   return [...(game.expansions ?? []), ...(game.dlcs ?? []), ...(game.standalone_expansions ?? [])]
     .filter((ref) => ref.game_type !== IGDB_UPDATE_GAME_TYPE)
+    .filter((ref) => !isContentFiltered(igdbClient.contentFlags(ref), flags))
     .filter((ref) => !seen.has(ref.id) && seen.add(ref.id));
 }
 
@@ -434,6 +439,7 @@ seerrngRouter.get("/catalog/games/:igdbId/editions", scope, async (req: Request,
     const [visible] = game ? await visibleIgdbGames(req.user!.id, [game]) : [];
     if (!base || !visible) return res.status(404).json({ error: "Game not found." });
     const library = await libraryByIgdbId(req.user!.id);
+    const flags = await getContentFilterFlags(req.user!.id);
     const owner = library.get(base.id);
     return res.json({
       base: {
@@ -442,20 +448,22 @@ seerrngRouter.get("/catalog/games/:igdbId/editions", scope, async (req: Request,
         owned: isOwned(owner),
         ...(owner ? { status: owner.status } : {}),
       },
-      editions: editions.map((edition) => {
-        const includes = linkedContent(edition).map((ref) => toGameContent(ref, library));
-        const releaseDate = isoDate(edition.first_release_date);
-        return {
-          igdbId: edition.id,
-          title: edition.name,
-          ...(edition.summary ? { summary: edition.summary } : {}),
-          ...(releaseDate ? { releaseDate } : {}),
-          includes,
-          contentKnown: includes.length > 0,
-          owned: isOwned(library.get(edition.id)),
-        };
-      }),
-      addons: linkedContent(base).map((ref) => toGameContent(ref, library)),
+      editions: editions
+        .filter((edition) => !isContentFiltered(igdbClient.contentFlags(edition), flags))
+        .map((edition) => {
+          const includes = linkedContent(edition, flags).map((ref) => toGameContent(ref, library));
+          const releaseDate = isoDate(edition.first_release_date);
+          return {
+            igdbId: edition.id,
+            title: edition.name,
+            ...(edition.summary ? { summary: edition.summary } : {}),
+            ...(releaseDate ? { releaseDate } : {}),
+            includes,
+            contentKnown: includes.length > 0,
+            owned: isOwned(library.get(edition.id)),
+          };
+        }),
+      addons: linkedContent(base, flags).map((ref) => toGameContent(ref, library)),
     });
   } catch (error) {
     logger.error({ error, igdbId: igdbId.data }, "SeerrNG editions fetch failed");
@@ -972,19 +980,20 @@ async function attachExistingGameLocked(
 
 /**
  * Adds the selected add-ons the library does not know yet as wanted games and remembers which ones
- * this request created, so cancelling it never shelves a game someone else wanted. Failures are
- * logged only.
+ * this request created, so cancelling it never shelves a game someone else wanted. Returns how
+ * many add-ons could not be queued; a retry runs this again for them.
  */
 async function queueAddons(
   userId: string,
   ledger: IntegrationRequest,
   addons: IGDBContentRef[],
   operatingSystem: keyof typeof TARGET_PLATFORMS
-): Promise<void> {
+): Promise<number> {
   const selection = storedSelection(ledger);
-  if (addons.length === 0 || selection?.mode !== "missing-selected") return;
+  if (addons.length === 0 || selection?.mode !== "missing-selected") return 0;
   const library = await libraryByIgdbId(userId);
-  const queued: number[] = [];
+  const queued = queuedAddonIds(ledger);
+  let failed = 0;
   for (const addon of addons) {
     if (library.has(addon.id)) continue;
     try {
@@ -996,14 +1005,26 @@ async function queueAddons(
       });
       if (result.outcome === "added") queued.push(addon.id);
     } catch (error) {
+      failed++;
       logger.warn({ error, igdbId: addon.id }, "SeerrNG add-on could not be queued");
     }
   }
-  if (queued.length > 0) {
+  if (queued.length > queuedAddonIds(ledger).length) {
     await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
       selection: JSON.stringify({ ...selection, queuedAddonIds: queued }),
     });
   }
+  return failed;
+}
+
+/** An incomplete add-on queue leaves the request failed, which is what makes it retryable. */
+async function flagIncompleteAddons(userId: string, ledger: IntegrationRequest, failed: number) {
+  if (failed === 0) return ledger;
+  const updated = await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
+    status: "failed",
+    errorMessage: "Some add-ons could not be queued. Retry to queue them again.",
+  });
+  return updated ?? ledger;
 }
 
 seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
@@ -1058,12 +1079,18 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
         const { base, editions } = await igdbClient.getGameEditions(igdbId);
         if (!base) return rejectRequest(404, "No matching PC game was found.");
         if (selection.mode === "edition") {
-          const edition = editions.find((candidate) => candidate.id === selection.editionId);
+          const flags = await getContentFilterFlags(userId);
+          const edition = editions.find(
+            (candidate) =>
+              candidate.id === selection.editionId &&
+              !isContentFiltered(igdbClient.contentFlags(candidate), flags)
+          );
           if (!edition)
             return rejectRequest(400, "The selected edition does not belong to the game.");
           target = { title: edition.name, igdbId: edition.id };
         } else {
-          const linked = new Map(linkedContent(base).map((ref) => [ref.id, ref]));
+          const flags = await getContentFilterFlags(userId);
+          const linked = new Map(linkedContent(base, flags).map((ref) => [ref.id, ref]));
           const unknown = selection.addonIds.filter((id) => !linked.has(id));
           if (unknown.length > 0) {
             return rejectRequest(400, "A selected add-on does not belong to the game.");
@@ -1098,8 +1125,10 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
         if (!linked) {
           return res.status(409).json({ error: "Game is already linked to another request." });
         }
-        await queueAddons(userId, linked, addons, variant.operatingSystem);
-        return res.status(201).json(await describeRequest(userId, linked));
+        const failed = await queueAddons(userId, linked, addons, variant.operatingSystem);
+        return res
+          .status(201)
+          .json(await describeRequest(userId, await flagIncompleteAddons(userId, linked, failed)));
       }
 
       const linked = await storage.updateIntegrationRequest(userId, externalRequestId, {
@@ -1107,8 +1136,15 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
         status: "searching",
         errorMessage: null,
       });
-      await queueAddons(userId, linked ?? ledger, addons, variant.operatingSystem);
-      return res.status(201).json(await describeRequest(userId, linked ?? ledger));
+      const failed = await queueAddons(userId, linked ?? ledger, addons, variant.operatingSystem);
+      return res
+        .status(201)
+        .json(
+          await describeRequest(
+            userId,
+            await flagIncompleteAddons(userId, linked ?? ledger, failed)
+          )
+        );
     } catch (error) {
       if (isUniqueViolation(error)) {
         // Another process claimed the game between our holder check and this write.
@@ -1237,12 +1273,19 @@ seerrngRouter.post(
 
       let game = await findGame(userId, ledger);
       if (!game) {
-        // The game was deleted (or never created): add it again from the ledger.
-        const match = await resolveDesktopMatch(ledger.title, ledger.igdbId);
+        // The game was deleted (or never created): add it again from the ledger. An edition
+        // request acquires the edition, not the base game the ledger title and id name.
+        const selection = storedSelection(ledger);
+        let target = { title: ledger.title, igdbId: ledger.igdbId };
+        if (selection?.mode === "edition") {
+          const edition = await igdbClient.getGameById(selection.editionId);
+          target = { title: edition?.name ?? ledger.title, igdbId: selection.editionId };
+        }
+        const match = await resolveDesktopMatch(target.title, target.igdbId);
         if (!match) {
           return res.status(404).json({ error: "No matching PC game was found." });
         }
-        const result = await quickAddGameByTitle(userId, ledger.title, {
+        const result = await quickAddGameByTitle(userId, target.title, {
           status: "wanted",
           source: "api",
           ...(match.igdbId ? { igdbId: match.igdbId } : {}),
@@ -1271,12 +1314,27 @@ seerrngRouter.post(
         await storage.updateGameStatus(game.id, { status: "wanted" });
       }
       if (!isAcquired(game)) await storage.updateGameSearchResultsAvailable(game.id, false);
-      const updated = await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
-        gameId: game.id,
-        status: "searching",
-        errorMessage: null,
-      });
-      return res.json(await describeRequest(userId, updated ?? ledger));
+      let updated =
+        (await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
+          gameId: game.id,
+          status: "searching",
+          errorMessage: null,
+        })) ?? ledger;
+      const selection = storedSelection(updated);
+      if (selection?.mode === "missing-selected" && updated.igdbId) {
+        const { base } = await igdbClient.getGameEditions(updated.igdbId);
+        const flags = await getContentFilterFlags(userId);
+        const wanted = new Set(selection.addonIds);
+        const addons = base ? linkedContent(base, flags).filter((ref) => wanted.has(ref.id)) : [];
+        const failed = await queueAddons(
+          userId,
+          updated,
+          addons,
+          updated.operatingSystem ?? "windows"
+        );
+        updated = await flagIncompleteAddons(userId, updated, failed);
+      }
+      return res.json(await describeRequest(userId, updated));
     }
   )
 );

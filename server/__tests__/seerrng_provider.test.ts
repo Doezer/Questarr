@@ -511,6 +511,84 @@ describe("SeerrNG provider API", () => {
         expect(games.size).toBe(0);
       });
 
+      it("hides filtered editions and add-ons and refuses to select them", async () => {
+        (storage.getUserSettings as Mock).mockResolvedValue({ hideAdultContent: true });
+        (igdb.getGameEditions as Mock).mockResolvedValue({
+          base: {
+            id: 42,
+            name: "Example Game",
+            expansions: [{ id: 70, name: "Adult Expansion", game_type: 2, isAdultContent: true }],
+            dlcs: [{ id: 71, name: "Side Quest", game_type: 1 }],
+          },
+          editions: [
+            { id: 50, name: "Adult Edition", isAdultContent: true },
+            { id: 51, name: "Standard Edition" },
+          ],
+        });
+        const listed = await request(app).get(`${base}/catalog/games/42/editions`);
+        expect(listed.body.addons.map((a: { igdbId: number }) => a.igdbId)).toEqual([71]);
+        expect(listed.body.editions.map((e: { igdbId: number }) => e.igdbId)).toEqual([51]);
+        const edition = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "edition", editionId: 50 },
+          });
+        expect(edition.status).toBe(400);
+        const addon = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            externalRequestId: "r-addon",
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+          });
+        expect(addon.status).toBe(400);
+      });
+
+      it("retries an edition request onto the edition, not the base game", async () => {
+        (igdb.getGameById as Mock).mockResolvedValue(igdbGame(50, "Example Game Deluxe Edition"));
+        await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "edition", editionId: 50 },
+          });
+        const ledgerKey = `user-1:${createBody.externalRequestId}`;
+        ledger.set(ledgerKey, { ...ledger.get(ledgerKey), gameId: null, status: "failed" });
+        games.clear();
+        (storage.addGame as Mock).mockClear();
+        const res = await request(app)
+          .post(`${base}/requests/${createBody.externalRequestId}/retry`)
+          .send({});
+        expect(res.status).toBe(200);
+        expect(storage.addGame).toHaveBeenCalledWith(expect.objectContaining({ igdbId: 50 }));
+      });
+
+      it("fails the request when an add-on cannot be queued and re-queues it on retry", async () => {
+        (storage.addGame as Mock).mockImplementationOnce(async (data: Record<string, unknown>) => {
+          const game = { id: "base", userId: USER.id, status: "wanted", ...data };
+          games.set("base", game);
+          return game;
+        });
+        (storage.addGame as Mock).mockRejectedValueOnce(new Error("db down"));
+        const res = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+          });
+        expect(res.status).toBe(201);
+        expect(res.body).toMatchObject({ status: "failed", actions: { retry: true } });
+        expect([...games.values()].map((g) => g.igdbId)).toEqual([42]);
+
+        const retried = await request(app)
+          .post(`${base}/requests/${createBody.externalRequestId}/retry`)
+          .send({});
+        expect(retried.status).toBe(200);
+        expect(retried.body.status).not.toBe("failed");
+        expect([...games.values()].map((g) => g.igdbId).sort()).toEqual([42, 70]);
+      });
+
       it("treats a replay with another selection as a different request", async () => {
         const body = {
           ...createBody,

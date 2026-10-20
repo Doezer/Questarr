@@ -188,6 +188,10 @@ export function createIgdbMock() {
     getGenres: vi.fn().mockResolvedValue([]),
     getPlatforms: vi.fn().mockResolvedValue([]),
     getGameById: vi.fn(),
+    contentFlags: vi.fn((game) => ({
+      isAdultContent: game.isAdultContent === true,
+      isAgeRestricted: game.isAgeRestricted === true,
+    })),
     getGameEditions: vi.fn().mockResolvedValue({ base: null, editions: [] }),
     discoverGames: vi.fn().mockResolvedValue([]),
     getGamesByIds: vi.fn().mockResolvedValue([]),

@@ -910,7 +910,7 @@ function registerIgdbParamListRoute(
 ) {
   app.get(path, igdbRateLimiter, async (req, res) => {
     try {
-      const paramValue = req.params[paramName];
+      const paramValue = req.params[paramName] as string | undefined;
       const { limit, offset } = validatePaginationParams(
         req.query as { limit?: string; offset?: string }
       );
@@ -939,6 +939,20 @@ function registerIgdbParamListRoute(
  * @returns The configured HTTP server
  */
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Express 5 parses `req.query` simply by default and re-parses it on every access, so
+  // express-validator sanitizers (toInt/toBoolean) would write to a throwaway object. Keep the
+  // Express 4 behaviour: extended parsing, parsed once per request into a writable property.
+  app.set("query parser", "extended");
+  app.use((req, _res, next) => {
+    Object.defineProperty(req, "query", {
+      value: req.query,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
+    next();
+  });
+
   // 🛡️ Sentinel: Add security headers with Helmet
   // Configured to allow Vite/React (unsafe-inline/eval) in dev, and IGDB images everywhere
   const scriptSrc = ["'self'"];

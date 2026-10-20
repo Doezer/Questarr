@@ -667,18 +667,26 @@ async function attachExistingGameLocked(
     status: "searching",
     errorMessage: null,
   });
-  if (releasedCancelled && owner.status === "shelved") {
-    // Our cancellation shelved the game; a new request wants it again. A game the user
-    // shelved by hand is a curated, owned entry and keeps its state.
-    await storage.updateGameStatus(owner.id, { status: "wanted" });
-    owner = { ...owner, status: "wanted" };
-  }
-  const platform = TARGET_PLATFORMS[operatingSystem];
-  if (!isAcquired(owner) && owner.targetPlatformId !== platform.id) {
-    await storage.updateGame(owner.id, {
-      targetPlatformId: platform.id,
-      targetPlatformName: platform.name,
-    });
+  try {
+    if (releasedCancelled && owner.status === "shelved") {
+      // Our cancellation shelved the game; a new request wants it again. A game the user
+      // shelved by hand is a curated, owned entry and keeps its state.
+      await storage.updateGameStatus(owner.id, { status: "wanted" });
+      owner = { ...owner, status: "wanted" };
+    }
+    const platform = TARGET_PLATFORMS[operatingSystem];
+    if (!isAcquired(owner) && owner.targetPlatformId !== platform.id) {
+      await storage.updateGame(owner.id, {
+        targetPlatformId: platform.id,
+        targetPlatformName: platform.name,
+      });
+    }
+  } catch (error) {
+    // Release the claim so a retry re-runs the retargeting instead of resuming on the old platform.
+    await storage
+      .updateIntegrationRequest(userId, externalRequestId, { gameId: null })
+      .catch(() => undefined);
+    throw error;
   }
   return claimed;
 }

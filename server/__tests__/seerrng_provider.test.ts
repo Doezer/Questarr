@@ -415,6 +415,25 @@ describe("SeerrNG provider API", () => {
       );
     });
 
+    it("releases the claim when retargeting fails so a retry can retarget again", async () => {
+      games.set("g1", {
+        id: "g1",
+        userId: USER.id,
+        igdbId: 42,
+        status: "wanted",
+        title: "Example Game",
+        targetPlatformId: 6,
+      });
+      (storage.updateGame as Mock).mockRejectedValueOnce(new Error("db down"));
+      const linux = { ...createBody, variant: { operatingSystem: "linux", architecture: "x64" } };
+      const res = await request(app).post(`${base}/requests`).send(linux);
+      expect(res.status).toBe(500);
+      expect(ledger.get("user-1:seerrng:request:1")).toMatchObject({
+        gameId: null,
+        status: "failed",
+      });
+    });
+
     it("does not reset a game acquired since when retrying an unlinked request", async () => {
       await request(app)
         .post(`${base}/requests`)

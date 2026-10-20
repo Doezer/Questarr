@@ -433,6 +433,16 @@ function Invoke-QuestarrConnect {
         return
     }
 
+    # /ping also accepts read-only and other-purpose keys, but sync and requests
+    # would then fail with 403 on every run. Older servers send no scope field.
+    if ($ping.scope -and $ping.scope -notin @("library:write", "all")) {
+        $PlayniteApi.Dialogs.ShowErrorMessage(
+            "This API key has the access '$($ping.scope)', which cannot sync or request games. " +
+            "Create a key with the 'Library sync (Playnite)' access in Questarr (Settings -> Integrations -> API Keys).",
+            "Questarr")
+        return
+    }
+
     # Only persist a credential that has actually been proven to work.
     Save-QuestarrConfig `
         -ServerUrl $serverUrl `

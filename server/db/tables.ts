@@ -34,6 +34,7 @@ export const {
   importTaskItems,
   importTasks,
   indexers,
+  integrationRequests,
   notifications,
   pathMappings,
   platformMappings,

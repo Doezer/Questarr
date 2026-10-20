@@ -401,7 +401,7 @@ Authenticated endpoints behind the **Settings → Discovery & Downloads → Rele
 
 A spec is `{ field: "title" or "group" or "uploader" or "category" or "protocol" or "indexer", mode: "contains" or "exact" or "regex", value (1–200 chars), negate?, required? }`. Specs on the same field are alternatives unless marked `required`; every field used must be satisfied. Regexes run on RE2 (no lookarounds) and are case-insensitive. Required and ignored terms are case-insensitive words, or a regex written `/pattern/`.
 
-Locked built-in rules (a title that is a sequel of, or not, the wanted game) always apply and always reject; the others can be re-weighted or disabled in `builtInOverrides`. Search results from `GET /api/search` carry an `evaluation` (score, score lines, rejections, matched formats and, when xREL is enabled, an `xrel` verdict of `verified`, `nuked` or `not_found`). Rejected releases stay in the manual results so the UI can say why. The `sortBy` auto-download rule also accepts `score`.
+Locked built-in rules (a title that is a sequel of, or not, the wanted game, and an executable or disguised file) always apply and always reject, so `enabled: false` is ignored for them; the others can be re-weighted or disabled in `builtInOverrides`. Search results from `GET /api/search` carry an `evaluation` (score, score lines, rejections, matched formats and, when xREL is enabled, an `xrel` verdict of `verified`, `nuked` or `not_found`). Rejected releases stay in the manual results so the UI can say why. The `sortBy` auto-download rule also accepts `score`.
 
 ## Steam
 

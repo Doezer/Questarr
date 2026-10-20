@@ -12,7 +12,7 @@ const createMockLogger = () => ({
 
 // Mock logger to avoid noise and missing exports
 vi.mock("../logger.js", () => ({
-  logger: { child: vi.fn().mockReturnThis() },
+  logger: { child: vi.fn().mockReturnThis(), warn: vi.fn() },
   igdbLogger: createMockLogger(),
   searchLogger: createMockLogger(),
   torznabLogger: createMockLogger(),
@@ -57,7 +57,8 @@ vi.mock("../storage.js", () => ({
     getEnabledIndexers: mockGetEnabledIndexers,
     hasAiAutoDownloadHold: mockHasAiAutoDownloadHold,
     recordAiAutoDownloadHold: mockRecordAiAutoDownloadHold,
-    clearAiAutoDownloadHold: mockClearAiAutoDownloadHold,
+    getDownloadsByGameId: mockGetDownloadsByGameId,
+    getSystemConfig: vi.fn().mockResolvedValue(null),
     getDownloadsByGameId: mockGetDownloadsByGameId,
   },
 }));
@@ -116,17 +117,28 @@ vi.mock("../igdb.js", () => ({
   },
 }));
 
+const mockXrelSearchReleases = vi.hoisted(() => vi.fn());
+
 // Mock xrel
 vi.mock("../xrel.js", () => ({
   xrelClient: {
     getLatestReleases: vi.fn(),
+    searchReleases: mockXrelSearchReleases,
   },
   DEFAULT_XREL_BASE: "http://example.com",
 }));
 
 // Import the function under test
 // We need to use dynamic import or require because of the hoisting of vi.mock
-const { checkAutoSearch, categorizeSearchItems } = await import("../cron.js");
+const {
+  checkAutoSearch,
+  categorizeSearchItems,
+  scoreReleasesForGame,
+  searchAndCategorizeItemsForGame,
+  AUTO_SEARCH_DEFERRED,
+  deduplicateByTitle,
+  narrowToPreferredGroupFormat,
+} = await import("../cron.js");
 const { igdbLogger } = await import("../logger.js");
 
 describe("Cron - checkAutoSearch", () => {
@@ -2454,5 +2466,288 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockNotifyUser).toHaveBeenCalledWith("notification", { id: "notif-1" }, undefined);
       expect(mockAppriseSend).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("release scoring in auto-search", () => {
+  const item = (title: string, extra: Record<string, unknown> = {}) => ({
+    title,
+    link: `http://x/${title}`,
+    pubDate: "2026-01-01T00:00:00Z",
+    indexerId: "i1",
+    indexerName: "idx",
+    category: ["4050"],
+    guid: title,
+    downloadType: "torrent" as const,
+    seeders: 20,
+    ...extra,
+  });
+  const game = { title: "Dishonored", targetPlatformId: null, targetPlatformName: null };
+  const scoring = {
+    config: {
+      profile: {
+        minScore: 0,
+        protocolPreference: "either" as const,
+        requiredTerms: [],
+        ignoredTerms: [],
+        minSeeders: 0,
+        maxSizeBytes: null,
+        builtInOverrides: {},
+        formatScores: {},
+      },
+      formats: [],
+    },
+    preferredPlatform: null,
+  };
+
+  it("keeps the game and its updates but drops a sequel and a spinoff", () => {
+    const kept = scoreReleasesForGame(
+      [
+        item("Dishonored-CODEX"),
+        item("Dishonored.Update.v1.4-CODEX"),
+        item("Dishonored.2-CODEX"),
+        item("Dishonored.Death.of.the.Outsider-CODEX"),
+      ],
+      game,
+      scoring
+    ).map((i) => i.title);
+    expect(kept).toContain("Dishonored-CODEX");
+    expect(kept).toContain("Dishonored.Update.v1.4-CODEX");
+    expect(kept).not.toContain("Dishonored.2-CODEX");
+    expect(kept).not.toContain("Dishonored.Death.of.the.Outsider-CODEX");
+  });
+
+  it("attaches the evaluation and ranks by score before the user's sort order", () => {
+    const scored = scoreReleasesForGame(
+      [item("Dishonored-CODEX", { seeders: 1 }), item("Dishonored-CODEX.Repack", { seeders: 900 })],
+      game,
+      {
+        ...scoring,
+        config: {
+          ...scoring.config,
+          formats: [
+            {
+              id: "f1",
+              name: "Codex",
+              specs: [{ field: "title" as const, mode: "contains" as const, value: "-CODEX" }],
+              score: 500,
+              hardReject: false,
+              enabled: true,
+            },
+          ],
+        },
+      }
+    );
+    expect(scored.every((i) => i.evaluation?.accepted)).toBe(true);
+    const rules = {
+      minSeeders: 0,
+      sortBy: "seeders" as const,
+      visibleCategoriesSet: new Set(["main", "update", "dlc", "extra", "packs"]),
+    };
+    const lowSeedHighScore = {
+      ...scored[0]!,
+      evaluation: { ...scored[0]!.evaluation!, score: 900 },
+    };
+    const result = categorizeSearchItems([scored[1]!, lowSeedHighScore], rules);
+    expect(result.mainItems[0]?.seeders).toBe(1);
+  });
+  it("breaks score ties on the preferred protocol before the user's sort order", () => {
+    const [torrent, usenet] = scoreReleasesForGame(
+      [
+        item("Dishonored-CODEX", { seeders: 500 }),
+        item("Dishonored-GOG", { downloadType: "usenet" as const, seeders: undefined, grabs: 3 }),
+      ],
+      game,
+      scoring
+    );
+    const tied = [
+      {
+        ...torrent!,
+        evaluation: { ...torrent!.evaluation!, score: 100, preferredProtocol: false },
+      },
+      { ...usenet!, evaluation: { ...usenet!.evaluation!, score: 100, preferredProtocol: true } },
+    ];
+    const rules = {
+      minSeeders: 0,
+      sortBy: "seeders" as const,
+      visibleCategoriesSet: new Set(["main", "update", "dlc", "extra", "packs"]),
+    };
+    const result = categorizeSearchItems(tied, rules);
+    expect(result.mainItems[0]?.downloadType).toBe("usenet");
+  });
+  it("keeps a release from a preferred group that is not a known group", () => {
+    const withFormat = {
+      ...scoring,
+      config: {
+        ...scoring.config,
+        formats: [
+          {
+            id: "pg",
+            name: "Preferred release group",
+            specs: [{ field: "group" as const, mode: "regex" as const, value: "^(?:NEWGROUP)$" }],
+            score: 50,
+            hardReject: false,
+            enabled: true,
+          },
+        ],
+      },
+    };
+    const title = "Dishonored-NEWGROUP";
+    expect(scoreReleasesForGame([item(title)], game, withFormat).map((i) => i.title)).toEqual([
+      title,
+    ]);
+    // without the preferred format the same unknown suffix stays a manual-search release
+    expect(scoreReleasesForGame([item(title)], game, scoring)).toHaveLength(0);
+  });
+
+  it("keeps a single preferred-group release as the only candidate (auto-download)", () => {
+    const withFormat = {
+      ...scoring,
+      config: {
+        ...scoring.config,
+        formats: [
+          {
+            id: "pg",
+            name: "Preferred release group",
+            specs: [{ field: "group" as const, mode: "regex" as const, value: "^(?:CODEX)$" }],
+            score: 50,
+            hardReject: false,
+            enabled: true,
+          },
+        ],
+      },
+    };
+    const scored = scoreReleasesForGame(
+      [item("Dishonored-CODEX"), item("Dishonored-GOG"), item("Dishonored-SKIDROW")],
+      game,
+      withFormat
+    );
+    expect(narrowToPreferredGroupFormat(scored, withFormat).map((i) => i.title)).toEqual([
+      "Dishonored-CODEX",
+    ]);
+    // no preferred match: every item stays; no format: untouched
+    const none = scoreReleasesForGame([item("Dishonored-GOG")], game, withFormat);
+    expect(narrowToPreferredGroupFormat(none, withFormat)).toHaveLength(1);
+    expect(narrowToPreferredGroupFormat(scored, scoring)).toHaveLength(3);
+    // a score the user lowered to zero no longer prefers the group
+    const lowered = {
+      ...withFormat,
+      config: {
+        ...withFormat.config,
+        profile: {
+          ...withFormat.config.profile,
+          formatScores: Object.fromEntries(withFormat.config.formats.map((f) => [f.id, 0])),
+        },
+      },
+    };
+    expect(narrowToPreferredGroupFormat(scored, lowered)).toHaveLength(3);
+    // a format that only reuses the name, but was edited away from the migrated shape
+    const edited = {
+      ...withFormat,
+      config: {
+        ...withFormat.config,
+        formats: withFormat.config.formats.map((f) => ({
+          ...f,
+          specs: [{ field: "group" as const, mode: "exact" as const, value: "CODEX" }],
+        })),
+      },
+    };
+    expect(narrowToPreferredGroupFormat(scored, edited)).toHaveLength(3);
+  });
+  it("drops a nuked release and ranks the xREL-verified one first", () => {
+    const kept = scoreReleasesForGame(
+      [item("Dishonored-FLT"), item("Dishonored-CODEX"), item("Dishonored-SKIDROW")],
+      game,
+      scoring,
+      [{ dirname: "Dishonored-CODEX" }, { dirname: "Dishonored-SKIDROW", nukeReason: "bad dump" }]
+    );
+    expect(kept.map((i) => i.title)).not.toContain("Dishonored-SKIDROW");
+    const ranked = [...kept].sort((a, b) => b.evaluation!.score - a.evaluation!.score);
+    expect(ranked[0]?.title).toBe("Dishonored-CODEX");
+    expect(ranked[0]?.evaluation?.xrel).toBe("verified");
+  });
+
+  it("keeps paging when every title match on the first page is rejected by scoring", async () => {
+    const rejecting = {
+      ...scoring,
+      config: {
+        ...scoring.config,
+        profile: { ...scoring.config.profile, ignoredTerms: ["FitGirl"] },
+      },
+    };
+    const page = (prefix: string, group: string) => ({
+      items: Array.from({ length: 10 }, (_, n) => item(`Dishonored.${prefix}${n}-${group}`)),
+      errors: [],
+    });
+    mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
+    mockSearchAllIndexers
+      .mockResolvedValueOnce(page("a", "FitGirl"))
+      .mockResolvedValueOnce({ items: [item("Dishonored-CODEX")], errors: [] });
+    const result = await searchAndCategorizeItemsForGame(
+      { id: "g1", ...game },
+      null,
+      undefined,
+      [],
+      rejecting
+    );
+    expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
+    expect(result?.mainItems.map((i) => i.title)).toContain("Dishonored-CODEX");
+  });
+
+  it("keeps the better-scored copy of a duplicate, and the higher-priority indexer on a tie", () => {
+    const scored = (indexerId: string, score: number) =>
+      item("Dishonored-CODEX", {
+        indexerId,
+        evaluation: { score, accepted: true, matchedFormats: [] },
+      });
+    const priority = new Map([
+      ["a", 1],
+      ["b", 2],
+    ]);
+    const better = deduplicateByTitle([scored("a", 10), scored("b", 50)] as never, priority);
+    expect(better.map((i) => i.indexerId)).toEqual(["b"]);
+    const tie = deduplicateByTitle([scored("b", 10), scored("a", 10)] as never, priority);
+    expect(tie.map((i) => i.indexerId)).toEqual(["a"]);
+  });
+
+  it("does not treat a non-Latin title as an unrelated search", async () => {
+    mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
+    mockSearchAllIndexers.mockResolvedValueOnce({
+      items: [item("英雄伝説-GOG")],
+      errors: [],
+    });
+    const result = await searchAndCategorizeItemsForGame(
+      { id: "g2", title: "英雄伝説", targetPlatformId: null, targetPlatformName: null },
+      null,
+      undefined,
+      [],
+      scoring
+    );
+    expect(result?.mainItems.map((i) => i.title)).toEqual(["英雄伝説-GOG"]);
+  });
+
+  it("defers the automatic grab once when xREL is too slow, then goes ahead without it", async () => {
+    vi.useFakeTimers();
+    try {
+      mockXrelSearchReleases.mockReturnValue(new Promise(() => {}));
+      mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
+      mockSearchAllIndexers.mockResolvedValue({ items: [item("Slowgame-CODEX")], errors: [] });
+      const withXrel = { ...scoring, xrelTypes: { scene: true, p2p: false } };
+      const run = async () => {
+        const pending = searchAndCategorizeItemsForGame(
+          { id: "slow-1", title: "Slowgame", targetPlatformId: null, targetPlatformName: null },
+          null,
+          undefined,
+          [],
+          withXrel
+        );
+        await vi.advanceTimersByTimeAsync(3500);
+        return pending;
+      };
+      expect(await run()).toBe(AUTO_SEARCH_DEFERRED);
+      expect((await run())?.mainItems.map((i) => i.title)).toEqual(["Slowgame-CODEX"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

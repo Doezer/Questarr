@@ -282,6 +282,26 @@ describe("xREL Client", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
+    it("queues concurrent searches instead of releasing them together", async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ results: [] }),
+      });
+
+      await xrelClient.searchReleases("first");
+      fetchMock.mockClear();
+
+      const pending = ["a", "b", "c"].map((q) => xrelClient.searchReleases(q));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      await Promise.all(pending);
+    });
+
     it("passes a 24s timeout through to safeFetch", async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,

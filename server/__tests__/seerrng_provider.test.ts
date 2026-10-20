@@ -507,6 +507,18 @@ describe("SeerrNG provider API", () => {
       expect(again.body.status).toBe("searching");
     });
 
+    it("gives the cancelled holder its game back when the un-shelve fails", async () => {
+      await request(app).post(`${base}/requests`).send(createBody);
+      await request(app).post(`${base}/requests/seerrng:request:1/cancel`).send({});
+      (storage.updateGameStatus as Mock).mockRejectedValueOnce(new Error("db down"));
+      const again = await request(app)
+        .post(`${base}/requests`)
+        .send({ ...createBody, externalRequestId: "seerrng:request:2" });
+      expect(again.status).toBe(500);
+      expect(ledger.get("user-1:seerrng:request:1")?.gameId).toBeTruthy();
+      expect(ledger.get("user-1:seerrng:request:2")?.gameId).toBeNull();
+    });
+
     it("refuses to retry onto a game another request has since claimed", async () => {
       await request(app)
         .post(`${base}/requests`)

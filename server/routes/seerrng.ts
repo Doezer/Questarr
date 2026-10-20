@@ -686,6 +686,12 @@ async function attachExistingGameLocked(
     await storage
       .updateIntegrationRequest(userId, externalRequestId, { gameId: null })
       .catch(() => undefined);
+    if (releasedCancelled && holder) {
+      // Give the cancelled holder its game back so a retry takes the un-shelve path again.
+      await storage
+        .updateIntegrationRequest(userId, holder.externalRequestId, { gameId: owner.id })
+        .catch(() => undefined);
+    }
     throw error;
   }
   return claimed;

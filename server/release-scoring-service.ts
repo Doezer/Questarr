@@ -11,6 +11,7 @@ import {
   type ReleaseEvaluation,
   type ReleaseProfile,
 } from "../shared/release-scoring.js";
+import { DEFAULT_CUSTOM_FORMATS } from "../shared/default-custom-formats.js";
 import { parseJsonStringArray } from "../shared/title-utils.js";
 
 /** Points a release from a preferred group gains; the old setting only reordered. */
@@ -128,7 +129,7 @@ async function createInitialConfig(store: IStorage, userId: string): Promise<voi
     parseJsonStringArray(settings?.preferredReleaseGroups),
     settings?.filterByPreferredGroups ?? false
   );
-  for (const format of formats) {
+  for (const format of [...formats, ...DEFAULT_CUSTOM_FORMATS]) {
     await store.createCustomFormat(userId, { ...format, enabled: true });
   }
   await store.saveReleaseProfile(userId, {
@@ -142,7 +143,40 @@ async function createInitialConfig(store: IStorage, userId: string): Promise<voi
     builtInOverrides: {},
     formatScores: {},
   });
-  logger.info({ userId, formats: formats.length }, "Created release scoring profile");
+  logger.info(
+    { userId, formats: formats.length + DEFAULT_CUSTOM_FORMATS.length },
+    "Created release scoring profile"
+  );
+}
+
+const installing = new Map<string, Promise<unknown>>();
+
+/**
+ * Adds the recommended formats the user does not have yet (matched by name); returns them.
+ * Calls for one user run one after the other, so overlapping requests cannot both insert the
+ * same default (the formats table has no unique name to fall back on).
+ */
+export function installDefaultFormats(
+  userId: string,
+  store: IStorage = defaultStorage
+): Promise<CustomFormat[]> {
+  const run = (installing.get(userId) ?? Promise.resolve()).then(async () => {
+    await ensureScoringConfig(userId, store);
+    const existing = new Set((await store.getCustomFormats(userId)).map((row) => row.name));
+    const rows = [];
+    for (const format of DEFAULT_CUSTOM_FORMATS) {
+      if (existing.has(format.name)) continue;
+      // sequential on purpose: the order of the list is the order the user sees
+      rows.push(await store.createCustomFormat(userId, { ...format, enabled: true }));
+    }
+    return rows.map(formatFromRow);
+  });
+  const settled = run.catch(() => undefined);
+  installing.set(userId, settled);
+  void settled.then(() => {
+    if (installing.get(userId) === settled) installing.delete(userId);
+  });
+  return run;
 }
 
 export async function ensureScoringConfig(

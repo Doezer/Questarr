@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { DEFAULT_CUSTOM_FORMATS } from "../../shared/default-custom-formats.js";
 import express from "express";
 import request from "supertest";
 import { setupTestDb, type TestDb } from "./helpers/db-harness.js";
@@ -41,8 +42,18 @@ describe("release scoring routes", () => {
     const res = await request(app).get("/api/release-scoring");
     expect(res.status).toBe(200);
     expect(res.body.profile.minScore).toBe(0);
-    expect(res.body.formats).toEqual([]);
+    expect(res.body.formats).toHaveLength(DEFAULT_CUSTOM_FORMATS.length);
     expect(res.body.builtInRules.length).toBeGreaterThan(5);
+  });
+
+  it("installs the recommended formats once", async () => {
+    const [first] = (await request(app).get("/api/release-scoring")).body.formats;
+    await request(app).delete(`/api/custom-formats/${first.id}`);
+    const res = await request(app).post("/api/custom-formats/install-defaults");
+    expect(res.status).toBe(201);
+    expect(res.body.added.map((f: { name: string }) => f.name)).toEqual([first.name]);
+    const again = await request(app).post("/api/custom-formats/install-defaults");
+    expect(again.body.added).toEqual([]);
   });
 
   it("creates, edits and deletes a custom format", async () => {
@@ -66,13 +77,15 @@ describe("release scoring routes", () => {
     expect(renamed.body).toMatchObject({ name: "Repacks v2", enabled: false, hardReject: true });
 
     const list = await request(app).get("/api/release-scoring");
-    expect(list.body.formats).toHaveLength(1);
+    expect(list.body.formats).toHaveLength(DEFAULT_CUSTOM_FORMATS.length + 1);
 
     expect((await request(otherApp).delete(`/api/custom-formats/${created.body.id}`)).status).toBe(
       404
     );
     expect((await request(app).delete(`/api/custom-formats/${created.body.id}`)).status).toBe(204);
-    expect((await request(app).get("/api/release-scoring")).body.formats).toEqual([]);
+    expect((await request(app).get("/api/release-scoring")).body.formats).toHaveLength(
+      DEFAULT_CUSTOM_FORMATS.length
+    );
   });
 
   it("rejects an invalid regex and a missing condition", async () => {

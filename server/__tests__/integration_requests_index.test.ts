@@ -3,14 +3,25 @@ import path from "path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
-function migratedDb(stopBeforeLast = false) {
-  const dir = path.resolve(__dirname, "../../migrations");
-  const db = new Database(":memory:");
-  const files = fs
-    .readdirSync(dir)
+const migrationsDir = path.resolve(__dirname, "../../migrations");
+const migrationFiles = () =>
+  fs
+    .readdirSync(migrationsDir)
     .filter((f) => f.endsWith(".sql"))
     .sort();
-  for (const file of stopBeforeLast ? files.slice(0, -1) : files) {
+/** The migration that creates the live-game index, wherever it sits in the sequence. */
+const indexMigration = () =>
+  migrationFiles().find((f) =>
+    fs
+      .readFileSync(path.join(migrationsDir, f), "utf8")
+      .includes("CREATE UNIQUE INDEX `integration_requests_live_game_idx`")
+  )!;
+
+function migratedDb(stopBeforeIndex = false) {
+  const dir = migrationsDir;
+  const db = new Database(":memory:");
+  const files = migrationFiles();
+  for (const file of stopBeforeIndex ? files.slice(0, files.indexOf(indexMigration())) : files) {
     for (const statement of fs
       .readFileSync(path.join(dir, file), "utf8")
       .split("--> statement-breakpoint")) {
@@ -45,12 +56,6 @@ describe("integration_requests live game index", () => {
   });
 
   it("releases duplicate live claims, keeping the oldest, when the index is created", () => {
-    const dir = path.resolve(__dirname, "../../migrations");
-    const last = fs
-      .readdirSync(dir)
-      .filter((f) => f.endsWith(".sql"))
-      .sort()
-      .at(-1)!;
     const db = migratedDb(true);
     const insertAt = db.prepare(
       "insert into integration_requests (id, user_id, provider, external_request_id, game_id, title, status, created_at) values (?, 'u1', 'seerrng', ?, 'g1', 'Game', ?, ?)"
@@ -59,7 +64,7 @@ describe("integration_requests live game index", () => {
     insertAt.run("older", "older", "searching", 1000);
     insertAt.run("cancelled", "cancelled", "cancelled", 500);
     for (const statement of fs
-      .readFileSync(path.join(dir, last), "utf8")
+      .readFileSync(path.join(migrationsDir, indexMigration()), "utf8")
       .split("--> statement-breakpoint")) {
       if (statement.trim()) db.exec(statement);
     }

@@ -625,13 +625,41 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     userSettings?.importPlatformIds,
   ]);
 
-  const rejectedCount = useMemo(
-    () =>
-      Object.values(categorizedDownloads)
-        .flat()
-        .filter((t) => t.evaluation?.accepted === false).length,
-    [categorizedDownloads]
-  );
+  // Rejected releases the checkbox hides: only those that every other filter would show, so the
+  // badge matches what unticking "Hide rejected releases" brings back.
+  const rejectedCount = useMemo(() => {
+    let count = 0;
+    for (const [category, downloads] of Object.entries(categorizedDownloads) as [
+      DownloadCategory,
+      DownloadItem[],
+    ][]) {
+      if (!visibleCategories.has(category)) continue;
+      count += downloads.filter((t) => {
+        if (t.evaluation?.accepted !== false) return false;
+        if (!meetsSeederThreshold(t)) return false;
+        if (selectedIndexer !== "all" && t.indexerName !== selectedIndexer) return false;
+        if (selectedGroups.length > 0 && !(t.group && selectedGroups.includes(t.group))) {
+          return false;
+        }
+        const platform = itemsMetadata.get(t.title)?.platform;
+        if (!matchesSelectedIgdbPlatform(platform, userSettings?.importPlatformIds)) return false;
+        return (
+          selectedPlatforms.length === 0 ||
+          selectedPlatforms.some((sp) => matchesPlatformFilter(platform, sp))
+        );
+      }).length;
+    }
+    return count;
+  }, [
+    categorizedDownloads,
+    itemsMetadata,
+    meetsSeederThreshold,
+    selectedIndexer,
+    selectedGroups,
+    selectedPlatforms,
+    visibleCategories,
+    userSettings?.importPlatformIds,
+  ]);
 
   const downloadMutation = useMutation({
     mutationFn: async (downloads: DownloadItem[]) => {
@@ -1091,6 +1119,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 sum +
                 downloads
                   .filter((t) => meetsSeederThreshold(t))
+                  .filter((t) => !hideRejected || t.evaluation?.accepted !== false)
                   .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
                   .filter(
                     (t) =>

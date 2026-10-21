@@ -813,6 +813,59 @@ describe("GameDownloadDialog", () => {
     expect(screen.getByText("1 rejected hidden")).toBeInTheDocument();
   });
 
+  it("only counts rejected releases that the other filters would show", async () => {
+    const evaluation = (accepted: boolean) => ({
+      accepted,
+      score: accepted ? 120 : -980,
+      lines: [],
+      rejections: accepted ? [] : [{ code: "title_mismatch", detail: "" }],
+      titleMatch: accepted ? "exact" : "mismatch",
+      indexerCategory: "unknown",
+      category: "main",
+      matchedFormats: [],
+      preferredProtocol: true,
+    });
+    globalThis.fetch = createFetchMock({
+      settings: {
+        downloadRules: JSON.stringify({
+          minSeeders: 10,
+          sortBy: "score",
+          visibleCategories: ["main", "update", "dlc", "extra", "packs"],
+          hideRejected: true,
+        }),
+      },
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "wrong-popular",
+          title: "Another.Game-RELOADED",
+          link: "http://test.com/w1",
+          seeders: 900,
+          evaluation: evaluation(false),
+        }),
+        makeTorrentItem({
+          guid: "wrong-quiet",
+          title: "Third.Game-RELOADED",
+          link: "http://test.com/w2",
+          seeders: 1,
+          evaluation: evaluation(false),
+        }),
+        makeTorrentItem({
+          guid: "good",
+          title: "Test Game Plain",
+          link: "http://test.com/g",
+          seeders: 50,
+          evaluation: evaluation(true),
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    expect(await screen.findByText("Test Game Plain")).toBeInTheDocument();
+    // the quiet one is already out under the seeders minimum, so it is not "hidden by rejection"
+    expect(screen.getByText("1 rejected hidden")).toBeInTheDocument();
+  });
+
   it("ranks by score, shows the breakdown and dims rejected releases", async () => {
     const evaluation = (score: number, accepted: boolean) => ({
       accepted,

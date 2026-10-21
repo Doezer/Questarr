@@ -949,7 +949,7 @@ class IGDBClient {
       if (ids.length > 0) conditions.push(`${field} = (${ids.join(",")})`);
     };
     const excludeAny = (field: string, ids: number[]) => {
-      if (ids.length > 0) conditions.push(`${field} != (${ids.join(",")})`);
+      if (ids.length > 0) conditions.push(`${field} = !(${ids.join(",")})`);
     };
     includeAny("themes", filters.themes);
     includeAny("game_modes", filters.gameModes);

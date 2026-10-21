@@ -24,7 +24,15 @@ import {
   type RssFeedItem,
   type InsertRssFeedItem,
   type ReleaseBlacklist,
+  type ReleaseProfileRow,
+  type ReleaseProfileInput,
+  type CustomFormatRow,
+  type CustomFormatInput,
+  type CustomFormatUpdate,
   type InsertReleaseBlacklist,
+  type DownloadEvent,
+  type InsertDownloadEvent,
+  type DownloadEventType,
   type AiAutoDownloadHold,
   type InsertAiAutoDownloadHold,
   type ImportTask,
@@ -42,7 +50,13 @@ import {
   type InsertGameFile,
   type GameFileCategory,
   type ApiKey,
+  DEFAULT_API_KEY_SCOPE,
   type ApiKeyPublic,
+  type NewApiKeyInput,
+  type IntegrationRequest,
+  type IntegrationRequestProvider,
+  type IntegrationRequestUpdate,
+  type NewIntegrationRequest,
   GAME_LINK_REQUIRED_STATUS,
   QUARANTINED_STATUS,
   USER_CURATED_GAME_STATUSES,
@@ -50,6 +64,8 @@ import {
   type RootFolder,
   type InsertRootFolder,
   type UpdateRootFolder,
+  type Collection,
+  type InsertCollection,
   type GameJournalEntry,
   type InsertGameJournalEntry,
   type GameMilestone,
@@ -73,23 +89,32 @@ import {
   importTasks,
   importTaskItems,
   releaseBlacklist,
+  releaseProfiles,
+  customFormats,
+  downloadEvents,
   aiAutoDownloadHolds,
   gameFiles,
   apiKeys,
+  integrationRequests,
   rootFolders,
+  collectionGames,
+  collections,
   gameJournalEntries,
   gameMilestones,
   gameScreenshots,
 } from "./db/tables.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
+import { logger } from "./logger.js";
 import { normalizeDownloadHash } from "./download-hash.js";
 import {
   eq,
+  ne,
   like,
   or,
   sql,
   desc,
+  asc,
   and,
   not,
   inArray,
@@ -200,6 +225,9 @@ type ImportTaskUpdate = Pick<
  */
 export type UpdateGameDownloadHashOutcome = "updated" | "merged" | "noop";
 
+/** Minimum gap between two "last used" writes for one API key. */
+export const API_KEY_TOUCH_INTERVAL_MS = 60_000;
+
 export interface IStorage {
   // System Config methods
   getSystemConfig(key: string): Promise<string | undefined>;
@@ -266,6 +294,21 @@ export interface IStorage {
   updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
   removeGame(id: string): Promise<boolean>;
   assignOrphanGamesToUser(userId: string): Promise<number>;
+
+  // Collections (manual lists and smart rule-based groups of games)
+  getCollections(userId: string): Promise<Collection[]>;
+  getCollection(id: string, userId: string): Promise<Collection | undefined>;
+  createCollection(collection: InsertCollection): Promise<Collection>;
+  updateCollection(
+    id: string,
+    userId: string,
+    patch: Partial<Omit<InsertCollection, "userId">>
+  ): Promise<Collection | undefined>;
+  deleteCollection(id: string, userId: string): Promise<boolean>;
+  /** Explicit game links of the user's manual collections, as collectionId/gameId pairs. */
+  getCollectionLinks(userId: string): Promise<{ collectionId: string; gameId: string }[]>;
+  addGameToCollection(collectionId: string, gameId: string): Promise<boolean>;
+  removeGameFromCollection(collectionId: string, gameId: string): Promise<boolean>;
 
   // Game journal methods (local-only notes while playing)
   getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]>;
@@ -386,6 +429,18 @@ export interface IStorage {
     updates: UpdateUserSettings
   ): Promise<UserSettings | undefined>;
 
+  // Release scoring (profile + custom formats), one profile per user
+  getReleaseProfile(userId: string): Promise<ReleaseProfileRow | undefined>;
+  saveReleaseProfile(userId: string, input: ReleaseProfileInput): Promise<ReleaseProfileRow>;
+  getCustomFormats(userId: string): Promise<CustomFormatRow[]>;
+  createCustomFormat(userId: string, input: CustomFormatInput): Promise<CustomFormatRow>;
+  updateCustomFormat(
+    userId: string,
+    id: string,
+    updates: CustomFormatUpdate
+  ): Promise<CustomFormatRow | undefined>;
+  deleteCustomFormat(userId: string, id: string): Promise<boolean>;
+
   // xREL notified releases (for notifications + "on xREL" indicator)
   addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease>;
   hasXrelNotifiedRelease(gameId: string, xrelReleaseId: string): Promise<boolean>;
@@ -423,7 +478,16 @@ export interface IStorage {
   getReleaseBlacklist(gameId: string): Promise<ReleaseBlacklist[]>;
   getAllReleaseBlacklists(userId: string): Promise<(ReleaseBlacklist & { gameTitle: string })[]>;
   removeReleaseBlacklist(id: string, gameId: string): Promise<boolean>;
+  removeAllReleaseBlacklists(userId: string): Promise<number>;
   getReleaseBlacklistSet(gameId: string): Promise<Set<string>>;
+
+  // Download event log (Activity > History)
+  addDownloadEvent(event: InsertDownloadEvent): Promise<void>;
+  getDownloadEvents(
+    userId: string,
+    options?: { eventType?: DownloadEventType; search?: string; limit?: number; offset?: number }
+  ): Promise<{ events: DownloadEvent[]; total: number }>;
+  deleteDownloadEventsOlderThan(cutoffMs: number): Promise<number>;
 
   // AI auto-download hold methods (TypeSafe review holds -- see aiAutoDownloadHolds in schema)
   // Returns true when a new hold row was created, false when one already existed --
@@ -475,13 +539,33 @@ export interface IStorage {
   // Integration API key methods
   getApiKeys(userId: string): Promise<ApiKeyPublic[]>;
   /** Throws "API key limit reached" (as a plain Error) if the user already has maxKeys. */
-  addApiKey(
-    key: { userId: string; name: string; keyHash: string; prefix: string },
-    maxKeys: number
-  ): Promise<ApiKeyPublic>;
+  addApiKey(key: NewApiKeyInput, maxKeys: number): Promise<ApiKeyPublic>;
   getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined>;
   touchApiKey(id: string): Promise<void>;
   removeApiKey(id: string, userId: string): Promise<boolean>;
+
+  // External request ledger (SeerrNG), always scoped to the owning user.
+  getIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    provider?: IntegrationRequestProvider
+  ): Promise<IntegrationRequest | undefined>;
+  /** Inserts a request, or returns the existing row for the same (user, provider, id) with created=false. */
+  addIntegrationRequest(
+    request: NewIntegrationRequest
+  ): Promise<{ request: IntegrationRequest; created: boolean }>;
+  updateIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    updates: IntegrationRequestUpdate,
+    provider?: IntegrationRequestProvider
+  ): Promise<IntegrationRequest | undefined>;
+  /** The request currently linked to a game, so one game never answers two requests. */
+  getIntegrationRequestByGameId(
+    userId: string,
+    gameId: string,
+    provider?: IntegrationRequestProvider
+  ): Promise<IntegrationRequest | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -499,10 +583,16 @@ export class MemStorage implements IStorage {
   private readonly pathMappings: Map<string, PathMapping>;
   private readonly platformMappings: Map<string, PlatformMapping>;
   private releaseBlacklists: Map<string, ReleaseBlacklist>;
+  private releaseProfiles: Map<string, ReleaseProfileRow>;
+  private customFormats: Map<string, CustomFormatRow>;
+  private downloadEventLog: DownloadEvent[];
   private aiAutoDownloadHolds: Map<string, AiAutoDownloadHold>;
   private gameFiles: Map<string, GameFile>;
   private rootFolders: Map<string, RootFolder>;
   private apiKeys: Map<string, ApiKey>;
+  private integrationRequests: Map<string, IntegrationRequest>;
+  private collections: Map<string, Collection>;
+  private collectionGames: Map<string, { id: string; collectionId: string; gameId: string }>;
   private gameJournalEntries: Map<string, GameJournalEntry>;
   private gameMilestones: Map<string, GameMilestone>;
   private gameScreenshots: Map<string, GameScreenshot>;
@@ -522,10 +612,16 @@ export class MemStorage implements IStorage {
     this.pathMappings = new Map();
     this.platformMappings = new Map();
     this.releaseBlacklists = new Map();
+    this.releaseProfiles = new Map();
+    this.customFormats = new Map();
+    this.downloadEventLog = [];
     this.aiAutoDownloadHolds = new Map();
     this.gameFiles = new Map();
     this.rootFolders = new Map();
     this.apiKeys = new Map();
+    this.integrationRequests = new Map();
+    this.collections = new Map();
+    this.collectionGames = new Map();
     this.gameJournalEntries = new Map();
     this.gameMilestones = new Map();
     this.gameScreenshots = new Map();
@@ -774,6 +870,81 @@ export class MemStorage implements IStorage {
     if (!game || (game.installedVersion ?? null) !== expected) return Promise.resolve(false);
     this.games.set(id, { ...game, installedVersion });
     return Promise.resolve(true);
+  }
+
+  async getCollections(userId: string): Promise<Collection[]> {
+    return Array.from(this.collections.values())
+      .filter((c) => c.userId === userId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async getCollection(id: string, userId: string): Promise<Collection | undefined> {
+    const collection = this.collections.get(id);
+    return collection?.userId === userId ? collection : undefined;
+  }
+
+  async createCollection(collection: InsertCollection): Promise<Collection> {
+    const created: Collection = {
+      id: randomUUID(),
+      userId: collection.userId,
+      name: collection.name,
+      description: collection.description,
+      type: collection.type,
+      rules: collection.rules,
+      createdAt: new Date(),
+    };
+    this.collections.set(created.id, created);
+    return created;
+  }
+
+  async updateCollection(
+    id: string,
+    userId: string,
+    patch: Partial<Omit<InsertCollection, "userId">>
+  ): Promise<Collection | undefined> {
+    const existing = await this.getCollection(id, userId);
+    if (!existing) return undefined;
+    const updated: Collection = { ...existing, ...patch };
+    this.collections.set(id, updated);
+    if (patch.type === "smart") {
+      for (const [linkId, link] of this.collectionGames) {
+        if (link.collectionId === id) this.collectionGames.delete(linkId);
+      }
+    }
+    return updated;
+  }
+
+  async deleteCollection(id: string, userId: string): Promise<boolean> {
+    if (!(await this.getCollection(id, userId))) return false;
+    for (const [linkId, link] of this.collectionGames) {
+      if (link.collectionId === id) this.collectionGames.delete(linkId);
+    }
+    return this.collections.delete(id);
+  }
+
+  async getCollectionLinks(userId: string): Promise<{ collectionId: string; gameId: string }[]> {
+    return Array.from(this.collectionGames.values())
+      .filter((link) => this.collections.get(link.collectionId)?.userId === userId)
+      .map(({ collectionId, gameId }) => ({ collectionId, gameId }));
+  }
+
+  async addGameToCollection(collectionId: string, gameId: string): Promise<boolean> {
+    const exists = Array.from(this.collectionGames.values()).some(
+      (link) => link.collectionId === collectionId && link.gameId === gameId
+    );
+    if (exists || this.collections.get(collectionId)?.type === "smart") return false;
+    const id = randomUUID();
+    this.collectionGames.set(id, { id, collectionId, gameId });
+    return true;
+  }
+
+  async removeGameFromCollection(collectionId: string, gameId: string): Promise<boolean> {
+    for (const [id, link] of this.collectionGames) {
+      if (link.collectionId === collectionId && link.gameId === gameId) {
+        return this.collectionGames.delete(id);
+      }
+    }
+    return false;
   }
 
   async getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]> {
@@ -1619,6 +1790,65 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
+  // Release scoring
+  async getReleaseProfile(userId: string): Promise<ReleaseProfileRow | undefined> {
+    return this.releaseProfiles.get(userId);
+  }
+
+  async saveReleaseProfile(userId: string, input: ReleaseProfileInput): Promise<ReleaseProfileRow> {
+    const existing = this.releaseProfiles.get(userId);
+    const row: ReleaseProfileRow = {
+      id: existing?.id ?? randomUUID(),
+      userId,
+      ...input,
+      createdAt: existing?.createdAt ?? new Date(),
+      updatedAt: new Date(),
+    };
+    this.releaseProfiles.set(userId, row);
+    return row;
+  }
+
+  async getCustomFormats(userId: string): Promise<CustomFormatRow[]> {
+    return Array.from(this.customFormats.values())
+      .filter((row) => row.userId === userId)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  async createCustomFormat(userId: string, input: CustomFormatInput): Promise<CustomFormatRow> {
+    const existing = await this.getCustomFormats(userId);
+    const row: CustomFormatRow = {
+      id: randomUUID(),
+      userId,
+      ...input,
+      sortOrder: existing.reduce((max, f) => Math.max(max, f.sortOrder + 1), 0),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.customFormats.set(row.id, row);
+    return row;
+  }
+
+  async updateCustomFormat(
+    userId: string,
+    id: string,
+    updates: CustomFormatUpdate
+  ): Promise<CustomFormatRow | undefined> {
+    const existing = this.customFormats.get(id);
+    if (existing?.userId !== userId) return undefined;
+    const updated: CustomFormatRow = {
+      ...existing,
+      ...stripUndefined(updates),
+      updatedAt: new Date(),
+    };
+    this.customFormats.set(id, updated);
+    return updated;
+  }
+
+  async deleteCustomFormat(userId: string, id: string): Promise<boolean> {
+    if (this.customFormats.get(id)?.userId !== userId) return false;
+    return this.customFormats.delete(id);
+  }
+
   async addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease> {
     const id = randomUUID();
     const row: XrelNotifiedRelease = {
@@ -1782,11 +2012,71 @@ export class MemStorage implements IStorage {
     return true;
   }
 
+  async removeAllReleaseBlacklists(userId: string): Promise<number> {
+    const userGameIds = new Set(
+      Array.from(this.games.values())
+        .filter((g) => g.userId === userId)
+        .map((g) => g.id)
+    );
+    let removed = 0;
+    for (const [id, entry] of Array.from(this.releaseBlacklists.entries())) {
+      if (userGameIds.has(entry.gameId)) {
+        this.releaseBlacklists.delete(id);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   async getReleaseBlacklistSet(gameId: string): Promise<Set<string>> {
     const titles = Array.from(this.releaseBlacklists.values())
       .filter((r) => r.gameId === gameId)
       .map((r) => r.releaseTitle);
     return new Set(titles);
+  }
+
+  async addDownloadEvent(event: InsertDownloadEvent): Promise<void> {
+    this.downloadEventLog.push({
+      ...event,
+      id: randomUUID(),
+      gameId: event.gameId ?? null,
+      downloaderName: event.downloaderName ?? null,
+      message: event.message ?? null,
+      createdAt: new Date(),
+    });
+  }
+
+  async getDownloadEvents(
+    userId: string,
+    options: {
+      eventType?: DownloadEventType;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): Promise<{ events: DownloadEvent[]; total: number }> {
+    const matching = this.downloadEventLog
+      .filter(
+        (e) =>
+          e.userId === userId &&
+          (!options.eventType || e.eventType === options.eventType) &&
+          (!options.search ||
+            `${e.releaseTitle} ${e.gameTitle}`.toLowerCase().includes(options.search.toLowerCase()))
+      )
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+    const offset = options.offset ?? 0;
+    return {
+      events: matching.slice(offset, offset + (options.limit ?? 50)),
+      total: matching.length,
+    };
+  }
+
+  async deleteDownloadEventsOlderThan(cutoffMs: number): Promise<number> {
+    const before = this.downloadEventLog.length;
+    this.downloadEventLog = this.downloadEventLog.filter(
+      (e) => (e.createdAt?.getTime() ?? 0) >= cutoffMs
+    );
+    return before - this.downloadEventLog.length;
   }
 
   // AI auto-download hold methods
@@ -2000,10 +2290,7 @@ export class MemStorage implements IStorage {
       .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
   }
 
-  async addApiKey(
-    key: { userId: string; name: string; keyHash: string; prefix: string },
-    maxKeys: number
-  ): Promise<ApiKeyPublic> {
+  async addApiKey(key: NewApiKeyInput, maxKeys: number): Promise<ApiKeyPublic> {
     // MemStorage has no concurrent callers (single-threaded test usage), so a
     // plain count check is sufficient here; DatabaseStorage's transaction is
     // what actually closes the race for the real, multi-request server.
@@ -2015,7 +2302,14 @@ export class MemStorage implements IStorage {
     }
 
     const id = randomUUID();
-    const record: ApiKey = { ...key, id, createdAt: new Date(), lastUsedAt: null };
+    const record: ApiKey = {
+      ...key,
+      id,
+      createdAt: new Date(),
+      lastUsedAt: null,
+      scope: key.scope ?? DEFAULT_API_KEY_SCOPE,
+      expiresAt: key.expiresAt ?? null,
+    };
     this.apiKeys.set(id, record);
     const { keyHash: _keyHash, ...rest } = record;
     return rest;
@@ -2027,7 +2321,12 @@ export class MemStorage implements IStorage {
 
   async touchApiKey(id: string): Promise<void> {
     const existing = this.apiKeys.get(id);
-    if (existing) this.apiKeys.set(id, { ...existing, lastUsedAt: new Date() });
+    if (!existing) return;
+    const now = Date.now();
+    if (existing.lastUsedAt && now - existing.lastUsedAt.getTime() < API_KEY_TOUCH_INTERVAL_MS) {
+      return;
+    }
+    this.apiKeys.set(id, { ...existing, lastUsedAt: new Date(now) });
   }
 
   async removeApiKey(id: string, userId: string): Promise<boolean> {
@@ -2035,7 +2334,84 @@ export class MemStorage implements IStorage {
     if (!existing || existing.userId !== userId) return false;
     return this.apiKeys.delete(id);
   }
+
+  private integrationRequestKey(
+    userId: string,
+    provider: IntegrationRequestProvider,
+    externalRequestId: string
+  ): string {
+    return `${userId}\0${provider}\0${externalRequestId}`;
+  }
+
+  async getIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    return this.integrationRequests.get(
+      this.integrationRequestKey(userId, provider, externalRequestId)
+    );
+  }
+
+  async addIntegrationRequest(
+    request: NewIntegrationRequest
+  ): Promise<{ request: IntegrationRequest; created: boolean }> {
+    const provider = request.provider ?? "seerrng";
+    const key = this.integrationRequestKey(request.userId, provider, request.externalRequestId);
+    const existing = this.integrationRequests.get(key);
+    if (existing) return { request: existing, created: false };
+    const now = new Date();
+    const record: IntegrationRequest = {
+      id: randomUUID(),
+      userId: request.userId,
+      provider,
+      externalRequestId: request.externalRequestId,
+      igdbId: request.igdbId ?? null,
+      gameId: request.gameId ?? null,
+      title: request.title,
+      operatingSystem: request.operatingSystem ?? null,
+      architecture: request.architecture ?? null,
+      status: "accepted",
+      errorMessage: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.integrationRequests.set(key, record);
+    return { request: record, created: true };
+  }
+
+  async getIntegrationRequestByGameId(
+    userId: string,
+    gameId: string,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    return Array.from(this.integrationRequests.values()).find(
+      (r) => r.userId === userId && r.provider === provider && r.gameId === gameId
+    );
+  }
+
+  async updateIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    updates: IntegrationRequestUpdate,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    const key = this.integrationRequestKey(userId, provider, externalRequestId);
+    const existing = this.integrationRequests.get(key);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...stripUndefined(updates), updatedAt: new Date() };
+    this.integrationRequests.set(key, updated);
+    return updated;
+  }
 }
+
+// Download status changes worth a line in Activity > History.
+const DOWNLOAD_STATUS_EVENTS: Partial<Record<string, DownloadEventType>> = {
+  completed: "completed",
+  imported: "imported",
+  failed: "failed",
+  manual_review_required: "needs_review",
+};
 
 export class DatabaseStorage implements IStorage {
   // System Config methods
@@ -2392,6 +2768,99 @@ export class DatabaseStorage implements IStorage {
     return affectedRows(result) > 0;
   }
 
+  async getCollections(userId: string): Promise<Collection[]> {
+    return db
+      .select()
+      .from(collections)
+      .where(eq(collections.userId, userId))
+      .orderBy(collections.name);
+  }
+
+  async getCollection(id: string, userId: string): Promise<Collection | undefined> {
+    const [collection] = await db
+      .select()
+      .from(collections)
+      .where(and(eq(collections.id, id), eq(collections.userId, userId)));
+    return collection || undefined;
+  }
+
+  async createCollection(collection: InsertCollection): Promise<Collection> {
+    const rows = await db
+      .insert(collections)
+      .values({ id: randomUUID(), ...collection })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async updateCollection(
+    id: string,
+    userId: string,
+    patch: Partial<Omit<InsertCollection, "userId">>
+  ): Promise<Collection | undefined> {
+    if (Object.keys(patch).length === 0) return this.getCollection(id, userId);
+    const [updated] = await db
+      .update(collections)
+      .set(patch)
+      .where(and(eq(collections.id, id), eq(collections.userId, userId)))
+      .returning();
+    // A smart collection derives its members from rules: drop stale manual links so they
+    // cannot reappear if the collection is switched back to manual.
+    if (updated && patch.type === "smart") {
+      await db.delete(collectionGames).where(eq(collectionGames.collectionId, id));
+    }
+    return updated || undefined;
+  }
+
+  async deleteCollection(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(collections)
+      .where(and(eq(collections.id, id), eq(collections.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getCollectionLinks(userId: string): Promise<{ collectionId: string; gameId: string }[]> {
+    return db
+      .select({ collectionId: collectionGames.collectionId, gameId: collectionGames.gameId })
+      .from(collectionGames)
+      .innerJoin(collections, eq(collections.id, collectionGames.collectionId))
+      .where(eq(collections.userId, userId));
+  }
+
+  async addGameToCollection(collectionId: string, gameId: string): Promise<boolean> {
+    const rows = await db
+      .insert(collectionGames)
+      .values({ id: randomUUID(), collectionId, gameId })
+      .onConflictDoNothing()
+      .returning();
+    if (rows.length === 0) return false;
+    // A concurrent switch to smart clears links before or after this insert: re-check the
+    // type so a link can never survive on a smart collection.
+    const [collection] = await db
+      .select({ type: collections.type })
+      .from(collections)
+      .where(eq(collections.id, collectionId));
+    if (collection?.type === "smart") {
+      await db
+        .delete(collectionGames)
+        .where(
+          and(eq(collectionGames.collectionId, collectionId), eq(collectionGames.gameId, gameId))
+        );
+      return false;
+    }
+    return true;
+  }
+
+  async removeGameFromCollection(collectionId: string, gameId: string): Promise<boolean> {
+    const result = await db
+      .delete(collectionGames)
+      .where(
+        and(eq(collectionGames.collectionId, collectionId), eq(collectionGames.gameId, gameId))
+      )
+      .returning();
+    return result.length > 0;
+  }
+
   async getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]> {
     return db
       .select()
@@ -2739,6 +3208,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         not(
           inArray(gameDownloads.status, [
+            "cancelled",
             "completed",
             "error",
             "failed",
@@ -2787,6 +3257,21 @@ export class DatabaseStorage implements IStorage {
       .set({ gameId, status: "manual_review_required", errorMessage: null })
       .where(and(eq(gameDownloads.id, id), eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS)))
       .returning();
+    const eventType = DOWNLOAD_STATUS_EVENTS["manual_review_required"];
+    if (updated && eventType) {
+      // Read after the write so the event carries the newly linked game.
+      const context = await this.getDownloadEventContext(id);
+      if (context) {
+        await this.recordDownloadEvent({
+          userId: context.userId,
+          gameId: context.gameId,
+          gameTitle: context.gameTitle,
+          eventType,
+          releaseTitle: context.releaseTitle,
+          downloaderName: context.downloaderName,
+        });
+      }
+    }
     return updated;
   }
 
@@ -2853,7 +3338,62 @@ export class DatabaseStorage implements IStorage {
     if (errorMessage !== undefined) {
       updates.errorMessage = errorMessage;
     }
-    await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
+    const eventType = DOWNLOAD_STATUS_EVENTS[status];
+    const previous = eventType ? await this.getDownloadEventContext(id) : undefined;
+    // One conditional write carries the status and its metadata, and only the call that really
+    // changes the status gets a row back and logs the event, even under concurrency.
+    const changed = await db
+      .update(gameDownloads)
+      .set(updates)
+      .where(and(eq(gameDownloads.id, id), ne(gameDownloads.status, status as never)))
+      .returning({ id: gameDownloads.id });
+    if (changed.length === 0) {
+      // Same status as before: only the metadata (error message, completion time) moves, and
+      // only while the status still matches, so a newer transition is never overwritten.
+      const { status: _status, ...metadata } = updates;
+      await db
+        .update(gameDownloads)
+        .set(metadata)
+        .where(and(eq(gameDownloads.id, id), eq(gameDownloads.status, status as never)));
+    }
+    if (eventType && previous && changed.length > 0) {
+      await this.recordDownloadEvent({
+        userId: previous.userId,
+        gameId: previous.gameId,
+        gameTitle: previous.gameTitle,
+        eventType,
+        releaseTitle: previous.releaseTitle,
+        downloaderName: previous.downloaderName,
+        message: errorMessage ?? null,
+      });
+    }
+  }
+
+  private async getDownloadEventContext(id: string) {
+    try {
+      return await this.loadDownloadEventContext(id);
+    } catch (error) {
+      logger.warn({ error, downloadId: id }, "Failed to load download event context");
+      return undefined;
+    }
+  }
+
+  private async loadDownloadEventContext(id: string) {
+    const [row] = await db
+      .select({
+        status: gameDownloads.status,
+        gameId: gameDownloads.gameId,
+        releaseTitle: gameDownloads.downloadTitle,
+        gameTitle: games.title,
+        userId: games.userId,
+        downloaderName: downloaders.name,
+      })
+      .from(gameDownloads)
+      .innerJoin(games, eq(gameDownloads.gameId, games.id))
+      .leftJoin(downloaders, eq(gameDownloads.downloaderId, downloaders.id))
+      .where(eq(gameDownloads.id, id));
+    // Rows without an owner cannot be shown in anyone's history.
+    return row?.userId ? { ...row, userId: row.userId } : undefined;
   }
 
   async updateGameDownloadHash(
@@ -2943,14 +3483,50 @@ export class DatabaseStorage implements IStorage {
       })
       .onConflictDoNothing()
       .returning();
+    if (gameDownload) {
+      const context = await this.getDownloadEventContext(gameDownload.id);
+      if (context) {
+        await this.recordDownloadEvent({
+          userId: context.userId,
+          gameId: context.gameId,
+          gameTitle: context.gameTitle,
+          eventType: "grabbed",
+          releaseTitle: context.releaseTitle,
+          downloaderName: context.downloaderName,
+        });
+        // Rows inserted already finished (claimed completed items) never go through a status update.
+        const insertedEvent = DOWNLOAD_STATUS_EVENTS[gameDownload.status];
+        if (insertedEvent) {
+          await this.recordDownloadEvent({
+            userId: context.userId,
+            gameId: context.gameId,
+            gameTitle: context.gameTitle,
+            eventType: insertedEvent,
+            releaseTitle: context.releaseTitle,
+            downloaderName: context.downloaderName,
+          });
+        }
+      }
+    }
     return gameDownload;
   }
 
   async removeGameDownload(id: string, gameId: string): Promise<boolean> {
+    const context = await this.getDownloadEventContext(id);
     const result = await db
       .delete(gameDownloads)
       .where(and(eq(gameDownloads.id, id), eq(gameDownloads.gameId, gameId)))
       .returning();
+    if (result.length > 0 && context && context.gameId === gameId) {
+      await this.recordDownloadEvent({
+        userId: context.userId,
+        gameId: context.gameId,
+        gameTitle: context.gameTitle,
+        eventType: "removed",
+        releaseTitle: context.releaseTitle,
+        downloaderName: context.downloaderName,
+      });
+    }
     return result.length > 0;
   }
 
@@ -3272,6 +3848,76 @@ export class DatabaseStorage implements IStorage {
     return updated || undefined;
   }
 
+  // Release scoring
+  async getReleaseProfile(userId: string): Promise<ReleaseProfileRow | undefined> {
+    const [row] = await db.select().from(releaseProfiles).where(eq(releaseProfiles.userId, userId));
+    return row || undefined;
+  }
+
+  async saveReleaseProfile(userId: string, input: ReleaseProfileInput): Promise<ReleaseProfileRow> {
+    const now = new Date();
+    const rows = await db
+      .insert(releaseProfiles)
+      .values({ id: randomUUID(), userId, ...input, createdAt: now, updatedAt: now })
+      .onConflictDoUpdate({
+        target: releaseProfiles.userId,
+        set: { ...input, updatedAt: now },
+      })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async getCustomFormats(userId: string): Promise<CustomFormatRow[]> {
+    return db
+      .select()
+      .from(customFormats)
+      .where(eq(customFormats.userId, userId))
+      .orderBy(asc(customFormats.sortOrder), asc(customFormats.createdAt));
+  }
+
+  async createCustomFormat(userId: string, input: CustomFormatInput): Promise<CustomFormatRow> {
+    const [last] = await db
+      .select({ sortOrder: customFormats.sortOrder })
+      .from(customFormats)
+      .where(eq(customFormats.userId, userId))
+      .orderBy(desc(customFormats.sortOrder))
+      .limit(1);
+    const now = new Date();
+    const rows = await db
+      .insert(customFormats)
+      .values({
+        id: randomUUID(),
+        userId,
+        ...input,
+        sortOrder: last ? last.sortOrder + 1 : 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async updateCustomFormat(
+    userId: string,
+    id: string,
+    updates: CustomFormatUpdate
+  ): Promise<CustomFormatRow | undefined> {
+    const [row] = await db
+      .update(customFormats)
+      .set({ ...stripUndefined(updates), updatedAt: new Date() })
+      .where(and(eq(customFormats.id, id), eq(customFormats.userId, userId)))
+      .returning();
+    return row || undefined;
+  }
+
+  async deleteCustomFormat(userId: string, id: string): Promise<boolean> {
+    const rows = await db
+      .delete(customFormats)
+      .where(and(eq(customFormats.id, id), eq(customFormats.userId, userId)))
+      .returning({ id: customFormats.id });
+    return rows.length > 0;
+  }
+
   async addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease> {
     const id = randomUUID();
     const rows = await db
@@ -3326,6 +3972,21 @@ export class DatabaseStorage implements IStorage {
         );
       return firstOrThrow(existingRows);
     }
+    try {
+      const [game] = await db.select().from(games).where(eq(games.id, entry.gameId));
+      if (game?.userId) {
+        await this.recordDownloadEvent({
+          userId: game.userId,
+          gameId: game.id,
+          gameTitle: game.title,
+          eventType: "blocklisted",
+          releaseTitle: entry.releaseTitle,
+          downloaderName: entry.indexerName ?? null,
+        });
+      }
+    } catch (error) {
+      logger.warn({ error, gameId: entry.gameId }, "Failed to record blocklist event");
+    }
     return row;
   }
 
@@ -3362,12 +4023,84 @@ export class DatabaseStorage implements IStorage {
     return affectedRows(result) > 0;
   }
 
+  async removeAllReleaseBlacklists(userId: string): Promise<number> {
+    const result = await db
+      .delete(releaseBlacklist)
+      .where(
+        inArray(
+          releaseBlacklist.gameId,
+          db.select({ id: games.id }).from(games).where(eq(games.userId, userId))
+        )
+      );
+    return affectedRows(result);
+  }
+
   async getReleaseBlacklistSet(gameId: string): Promise<Set<string>> {
     const rows = await db
       .select({ releaseTitle: releaseBlacklist.releaseTitle })
       .from(releaseBlacklist)
       .where(eq(releaseBlacklist.gameId, gameId));
     return new Set(rows.map((r) => r.releaseTitle));
+  }
+
+  /** Event logging must never break the operation that triggered it. */
+  private lastDownloadEventMs = 0;
+
+  private async recordDownloadEvent(event: InsertDownloadEvent): Promise<void> {
+    try {
+      await this.addDownloadEvent(event);
+    } catch (error) {
+      logger.warn({ error, eventType: event.eventType }, "Failed to record download event");
+    }
+  }
+
+  async addDownloadEvent(event: InsertDownloadEvent): Promise<void> {
+    // Strictly increasing timestamps keep events recorded back to back in insertion order.
+    const nowMs = Math.max(Date.now(), this.lastDownloadEventMs + 1);
+    this.lastDownloadEventMs = nowMs;
+    await db
+      .insert(downloadEvents)
+      .values({ ...event, id: randomUUID(), createdAt: new Date(nowMs) });
+  }
+
+  async getDownloadEvents(
+    userId: string,
+    options: {
+      eventType?: DownloadEventType;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    } = {}
+  ): Promise<{ events: DownloadEvent[]; total: number }> {
+    const search = options.search?.trim();
+    const where = and(
+      eq(downloadEvents.userId, userId),
+      options.eventType ? eq(downloadEvents.eventType, options.eventType) : undefined,
+      search
+        ? or(
+            containsCI(downloadEvents.releaseTitle, search),
+            containsCI(downloadEvents.gameTitle, search)
+          )
+        : undefined
+    );
+    const [events, [totalRow]] = await Promise.all([
+      db
+        .select()
+        .from(downloadEvents)
+        .where(where)
+        .orderBy(desc(downloadEvents.createdAt), desc(downloadEvents.id))
+        .limit(options.limit ?? 50)
+        .offset(options.offset ?? 0),
+      db.select({ total: count() }).from(downloadEvents).where(where),
+    ]);
+    return { events, total: totalRow?.total ?? 0 };
+  }
+
+  async deleteDownloadEventsOlderThan(cutoffMs: number): Promise<number> {
+    const result = await db
+      .delete(downloadEvents)
+      .where(lt(downloadEvents.createdAt, new Date(cutoffMs)));
+    return affectedRows(result);
   }
 
   // AI auto-download hold methods
@@ -3646,16 +4379,15 @@ export class DatabaseStorage implements IStorage {
         prefix: apiKeys.prefix,
         createdAt: apiKeys.createdAt,
         lastUsedAt: apiKeys.lastUsedAt,
+        scope: apiKeys.scope,
+        expiresAt: apiKeys.expiresAt,
       })
       .from(apiKeys)
       .where(eq(apiKeys.userId, userId))
       .orderBy(desc(apiKeys.createdAt));
   }
 
-  async addApiKey(
-    key: { userId: string; name: string; keyHash: string; prefix: string },
-    maxKeys: number
-  ): Promise<ApiKeyPublic> {
+  async addApiKey(key: NewApiKeyInput, maxKeys: number): Promise<ApiKeyPublic> {
     return transactionalOps.addApiKey(key, maxKeys);
   }
 
@@ -3665,7 +4397,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async touchApiKey(id: string): Promise<void> {
-    await db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, id));
+    // Throttled in SQL (one write per interval per key) instead of one write
+    // per request; the same statement works on both dialects.
+    const now = Date.now();
+    await db
+      .update(apiKeys)
+      .set({ lastUsedAt: new Date(now) })
+      .where(
+        and(
+          eq(apiKeys.id, id),
+          or(
+            isNull(apiKeys.lastUsedAt),
+            lt(apiKeys.lastUsedAt, new Date(now - API_KEY_TOUCH_INTERVAL_MS))
+          )
+        )
+      );
   }
 
   async removeApiKey(id: string, userId: string): Promise<boolean> {
@@ -3673,6 +4419,84 @@ export class DatabaseStorage implements IStorage {
       .delete(apiKeys)
       .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)));
     return affectedRows(result) > 0;
+  }
+
+  async getIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    const [row] = await db
+      .select()
+      .from(integrationRequests)
+      .where(
+        and(
+          eq(integrationRequests.userId, userId),
+          eq(integrationRequests.provider, provider),
+          eq(integrationRequests.externalRequestId, externalRequestId)
+        )
+      );
+    return row ?? undefined;
+  }
+
+  async addIntegrationRequest(
+    request: NewIntegrationRequest
+  ): Promise<{ request: IntegrationRequest; created: boolean }> {
+    const provider = request.provider ?? "seerrng";
+    // The unique (user, provider, external id) index makes a concurrent replay
+    // insert nothing, and the loser reads the winner's row.
+    const inserted = await db
+      .insert(integrationRequests)
+      .values({ ...request, provider, id: randomUUID() })
+      .onConflictDoNothing()
+      .returning();
+    if (inserted[0]) return { request: inserted[0], created: true };
+    const existing = await this.getIntegrationRequest(
+      request.userId,
+      request.externalRequestId,
+      provider
+    );
+    if (!existing) throw new Error("Integration request insert conflicted but no row exists");
+    return { request: existing, created: false };
+  }
+
+  async getIntegrationRequestByGameId(
+    userId: string,
+    gameId: string,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    const [row] = await db
+      .select()
+      .from(integrationRequests)
+      .where(
+        and(
+          eq(integrationRequests.userId, userId),
+          eq(integrationRequests.provider, provider),
+          eq(integrationRequests.gameId, gameId)
+        )
+      )
+      .limit(1);
+    return row ?? undefined;
+  }
+
+  async updateIntegrationRequest(
+    userId: string,
+    externalRequestId: string,
+    updates: IntegrationRequestUpdate,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest | undefined> {
+    const [row] = await db
+      .update(integrationRequests)
+      .set({ ...stripUndefined(updates), updatedAt: new Date() })
+      .where(
+        and(
+          eq(integrationRequests.userId, userId),
+          eq(integrationRequests.provider, provider),
+          eq(integrationRequests.externalRequestId, externalRequestId)
+        )
+      )
+      .returning();
+    return row ?? undefined;
   }
 }
 

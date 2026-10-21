@@ -81,6 +81,7 @@ import {
   sanitizeLibraryScanData,
   sanitizeUnmatchedMatchData,
   sanitizeUnmatchedSearchData,
+  integrationRateLimiter,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
@@ -273,6 +274,7 @@ const upload = multer({
 });
 import {
   searchAllIndexers,
+  type SearchItem,
   filterBlacklistedReleases,
   filterByReleaseNameBlacklist,
   enrichWithAiAnalysis,
@@ -283,6 +285,7 @@ import {
   cleanReleaseName,
   releaseMatchesGame,
   parseReleaseMetadata,
+  resolveGamePlatformPreference,
   matchesPlatformFilter,
   parseJsonStringArray,
 } from "../shared/title-utils.js";
@@ -292,6 +295,20 @@ import type { XrelGameStatus } from "../shared/xrel-types.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import { releaseScoringRoutes } from "./release-scoring-routes.js";
+import {
+  isAutoEligible,
+  loadScoringConfig,
+  type ScoringConfig,
+} from "./release-scoring-service.js";
+import {
+  getXrelPredb,
+  INTERACTIVE_LOOKUP_TIMEOUT_MS,
+  xrelTypesFor,
+  type XrelPredbTypes,
+} from "./xrel-predb.js";
+import { evaluateReleases } from "../shared/release-scoring.js";
+import { collectionRoutes } from "./collection-routes.js";
 import { gameJournalRoutes, screenshotDirForGame } from "./game-journal-routes.js";
 import {
   getContentFilterFlags,
@@ -304,6 +321,7 @@ import { importRouter } from "./routes/import.js";
 import { rommRouter } from "./routes/romm.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
+import { activityRouter } from "./routes/activity.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 import { probeRootFolder, isWithinDeletableRootFolder, isStrictlyInside } from "./root-folders.js";
 import {
@@ -655,6 +673,45 @@ async function saveIgdbCredentialsIfProvided(
 }
 
 /**
+ * Attaches a release scoring evaluation to every result and sorts by it (accepted first, then
+ * score). Rejected releases stay in the list so the UI can show why. The wanted game is the
+ * requested gameId when it is the user's own, else the query text. Scoring is best effort: on
+ * failure the results come back unscored.
+ */
+async function scoreManualSearchResults(
+  items: SearchItem[],
+  userId: string | undefined,
+  ownGame: Awaited<ReturnType<typeof storage.getGame>>,
+  query: string,
+  preferredPlatform: string | null,
+  xrelTypes: XrelPredbTypes
+): Promise<{ items: SearchItem[]; config?: ScoringConfig }> {
+  if (!userId || items.length === 0) return { items };
+  try {
+    const config = await loadScoringConfig(userId);
+    const platform = ownGame
+      ? resolveGamePlatformPreference(ownGame, preferredPlatform)
+      : preferredPlatform;
+    const gameTitle = ownGame?.title ?? query;
+    // a slow xREL must not hold up the result list; the lookup finishes in the background
+    const xrelReleases = await getXrelPredb(gameTitle, xrelTypes, {
+      timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
+    });
+    const scored = evaluateReleases(
+      items,
+      { gameTitle, platform, ...(xrelReleases ? { xrelReleases } : {}) },
+      config.profile,
+      config.formats
+    ).map(({ item, evaluation }) => ({ ...item, evaluation }));
+    return { items: scored, config };
+  } catch (error) {
+    // safe: unscored items are still valid results, the client shows them without badges
+    routesLogger.warn({ error }, "Release scoring failed, returning unscored results");
+    return { items };
+  }
+}
+
+/**
  * Handles an aggregated indexer search request. Results are filtered by the requesting user's
  * global release-name blacklist and, when a gameId is given, that game's blacklist, before AI
  * enrichment. A canonical game-title search also refreshes the game's availability badge.
@@ -689,6 +746,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
     const gameId = req.query.gameId as string | undefined;
     let filteredItems = items;
     let userSettings: Awaited<ReturnType<typeof storage.getUserSettings>> | undefined;
+    let ownGame: Awaited<ReturnType<typeof storage.getGame>> = undefined;
     if (req.user) {
       userSettings = await storage.getUserSettings(req.user.id);
       const blacklistTerms = parseJsonStringArray(userSettings?.releaseNameBlacklist);
@@ -702,27 +760,45 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
         const blacklisted = await storage.getReleaseBlacklistSet(gameId);
         filteredItems = filterBlacklistedReleases(filteredItems, blacklisted);
 
-        // Update the "has results" flag only for canonical game-title searches so that
-        // partial/custom user-typed queries in the download dialog don't flip the badge
-        // based on a transient, narrow result set. Runs async to avoid blocking the response.
-        const isCanonicalSearch = normalizeTitle(query.trim()) === normalizeTitle(game.title);
-        if (isCanonicalSearch) {
-          const preferredPlatform = userSettings?.preferredPlatform ?? null;
-          const platformFiltered = preferredPlatform
-            ? filteredItems.filter((item) => {
-                const { platform } = parseReleaseMetadata(item.title);
-                return matchesPlatformFilter(platform, preferredPlatform);
-              })
-            : filteredItems;
-          storage
-            .updateGameSearchResultsAvailable(game.id, platformFiltered.length > 0)
-            .catch((err) => routesLogger.warn({ err }, "Failed to update searchResultsAvailable"));
-        }
+        ownGame = game;
       }
     }
 
     const blacklistedCount = items.length - filteredItems.length;
-    const enrichedItems = await enrichWithAiAnalysis(filteredItems);
+    const { items: scoredItems, config: scoringConfig } = await scoreManualSearchResults(
+      filteredItems,
+      req.user?.id,
+      ownGame,
+      query.trim(),
+      userSettings?.preferredPlatform ?? null,
+      xrelTypesFor(userSettings)
+    );
+
+    // Update the "has results" flag only for canonical game-title searches so that
+    // partial/custom user-typed queries in the download dialog don't flip the badge
+    // based on a transient, narrow result set. Runs async to avoid blocking the response.
+    // Same rule as auto-search: an accepted release with a clear title match.
+    if (ownGame && normalizeTitle(query.trim()) === normalizeTitle(ownGame.title)) {
+      // the game's own target platform wins over the account default, as in the scoring above
+      const preferredPlatform = resolveGamePlatformPreference(
+        ownGame,
+        userSettings?.preferredPlatform ?? null
+      );
+      const usable = scoredItems.filter(({ evaluation }) =>
+        evaluation && scoringConfig ? isAutoEligible(evaluation, scoringConfig) : true
+      );
+      const platformFiltered = preferredPlatform
+        ? usable.filter((item) => {
+            const { platform } = parseReleaseMetadata(item.title);
+            return matchesPlatformFilter(platform, preferredPlatform);
+          })
+        : usable;
+      storage
+        .updateGameSearchResultsAvailable(ownGame.id, platformFiltered.length > 0)
+        .catch((err) => routesLogger.warn({ err }, "Failed to update searchResultsAvailable"));
+    }
+
+    const enrichedItems = await enrichWithAiAnalysis(scoredItems);
 
     return res.json({
       items: enrichedItems,
@@ -942,7 +1018,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Use Steam Routes
   app.use(steamRoutes);
+  app.use(releaseScoringRoutes);
   app.use(gameJournalRoutes);
+  app.use(collectionRoutes);
   // Use PCGamingWiki Routes
   app.use(pcgamingwikiRouter);
 
@@ -1620,9 +1698,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/settings/romm", rommRouter);
   app.use("/api/import-tasks", importTasksRouter);
   app.use("/api/system", systemRouter);
+  app.use("/api/activity", activityRouter);
   // Authenticated by the /api gate above (JWT or integration API key); same
   // reasoning as the mounts above.
-  app.use("/api/integration", integrationRouter);
+  app.use("/api/integration", integrationRateLimiter, integrationRouter);
   app.use("/api/api-keys", apiKeysRouter);
 
   // Last-used Prowlarr sync settings, to prefill the sync dialog. The stored

@@ -12,12 +12,16 @@ export const routePaths = {
   calendar: "/calendar",
   wishlist: "/wishlist",
   playing: "/playing",
+  collections: "/collections",
   libraryImport: "/library-import",
   xrel: "/xrel",
   rss: "/rss",
   stats: "/stats",
   logs: "/logs",
   importHistory: "/activity/imports",
+  activityHistory: "/activity/history",
+  activityBlocklist: "/activity/blocklist",
+  systemTasks: "/system/tasks",
 } as const;
 
 /** Wouter pattern for the per-game details page. */
@@ -41,10 +45,14 @@ export const appRoutePaths = [
   routePaths.calendar,
   routePaths.wishlist,
   routePaths.playing,
+  routePaths.collections,
   routePaths.libraryImport,
   routePaths.xrel,
   routePaths.rss,
   routePaths.stats,
   routePaths.logs,
   routePaths.importHistory,
+  routePaths.activityHistory,
+  routePaths.activityBlocklist,
+  routePaths.systemTasks,
 ] as const;

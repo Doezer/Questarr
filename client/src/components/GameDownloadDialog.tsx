@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import ReleaseScoreBadge, { XrelStatusBadge } from "@/components/ReleaseScoreBadge";
+import type { ReleaseEvaluation } from "@shared/release-scoring";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,13 +86,14 @@ import { inferReleaseCategory } from "@shared/version-utils";
 import type { ReleaseType } from "@shared/typesafe-types";
 import {
   parseReleaseMetadata,
-  parseJsonStringArray,
   matchesPlatformFilter,
   normalizeTitle,
   type CanonicalPlatform,
 } from "@shared/title-utils";
 import { canonicalPlatformsForIgdbIds, matchesSelectedIgdbPlatform } from "@shared/platforms";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
+
+type SortField = "score" | "seeders" | "date" | "size" | "priority";
 
 interface DownloadItem {
   title: string;
@@ -116,6 +119,7 @@ interface DownloadItem {
   group?: string;
   aiReleaseType?: ReleaseType;
   aiReleaseTypeConfidence?: number;
+  evaluation?: ReleaseEvaluation;
 }
 
 interface SearchResult {
@@ -301,7 +305,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     [minSeeders]
   );
   const [selectedIndexer, setSelectedIndexer] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size" | "priority">("seeders");
+  const [sortBy, setSortBy] = useState<SortField>("score");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
@@ -327,7 +331,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setSelectedUpdateIndices(new Set());
     setMinSeeders(0);
     setSelectedIndexer("all");
-    setSortBy("seeders");
+    setSortBy("score");
     setSortOrder("desc");
     setShowFilters(false);
     setVisibleCategories(
@@ -359,12 +363,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         console.warn("Failed to apply download rules from settings", error);
       }
     }
-    if (userSettings?.filterByPreferredGroups) {
-      const groups = parseJsonStringArray(userSettings.preferredReleaseGroups);
-      if (groups.length > 0) {
-        setSelectedGroups(groups);
-      }
-    }
     if (userSettings?.preferredPlatform && !platformPreselectedRef.current) {
       // The preferred platform must also be allowed by the Platforms setting;
       // otherwise preselecting it would hide every release and show a warning
@@ -380,8 +378,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }
   }, [
     userSettings?.downloadRules,
-    userSettings?.filterByPreferredGroups,
-    userSettings?.preferredReleaseGroups,
     userSettings?.preferredPlatform,
     userSettings?.importPlatformIds,
   ]);
@@ -549,8 +545,39 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           return selectedPlatforms.some((sp) => matchesPlatformFilter(platform, sp));
         })
         .sort((a, b) => {
+          // Rejected releases sort below accepted ones whatever the sort field or direction.
+          const aEval = a.evaluation;
+          const bEval = b.evaluation;
+          if (aEval && bEval && aEval.accepted !== bEval.accepted) {
+            return aEval.accepted ? -1 : 1;
+          }
           let comparison;
-          if (sortBy === "seeders") {
+          if (sortBy === "score") {
+            comparison = (bEval?.score ?? 0) - (aEval?.score ?? 0);
+            if (comparison === 0) {
+              // Ties follow the server order (protocol, indexer priority, health) whichever
+              // way the score column is sorted, so they are negated ahead of the final flip.
+              let tie = 0;
+              if (aEval && bEval && aEval.preferredProtocol !== bEval.preferredProtocol) {
+                tie = aEval.preferredProtocol ? -1 : 1;
+              }
+              if (tie === 0) {
+                const aPriority = indexerPriorityMap.get(a.indexerName ?? "");
+                const bPriority = indexerPriorityMap.get(b.indexerName ?? "");
+                if (aPriority !== undefined && bPriority !== undefined) {
+                  tie = aPriority - bPriority;
+                } else if (aPriority !== bPriority) {
+                  tie = aPriority === undefined ? 1 : -1;
+                }
+              }
+              if (tie === 0) {
+                const aHealth = isUsenetItem(a) ? (a.grabs ?? 0) : (a.seeders ?? 0);
+                const bHealth = isUsenetItem(b) ? (b.grabs ?? 0) : (b.seeders ?? 0);
+                tie = bHealth - aHealth;
+              }
+              comparison = sortOrder === "desc" ? tie : -tie;
+            }
+          } else if (sortBy === "seeders") {
             const aHealth = isUsenetItem(a) ? (a.grabs ?? 0) : (a.seeders ?? 0);
             const bHealth = isUsenetItem(b) ? (b.grabs ?? 0) : (b.seeders ?? 0);
             comparison = bHealth - aHealth;
@@ -829,7 +856,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     });
   };
 
-  const toggleSort = (field: "seeders" | "date" | "size" | "priority") => {
+  const toggleSort = (field: SortField) => {
     if (sortBy === field) {
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
     } else {
@@ -843,7 +870,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     label,
     className = "",
   }: {
-    field: "seeders" | "date" | "size" | "priority";
+    field: SortField;
     label: string;
     className?: string;
   }) => (
@@ -1112,6 +1139,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                               />
                             )}
                             <SortHeader
+                              field="score"
+                              label="Score"
+                              className="min-w-[70px] justify-end"
+                            />
+                            <SortHeader
                               field="date"
                               label="Date"
                               className="min-w-[70px] justify-end"
@@ -1237,7 +1269,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                           return (
                             <div
                               key={download.guid || download.link}
-                              className="p-3 text-sm overflow-hidden"
+                              className={cn(
+                                "p-3 text-sm overflow-hidden",
+                                download.evaluation?.accepted === false && "opacity-60"
+                              )}
                             >
                               <div className="flex items-start gap-2 min-w-0">
                                 {/* Type icon */}
@@ -1312,6 +1347,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     downloadVolumeFactor={download.downloadVolumeFactor}
                                     className="mt-1"
                                   />
+                                  {download.evaluation && (
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      <ReleaseScoreBadge evaluation={download.evaluation} />
+                                      <XrelStatusBadge evaluation={download.evaluation} />
+                                    </div>
+                                  )}
 
                                   {/* Group + indexer line */}
                                   <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 mt-1 min-w-0 overflow-hidden">
@@ -1350,7 +1391,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                         return (
                           <div
                             key={download.guid || download.link}
-                            className="p-4 text-sm hover:bg-muted/30 transition-colors group/row"
+                            className={cn(
+                              "p-4 text-sm hover:bg-muted/30 transition-colors group/row",
+                              download.evaluation?.accepted === false && "opacity-60"
+                            )}
                           >
                             <div className="flex items-center gap-4">
                               <div className="flex-1 min-w-0 space-y-1">
@@ -1407,6 +1451,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   downloadVolumeFactor={download.downloadVolumeFactor}
                                   className="gap-1.5"
                                 />
+                                {download.evaluation && (
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <ReleaseScoreBadge evaluation={download.evaluation} />
+                                    <XrelStatusBadge evaluation={download.evaluation} />
+                                  </div>
+                                )}
 
                                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
                                   {metadata.group && (
@@ -1436,6 +1486,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     {indexerPriorityMap.get(download.indexerName ?? "") ?? "—"}
                                   </div>
                                 )}
+
+                                <div className="min-w-[70px] text-right font-mono text-xs font-bold">
+                                  {download.evaluation?.score ?? "—"}
+                                </div>
 
                                 <div className="min-w-[70px] text-right">
                                   <div className="text-xs font-medium">

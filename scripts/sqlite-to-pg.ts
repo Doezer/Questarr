@@ -51,17 +51,24 @@ const TABLE_ORDER = [
   "apiKeys",
   "importTasks",
   "rssFeedItems",
+  "releaseProfiles",
+  "customFormats",
   // Reference games / downloaders / importTasks.
   "gameDownloads",
   "xrelNotifiedReleases",
   "releaseBlacklist",
+  "downloadEvents",
   "aiAutoDownloadHolds",
   "importTaskItems",
+  "collections",
+  "collectionGames",
   "gameJournalEntries",
   "gameMilestones",
   "gameScreenshots",
   // References games and gameDownloads, so it goes last.
   "gameFiles",
+  // References users and games; nothing references it.
+  "integrationRequests",
 ] as const;
 
 type TableName = (typeof TABLE_ORDER)[number];

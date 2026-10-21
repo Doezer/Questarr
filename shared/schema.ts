@@ -2,7 +2,9 @@ import { sql } from "drizzle-orm";
 import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import type { FormatSpec, ReleaseProfile } from "./release-scoring.js";
 import { resolveTargetPlatform } from "./title-utils.js";
+import { hasReversedYearRange, isEmptyCollectionRules } from "./collection-rules.js";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -170,6 +172,24 @@ export const importConfigSchema = z.object({
 
 // A DLC/expansion IGDB reports as related to a game, carried through from
 // IGDBClient.formatGameData for display; not a separately tracked entity.
+export type CollectionType = "manual" | "smart";
+
+/** Filter rules of a smart collection. Every set field must match (AND); the list fields match
+ * when the game has at least one of the listed values (OR). */
+export type CollectionRules = {
+  statuses?: string[] | undefined;
+  platforms?: string[] | undefined;
+  genres?: string[] | undefined;
+  /** Minimum IGDB rating (0-10, as stored on games). */
+  minRating?: number | undefined;
+  /** Minimum personal rating (0.5-10). */
+  minUserRating?: number | undefined;
+  releaseYearFrom?: number | undefined;
+  releaseYearTo?: number | undefined;
+  /** Case-insensitive substring of the title. */
+  titleContains?: string | undefined;
+};
+
 export type GameExpansion = {
   id: number;
   name: string;
@@ -368,6 +388,61 @@ export const releaseBlacklist = sqliteTable(
   (t) => [uniqueIndex("release_blacklist_game_title_idx").on(t.gameId, t.releaseTitle)]
 );
 
+// Release scoring (Questarr-mgmt #12). One profile per user holds the thresholds, the
+// built-in rule overrides and the per-format scores; custom formats are rows of their own so
+// they can be created, edited and deleted one at a time. The built-in rules themselves are
+// code constants (shared/release-scoring.ts), not rows.
+export const releaseProfiles = sqliteTable("release_profiles", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  minScore: integer("min_score").notNull().default(0),
+  protocolPreference: text("protocol_preference").notNull().default("either"),
+  requiredTerms: text("required_terms", { mode: "json" }).$type<string[]>().notNull().default([]),
+  ignoredTerms: text("ignored_terms", { mode: "json" }).$type<string[]>().notNull().default([]),
+  minSeeders: integer("min_seeders").notNull().default(0),
+  maxSizeBytes: integer("max_size_bytes"),
+  builtInOverrides: text("built_in_overrides", { mode: "json" })
+    .$type<ReleaseProfile["builtInOverrides"]>()
+    .notNull()
+    .default({}),
+  formatScores: text("format_scores", { mode: "json" })
+    .$type<Record<string, number>>()
+    .notNull()
+    .default({}),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+});
+
+export const customFormats = sqliteTable(
+  "custom_formats",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    specs: text("specs", { mode: "json" }).$type<FormatSpec[]>().notNull().default([]),
+    score: integer("score").notNull().default(0),
+    hardReject: integer("hard_reject", { mode: "boolean" }).notNull().default(false),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("custom_formats_user_idx").on(t.userId)]
+);
+
 // Local-only journaling entries for a game (e.g. while playing it). Never
 // synced externally — a personal log, replacing the old single-field notes.
 export const gameJournalEntries = sqliteTable(
@@ -447,6 +522,44 @@ export const aiAutoDownloadHolds = sqliteTable(
     ),
   },
   (t) => [uniqueIndex("ai_auto_download_holds_game_title_idx").on(t.gameId, t.releaseTitle)]
+);
+
+// User-defined collections of games. "manual" collections hold an explicit list of games
+// (collection_games); "smart" ones store filter rules and are evaluated against the library
+// on read, so they never go stale.
+export const collections = sqliteTable(
+  "collections",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    type: text("type").notNull().default("manual"), // "manual" | "smart" — validated by Zod
+    rules: text("rules", { mode: "json" }).$type<CollectionRules>(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("collections_user_idx").on(t.userId)]
+);
+
+export const collectionGames = sqliteTable(
+  "collection_games",
+  {
+    id: text("id").primaryKey(),
+    collectionId: text("collection_id")
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [uniqueIndex("collection_games_collection_game_idx").on(t.collectionId, t.gameId)]
 );
 
 export const notifications = sqliteTable("notifications", {
@@ -604,6 +717,74 @@ export const updateGameInstalledVersionSchema = z.object({
     .transform((v) => v || null),
 });
 
+const trimmedList = z.array(z.string().trim().min(1).max(100)).max(50);
+
+export const collectionRulesSchema = z
+  .object({
+    statuses: z.array(z.enum(GAME_STATUSES)).max(GAME_STATUSES.length).optional(),
+    platforms: trimmedList.optional(),
+    genres: trimmedList.optional(),
+    minRating: z.number().min(0).max(10).optional(),
+    minUserRating: z.number().min(0).max(10).optional(),
+    releaseYearFrom: z.number().int().min(1950).max(2100).optional(),
+    releaseYearTo: z.number().int().min(1950).max(2100).optional(),
+    titleContains: z.string().trim().min(1).max(100).optional(),
+  })
+  .strict();
+
+const collectionBaseSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(100),
+  description: z
+    .string()
+    .max(500)
+    .nullish()
+    .transform((v) => v?.trim() || null),
+  type: z.enum(["manual", "smart"]),
+  rules: collectionRulesSchema.nullish(),
+});
+
+type CollectionRulesInput = {
+  type?: "manual" | "smart" | undefined;
+  rules?: CollectionRules | null | undefined;
+};
+
+/** A smart collection needs at least one rule; a manual one never stores rules. */
+function refineCollectionRules(value: CollectionRulesInput, ctx: z.RefinementCtx) {
+  if (value.type === "smart" && isEmptyCollectionRules(value.rules)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["rules"],
+      message: "A smart collection needs at least one rule",
+    });
+  }
+  refineReversedYears(value, ctx);
+}
+
+function refineReversedYears(value: CollectionRulesInput, ctx: z.RefinementCtx) {
+  if (hasReversedYearRange(value.rules)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["rules", "releaseYearTo"],
+      message: "releaseYearTo must not be before releaseYearFrom",
+    });
+  }
+}
+
+export const insertCollectionSchema = collectionBaseSchema
+  .superRefine(refineCollectionRules)
+  .transform((v) => ({ ...v, rules: v.type === "smart" ? (v.rules ?? null) : null }));
+
+export const updateCollectionSchema = collectionBaseSchema
+  .partial()
+  // The "smart needs a rule" check runs in the PATCH route, on the patch merged with the stored
+  // collection, so a patch may omit rules that are already stored.
+  .superRefine(refineReversedYears)
+  .transform((v) => (v.type === "manual" ? { ...v, rules: null } : v));
+
+export const addCollectionGameSchema = z.object({
+  gameId: z.string().trim().min(1),
+});
+
 export const insertGameJournalEntrySchema = createInsertSchema(gameJournalEntries, {
   note: (schema) => schema.trim().min(1, "Note cannot be empty").max(10000),
 }).omit({
@@ -708,7 +889,7 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
 // Download rules schema for auto-download filtering
 export const downloadRulesSchema = z.object({
   minSeeders: z.number().int().min(0).default(0),
-  sortBy: z.enum(["seeders", "date", "size", "priority"]).default("seeders"),
+  sortBy: z.enum(["score", "seeders", "date", "size", "priority"]).default("seeders"),
   visibleCategories: z
     .array(z.enum(["main", "update", "dlc", "extra", "packs"]))
     .default(["main", "update", "dlc", "extra", "packs"]),
@@ -793,6 +974,59 @@ function isJsonStringArray(raw: unknown): boolean {
   }
 }
 
+export type ReleaseProfileRow = typeof releaseProfiles.$inferSelect;
+export type CustomFormatRow = typeof customFormats.$inferSelect;
+
+const formatSpecInputSchema = z.object({
+  field: z.enum(["title", "group", "uploader", "category", "protocol", "indexer"]),
+  mode: z.enum(["contains", "exact", "regex"]),
+  value: z.string().trim().min(1).max(200),
+  negate: z.boolean().optional(),
+  required: z.boolean().optional(),
+});
+
+/** Body of POST /api/custom-formats and PATCH (every field optional there). */
+export const customFormatInputSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  specs: z.array(formatSpecInputSchema).min(1).max(20),
+  score: z.number().int().min(-10000).max(10000),
+  hardReject: z.boolean().default(false),
+  enabled: z.boolean().default(true),
+});
+export type ParsedCustomFormatInput = z.infer<typeof customFormatInputSchema>;
+export type CustomFormatInput = Omit<ParsedCustomFormatInput, "specs"> & { specs: FormatSpec[] };
+
+export type CustomFormatUpdate = {
+  [K in keyof CustomFormatInput]?: CustomFormatInput[K] | undefined;
+};
+
+/** Drops the undefined flags zod leaves on optional keys (exactOptionalPropertyTypes). */
+export function toFormatSpecs(specs: ParsedCustomFormatInput["specs"]): FormatSpec[] {
+  return specs.map(({ negate, required, ...spec }) => ({
+    ...spec,
+    ...(negate !== undefined ? { negate } : {}),
+    ...(required !== undefined ? { required } : {}),
+  }));
+}
+
+const builtInOverrideSchema = z.object({
+  points: z.number().int().min(-10000).max(10000).optional(),
+  enabled: z.boolean().optional(),
+});
+
+/** Body of PUT /api/release-profile. */
+export const releaseProfileInputSchema = z.object({
+  minScore: z.number().int().min(-10000).max(10000),
+  protocolPreference: z.enum(["torrent", "usenet", "either"]),
+  requiredTerms: z.array(z.string().trim().min(1).max(200)).max(50),
+  ignoredTerms: z.array(z.string().trim().min(1).max(200)).max(50),
+  minSeeders: z.number().int().min(0).max(100000),
+  maxSizeBytes: z.number().int().positive().nullable(),
+  builtInOverrides: z.record(z.string().max(64), builtInOverrideSchema),
+  formatScores: z.record(z.string().max(64), z.number().int().min(-10000).max(10000)),
+});
+export type ReleaseProfileInput = z.infer<typeof releaseProfileInputSchema>;
+
 export const insertReleaseBlacklistSchema = createInsertSchema(releaseBlacklist).omit({
   id: true,
   createdAt: true,
@@ -873,6 +1107,15 @@ export type InsertDownloader = (typeof insertDownloaderSchema)["_output"];
 export type GameDownload = typeof gameDownloads.$inferSelect;
 export type InsertGameDownload = (typeof insertGameDownloadSchema)["_output"];
 
+export type Collection = typeof collections.$inferSelect;
+export type InsertCollection = {
+  userId: string;
+  name: string;
+  description: string | null;
+  type: CollectionType;
+  rules: CollectionRules | null;
+};
+export type CollectionGame = typeof collectionGames.$inferSelect;
 export type GameJournalEntry = typeof gameJournalEntries.$inferSelect;
 export type InsertGameJournalEntry = (typeof insertGameJournalEntrySchema)["_output"];
 
@@ -1199,6 +1442,42 @@ export type InsertImportTask = (typeof insertImportTaskSchema)["_output"];
 export type ImportTaskItem = typeof importTaskItems.$inferSelect;
 export type InsertImportTaskItem = (typeof insertImportTaskItemSchema)["_output"];
 
+export const DOWNLOAD_EVENT_TYPES = [
+  "grabbed",
+  "completed",
+  "imported",
+  "failed",
+  "needs_review",
+  "removed",
+  "blocklisted",
+] as const;
+export type DownloadEventType = (typeof DOWNLOAD_EVENT_TYPES)[number];
+
+// Append-only log of what happened to a game's downloads. gameId survives the game being
+// deleted as null; gameTitle is a snapshot so the entry still reads sensibly afterwards.
+export const downloadEvents = sqliteTable(
+  "download_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    gameTitle: text("game_title").notNull(),
+    eventType: text("event_type").notNull().$type<DownloadEventType>(),
+    releaseTitle: text("release_title").notNull(),
+    downloaderName: text("downloader_name"),
+    message: text("message"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("download_events_user_created_idx").on(t.userId, t.createdAt)]
+);
+
+export type DownloadEvent = typeof downloadEvents.$inferSelect;
+export type InsertDownloadEvent = Omit<typeof downloadEvents.$inferInsert, "id" | "createdAt">;
+
 export const gameFileCategorySchema = z.enum(["main", "dlc", "update", "extra"]);
 export type GameFileCategory = z.infer<typeof gameFileCategorySchema>;
 
@@ -1312,6 +1591,12 @@ export type DownloaderDebugLoggingResponse = z.infer<typeof downloaderDebugLoggi
 // login flow (the Playnite extension, scripts, other self-hosted tools). Only a
 // SHA-256 hash of the key is stored, so a database leak never yields a usable
 // credential; the raw key is shown to the user once, at creation.
+// What a key may call. One scope per key; stored as plain text (no CHECK) and
+// validated here, so adding a scope never needs a migration.
+export const API_KEY_SCOPES = ["all", "library:write", "read", "requests"] as const;
+export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
+export const DEFAULT_API_KEY_SCOPE: ApiKeyScope = "all";
+
 export const apiKeys = sqliteTable(
   "api_keys",
   {
@@ -1328,6 +1613,9 @@ export const apiKeys = sqliteTable(
       sql`(strftime('%s', 'now') * 1000)`
     ),
     lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+    // Existing keys migrate to all with no expiry.
+    scope: text("scope").$type<ApiKeyScope>().notNull().default("all"),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
   },
   (t) => [
     uniqueIndex("api_keys_key_hash_idx").on(t.keyHash),
@@ -1344,6 +1632,16 @@ export const insertApiKeySchema = createInsertSchema(apiKeys, {
 });
 
 export type ApiKey = typeof apiKeys.$inferSelect;
+
+/** Input to storage.addApiKey: omitted scope/expiresAt mean "all routes, never expires". */
+export type NewApiKeyInput = {
+  userId: string;
+  name: string;
+  keyHash: string;
+  prefix: string;
+  scope?: ApiKeyScope;
+  expiresAt?: Date | null;
+};
 export type InsertApiKey = (typeof insertApiKeySchema)["_output"];
 
 // An API key as returned to the client: never includes the hash.
@@ -1360,6 +1658,8 @@ export const apiKeyPublicResponseSchema = z.object({
   prefix: z.string(),
   createdAt: z.string().nullable(),
   lastUsedAt: z.string().nullable(),
+  scope: z.enum(API_KEY_SCOPES),
+  expiresAt: z.string().nullable(),
 });
 export type ApiKeyPublicResponse = z.infer<typeof apiKeyPublicResponseSchema>;
 
@@ -1371,3 +1671,70 @@ export const apiKeyCreatedResponseSchema = apiKeyPublicResponseSchema.extend({
   key: z.string(),
 });
 export type ApiKeyCreatedResponse = z.infer<typeof apiKeyCreatedResponseSchema>;
+
+// ── External requests ledger ─────────────────────────────────────────────────
+// Durable record of a request made by an external request app (SeerrNG). The
+// app owns users, approvals and quotas; Questarr only remembers which of its
+// own games answers which external request id, so a replayed POST is
+// idempotent and status can be read back after either service restarts.
+export const INTEGRATION_REQUEST_PROVIDERS = ["seerrng"] as const;
+export type IntegrationRequestProvider = (typeof INTEGRATION_REQUEST_PROVIDERS)[number];
+export const INTEGRATION_REQUEST_STATUSES = [
+  "accepted",
+  "searching",
+  "failed",
+  "cancelled",
+] as const;
+export type IntegrationRequestStatus = (typeof INTEGRATION_REQUEST_STATUSES)[number];
+export const SEERRNG_OPERATING_SYSTEMS = ["windows", "linux", "macos"] as const;
+export const SEERRNG_ARCHITECTURES = ["x64", "arm64", "x86", "universal"] as const;
+export type SeerrngOperatingSystem = (typeof SEERRNG_OPERATING_SYSTEMS)[number];
+export type SeerrngArchitecture = (typeof SEERRNG_ARCHITECTURES)[number];
+
+export const integrationRequests = sqliteTable(
+  "integration_requests",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").$type<IntegrationRequestProvider>().notNull().default("seerrng"),
+    externalRequestId: text("external_request_id").notNull(),
+    // Exact IGDB identity supplied by the request app; null when it sent a title only.
+    igdbId: integer("igdb_id"),
+    // The game answering the request. Set null if the game is deleted, so the
+    // request stays readable (and retryable) instead of vanishing.
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    operatingSystem: text("operating_system").$type<SeerrngOperatingSystem>(),
+    architecture: text("architecture").$type<SeerrngArchitecture>(),
+    status: text("status").$type<IntegrationRequestStatus>().notNull().default("accepted"),
+    errorMessage: text("error_message"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [
+    uniqueIndex("integration_requests_user_provider_external_idx").on(
+      t.userId,
+      t.provider,
+      t.externalRequestId
+    ),
+    index("integration_requests_game_id_idx").on(t.gameId),
+  ]
+);
+
+export type IntegrationRequest = typeof integrationRequests.$inferSelect;
+export type NewIntegrationRequest = Pick<
+  IntegrationRequest,
+  "userId" | "externalRequestId" | "title"
+> &
+  Partial<
+    Pick<IntegrationRequest, "provider" | "igdbId" | "gameId" | "operatingSystem" | "architecture">
+  >;
+export type IntegrationRequestUpdate = Partial<
+  Pick<IntegrationRequest, "gameId" | "status" | "errorMessage">
+>;

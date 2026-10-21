@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - **Game videos**: IGDB trailers and gameplay clips are saved with each game when it is added, found by a library scan, or has its metadata refreshed, and shown in a carousel on the Media tab of the game details page. They play in a privacy-enhanced YouTube embed that loads only on click, so the Content-Security-Policy now allows `i.ytimg.com` thumbnails and the `youtube-nocookie.com` frame (#1194).
 - **Release scoring**: every search result now gets a score built from a title match, indexer category, platform and quality rules, a per-user **release profile** (minimum score, preferred protocol, required and ignored terms, minimum seeders, maximum size) and your own **custom formats** (conditions on the title, group, uploader, category, protocol or indexer, each adding or removing points, or rejecting the release outright). The manual search shows the score, its breakdown and why a release was rejected; auto-search takes the best-scored accepted release, breaking ties with the preferred protocol and then your sort order. Releases the xREL PreDB lists as nuked are rejected, and the search shows an xREL badge. Configure it under **Settings → Discovery & Downloads → Release Scoring**, which replaces the Preferred Release Groups card: existing preferred groups become a "Preferred release group" format worth +50 (#1196). See [API](API.md#release-scoring).
 - **Recommended custom formats**: an **Install recommended formats** button adds a starting set that pushes down crack-only, demo and pre-installed releases, rejects trainers, keygens and activators outright, and favors releases that include updates and DLC and a few trusted repackers. Formats you already have are not duplicated (#1224).
+- **Scoped API keys and SeerrNG**: API keys now have an access level (all, library write, read or game requests) and an optional expiry of 1 to 365 days, chosen in **Settings → Integrations → API Keys**. The new **Game requests (SeerrNG)** access lets SeerrNG request PC games from Questarr through a provider API that follows the QuestarrNG contract; such a key is refused on every other route except `GET /api/integration/ping`. Integration routes are limited to 300 requests per minute per key (#1198). See [SeerrNG](SEERRNG.md), [Gameyfin](GAMEYFIN.md) and [API](API.md#api-keys-management).
 - **Weekly pre-releases**: a weekly workflow publishes a `vX.Y.Z-dev.YYYYMMDD` pre-release and the Docker tags `weekly` and `dev`, never `latest` (#1192). Their notes end with a list of contributors, bots excluded (#1222). See [Operations](OPERATIONS.md).
 
 ### Changed
@@ -30,7 +31,7 @@ All notable changes to this project will be documented in this file.
 
 ### Dependencies
 
-- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14 (#1188, #1189, #1190, #1191, #1205, #1206).
+- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14, and `follow-redirects` pinned to 1.16.1 for two high advisories (#1188, #1189, #1190, #1191, #1205, #1206, #1219, #1228, #1229).
 
 ## [1.5.0] - 2026-10-12
 

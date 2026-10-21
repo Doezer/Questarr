@@ -99,13 +99,15 @@ export function preferredGroupFormats(
   if (strict) {
     formats.push({
       name: NON_PREFERRED_GROUP_FORMAT_NAME,
-      specs: patterns.map((value): FormatSpec => ({
-        field: "group",
-        mode: "regex",
-        value,
-        negate: true,
-        required: true,
-      })),
+      specs: patterns.map(
+        (value): FormatSpec => ({
+          field: "group",
+          mode: "regex",
+          value,
+          negate: true,
+          required: true,
+        })
+      ),
       score: 0,
       hardReject: true,
     });

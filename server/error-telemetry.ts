@@ -82,7 +82,8 @@ export function getPendingReport(reportId: string, userId: string): PendingError
 }
 
 type WorkerSendResult =
-  { ok: true; code: string; issueNumber: number } | { ok: false; message: string };
+  | { ok: true; code: string; issueNumber: number }
+  | { ok: false; message: string };
 
 async function sendToSupportWorker(
   logs: string,

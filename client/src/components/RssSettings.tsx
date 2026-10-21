@@ -24,6 +24,7 @@ import { Plus, Trash, Settings, CheckCircle, AlertCircle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function RssSettings() {
   const [isOpen, setIsOpen] = useState(false);
@@ -127,70 +128,84 @@ export default function RssSettings() {
             </div>
           </div>
 
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Status</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Enabled</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {feeds?.map((feed) => (
-                <TableRow key={feed.id}>
-                  <TableCell>
-                    {feed.status === "ok" ? (
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <span title={feed.errorMessage || "Error"}>
-                        <AlertCircle className="h-4 w-4 text-red-500" />
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="font-medium">
-                    {feed.name}
-                    <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                      {feed.url}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary" className="capitalize">
-                      {feed.type}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Switch
-                      checked={feed.enabled}
-                      onCheckedChange={(c) =>
-                        toggleFeedMutation.mutate({ id: feed.id, enabled: c })
-                      }
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => deleteFeedMutation.mutate(feed.id)}
-                      className="text-destructive"
-                      aria-label={`Delete feed ${feed.name}`}
-                      disabled={deleteFeedMutation.isPending}
-                    >
-                      <Trash className="h-4 w-4" aria-hidden="true" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {feeds?.length === 0 && (
+          <TooltipProvider>
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    No RSS feeds configured. Add one above!
-                  </TableCell>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Enabled</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {feeds?.map((feed) => (
+                  <TableRow key={feed.id}>
+                    <TableCell>
+                      {feed.status === "ok" ? (
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              tabIndex={0}
+                              role="img"
+                              aria-label={`Error: ${feed.errorMessage || "Error"}`}
+                              className="inline-flex cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
+                            >
+                              <AlertCircle className="h-4 w-4 text-red-500" aria-hidden="true" />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{feed.errorMessage || "Error"}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {feed.name}
+                      <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                        {feed.url}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="capitalize">
+                        {feed.type}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Switch
+                        checked={feed.enabled}
+                        onCheckedChange={(c) =>
+                          toggleFeedMutation.mutate({ id: feed.id, enabled: c })
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteFeedMutation.mutate(feed.id)}
+                        className="text-destructive"
+                        aria-label={`Delete feed ${feed.name}`}
+                        disabled={deleteFeedMutation.isPending}
+                      >
+                        <Trash className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {feeds?.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      No RSS feeds configured. Add one above!
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TooltipProvider>
         </div>
       </DialogContent>
     </Dialog>

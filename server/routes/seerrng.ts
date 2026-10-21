@@ -494,7 +494,13 @@ const TARGET_PLATFORMS: Record<SeerrngOperatingSystem, { id: number; name: strin
 };
 
 type RequestStatus =
-  "accepted" | "searching" | "downloading" | "importing" | "available" | "failed" | "cancelled";
+  | "accepted"
+  | "searching"
+  | "downloading"
+  | "importing"
+  | "available"
+  | "failed"
+  | "cancelled";
 
 /** Ledger note on a cancelled request whose game has not been shelved yet. */
 const CANCEL_PENDING_MARKER = "cancellation-pending";

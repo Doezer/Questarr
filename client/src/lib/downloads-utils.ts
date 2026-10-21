@@ -2,7 +2,13 @@
  * Download status type for torrent and usenet clients
  */
 export type DownloadStatusType =
-  "downloading" | "seeding" | "completed" | "paused" | "error" | "repairing" | "unpacking";
+  | "downloading"
+  | "seeding"
+  | "completed"
+  | "paused"
+  | "error"
+  | "repairing"
+  | "unpacking";
 
 /**
  * Download type

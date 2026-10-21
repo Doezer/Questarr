@@ -685,10 +685,8 @@ async function attachExistingGameLocked(
       });
     }
   } catch (error) {
-    // Release the claim so a retry re-runs the retargeting instead of resuming on the old platform.
-    await storage
-      .updateIntegrationRequest(userId, externalRequestId, { gameId: null })
-      .catch(() => undefined);
+    // Undo the game and the cancelled holder first, while this request still holds the claim: the
+    // live-game index then keeps a concurrent request off the game until the rollback is complete.
     if (releasedCancelled && holder) {
       if (unshelved) {
         // Put the game back on the shelf so auto-search ignores it and a retry un-shelves it again.
@@ -699,6 +697,10 @@ async function attachExistingGameLocked(
         .updateIntegrationRequest(userId, holder.externalRequestId, { gameId: owner.id })
         .catch(() => undefined);
     }
+    // Release the claim last so a retry re-runs the retargeting instead of resuming on the old platform.
+    await storage
+      .updateIntegrationRequest(userId, externalRequestId, { gameId: null })
+      .catch(() => undefined);
     throw error;
   }
   return claimed;

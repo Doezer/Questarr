@@ -647,6 +647,7 @@ async function attachExistingGameLocked(
   owner: Game,
   operatingSystem: keyof typeof TARGET_PLATFORMS
 ): Promise<IntegrationRequest | undefined> {
+  let releasedCancelled = false;
   const holder = await storage.getIntegrationRequestByGameId(userId, owner.id);
   if (holder && holder.externalRequestId !== externalRequestId) {
     if (holder.status !== "cancelled") {
@@ -657,25 +658,52 @@ async function attachExistingGameLocked(
       return undefined;
     }
     await storage.updateIntegrationRequest(userId, holder.externalRequestId, { gameId: null });
-    if (owner.status === "shelved") {
+    releasedCancelled = true;
+  }
+  let claimed: IntegrationRequest | undefined;
+  let unshelved = false;
+  try {
+    // Claim the game in the ledger first: the live-game unique index rejects a concurrent claim
+    // here, before this request has touched the game's status or target platform.
+    claimed = await storage.updateIntegrationRequest(userId, externalRequestId, {
+      gameId: owner.id,
+      status: "searching",
+      errorMessage: null,
+    });
+    if (releasedCancelled && owner.status === "shelved") {
       // Our cancellation shelved the game; a new request wants it again. A game the user
       // shelved by hand is a curated, owned entry and keeps its state.
       await storage.updateGameStatus(owner.id, { status: "wanted" });
       owner = { ...owner, status: "wanted" };
+      unshelved = true;
     }
+    const platform = TARGET_PLATFORMS[operatingSystem];
+    if (!isAcquired(owner) && owner.targetPlatformId !== platform.id) {
+      await storage.updateGame(owner.id, {
+        targetPlatformId: platform.id,
+        targetPlatformName: platform.name,
+      });
+    }
+  } catch (error) {
+    // Undo the game and the cancelled holder first, while this request still holds the claim: the
+    // live-game index then keeps a concurrent request off the game until the rollback is complete.
+    if (releasedCancelled && holder) {
+      if (unshelved) {
+        // Put the game back on the shelf so auto-search ignores it and a retry un-shelves it again.
+        await storage.updateGameStatus(owner.id, { status: "shelved" }).catch(() => undefined);
+      }
+      // Give the cancelled holder its game back so a retry takes the un-shelve path again.
+      await storage
+        .updateIntegrationRequest(userId, holder.externalRequestId, { gameId: owner.id })
+        .catch(() => undefined);
+    }
+    // Release the claim last so a retry re-runs the retargeting instead of resuming on the old platform.
+    await storage
+      .updateIntegrationRequest(userId, externalRequestId, { gameId: null })
+      .catch(() => undefined);
+    throw error;
   }
-  const platform = TARGET_PLATFORMS[operatingSystem];
-  if (!isAcquired(owner) && owner.targetPlatformId !== platform.id) {
-    await storage.updateGame(owner.id, {
-      targetPlatformId: platform.id,
-      targetPlatformName: platform.name,
-    });
-  }
-  return storage.updateIntegrationRequest(userId, externalRequestId, {
-    gameId: owner.id,
-    status: "searching",
-    errorMessage: null,
-  });
+  return claimed;
 }
 
 seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
@@ -761,6 +789,16 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
       });
       return res.status(201).json(await describeRequest(userId, linked ?? ledger));
     } catch (error) {
+      if (isUniqueViolation(error)) {
+        // Another process claimed the game between our holder check and this write.
+        await storage
+          .updateIntegrationRequest(userId, externalRequestId, {
+            status: "failed",
+            errorMessage: "Game is already linked to another request.",
+          })
+          .catch(() => undefined);
+        return res.status(409).json({ error: "Game is already linked to another request." });
+      }
       logger.error({ error, externalRequestId }, "SeerrNG software request failed");
       // Leave the ledger row retryable instead of stuck in "accepted" with no game.
       await storage
@@ -773,6 +811,22 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
     }
   });
 });
+
+/**
+ * SQLite and Postgres report a unique-index violation with different shapes, and Drizzle wraps
+ * the driver error (code and message sit on `cause`); accept both.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  const candidates = [error, (error as { cause?: unknown } | null)?.cause];
+  return candidates.some((candidate) => {
+    const { code, message } = (candidate ?? {}) as { code?: unknown; message?: unknown };
+    return (
+      code === "SQLITE_CONSTRAINT_UNIQUE" ||
+      code === "23505" ||
+      (typeof message === "string" && /UNIQUE constraint failed|duplicate key value/i.test(message))
+    );
+  });
+}
 
 async function loadRequest(req: Request, res: Response): Promise<IntegrationRequest | undefined> {
   const externalRequestId = requestIdSchema.safeParse(req.params.externalRequestId);
@@ -820,6 +874,9 @@ function requestAction(
         );
       });
     } catch (error) {
+      if (isUniqueViolation(error)) {
+        return res.status(409).json({ error: "Game is already linked to another request." });
+      }
       logger.error({ error }, logMessage);
       return res.status(500).json({ error: failureError });
     }

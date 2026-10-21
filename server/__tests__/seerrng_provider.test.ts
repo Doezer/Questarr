@@ -482,6 +482,37 @@ describe("SeerrNG provider API", () => {
         expect(byIgdb(71)).toMatchObject({ status: "wanted" });
       });
 
+      it("keeps an add-on another live request has since claimed when the request is cancelled", async () => {
+        await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+          });
+        const other = await request(app)
+          .post(`${base}/requests`)
+          .send({ ...createBody, externalRequestId: "r-other", igdbId: 70, title: "Game 70" });
+        expect(other.status).toBeLessThan(300);
+        await request(app).post(`${base}/requests/${createBody.externalRequestId}/cancel`).send({});
+        const byIgdb = (id: number) => [...games.values()].find((g) => g.igdbId === id);
+        expect(byIgdb(70)).toMatchObject({ status: "wanted" });
+      });
+
+      it("does not retry a rejected edition into an unrelated game", async () => {
+        const rejected = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "edition", editionId: 999 },
+          });
+        expect(rejected.status).toBe(400);
+        const retried = await request(app)
+          .post(`${base}/requests/${createBody.externalRequestId}/retry`)
+          .send({});
+        expect(retried.status).not.toBe(200);
+        expect([...games.values()].map((g) => g.igdbId)).not.toContain(999);
+      });
+
       it("refuses an edition or add-on that does not belong to the game", async () => {
         const edition = await request(app)
           .post(`${base}/requests`)

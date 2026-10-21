@@ -1312,8 +1312,23 @@ seerrngRouter.post(
         const selection = storedSelection(ledger);
         let target = { title: ledger.title, igdbId: ledger.igdbId };
         if (selection?.mode === "edition") {
-          const edition = await igdbClient.getGameById(selection.editionId);
-          target = { title: edition?.name ?? ledger.title, igdbId: selection.editionId };
+          // The same check as on creation: a rejected selection must not be retried into
+          // acquiring an arbitrary IGDB game.
+          const { editions } = ledger.igdbId
+            ? await igdbClient.getGameEditions(ledger.igdbId)
+            : { editions: [] };
+          const flags = await getContentFilterFlags(userId);
+          const edition = editions.find(
+            (candidate) =>
+              candidate.id === selection.editionId &&
+              !isContentFiltered(igdbClient.contentFlags(candidate), flags)
+          );
+          if (!edition) {
+            return res
+              .status(400)
+              .json({ error: "The selected edition does not belong to the game." });
+          }
+          target = { title: edition.name, igdbId: edition.id };
         }
         const match = await resolveDesktopMatch(target.title, target.igdbId);
         if (!match) {
@@ -1374,10 +1389,18 @@ async function shelvePendingAddons(userId: string, ledger: IntegrationRequest): 
   const library = await libraryByIgdbId(userId);
   for (const id of queued) {
     const addon = library.get(id);
-    if (addon?.status === "wanted") {
-      await storage.updateGameStatus(addon.id, { status: "shelved" });
-      await storage.updateGameSearchResultsAvailable(addon.id, false);
+    if (addon?.status !== "wanted") continue;
+    // Another live request may have claimed the same game since this one queued it.
+    const holder = await storage.getIntegrationRequestByGameId(userId, addon.id);
+    if (
+      holder &&
+      holder.status !== "cancelled" &&
+      holder.externalRequestId !== ledger.externalRequestId
+    ) {
+      continue;
     }
+    await storage.updateGameStatus(addon.id, { status: "shelved" });
+    await storage.updateGameSearchResultsAvailable(addon.id, false);
   }
 }
 

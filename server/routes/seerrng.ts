@@ -478,7 +478,7 @@ const discoverQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(48).default(24),
   cursor: z
     .string()
-    .regex(/^[0-9]{1,4}$/)
+    .regex(/^\d{1,4}$/)
     .optional(),
 });
 
@@ -496,7 +496,7 @@ seerrngRouter.get("/catalog/discover", scope, async (req: Request, res: Response
       "excludeGenres",
     ].map((key) => [key, parseIdList(req.query[key], 30)])
   );
-  if (!parsed.success || Object.values(lists).some((ids) => ids === null)) {
+  if (!parsed.success || Object.values(lists).includes(null)) {
     return res.status(400).json({ error: "Invalid discovery filters." });
   }
   const { q, minYear, maxHoursToBeat, limit, cursor } = parsed.data;

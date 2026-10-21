@@ -151,7 +151,7 @@ export default function RssSettings() {
                             <span
                               tabIndex={0}
                               role="img"
-                              aria-label={`Error: ${feed.errorMessage || "Error"}`}
+                              aria-label="Feed error"
                               className="inline-flex cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
                             >
                               <AlertCircle className="h-4 w-4 text-red-500" aria-hidden="true" />

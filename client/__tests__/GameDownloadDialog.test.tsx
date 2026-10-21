@@ -688,6 +688,53 @@ describe("GameDownloadDialog", () => {
     });
   });
 
+  it("does not offer a bundle when every update is rejected and hidden", async () => {
+    const evaluation = (accepted: boolean) => ({
+      accepted,
+      score: accepted ? 120 : -980,
+      lines: [],
+      rejections: accepted ? [] : [{ code: "title_mismatch", detail: "" }],
+      titleMatch: accepted ? "exact" : "mismatch",
+      indexerCategory: "unknown",
+      category: "main",
+      matchedFormats: [],
+      preferredProtocol: true,
+    });
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "main-1",
+          title: "Test Game SKIDROW",
+          link: "http://test.com/main",
+          seeders: 50,
+          evaluation: evaluation(true),
+        }),
+        makeTorrentItem({
+          guid: "update-1",
+          title: "Other Game Update",
+          link: "http://test.com/update",
+          seeders: 20,
+          evaluation: evaluation(false),
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game SKIDROW").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    fireEvent.click(screen.getAllByTestId("icon-download")[0].closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Download with Updates?")).not.toBeInTheDocument();
+    });
+  });
+
   const skidrowItem = makeTorrentItem({
     guid: "skidrow-1",
     title: "Test Game SKIDROW",

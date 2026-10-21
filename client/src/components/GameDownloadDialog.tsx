@@ -799,7 +799,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   });
 
   const handleDownload = (download: DownloadItem) => {
-    if (categorizedDownloads.update.length > 0) {
+    if (filteredCategorizedDownloads.update.length > 0) {
       const downloadCategory = groupDownloadsByCategory([download]);
       if (downloadCategory.main.length > 0) {
         setSelectedMainDownload(download);

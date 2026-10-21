@@ -133,6 +133,20 @@ describe("SeerrNG provider API", () => {
   };
 
   describe("scope", () => {
+    it("answers 409 when the live-game index rejects a concurrent claim", async () => {
+      const original = (storage.updateIntegrationRequest as Mock).getMockImplementation()!;
+      (storage.updateIntegrationRequest as Mock).mockImplementationOnce(async () => {
+        // Drizzle wraps the driver error: the code only exists on `cause`.
+        throw Object.assign(new Error("Failed query: update integration_requests"), {
+          cause: Object.assign(new Error("boom"), { code: "SQLITE_CONSTRAINT_UNIQUE" }),
+        });
+      });
+      const res = await request(app).post(`${base}/requests`).send(createBody);
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/already linked/);
+      (storage.updateIntegrationRequest as Mock).mockImplementation(original);
+    });
+
     it("keeps a game the user shelved by hand instead of wanting it again", async () => {
       games.set("g-shelved", {
         id: "g-shelved",
@@ -401,6 +415,25 @@ describe("SeerrNG provider API", () => {
       );
     });
 
+    it("releases the claim when retargeting fails so a retry can retarget again", async () => {
+      games.set("g1", {
+        id: "g1",
+        userId: USER.id,
+        igdbId: 42,
+        status: "wanted",
+        title: "Example Game",
+        targetPlatformId: 6,
+      });
+      (storage.updateGame as Mock).mockRejectedValueOnce(new Error("db down"));
+      const linux = { ...createBody, variant: { operatingSystem: "linux", architecture: "x64" } };
+      const res = await request(app).post(`${base}/requests`).send(linux);
+      expect(res.status).toBe(500);
+      expect(ledger.get("user-1:seerrng:request:1")).toMatchObject({
+        gameId: null,
+        status: "failed",
+      });
+    });
+
     it("does not reset a game acquired since when retrying an unlinked request", async () => {
       await request(app)
         .post(`${base}/requests`)
@@ -472,6 +505,35 @@ describe("SeerrNG provider API", () => {
         .send({ ...createBody, externalRequestId: "seerrng:request:2" });
       expect(again.status).toBe(201);
       expect(again.body.status).toBe("searching");
+    });
+
+    it("gives the cancelled holder its game back when the un-shelve fails", async () => {
+      await request(app).post(`${base}/requests`).send(createBody);
+      await request(app).post(`${base}/requests/seerrng:request:1/cancel`).send({});
+      (storage.updateGameStatus as Mock).mockRejectedValueOnce(new Error("db down"));
+      const again = await request(app)
+        .post(`${base}/requests`)
+        .send({ ...createBody, externalRequestId: "seerrng:request:2" });
+      expect(again.status).toBe(500);
+      expect(ledger.get("user-1:seerrng:request:1")?.gameId).toBeTruthy();
+      expect(ledger.get("user-1:seerrng:request:2")?.gameId).toBeNull();
+    });
+
+    it("shelves the game again when retargeting fails after an un-shelve", async () => {
+      await request(app).post(`${base}/requests`).send(createBody);
+      await request(app).post(`${base}/requests/seerrng:request:1/cancel`).send({});
+      (storage.updateGame as Mock).mockRejectedValueOnce(new Error("db down"));
+      const linux = {
+        ...createBody,
+        externalRequestId: "seerrng:request:2",
+        variant: { operatingSystem: "linux", architecture: "x64" },
+      };
+      const again = await request(app).post(`${base}/requests`).send(linux);
+      expect(again.status).toBe(500);
+      expect(storage.updateGameStatus).toHaveBeenLastCalledWith(expect.anything(), {
+        status: "shelved",
+      });
+      expect(ledger.get("user-1:seerrng:request:1")?.gameId).toBeTruthy();
     });
 
     it("refuses to retry onto a game another request has since claimed", async () => {

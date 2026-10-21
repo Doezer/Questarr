@@ -2385,9 +2385,11 @@ export class MemStorage implements IStorage {
     gameId: string,
     provider: IntegrationRequestProvider = "seerrng"
   ): Promise<IntegrationRequest | undefined> {
-    return Array.from(this.integrationRequests.values()).find(
+    // A live holder wins over a cancelled one: the unique index allows both on one game.
+    const holders = Array.from(this.integrationRequests.values()).filter(
       (r) => r.userId === userId && r.provider === provider && r.gameId === gameId
     );
+    return holders.find((r) => r.status !== "cancelled") ?? holders[0];
   }
 
   async updateIntegrationRequest(
@@ -4475,6 +4477,8 @@ export class DatabaseStorage implements IStorage {
           eq(integrationRequests.gameId, gameId)
         )
       )
+      // A live holder wins over a cancelled one: the unique index allows both on one game.
+      .orderBy(sql`case when ${integrationRequests.status} = 'cancelled' then 1 else 0 end`)
       .limit(1);
     return row ?? undefined;
   }

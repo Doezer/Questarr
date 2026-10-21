@@ -168,7 +168,7 @@ export function createStorageMock() {
     addIntegrationRequest: vi.fn(),
     updateIntegrationRequest: vi.fn(),
     getIntegrationRequestByGameId: vi.fn(),
-    getCancelledIntegrationRequests: vi.fn(async () => []),
+    getIntegrationRequests: vi.fn(async () => []),
     updateGameDownloadStatus: vi.fn(),
     getApiKeyByHash: vi.fn().mockResolvedValue(undefined),
     touchApiKey: vi.fn().mockResolvedValue(undefined),

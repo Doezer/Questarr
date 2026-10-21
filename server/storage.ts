@@ -566,8 +566,8 @@ export interface IStorage {
     gameId: string,
     provider?: IntegrationRequestProvider
   ): Promise<IntegrationRequest | undefined>;
-  /** Cancelled requests of a user, so a new request can find what a cancellation shelved. */
-  getCancelledIntegrationRequests(
+  /** All requests of a user, to relate requests that name the same add-on. */
+  getIntegrationRequests(
     userId: string,
     provider?: IntegrationRequestProvider
   ): Promise<IntegrationRequest[]>;
@@ -2398,12 +2398,12 @@ export class MemStorage implements IStorage {
     return holders.find((r) => r.status !== "cancelled") ?? holders[0];
   }
 
-  async getCancelledIntegrationRequests(
+  async getIntegrationRequests(
     userId: string,
     provider: IntegrationRequestProvider = "seerrng"
   ): Promise<IntegrationRequest[]> {
     return Array.from(this.integrationRequests.values()).filter(
-      (r) => r.userId === userId && r.provider === provider && r.status === "cancelled"
+      (r) => r.userId === userId && r.provider === provider
     );
   }
 
@@ -4498,7 +4498,7 @@ export class DatabaseStorage implements IStorage {
     return row ?? undefined;
   }
 
-  async getCancelledIntegrationRequests(
+  async getIntegrationRequests(
     userId: string,
     provider: IntegrationRequestProvider = "seerrng"
   ): Promise<IntegrationRequest[]> {
@@ -4506,11 +4506,7 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(integrationRequests)
       .where(
-        and(
-          eq(integrationRequests.userId, userId),
-          eq(integrationRequests.provider, provider),
-          eq(integrationRequests.status, "cancelled")
-        )
+        and(eq(integrationRequests.userId, userId), eq(integrationRequests.provider, provider))
       );
   }
 

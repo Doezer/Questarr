@@ -774,8 +774,10 @@ const shelvedAddonIds = (ledger: IntegrationRequest) => storedAddonIds(ledger, "
  */
 async function reviveShelvedAddon(userId: string, addon: Game, igdbId: number): Promise<boolean> {
   if (addon.status !== "shelved") return false;
-  const cancelled = await storage.getCancelledIntegrationRequests(userId);
-  const shelver = cancelled.find((candidate) => shelvedAddonIds(candidate).includes(igdbId));
+  const requests = await storage.getIntegrationRequests(userId);
+  const shelver = requests.find(
+    (candidate) => candidate.status === "cancelled" && shelvedAddonIds(candidate).includes(igdbId)
+  );
   if (!shelver) return false;
   await storage.updateGameStatus(addon.id, { status: "wanted" });
   const remaining = shelvedAddonIds(shelver).filter((id) => id !== igdbId);
@@ -1426,9 +1428,18 @@ async function shelvePendingAddons(userId: string, ledger: IntegrationRequest): 
   if (queued.length === 0) return;
   const library = await libraryByIgdbId(userId);
   const shelved: number[] = [];
+  const others = (await storage.getIntegrationRequests(userId)).filter(
+    (r) => r.status !== "cancelled" && r.externalRequestId !== ledger.externalRequestId
+  );
+  // Another live request may name the same add-on without holding it as its game.
+  const selectedElsewhere = (id: number) =>
+    others.some((r) => {
+      const selection = storedSelection(r);
+      return selection?.mode === "missing-selected" && selection.addonIds.includes(id);
+    });
   for (const id of queued) {
     const addon = library.get(id);
-    if (addon?.status !== "wanted") continue;
+    if (addon?.status !== "wanted" || selectedElsewhere(id)) continue;
     // Another live request may have claimed the same game since this one queued it.
     const holder = await storage.getIntegrationRequestByGameId(userId, addon.id);
     if (

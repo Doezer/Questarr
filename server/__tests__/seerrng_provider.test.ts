@@ -103,9 +103,7 @@ describe("SeerrNG provider API", () => {
         [...ledger.values()].find((r) => r.gameId === gameId)
     );
 
-    (storage.getCancelledIntegrationRequests as Mock).mockImplementation(async () =>
-      [...ledger.values()].filter((r) => r.status === "cancelled")
-    );
+    (storage.getIntegrationRequests as Mock).mockImplementation(async () => [...ledger.values()]);
 
     (igdb.formatGameData as Mock).mockImplementation((g) => g);
     (igdb.getGameById as Mock).mockImplementation(async (id: number) => igdbGame(id, `Game ${id}`));
@@ -526,6 +524,26 @@ describe("SeerrNG provider API", () => {
         expect(second.status).toBe(201);
         expect(byIgdb(70)).toMatchObject({ status: "wanted" });
         expect(byIgdb(71)).toMatchObject({ status: "shelved" });
+      });
+
+      it("keeps an add-on another live request selected when the request is cancelled", async () => {
+        const select = { kind: "game-content", mode: "missing-selected", addonIds: [70] };
+        await request(app)
+          .post(`${base}/requests`)
+          .send({ ...createBody, selection: select });
+        const other = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            externalRequestId: "r-b",
+            igdbId: 43,
+            title: "Game 43",
+            selection: select,
+          });
+        expect(other.status).toBeLessThan(300);
+        await request(app).post(`${base}/requests/${createBody.externalRequestId}/cancel`).send({});
+        const addon = [...games.values()].find((g) => g.igdbId === 70);
+        expect(addon).toMatchObject({ status: "wanted" });
       });
 
       it("does not retry a rejected edition into an unrelated game", async () => {

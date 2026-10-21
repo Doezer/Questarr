@@ -67,6 +67,8 @@ const TABLE_ORDER = [
   "gameScreenshots",
   // References games and gameDownloads, so it goes last.
   "gameFiles",
+  // References users and games; nothing references it.
+  "integrationRequests",
 ] as const;
 
 type TableName = (typeof TABLE_ORDER)[number];

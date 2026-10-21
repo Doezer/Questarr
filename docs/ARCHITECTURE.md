@@ -281,7 +281,7 @@ _plumbing_, which predates this decision and should not be read as a
 roadmap signal: a `users` table exists, `authenticateToken` resolves a
 per-request `req.user.id` from a JWT, and personal-library tables
 (`games`, `user_settings`, `notifications`, `import_tasks`, `api_keys`,
-`release_blacklist`) carry a `userId` column. Instance-wide config and
+`integration_requests`, `release_blacklist`) carry a `userId` column. Instance-wide config and
 shared runtime state — `indexers`, `downloaders`, `root_folders`,
 `rss_feeds`, `game_downloads` — deliberately carry **no** `userId`, since
 they represent one server's shared configuration, not per-account data.

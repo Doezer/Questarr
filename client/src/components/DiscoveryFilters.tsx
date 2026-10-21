@@ -26,7 +26,8 @@ export default function DiscoveryFilters({ onFiltersChange }: DiscoveryFiltersPr
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 30 }, (_, i) => currentYear - i);
 
-  const handleReleaseStatusChange = (status: "all" | "released" | "upcoming") => {
+  const handleReleaseStatusChange = (value: string) => {
+    const status = value as "all" | "released" | "upcoming";
     setReleaseStatus(status);
     onFiltersChange({ releaseStatus: status, minYear });
   };

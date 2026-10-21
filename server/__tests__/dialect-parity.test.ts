@@ -60,6 +60,87 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       ).rejects.toThrow(/limit reached/i);
     });
 
+    it("api keys round-trip scope and expiry, default to all / never, and throttle last-used", async () => {
+      const [user] = await storage().getAllUsers();
+      const expiresAt = new Date(Date.now() + 86_400_000);
+      const scoped = await storage().addApiKey(
+        {
+          userId: user.id,
+          name: "scoped",
+          keyHash: "hs",
+          prefix: "ps",
+          scope: "read",
+          expiresAt,
+        },
+        10
+      );
+      expect(scoped.scope).toBe("read");
+      expect(scoped.expiresAt?.getTime()).toBe(expiresAt.getTime());
+
+      const legacy = await storage().addApiKey(
+        { userId: user.id, name: "legacy", keyHash: "hl", prefix: "pl" },
+        10
+      );
+      expect(legacy.scope).toBe("all");
+      expect(legacy.expiresAt).toBeNull();
+
+      await storage().touchApiKey(legacy.id);
+      const first = (await storage().getApiKeyByHash("hl"))!.lastUsedAt!;
+      expect(first).toBeInstanceOf(Date);
+      await new Promise((r) => setTimeout(r, 5));
+      await storage().touchApiKey(legacy.id);
+      const second = (await storage().getApiKeyByHash("hl"))!.lastUsedAt!;
+      expect(second.getTime()).toBe(first.getTime());
+    });
+
+    it("integration requests are idempotent per (user, provider, id) and updatable", async () => {
+      const [user] = await storage().getAllUsers();
+      const first = await storage().addIntegrationRequest({
+        userId: user.id,
+        externalRequestId: "seerrng:request:1",
+        title: "Example Game",
+        igdbId: 42,
+        operatingSystem: "linux",
+        architecture: "x64",
+      });
+      expect(first.created).toBe(true);
+      expect(first.request).toMatchObject({
+        provider: "seerrng",
+        status: "accepted",
+        gameId: null,
+      });
+
+      const replay = await storage().addIntegrationRequest({
+        userId: user.id,
+        externalRequestId: "seerrng:request:1",
+        title: "Other title",
+      });
+      expect(replay.created).toBe(false);
+      expect(replay.request.id).toBe(first.request.id);
+      expect(replay.request.title).toBe("Example Game");
+
+      const game = await storage().addGame({
+        userId: user.id,
+        title: "Example Game",
+        status: "wanted",
+      } as Parameters<ReturnType<typeof storage>["addGame"]>[0]);
+      const updated = await storage().updateIntegrationRequest(user.id, "seerrng:request:1", {
+        gameId: game.id,
+        status: "searching",
+      });
+      expect(updated).toMatchObject({ gameId: game.id, status: "searching" });
+      expect(
+        (await storage().getIntegrationRequestByGameId(user.id, game.id))?.externalRequestId
+      ).toBe("seerrng:request:1");
+      expect(await storage().getIntegrationRequest(user.id, "missing")).toBeUndefined();
+
+      // The ledger row outlives the game (set null), and the game count stays untouched.
+      await storage().removeGame(game.id);
+      expect(
+        (await storage().getIntegrationRequest(user.id, "seerrng:request:1"))?.gameId
+      ).toBeNull();
+    });
+
     it("syncIndexers inserts, then updates the same url", async () => {
       const inserted = await storage().syncIndexers([
         { name: "idx", url: "http://a", apiKey: "secret", protocol: "torznab" },

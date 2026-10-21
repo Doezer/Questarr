@@ -25,6 +25,7 @@ vi.mock("../ssrf.js", () => ({
 }));
 
 vi.mock("../auth.js", () => ({
+  requireScope: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   authenticateToken: (req: any, res: any, next: any) => {
     req.user = { id: 1, username: "testuser" };
     next();
@@ -65,6 +66,7 @@ vi.mock("../logger.js", () => ({
 }));
 
 vi.mock("../middleware.js", () => ({
+  integrationRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
   igdbRateLimiter: (req: any, res: any, next: any) => next(),
   sensitiveEndpointLimiter: (req: any, res: any, next: any) => next(),
   authRateLimiter: (req: any, res: any, next: any) => next(),

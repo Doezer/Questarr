@@ -1,10 +1,18 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, KeyRound, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,7 +31,63 @@ import {
   apiKeyCreatedResponseSchema,
   type ApiKeyPublicResponse,
   type ApiKeyCreatedResponse,
+  type ApiKeyScope,
 } from "@shared/schema";
+
+const SCOPE_OPTIONS: { value: ApiKeyScope; label: string; description: string }[] = [
+  {
+    value: "library:write",
+    label: "Library sync (Playnite)",
+    description: "Ping, read the library, sync and request games",
+  },
+  {
+    value: "read",
+    label: "Read only",
+    description: "Ping and read the library (dashboards, widgets)",
+  },
+  {
+    value: "requests",
+    label: "Game requests (SeerrNG)",
+    description: "Let SeerrNG browse the catalog and request PC games",
+  },
+  {
+    value: "all",
+    label: "Full access",
+    description: "Everything the integration API offers",
+  },
+];
+
+const SCOPE_LABELS: Record<ApiKeyScope, string> = {
+  "library:write": "Library sync",
+  read: "Read only",
+  requests: "Game requests",
+  all: "Full access",
+};
+
+const EXPIRY_OPTIONS = [
+  { value: "30", label: "30 days" },
+  { value: "90", label: "90 days" },
+  { value: "180", label: "180 days" },
+  { value: "365", label: "1 year" },
+  { value: "never", label: "Never" },
+];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const EXPIRY_WARNING_DAYS = 14;
+
+type ExpiryState = { label: string; tone: "none" | "ok" | "warning" | "expired" };
+
+function describeExpiry(expiresAt: string | null, now = Date.now()): ExpiryState {
+  if (!expiresAt) return { label: "No expiry", tone: "none" };
+  const time = new Date(expiresAt).getTime();
+  if (Number.isNaN(time)) return { label: "No expiry", tone: "none" };
+  const daysLeft = Math.ceil((time - now) / DAY_MS);
+  if (time <= now) return { label: "Expired", tone: "expired" };
+  return {
+    label: `Expires in ${daysLeft} ${daysLeft === 1 ? "day" : "days"}`,
+    tone: daysLeft < EXPIRY_WARNING_DAYS ? "warning" : "ok",
+  };
+}
 
 function formatDate(value: string | null): string {
   if (!value) return "Never";
@@ -40,6 +104,8 @@ export function ApiKeysCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [newKeyName, setNewKeyName] = useState("");
+  const [newKeyScope, setNewKeyScope] = useState<ApiKeyScope>("library:write");
+  const [newKeyExpiry, setNewKeyExpiry] = useState("365");
   const [createdKey, setCreatedKey] = useState<ApiKeyCreatedResponse | null>(null);
   const [copied, setCopied] = useState(false);
   const [pendingRevoke, setPendingRevoke] = useState<ApiKeyPublicResponse | null>(null);
@@ -57,8 +123,12 @@ export function ApiKeysCard() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const res = await apiRequest("POST", "/api/api-keys", { name });
+    mutationFn: async (input: {
+      name: string;
+      scope: ApiKeyScope;
+      expiresInDays: number | null;
+    }) => {
+      const res = await apiRequest("POST", "/api/api-keys", input);
       return apiKeyCreatedResponseSchema.parse(await res.json());
     },
     onSuccess: (created) => {
@@ -109,6 +179,10 @@ export function ApiKeysCard() {
   }, [createdKey, toast]);
 
   const trimmedName = newKeyName.trim();
+  const expiryByKey = useMemo(
+    () => new Map(keys.map((key) => [key.id, describeExpiry(key.expiresAt)])),
+    [keys]
+  );
 
   return (
     <Card id="api-keys">
@@ -119,19 +193,26 @@ export function ApiKeysCard() {
         </div>
         <CardDescription>
           Let external clients such as the Playnite extension sync your library and request games.
-          Keys work only against the integration API and can be revoked at any time.
+          Each key is limited to the access you choose, only works against the integration API, and
+          can be revoked at any time.
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-6">
         <form
-          className="flex flex-col gap-2 sm:flex-row sm:items-end"
+          className="grid gap-3 sm:grid-cols-2"
           onSubmit={(e) => {
             e.preventDefault();
-            if (trimmedName) createMutation.mutate(trimmedName);
+            if (trimmedName) {
+              createMutation.mutate({
+                name: trimmedName,
+                scope: newKeyScope,
+                expiresInDays: newKeyExpiry === "never" ? null : Number(newKeyExpiry),
+              });
+            }
           }}
         >
-          <div className="flex-1 space-y-2">
+          <div className="space-y-2 sm:col-span-2">
             <Label htmlFor="api-key-name">Name</Label>
             <Input
               id="api-key-name"
@@ -141,7 +222,47 @@ export function ApiKeysCard() {
               onChange={(e) => setNewKeyName(e.target.value)}
             />
           </div>
-          <Button type="submit" disabled={!trimmedName || createMutation.isPending}>
+          <div className="space-y-2">
+            <Label htmlFor="api-key-scope">Access</Label>
+            <Select value={newKeyScope} onValueChange={(v) => setNewKeyScope(v as ApiKeyScope)}>
+              <SelectTrigger id="api-key-scope">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SCOPE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {SCOPE_OPTIONS.find((o) => o.value === newKeyScope)?.description}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="api-key-expiry">Expires</Label>
+            <Select value={newKeyExpiry} onValueChange={setNewKeyExpiry}>
+              <SelectTrigger id="api-key-expiry">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {EXPIRY_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              An expired key stops working until you create a new one.
+            </p>
+          </div>
+          <Button
+            type="submit"
+            className="sm:col-span-2 sm:justify-self-start"
+            disabled={!trimmedName || createMutation.isPending}
+          >
             <Plus className="mr-2 h-4 w-4" />
             {createMutation.isPending ? "Creating..." : "Create key"}
           </Button>
@@ -194,8 +315,23 @@ export function ApiKeysCard() {
               {keys.map((key) => (
                 <li key={key.id} className="flex items-center justify-between gap-3 p-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{key.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-sm font-medium">{key.name}</p>
+                      <Badge variant="secondary">{SCOPE_LABELS[key.scope]}</Badge>
+                      <Badge
+                        variant={
+                          expiryByKey.get(key.id)?.tone === "expired" ? "destructive" : "outline"
+                        }
+                        className={
+                          expiryByKey.get(key.id)?.tone === "warning"
+                            ? "border-amber-500 text-amber-500"
+                            : undefined
+                        }
+                      >
+                        {expiryByKey.get(key.id)?.label}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
                       <span className="font-mono">{key.prefix}…</span> · Created{" "}
                       {formatDate(key.createdAt)} · Last used {formatDate(key.lastUsedAt)}
                     </p>

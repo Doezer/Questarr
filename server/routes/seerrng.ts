@@ -1427,7 +1427,7 @@ async function shelvePendingAddons(userId: string, ledger: IntegrationRequest): 
   const queued = queuedAddonIds(ledger);
   if (queued.length === 0) return;
   const library = await libraryByIgdbId(userId);
-  const shelved: number[] = [];
+  const toShelve: Game[] = [];
   const others = (await storage.getIntegrationRequests(userId)).filter(
     (r) => r.status !== "cancelled" && r.externalRequestId !== ledger.externalRequestId
   );
@@ -1449,18 +1449,22 @@ async function shelvePendingAddons(userId: string, ledger: IntegrationRequest): 
     ) {
       continue;
     }
+    toShelve.push(addon);
+  }
+  if (toShelve.length === 0) return;
+  // Remembered before the games change, so an interrupted cancellation still lets a later
+  // request tell this shelving from a manual one.
+  await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
+    selection: JSON.stringify({
+      ...JSON.parse(ledger.selection ?? "{}"),
+      shelvedAddonIds: [
+        ...new Set([...shelvedAddonIds(ledger), ...toShelve.map((addon) => addon.igdbId!)]),
+      ],
+    }),
+  });
+  for (const addon of toShelve) {
     await storage.updateGameStatus(addon.id, { status: "shelved" });
     await storage.updateGameSearchResultsAvailable(addon.id, false);
-    shelved.push(id);
-  }
-  if (shelved.length > 0) {
-    // Remembered so a later request for the same add-on can tell this shelving from a manual one.
-    await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
-      selection: JSON.stringify({
-        ...JSON.parse(ledger.selection ?? "{}"),
-        shelvedAddonIds: [...new Set([...shelvedAddonIds(ledger), ...shelved])],
-      }),
-    });
   }
 }
 

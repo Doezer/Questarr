@@ -741,6 +741,7 @@ describe("GameDownloadDialog", () => {
           minSeeders: 0,
           sortBy: "seeders",
           visibleCategories: ["main", "update", "dlc", "extra", "packs"],
+          hideRejected: false,
         }),
       },
       search: makeSearchResult([
@@ -774,6 +775,44 @@ describe("GameDownloadDialog", () => {
     );
   });
 
+  it("hides rejected releases by default and says how many", async () => {
+    const evaluation = (accepted: boolean) => ({
+      accepted,
+      score: accepted ? 120 : -980,
+      lines: [],
+      rejections: accepted ? [] : [{ code: "title_mismatch", detail: "" }],
+      titleMatch: accepted ? "exact" : "mismatch",
+      indexerCategory: "unknown",
+      category: "main",
+      matchedFormats: [],
+      preferredProtocol: true,
+    });
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "wrong",
+          title: "Another.Game-RELOADED",
+          link: "http://test.com/w",
+          seeders: 900,
+          evaluation: evaluation(false),
+        }),
+        makeTorrentItem({
+          guid: "good",
+          title: "Test Game Plain",
+          link: "http://test.com/g",
+          seeders: 3,
+          evaluation: evaluation(true),
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    expect(await screen.findByText("Test Game Plain")).toBeInTheDocument();
+    expect(screen.queryByText("Another.Game-RELOADED")).not.toBeInTheDocument();
+    expect(screen.getByText("1 rejected hidden")).toBeInTheDocument();
+  });
+
   it("ranks by score, shows the breakdown and dims rejected releases", async () => {
     const evaluation = (score: number, accepted: boolean) => ({
       accepted,
@@ -787,6 +826,14 @@ describe("GameDownloadDialog", () => {
       preferredProtocol: true,
     });
     globalThis.fetch = createFetchMock({
+      settings: {
+        downloadRules: JSON.stringify({
+          minSeeders: 0,
+          sortBy: "score",
+          visibleCategories: ["main", "update", "dlc", "extra", "packs"],
+          hideRejected: false,
+        }),
+      },
       search: makeSearchResult([
         makeTorrentItem({
           guid: "rejected",

@@ -1008,6 +1008,7 @@ async function queueAddons(
         igdbId: addon.id,
       });
       if (result.outcome === "added") queued.push(addon.id);
+      else if (result.outcome === "not_found") failed++;
     } catch (error) {
       failed++;
       logger.warn({ error, igdbId: addon.id }, "SeerrNG add-on could not be queued");

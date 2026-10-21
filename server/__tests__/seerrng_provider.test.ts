@@ -589,6 +589,20 @@ describe("SeerrNG provider API", () => {
         expect([...games.values()].map((g) => g.igdbId).sort()).toEqual([42, 70]);
       });
 
+      it("fails the request when IGDB no longer finds a selected add-on", async () => {
+        (igdb.getGameById as Mock).mockImplementation(async (id: number) =>
+          id === 70 ? null : igdbGame(id, `Game ${id}`)
+        );
+        const res = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+          });
+        expect(res.status).toBe(201);
+        expect(res.body).toMatchObject({ status: "failed", actions: { retry: true } });
+      });
+
       it("keeps a failed add-on visible behind an owned base game and retries only the add-ons", async () => {
         games.set("owned", {
           id: "owned",

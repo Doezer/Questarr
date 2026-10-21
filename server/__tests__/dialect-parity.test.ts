@@ -134,6 +134,23 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       ).toBe("seerrng:request:1");
       expect(await storage().getIntegrationRequest(user.id, "missing")).toBeUndefined();
 
+      // A live holder is found ahead of a cancelled one on the same game.
+      await storage().updateIntegrationRequest(user.id, "seerrng:request:1", {
+        status: "cancelled",
+      });
+      await storage().addIntegrationRequest({
+        userId: user.id,
+        externalRequestId: "seerrng:request:2",
+        title: "Example Game",
+      });
+      await storage().updateIntegrationRequest(user.id, "seerrng:request:2", {
+        gameId: game.id,
+        status: "searching",
+      });
+      expect(
+        (await storage().getIntegrationRequestByGameId(user.id, game.id))?.externalRequestId
+      ).toBe("seerrng:request:2");
+
       // The ledger row outlives the game (set null), and the game count stays untouched.
       await storage().removeGame(game.id);
       expect(

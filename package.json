@@ -87,7 +87,7 @@
     "drizzle-orm": "^0.45.4",
     "drizzle-zod": "^0.8.3",
     "embla-carousel-react": "^8.6.0",
-    "express": "^4.22.3",
+    "express": "^5.3.0",
     "express-rate-limit": "^8.7.1",
     "express-session": "^1.19.0",
     "express-validator": "^7.3.2",
@@ -147,7 +147,7 @@
     "@types/archiver": "^8.0.0",
     "@types/bcryptjs": "^3.0.0",
     "@types/better-sqlite3": "^9.6.0",
-    "@types/express": "4.17.21",
+    "@types/express": "5.0.6",
     "@types/express-session": "^1.19.0",
     "@types/fs-extra": "^11.0.4",
     "@types/js-yaml": "^4.0.9",
@@ -206,13 +206,11 @@
     "node": ">=22.19.0"
   },
   "overrides": {
-    "proxy-addr": "^2.0.8",
     "socket.io-parser": "4.2.7",
     "engine.io": "^6.6.10",
     "@esbuild-kit/core-utils": {
       "esbuild": "^0.25.0"
     },
-    "body-parser": "1.20.6",
     "qs": "^6.16.0",
     "brace-expansion": "^5.0.12",
     "minimatch": "^10.2.5",

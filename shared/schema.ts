@@ -1724,6 +1724,10 @@ export const integrationRequests = sqliteTable(
       t.externalRequestId
     ),
     index("integration_requests_game_id_idx").on(t.gameId),
+    // One live request per game; a cancelled request keeps its gameId until a new one takes over.
+    uniqueIndex("integration_requests_live_game_idx")
+      .on(t.userId, t.provider, t.gameId)
+      .where(sql`${t.gameId} is not null and ${t.status} <> 'cancelled'`),
   ]
 );
 

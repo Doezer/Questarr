@@ -223,6 +223,7 @@
       "eslint": "^10.9.1"
     },
     "fast-copy": "^4.1.0",
+    "follow-redirects": "^1.16.1",
     "postcss-selector-parser": "^7.1.6"
   },
   "allowScripts": {

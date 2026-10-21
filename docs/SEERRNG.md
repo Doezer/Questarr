@@ -63,7 +63,7 @@ the Playnite library and request routes. Keys created before this feature (`all`
   `missing-selected` requests the base game and adds each selected add-on to the library as a wanted
   game (the same wanted state as any game; add-ons already in the library are left alone). Status,
   retry and asset delivery follow the base game; `content` reports the add-ons still missing.
-  Cancelling shelves only the add-ons this request itself added and that are still wanted. An unknown
+  Cancelling shelves only the add-ons this request itself added and that are still wanted, unless another live request holds them; a later request for the same add-on wants it again, while an add-on shelved by hand stays shelved. An unknown
   edition or add-on id is a 400, and a selection needs the `igdbId`. Editions and add-ons hidden by the
   account's adult-content filters are neither listed nor selectable. If an add-on cannot be queued the
   request is created but ends `failed`; retry queues the missing add-ons again, and an edition request

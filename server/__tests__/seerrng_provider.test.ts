@@ -103,6 +103,10 @@ describe("SeerrNG provider API", () => {
         [...ledger.values()].find((r) => r.gameId === gameId)
     );
 
+    (storage.getCancelledIntegrationRequests as Mock).mockImplementation(async () =>
+      [...ledger.values()].filter((r) => r.status === "cancelled")
+    );
+
     (igdb.formatGameData as Mock).mockImplementation((g) => g);
     (igdb.getGameById as Mock).mockImplementation(async (id: number) => igdbGame(id, `Game ${id}`));
     (igdb.searchGames as Mock).mockResolvedValue([igdbGame(42, "Example Game")]);
@@ -496,6 +500,32 @@ describe("SeerrNG provider API", () => {
         await request(app).post(`${base}/requests/${createBody.externalRequestId}/cancel`).send({});
         const byIgdb = (id: number) => [...games.values()].find((g) => g.igdbId === id);
         expect(byIgdb(70)).toMatchObject({ status: "wanted" });
+      });
+
+      it("wants an add-on again that a cancelled request shelved, but not one shelved by hand", async () => {
+        const first = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70, 71] },
+          });
+        expect(first.status).toBe(201);
+        const byIgdb = (id: number) => [...games.values()].find((g) => g.igdbId === id);
+        // The user shelved 71 by hand before the cancellation; 70 is shelved by it.
+        byIgdb(71)!.status = "shelved";
+        await request(app).post(`${base}/requests/${createBody.externalRequestId}/cancel`).send({});
+        expect(byIgdb(70)).toMatchObject({ status: "shelved" });
+
+        const second = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            externalRequestId: "r-again",
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70, 71] },
+          });
+        expect(second.status).toBe(201);
+        expect(byIgdb(70)).toMatchObject({ status: "wanted" });
+        expect(byIgdb(71)).toMatchObject({ status: "shelved" });
       });
 
       it("does not retry a rejected edition into an unrelated game", async () => {

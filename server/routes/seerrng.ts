@@ -749,16 +749,43 @@ async function findGame(userId: string, ledger: IntegrationRequest): Promise<Gam
   return game?.userId === userId ? game : undefined;
 }
 
-/** IGDB ids of the add-ons this request itself added to the library. */
-function queuedAddonIds(ledger: IntegrationRequest): number[] {
+/** IGDB ids stored under a key of the request's selection JSON (add-on bookkeeping). */
+function storedAddonIds(ledger: IntegrationRequest, key: "queuedAddonIds" | "shelvedAddonIds") {
   try {
     const parsed = z
-      .object({ queuedAddonIds: z.array(z.number().int().positive()).max(30) })
+      .object({ [key]: z.array(z.number().int().positive()).max(30) })
       .safeParse(JSON.parse(ledger.selection ?? "null"));
-    return parsed.success ? parsed.data.queuedAddonIds : [];
+    return parsed.success ? (parsed.data[key] as number[]) : [];
   } catch {
     return [];
   }
+}
+
+/** IGDB ids of the add-ons this request itself added to the library. */
+const queuedAddonIds = (ledger: IntegrationRequest) => storedAddonIds(ledger, "queuedAddonIds");
+
+/** IGDB ids of the add-ons this request shelved when it was cancelled. */
+const shelvedAddonIds = (ledger: IntegrationRequest) => storedAddonIds(ledger, "shelvedAddonIds");
+
+/**
+ * Wants an add-on again that a cancelled request shelved (and nothing else did), so a new
+ * request for the same content is not left on a game auto-search skips. A game the user shelved
+ * by hand is not in any cancelled request's list and keeps its state.
+ */
+async function reviveShelvedAddon(userId: string, addon: Game, igdbId: number): Promise<boolean> {
+  if (addon.status !== "shelved") return false;
+  const cancelled = await storage.getCancelledIntegrationRequests(userId);
+  const shelver = cancelled.find((candidate) => shelvedAddonIds(candidate).includes(igdbId));
+  if (!shelver) return false;
+  await storage.updateGameStatus(addon.id, { status: "wanted" });
+  const remaining = shelvedAddonIds(shelver).filter((id) => id !== igdbId);
+  await storage.updateIntegrationRequest(userId, shelver.externalRequestId, {
+    selection: JSON.stringify({
+      ...JSON.parse(shelver.selection ?? "{}"),
+      shelvedAddonIds: remaining,
+    }),
+  });
+  return true;
 }
 
 /**
@@ -999,7 +1026,18 @@ async function queueAddons(
   const queued = queuedAddonIds(ledger);
   let failed = 0;
   for (const addon of addons) {
-    if (library.has(addon.id)) continue;
+    const existing = library.get(addon.id);
+    if (existing) {
+      if (!queued.includes(addon.id)) {
+        try {
+          if (await reviveShelvedAddon(userId, existing, addon.id)) queued.push(addon.id);
+        } catch (error) {
+          failed++;
+          logger.warn({ error, igdbId: addon.id }, "SeerrNG add-on could not be wanted again");
+        }
+      }
+      continue;
+    }
     try {
       const result = await quickAddGameByTitle(userId, addon.name, {
         status: "wanted",
@@ -1387,6 +1425,7 @@ async function shelvePendingAddons(userId: string, ledger: IntegrationRequest): 
   const queued = queuedAddonIds(ledger);
   if (queued.length === 0) return;
   const library = await libraryByIgdbId(userId);
+  const shelved: number[] = [];
   for (const id of queued) {
     const addon = library.get(id);
     if (addon?.status !== "wanted") continue;
@@ -1401,6 +1440,16 @@ async function shelvePendingAddons(userId: string, ledger: IntegrationRequest): 
     }
     await storage.updateGameStatus(addon.id, { status: "shelved" });
     await storage.updateGameSearchResultsAvailable(addon.id, false);
+    shelved.push(id);
+  }
+  if (shelved.length > 0) {
+    // Remembered so a later request for the same add-on can tell this shelving from a manual one.
+    await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
+      selection: JSON.stringify({
+        ...JSON.parse(ledger.selection ?? "{}"),
+        shelvedAddonIds: [...new Set([...shelvedAddonIds(ledger), ...shelved])],
+      }),
+    });
   }
 }
 

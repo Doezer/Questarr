@@ -661,6 +661,7 @@ async function attachExistingGameLocked(
     releasedCancelled = true;
   }
   let claimed: IntegrationRequest | undefined;
+  let unshelved = false;
   try {
     // Claim the game in the ledger first: the live-game unique index rejects a concurrent claim
     // here, before this request has touched the game's status or target platform.
@@ -674,6 +675,7 @@ async function attachExistingGameLocked(
       // shelved by hand is a curated, owned entry and keeps its state.
       await storage.updateGameStatus(owner.id, { status: "wanted" });
       owner = { ...owner, status: "wanted" };
+      unshelved = true;
     }
     const platform = TARGET_PLATFORMS[operatingSystem];
     if (!isAcquired(owner) && owner.targetPlatformId !== platform.id) {
@@ -688,6 +690,10 @@ async function attachExistingGameLocked(
       .updateIntegrationRequest(userId, externalRequestId, { gameId: null })
       .catch(() => undefined);
     if (releasedCancelled && holder) {
+      if (unshelved) {
+        // Put the game back on the shelf so auto-search ignores it and a retry un-shelves it again.
+        await storage.updateGameStatus(owner.id, { status: "shelved" }).catch(() => undefined);
+      }
       // Give the cancelled holder its game back so a retry takes the un-shelve path again.
       await storage
         .updateIntegrationRequest(userId, holder.externalRequestId, { gameId: owner.id })

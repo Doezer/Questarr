@@ -519,6 +519,23 @@ describe("SeerrNG provider API", () => {
       expect(ledger.get("user-1:seerrng:request:2")?.gameId).toBeNull();
     });
 
+    it("shelves the game again when retargeting fails after an un-shelve", async () => {
+      await request(app).post(`${base}/requests`).send(createBody);
+      await request(app).post(`${base}/requests/seerrng:request:1/cancel`).send({});
+      (storage.updateGame as Mock).mockRejectedValueOnce(new Error("db down"));
+      const linux = {
+        ...createBody,
+        externalRequestId: "seerrng:request:2",
+        variant: { operatingSystem: "linux", architecture: "x64" },
+      };
+      const again = await request(app).post(`${base}/requests`).send(linux);
+      expect(again.status).toBe(500);
+      expect(storage.updateGameStatus).toHaveBeenLastCalledWith(expect.anything(), {
+        status: "shelved",
+      });
+      expect(ledger.get("user-1:seerrng:request:1")?.gameId).toBeTruthy();
+    });
+
     it("refuses to retry onto a game another request has since claimed", async () => {
       await request(app)
         .post(`${base}/requests`)

@@ -1536,12 +1536,14 @@ seerrngRouter.post(
         }
       }
       await shelvePendingAddons(userId, ledger);
+      // An owned base game (the request only failed on its add-ons) keeps its library entry.
+      const shelveGame = game !== undefined && !isAcquired(game);
       // Recorded before the game is shelved, with a marker, so an interruption can be finished.
       const updated = await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
         status: "cancelled",
-        errorMessage: game ? CANCEL_PENDING_MARKER : null,
+        errorMessage: shelveGame ? CANCEL_PENDING_MARKER : null,
       });
-      if (game) {
+      if (game && shelveGame) {
         // "shelved" is the existing "no longer wanted" state: auto-search skips it.
         await storage.updateGameStatus(game.id, { status: "shelved" });
         await storage.updateGameSearchResultsAvailable(game.id, false);

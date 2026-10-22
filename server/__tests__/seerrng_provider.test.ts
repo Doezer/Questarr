@@ -708,6 +708,29 @@ describe("SeerrNG provider API", () => {
         expect([...games.values()].map((g) => g.igdbId).sort()).toEqual([42, 70]);
       });
 
+      it("cancels a request that failed on its add-ons without shelving the owned base game", async () => {
+        games.set("owned", {
+          id: "owned",
+          userId: USER.id,
+          igdbId: 42,
+          status: "owned",
+          title: "Example Game",
+        });
+        (storage.addGame as Mock).mockRejectedValueOnce(new Error("db down"));
+        const res = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+          });
+        expect(res.body).toMatchObject({ status: "failed", actions: { cancel: true } });
+        const cancelled = await request(app)
+          .post(`${base}/requests/${createBody.externalRequestId}/cancel`)
+          .send({});
+        expect(cancelled.status).toBe(200);
+        expect(games.get("owned")?.status).toBe("owned");
+      });
+
       it("stays failed on retry when the add-ons cannot be resolved", async () => {
         (storage.addGame as Mock).mockImplementationOnce(async (data: Record<string, unknown>) => {
           const game = { id: "base", userId: USER.id, status: "wanted", ...data };

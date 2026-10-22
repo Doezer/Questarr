@@ -31,7 +31,7 @@ All notable changes to this project will be documented in this file.
 
 ### Dependencies
 
-- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14, and `follow-redirects` pinned to 1.16.1 for two high advisories (#1188, #1189, #1190, #1191, #1205, #1206, #1219, #1220, #1228, #1229).
+- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14, and `follow-redirects` pinned to 1.16.1 for two high advisories (#1188, #1189, #1190, #1191, #1205, #1206, #1219, #1220, #1228, #1229, #1218).
 
 ## [1.5.0] - 2026-10-12
 

@@ -55,12 +55,12 @@ async function gameStatus(key: ReleaseKey): Promise<string | undefined> {
   return games.find((g) => g.id === gameIds[key])?.status;
 }
 
-/** Opens the game from its library card, then its download dialog, and grabs the release. */
+/** Opens the game from its library card, then its download dialog on the game page, and grabs the release. */
 async function grabFromLibrary(key: ReleaseKey): Promise<void> {
   const release = RELEASES[key];
   await page.goto("/");
   await page.getByLabel(`View details for ${release.game}`, { exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Download", exact: true }).click();
+  await page.getByTestId("button-download-game").click();
   const grab = page.getByRole("button", {
     name: `Download ${release.title.replace(/[._]/g, " ")}`,
     exact: true,

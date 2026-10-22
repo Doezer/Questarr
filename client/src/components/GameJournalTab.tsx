@@ -18,7 +18,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { withBasePath } from "@/lib/app-path";
 import type { GameJournalEntry, GameMilestone } from "@shared/schema";
@@ -185,8 +184,8 @@ export default function GameJournalTab({ gameId, steamAppId }: Readonly<GameJour
   };
 
   return (
-    <ScrollArea className="h-full">
-      <div className="space-y-6 pr-4 pb-2">
+    <div>
+      <div className="space-y-6">
         {/* ── Achievements (Steam, when available) ── */}
         {achievementsEnabled && achievementsData && achievementsData.achievements.length > 0 && (
           <section>
@@ -446,6 +445,6 @@ export default function GameJournalTab({ gameId, steamAppId }: Readonly<GameJour
           )}
         </DialogContent>
       </Dialog>
-    </ScrollArea>
+    </div>
   );
 }

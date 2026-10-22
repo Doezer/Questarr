@@ -82,6 +82,20 @@ JWT even where a table row doesn't repeat `authenticateToken`.
 | DELETE | `/api/games/:gameId/blacklist/:id`     | JWT (explicit)                                                                              | —                                                                                                                                                                                                 | 204; 404 if entry not found                                                                                                                                                                                                                                                                                                                                                                          |
 | DELETE | `/api/games/:id/downloads/:downloadId` | JWT + `sanitizeGameId`, `sanitizeDownloadId`, `validateRequest`                             | —                                                                                                                                                                                                 | `{ success: true }`; 404 if game/download not found                                                                                                                                                                                                                                                                                                                                                  |
 
+## Collections
+
+User-defined groups of games. A `manual` collection holds an explicit list of games; a `smart` collection stores `rules` and its games are computed from the user's library on every read. Hidden games and games excluded by the user's content-filter settings are never included. All routes require JWT and only see the requester's own collections (404 otherwise).
+
+| Method | Path                                           | Request Body                                                                                                                                                                                                                                                                                                                                                                             | Response                                                                                                            |
+| ------ | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/collections`                             | —                                                                                                                                                                                                                                                                                                                                                                                        | `Collection[]`, each with `gameCount` and `coverUrls` (up to 4)                                                     |
+| POST   | `/api/collections`                             | `{ name (1–100), description? (≤500), type: "manual"\|"smart", rules? }`. `rules` (smart only, at least one non-empty criterion — empty lists alone are rejected —, unknown keys rejected, `releaseYearTo` must not be earlier than `releaseYearFrom`): `{ statuses?, platforms?, genres?, minRating? (0–10), minUserRating? (0–10), releaseYearFrom?, releaseYearTo?, titleContains? }` | 201 `Collection`; 400 `{ error, details }` (e.g. smart without rules). Rules are dropped for manual type            |
+| GET    | `/api/collections/:collectionId`               | —                                                                                                                                                                                                                                                                                                                                                                                        | `Collection & { games: Game[] }`; 404 if not found                                                                  |
+| PATCH  | `/api/collections/:collectionId`               | Any of `name`, `description`, `type`, `rules`                                                                                                                                                                                                                                                                                                                                            | Updated `Collection`; 400 if the result would be a smart collection without rules; switching to manual clears rules |
+| DELETE | `/api/collections/:collectionId`               | —                                                                                                                                                                                                                                                                                                                                                                                        | 204; 404 if not found. Games stay in the library                                                                    |
+| POST   | `/api/collections/:collectionId/games`         | `{ gameId }`                                                                                                                                                                                                                                                                                                                                                                             | 201 `{ collectionId, gameId }`; 400 on a smart collection; 404 if the game is not the user's; 409 if already added  |
+| DELETE | `/api/collections/:collectionId/games/:gameId` | —                                                                                                                                                                                                                                                                                                                                                                                        | 204; 404 if the game is not in the collection                                                                       |
+
 ## Downloads
 
 | Method | Path                     | Auth Required                                                                         | Request Body                                                                                                                                              | Response                                                                                                                            |
@@ -143,6 +157,25 @@ or 500 if IGDB search fails. Confirm a candidate using the match endpoint below.
 | GET    | `/api/library/scan/status`           | JWT                                                                                                         | —                                                                                                                                                             | `ScanProgress[]` — one entry per root folder scanned since server start                                                         |
 | GET    | `/api/library/scan/unmatched`        | JWT                                                                                                         | —                                                                                                                                                             | `UnmatchedEntry[]` — folders that didn't confidently match an IGDB game                                                         |
 | POST   | `/api/library/scan/unmatched/match`  | JWT + `sensitiveEndpointLimiter`, `sanitizeUnmatchedMatchData`, `validateRequest`                           | `{ rootFolderId (1–200 chars), folderName (1–1000 chars), igdbId (positive integer) }` via `sanitizeUnmatchedMatchData`                                       | `{ gameId, filesAdded }`; 400 `{ error: "Validation failed", details }` on invalid body; 500 with message on resolution failure |
+
+## Import Settings
+
+Mounted under `/api/imports` (JWT). See [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md#naming-pattern)
+for naming tokens and rendering rules.
+
+| Method | Path                          | Auth Required | Request Body                                                                                                                                                   | Response                                                                                                                                                                                                       |
+| ------ | ----------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/imports/naming/preview` | JWT           | `{ pattern: string (1–200) }` (strict, no other fields)                                                                                                        | `{ samples: { title, leafName, fullPath }[] }` for up to 5 library games plus one sample release; nothing is renamed. 400 `{ error, errors: string[] }` if the pattern is invalid; 400 `{ error }` on bad body |
+| PATCH  | `/api/imports/config`         | JWT           | Partial import config. `renamePattern?` (1–200) must pass naming validation: known tokens only, no `/` or `\`, no `..`, no control characters, balanced braces | Updated import config; 400 `{ error }` listing the validation messages on an invalid `renamePattern` or body                                                                                                   |
+
+Example preview request:
+
+```bash
+curl -X POST http://localhost:5000/api/imports/naming/preview \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"pattern":"{Title} ({Year})"}'
+```
 
 ## Indexers
 
@@ -349,7 +382,7 @@ router), both behind the global auth gate plus explicit `authenticateToken`.
 
 ## Integration API (external clients)
 
-`server/routes/integration.ts` — 4 routes, mounted at `/api/integration`.
+`server/routes/integration.ts` — 4 routes, mounted at `/api/integration`, plus the SeerrNG provider routes under `/api/integration/seerrng/v1` (`server/routes/seerrng.ts`, documented in [SEERRNG.md](SEERRNG.md)).
 
 This is the one part of the API that accepts a long-lived **integration API
 key** in addition to a JWT, for machine clients that cannot run the interactive
@@ -358,17 +391,32 @@ scripts, other self-hosted tools. The key is presented as `X-Api-Key: <key>` or
 `Authorization: Bearer <key>` (keys are recognised by their `qsr_` prefix, so a
 Bearer header is unambiguous between a key and a JWT).
 
+Each key carries one **scope** and an optional **expiry** (see
+[API Keys (management)](#api-keys-management)). A route declares the scopes that
+may call it with `requireScope(...)`; `all` satisfies every route,
+and a JWT session is never restricted by scope. A key outside a route's scope
+gets 403 `{ error, code: "API_KEY_SCOPE_DENIED" }`; an expired key gets 401
+`{ error: "API key expired", code: "API_KEY_EXPIRED" }`. Requests are limited to
+300/min per key (`integrationRateLimiter`).
+
+| Route                                                | `library:write` | `read` | `requests` | `all` |
+| ---------------------------------------------------- | :-------------: | :----: | :--------: | :---: |
+| `GET /ping`                                          |        ✓        |   ✓    |     ✓      |   ✓   |
+| `GET /library`                                       |        ✓        |   ✓    |     —      |   ✓   |
+| `POST /library/sync`, `POST /games/request`          |        ✓        |   —    |     —      |   ✓   |
+| `/seerrng/v1/*` (see [SeerrNG provider](SEERRNG.md)) |        —        |   —    |     ✓      |   ✓   |
+
 Authentication is handled by `authenticateApiKeyOrToken` in `server/auth.ts`,
 selected by `requireAuthenticationForApi` for paths under `/integration` only.
 Everywhere else on `/api` — key management included — stays JWT-only, so a
 leaked key cannot escalate into minting or revoking other keys.
 
-| Method | Path                             | Auth Required  | Request Body                                                                                                                 | Response                                                                                             |
-| ------ | -------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| GET    | `/api/integration/ping`          | JWT or API key | —                                                                                                                            | `{ service: "questarr", version, apiVersion, authenticatedAs: { id, username }, usingApiKey }`       |
-| GET    | `/api/integration/library`       | JWT or API key | Query: `status` (optional, comma-separated), `includeHidden` (optional, `"true"`/`"false"`)                                  | `{ games: IntegrationGame[], count }`; 400 on invalid query                                          |
-| POST   | `/api/integration/library/sync`  | JWT or API key | `{ games: Array<{ title, externalId?, installed?, steamAppId? }> (1–5000), markInstalledAsOwned?: boolean }` — Zod-validated | `{ received, matched, unmatched, promotedToOwned }`; 400 on invalid payload                          |
-| POST   | `/api/integration/games/request` | JWT or API key | `{ title: string, status?: "wanted" \| "owned" }` — Zod-validated                                                            | 201 `{ game }`; 404 if IGDB has no match or the match is content-filtered; 409 if already in library |
+| Method | Path                             | Auth Required  | Request Body                                                                                                                 | Response                                                                                                                                                                                                                |
+| ------ | -------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/integration/ping`          | JWT or API key | —                                                                                                                            | `{ service: "questarr", version, apiVersion, authenticatedAs: { id, username }, usingApiKey, scope, expiresAt }` (`scope`/`expiresAt` are `null` for a JWT session; `expiresAt` is `null` for a key that never expires) |
+| GET    | `/api/integration/library`       | JWT or API key | Query: `status` (optional, comma-separated), `includeHidden` (optional, `"true"`/`"false"`)                                  | `{ games: IntegrationGame[], count }`; 400 on invalid query                                                                                                                                                             |
+| POST   | `/api/integration/library/sync`  | JWT or API key | `{ games: Array<{ title, externalId?, installed?, steamAppId? }> (1–5000), markInstalledAsOwned?: boolean }` — Zod-validated | `{ received, matched, unmatched, promotedToOwned }`; 400 on invalid payload                                                                                                                                             |
+| POST   | `/api/integration/games/request` | JWT or API key | `{ title: string, status?: "wanted" \| "owned" }` — Zod-validated                                                            | 201 `{ game }`; 404 if IGDB has no match or the match is content-filtered; 409 if already in library                                                                                                                    |
 
 `IntegrationGame` is a deliberately narrow projection of a library game —
 `id`, `title`, `igdbId`, `steamAppId`, `status`, `releaseStatus`, `releaseDate`,
@@ -396,13 +444,13 @@ what hands it to the existing auto-search pipeline (`checkAutoSearch` in
 
 Keys are stored as a SHA-256 hash plus a short display prefix; the raw key is
 returned exactly once, in the 201 response that creates it, and is not
-recoverable afterwards. A user may hold at most 25 keys.
+recoverable afterwards. A user may hold at most 25 keys. `last_used_at` is written at most once per minute per key.
 
-| Method | Path                | Auth Required                    | Request Body                     | Response                                                                                                          |
-| ------ | ------------------- | -------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/api-keys`     | JWT                              | —                                | `Array<{ id, userId, name, prefix, createdAt, lastUsedAt }>` — never includes the hash                            |
-| POST   | `/api/api-keys`     | JWT + `sensitiveEndpointLimiter` | `{ name: string }` (1–100 chars) | 201 `{ id, userId, name, prefix, createdAt, lastUsedAt, key }` — `key` is shown only here; 409 once 25 keys exist |
-| DELETE | `/api/api-keys/:id` | JWT + `sensitiveEndpointLimiter` | —                                | 204; 404 if the key does not exist or belongs to another user                                                     |
+| Method | Path                | Auth Required                    | Request Body                                                                                                                                               | Response                                                                                                                            |
+| ------ | ------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/api-keys`     | JWT                              | —                                                                                                                                                          | `Array<{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt }>` — never includes the hash                            |
+| POST   | `/api/api-keys`     | JWT + `sensitiveEndpointLimiter` | `{ name: string (1–100 chars), scope?: "all" \| "library:write" \| "read" \| "requests" (default "all"), expiresInDays?: 1–365 \| null (default: never) }` | 201 `{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt, key }` — `key` is shown only here; 409 once 25 keys exist |
+| DELETE | `/api/api-keys/:id` | JWT + `sensitiveEndpointLimiter` | —                                                                                                                                                          | 204; 404 if the key does not exist or belongs to another user                                                                       |
 
 ## Error Format
 

@@ -12,12 +12,20 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import type {
+  ApiKeyScope,
+  IntegrationRequestProvider,
+  IntegrationRequestStatus,
+  SeerrngArchitecture,
+  SeerrngOperatingSystem,
+  CollectionRules,
+  DownloadEventType,
   GameExpansion,
   GameFileCategory,
   ImportTaskItemResult,
   ImportTaskStatus,
   ImportTaskType,
 } from "./schema.js";
+import type { FormatSpec, ReleaseProfile } from "./release-scoring.js";
 
 /**
  * Postgres mirror of shared/schema.ts.
@@ -155,6 +163,7 @@ export const games = pgTable("games", {
   publishers: jsonb("publishers").$type<string[]>(),
   developers: jsonb("developers").$type<string[]>(),
   screenshots: jsonb("screenshots").$type<string[]>(),
+  videos: jsonb("videos").$type<Array<{ name: string; videoId: string }>>(),
   source: text("source").default("manual"), // "manual" | "steam" | "api"
   igdbWebsites: jsonb("igdb_websites").$type<Array<{ category: number; url: string }>>(),
   expansions: jsonb("expansions").$type<GameExpansion[]>(),
@@ -284,6 +293,24 @@ export const releaseBlacklist = pgTable(
   (t) => [uniqueIndex("release_blacklist_game_title_idx").on(t.gameId, t.releaseTitle)]
 );
 
+export const downloadEvents = pgTable(
+  "download_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    gameTitle: text("game_title").notNull(),
+    eventType: text("event_type").notNull().$type<DownloadEventType>(),
+    releaseTitle: text("release_title").notNull(),
+    downloaderName: text("downloader_name"),
+    message: text("message"),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("download_events_user_created_idx").on(t.userId, t.createdAt)]
+);
+
 export const aiAutoDownloadHolds = pgTable(
   "ai_auto_download_holds",
   {
@@ -296,6 +323,77 @@ export const aiAutoDownloadHolds = pgTable(
     createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
   },
   (t) => [uniqueIndex("ai_auto_download_holds_game_title_idx").on(t.gameId, t.releaseTitle)]
+);
+
+export const releaseProfiles = pgTable("release_profiles", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  minScore: integer("min_score").notNull().default(0),
+  protocolPreference: text("protocol_preference").notNull().default("either"),
+  requiredTerms: jsonb("required_terms").$type<string[]>().notNull().default([]),
+  ignoredTerms: jsonb("ignored_terms").$type<string[]>().notNull().default([]),
+  minSeeders: integer("min_seeders").notNull().default(0),
+  maxSizeBytes: bigint("max_size_bytes", { mode: "number" }),
+  builtInOverrides: jsonb("built_in_overrides")
+    .$type<ReleaseProfile["builtInOverrides"]>()
+    .notNull()
+    .default({}),
+  formatScores: jsonb("format_scores").$type<Record<string, number>>().notNull().default({}),
+  createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+});
+
+export const customFormats = pgTable(
+  "custom_formats",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    specs: jsonb("specs").$type<FormatSpec[]>().notNull().default([]),
+    score: integer("score").notNull().default(0),
+    hardReject: boolean("hard_reject").notNull().default(false),
+    enabled: boolean("enabled").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+    updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("custom_formats_user_idx").on(t.userId)]
+);
+
+export const collections = pgTable(
+  "collections",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    type: text("type").notNull().default("manual"),
+    rules: jsonb("rules").$type<CollectionRules>(),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("collections_user_idx").on(t.userId)]
+);
+
+export const collectionGames = pgTable(
+  "collection_games",
+  {
+    id: text("id").primaryKey(),
+    collectionId: text("collection_id")
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    addedAt: timestampMs("added_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [uniqueIndex("collection_games_collection_game_idx").on(t.collectionId, t.gameId)]
 );
 
 export const gameJournalEntries = pgTable(
@@ -475,9 +573,44 @@ export const apiKeys = pgTable(
     prefix: text("prefix").notNull(),
     createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
     lastUsedAt: timestampMs("last_used_at"),
+    scope: text("scope").$type<ApiKeyScope>().notNull().default("all"),
+    expiresAt: timestampMs("expires_at"),
   },
   (t) => [
     uniqueIndex("api_keys_key_hash_idx").on(t.keyHash),
     index("api_keys_user_id_idx").on(t.userId),
+  ]
+);
+
+export const integrationRequests = pgTable(
+  "integration_requests",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").$type<IntegrationRequestProvider>().notNull().default("seerrng"),
+    externalRequestId: text("external_request_id").notNull(),
+    igdbId: integer("igdb_id"),
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    operatingSystem: text("operating_system").$type<SeerrngOperatingSystem>(),
+    architecture: text("architecture").$type<SeerrngArchitecture>(),
+    status: text("status").$type<IntegrationRequestStatus>().notNull().default("accepted"),
+    errorMessage: text("error_message"),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+    updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [
+    uniqueIndex("integration_requests_user_provider_external_idx").on(
+      t.userId,
+      t.provider,
+      t.externalRequestId
+    ),
+    index("integration_requests_game_id_idx").on(t.gameId),
+    // One live request per game; a cancelled request keeps its gameId until a new one takes over.
+    uniqueIndex("integration_requests_live_game_idx")
+      .on(t.userId, t.provider, t.gameId)
+      .where(sql`${t.gameId} is not null and ${t.status} <> 'cancelled'`),
   ]
 );

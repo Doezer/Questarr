@@ -18,11 +18,63 @@ In Docker, mount both locations and use their paths inside the container.
 | Overwrite Existing Files          | Allow replacement of existing destination files. Keep disabled to protect existing files.                                                               |
 | Auto-delete source after import   | After a successful copy or move import, remove the download from the client and delete source files.                                                    |
 | Sort add-on files into subfolders | Organize detected DLC, updates, and extras in `dlc/`, `update/`, and `extra/` for directory imports.                                                    |
-| Rename Pattern                    | Use `{Title}`, `{Region}`, `{Platform}`, and `{Year}` to name the destination.                                                                          |
+| Naming Pattern                    | Names the game folder, or the file of a single-file release, inside the platform folder. See [Naming pattern](#naming-pattern).                         |
 | Platform Filter                   | Use **Settings → Appearance → Platforms** to limit eligible platforms; an empty list allows all platforms.                                              |
+
+### Naming pattern
+
+The **Naming Pattern** controls the name of each imported game inside its
+platform folder: `<Library Root>/<Platform>/<name>`. Directory releases get a
+folder with that name. Single-file releases get a file with that name plus the
+original extension. The platform folder itself is not part of the pattern.
 
 See [Platform Naming and Rename Patterns](PLATFORM_NAMING.md) for the complete
 platform key and folder list, all rename-pattern tokens, and examples.
+
+| Token          | Value                                                       |
+| -------------- | ----------------------------------------------------------- |
+| `{Title}`      | Game title                                                  |
+| `{TitleThe}`   | Title with a leading "The" moved to the end (`Witcher, The`) |
+| `{Year}`       | Release year                                                |
+| `{Platform}`   | Platform name, as used for the platform folder              |
+| `{Version}`    | Version parsed from the release name                        |
+| `{Group}`      | Release group parsed from the release name                  |
+| `{Source}`     | Store or DRM parsed from the release name (GOG, Steam, ...) |
+| `{IgdbId}`     | IGDB ID of the game                                         |
+| `{SteamAppId}` | Steam App ID of the game                                    |
+| `{Region}`     | Reserved. Always empty for now.                             |
+
+Token names are case-insensitive. For example, `{Title} ({Year}) [{Group}]`
+renders `The Example Quest (2021) [GROUP]`.
+
+Questarr cleans up the rendered name before using it:
+
+- Empty tokens are dropped together with brackets that only held empty tokens
+  and orphan separators. `{Title} ({Year})` renders `Doom` when the year is
+  unknown.
+- Characters that file systems refuse (`< > : " / \ | ? *` and control
+  characters) become `_`.
+- Names matching Windows reserved device names, such as `CON` or `LPT1`, get a
+  `_` prefix.
+- Names are capped at 200 bytes (UTF-8) and trailing dots and spaces are removed.
+- If nothing usable remains, Questarr falls back to the sanitized game title.
+
+The default pattern stays `{Title} ({Region})`. Because `{Region}` is always
+empty, it renders as the plain title, and existing configurations keep their
+current pattern.
+
+In **Settings → Import**, the pattern editor offers:
+
+- **Token chips** that insert a token at the cursor.
+- **Presets**: `{Title}`, `{Title} ({Year})`, `{Title} ({Year}) [{Group}]`, and
+  `{TitleThe}`.
+- **Inline validation**. Unknown tokens, slashes, `..`, control characters,
+  empty patterns, and unbalanced braces show an error and disable **Save**.
+- **Live preview** of a sample game, followed by the full destination paths for
+  up to five games from your library and a sample release.
+
+The pattern applies to new imports only. Questarr does not rename folders or
+files that were already imported.
 
 ### Path mappings and security
 

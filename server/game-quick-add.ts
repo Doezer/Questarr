@@ -34,9 +34,18 @@ export type QuickAddResult =
 export async function quickAddGameByTitle(
   userId: string,
   title: string,
-  options: { status?: "wanted" | "owned"; source?: Game["source"] } = {}
+  options: {
+    status?: "wanted" | "owned";
+    source?: Game["source"];
+    /** Exact IGDB id (e.g. from a request app); skips the free-text title match. */
+    igdbId?: number;
+    /** Platform the release search should target instead of the account default. */
+    targetPlatform?: { id: number; name: string };
+  } = {}
 ): Promise<QuickAddResult> {
-  const [igdbResult] = await igdbClient.searchGames(title, 1);
+  const igdbResult = options.igdbId
+    ? await igdbClient.getGameById(options.igdbId)
+    : (await igdbClient.searchGames(title, 1))[0];
   if (!igdbResult) {
     return { outcome: "not_found" };
   }
@@ -66,8 +75,15 @@ export async function quickAddGameByTitle(
     publishers: match.publishers,
     developers: match.developers,
     screenshots: match.screenshots,
+    videos: match.videos,
     rating: match.rating,
     ...(options.source ? { source: options.source } : {}),
+    ...(options.targetPlatform
+      ? {
+          targetPlatformId: options.targetPlatform.id,
+          targetPlatformName: options.targetPlatform.name,
+        }
+      : {}),
   });
 
   const userGames = await storage.getUserGames(userId, true);

@@ -1053,6 +1053,47 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  describe("GET /api/games/:id", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("returns the user's game", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        title: "Quest",
+      } as unknown as Game);
+      const response = await request(app).get(`/api/games/${gameId}`);
+      expect(response.status).toBe(200);
+      expect(response.body.title).toBe("Quest");
+    });
+
+    it("returns 404 for an unknown game and 403 for another user's game", async () => {
+      vi.mocked(storage.getGame).mockResolvedValueOnce(undefined);
+      expect((await request(app).get(`/api/games/${gameId}`)).status).toBe(404);
+      vi.mocked(storage.getGame).mockResolvedValueOnce({
+        id: gameId,
+        userId: "someone-else",
+      } as unknown as Game);
+      expect((await request(app).get(`/api/games/${gameId}`)).status).toBe(403);
+    });
+
+    it("returns 404 for a game hidden by the content filter", async () => {
+      vi.mocked(storage.getGame).mockResolvedValueOnce({
+        id: gameId,
+        userId: "user-1",
+        isAdultContent: true,
+      } as unknown as Game);
+      vi.mocked(storage.getUserSettings).mockResolvedValueOnce({
+        hideAdultContent: true,
+      } as unknown as Awaited<ReturnType<typeof storage.getUserSettings>>);
+      expect((await request(app).get(`/api/games/${gameId}`)).status).toBe(404);
+    });
+
+    it("rejects a malformed id", async () => {
+      expect((await request(app).get("/api/games/not-a-uuid")).status).toBe(400);
+    });
+  });
+
   describe("PATCH /api/games/:id/user-rating", () => {
     const gameId = "123e4567-e89b-12d3-a456-426614174000";
 
@@ -3103,6 +3144,69 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.body.items).toHaveLength(1);
       expect(response.body.items[0].title).toBe("Test Game-CODEX");
       expect(storage.getReleaseBlacklistSet).toHaveBeenCalledWith("game-1");
+    });
+
+    it("attaches a score to each result and ranks the sequel last", async () => {
+      const mockGame = { id: "game-1", userId: "user-1", title: "Dishonored" };
+      vi.mocked(storage.getGame).mockResolvedValue(
+        mockGame as Awaited<ReturnType<typeof storage.getGame>>
+      );
+      vi.mocked(storage.getReleaseBlacklistSet).mockResolvedValue(new Set());
+      const profile = {
+        id: "p1",
+        userId: "user-1",
+        minScore: 0,
+        protocolPreference: "either",
+        requiredTerms: [],
+        ignoredTerms: [],
+        minSeeders: 0,
+        maxSizeBytes: null,
+        builtInOverrides: {},
+        formatScores: {},
+      };
+      Object.assign(storage, {
+        getReleaseProfile: vi.fn().mockResolvedValue(profile),
+        getCustomFormats: vi.fn().mockResolvedValue([]),
+      });
+      vi.mocked(searchAllIndexers).mockResolvedValue({
+        items: [
+          {
+            title: "Dishonored.2-CODEX",
+            link: "http://example.com/1",
+            downloadType: "torrent" as const,
+            category: [],
+          },
+          {
+            title: "Dishonored-CODEX",
+            link: "http://example.com/2",
+            downloadType: "torrent" as const,
+            category: [],
+          },
+        ],
+        total: 2,
+        errors: [],
+      });
+
+      try {
+        const response = await request(app).get("/api/search?query=Dishonored&gameId=game-1");
+
+        expect(response.status).toBe(200);
+        expect(response.body.items.map((i: { title: string }) => i.title)).toEqual([
+          "Dishonored-CODEX",
+          "Dishonored.2-CODEX",
+        ]);
+        expect(response.body.items[0].evaluation).toMatchObject({
+          accepted: true,
+          titleMatch: "exact",
+        });
+        expect(response.body.items[1].evaluation).toMatchObject({
+          accepted: false,
+          titleMatch: "sequel",
+        });
+      } finally {
+        Reflect.deleteProperty(storage, "getReleaseProfile");
+        Reflect.deleteProperty(storage, "getCustomFormats");
+      }
     });
 
     it("should include blacklistedCount in response when items are blacklisted", async () => {

@@ -14,8 +14,9 @@ import { AuthProvider } from "@/lib/auth";
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef } from "react";
 import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
+import "@/lib/in-app-history";
 import { routerBase } from "@/lib/app-path";
-import { routePaths } from "@/lib/routes";
+import { gameDetailsRoutePattern, routePaths } from "@/lib/routes";
 import { applyThemeClass, migrateLegacyTheme } from "@/lib/theme-mode";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
@@ -32,6 +33,7 @@ const NotFound = lazy(() => import("@/pages/not-found"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
 const WishlistPage = lazy(() => import("@/pages/wishlist"));
 const PlayingPage = lazy(() => import("@/pages/playing"));
+const CollectionsPage = lazy(() => import("@/pages/collections"));
 const LibraryImportPage = lazy(() => import("@/pages/library-import"));
 const XrelReleasesPage = lazy(() => import("@/pages/xrel-releases"));
 const RssPage = lazy(() => import("@/pages/rss"));
@@ -40,7 +42,11 @@ const SetupPage = lazy(() => import("@/pages/auth/setup"));
 const StatsPage = lazy(() => import("@/pages/stats"));
 const LogsPage = lazy(() => import("@/pages/logs"));
 const ImportHistoryPage = lazy(() => import("@/pages/import-history"));
+const ActivityHistoryPage = lazy(() => import("@/pages/activity-history"));
+const ActivityBlocklistPage = lazy(() => import("@/pages/activity-blocklist"));
+const SystemTasksPage = lazy(() => import("@/pages/system-tasks"));
 const PlayPage = lazy(() => import("@/pages/play"));
+const GameDetailsPage = lazy(() => import("@/pages/game-details"));
 
 // Konami code: an undocumented shortcut into the /play easter egg.
 const KONAMI_CODE = [
@@ -124,6 +130,7 @@ function Router() {
         <Route path={routePaths.setup} component={SetupPage} />
         <Route path={routePaths.play} component={PlayPage} />
         <Route path={routePaths.library} component={Library} />
+        <Route path={gameDetailsRoutePattern} component={GameDetailsPage} />
         <Route path={routePaths.discover} component={DiscoverPage} />
         <Route path={routePaths.search} component={SearchPage} />
         <Route path={routePaths.downloads} component={DownloadsPage} />
@@ -133,12 +140,16 @@ function Router() {
         <Route path={routePaths.calendar} component={CalendarPage} />
         <Route path={routePaths.wishlist} component={WishlistPage} />
         <Route path={routePaths.playing} component={PlayingPage} />
+        <Route path={routePaths.collections} component={CollectionsPage} />
         <Route path={routePaths.libraryImport} component={LibraryImportPage} />
         <Route path={routePaths.xrel} component={XrelReleasesPage} />
         <Route path={routePaths.rss} component={RssPage} />
         <Route path={routePaths.stats} component={StatsPage} />
         <Route path={routePaths.logs} component={LogsPage} />
         <Route path={routePaths.importHistory} component={ImportHistoryPage} />
+        <Route path={routePaths.activityHistory} component={ActivityHistoryPage} />
+        <Route path={routePaths.activityBlocklist} component={ActivityBlocklistPage} />
+        <Route path={routePaths.systemTasks} component={SystemTasksPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

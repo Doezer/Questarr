@@ -431,6 +431,23 @@ describe("sabnzbd remaining regression coverage", () => {
       ([, options]) => (options as RequestInit)?.method === "POST"
     ) as [string, RequestInit & { requireHttps?: boolean }];
     expect(postOptionsWithoutCredentials.requireHttps).toBe(false);
+
+    // Plain HTTP with the insecure-LAN opt-in: the archive password goes out, and the
+    // HTTPS pin must not reject the request itself.
+    safeFetchMock.mockClear();
+    const insecureLanClient = new SABnzbdClient(
+      createDownloader({ useSsl: false, allowInsecureLan: true })
+    );
+    const insecureLanResult = await insecureLanClient.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+    expect(insecureLanResult.success).toBe(true);
+    const [, postOptionsInsecureLan] = safeFetchMock.mock.calls.find(
+      ([, options]) => (options as RequestInit)?.method === "POST"
+    ) as [string, RequestInit & { requireHttps?: boolean }];
+    expect(postOptionsInsecureLan.requireHttps).toBe(false);
   });
 
   it("does not downgrade to the insecure self-signed-cert fallback when a password is sent", async () => {

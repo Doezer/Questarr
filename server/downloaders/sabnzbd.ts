@@ -168,15 +168,16 @@ export class SABnzbdClient implements DownloaderClient {
   ): Promise<Response> {
     try {
       // Refuse to follow a redirect to a non-HTTPS hop whenever this request carries
-      // a credential: either the archive password (allowInsecureFallback is false
-      // exactly then, see addDownload) or the API key that getApiUrl() embeds in
+      // a credential: the archive password or the API key that getApiUrl() embeds in
       // every routine request once the connection is configured for TLS. Without
       // this, a compromised or MITM'd SABnzbd could bounce a credential-bearing
-      // HTTPS request to a plaintext endpoint mid-flight.
+      // HTTPS request to a plaintext endpoint mid-flight. A request that starts on
+      // HTTP is only reachable when the user opted into "Allow insecure LAN", so it
+      // must not be rejected here.
       return await safeFetch(url, {
         ...options,
         allowPrivate: true,
-        requireHttps: !allowInsecureFallback || isHttpsUrl(url),
+        requireHttps: isHttpsUrl(url),
       });
     } catch (error) {
       const isSslError =

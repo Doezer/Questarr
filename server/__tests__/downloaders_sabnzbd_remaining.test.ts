@@ -369,7 +369,7 @@ describe("sabnzbd remaining regression coverage", () => {
       arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
     } as Response);
 
-    const client = new SABnzbdClient(createDownloader({ useSsl: false }));
+    const client = new SABnzbdClient(createDownloader({ useSsl: false, allowInsecureLan: false }));
     const fetchWithFallbackSpy = spyOnFetchWithFallback(client);
 
     const result = await client.addDownload({
@@ -381,7 +381,7 @@ describe("sabnzbd remaining regression coverage", () => {
     expect(result).toEqual({
       success: false,
       message:
-        "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, or remove the archive password.",
+        "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, turn on 'Allow insecure LAN', or remove the archive password.",
     });
     expect(fetchWithFallbackSpy).not.toHaveBeenCalled();
   });

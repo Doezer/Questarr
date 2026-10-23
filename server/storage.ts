@@ -363,6 +363,9 @@ export interface IStorage {
 
   // GameDownload methods
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
+  // Usenet downloads marked "failed" since `since` that still carry a real downloader id
+  // (not a pending "questarr-add-" tag), so a job the user repaired in the client can be revived.
+  getRecentFailedUsenetDownloads(since: Date): Promise<GameDownload[]>;
   getPendingImportReviews(userId: string): Promise<GameDownload[]>;
   // Downloads whose linked game record couldn't be found (status "game_link_required").
   // Unlike getPendingImportReviews, this can't be scoped by userId — there's no game
@@ -1325,6 +1328,16 @@ export class MemStorage implements IStorage {
   // GameDownload methods
   async getDownloadingGameDownloads(): Promise<GameDownload[]> {
     return Array.from(this.gameDownloads.values()).filter((d) => d.status === "downloading");
+  }
+
+  async getRecentFailedUsenetDownloads(since: Date): Promise<GameDownload[]> {
+    return Array.from(this.gameDownloads.values()).filter(
+      (d) =>
+        d.status === "failed" &&
+        d.downloadType === "usenet" &&
+        !d.downloadHash.startsWith("questarr-add-") &&
+        (d.addedAt?.getTime() ?? 0) >= since.getTime()
+    );
   }
 
   async getPendingImportReviews(userId: string): Promise<GameDownload[]> {
@@ -3219,6 +3232,20 @@ export class DatabaseStorage implements IStorage {
             GAME_LINK_REQUIRED_STATUS,
             QUARANTINED_STATUS,
           ])
+        )
+      );
+  }
+
+  async getRecentFailedUsenetDownloads(since: Date): Promise<GameDownload[]> {
+    return db
+      .select()
+      .from(gameDownloads)
+      .where(
+        and(
+          eq(gameDownloads.status, "failed"),
+          eq(gameDownloads.downloadType, "usenet"),
+          not(like(gameDownloads.downloadHash, "questarr-add-%")),
+          gte(gameDownloads.addedAt, since)
         )
       );
   }

@@ -376,7 +376,8 @@ export class SABnzbdClient implements DownloaderClient {
         request.password,
         this.downloader.settings,
         this.getBaseUrl(),
-        "SABnzbd"
+        "SABnzbd",
+        this.downloader.allowInsecureLan === true
       );
       if (passwordError) {
         return { success: false, message: passwordError };

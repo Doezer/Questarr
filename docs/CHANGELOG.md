@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file.
 
 - **Library import**: platform names, folders and Game Gear are now handled correctly (#1212).
 - **Home Assistant add-on**: the add-on starts the server with `node` directly instead of through npm (#1208).
+- **Library rescans**: folders already linked to a game are skipped instead of reappearing in Needs Review, and new files in them are still attached (#1234).
 
 - **Legacy session token migration**: a pre-1.5.0 token left in `localStorage` is now carried over as an in-memory bearer token for the current tab and removed from `localStorage`, in a post-commit effect instead of during React render. The app waits for it before calling `/api/auth/me`, which also makes it safe under StrictMode. It is not stored as a cookie, so the next reload asks you to sign in again (#1193).
 

@@ -35,6 +35,7 @@ vi.mock("../storage.js", () => ({
     getRootFolder: vi.fn(),
     getEnabledRootFolders: vi.fn().mockResolvedValue([]),
     touchRootFolderScanned: vi.fn().mockResolvedValue(undefined),
+    getAllGames: vi.fn().mockResolvedValue([]),
     getGameByIgdbId: vi.fn(),
     addGame: vi.fn(),
     updateGame: vi.fn(),
@@ -319,6 +320,27 @@ describe("scanRootFolderById full scan", () => {
     // Clients refresh their games list once the scan has added games.
     const { notifyUser } = await import("../socket.js");
     expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "rf-1");
+  });
+
+  it("keeps folders already linked to a game out of review and skips their IGDB lookup", async () => {
+    const { storage } = await import("../storage.js");
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockClear();
+    vi.mocked(storage.getAllGames).mockResolvedValueOnce([
+      { id: "manual-game", libraryPath: path.join(tmpDir, "Mystery Game.iso") },
+    ] as unknown as Game[]);
+
+    await scanRootFolderById("rf-1", "user-1");
+
+    expect(getAllUnmatched()).toHaveLength(0);
+    expect(getScanProgress("rf-1")?.unmatched).toBe(0);
+    expect(getScanProgress("rf-1")?.matched).toBe(3);
+    const { notifyUser } = await import("../socket.js");
+    expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "rf-1");
+    expect(igdbClient.searchGames).not.toHaveBeenCalledWith("Mystery Game", 5);
+    expect(storage.addGameFile).toHaveBeenCalledWith(
+      expect.objectContaining({ gameId: "manual-game", originalName: "Mystery Game.iso" })
+    );
   });
 
   it("still refreshes clients when the scan fails after adding games", async () => {

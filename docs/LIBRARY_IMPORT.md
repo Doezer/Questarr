@@ -28,6 +28,9 @@ platform folder: `<Library Root>/<Platform>/<name>`. Directory releases get a
 folder with that name. Single-file releases get a file with that name plus the
 original extension. The platform folder itself is not part of the pattern.
 
+See [Platform Naming and Rename Patterns](PLATFORM_NAMING.md) for the complete
+platform key and folder list, all rename-pattern tokens, and examples.
+
 | Token          | Value                                                        |
 | -------------- | ------------------------------------------------------------ |
 | `{Title}`      | Game title                                                   |
@@ -178,6 +181,9 @@ configuration does not delete the directory itself.
 - Progress shows queued/running/completed/failed status and matched, review, and
   error counts. Library and Discover refresh when matches are saved, including
   matches saved before a scan fails.
+- A folder already linked to a game, by an earlier scan or a manual match, is not
+  looked up on IGDB again and never returns to **Needs Review**. A rescan still
+  attaches any new files found in it.
 - Under **Needs Review**, choose a suggested IGDB game or enter a different
   name in **Not listed? Search IGDB by name**. Search alone does not import the
   game; clicking a candidate confirms it and adds it to your library.

@@ -123,6 +123,7 @@ export function resetDownloadStatusTracking(): void {
     tracked.clear();
   }
   downloadStatusCheckRunning = false;
+  lastFailedRecoveryAt = 0;
 }
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const ROMM_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -919,6 +920,8 @@ export async function checkDownloadStatus() {
   }
 }
 
+const FAILED_USENET_RECOVERY_INTERVAL_MS = 10 * 60 * 1000;
+let lastFailedRecoveryAt = 0;
 const FAILED_USENET_RECOVERY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const RECOVERABLE_REMOTE_STATUSES = new Set<DownloadStatus["status"]>([
   "downloading",
@@ -935,6 +938,10 @@ const RECOVERABLE_REMOTE_STATUSES = new Set<DownloadStatus["status"]>([
  * never be imported. The row goes back to "downloading" and the regular tracker takes over.
  */
 async function recoverFailedUsenetDownloads() {
+  // Most failed rows never come back, so don't ask the client about them every minute.
+  const now = Date.now();
+  if (now - lastFailedRecoveryAt < FAILED_USENET_RECOVERY_INTERVAL_MS) return;
+  lastFailedRecoveryAt = now;
   const failed = await storage.getRecentFailedUsenetDownloads(
     new Date(Date.now() - FAILED_USENET_RECOVERY_WINDOW_MS)
   );

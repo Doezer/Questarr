@@ -591,12 +591,21 @@ async function processCandidate(
   rootFolder: RootFolderRow,
   cand: FolderCandidate,
   userId: string,
-  progress: ScanProgress
+  progress: ScanProgress,
+  knownGameIds: ReadonlyMap<string, string>
 ): Promise<void> {
   const files = cand.isFile
     ? [{ absolutePath: cand.absolutePath, size: cand.fileSize ?? 0 }]
     : await listFiles(cand.absolutePath);
   if (files.length === 0) return;
+
+  // Already linked to a game by an earlier scan or a manual match: keep it out
+  // of the review list and skip the IGDB lookup, but still pick up new files.
+  const knownGameId = knownGameIds.get(cand.absolutePath);
+  if (knownGameId) {
+    await assignFilesToGame(knownGameId, files);
+    return;
+  }
 
   const { best, candidates: igdbCandidates, score } = await bestIgdbMatch(cand.folderName);
 
@@ -620,11 +629,16 @@ async function runScan(
     progress.totalCandidates = candidates.length;
     emitProgress(progress);
 
+    const knownGameIds = new Map<string, string>();
+    for (const g of await storage.getAllGames()) {
+      if (g.libraryPath && !knownGameIds.has(g.libraryPath)) knownGameIds.set(g.libraryPath, g.id);
+    }
+
     for (const cand of candidates) {
       progress.currentCandidate = cand.folderName;
       emitProgress(progress);
       try {
-        await processCandidate(rootFolder, cand, userId, progress);
+        await processCandidate(rootFolder, cand, userId, progress, knownGameIds);
       } catch (err) {
         progress.errors += 1;
         routesLogger.error({ err, folder: cand.folderName }, "scan: error processing folder");

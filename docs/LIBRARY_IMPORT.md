@@ -28,18 +28,21 @@ platform folder: `<Library Root>/<Platform>/<name>`. Directory releases get a
 folder with that name. Single-file releases get a file with that name plus the
 original extension. The platform folder itself is not part of the pattern.
 
-| Token          | Value                                                       |
-| -------------- | ----------------------------------------------------------- |
-| `{Title}`      | Game title                                                  |
+See [Platform Naming and Rename Patterns](PLATFORM_NAMING.md) for the complete
+platform key and folder list, all rename-pattern tokens, and examples.
+
+| Token          | Value                                                        |
+| -------------- | ------------------------------------------------------------ |
+| `{Title}`      | Game title                                                   |
 | `{TitleThe}`   | Title with a leading "The" moved to the end (`Witcher, The`) |
-| `{Year}`       | Release year                                                |
-| `{Platform}`   | Platform name, as used for the platform folder              |
-| `{Version}`    | Version parsed from the release name                        |
-| `{Group}`      | Release group parsed from the release name                  |
-| `{Source}`     | Store or DRM parsed from the release name (GOG, Steam, ...) |
-| `{IgdbId}`     | IGDB ID of the game                                         |
-| `{SteamAppId}` | Steam App ID of the game                                    |
-| `{Region}`     | Reserved. Always empty for now.                             |
+| `{Year}`       | Release year                                                 |
+| `{Platform}`   | Platform name, as used for the platform folder               |
+| `{Version}`    | Version parsed from the release name                         |
+| `{Group}`      | Release group parsed from the release name                   |
+| `{Source}`     | Store or DRM parsed from the release name (GOG, Steam, ...)  |
+| `{IgdbId}`     | IGDB ID of the game                                          |
+| `{SteamAppId}` | Steam App ID of the game                                     |
+| `{Region}`     | Reserved. Always empty for now.                              |
 
 Token names are case-insensitive. For example, `{Title} ({Year}) [{Group}]`
 renders `The Example Quest (2021) [GROUP]`.

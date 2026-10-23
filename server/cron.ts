@@ -938,7 +938,11 @@ async function recoverFailedUsenetDownloads() {
   const failed = await storage.getRecentFailedUsenetDownloads(
     new Date(Date.now() - FAILED_USENET_RECOVERY_WINDOW_MS)
   );
+  // A downloader that errors out is skipped for the rest of this tick, so an unreachable
+  // client costs one timeout instead of one per failed row.
+  const unreachableDownloaders = new Set<string>();
   for (const download of failed) {
+    if (unreachableDownloaders.has(download.downloaderId)) continue;
     try {
       const downloader = await storage.getDownloader(download.downloaderId);
       if (!downloader || !downloader.enabled) continue;
@@ -962,6 +966,7 @@ async function recoverFailedUsenetDownloads() {
       }
       notifyUser("downloadUpdate", download.gameId);
     } catch (error) {
+      unreachableDownloaders.add(download.downloaderId);
       igdbLogger.debug({ error, downloadId: download.id }, "Failed-download recovery check failed");
     }
   }

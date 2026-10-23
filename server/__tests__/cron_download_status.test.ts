@@ -801,6 +801,22 @@ describe("Cron - checkDownloadStatus", () => {
     expect(statusWritesFor("game-1")).toEqual([{ status: "downloading" }]);
   });
 
+  it("stops checking a downloader's failed downloads after its first lookup error", async () => {
+    const failed = { ...baseDownload, status: "failed", errorMessage: "NZBGet unpack failed" };
+    mockGetDownloadingGameDownloads.mockResolvedValue([]);
+    mockGetRecentFailedUsenetDownloads.mockResolvedValue([
+      failed,
+      { ...failed, id: "download-2", downloadHash: "other-hash" },
+    ]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetDownloadStatus.mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+    await checkDownloadStatus();
+
+    expect(mockGetDownloadStatus).toHaveBeenCalledTimes(1);
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
+  });
+
   it("leaves a failed usenet download failed while the client still reports the failure", async () => {
     const failed = { ...baseDownload, status: "failed", errorMessage: "NZBGet unpack failed" };
     mockGetDownloadingGameDownloads.mockResolvedValue([]);

@@ -334,6 +334,9 @@ describe("scanRootFolderById full scan", () => {
 
     expect(getAllUnmatched()).toHaveLength(0);
     expect(getScanProgress("rf-1")?.unmatched).toBe(0);
+    expect(getScanProgress("rf-1")?.matched).toBe(3);
+    const { notifyUser } = await import("../socket.js");
+    expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "rf-1");
     expect(igdbClient.searchGames).not.toHaveBeenCalledWith("Mystery Game", 5);
     expect(storage.addGameFile).toHaveBeenCalledWith(
       expect.objectContaining({ gameId: "manual-game", originalName: "Mystery Game.iso" })

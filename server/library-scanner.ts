@@ -603,7 +603,9 @@ async function processCandidate(
   // of the review list and skip the IGDB lookup, but still pick up new files.
   const knownGameId = knownGameIds.get(cand.absolutePath);
   if (knownGameId) {
-    await assignFilesToGame(knownGameId, files);
+    const added = await assignFilesToGame(knownGameId, files);
+    if (added > 0) gamesChangedByScan.add(progress);
+    progress.matched += 1;
     return;
   }
 

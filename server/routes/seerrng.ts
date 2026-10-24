@@ -5,9 +5,18 @@ import { TarArchive } from "archiver";
 import { z } from "zod";
 import { requireScope } from "../auth.js";
 import { storage } from "../storage.js";
-import { igdbClient } from "../igdb.js";
+import {
+  igdbClient,
+  type DiscoverFilters,
+  type IGDBContentRef,
+  type IGDBGameContent,
+} from "../igdb.js";
 import { routesLogger as logger } from "../logger.js";
-import { getContentFilterFlags, isContentFiltered } from "../content-filter.js";
+import {
+  getContentFilterFlags,
+  isContentFiltered,
+  type ContentFilterFlags,
+} from "../content-filter.js";
 import { assertWithinRoots } from "../path-security.js";
 import { DownloaderManager } from "../downloaders/manager.js";
 import { quickAddGameByTitle } from "../game-quick-add.js";
@@ -17,6 +26,7 @@ import {
   SEERRNG_OPERATING_SYSTEMS,
   type Game,
   type IntegrationRequest,
+  type IntegrationRequestSelection,
   type SeerrngOperatingSystem,
 } from "../../shared/schema.js";
 
@@ -49,6 +59,8 @@ const MAX_CATALOG_RESULTS = 50;
 // IGDB clamps one upstream request to 100 results, so that is the browsable window.
 const MAX_CATALOG_WINDOW = 100;
 const MAX_ASSETS = 100;
+/** Discovery pages by offset; IGDB serves a bounded window, so the cursor is capped. */
+const MAX_DISCOVER_OFFSET = 500;
 const BASE_PATH = "/api/integration/seerrng/v1";
 
 const scope = requireScope("requests");
@@ -234,6 +246,8 @@ seerrngRouter.get("/ping", scope, (_req: Request, res: Response) => {
       requestActions: { retry: true, cancel: true },
       assetStreaming: true,
       assetBundles: true,
+      editions: true,
+      discover: true,
     },
   });
 });
@@ -338,6 +352,191 @@ seerrngRouter.get("/catalog/games/:igdbId", scope, async (req: Request, res: Res
   } catch (error) {
     logger.error({ error, igdbId: igdbId.data }, "SeerrNG catalog game fetch failed");
     return res.status(502).json({ error: "IGDB game details are unavailable." });
+  }
+});
+
+// ── Editions and discovery (contract v2.1) ───────────────────────────────────
+
+type ContentType =
+  "expansion" | "dlc" | "cosmetic" | "season-pass" | "bonus" | "soundtrack" | "unknown";
+
+/** IGDB game_type 14 is an update/patch, which is never content a user requests. */
+const IGDB_UPDATE_GAME_TYPE = 14;
+
+function contentTypeOf(ref: IGDBContentRef): ContentType {
+  const name = ref.name.toLocaleLowerCase();
+  if (/\bsoundtrack\b|\bost\b/.test(name)) return "soundtrack";
+  if (/season pass/.test(name)) return "season-pass";
+  if (/\b(skin|costume|outfit|cosmetic)s?\b/.test(name)) return "cosmetic";
+  if (/\b(bonus|pre-?order|digital extras?)\b/.test(name)) return "bonus";
+  switch (ref.game_type) {
+    case 2:
+    case 4:
+      return "expansion";
+    case 1:
+    case 6:
+      return "dlc";
+    case 7:
+      return "season-pass";
+    case 13:
+      return "bonus";
+    default:
+      return "unknown";
+  }
+}
+
+/** Story content is only claimed for what IGDB calls an expansion; cosmetics and extras never are. */
+function storyContentOf(type: ContentType): boolean | null {
+  if (type === "expansion") return true;
+  if (type === "cosmetic" || type === "soundtrack" || type === "bonus") return false;
+  return null;
+}
+
+function linkedContent(game: IGDBGameContent, flags: ContentFilterFlags): IGDBContentRef[] {
+  const seen = new Set<number>();
+  return [...(game.expansions ?? []), ...(game.dlcs ?? []), ...(game.standalone_expansions ?? [])]
+    .filter((ref) => ref.game_type !== IGDB_UPDATE_GAME_TYPE)
+    .filter((ref) => !isContentFiltered(igdbClient.contentFlags(ref), flags))
+    .filter((ref) => !seen.has(ref.id) && seen.add(ref.id));
+}
+
+const coverUrlOf = (url?: string) =>
+  url ? `https:${url.replace("t_thumb", "t_cover_big")}` : undefined;
+
+const isoDate = (seconds?: number) =>
+  seconds ? new Date(seconds * 1000).toISOString().slice(0, 10) : undefined;
+
+/** Library games the account already has, keyed by IGDB id. */
+async function libraryByIgdbId(userId: string): Promise<Map<number, Game>> {
+  const games = await storage.getUserGames(userId, true);
+  return new Map(games.filter((game) => game.igdbId != null).map((game) => [game.igdbId!, game]));
+}
+
+const isOwned = (game: Game | undefined) =>
+  game !== undefined && (ACQUIRED_GAME_STATUSES as readonly string[]).includes(game.status);
+
+function toGameContent(ref: IGDBContentRef, library: Map<number, Game>) {
+  const type = contentTypeOf(ref);
+  const releaseDate = isoDate(ref.first_release_date);
+  const coverUrl = coverUrlOf(ref.cover?.url);
+  return {
+    igdbId: ref.id,
+    title: ref.name,
+    type,
+    storyContent: storyContentOf(type),
+    ...(releaseDate ? { releaseDate } : {}),
+    ...(coverUrl ? { coverUrl } : {}),
+    owned: isOwned(library.get(ref.id)),
+  };
+}
+
+seerrngRouter.get("/catalog/games/:igdbId/editions", scope, async (req: Request, res: Response) => {
+  const igdbId = z.coerce.number().int().positive().safeParse(req.params.igdbId);
+  if (!igdbId.success) return res.status(400).json({ error: "A valid IGDB ID is required." });
+  try {
+    const { base, editions } = await igdbClient.getGameEditions(igdbId.data);
+    const game = base ? await igdbClient.getGameById(base.id) : null;
+    const [visible] = game ? await visibleIgdbGames(req.user!.id, [game]) : [];
+    if (!base || !visible) return res.status(404).json({ error: "Game not found." });
+    const library = await libraryByIgdbId(req.user!.id);
+    const flags = await getContentFilterFlags(req.user!.id);
+    const owner = library.get(base.id);
+    return res.json({
+      base: {
+        igdbId: base.id,
+        title: base.name,
+        owned: isOwned(owner),
+        ...(owner ? { status: owner.status } : {}),
+      },
+      editions: editions
+        .filter((edition) => !isContentFiltered(igdbClient.contentFlags(edition), flags))
+        .map((edition) => {
+          const includes = linkedContent(edition, flags).map((ref) => toGameContent(ref, library));
+          const releaseDate = isoDate(edition.first_release_date);
+          return {
+            igdbId: edition.id,
+            title: edition.name,
+            ...(edition.summary ? { summary: edition.summary } : {}),
+            ...(releaseDate ? { releaseDate } : {}),
+            includes,
+            contentKnown: includes.length > 0,
+            owned: isOwned(library.get(edition.id)),
+          };
+        }),
+      addons: linkedContent(base, flags).map((ref) => toGameContent(ref, library)),
+    });
+  } catch (error) {
+    logger.error({ error, igdbId: igdbId.data }, "SeerrNG editions fetch failed");
+    return res.status(502).json({ error: "IGDB edition details are unavailable." });
+  }
+});
+
+const discoverQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
+  minYear: z.coerce.number().int().min(1970).max(2200).optional(),
+  maxHoursToBeat: z.coerce.number().positive().max(10000).optional(),
+  limit: z.coerce.number().int().min(1).max(48).default(24),
+  cursor: z
+    .string()
+    .regex(/^\d{1,4}$/)
+    .optional(),
+});
+
+seerrngRouter.get("/catalog/discover", scope, async (req: Request, res: Response) => {
+  const parsed = discoverQuerySchema.safeParse(req.query);
+  const lists = Object.fromEntries(
+    [
+      "themes",
+      "gameModes",
+      "perspectives",
+      "genres",
+      "languages",
+      "excludeThemes",
+      "excludeGameModes",
+      "excludeGenres",
+    ].map((key) => [key, parseIdList(req.query[key], 30)])
+  );
+  if (!parsed.success || Object.values(lists).includes(null)) {
+    return res.status(400).json({ error: "Invalid discovery filters." });
+  }
+  const { q, minYear, maxHoursToBeat, limit, cursor } = parsed.data;
+  const offset = cursor ? Number(cursor) : 0;
+  if (offset > MAX_DISCOVER_OFFSET) {
+    return res.status(400).json({ error: "Invalid discovery filters." });
+  }
+  try {
+    const raw = await igdbClient.discoverGames(
+      { query: q, minYear, ...(lists as Record<string, number[]>) } as DiscoverFilters,
+      limit,
+      offset
+    );
+    const visible = await visibleIgdbGames(req.user!.id, raw);
+    const facets = new Map(raw.map((game) => [game.id, game]));
+    let results = await withTimeToBeats(visible.map(toCatalogGame));
+    if (maxHoursToBeat !== undefined) {
+      results = results.filter(
+        (game) =>
+          game.timeToBeat?.normally !== undefined && game.timeToBeat.normally <= maxHoursToBeat
+      );
+    }
+    return res.json({
+      results: results.map((game) => {
+        const source = facets.get(game.igdbId);
+        return {
+          ...game,
+          themes: (source?.themes ?? []).map((theme) => theme.name),
+          gameModes: (source?.game_modes ?? []).map((mode) => mode.name),
+          perspectives: (source?.player_perspectives ?? []).map((view) => view.name),
+        };
+      }),
+      nextCursor:
+        raw.length >= limit && offset + limit <= MAX_DISCOVER_OFFSET
+          ? String(offset + limit)
+          : null,
+    });
+  } catch (error) {
+    logger.error({ error }, "SeerrNG discovery failed");
+    return res.status(502).json({ error: "IGDB discovery is unavailable." });
   }
 });
 
@@ -470,12 +669,44 @@ const variantSchema = z.object({
   architecture: z.enum(SEERRNG_ARCHITECTURES),
 });
 
+const selectionSchema = z.discriminatedUnion("mode", [
+  z.object({
+    kind: z.literal("game-content"),
+    mode: z.literal("edition"),
+    editionId: z.number().int().positive(),
+  }),
+  z.object({
+    kind: z.literal("game-content"),
+    mode: z.literal("missing-selected"),
+    addonIds: z.array(z.number().int().positive()).max(30),
+  }),
+]);
+
 const createRequestSchema = z.object({
   externalRequestId: requestIdSchema,
   title: z.string().trim().min(1).max(500),
   igdbId: z.number().int().positive().optional(),
   variant: variantSchema,
+  selection: selectionSchema.optional(),
 });
+
+/** Canonical form (sorted, de-duplicated ids) so a replay compares equal to the stored value. */
+function normalizeSelection(
+  selection: z.infer<typeof selectionSchema> | undefined
+): IntegrationRequestSelection | null {
+  if (!selection) return null;
+  if (selection.mode === "edition") return selection;
+  return { ...selection, addonIds: [...new Set(selection.addonIds)].sort((a, b) => a - b) };
+}
+
+function storedSelection(ledger: IntegrationRequest): IntegrationRequestSelection | null {
+  if (!ledger.selection) return null;
+  try {
+    return normalizeSelection(selectionSchema.parse(JSON.parse(ledger.selection)));
+  } catch {
+    return null;
+  }
+}
 
 const confirmationSchema = z
   .object({ confirmNoExistingDownload: z.boolean().optional() })
@@ -516,6 +747,73 @@ async function findGame(userId: string, ledger: IntegrationRequest): Promise<Gam
   if (!ledger.gameId) return undefined;
   const game = await storage.getGame(ledger.gameId);
   return game?.userId === userId ? game : undefined;
+}
+
+/** IGDB ids stored under a key of the request's selection JSON (add-on bookkeeping). */
+function storedAddonIds(ledger: IntegrationRequest, key: "queuedAddonIds" | "shelvedAddonIds") {
+  try {
+    const parsed = z
+      .object({ [key]: z.array(z.number().int().positive()).max(30) })
+      .safeParse(JSON.parse(ledger.selection ?? "null"));
+    return parsed.success ? (parsed.data[key] as number[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** IGDB ids of the add-ons this request itself added to the library. */
+const queuedAddonIds = (ledger: IntegrationRequest) => storedAddonIds(ledger, "queuedAddonIds");
+
+/** IGDB ids of the add-ons this request shelved when it was cancelled. */
+const shelvedAddonIds = (ledger: IntegrationRequest) => storedAddonIds(ledger, "shelvedAddonIds");
+
+/**
+ * Wants an add-on again that a cancelled request shelved (and nothing else did), so a new
+ * request for the same content is not left on a game auto-search skips. A game the user shelved
+ * by hand is not in any cancelled request's list and keeps its state.
+ */
+async function reviveShelvedAddon(userId: string, addon: Game, igdbId: number): Promise<boolean> {
+  if (addon.status !== "shelved") return false;
+  const requests = await storage.getIntegrationRequests(userId);
+  const shelver = requests.find(
+    (candidate) => candidate.status === "cancelled" && shelvedAddonIds(candidate).includes(igdbId)
+  );
+  if (!shelver) return false;
+  await storage.updateGameStatus(addon.id, { status: "wanted" });
+  const remaining = shelvedAddonIds(shelver).filter((id) => id !== igdbId);
+  await storage.updateIntegrationRequest(userId, shelver.externalRequestId, {
+    selection: JSON.stringify({
+      ...JSON.parse(shelver.selection ?? "{}"),
+      shelvedAddonIds: remaining,
+    }),
+  });
+  return true;
+}
+
+/**
+ * What is still outstanding for an edition or add-on request. An edition is the linked game
+ * itself; add-ons are separate library games matched by IGDB id.
+ */
+async function describeContent(userId: string, ledger: IntegrationRequest, game?: Game) {
+  const selection = storedSelection(ledger);
+  if (!selection) return undefined;
+  if (selection.mode === "edition") {
+    const acquired = game !== undefined && isAcquired(game);
+    return {
+      mode: selection.mode,
+      pending: acquired ? [] : [{ id: selection.editionId, title: game?.title ?? ledger.title }],
+      acquiredCount: acquired ? 1 : 0,
+    };
+  }
+  const library = await libraryByIgdbId(userId);
+  const pending = selection.addonIds
+    .filter((id) => !isOwned(library.get(id)))
+    .map((id) => ({ id, title: library.get(id)?.title ?? `Add-on ${String(id)}` }));
+  return {
+    mode: selection.mode,
+    pending,
+    acquiredCount: selection.addonIds.length - pending.length,
+  };
 }
 
 /**
@@ -565,7 +863,11 @@ async function describeRequest(userId: string, ledger: IntegrationRequest) {
     const activeDownload = downloads.some((download) =>
       ACTIVE_DOWNLOAD_STATUSES.has(download.status.toLowerCase())
     );
-    if (deliverable || isAcquired(game)) {
+    if (hasAddonFailure(ledger)) {
+      // Add-ons that never got queued must stay visible (and retryable) behind an owned base game.
+      status = "failed";
+      error = ledger.errorMessage;
+    } else if (deliverable || isAcquired(game)) {
       status = "available";
     } else if (activeDownload) {
       status = "downloading";
@@ -584,6 +886,8 @@ async function describeRequest(userId: string, ledger: IntegrationRequest) {
     }
   }
 
+  const content = await describeContent(userId, ledger, game);
+
   return {
     externalRequestId: ledger.externalRequestId,
     status,
@@ -593,6 +897,7 @@ async function describeRequest(userId: string, ledger: IntegrationRequest) {
     ...(variant ? { variant } : {}),
     ...(game ? { game: { id: game.id, title: game.title, status: game.status } } : {}),
     ...(identity ? { identity } : {}),
+    ...(content ? { content } : {}),
     actions: {
       retry: status === "failed",
       cancel: !["available", "cancelled"].includes(status),
@@ -706,17 +1011,101 @@ async function attachExistingGameLocked(
   return claimed;
 }
 
+/**
+ * Adds the selected add-ons the library does not know yet as wanted games and remembers which ones
+ * this request created, so cancelling it never shelves a game someone else wanted. Returns how
+ * many add-ons could not be queued; a retry runs this again for them.
+ */
+async function queueAddons(
+  userId: string,
+  ledger: IntegrationRequest,
+  addons: IGDBContentRef[],
+  operatingSystem: keyof typeof TARGET_PLATFORMS
+): Promise<number> {
+  const selection = storedSelection(ledger);
+  if (addons.length === 0 || selection?.mode !== "missing-selected") return 0;
+  const library = await libraryByIgdbId(userId);
+  const queued = queuedAddonIds(ledger);
+  let failed = 0;
+  for (const addon of addons) {
+    const existing = library.get(addon.id);
+    if (existing) {
+      if (!queued.includes(addon.id)) {
+        try {
+          if (await reviveShelvedAddon(userId, existing, addon.id)) queued.push(addon.id);
+        } catch (error) {
+          failed++;
+          logger.warn({ error, igdbId: addon.id }, "SeerrNG add-on could not be wanted again");
+        }
+      }
+      continue;
+    }
+    try {
+      const result = await quickAddGameByTitle(userId, addon.name, {
+        status: "wanted",
+        source: "api",
+        targetPlatform: TARGET_PLATFORMS[operatingSystem],
+        igdbId: addon.id,
+      });
+      if (result.outcome === "added") queued.push(addon.id);
+      else if (result.outcome === "not_found") failed++;
+    } catch (error) {
+      failed++;
+      logger.warn({ error, igdbId: addon.id }, "SeerrNG add-on could not be queued");
+    }
+  }
+  if (queued.length > queuedAddonIds(ledger).length) {
+    await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
+      selection: JSON.stringify({ ...selection, queuedAddonIds: queued }),
+    });
+  }
+  return failed;
+}
+
+const ADDON_FAILURE_MESSAGE = "Some add-ons could not be queued. Retry to queue them again.";
+
+const hasAddonFailure = (ledger: IntegrationRequest) =>
+  ledger.status === "failed" && ledger.errorMessage === ADDON_FAILURE_MESSAGE;
+
+/** An incomplete add-on queue leaves the request failed, which is what makes it retryable. */
+async function flagIncompleteAddons(userId: string, ledger: IntegrationRequest, failed: number) {
+  if (failed === 0) return ledger;
+  const updated = await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
+    status: "failed",
+    errorMessage: ADDON_FAILURE_MESSAGE,
+  });
+  return updated ?? ledger;
+}
+
+/**
+ * The selected add-ons IGDB still links to the base game. A selected add-on that cannot be
+ * resolved (IGDB unavailable, link gone) and is not in the library counts as failed.
+ */
+async function resolveSelectedAddons(
+  userId: string,
+  ledger: IntegrationRequest
+): Promise<{ addons: IGDBContentRef[]; unresolved: number }> {
+  const selection = storedSelection(ledger);
+  if (selection?.mode !== "missing-selected" || !ledger.igdbId)
+    return { addons: [], unresolved: 0 };
+  const { base } = await igdbClient.getGameEditions(ledger.igdbId);
+  const wanted = new Set(selection.addonIds);
+  const addons = base
+    ? linkedContent(base, await getContentFilterFlags(userId)).filter((ref) => wanted.has(ref.id))
+    : [];
+  const library = await libraryByIgdbId(userId);
+  const resolved = new Set(addons.map((ref) => ref.id));
+  const unresolved = selection.addonIds.filter((id) => !resolved.has(id) && !library.has(id));
+  return { addons, unresolved: unresolved.length };
+}
+
 seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
   const parsed = createRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid software request payload." });
   }
-  if (req.body && typeof req.body === "object" && "selection" in req.body) {
-    // Editions and add-ons (contract v2.1) are not advertised in the handshake; refuse
-    // rather than silently queue the base game only.
-    return res.status(400).json({ error: "Edition and add-on selections are not supported." });
-  }
   const { externalRequestId, title, igdbId, variant } = parsed.data;
+  const selection = normalizeSelection(parsed.data.selection);
   const userId = req.user!.id;
   return withDispatchQueue(dispatchKey(userId), async () => {
     try {
@@ -727,6 +1116,7 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
         igdbId: igdbId ?? null,
         operatingSystem: variant.operatingSystem,
         architecture: variant.architecture,
+        selection: selection ? JSON.stringify(selection) : null,
       });
 
       if (!created) {
@@ -734,7 +1124,8 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
           ledger.title === title &&
           ledger.operatingSystem === variant.operatingSystem &&
           ledger.architecture === variant.architecture &&
-          (ledger.igdbId ?? null) === (igdbId ?? null);
+          (ledger.igdbId ?? null) === (igdbId ?? null) &&
+          JSON.stringify(storedSelection(ledger)) === JSON.stringify(selection);
         if (!sameRequest) {
           return res
             .status(409)
@@ -743,18 +1134,49 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
         return res.status(200).json(await describeRequest(userId, ledger));
       }
 
-      // An exact IGDB id bypasses the catalog filters, and a title takes whatever ranks first:
-      // refuse both when the game has no desktop release.
-      const match = await resolveDesktopMatch(title, igdbId);
-      if (!match) {
+      const rejectRequest = async (status: 400 | 404, message: string) => {
         await storage.updateIntegrationRequest(userId, externalRequestId, {
           status: "failed",
-          errorMessage: "No matching PC game was found.",
+          errorMessage: message,
         });
-        return res.status(404).json({ error: "No matching PC game was found." });
+        return res.status(status).json({ error: message });
+      };
+
+      // A selection is checked against what IGDB links to the base game: an edition becomes the
+      // game to acquire, add-ons are queued next to the base game.
+      let target = { title, igdbId };
+      let addons: IGDBContentRef[] = [];
+      if (selection) {
+        if (!igdbId) return rejectRequest(400, "A content selection needs an IGDB id.");
+        const { base, editions } = await igdbClient.getGameEditions(igdbId);
+        if (!base) return rejectRequest(404, "No matching PC game was found.");
+        if (selection.mode === "edition") {
+          const flags = await getContentFilterFlags(userId);
+          const edition = editions.find(
+            (candidate) =>
+              candidate.id === selection.editionId &&
+              !isContentFiltered(igdbClient.contentFlags(candidate), flags)
+          );
+          if (!edition)
+            return rejectRequest(400, "The selected edition does not belong to the game.");
+          target = { title: edition.name, igdbId: edition.id };
+        } else {
+          const flags = await getContentFilterFlags(userId);
+          const linked = new Map(linkedContent(base, flags).map((ref) => [ref.id, ref]));
+          const unknown = selection.addonIds.filter((id) => !linked.has(id));
+          if (unknown.length > 0) {
+            return rejectRequest(400, "A selected add-on does not belong to the game.");
+          }
+          addons = selection.addonIds.map((id) => linked.get(id)!);
+        }
       }
 
-      const result = await quickAddGameByTitle(userId, title, {
+      // An exact IGDB id bypasses the catalog filters, and a title takes whatever ranks first:
+      // refuse both when the game has no desktop release.
+      const match = await resolveDesktopMatch(target.title, target.igdbId);
+      if (!match) return rejectRequest(404, "No matching PC game was found.");
+
+      const result = await quickAddGameByTitle(userId, target.title, {
         status: "wanted",
         source: "api",
         targetPlatform: TARGET_PLATFORMS[variant.operatingSystem],
@@ -762,11 +1184,7 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
       });
 
       if (result.outcome === "not_found") {
-        await storage.updateIntegrationRequest(userId, externalRequestId, {
-          status: "failed",
-          errorMessage: "No matching PC game was found.",
-        });
-        return res.status(404).json({ error: "No matching PC game was found." });
+        return rejectRequest(404, "No matching PC game was found.");
       }
 
       if (result.outcome === "duplicate") {
@@ -779,7 +1197,10 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
         if (!linked) {
           return res.status(409).json({ error: "Game is already linked to another request." });
         }
-        return res.status(201).json(await describeRequest(userId, linked));
+        const failed = await queueAddons(userId, linked, addons, variant.operatingSystem);
+        return res
+          .status(201)
+          .json(await describeRequest(userId, await flagIncompleteAddons(userId, linked, failed)));
       }
 
       const linked = await storage.updateIntegrationRequest(userId, externalRequestId, {
@@ -787,7 +1208,15 @@ seerrngRouter.post("/requests", scope, async (req: Request, res: Response) => {
         status: "searching",
         errorMessage: null,
       });
-      return res.status(201).json(await describeRequest(userId, linked ?? ledger));
+      const failed = await queueAddons(userId, linked ?? ledger, addons, variant.operatingSystem);
+      return res
+        .status(201)
+        .json(
+          await describeRequest(
+            userId,
+            await flagIncompleteAddons(userId, linked ?? ledger, failed)
+          )
+        );
     } catch (error) {
       if (isUniqueViolation(error)) {
         // Another process claimed the game between our holder check and this write.
@@ -915,13 +1344,37 @@ seerrngRouter.post(
       }
 
       let game = await findGame(userId, ledger);
+      // Only the add-on queue failed: the base game is left exactly as it is.
+      const addonsOnly = game !== undefined && hasAddonFailure(ledger);
       if (!game) {
-        // The game was deleted (or never created): add it again from the ledger.
-        const match = await resolveDesktopMatch(ledger.title, ledger.igdbId);
+        // The game was deleted (or never created): add it again from the ledger. An edition
+        // request acquires the edition, not the base game the ledger title and id name.
+        const selection = storedSelection(ledger);
+        let target = { title: ledger.title, igdbId: ledger.igdbId };
+        if (selection?.mode === "edition") {
+          // The same check as on creation: a rejected selection must not be retried into
+          // acquiring an arbitrary IGDB game.
+          const { editions } = ledger.igdbId
+            ? await igdbClient.getGameEditions(ledger.igdbId)
+            : { editions: [] };
+          const flags = await getContentFilterFlags(userId);
+          const edition = editions.find(
+            (candidate) =>
+              candidate.id === selection.editionId &&
+              !isContentFiltered(igdbClient.contentFlags(candidate), flags)
+          );
+          if (!edition) {
+            return res
+              .status(400)
+              .json({ error: "The selected edition does not belong to the game." });
+          }
+          target = { title: edition.name, igdbId: edition.id };
+        }
+        const match = await resolveDesktopMatch(target.title, target.igdbId);
         if (!match) {
           return res.status(404).json({ error: "No matching PC game was found." });
         }
-        const result = await quickAddGameByTitle(userId, ledger.title, {
+        const result = await quickAddGameByTitle(userId, target.title, {
           status: "wanted",
           source: "api",
           ...(match.igdbId ? { igdbId: match.igdbId } : {}),
@@ -945,20 +1398,75 @@ seerrngRouter.post(
           }
         }
       }
-      // An already-acquired game found again (added manually since) keeps its state.
-      if (!isAcquired(game) && game.status !== "wanted") {
-        await storage.updateGameStatus(game.id, { status: "wanted" });
+      if (!addonsOnly) {
+        // An already-acquired game found again (added manually since) keeps its state.
+        if (!isAcquired(game) && game.status !== "wanted") {
+          await storage.updateGameStatus(game.id, { status: "wanted" });
+        }
+        if (!isAcquired(game)) await storage.updateGameSearchResultsAvailable(game.id, false);
       }
-      if (!isAcquired(game)) await storage.updateGameSearchResultsAvailable(game.id, false);
-      const updated = await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
-        gameId: game.id,
-        status: "searching",
-        errorMessage: null,
-      });
-      return res.json(await describeRequest(userId, updated ?? ledger));
+      // Add-ons are queued again before the failed state is cleared, so a lookup error here
+      // leaves the request retryable.
+      const { addons, unresolved } = await resolveSelectedAddons(userId, ledger);
+      const failed =
+        (await queueAddons(userId, ledger, addons, ledger.operatingSystem ?? "windows")) +
+        unresolved;
+      const updated =
+        (await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
+          gameId: game.id,
+          status: failed > 0 ? "failed" : "searching",
+          errorMessage: failed > 0 ? ADDON_FAILURE_MESSAGE : null,
+        })) ?? ledger;
+      return res.json(await describeRequest(userId, updated));
     }
   )
 );
+
+/** Add-ons this request queued stop being searched on cancel, unless they were acquired since. */
+async function shelvePendingAddons(userId: string, ledger: IntegrationRequest): Promise<void> {
+  const queued = queuedAddonIds(ledger);
+  if (queued.length === 0) return;
+  const library = await libraryByIgdbId(userId);
+  const toShelve: Game[] = [];
+  const others = (await storage.getIntegrationRequests(userId)).filter(
+    (r) => r.status !== "cancelled" && r.externalRequestId !== ledger.externalRequestId
+  );
+  // Another live request may name the same add-on without holding it as its game.
+  const selectedElsewhere = (id: number) =>
+    others.some((r) => {
+      const selection = storedSelection(r);
+      return selection?.mode === "missing-selected" && selection.addonIds.includes(id);
+    });
+  for (const id of queued) {
+    const addon = library.get(id);
+    if (addon?.status !== "wanted" || selectedElsewhere(id)) continue;
+    // Another live request may have claimed the same game since this one queued it.
+    const holder = await storage.getIntegrationRequestByGameId(userId, addon.id);
+    if (
+      holder &&
+      holder.status !== "cancelled" &&
+      holder.externalRequestId !== ledger.externalRequestId
+    ) {
+      continue;
+    }
+    toShelve.push(addon);
+  }
+  if (toShelve.length === 0) return;
+  // Remembered before the games change, so an interrupted cancellation still lets a later
+  // request tell this shelving from a manual one.
+  await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
+    selection: JSON.stringify({
+      ...JSON.parse(ledger.selection ?? "{}"),
+      shelvedAddonIds: [
+        ...new Set([...shelvedAddonIds(ledger), ...toShelve.map((addon) => addon.igdbId!)]),
+      ],
+    }),
+  });
+  for (const addon of toShelve) {
+    await storage.updateGameStatus(addon.id, { status: "shelved" });
+    await storage.updateGameSearchResultsAvailable(addon.id, false);
+  }
+}
 
 seerrngRouter.post(
   "/requests/:externalRequestId/cancel",
@@ -1027,12 +1535,15 @@ seerrngRouter.post(
           );
         }
       }
+      await shelvePendingAddons(userId, ledger);
+      // An owned base game (the request only failed on its add-ons) keeps its library entry.
+      const shelveGame = game !== undefined && !isAcquired(game);
       // Recorded before the game is shelved, with a marker, so an interruption can be finished.
       const updated = await storage.updateIntegrationRequest(userId, ledger.externalRequestId, {
         status: "cancelled",
-        errorMessage: game ? CANCEL_PENDING_MARKER : null,
+        errorMessage: shelveGame ? CANCEL_PENDING_MARKER : null,
       });
-      if (game) {
+      if (game && shelveGame) {
         // "shelved" is the existing "no longer wanted" state: auto-search skips it.
         await storage.updateGameStatus(game.id, { status: "shelved" });
         await storage.updateGameSearchResultsAvailable(game.id, false);

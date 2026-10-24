@@ -103,6 +103,8 @@ describe("SeerrNG provider API", () => {
         [...ledger.values()].find((r) => r.gameId === gameId)
     );
 
+    (storage.getIntegrationRequests as Mock).mockImplementation(async () => [...ledger.values()]);
+
     (igdb.formatGameData as Mock).mockImplementation((g) => g);
     (igdb.getGameById as Mock).mockImplementation(async (id: number) => igdbGame(id, `Game ${id}`));
     (igdb.searchGames as Mock).mockResolvedValue([igdbGame(42, "Example Game")]);
@@ -159,17 +161,6 @@ describe("SeerrNG provider API", () => {
       expect(res.status).toBe(201);
       expect(storage.updateGameStatus).not.toHaveBeenCalledWith("g-shelved", { status: "wanted" });
       expect(games.get("g-shelved")).toMatchObject({ status: "shelved" });
-    });
-
-    it("refuses an edition selection instead of queueing the base game only", async () => {
-      const res = await request(app)
-        .post(`${base}/requests`)
-        .send({
-          ...createBody,
-          selection: { kind: "game-content", mode: "edition", editionId: 7 },
-        });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/not supported/);
     });
 
     it("refuses keys scoped to something else", async () => {
@@ -303,6 +294,84 @@ describe("SeerrNG provider API", () => {
       expect((await request(app).get(`${base}/catalog/games/zero`)).status).toBe(400);
     });
 
+    it("lists editions and add-ons with ownership and unknown content", async () => {
+      games.set("g1", { id: "g1", userId: USER.id, igdbId: 42, status: "owned", title: "Base" });
+      games.set("g2", { id: "g2", userId: USER.id, igdbId: 71, status: "wanted", title: "Exp" });
+      (igdb.getGameEditions as Mock).mockResolvedValue({
+        base: {
+          id: 42,
+          name: "Base",
+          expansions: [
+            { id: 70, name: "Big Expansion", game_type: 2, first_release_date: 1600000000 },
+          ],
+          dlcs: [
+            { id: 71, name: "Cosmetic Skins Pack", game_type: 1 },
+            { id: 72, name: "Game Update 1.2", game_type: 14 },
+          ],
+        },
+        editions: [
+          {
+            id: 50,
+            name: "Deluxe Edition",
+            expansions: [{ id: 70, name: "Big Expansion", game_type: 2 }],
+          },
+          { id: 51, name: "Collector's Edition" },
+        ],
+      });
+      const res = await request(app).get(`${base}/catalog/games/42/editions`);
+      expect(res.status).toBe(200);
+      expect(res.body.base).toEqual({ igdbId: 42, title: "Base", owned: true, status: "owned" });
+      expect(res.body.addons.map((a: { igdbId: number }) => a.igdbId)).toEqual([70, 71]);
+      expect(res.body.addons[0]).toMatchObject({
+        type: "expansion",
+        storyContent: true,
+        owned: false,
+        releaseDate: "2020-09-13",
+      });
+      expect(res.body.addons[1]).toMatchObject({
+        type: "cosmetic",
+        storyContent: false,
+        owned: false,
+      });
+      expect(res.body.editions[0]).toMatchObject({ igdbId: 50, contentKnown: true });
+      expect(res.body.editions[1]).toMatchObject({ igdbId: 51, includes: [], contentKnown: false });
+      (igdb.getGameEditions as Mock).mockResolvedValue({ base: null, editions: [] });
+      expect((await request(app).get(`${base}/catalog/games/43/editions`)).status).toBe(404);
+    });
+
+    it("discovers games by IGDB ids, validating the filters", async () => {
+      (igdb.discoverGames as Mock).mockResolvedValue([
+        { ...igdbGame(11, "Short"), themes: [{ id: 1, name: "Action" }] },
+        { ...igdbGame(12, "Long"), themes: [] },
+      ]);
+      (igdb.getTimeToBeats as Mock).mockResolvedValue(
+        new Map([
+          [11, { normally: 5 }],
+          [12, { normally: 40 }],
+        ])
+      );
+      const res = await request(app).get(
+        `${base}/catalog/discover?q=zelda&themes=1,2&excludeGenres=9&minYear=2015&maxHoursToBeat=10&limit=2`
+      );
+      expect(res.status).toBe(200);
+      expect(igdb.discoverGames).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: "zelda",
+          themes: [1, 2],
+          excludeGenres: [9],
+          minYear: 2015,
+        }),
+        2,
+        0
+      );
+      expect(res.body.results.map((g: { igdbId: number }) => g.igdbId)).toEqual([11]);
+      expect(res.body.nextCursor).toBe("2");
+
+      for (const bad of ["themes=a", "limit=500", "cursor=abc", "minYear=1900"]) {
+        expect((await request(app).get(`${base}/catalog/discover?${bad}`)).status).toBe(400);
+      }
+    });
+
     it("looks up library games by IGDB id", async () => {
       games.set("g1", { id: "g1", userId: USER.id, igdbId: 42, status: "owned", title: "A" });
       games.set("g2", { id: "g2", userId: USER.id, igdbId: 7, status: "wanted", title: "B" });
@@ -332,6 +401,367 @@ describe("SeerrNG provider API", () => {
           targetPlatformName: "PC (Microsoft Windows)",
         })
       );
+    });
+
+    describe("content selection", () => {
+      beforeEach(() => {
+        (igdb.getGameEditions as Mock).mockResolvedValue({
+          base: {
+            id: 42,
+            name: "Example Game",
+            expansions: [{ id: 70, name: "Big Expansion", game_type: 2 }],
+            dlcs: [{ id: 71, name: "Side Quest", game_type: 1 }],
+          },
+          editions: [{ id: 50, name: "Example Game Deluxe Edition" }],
+        });
+      });
+
+      it("acquires the selected edition and reports what is pending", async () => {
+        const res = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "edition", editionId: 50 },
+          });
+        expect(res.status).toBe(201);
+        expect(res.body).toMatchObject({
+          identity: { catalogProvider: "igdb", catalogId: 42 },
+          content: { mode: "edition", acquiredCount: 0 },
+        });
+        expect(res.body.content.pending).toHaveLength(1);
+        expect(res.body.content.pending[0]).toMatchObject({ id: 50 });
+        expect(storage.addGame).toHaveBeenCalledWith(expect.objectContaining({ igdbId: 50 }));
+      });
+
+      it("queues the selected add-ons next to the base game and cancels them with it", async () => {
+        const res = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [71, 70, 71] },
+          });
+        expect(res.status).toBe(201);
+        expect([...games.values()].map((g) => g.igdbId).sort()).toEqual([42, 70, 71]);
+        expect(res.body.content).toMatchObject({ mode: "missing-selected", acquiredCount: 0 });
+        expect(res.body.content.pending.map((p: { id: number }) => p.id)).toEqual([70, 71]);
+
+        games.set("addon-owned", {
+          id: "addon-owned",
+          userId: USER.id,
+          igdbId: 70,
+          status: "owned",
+        });
+        const state = await request(app).get(`${base}/requests/${createBody.externalRequestId}`);
+        expect(state.body.content).toMatchObject({ acquiredCount: 1 });
+
+        const cancelled = await request(app)
+          .post(`${base}/requests/${createBody.externalRequestId}/cancel`)
+          .send({});
+        expect(cancelled.status).toBe(200);
+        const byIgdb = (id: number) => [...games.values()].find((g) => g.igdbId === id);
+        expect(byIgdb(71)).toMatchObject({ status: "shelved" });
+        expect(byIgdb(42)).toMatchObject({ status: "shelved" });
+      });
+
+      it("keeps an add-on someone else wanted when the request is cancelled", async () => {
+        games.set("mine", {
+          id: "mine",
+          userId: USER.id,
+          igdbId: 71,
+          status: "wanted",
+          title: "Side Quest",
+        });
+        const res = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70, 71] },
+          });
+        expect(res.status).toBe(201);
+        await request(app).post(`${base}/requests/${createBody.externalRequestId}/cancel`).send({});
+        const byIgdb = (id: number) => [...games.values()].find((g) => g.igdbId === id);
+        expect(byIgdb(70)).toMatchObject({ status: "shelved" });
+        expect(byIgdb(71)).toMatchObject({ status: "wanted" });
+      });
+
+      it("keeps an add-on another live request has since claimed when the request is cancelled", async () => {
+        await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+          });
+        const other = await request(app)
+          .post(`${base}/requests`)
+          .send({ ...createBody, externalRequestId: "r-other", igdbId: 70, title: "Game 70" });
+        expect(other.status).toBeLessThan(300);
+        await request(app).post(`${base}/requests/${createBody.externalRequestId}/cancel`).send({});
+        const byIgdb = (id: number) => [...games.values()].find((g) => g.igdbId === id);
+        expect(byIgdb(70)).toMatchObject({ status: "wanted" });
+      });
+
+      it("wants an add-on again that a cancelled request shelved, but not one shelved by hand", async () => {
+        const first = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70, 71] },
+          });
+        expect(first.status).toBe(201);
+        const byIgdb = (id: number) => [...games.values()].find((g) => g.igdbId === id);
+        // The user shelved 71 by hand before the cancellation; 70 is shelved by it.
+        byIgdb(71)!.status = "shelved";
+        await request(app).post(`${base}/requests/${createBody.externalRequestId}/cancel`).send({});
+        expect(byIgdb(70)).toMatchObject({ status: "shelved" });
+
+        const second = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            externalRequestId: "r-again",
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70, 71] },
+          });
+        expect(second.status).toBe(201);
+        expect(byIgdb(70)).toMatchObject({ status: "wanted" });
+        expect(byIgdb(71)).toMatchObject({ status: "shelved" });
+      });
+
+      it("keeps an add-on another live request selected when the request is cancelled", async () => {
+        const select = { kind: "game-content", mode: "missing-selected", addonIds: [70] };
+        await request(app)
+          .post(`${base}/requests`)
+          .send({ ...createBody, selection: select });
+        const other = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            externalRequestId: "r-b",
+            igdbId: 43,
+            title: "Game 43",
+            selection: select,
+          });
+        expect(other.status).toBeLessThan(300);
+        await request(app).post(`${base}/requests/${createBody.externalRequestId}/cancel`).send({});
+        const addon = [...games.values()].find((g) => g.igdbId === 70);
+        expect(addon).toMatchObject({ status: "wanted" });
+      });
+
+      it("does not retry a rejected edition into an unrelated game", async () => {
+        const rejected = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "edition", editionId: 999 },
+          });
+        expect(rejected.status).toBe(400);
+        const retried = await request(app)
+          .post(`${base}/requests/${createBody.externalRequestId}/retry`)
+          .send({});
+        expect(retried.status).not.toBe(200);
+        expect([...games.values()].map((g) => g.igdbId)).not.toContain(999);
+      });
+
+      it("refuses an edition or add-on that does not belong to the game", async () => {
+        const edition = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            externalRequestId: "r-edition",
+            selection: { kind: "game-content", mode: "edition", editionId: 999 },
+          });
+        expect(edition.status).toBe(400);
+        const addon = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            externalRequestId: "r-addon",
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70, 999] },
+          });
+        expect(addon.status).toBe(400);
+        const noId = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            externalRequestId: "r-noid",
+            title: "Example Game",
+            variant,
+            selection: { kind: "game-content", mode: "edition", editionId: 50 },
+          });
+        expect(noId.status).toBe(400);
+        expect(games.size).toBe(0);
+      });
+
+      it("hides filtered editions and add-ons and refuses to select them", async () => {
+        (storage.getUserSettings as Mock).mockResolvedValue({ hideAdultContent: true });
+        (igdb.getGameEditions as Mock).mockResolvedValue({
+          base: {
+            id: 42,
+            name: "Example Game",
+            expansions: [{ id: 70, name: "Adult Expansion", game_type: 2, isAdultContent: true }],
+            dlcs: [{ id: 71, name: "Side Quest", game_type: 1 }],
+          },
+          editions: [
+            { id: 50, name: "Adult Edition", isAdultContent: true },
+            { id: 51, name: "Standard Edition" },
+          ],
+        });
+        const listed = await request(app).get(`${base}/catalog/games/42/editions`);
+        expect(listed.body.addons.map((a: { igdbId: number }) => a.igdbId)).toEqual([71]);
+        expect(listed.body.editions.map((e: { igdbId: number }) => e.igdbId)).toEqual([51]);
+        const edition = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "edition", editionId: 50 },
+          });
+        expect(edition.status).toBe(400);
+        const addon = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            externalRequestId: "r-addon",
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+          });
+        expect(addon.status).toBe(400);
+      });
+
+      it("retries an edition request onto the edition, not the base game", async () => {
+        (igdb.getGameById as Mock).mockResolvedValue(igdbGame(50, "Example Game Deluxe Edition"));
+        await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "edition", editionId: 50 },
+          });
+        const ledgerKey = `user-1:${createBody.externalRequestId}`;
+        ledger.set(ledgerKey, { ...ledger.get(ledgerKey), gameId: null, status: "failed" });
+        games.clear();
+        (storage.addGame as Mock).mockClear();
+        const res = await request(app)
+          .post(`${base}/requests/${createBody.externalRequestId}/retry`)
+          .send({});
+        expect(res.status).toBe(200);
+        expect(storage.addGame).toHaveBeenCalledWith(expect.objectContaining({ igdbId: 50 }));
+      });
+
+      it("fails the request when an add-on cannot be queued and re-queues it on retry", async () => {
+        (storage.addGame as Mock).mockImplementationOnce(async (data: Record<string, unknown>) => {
+          const game = { id: "base", userId: USER.id, status: "wanted", ...data };
+          games.set("base", game);
+          return game;
+        });
+        (storage.addGame as Mock).mockRejectedValueOnce(new Error("db down"));
+        const res = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+          });
+        expect(res.status).toBe(201);
+        expect(res.body).toMatchObject({ status: "failed", actions: { retry: true } });
+        expect([...games.values()].map((g) => g.igdbId)).toEqual([42]);
+
+        const retried = await request(app)
+          .post(`${base}/requests/${createBody.externalRequestId}/retry`)
+          .send({});
+        expect(retried.status).toBe(200);
+        expect(retried.body.status).not.toBe("failed");
+        expect([...games.values()].map((g) => g.igdbId).sort()).toEqual([42, 70]);
+      });
+
+      it("fails the request when IGDB no longer finds a selected add-on", async () => {
+        (igdb.getGameById as Mock).mockImplementation(async (id: number) =>
+          id === 70 ? null : igdbGame(id, `Game ${id}`)
+        );
+        const res = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+          });
+        expect(res.status).toBe(201);
+        expect(res.body).toMatchObject({ status: "failed", actions: { retry: true } });
+      });
+
+      it("keeps a failed add-on visible behind an owned base game and retries only the add-ons", async () => {
+        games.set("owned", {
+          id: "owned",
+          userId: USER.id,
+          igdbId: 42,
+          status: "owned",
+          title: "Example Game",
+        });
+        (storage.addGame as Mock).mockRejectedValueOnce(new Error("db down"));
+        const body = {
+          ...createBody,
+          selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+        };
+        const res = await request(app).post(`${base}/requests`).send(body);
+        expect(res.status).toBe(201);
+        expect(res.body).toMatchObject({ status: "failed", actions: { retry: true } });
+
+        const retried = await request(app)
+          .post(`${base}/requests/${createBody.externalRequestId}/retry`)
+          .send({});
+        expect(retried.status).toBe(200);
+        expect(retried.body.status).toBe("available");
+        expect(games.get("owned")?.status).toBe("owned");
+        expect([...games.values()].map((g) => g.igdbId).sort()).toEqual([42, 70]);
+      });
+
+      it("cancels a request that failed on its add-ons without shelving the owned base game", async () => {
+        games.set("owned", {
+          id: "owned",
+          userId: USER.id,
+          igdbId: 42,
+          status: "owned",
+          title: "Example Game",
+        });
+        (storage.addGame as Mock).mockRejectedValueOnce(new Error("db down"));
+        const res = await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+          });
+        expect(res.body).toMatchObject({ status: "failed", actions: { cancel: true } });
+        const cancelled = await request(app)
+          .post(`${base}/requests/${createBody.externalRequestId}/cancel`)
+          .send({});
+        expect(cancelled.status).toBe(200);
+        expect(games.get("owned")?.status).toBe("owned");
+      });
+
+      it("stays failed on retry when the add-ons cannot be resolved", async () => {
+        (storage.addGame as Mock).mockImplementationOnce(async (data: Record<string, unknown>) => {
+          const game = { id: "base", userId: USER.id, status: "wanted", ...data };
+          games.set("base", game);
+          return game;
+        });
+        (storage.addGame as Mock).mockRejectedValueOnce(new Error("db down"));
+        await request(app)
+          .post(`${base}/requests`)
+          .send({
+            ...createBody,
+            selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+          });
+        (igdb.getGameEditions as Mock).mockResolvedValue({ base: null, editions: [] });
+        const retried = await request(app)
+          .post(`${base}/requests/${createBody.externalRequestId}/retry`)
+          .send({});
+        expect(retried.status).toBe(200);
+        expect(retried.body).toMatchObject({ status: "failed", actions: { retry: true } });
+      });
+
+      it("treats a replay with another selection as a different request", async () => {
+        const body = {
+          ...createBody,
+          selection: { kind: "game-content", mode: "missing-selected", addonIds: [70] },
+        };
+        expect((await request(app).post(`${base}/requests`).send(body)).status).toBe(201);
+        expect((await request(app).post(`${base}/requests`).send(body)).status).toBe(200);
+        const other = { ...body, selection: { ...body.selection, addonIds: [71] } };
+        expect((await request(app).post(`${base}/requests`).send(other)).status).toBe(409);
+      });
     });
 
     it("targets Linux and macOS releases for those variants", async () => {

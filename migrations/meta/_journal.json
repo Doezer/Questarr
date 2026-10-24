@@ -365,6 +365,13 @@
       "when": 1792430077403,
       "tag": "0050_workable_hellion",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "6",
+      "when": 1792430409152,
+      "tag": "0051_lean_dagger",
+      "breakpoints": true
     }
   ]
 }

@@ -20,6 +20,7 @@ vi.mock("../logger.js", () => ({
 }));
 
 const mockGetDownloadingGameDownloads = vi.fn();
+const mockGetRecentFailedUsenetDownloads = vi.fn();
 const mockGetDownloader = vi.fn();
 const mockUpdateGameDownloadStatus = vi.fn();
 const mockUpdateGameStatus = vi.fn();
@@ -37,6 +38,7 @@ const mockReplaceGameInstalledVersion = vi.fn();
 vi.mock("../storage.js", () => ({
   storage: {
     getDownloadingGameDownloads: mockGetDownloadingGameDownloads,
+    getRecentFailedUsenetDownloads: mockGetRecentFailedUsenetDownloads,
     getDownloader: mockGetDownloader,
     updateGameDownloadStatus: mockUpdateGameDownloadStatus,
     updateGameStatus: mockUpdateGameStatus,
@@ -140,6 +142,7 @@ describe("Cron - checkDownloadStatus", () => {
     vi.clearAllMocks();
     resetDownloadStatusTracking();
     mockIsImportInFlight.mockReturnValue(false);
+    mockGetRecentFailedUsenetDownloads.mockResolvedValue([]);
     mockGetGame.mockResolvedValue({
       id: "game-1",
       title: "Test Game",
@@ -776,6 +779,61 @@ describe("Cron - checkDownloadStatus", () => {
       "failed",
       "Repair failed, not enough repair blocks"
     );
+  });
+
+  it("restores a failed usenet download once the client reports it healthy again", async () => {
+    const failed = { ...baseDownload, status: "failed", errorMessage: "NZBGet unpack failed" };
+    mockGetDownloadingGameDownloads.mockResolvedValue([]);
+    mockGetRecentFailedUsenetDownloads.mockResolvedValue([failed]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetDownloadStatus.mockResolvedValue({
+      id: failed.downloadHash,
+      name: "Test Game",
+      status: "unpacking",
+      progress: 100,
+      downloadType: "usenet",
+    });
+    mockGetGame.mockResolvedValue({ id: "game-1", title: "Test Game", status: "wanted" });
+
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(failed.id, "downloading", null);
+    expect(statusWritesFor("game-1")).toEqual([{ status: "downloading" }]);
+  });
+
+  it("stops checking a downloader's failed downloads after its first lookup error", async () => {
+    const failed = { ...baseDownload, status: "failed", errorMessage: "NZBGet unpack failed" };
+    mockGetDownloadingGameDownloads.mockResolvedValue([]);
+    mockGetRecentFailedUsenetDownloads.mockResolvedValue([
+      failed,
+      { ...failed, id: "download-2", downloadHash: "other-hash" },
+    ]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetDownloadStatus.mockRejectedValue(new Error("connect ECONNREFUSED"));
+
+    await checkDownloadStatus();
+
+    expect(mockGetDownloadStatus).toHaveBeenCalledTimes(1);
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
+  });
+
+  it("leaves a failed usenet download failed while the client still reports the failure", async () => {
+    const failed = { ...baseDownload, status: "failed", errorMessage: "NZBGet unpack failed" };
+    mockGetDownloadingGameDownloads.mockResolvedValue([]);
+    mockGetRecentFailedUsenetDownloads.mockResolvedValue([failed]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetDownloadStatus.mockResolvedValue({
+      id: failed.downloadHash,
+      name: "Test Game",
+      status: "error",
+      progress: 0,
+      downloadType: "usenet",
+      error: "NZBGet unpack failed",
+    });
+
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
   });
 
   it("sends a download the client purged on completion to manual review, not back to wanted", async () => {

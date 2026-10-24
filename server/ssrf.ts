@@ -13,6 +13,10 @@ type SafeFetchOptions = RequestInit & {
   // whenever the request carries a credential (a password, an API key) that
   // must never travel -- or be replayed by a redirect -- over plaintext.
   requireHttps?: boolean;
+  // Reject any redirect to a different origin. For credential-bearing requests that
+  // are allowed over plain HTTP (an explicit "Allow insecure LAN" opt-in), where
+  // requireHttps can't be used.
+  pinOrigin?: boolean;
 };
 
 interface SafeFetchTarget {
@@ -98,7 +102,8 @@ function getRedirectOptions(
   fetchOptions: RequestInit,
   status: number,
   previousUrl: URL,
-  nextUrl: URL
+  nextUrl: URL,
+  keepCredentials = false
 ): RequestInit {
   const method = (fetchOptions.method || "GET").toUpperCase();
   // Per RFC 9110 / the Fetch spec: 301/302 only rewrite POST to GET (a PUT,
@@ -118,7 +123,7 @@ function getRedirectOptions(
   // compromised downloader daemon could redirect a request to an
   // attacker-controlled host and walk off with the configured Basic-auth
   // credentials or session cookie.
-  if (previousUrl.origin !== nextUrl.origin) {
+  if (previousUrl.origin !== nextUrl.origin && !keepCredentials) {
     headers.delete("authorization");
     headers.delete("cookie");
     headers.delete("proxy-authorization");
@@ -421,6 +426,7 @@ export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}):
   const {
     allowPrivate,
     maxRedirects = DEFAULT_SAFE_FETCH_MAX_REDIRECTS,
+    pinOrigin = false,
     redirect = "follow",
     requireHttps = false,
     signal,
@@ -478,13 +484,30 @@ export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}):
     // origin the caller actually asked for. A scheme downgrade is reported by the
     // protocol check at the top of the loop on the next iteration instead, so this only
     // fires for a same-scheme (HTTPS) host/port change.
-    if (requireHttps && nextUrl.protocol === "https:" && nextUrl.origin !== currentUrl.origin) {
+    // A same-host HTTP -> HTTPS upgrade (a reverse proxy forcing TLS) only improves the
+    // transport, so pinOrigin lets it through; any other origin change is refused.
+    const isSameHostHttpsUpgrade =
+      currentUrl.protocol === "http:" &&
+      nextUrl.protocol === "https:" &&
+      nextUrl.hostname === currentUrl.hostname;
+    if (
+      nextUrl.origin !== currentUrl.origin &&
+      ((pinOrigin && !isSameHostHttpsUpgrade) || (requireHttps && nextUrl.protocol === "https:"))
+    ) {
       throw new Error(
         `Refusing to redirect a credential-bearing request to a different origin: ${nextUrl.origin}`
       );
     }
 
-    currentOptions = getRedirectOptions(currentOptions, response.status, currentUrl, nextUrl);
+    // An allowed same-host HTTP -> HTTPS upgrade keeps its credentials: they already went
+    // out in clear text to this very host, so replaying them over TLS exposes nothing new.
+    currentOptions = getRedirectOptions(
+      currentOptions,
+      response.status,
+      currentUrl,
+      nextUrl,
+      pinOrigin && isSameHostHttpsUpgrade
+    );
     currentUrl = nextUrl;
     redirectCount++;
   }

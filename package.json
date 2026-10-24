@@ -215,7 +215,6 @@
     "brace-expansion": "^5.0.12",
     "minimatch": "^10.2.5",
     "fast-uri": "^3.1.8",
-    "body-parser": "^2.4.0",
     "ip-address": "^10.7.2",
     "node-gyp": {
       "undici": "^6.29.0"
@@ -225,7 +224,8 @@
     },
     "fast-copy": "^4.1.0",
     "follow-redirects": "^1.16.1",
-    "postcss-selector-parser": "^7.1.6"
+    "postcss-selector-parser": "^7.1.6",
+    "body-parser": "^2.4.0"
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

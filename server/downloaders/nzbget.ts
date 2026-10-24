@@ -48,9 +48,10 @@ const HISTORY_FAILURE_REASONS: Record<string, string> = {
   PAR: "NZBGet could not repair the download with par2.",
   HEALTH: "NZBGet aborted the download because too many articles are missing.",
   BAD: "NZBGet aborted the download after a post-processing script flagged it as bad.",
-  SCAN: "NZBGet failed in a scan script.",
+  SCAN: "NZBGet could not parse the NZB file (malformed NZB); check the NZB or its source.",
   MOVE: "NZBGet could not move the finished files to the destination folder.",
   DISK: "NZBGet ran out of disk space.",
+  SPACE: "NZBGet ran out of disk space.",
   FETCH: "NZBGet could not fetch the NZB file.",
 };
 

@@ -164,7 +164,7 @@
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "5.0.3",
-    "@vitest/ui": "5.0.3",
+    "@vitest/ui": "5.0.5",
     "autoprefixer": "10.6.1",
     "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.11",
@@ -214,8 +214,8 @@
     "qs": "^6.16.0",
     "brace-expansion": "^5.0.12",
     "minimatch": "^10.2.5",
-    "fast-uri": "^3.1.8",
-    "ip-address": "^10.7.2",
+    "fast-uri": "^3.1.9",
+    "ip-address": "^10.7.4",
     "node-gyp": {
       "undici": "^6.29.0"
     },

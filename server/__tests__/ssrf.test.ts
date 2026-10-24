@@ -292,6 +292,21 @@ describe("safeFetch", () => {
     expect(undiciFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("should follow a same-host HTTP to HTTPS upgrade with pinOrigin", async () => {
+    mockDnsResolvesOnce();
+    vi.mocked(undiciFetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 307,
+        headers: { location: "https://example.com/rpc" },
+      }) as never
+    );
+    mockDnsResolvesOnce();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    const response = await safeFetch("http://example.com/rpc", { pinOrigin: true });
+    expect(await response.text()).toBe("ok");
+  });
+
   it("should strip Authorization/Cookie headers when a redirect crosses origins", async () => {
     // Initial request to example.com...
     vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([

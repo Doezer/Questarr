@@ -52,6 +52,7 @@ const DEFAULT_RULES: DownloadRules = {
   minSeeders: 0,
   sortBy: "seeders",
   visibleCategories: ["main", "update", "dlc", "extra", "packs"],
+  hideRejected: true,
 };
 
 export default function AutoDownloadRulesSettings({
@@ -66,6 +67,7 @@ export default function AutoDownloadRulesSettings({
   const [sortBy, setSortBy] = useState<"score" | "seeders" | "date" | "size" | "priority">(
     rules?.sortBy ?? "seeders"
   );
+  const [hideRejected, setHideRejected] = useState<boolean>(rules?.hideRejected ?? true);
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
     new Set(
       (rules?.visibleCategories ?? [
@@ -106,6 +108,7 @@ export default function AutoDownloadRulesSettings({
     const source = rules ?? DEFAULT_RULES;
     setMinSeeders(source.minSeeders);
     setSortBy(source.sortBy);
+    setHideRejected(source.hideRejected);
 
     // Only update set if the content has changed to avoid infinite loop
     setVisibleCategories((prev) => {
@@ -123,8 +126,9 @@ export default function AutoDownloadRulesSettings({
       minSeeders,
       sortBy,
       visibleCategories: Array.from(visibleCategories),
+      hideRejected,
     });
-  }, [minSeeders, sortBy, visibleCategories, onChange]);
+  }, [minSeeders, sortBy, visibleCategories, hideRejected, onChange]);
 
   const handleCategoryChange = (category: DownloadCategory) => {
     setVisibleCategories((prev) => {
@@ -212,6 +216,23 @@ export default function AutoDownloadRulesSettings({
             </p>
           </div>
 
+          {/* Rejected releases */}
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id="hideRejected"
+              checked={hideRejected}
+              onCheckedChange={(checked) => setHideRejected(checked === true)}
+              className="mt-1"
+            />
+            <label htmlFor="hideRejected" className="flex-1 cursor-pointer text-sm leading-tight">
+              <div className="font-medium">Hide rejected releases</div>
+              <div className="text-xs text-muted-foreground">
+                Leave out releases your scoring profile rejects, such as another game with the same
+                group name
+              </div>
+            </label>
+          </div>
+
           {/* Categories */}
           <div className="space-y-2">
             <Label className="text-sm font-medium">Content Types to Show</Label>
@@ -258,6 +279,7 @@ export default function AutoDownloadRulesSettings({
                 minSeeders,
                 sortBy,
                 visibleCategories: Array.from(visibleCategories),
+                hideRejected,
               };
               saveRulesMutation.mutate(rulesToSave);
             }}

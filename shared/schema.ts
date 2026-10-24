@@ -893,6 +893,9 @@ export const downloadRulesSchema = z.object({
   visibleCategories: z
     .array(z.enum(["main", "update", "dlc", "extra", "packs"]))
     .default(["main", "update", "dlc", "extra", "packs"]),
+  // releases the scoring profile rejects (wrong title, nuked, below the minimum score) stay out
+  // of the manual download dialog unless the user turns this off
+  hideRejected: z.boolean().default(true),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;

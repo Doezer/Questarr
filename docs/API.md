@@ -66,6 +66,7 @@ JWT even where a table row doesn't repeat `authenticateToken`.
 | GET    | `/api/games/status/:status`            | JWT                                                                                         | Query: `includeHidden?`                                                                                                                                                                           | `Game[]`                                                                                                                                                                                                                                                                                                                                                                                             |
 | GET    | `/api/games/search`                    | JWT + `sanitizeSearchQuery`, `validateRequest`                                              | Query: `q` (1–200 chars, required), `search?` (≤200), `limit?` (1–100)                                                                                                                            | `Game[]`; 400 if `q` missing                                                                                                                                                                                                                                                                                                                                                                         |
 | POST   | `/api/games`                           | JWT + `sensitiveEndpointLimiter`, `sanitizeGameData`, `validateRequest`                     | `{ title (1–500), igdbId?, summary? (≤5000), coverUrl? (URL), releaseDate? (YYYY-MM-DD), rating? (0–10), platforms?, genres?, publishers?, developers? }`, re-parsed via `insertGameSchema` (Zod) | 201 `Game`; 409 `{ error, game }` if duplicate; 400 `{ error, details }` on Zod failure                                                                                                                                                                                                                                                                                                              |
+| GET    | `/api/games/:id`                       | JWT + `sanitizeGameId`, `validateRequest`                                                   | —                                                                                                                                                                                                 | Game object. 404 if the game does not exist or is in a hidden content category; 403 if it belongs to another user. Registered after `/api/games/discover`, so that literal path is never read as an id.                                                                                                                                                                                              |
 | PATCH  | `/api/games/:id/status`                | JWT + `sensitiveEndpointLimiter`, `sanitizeGameId`, `sanitizeGameStatus`, `validateRequest` | `{ status: "wanted"\|"owned"\|"completed"\|"downloading" }` via `updateGameStatusSchema`                                                                                                          | Updated `Game`; 404 if not found                                                                                                                                                                                                                                                                                                                                                                     |
 | PATCH  | `/api/games/:id/hidden`                | JWT + `sensitiveEndpointLimiter`, `sanitizeGameId`, `validateRequest`                       | `{ hidden: boolean }` via `updateGameHiddenSchema`                                                                                                                                                | Updated `Game`; 404 if not found                                                                                                                                                                                                                                                                                                                                                                     |
 | PATCH  | `/api/games/:id/user-rating`           | JWT + `sensitiveEndpointLimiter`, `sanitizeGameId`, `validateRequest`                       | `{ userRating: number\|null }` (0.5–10, step 0.5) via `updateGameUserRatingSchema`                                                                                                                | Updated `Game`; 404 if not found                                                                                                                                                                                                                                                                                                                                                                     |
@@ -176,6 +177,18 @@ curl -X POST http://localhost:5000/api/imports/naming/preview \
   -H "Content-Type: application/json" \
   -d '{"pattern":"{Title} ({Year})"}'
 ```
+
+## RomM Settings
+
+Mounted under `/api/settings/romm` (JWT). See [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md#romm-integration)
+for what each setting does.
+
+| Method | Path                      | Auth Required                    | Request Body                                                                                                                                                                                              | Response                                                                                                                                  |
+| ------ | ------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/settings/romm`      | JWT                              | —                                                                                                                                                                                                         | `{ enabled, url, apiToken, platformFolders, syncEnabled, scanAfterImport, lastSync }`; `apiToken` is `"********"` when set                |
+| POST   | `/api/settings/romm`      | JWT                              | Partial `{ enabled?, url? (http/https or empty), apiToken? (≤512), platformFolders?, syncEnabled?, scanAfterImport? }` (strict). A `"********"` token keeps the saved one; an empty token clears it       | `{ success: true }`; 400 if a saved token exists and the URL changes without a new token                                                  |
+| POST   | `/api/settings/romm/test` | JWT + `sensitiveEndpointLimiter` | `{ url?, apiToken? }` (strict). Never saved. An omitted, empty or `"********"` token tests with the saved token (sent only to the saved URL), so a blank token cannot be used to test without credentials | `{ success: true, platforms }`; 400 if the URL differs from the saved one without a token; 502 if RomM is unreachable                     |
+| POST   | `/api/settings/romm/sync` | JWT + `sensitiveEndpointLimiter` | —                                                                                                                                                                                                         | `{ success: true, summary }` (`totalRoms` fetched from RomM, matched, marked owned, already owned, not in library); 502 if the sync fails |
 
 ## Indexers
 
@@ -362,6 +375,34 @@ documented under [Settings](#settings).
 Per-game blacklist management (`POST`/`GET`/`DELETE /api/games/:gameId/blacklist*`)
 is documented under [Games](#games).
 
+## Activity and System Tasks
+
+Mounted under `/api/activity` and `/api/system` (JWT). Activity only sees the requester's own downloads and games.
+
+| Method | Path                          | Request                                                                                                                                                                      | Response                                                                                                                                                                                                                                              |
+| ------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/activity/history`       | Query: `eventType?` (`grabbed`, `completed`, `imported`, `failed`, `needs_review`, `removed`, `blocklisted`), `search?` (≤200), `limit?` (1–200, default 50), `offset?` (≥0) | `{ events, total }`, newest first; 400 on invalid query                                                                                                                                                                                               |
+| DELETE | `/api/activity/blocklist`     | —                                                                                                                                                                            | `{ removed }`: unblocks every release of the user's games                                                                                                                                                                                             |
+| GET    | `/api/system/tasks`           | —                                                                                                                                                                            | `{ tasks }`: each task has `name`, `title`, `description`, `intervalMs`, `running`, `lastStartedAt`, `lastFinishedAt`, `lastDurationMs`, `lastResult` (`success`\|`error`), `lastError`, `lastTrigger` (`schedule`\|`manual`\|`startup`), `nextRunAt` |
+| POST   | `/api/system/tasks/:name/run` | —                                                                                                                                                                            | 202 `{ task }` and the job runs in the background (progress over Socket.io: `task:started`, `task:finished`); 404 unknown task; 409 if already running                                                                                                |
+
+## Release Scoring
+
+Authenticated endpoints behind the **Settings → Discovery & Downloads → Release Scoring** card. Each user has one release profile and any number of custom formats; both are created with defaults (and the old preferred release groups converted) the first time they are read.
+
+| Method | Path                                   | Request body                                                                                                                                                                                                                            | Response                                                                                  |
+| ------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| GET    | `/api/release-scoring`                 | —                                                                                                                                                                                                                                       | `{ profile, formats, builtInRules: [{ id, label, points, locked, rejects }] }`            |
+| PUT    | `/api/release-profile`                 | `{ minScore, protocolPreference: "torrent" or "usenet" or "either", requiredTerms[], ignoredTerms[], minSeeders, maxSizeBytes (or null), builtInOverrides: { <ruleId>: { points?, enabled? } }, formatScores: { <formatId>: number } }` | The saved profile; 400 for an invalid body or an unknown built-in rule id                 |
+| POST   | `/api/custom-formats`                  | `{ name (1–100 chars), specs[] (1–20), score (−10000 to 10000), hardReject?, enabled? }`                                                                                                                                                | 201 with the format; 400 when a spec is invalid (for example a regex RE2 cannot compile)  |
+| PATCH  | `/api/custom-formats/:id`              | Any of the fields above; fields that are not sent keep their value                                                                                                                                                                      | The updated format; 404 if it does not exist                                              |
+| DELETE | `/api/custom-formats/:id`              | —                                                                                                                                                                                                                                       | 204, and any per-profile score for that format is removed; 404 if it does not exist       |
+| POST   | `/api/custom-formats/install-defaults` | —                                                                                                                                                                                                                                       | 201 `{ added: [...] }`: the recommended formats that were not there yet (matched by name) |
+
+A spec is `{ field: "title" or "group" or "uploader" or "category" or "protocol" or "indexer", mode: "contains" or "exact" or "regex", value (1–200 chars), negate?, required? }`. Specs on the same field are alternatives unless marked `required`; every field used must be satisfied. Regexes run on RE2 (no lookarounds) and are case-insensitive. Required and ignored terms are case-insensitive words, or a regex written `/pattern/`.
+
+Locked built-in rules (a title that is a sequel of, or not, the wanted game, and an executable or disguised file) always apply and always reject, so `enabled: false` is ignored for them; the others can be re-weighted or disabled in `builtInOverrides`. Search results from `GET /api/search` carry an `evaluation` (score, score lines, rejections, matched formats and, when xREL is enabled, an `xrel` verdict of `verified`, `nuked` or `not_found`). Rejected releases stay in the manual results so the UI can say why. The `sortBy` auto-download rule also accepts `score`.
+
 ## Steam
 
 `server/steam-routes.ts` — 2 routes, mounted directly on the app (no prefix
@@ -462,7 +503,9 @@ Across handlers, error responses follow one of these consistent shapes:
   ```json
   {
     "error": "Validation failed",
-    "details": [/* express-validator error objects: { type, msg, path, location, value } */]
+    "details": [
+      /* express-validator error objects: { type, msg, path, location, value } */
+    ]
   }
   ```
 - **Validation failures (Zod schemas)**: handlers that call
@@ -471,7 +514,9 @@ Across handlers, error responses follow one of these consistent shapes:
   ```json
   {
     "error": "Invalid <thing> data",
-    "details": [/* ZodError.errors array */]
+    "details": [
+      /* ZodError.errors array */
+    ]
   }
   ```
   (message text varies per handler, e.g. "Invalid game data", "Invalid
@@ -508,7 +553,7 @@ for the full actor/data-flow explanation. Summary:
 | Event            | Emitted from                                                                                     | Payload               | Consumed by                                    |
 | ---------------- | ------------------------------------------------------------------------------------------------ | --------------------- | ---------------------------------------------- |
 | `notification`   | `cron.ts` (game updates, download completion, auto-search results, xREL matches) and `routes.ts` | `Notification` object | `client/src/components/NotificationCenter.tsx` |
-| `downloadUpdate` | `cron.ts::checkDownloadStatus`                                                                   | `gameId: string`      | `client/src/components/GameDetailsModal.tsx`   |
+| `downloadUpdate` | `cron.ts::checkDownloadStatus`                                                                   | `gameId: string`      | `client/src/components/GameDetails.tsx`        |
 
 Every authenticated socket joins a per-user room, `user:<id>`, during the
 handshake. Delivery depends on whether the event has an owner:

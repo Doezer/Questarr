@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Collections**: group games into manual collections or smart collections whose games are computed from rules (status, platform, genre, rating, release year, title), from the new **Collections** page under Library (#1199). See [API](API.md#collections).
+- **Activity History and Blocklist**: the Activity section gains **History**, a searchable log of what happened to each download (grabbed, completed, imported, failed, needs review, removed, blocklisted), and **Blocklist**, every blocked release with an **Unblock all** button (#1195). See [API](API.md#activity-and-system-tasks).
+- **System Tasks**: a new page under Activity lists the scheduled background jobs (game updates, download status, auto search, xREL, Steam and RomM sync, RSS feeds, history cleanup...) with their last and next run, and a **Run now** button for each (#1195). See [API](API.md#activity-and-system-tasks).
+- **Leftover archive warning**: after an import, Questarr raises a warning notification when a finished download still holds archives that nothing unpacked, with a hint to turn on Auto-unpack or extract them by hand (#1195).
+- **Naming templates**: the import rename pattern is now a validated template with the tokens `{Title}`, `{TitleThe}`, `{Year}`, `{Platform}`, `{Version}`, `{Group}`, `{Source}`, `{IgdbId}`, `{SteamAppId}` and `{Region}` (#1197). See [Library import](LIBRARY_IMPORT.md).
+- **RomM integration**: place imports in RomM's platform folders (`snes`, `ps2`, `win`...), ask RomM to rescan after an import, and mark wishlist games that RomM already has as owned, from **Settings → Import** (#1202). See [Library import](LIBRARY_IMPORT.md#romm-integration).
+- **Game videos**: IGDB trailers and gameplay clips are saved with each game when it is added, found by a library scan, or has its metadata refreshed, and shown in a carousel on the Media tab of the game details page. They play in a privacy-enhanced YouTube embed that loads only on click, so the Content-Security-Policy now allows `i.ytimg.com` thumbnails and the `youtube-nocookie.com` frame (#1194).
+- **Release scoring**: every search result now gets a score built from a title match, indexer category, platform and quality rules, a per-user **release profile** (minimum score, preferred protocol, required and ignored terms, minimum seeders, maximum size) and your own **custom formats** (conditions on the title, group, uploader, category, protocol or indexer, each adding or removing points, or rejecting the release outright). The manual search shows the score, its breakdown and why a release was rejected; auto-search only considers accepted releases, keeps the best-scored copy of a duplicate and orders the rest by score, then preferred protocol, then your sort order. Auto-download still grabs a release by itself only when a single candidate is left after filtering; with several, Questarr sends a "Multiple Results Found" notification and you choose. Releases the xREL PreDB lists as nuked are rejected, and the search shows an xREL badge. Configure it under **Settings → Discovery & Downloads → Release Scoring**, which replaces the Preferred Release Groups card: existing preferred groups become a "Preferred release group" format worth +50 (#1196). See [API](API.md#release-scoring).
+- **Recommended custom formats**: an **Install recommended formats** button adds a starting set that pushes down crack-only, demo and pre-installed releases, rejects trainers, keygens and activators outright, and favors releases that include updates and DLC and a few trusted repackers. Formats you already have are not duplicated (#1224).
+- **Scoped API keys and SeerrNG**: API keys now have an access level (all, library write, read or game requests) and an optional expiry of 1 to 365 days, chosen in **Settings → Integrations → API Keys**. The new **Game requests (SeerrNG)** access lets SeerrNG request PC games from Questarr through a provider API that follows the QuestarrNG contract; such a key is refused on every other route except `GET /api/integration/ping`. Integration routes are limited to 300 requests per minute per key (#1198). The SeerrNG provider also implements the QuestarrNG v2.1 contract: editions and add-ons, the `selection` field of a request, and `catalog/discover` (#1225). See [SeerrNG](SEERRNG.md), [Gameyfin](GAMEYFIN.md) and [API](API.md#api-keys-management).
+- **Weekly pre-releases**: a weekly workflow publishes a `vX.Y.Z-dev.YYYYMMDD` pre-release and the Docker tags `weekly` and `dev`, never `latest` (#1192). Their notes end with a list of contributors, bots excluded (#1222). See [Operations](OPERATIONS.md).
+
+### Changed
+
+- **Game details page**: the game details modal is now a full page at `/games/:id`, for library games and for Discover results (`igdb-<id>`). The card title is a real link (right-click to copy or open it), and on grid and desktop list cards, middle-click or ctrl/cmd/shift-click anywhere on the card opens the game in a new tab. A game can be bookmarked or shared by URL. Back returns to where you came from, or to the library when the page was opened directly. A game that does not exist, belongs to someone else, or sits in a hidden content category shows "Game not found" (#1203). New `GET /api/games/:id` endpoint, see [API](API.md).
+- **Manual download dialog**: releases your scoring profile rejects (another game with the same group name, a nuked release, a score below your minimum) are hidden by default, with a badge showing how many. Untick **Hide rejected releases** in the dialog to bring them back, or set the default under **Settings → Discovery & Downloads → Auto-download rules**; the `downloadRules` setting gains `hideRejected` (default `true`) (#1231).
+
+### Fixed
+
+- **Library import**: platform names, folders and Game Gear are now handled correctly (#1212).
+- **Usenet downloads**: a download marked failed is restored and imported once NZBGet or SABnzbd no longer reports a failure, for example after you fix a wrong archive password and post-process the item again. Questarr checks failed downloads from the last 14 days every 10 minutes. NZBGet failures now say why (wrong password, unpack, par2 repair, missing articles, malformed NZB, disk space) instead of a bare error, including the `SCAN` and `SPACE` statuses (#1235).
+- **Archive password over HTTP**: an NZBGet downloader with **Allow insecure LAN** turned on can send an archive password over plain HTTP again; without that option, the error now suggests it. A request carrying a password or credentials over plain HTTP is no longer sent to another host if the server redirects it, apart from a same-host upgrade to HTTPS (#1235).
+- **Home Assistant add-on**: the add-on starts the server with `node` directly instead of through npm (#1208).
+- **Library rescans**: folders already linked to a game are skipped instead of reappearing in Needs Review, and new files in them are still attached (#1234).
+
+- **Legacy session token migration**: a pre-1.5.0 token left in `localStorage` is now carried over as an in-memory bearer token for the current tab and removed from `localStorage`, in a post-commit effect instead of during React render. The app waits for it before calling `/api/auth/me`, which also makes it safe under StrictMode. It is not stored as a cookie, so the next reload asks you to sign in again (#1193).
+
+### Dependencies
+
+- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14, and `follow-redirects` pinned to 1.16.1 and `body-parser` to 2.4.0, with `multer` 2.5.0, for high advisories (#1188, #1189, #1190, #1191, #1205, #1206, #1218, #1219, #1220, #1228, #1229, #1236).
+
 ## [1.5.0] - 2026-10-12
 
 ### Before you upgrade

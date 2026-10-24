@@ -123,6 +123,7 @@ export function resetDownloadStatusTracking(): void {
     tracked.clear();
   }
   downloadStatusCheckRunning = false;
+  lastFailedRecoveryAt = 0;
 }
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const ROMM_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -913,8 +914,68 @@ export async function checkDownloadStatus() {
   downloadStatusCheckRunning = true;
   try {
     await runDownloadStatusCheck();
+    await recoverFailedUsenetDownloads();
   } finally {
     downloadStatusCheckRunning = false;
+  }
+}
+
+const FAILED_USENET_RECOVERY_INTERVAL_MS = 10 * 60 * 1000;
+let lastFailedRecoveryAt = 0;
+const FAILED_USENET_RECOVERY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const RECOVERABLE_REMOTE_STATUSES = new Set<DownloadStatus["status"]>([
+  "downloading",
+  "paused",
+  "repairing",
+  "unpacking",
+  "completed",
+]);
+
+/**
+ * Revives usenet downloads marked "failed" once the client no longer reports a failure --
+ * e.g. an NZBGet unpack failed on a wrong archive password and the user fixed it and ran
+ * post-processing again. Failed rows are otherwise never polled, so the finished job would
+ * never be imported. The row goes back to "downloading" and the regular tracker takes over.
+ */
+async function recoverFailedUsenetDownloads() {
+  // Most failed rows never come back, so don't ask the client about them every minute.
+  const now = Date.now();
+  if (now - lastFailedRecoveryAt < FAILED_USENET_RECOVERY_INTERVAL_MS) return;
+  lastFailedRecoveryAt = now;
+  const failed = await storage.getRecentFailedUsenetDownloads(
+    new Date(Date.now() - FAILED_USENET_RECOVERY_WINDOW_MS)
+  );
+  // A downloader that errors out is skipped for the rest of this tick, so an unreachable
+  // client costs one timeout instead of one per failed row.
+  const unreachableDownloaders = new Set<string>();
+  for (const download of failed) {
+    if (unreachableDownloaders.has(download.downloaderId)) continue;
+    try {
+      const downloader = await storage.getDownloader(download.downloaderId);
+      if (!downloader || !downloader.enabled) continue;
+      const remote = await DownloaderManager.getDownloadStatus(downloader, download.downloadHash, {
+        throwOnError: true,
+      });
+      if (!remote || !RECOVERABLE_REMOTE_STATUSES.has(remote.status)) continue;
+
+      igdbLogger.info(
+        { downloadId: download.id, title: download.downloadTitle, remoteStatus: remote.status },
+        "Failed usenet download is healthy again in the client — restoring it"
+      );
+      await storage.updateGameDownloadStatus(download.id, "downloading", null);
+      const game = await storage.getGame(download.gameId);
+      if (game && game.status !== "downloading" && !isUserCuratedGameStatus(game.status)) {
+        await storage.updateGameStatus(
+          download.gameId,
+          { status: "downloading" },
+          { preserveCurated: true }
+        );
+      }
+      notifyUser("downloadUpdate", download.gameId);
+    } catch (error) {
+      unreachableDownloaders.add(download.downloaderId);
+      igdbLogger.debug({ error, downloadId: download.id }, "Failed-download recovery check failed");
+    }
   }
 }
 

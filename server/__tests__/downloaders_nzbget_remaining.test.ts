@@ -460,7 +460,7 @@ describe("NZBGet remaining coverage", () => {
       text: async () => "nzb-content",
     } as Response);
 
-    const client = new NZBGetClient(createDownloader({ useSsl: false }));
+    const client = new NZBGetClient(createDownloader({ useSsl: false, allowInsecureLan: false }));
     const rpcSpy = vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
 
     const result = await client.addDownload({
@@ -472,9 +472,67 @@ describe("NZBGet remaining coverage", () => {
     expect(result).toEqual({
       success: false,
       message:
-        "Refusing to send the archive password over an insecure connection. Enable SSL for this NZBGet downloader, or remove the archive password.",
+        "Refusing to send the archive password over an insecure connection. Enable SSL for this NZBGet downloader, turn on 'Allow insecure LAN', or remove the archive password.",
     });
     expect(rpcSpy).not.toHaveBeenCalled();
+  });
+
+  it("sends the archive password over plain HTTP when the downloader allows insecure LAN", async () => {
+    vi.mocked(safeFetch).mockResolvedValue({
+      ok: true,
+      text: async () => "nzb-content",
+    } as Response);
+
+    const client = new NZBGetClient(
+      createDownloader({
+        useSsl: false,
+        allowInsecureLan: true,
+        settings: JSON.stringify({ archivePassword: "404" }),
+      })
+    );
+    const rpcSpy = vi
+      .spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest")
+      .mockResolvedValueOnce(42);
+
+    const result = await client.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+    });
+
+    expect(result.success).toBe(true);
+    expect(rpcSpy.mock.calls[0]?.[1]?.at(-1)).toEqual([{ Name: "*Unpack:Password", Value: "404" }]);
+  });
+
+  it.each([
+    ["FAILURE/PASSWORD", /password is missing or wrong/],
+    ["FAILURE/UNPACK", /failed to unpack/],
+    ["FAILURE/HEALTH", /too many articles are missing/],
+    ["DELETED/MANUAL", /Removed from NZBGet/],
+  ])("reports a specific reason for history status %s", async (historyStatus, reason) => {
+    const client = new NZBGetClient(createDownloader());
+    const privateClient = client as unknown as {
+      makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+      getFromHistory: (id: string) => Promise<{ status: string; error?: string }>;
+    };
+    vi.spyOn(privateClient, "makeXMLRPCRequest").mockResolvedValueOnce([
+      {
+        NZBID: 9,
+        Name: "Broken Game",
+        Status: historyStatus,
+        FileSizeMB: 20,
+        Category: "games",
+        DownloadTimeSec: 90,
+        ParStatus: "NONE",
+        UnpackStatus: "FAILURE",
+        FailedArticles: 0,
+        DeleteStatus: "NONE",
+        DestDir: "/downloads",
+      },
+    ]);
+
+    const result = await privateClient.getFromHistory("9");
+    expect(result.status).toBe("error");
+    expect(result.error).toMatch(reason);
   });
 
   it("redacts the archive password in PPParameters debug logging", async () => {

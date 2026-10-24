@@ -369,7 +369,7 @@ describe("sabnzbd remaining regression coverage", () => {
       arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
     } as Response);
 
-    const client = new SABnzbdClient(createDownloader({ useSsl: false }));
+    const client = new SABnzbdClient(createDownloader({ useSsl: false, allowInsecureLan: false }));
     const fetchWithFallbackSpy = spyOnFetchWithFallback(client);
 
     const result = await client.addDownload({
@@ -381,7 +381,7 @@ describe("sabnzbd remaining regression coverage", () => {
     expect(result).toEqual({
       success: false,
       message:
-        "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, or remove the archive password.",
+        "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, turn on 'Allow insecure LAN', or remove the archive password.",
     });
     expect(fetchWithFallbackSpy).not.toHaveBeenCalled();
   });
@@ -431,6 +431,23 @@ describe("sabnzbd remaining regression coverage", () => {
       ([, options]) => (options as RequestInit)?.method === "POST"
     ) as [string, RequestInit & { requireHttps?: boolean }];
     expect(postOptionsWithoutCredentials.requireHttps).toBe(false);
+
+    // Plain HTTP with the insecure-LAN opt-in: the archive password goes out, and the
+    // HTTPS pin must not reject the request itself.
+    safeFetchMock.mockClear();
+    const insecureLanClient = new SABnzbdClient(
+      createDownloader({ useSsl: false, allowInsecureLan: true })
+    );
+    const insecureLanResult = await insecureLanClient.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+    expect(insecureLanResult.success).toBe(true);
+    const [, postOptionsInsecureLan] = safeFetchMock.mock.calls.find(
+      ([, options]) => (options as RequestInit)?.method === "POST"
+    ) as [string, RequestInit & { requireHttps?: boolean }];
+    expect(postOptionsInsecureLan.requireHttps).toBe(false);
   });
 
   it("does not downgrade to the insecure self-signed-cert fallback when a password is sent", async () => {

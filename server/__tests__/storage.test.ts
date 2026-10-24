@@ -1468,6 +1468,28 @@ describe("Import And Mapping Helpers", () => {
     expect(all).toHaveLength(2);
   });
 
+  it("should list only recent failed usenet downloads with a real client id", async () => {
+    const add = (hash: string, status: string, downloadType: string) =>
+      storage.addGameDownload({
+        gameId: "game-1",
+        downloaderId: "dl-1",
+        downloadHash: hash,
+        downloadTitle: hash,
+        status,
+        downloadType,
+      });
+
+    const wanted = await add("100", "failed", "usenet");
+    await add("101", "downloading", "usenet");
+    await add("102", "failed", "torrent");
+    await add("questarr-add-abc", "failed", "usenet");
+
+    const rows = await storage.getRecentFailedUsenetDownloads(
+      new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+    );
+    expect(rows.map((r) => r.id)).toEqual([wanted.id]);
+  });
+
   it("should expose getGameDownload and filter active downloads", async () => {
     const downloading = await storage.addGameDownload({
       gameId: "game-1",

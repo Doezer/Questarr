@@ -74,6 +74,7 @@ vi.mock("../storage.js", () => ({
     updateGameDownloadStatus: mockUpdateGameDownloadStatus,
     getDownloader: mockGetDownloader,
     getDownloadingGameDownloads: mockGetDownloadingGameDownloads,
+    getRecentFailedUsenetDownloads: async () => [],
   },
 }));
 vi.mock("../logger.js", () => ({

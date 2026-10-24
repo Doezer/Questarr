@@ -849,6 +849,49 @@ describe("DatabaseStorage Extended Coverage", () => {
     });
   });
 
+  describe("GameDownload: getRecentFailedUsenetDownloads", () => {
+    it("returns only recent failed usenet rows with a real client id", async () => {
+      const userId = await createUser();
+      const game = await storage.addGame({
+        title: "Failed Usenet Game",
+        igdbId: 8100,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      const downloader = await storage.addDownloader({
+        name: "NZBGet",
+        type: "nzbget",
+        url: "http://localhost:6789",
+        apiKey: "",
+        enabled: true,
+        priority: 1,
+      } as InsertDownloader);
+      const add = (hash: string, status: string, downloadType: string, addedAt?: Date) =>
+        storage.addGameDownload({
+          gameId: game.id,
+          downloaderId: downloader.id,
+          downloadHash: hash,
+          downloadTitle: hash,
+          status,
+          downloadType,
+          fileSize: null,
+          ...(addedAt ? { addedAt } : {}),
+        } as InsertGameDownload);
+
+      const wanted = await add("100", "failed", "usenet");
+      await add("101", "downloading", "usenet");
+      await add("102", "failed", "torrent");
+      await add("questarr-add-abc", "failed", "usenet");
+      await add("103", "failed", "usenet", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+
+      const rows = await storage.getRecentFailedUsenetDownloads(
+        new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+      );
+      expect(rows.map((r) => r.id)).toEqual([wanted!.id]);
+    });
+  });
+
   describe("Import task history", () => {
     it("creates a task, starts it, updates it, and adds items", async () => {
       const userId = await createUser();

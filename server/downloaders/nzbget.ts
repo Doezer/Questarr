@@ -8,6 +8,7 @@ import {
   assertCredentialsAllowed,
   buildBasicAuthHeader,
   fixNzbUrlEncoding,
+  isHttpsUrl,
   logDownloaderDebugResponse,
   findTorrentByTagNull,
 } from "./utils.js";
@@ -38,6 +39,35 @@ interface NZBGetHistoryResult {
   FailedArticles: number;
   DeleteStatus: string;
   DestDir: string;
+}
+
+const HISTORY_FAILURE_REASONS: Record<string, string> = {
+  PASSWORD:
+    "NZBGet could not unpack the archive: the password is missing or wrong. Fix the password in NZBGet and post-process the item again.",
+  UNPACK: "NZBGet failed to unpack the archive (corrupt archive, or missing/wrong password).",
+  PAR: "NZBGet could not repair the download with par2.",
+  HEALTH: "NZBGet aborted the download because too many articles are missing.",
+  BAD: "NZBGet aborted the download after a post-processing script flagged it as bad.",
+  SCAN: "NZBGet could not parse the NZB file (malformed NZB); check the NZB or its source.",
+  MOVE: "NZBGet could not move the finished files to the destination folder.",
+  DISK: "NZBGet ran out of disk space.",
+  SPACE: "NZBGet ran out of disk space.",
+  FETCH: "NZBGet could not fetch the NZB file.",
+};
+
+/** Builds a readable failure reason from NZBGet's "<overall>/<detail>" history status. */
+export function describeHistoryFailure(item: {
+  Status: string;
+  ParStatus?: string;
+  UnpackStatus?: string;
+}): string {
+  const [overall = "", detail = ""] = item.Status.split("/");
+  const known = HISTORY_FAILURE_REASONS[detail.toUpperCase()];
+  if (known) return known;
+  if (overall === "DELETED") return `Removed from NZBGet (${item.Status}).`;
+  if (item.UnpackStatus === "FAILURE") return HISTORY_FAILURE_REASONS.UNPACK!;
+  if (item.ParStatus === "FAILURE") return HISTORY_FAILURE_REASONS.PAR!;
+  return `NZBGet reported ${item.Status}.`;
 }
 
 export class NZBGetClient implements DownloaderClient {
@@ -170,7 +200,8 @@ export class NZBGetClient implements DownloaderClient {
    * Sends an NZBGet XML-RPC request, adding Basic authentication when configured.
    *
    * @param requireHttps - Whether redirects must remain on HTTPS, used for requests
-   * whose payload contains an archive password.
+   * whose payload contains an archive password. Only enforced when the request itself
+   * starts out on HTTPS, so an "Allow insecure LAN" downloader over HTTP still works.
    * @throws If the transport policy forbids the configured credentials, the HTTP
    * call fails, or NZBGet's response is itself an XML-RPC fault.
    */
@@ -239,7 +270,10 @@ export class NZBGetClient implements DownloaderClient {
       headers,
       body: xmlBody,
       signal: AbortSignal.timeout(30000),
-      requireHttps,
+      requireHttps: requireHttps && isHttpsUrl(url),
+      // A password-bearing body sent over plain HTTP (insecure LAN opt-in) must not
+      // follow a redirect to another host.
+      pinOrigin: requireHttps && !isHttpsUrl(url),
     });
 
     await logDownloaderDebugResponse("NZBGet", method, url, response);
@@ -339,7 +373,8 @@ export class NZBGetClient implements DownloaderClient {
         request.password,
         this.downloader.settings,
         this.getBaseUrl(),
-        "NZBGet"
+        "NZBGet",
+        this.downloader.allowInsecureLan === true
       );
       if (passwordError) {
         return { success: false, message: passwordError };
@@ -501,6 +536,7 @@ export class NZBGetClient implements DownloaderClient {
         category: item.Category,
         repairStatus,
         unpackStatus,
+        error: status === "error" ? describeHistoryFailure(item) : undefined,
       };
     } catch (error) {
       downloadersLogger.error({ error }, "Failed to get NZBGet history");

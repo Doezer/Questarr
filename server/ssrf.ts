@@ -13,6 +13,10 @@ type SafeFetchOptions = RequestInit & {
   // whenever the request carries a credential (a password, an API key) that
   // must never travel -- or be replayed by a redirect -- over plaintext.
   requireHttps?: boolean;
+  // Reject any redirect to a different origin. For credential-bearing requests that
+  // are allowed over plain HTTP (an explicit "Allow insecure LAN" opt-in), where
+  // requireHttps can't be used.
+  pinOrigin?: boolean;
 };
 
 interface SafeFetchTarget {
@@ -421,6 +425,7 @@ export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}):
   const {
     allowPrivate,
     maxRedirects = DEFAULT_SAFE_FETCH_MAX_REDIRECTS,
+    pinOrigin = false,
     redirect = "follow",
     requireHttps = false,
     signal,
@@ -478,7 +483,10 @@ export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}):
     // origin the caller actually asked for. A scheme downgrade is reported by the
     // protocol check at the top of the loop on the next iteration instead, so this only
     // fires for a same-scheme (HTTPS) host/port change.
-    if (requireHttps && nextUrl.protocol === "https:" && nextUrl.origin !== currentUrl.origin) {
+    if (
+      nextUrl.origin !== currentUrl.origin &&
+      (pinOrigin || (requireHttps && nextUrl.protocol === "https:"))
+    ) {
       throw new Error(
         `Refusing to redirect a credential-bearing request to a different origin: ${nextUrl.origin}`
       );

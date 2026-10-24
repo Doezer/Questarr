@@ -264,6 +264,34 @@ describe("safeFetch", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("should refuse a cross-origin redirect over plain HTTP with pinOrigin", async () => {
+    mockDnsResolvesOnce();
+    vi.mocked(undiciFetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 307,
+        headers: { location: "http://attacker.example/rpc" },
+      }) as never
+    );
+
+    await expect(safeFetch("http://example.com/rpc", { pinOrigin: true })).rejects.toThrow(
+      "different origin"
+    );
+    expect(undiciFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("should still follow a same-origin redirect over plain HTTP with pinOrigin", async () => {
+    mockDnsResolvesOnce();
+    vi.mocked(undiciFetch).mockResolvedValueOnce(
+      new Response(null, { status: 307, headers: { location: "/rpc2" } }) as never
+    );
+    mockDnsResolvesOnce();
+    vi.mocked(undiciFetch).mockResolvedValueOnce(new Response("ok") as never);
+
+    const response = await safeFetch("http://example.com/rpc", { pinOrigin: true });
+    expect(await response.text()).toBe("ok");
+    expect(undiciFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("should strip Authorization/Cookie headers when a redirect crosses origins", async () => {
     // Initial request to example.com...
     vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([

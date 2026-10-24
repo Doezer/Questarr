@@ -270,6 +270,9 @@ export class NZBGetClient implements DownloaderClient {
       body: xmlBody,
       signal: AbortSignal.timeout(30000),
       requireHttps: requireHttps && isHttpsUrl(url),
+      // A password-bearing body sent over plain HTTP (insecure LAN opt-in) must not
+      // follow a redirect to another host.
+      pinOrigin: requireHttps && !isHttpsUrl(url),
     });
 
     await logDownloaderDebugResponse("NZBGet", method, url, response);

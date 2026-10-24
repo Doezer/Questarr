@@ -178,6 +178,9 @@ export class SABnzbdClient implements DownloaderClient {
         ...options,
         allowPrivate: true,
         requireHttps: isHttpsUrl(url),
+        // Plain HTTP is only reachable through "Allow insecure LAN"; still don't let a
+        // redirect carry the query-string credentials to a different host.
+        pinOrigin: !isHttpsUrl(url),
       });
     } catch (error) {
       const isSslError =

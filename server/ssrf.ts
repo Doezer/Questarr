@@ -102,7 +102,8 @@ function getRedirectOptions(
   fetchOptions: RequestInit,
   status: number,
   previousUrl: URL,
-  nextUrl: URL
+  nextUrl: URL,
+  keepCredentials = false
 ): RequestInit {
   const method = (fetchOptions.method || "GET").toUpperCase();
   // Per RFC 9110 / the Fetch spec: 301/302 only rewrite POST to GET (a PUT,
@@ -122,7 +123,7 @@ function getRedirectOptions(
   // compromised downloader daemon could redirect a request to an
   // attacker-controlled host and walk off with the configured Basic-auth
   // credentials or session cookie.
-  if (previousUrl.origin !== nextUrl.origin) {
+  if (previousUrl.origin !== nextUrl.origin && !keepCredentials) {
     headers.delete("authorization");
     headers.delete("cookie");
     headers.delete("proxy-authorization");
@@ -498,7 +499,15 @@ export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}):
       );
     }
 
-    currentOptions = getRedirectOptions(currentOptions, response.status, currentUrl, nextUrl);
+    // An allowed same-host HTTP -> HTTPS upgrade keeps its credentials: they already went
+    // out in clear text to this very host, so replaying them over TLS exposes nothing new.
+    currentOptions = getRedirectOptions(
+      currentOptions,
+      response.status,
+      currentUrl,
+      nextUrl,
+      pinOrigin && isSameHostHttpsUpgrade
+    );
     currentUrl = nextUrl;
     redirectCount++;
   }

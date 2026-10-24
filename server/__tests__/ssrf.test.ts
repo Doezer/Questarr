@@ -303,8 +303,13 @@ describe("safeFetch", () => {
     mockDnsResolvesOnce();
     vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
 
-    const response = await safeFetch("http://example.com/rpc", { pinOrigin: true });
+    const response = await safeFetch("http://example.com/rpc", {
+      pinOrigin: true,
+      headers: { Authorization: "Basic abc" },
+    });
     expect(await response.text()).toBe("ok");
+    const secondCall = vi.mocked(fetch).mock.calls.at(-1)?.[1];
+    expect(new Headers(secondCall?.headers).get("authorization")).toBe("Basic abc");
   });
 
   it("should strip Authorization/Cookie headers when a redirect crosses origins", async () => {

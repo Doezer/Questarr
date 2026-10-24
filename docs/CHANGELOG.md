@@ -26,6 +26,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - **Library import**: platform names, folders and Game Gear are now handled correctly (#1212).
+- **Usenet downloads**: a download marked failed is restored and imported once NZBGet or SABnzbd no longer reports a failure, for example after you fix a wrong archive password and post-process the item again. Questarr checks failed downloads from the last 14 days every 10 minutes. NZBGet failures now say why (wrong password, unpack, par2 repair, missing articles, malformed NZB, disk space) instead of a bare error, including the `SCAN` and `SPACE` statuses (#1235).
+- **Archive password over HTTP**: an NZBGet downloader with **Allow insecure LAN** turned on can send an archive password over plain HTTP again; without that option, the error now suggests it. A request carrying a password or credentials over plain HTTP is no longer sent to another host if the server redirects it, apart from a same-host upgrade to HTTPS (#1235).
 - **Home Assistant add-on**: the add-on starts the server with `node` directly instead of through npm (#1208).
 - **Library rescans**: folders already linked to a game are skipped instead of reappearing in Needs Review, and new files in them are still attached (#1234).
 

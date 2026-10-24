@@ -304,6 +304,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     (t: DownloadItem) => isUsenetItem(t) || (t.seeders ?? 0) >= minSeeders,
     [minSeeders]
   );
+  const [hideRejected, setHideRejected] = useState(true);
   const [selectedIndexer, setSelectedIndexer] = useState<string>("all");
   const [sortBy, setSortBy] = useState<SortField>("score");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -330,6 +331,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setIsDirectDownloadMode(false);
     setSelectedUpdateIndices(new Set());
     setMinSeeders(0);
+    setHideRejected(true);
     setSelectedIndexer("all");
     setSortBy("score");
     setSortOrder("desc");
@@ -354,6 +356,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       try {
         const rules = downloadRulesSchema.parse(JSON.parse(userSettings.downloadRules));
         setMinSeeders(rules.minSeeders);
+        setHideRejected(rules.hideRejected);
         setSortBy(rules.sortBy);
         setSortOrder("desc");
         if (rules.visibleCategories) {
@@ -534,6 +537,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
       filtered[category] = downloads
         .filter((t) => meetsSeederThreshold(t))
+        .filter((t) => !hideRejected || t.evaluation?.accepted !== false)
         .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
         .filter((t) => selectedGroups.length === 0 || (t.group && selectedGroups.includes(t.group)))
         .filter((t) => {
@@ -609,6 +613,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     categorizedDownloads,
     itemsMetadata,
     meetsSeederThreshold,
+    hideRejected,
     selectedIndexer,
     sortBy,
     sortOrder,
@@ -617,6 +622,42 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     selectedPlatforms,
     itemPubDateTimestamps,
     indexerPriorityMap,
+    userSettings?.importPlatformIds,
+  ]);
+
+  // Rejected releases the checkbox hides: only those that every other filter would show, so the
+  // badge matches what unticking "Hide rejected releases" brings back.
+  const rejectedCount = useMemo(() => {
+    let count = 0;
+    for (const [category, downloads] of Object.entries(categorizedDownloads) as [
+      DownloadCategory,
+      DownloadItem[],
+    ][]) {
+      if (!visibleCategories.has(category)) continue;
+      count += downloads.filter((t) => {
+        if (t.evaluation?.accepted !== false) return false;
+        if (!meetsSeederThreshold(t)) return false;
+        if (selectedIndexer !== "all" && t.indexerName !== selectedIndexer) return false;
+        if (selectedGroups.length > 0 && !(t.group && selectedGroups.includes(t.group))) {
+          return false;
+        }
+        const platform = itemsMetadata.get(t.title)?.platform;
+        if (!matchesSelectedIgdbPlatform(platform, userSettings?.importPlatformIds)) return false;
+        return (
+          selectedPlatforms.length === 0 ||
+          selectedPlatforms.some((sp) => matchesPlatformFilter(platform, sp))
+        );
+      }).length;
+    }
+    return count;
+  }, [
+    categorizedDownloads,
+    itemsMetadata,
+    meetsSeederThreshold,
+    selectedIndexer,
+    selectedGroups,
+    selectedPlatforms,
+    visibleCategories,
     userSettings?.importPlatformIds,
   ]);
 
@@ -758,7 +799,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   });
 
   const handleDownload = (download: DownloadItem) => {
-    if (categorizedDownloads.update.length > 0) {
+    if (filteredCategorizedDownloads.update.length > 0) {
       const downloadCategory = groupDownloadsByCategory([download]);
       if (downloadCategory.main.length > 0) {
         setSelectedMainDownload(download);
@@ -969,6 +1010,17 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         />
       </div>
 
+      <div className={cn("flex items-center", !isMobile && "col-span-4")}>
+        <Checkbox
+          id="hide-rejected"
+          checked={hideRejected}
+          onCheckedChange={(checked) => setHideRejected(checked === true)}
+        />
+        <label htmlFor="hide-rejected" className="ml-2 text-sm cursor-pointer">
+          Hide rejected releases
+        </label>
+      </div>
+
       <div className={cn("space-y-2", !isMobile && "col-span-4")}>
         <Label className="text-sm">Categories</Label>
         <div className="flex flex-wrap gap-2">
@@ -1013,6 +1065,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         {minSeeders > 0 && (
           <Badge variant="secondary" className="text-xs">
             Min Seeders: {minSeeders}
+          </Badge>
+        )}
+        {hideRejected && rejectedCount > 0 && (
+          <Badge variant="secondary" className="text-xs">
+            {rejectedCount} rejected hidden
           </Badge>
         )}
         <Badge variant="outline" className="text-xs capitalize">
@@ -1062,6 +1119,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 sum +
                 downloads
                   .filter((t) => meetsSeederThreshold(t))
+                  .filter((t) => !hideRejected || t.evaluation?.accepted !== false)
                   .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
                   .filter(
                     (t) =>

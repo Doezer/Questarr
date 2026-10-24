@@ -151,6 +151,10 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
         (await storage().getIntegrationRequestByGameId(user.id, game.id))?.externalRequestId
       ).toBe("seerrng:request:2");
 
+      expect(
+        (await storage().getIntegrationRequests(user.id)).map((r) => r.externalRequestId).sort()
+      ).toEqual(["seerrng:request:1", "seerrng:request:2"]);
+
       // The ledger row outlives the game (set null), and the game count stays untouched.
       await storage().removeGame(game.id);
       expect(

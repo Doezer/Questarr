@@ -893,6 +893,9 @@ export const downloadRulesSchema = z.object({
   visibleCategories: z
     .array(z.enum(["main", "update", "dlc", "extra", "packs"]))
     .default(["main", "update", "dlc", "extra", "packs"]),
+  // releases the scoring profile rejects (wrong title, nuked, below the minimum score) stay out
+  // of the manual download dialog unless the user turns this off
+  hideRejected: z.boolean().default(true),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;
@@ -1710,6 +1713,8 @@ export const integrationRequests = sqliteTable(
     architecture: text("architecture").$type<SeerrngArchitecture>(),
     status: text("status").$type<IntegrationRequestStatus>().notNull().default("accepted"),
     errorMessage: text("error_message"),
+    // JSON of the edition or add-ons the request app selected (contract v2.1); null for a plain game.
+    selection: text("selection"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
       sql`(strftime('%s', 'now') * 1000)`
     ),
@@ -1732,13 +1737,21 @@ export const integrationRequests = sqliteTable(
 );
 
 export type IntegrationRequest = typeof integrationRequests.$inferSelect;
+
+/** What a request asked for beyond the base game: a whole edition, or the missing add-ons. */
+export type IntegrationRequestSelection =
+  | { kind: "game-content"; mode: "edition"; editionId: number }
+  | { kind: "game-content"; mode: "missing-selected"; addonIds: number[] };
 export type NewIntegrationRequest = Pick<
   IntegrationRequest,
   "userId" | "externalRequestId" | "title"
 > &
   Partial<
-    Pick<IntegrationRequest, "provider" | "igdbId" | "gameId" | "operatingSystem" | "architecture">
+    Pick<
+      IntegrationRequest,
+      "provider" | "igdbId" | "gameId" | "operatingSystem" | "architecture" | "selection"
+    >
   >;
 export type IntegrationRequestUpdate = Partial<
-  Pick<IntegrationRequest, "gameId" | "status" | "errorMessage">
+  Pick<IntegrationRequest, "gameId" | "status" | "errorMessage" | "selection">
 >;

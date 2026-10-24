@@ -688,6 +688,53 @@ describe("GameDownloadDialog", () => {
     });
   });
 
+  it("does not offer a bundle when every update is rejected and hidden", async () => {
+    const evaluation = (accepted: boolean) => ({
+      accepted,
+      score: accepted ? 120 : -980,
+      lines: [],
+      rejections: accepted ? [] : [{ code: "title_mismatch", detail: "" }],
+      titleMatch: accepted ? "exact" : "mismatch",
+      indexerCategory: "unknown",
+      category: "main",
+      matchedFormats: [],
+      preferredProtocol: true,
+    });
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "main-1",
+          title: "Test Game SKIDROW",
+          link: "http://test.com/main",
+          seeders: 50,
+          evaluation: evaluation(true),
+        }),
+        makeTorrentItem({
+          guid: "update-1",
+          title: "Other Game Update",
+          link: "http://test.com/update",
+          seeders: 20,
+          evaluation: evaluation(false),
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game SKIDROW").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    fireEvent.click(screen.getAllByTestId("icon-download")[0].closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Download with Updates?")).not.toBeInTheDocument();
+    });
+  });
+
   const skidrowItem = makeTorrentItem({
     guid: "skidrow-1",
     title: "Test Game SKIDROW",
@@ -741,6 +788,7 @@ describe("GameDownloadDialog", () => {
           minSeeders: 0,
           sortBy: "seeders",
           visibleCategories: ["main", "update", "dlc", "extra", "packs"],
+          hideRejected: false,
         }),
       },
       search: makeSearchResult([
@@ -774,6 +822,97 @@ describe("GameDownloadDialog", () => {
     );
   });
 
+  it("hides rejected releases by default and says how many", async () => {
+    const evaluation = (accepted: boolean) => ({
+      accepted,
+      score: accepted ? 120 : -980,
+      lines: [],
+      rejections: accepted ? [] : [{ code: "title_mismatch", detail: "" }],
+      titleMatch: accepted ? "exact" : "mismatch",
+      indexerCategory: "unknown",
+      category: "main",
+      matchedFormats: [],
+      preferredProtocol: true,
+    });
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "wrong",
+          title: "Another.Game-RELOADED",
+          link: "http://test.com/w",
+          seeders: 900,
+          evaluation: evaluation(false),
+        }),
+        makeTorrentItem({
+          guid: "good",
+          title: "Test Game Plain",
+          link: "http://test.com/g",
+          seeders: 3,
+          evaluation: evaluation(true),
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    expect(await screen.findByText("Test Game Plain")).toBeInTheDocument();
+    expect(screen.queryByText("Another.Game-RELOADED")).not.toBeInTheDocument();
+    expect(screen.getByText("1 rejected hidden")).toBeInTheDocument();
+  });
+
+  it("only counts rejected releases that the other filters would show", async () => {
+    const evaluation = (accepted: boolean) => ({
+      accepted,
+      score: accepted ? 120 : -980,
+      lines: [],
+      rejections: accepted ? [] : [{ code: "title_mismatch", detail: "" }],
+      titleMatch: accepted ? "exact" : "mismatch",
+      indexerCategory: "unknown",
+      category: "main",
+      matchedFormats: [],
+      preferredProtocol: true,
+    });
+    globalThis.fetch = createFetchMock({
+      settings: {
+        downloadRules: JSON.stringify({
+          minSeeders: 10,
+          sortBy: "score",
+          visibleCategories: ["main", "update", "dlc", "extra", "packs"],
+          hideRejected: true,
+        }),
+      },
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "wrong-popular",
+          title: "Another.Game-RELOADED",
+          link: "http://test.com/w1",
+          seeders: 900,
+          evaluation: evaluation(false),
+        }),
+        makeTorrentItem({
+          guid: "wrong-quiet",
+          title: "Third.Game-RELOADED",
+          link: "http://test.com/w2",
+          seeders: 1,
+          evaluation: evaluation(false),
+        }),
+        makeTorrentItem({
+          guid: "good",
+          title: "Test Game Plain",
+          link: "http://test.com/g",
+          seeders: 50,
+          evaluation: evaluation(true),
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    expect(await screen.findByText("Test Game Plain")).toBeInTheDocument();
+    // the quiet one is already out under the seeders minimum, so it is not "hidden by rejection"
+    expect(screen.getByText("1 rejected hidden")).toBeInTheDocument();
+  });
+
   it("ranks by score, shows the breakdown and dims rejected releases", async () => {
     const evaluation = (score: number, accepted: boolean) => ({
       accepted,
@@ -787,6 +926,14 @@ describe("GameDownloadDialog", () => {
       preferredProtocol: true,
     });
     globalThis.fetch = createFetchMock({
+      settings: {
+        downloadRules: JSON.stringify({
+          minSeeders: 0,
+          sortBy: "score",
+          visibleCategories: ["main", "update", "dlc", "extra", "packs"],
+          hideRejected: false,
+        }),
+      },
       search: makeSearchResult([
         makeTorrentItem({
           guid: "rejected",

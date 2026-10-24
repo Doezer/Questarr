@@ -566,6 +566,11 @@ export interface IStorage {
     gameId: string,
     provider?: IntegrationRequestProvider
   ): Promise<IntegrationRequest | undefined>;
+  /** All requests of a user, to relate requests that name the same add-on. */
+  getIntegrationRequests(
+    userId: string,
+    provider?: IntegrationRequestProvider
+  ): Promise<IntegrationRequest[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -2371,6 +2376,7 @@ export class MemStorage implements IStorage {
       title: request.title,
       operatingSystem: request.operatingSystem ?? null,
       architecture: request.architecture ?? null,
+      selection: request.selection ?? null,
       status: "accepted",
       errorMessage: null,
       createdAt: now,
@@ -2390,6 +2396,15 @@ export class MemStorage implements IStorage {
       (r) => r.userId === userId && r.provider === provider && r.gameId === gameId
     );
     return holders.find((r) => r.status !== "cancelled") ?? holders[0];
+  }
+
+  async getIntegrationRequests(
+    userId: string,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest[]> {
+    return Array.from(this.integrationRequests.values()).filter(
+      (r) => r.userId === userId && r.provider === provider
+    );
   }
 
   async updateIntegrationRequest(
@@ -4481,6 +4496,18 @@ export class DatabaseStorage implements IStorage {
       .orderBy(sql`case when ${integrationRequests.status} = 'cancelled' then 1 else 0 end`)
       .limit(1);
     return row ?? undefined;
+  }
+
+  async getIntegrationRequests(
+    userId: string,
+    provider: IntegrationRequestProvider = "seerrng"
+  ): Promise<IntegrationRequest[]> {
+    return db
+      .select()
+      .from(integrationRequests)
+      .where(
+        and(eq(integrationRequests.userId, userId), eq(integrationRequests.provider, provider))
+      );
   }
 
   async updateIntegrationRequest(

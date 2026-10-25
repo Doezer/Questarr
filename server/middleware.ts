@@ -710,9 +710,9 @@ export const sanitizeUnmatchedIgnoreData = [
     .trim()
     .isLength({ min: 1, max: 200 })
     .withMessage("rootFolderId is required"),
+  // Not trimmed: the name must match the scanned folder exactly, spaces included.
   body("folderName")
     .isString()
-    .trim()
     .isLength({ min: 1, max: 1000 })
     .withMessage("folderName is required"),
 ];

@@ -1345,6 +1345,61 @@ describe("Cron - checkAutoSearch", () => {
       );
     });
 
+    it("keeps paging when the first page's main release has too few seeders", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        downloadRules: JSON.stringify({
+          minSeeders: 10,
+          sortBy: "seeders",
+          visibleCategories: ["main", "update"],
+        }),
+      });
+      const deadMain = { ...PLATFORM_MAIN, link: "https://example.com/dead", seeders: 0 };
+      mockSearchAllIndexers
+        .mockResolvedValueOnce({ items: [deadMain, ...makeUpdatePage(9)], errors: [], total: 11 })
+        .mockResolvedValueOnce({
+          items: [{ ...PLATFORM_MAIN, title: "Test Game PS5-OTHER" }],
+          errors: [],
+          total: 11,
+        });
+
+      await checkAutoSearch();
+
+      expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(baseGame.id, true);
+    });
+
+    it("keeps paging when strict preferred groups reject the first page's main release", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        preferredReleaseGroups: '["PREFERRED"]',
+        filterByPreferredGroups: true,
+      });
+      mockSearchAllIndexers
+        .mockResolvedValueOnce({
+          items: [{ ...PLATFORM_MAIN, group: "GROUP" }, ...makeUpdatePage(9)],
+          errors: [],
+          total: 11,
+        })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              ...PLATFORM_MAIN,
+              title: "Test Game PS5-PREFERRED",
+              link: "https://example.com/preferred",
+              group: "PREFERRED",
+            },
+          ],
+          errors: [],
+          total: 11,
+        });
+
+      await checkAutoSearch();
+
+      expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(baseGame.id, true);
+    });
+
     it("stops after the first page when it already has a main release", async () => {
       mockSearchAllIndexers.mockResolvedValue({
         items: [PLATFORM_MAIN, ...makeUpdatePage(9)],
@@ -2803,7 +2858,7 @@ describe("release scoring in auto-search", () => {
       undefined,
       [],
       scoring,
-      null
+      (categorized) => categorized.mainItems.length > 0
     );
     expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
     expect(result?.mainItems.map((i) => i.title)).toEqual(["Dishonored-CODEX"]);

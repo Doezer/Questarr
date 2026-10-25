@@ -150,7 +150,10 @@ describe("remote classifiers", () => {
       .fn()
       .mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ answers: { releaseType: { choice: "update", confidence: 0.9 } } })
+          JSON.stringify({
+            answers: { releaseType: { choice: "update", confidence: 0.9 } },
+            usage: { prompt_tokens: 12, completion_tokens: 3, cost: 0.0004 },
+          })
         )
       )
       .mockResolvedValueOnce(new Response("nope", { status: 500 }));
@@ -161,7 +164,13 @@ describe("remote classifiers", () => {
       model: "m",
       maxCalls: 5,
     });
-    expect(await jev.classify(row)).toMatchObject({ label: "patch", confidence: 0.9 });
+    expect(await jev.classify(row)).toMatchObject({
+      label: "patch",
+      confidence: 0.9,
+      costCredits: 0.0004,
+      promptTokens: 12,
+      completionTokens: 3,
+    });
     expect(await jev.classify(row)).toMatchObject({ label: "unknown", error: "HTTP 500" });
   });
 

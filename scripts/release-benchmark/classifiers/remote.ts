@@ -30,6 +30,19 @@ function failed(message: string, started: number): Prediction {
 const num = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
 
+interface ReportedUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  cost?: number;
+}
+
+/** What the provider says a call cost; null for anything it did not report. */
+const usageOf = (usage: ReportedUsage | undefined) => ({
+  costCredits: num(usage?.cost),
+  promptTokens: num(usage?.prompt_tokens),
+  completionTokens: num(usage?.completion_tokens),
+});
+
 // ---------------------------------------------------------------------------
 // Jev through TypeSafe's "System One" API (the contract server/typesafe.ts uses)
 // ---------------------------------------------------------------------------
@@ -90,14 +103,19 @@ export function jevClassifier(config: JevConfig): BenchClassifier {
         if (!response.ok) return failed(`HTTP ${response.status}`, started);
         const data = (await response.json()) as {
           answers?: { releaseType?: { choice?: string; confidence?: number } };
+          usage?: ReportedUsage;
         };
+        const usage = usageOf(data.usage);
         const answer = data.answers?.releaseType;
         const label = answer?.choice ? mapJevChoice(answer.choice) : null;
-        if (!label) return failed(`unusable answer: ${answer?.choice ?? "none"}`, started);
+        if (!label) {
+          return { ...failed(`unusable answer: ${answer?.choice ?? "none"}`, started), ...usage };
+        }
         return {
           label,
           confidence: num(answer?.confidence),
           latencyMs: performance.now() - started,
+          ...usage,
         };
       } catch (error) {
         return failed(error instanceof Error ? error.message : String(error), started);
@@ -174,14 +192,10 @@ export function openRouterClassifier(config: OpenRouterConfig): BenchClassifier 
         if (!response.ok) return failed(`HTTP ${response.status}`, started);
         const data = (await response.json()) as {
           choices?: { message?: { content?: string } }[];
-          usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
+          usage?: ReportedUsage;
         };
         const answer = parseChatAnswer(data.choices?.[0]?.message?.content ?? "");
-        const usage = {
-          costCredits: num(data.usage?.cost),
-          promptTokens: num(data.usage?.prompt_tokens),
-          completionTokens: num(data.usage?.completion_tokens),
-        };
+        const usage = usageOf(data.usage);
         if (!answer) {
           return { ...failed("unparseable answer", started), ...usage };
         }

@@ -236,6 +236,8 @@ export function RootFolderDiscovery() {
     onSuccess: () => {
       toast({ title: "Root Folder Removed" });
       queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] });
+      // The database drops the folder's ignored entries with it.
+      queryClient.invalidateQueries({ queryKey: ["/api/library/scan/ignored"] });
     },
     onError: (error: Error) => {
       toast({ title: "Delete Failed", description: error.message, variant: "destructive" });

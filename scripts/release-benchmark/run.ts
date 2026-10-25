@@ -41,8 +41,11 @@ function fail(message: string): never {
 
 if (!values.dataset) fail("Missing --dataset <file.csv|file.jsonl>");
 const datasetPath = values.dataset;
-const format = (values.format ?? (datasetPath.endsWith(".jsonl") ? "jsonl" : "csv")) as
-  "csv" | "jsonl";
+const formatArg = values.format ?? (datasetPath.endsWith(".jsonl") ? "jsonl" : "csv");
+if (formatArg !== "csv" && formatArg !== "jsonl") {
+  fail(`--format must be "csv" or "jsonl", got "${formatArg}"`);
+}
+const format = formatArg;
 const { records, issues } = importDataset(fs.readFileSync(datasetPath, "utf8"), format);
 
 console.log(`${records.length} usable records.`);
@@ -94,6 +97,15 @@ const ratios = values.ratios
   );
 if (ratios.length !== 3 || ratios.every((r) => r === 0)) {
   fail("--ratios needs three non-negative numbers, e.g. 0.6,0.2,0.2");
+}
+const usesTfidf = values.classifiers
+  .split(",")
+  .map((s) => s.trim())
+  .some((id) => id === "tfidf" || id === "tfidf-title");
+if (usesTfidf && ratios[0] === 0) {
+  fail(
+    "--ratios needs a positive training share (first value) when a tfidf classifier is selected"
+  );
 }
 
 const classifiers: BenchClassifier[] = [];

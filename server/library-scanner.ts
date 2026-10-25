@@ -611,6 +611,11 @@ async function processCandidate(
   knownGameIds: ReadonlyMap<string, string>,
   ignoredNames: ReadonlySet<string>
 ): Promise<void> {
+  // Ignored from Needs Review (e.g. a Proton build next to games): skip it
+  // before walking its files. A folder linked to a game is still processed.
+  const knownGameId = knownGameIds.get(cand.absolutePath);
+  if (!knownGameId && ignoredNames.has(cand.folderName)) return;
+
   const files = cand.isFile
     ? [{ absolutePath: cand.absolutePath, size: cand.fileSize ?? 0 }]
     : await listFiles(cand.absolutePath);
@@ -618,17 +623,12 @@ async function processCandidate(
 
   // Already linked to a game by an earlier scan or a manual match: keep it out
   // of the review list and skip the IGDB lookup, but still pick up new files.
-  const knownGameId = knownGameIds.get(cand.absolutePath);
   if (knownGameId) {
     const added = await assignFilesToGame(knownGameId, files);
     if (added > 0) gamesChangedByScan.add(progress);
     progress.matched += 1;
     return;
   }
-
-  // Ignored from Needs Review (e.g. a Proton build next to games): never queue
-  // it again, and spare the IGDB lookup.
-  if (ignoredNames.has(cand.folderName)) return;
 
   const { best, candidates: igdbCandidates, score } = await bestIgdbMatch(cand.folderName);
 

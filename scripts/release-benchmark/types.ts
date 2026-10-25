@@ -1,12 +1,14 @@
 import type { ClassificationFlag, ReleaseClass } from "../../shared/release-classification.js";
 
-export const CLASSES: readonly ReleaseClass[] = [
-  "full_game",
-  "expansion",
-  "patch",
-  "dlc",
-  "unknown",
-] as const;
+/**
+ * The classes the benchmark scores. `expansion` is folded into `dlc` (decided with the dataset
+ * owner): a big expansion and a small add-on are both extra content that needs the base game.
+ */
+export const CLASSES: readonly ReleaseClass[] = ["full_game", "patch", "dlc", "unknown"] as const;
+
+export function foldClass(label: ReleaseClass): ReleaseClass {
+  return label === "expansion" ? "dlc" : label;
+}
 
 export interface LabeledRelease {
   releaseName: string;

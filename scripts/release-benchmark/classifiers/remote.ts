@@ -138,8 +138,7 @@ export interface OpenRouterConfig {
 const CHAT_PROMPT = `You label a video game release name (scene, P2P or usenet) for a game manager.
 Pick exactly one class:
 - full_game: the base game itself, including repacks and editions that contain the base game.
-- expansion: a large paid expansion or story add-on that needs the base game.
-- dlc: a small add-on: cosmetic or item pack, season pass, bonus content.
+- dlc: any add-on that needs the base game: expansion, story add-on, cosmetic or item pack, season pass, bonus content, DLC unlocker.
 - patch: an update, hotfix or version patch.
 - unknown: you cannot tell, or it is not a game package (movie, series, soundtrack, trainer, crack only). Prefer unknown over guessing. Never default to full_game.
 Answer with JSON only: {"label":"...","confidence":0.0}`;

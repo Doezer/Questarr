@@ -85,11 +85,10 @@ describe("computeMetrics", () => {
     expect(m.perClass.dlc.precision).toBeCloseTo(1 / 2);
     expect(m.perClass.dlc.recall).toBeCloseTo(1 / 2);
     expect(m.perClass.full_game.f1).toBe(0);
-    expect(m.perClass.expansion.f1).toBeNull();
-    expect(m.unmeasuredClasses).toEqual(["expansion"]);
+    expect(m.unmeasuredClasses).toEqual([]);
     expect(m.perClass.unknown.precision).toBeCloseTo(1 / 2);
     expect(m.perClass.unknown.recall).toBe(1);
-    // macro F1 over patch (0.5), dlc (0.5), unknown (2/3) and full_game (0); expansion has no support
+    // macro F1 over patch (0.5), dlc (0.5), unknown (2/3) and full_game (0)
     expect(m.macroF1).toBeCloseTo((0.5 + 0.5 + 2 / 3 + 0) / 4);
   });
 
@@ -112,6 +111,21 @@ describe("runBenchmark", () => {
     const entry = result.classifiers[0];
     expect(entry?.metrics.test.n).toBe(split.test.length);
     expect(entry?.metrics.test.accuracy ?? 0).toBeGreaterThan(0.8);
+  });
+
+  it("scores an expansion answer as dlc", async () => {
+    const expansionist: BenchClassifier = {
+      id: "expansionist",
+      trainable: false,
+      remote: false,
+      async classify() {
+        return { label: "expansion", confidence: 1, latencyMs: 0 };
+      },
+    };
+    const result = await runBenchmark(toyRecords(), [expansionist], { seed: 3 });
+    const predicted = result.classifiers[0]?.testPredictions.map((p) => p.predicted) ?? [];
+    expect(predicted.length).toBeGreaterThan(0);
+    expect(predicted.every((label) => label === "dlc")).toBe(true);
   });
 
   it("turns a throwing classifier into counted abstentions", async () => {

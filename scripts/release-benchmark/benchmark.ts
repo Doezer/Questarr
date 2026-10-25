@@ -2,7 +2,13 @@ import type { ReleaseClass } from "../../shared/release-classification.js";
 import { BUDGET_EXHAUSTED } from "./classifiers/remote.js";
 import { computeMetrics, percentile, type Metrics } from "./metrics.js";
 import { groupedSplit } from "./split.js";
-import { CLASSES, type BenchClassifier, type LabeledRelease, type Prediction } from "./types.js";
+import {
+  CLASSES,
+  foldClass,
+  type BenchClassifier,
+  type LabeledRelease,
+  type Prediction,
+} from "./types.js";
 
 export interface BenchmarkOptions {
   seed: number;
@@ -97,7 +103,8 @@ export async function runBenchmark(
     const run = async (rows: readonly LabeledRelease[]): Promise<Prediction[]> =>
       mapLimit(rows, classifier.remote ? concurrency : 1, async (row) => {
         try {
-          return await classifier.classify(row);
+          const prediction = await classifier.classify(row);
+          return { ...prediction, label: foldClass(prediction.label) };
         } catch (error) {
           return {
             label: "unknown" as const,

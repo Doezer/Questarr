@@ -10,13 +10,11 @@ tool: nothing here is imported by the server or the client, and it adds no depen
 used as truth). CSV (`,` or `;`) and JSONL are accepted; the columns are `release_name`,
 `query` (or `game_title`), `human_label` (or `label`) and optional `notes`.
 
-Labels are `full_game`, `expansion`, `patch`, `dlc`, `unknown`. Jev's vocabulary is folded in on
-import: `update` is `patch`, `repack` is `full_game` (flag `repack`), and `crack_only`, `demo`,
+Labels are `full_game`, `patch`, `dlc`, `unknown`. `expansion` is the same class as `dlc` (both
+in the dataset and in what a classifier answers), as decided with the dataset owner; so is a DLC
+unlocker. Jev's vocabulary is folded in on import: `update` is `patch`, `repack` is `full_game` (flag `repack`), and `crack_only`, `demo`,
 `soundtrack`, `other` are `unknown` plus a flag, as decided in the ADR. `unknown` is therefore
 also the right answer for a movie, a series or a trainer.
-
-The dataset has no `expansion` example, so expansion precision and recall are reported as
-`n/a`, not as zero.
 
 ```bash
 # check the file only: unlabeled, malformed, duplicate and conflicting rows

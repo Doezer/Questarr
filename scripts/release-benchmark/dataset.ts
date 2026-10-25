@@ -8,7 +8,7 @@ import type { LabeledRelease } from "./types.js";
  */
 const LABEL_MAP: Readonly<Record<string, { label: ReleaseClass; flags: ClassificationFlag[] }>> = {
   full_game: { label: "full_game", flags: [] },
-  expansion: { label: "expansion", flags: [] },
+  expansion: { label: "dlc", flags: [] },
   patch: { label: "patch", flags: [] },
   dlc: { label: "dlc", flags: [] },
   unknown: { label: "unknown", flags: [] },

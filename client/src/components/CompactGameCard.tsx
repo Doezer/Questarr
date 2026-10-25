@@ -9,6 +9,7 @@ import StatusPicker from "./StatusPicker";
 import { type Game, type DownloadSummary } from "@shared/schema";
 import DownloadIndicator from "./DownloadIndicator";
 import SearchResultsBadge from "./SearchResultsBadge";
+import UpdateAvailableBadge from "./UpdateAvailableBadge";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mapGameToInsertGame, isDiscoveryId, cn, parseReleaseDate } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
@@ -169,8 +170,14 @@ const CompactGameCard = ({
 
               <div className="mt-2 flex flex-wrap items-center gap-1">
                 <DownloadIndicator summary={downloadSummary} variant="inline" />
+                <UpdateAvailableBadge
+                  visible={game.updateSearchResultsAvailable ?? false}
+                  variant="inline"
+                />
                 <SearchResultsBadge
-                  visible={game.searchResultsAvailable ?? false}
+                  visible={
+                    (game.searchResultsAvailable ?? false) && !game.updateSearchResultsAvailable
+                  }
                   variant="inline"
                 />
                 {!isDiscovery && game.status === "wanted" && (
@@ -368,7 +375,14 @@ const CompactGameCard = ({
             </Link>
           </h3>
           <DownloadIndicator summary={downloadSummary} variant="inline" />
-          <SearchResultsBadge visible={game.searchResultsAvailable ?? false} variant="inline" />
+          <UpdateAvailableBadge
+            visible={game.updateSearchResultsAvailable ?? false}
+            variant="inline"
+          />
+          <SearchResultsBadge
+            visible={(game.searchResultsAvailable ?? false) && !game.updateSearchResultsAvailable}
+            variant="inline"
+          />
         </div>
 
         {/* Genres */}

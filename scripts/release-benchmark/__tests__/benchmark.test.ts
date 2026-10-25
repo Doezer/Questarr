@@ -48,6 +48,20 @@ describe("groupedSplit", () => {
     expect(a.test.length).toBeGreaterThan(0);
   });
 
+  it("keeps every positive-ratio part non-empty when game sizes are very uneven", () => {
+    const records = [
+      release("a-GRP", "G0", "dlc"),
+      release("b-GRP", "G1", "patch"),
+      ...Array.from({ length: 100 }, (_, i) => release(`c${i}-GRP`, "G2", "dlc")),
+    ];
+    for (const seed of [1, 42, 99]) {
+      const split = groupedSplit(records, seed);
+      expect(split.train.length).toBeGreaterThan(0);
+      expect(split.validation.length).toBeGreaterThan(0);
+      expect(split.test.length).toBeGreaterThan(0);
+    }
+  });
+
   it("refuses to split fewer than three games", () => {
     expect(() => groupedSplit([release("a", "G", "dlc"), release("b", "H", "dlc")], 1)).toThrow(
       /at least 3/

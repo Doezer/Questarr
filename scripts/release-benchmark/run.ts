@@ -59,11 +59,40 @@ for (const row of issues.unlabeled.slice(0, 20)) {
 }
 if (values["validate-only"]) process.exit(issues.conflicts.length ? 1 : 0);
 
-const seed = Number(values.seed);
-const threshold = Number(values.threshold);
-const maxCalls = Number(values["max-calls"]);
-const ratios = values.ratios.split(",").map(Number);
-if (ratios.length !== 3 || ratios.some((r) => !Number.isFinite(r) || r < 0)) {
+function numberArg(name: string, raw: string, check: (n: number) => boolean, hint: string): number {
+  const value = Number(raw);
+  if (raw.trim() === "" || !Number.isFinite(value) || !check(value)) {
+    fail(`--${name} must be ${hint}, got "${raw}"`);
+  }
+  return value;
+}
+
+const seed = numberArg("seed", values.seed, Number.isInteger, "an integer");
+const threshold = numberArg(
+  "threshold",
+  values.threshold,
+  (n) => n >= 0 && n <= 1,
+  "between 0 and 1"
+);
+// A malformed cap must fail here: NaN or Infinity would silently remove the spending limit.
+const maxCalls = numberArg(
+  "max-calls",
+  values["max-calls"],
+  (n) => Number.isInteger(n) && n >= 0,
+  "a non-negative integer"
+);
+const concurrency = numberArg(
+  "concurrency",
+  values.concurrency,
+  (n) => Number.isInteger(n) && n >= 1,
+  "an integer of at least 1"
+);
+const ratios = values.ratios
+  .split(",")
+  .map((r) =>
+    numberArg("ratios", r, (n) => n >= 0, "three non-negative numbers, e.g. 0.6,0.2,0.2")
+  );
+if (ratios.length !== 3 || ratios.every((r) => r === 0)) {
   fail("--ratios needs three non-negative numbers, e.g. 0.6,0.2,0.2");
 }
 
@@ -101,7 +130,7 @@ for (const id of values.classifiers
 const result = await runBenchmark(records, classifiers, {
   seed,
   ratios: [ratios[0] ?? 0.6, ratios[1] ?? 0.2, ratios[2] ?? 0.2],
-  concurrency: Number(values.concurrency),
+  concurrency,
 });
 fs.mkdirSync(values.out, { recursive: true });
 fs.writeFileSync(path.join(values.out, "results.json"), JSON.stringify(result, null, 2));

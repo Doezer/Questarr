@@ -5,10 +5,12 @@ tool: nothing here is imported by the server or the client, and it adds no depen
 
 ## Dataset
 
-`data/releases-labeled.csv` holds 298 release names for 38 games, labeled by hand in the
-`human_label` column (the `llm_*` columns are Jev's suggestions, kept for reference and never
-used as truth). CSV (`,` or `;`) and JSONL are accepted; the columns are `release_name`,
-`query` (or `game_title`), `human_label` (or `label`) and optional `notes`.
+The labeled dataset is not in this repository. It lives in the private `Doezer/Questarr-mgmt`
+repository, at `release-classification/releases-labeled.csv`: 298 release names for 38 games,
+labeled by hand in the `human_label` column. The `llm_*` columns are Jev's suggestions, kept for
+reference and never used as truth. Pass its path with `--dataset`. CSV (`,` or `;`) and JSONL are
+accepted; the columns are `release_name`, `query` (or `game_title`), `human_label` (or `label`)
+and optional `notes`.
 
 Labels are `full_game`, `patch`, `dlc`, `unknown`. `expansion` is the same class as `dlc` (both
 in the dataset and in what a classifier answers), as decided with the dataset owner; so is a DLC
@@ -18,14 +20,14 @@ also the right answer for a movie, a series or a trainer.
 
 ```bash
 # check the file only: unlabeled, malformed, duplicate and conflicting rows
-npm run bench:releases -- --dataset scripts/release-benchmark/data/releases-labeled.csv --validate-only
+npm run bench:releases -- --dataset ../Questarr-mgmt/release-classification/releases-labeled.csv --validate-only
 ```
 
 ## Running
 
 ```bash
 # offline baselines: rules, TF-IDF on the name, TF-IDF with the game title as context
-npm run bench:releases -- --dataset scripts/release-benchmark/data/releases-labeled.csv
+npm run bench:releases -- --dataset ../Questarr-mgmt/release-classification/releases-labeled.csv
 
 # add Jev (TypeSafe System One, or the OpenRouter route) and any OpenRouter chat model
 TYPESAFE_API_KEY=... npm run bench:releases -- --dataset ... --classifiers deterministic,tfidf,jev

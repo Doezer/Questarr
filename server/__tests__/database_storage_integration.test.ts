@@ -384,7 +384,17 @@ describe("DatabaseStorage Integration", () => {
       await storage.touchRootFolderScanned(folder.id);
       expect((await storage.getRootFolder(folder.id))?.lastScannedAt).toBeInstanceOf(Date);
 
+      const ignored = await storage.addIgnoredScanFolder(folder.id, "Proton 9.0");
+      expect((await storage.addIgnoredScanFolder(folder.id, "Proton 9.0")).id).toBe(ignored.id);
+      expect(await storage.getIgnoredScanFolders(folder.id)).toHaveLength(1);
+      expect(await storage.getIgnoredScanFolders(disabled.id)).toHaveLength(0);
+      expect((await storage.removeIgnoredScanFolder(ignored.id))?.folderName).toBe("Proton 9.0");
+      expect(await storage.getIgnoredScanFolders()).toHaveLength(0);
+
+      await storage.addIgnoredScanFolder(folder.id, "Steam Linux Runtime");
       expect(await storage.removeRootFolder(folder.id)).toBe(true);
+      // The ignore list goes away with its root folder.
+      expect(await storage.getIgnoredScanFolders()).toHaveLength(0);
       expect(await storage.getRootFolder(folder.id)).toBeUndefined();
       expect(await storage.removeRootFolder(folder.id)).toBe(false);
     });

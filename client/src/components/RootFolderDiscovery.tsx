@@ -34,10 +34,12 @@ import {
   Search,
   HardDrive,
   AlertTriangle,
+  EyeOff,
+  Undo2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getSocket } from "@/lib/socket";
-import type { RootFolder } from "@shared/schema";
+import type { RootFolder, LibraryScanIgnored } from "@shared/schema";
 import { FileBrowser } from "./FileBrowser";
 
 interface ScanProgress {
@@ -234,6 +236,8 @@ export function RootFolderDiscovery() {
     onSuccess: () => {
       toast({ title: "Root Folder Removed" });
       queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] });
+      // The database drops the folder's ignored entries with it.
+      queryClient.invalidateQueries({ queryKey: ["/api/library/scan/ignored"] });
     },
     onError: (error: Error) => {
       toast({ title: "Delete Failed", description: error.message, variant: "destructive" });
@@ -264,6 +268,41 @@ export function RootFolderDiscovery() {
     },
     onError: (error: Error) => {
       toast({ title: "Match Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const { data: ignored = [] } = useQuery<LibraryScanIgnored[]>({
+    queryKey: ["/api/library/scan/ignored"],
+  });
+
+  const ignoreMutation = useMutation({
+    mutationFn: async (vars: { rootFolderId: string; folderName: string }) => {
+      await apiRequest("POST", "/api/library/scan/unmatched/ignore", vars);
+    },
+    onSuccess: (_data, vars) => {
+      toast({
+        title: "Folder Ignored",
+        description: `${vars.folderName} will be skipped by future scans.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/library/scan/ignored"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Ignore Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const unignoreMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/library/scan/ignored/${encodeURIComponent(id)}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Folder Restored", description: "It will come back to Needs Review." });
+      queryClient.invalidateQueries({ queryKey: ["/api/library/scan/ignored"] });
+      invalidateAll();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Restore Failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -519,6 +558,13 @@ export function RootFolderDiscovery() {
                 key={`${entry.rootFolderId}:${entry.folderName}`}
                 entry={entry}
                 matchPending={matchMutation.isPending}
+                ignorePending={ignoreMutation.isPending}
+                onIgnore={() =>
+                  ignoreMutation.mutate({
+                    rootFolderId: entry.rootFolderId,
+                    folderName: entry.folderName,
+                  })
+                }
                 onMatch={(igdbId) =>
                   matchMutation.mutate({
                     rootFolderId: entry.rootFolderId,
@@ -530,6 +576,41 @@ export function RootFolderDiscovery() {
             ))}
           </div>
         )}
+
+        {ignored.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Ignored Folders ({ignored.length})
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Scans skip these folders. Restore one to review it again.
+            </p>
+            {ignored.map((row) => (
+              <div
+                key={row.id}
+                className="flex items-center justify-between gap-3 rounded-md border p-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{row.folderName}</p>
+                  <p className="truncate font-mono text-xs text-muted-foreground">
+                    {rootFolders.find((f) => f.id === row.rootFolderId)?.path ?? row.rootFolderId}
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-2"
+                  disabled={unignoreMutation.isPending}
+                  aria-label={`Restore ${row.folderName} to Needs Review`}
+                  onClick={() => unignoreMutation.mutate(row.id)}
+                >
+                  <Undo2 className="h-4 w-4" aria-hidden="true" />
+                  Restore
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -538,14 +619,22 @@ export function RootFolderDiscovery() {
 interface UnmatchedEntryCardProps {
   entry: UnmatchedEntry;
   matchPending: boolean;
+  ignorePending: boolean;
   onMatch: (igdbId: number) => void;
+  onIgnore: () => void;
 }
 
 /**
  * One folder awaiting review: pick one of the scan's IGDB guesses, or search
  * IGDB under another name when none of them is the right game.
  */
-function UnmatchedEntryCard({ entry, matchPending, onMatch }: UnmatchedEntryCardProps) {
+function UnmatchedEntryCard({
+  entry,
+  matchPending,
+  ignorePending,
+  onMatch,
+  onIgnore,
+}: UnmatchedEntryCardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const searchId = useId();
@@ -582,8 +671,23 @@ function UnmatchedEntryCard({ entry, matchPending, onMatch }: UnmatchedEntryCard
 
   return (
     <div className="rounded-md border p-3 space-y-2">
-      <p className="text-sm font-medium">{entry.folderName}</p>
-      <p className="text-xs text-muted-foreground font-mono">{entry.absolutePath}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 space-y-2">
+          <p className="text-sm font-medium">{entry.folderName}</p>
+          <p className="break-all text-xs text-muted-foreground font-mono">{entry.absolutePath}</p>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="shrink-0 gap-1 text-muted-foreground"
+          disabled={ignorePending || matchPending}
+          aria-label={`Ignore ${entry.folderName}`}
+          onClick={onIgnore}
+        >
+          <EyeOff className="h-4 w-4" aria-hidden="true" />
+          Ignore
+        </Button>
+      </div>
       {entry.candidates.length === 0 ? (
         <p className="text-xs text-muted-foreground">
           {searchMutation.isSuccess ? "No IGDB matches for that name." : "No IGDB matches found."}
@@ -595,7 +699,7 @@ function UnmatchedEntryCard({ entry, matchPending, onMatch }: UnmatchedEntryCard
               key={c.igdbId}
               variant="outline"
               size="sm"
-              disabled={matchPending}
+              disabled={matchPending || ignorePending}
               onClick={() => onMatch(c.igdbId)}
             >
               {c.name}

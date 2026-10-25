@@ -62,6 +62,7 @@ import {
   USER_CURATED_GAME_STATUSES,
   isUserCuratedGameStatus,
   type RootFolder,
+  type LibraryScanIgnored,
   type InsertRootFolder,
   type UpdateRootFolder,
   type Collection,
@@ -97,6 +98,7 @@ import {
   apiKeys,
   integrationRequests,
   rootFolders,
+  libraryScanIgnored,
   collectionGames,
   collections,
   gameJournalEntries,
@@ -538,6 +540,11 @@ export interface IStorage {
   ): Promise<RootFolder | undefined>;
   touchRootFolderScanned(id: string): Promise<void>;
   removeRootFolder(id: string): Promise<boolean>;
+  // Folders skipped by the library scan for good (Needs Review "Ignore")
+  getIgnoredScanFolders(rootFolderId?: string): Promise<LibraryScanIgnored[]>;
+  /** Idempotent: ignoring an already ignored folder returns the existing row. */
+  addIgnoredScanFolder(rootFolderId: string, folderName: string): Promise<LibraryScanIgnored>;
+  removeIgnoredScanFolder(id: string): Promise<LibraryScanIgnored | undefined>;
 
   // Integration API key methods
   getApiKeys(userId: string): Promise<ApiKeyPublic[]>;
@@ -597,6 +604,7 @@ export class MemStorage implements IStorage {
   private aiAutoDownloadHolds: Map<string, AiAutoDownloadHold>;
   private gameFiles: Map<string, GameFile>;
   private rootFolders: Map<string, RootFolder>;
+  private ignoredScanFolders: Map<string, LibraryScanIgnored>;
   private apiKeys: Map<string, ApiKey>;
   private integrationRequests: Map<string, IntegrationRequest>;
   private collections: Map<string, Collection>;
@@ -626,6 +634,7 @@ export class MemStorage implements IStorage {
     this.aiAutoDownloadHolds = new Map();
     this.gameFiles = new Map();
     this.rootFolders = new Map();
+    this.ignoredScanFolders = new Map();
     this.apiKeys = new Map();
     this.integrationRequests = new Map();
     this.collections = new Map();
@@ -2297,7 +2306,40 @@ export class MemStorage implements IStorage {
   }
 
   async removeRootFolder(id: string): Promise<boolean> {
+    for (const [ignoredId, row] of this.ignoredScanFolders) {
+      if (row.rootFolderId === id) this.ignoredScanFolders.delete(ignoredId);
+    }
     return this.rootFolders.delete(id);
+  }
+
+  async getIgnoredScanFolders(rootFolderId?: string): Promise<LibraryScanIgnored[]> {
+    return Array.from(this.ignoredScanFolders.values()).filter(
+      (r) => rootFolderId === undefined || r.rootFolderId === rootFolderId
+    );
+  }
+
+  async addIgnoredScanFolder(
+    rootFolderId: string,
+    folderName: string
+  ): Promise<LibraryScanIgnored> {
+    const existing = Array.from(this.ignoredScanFolders.values()).find(
+      (r) => r.rootFolderId === rootFolderId && r.folderName === folderName
+    );
+    if (existing) return existing;
+    const row: LibraryScanIgnored = {
+      id: randomUUID(),
+      rootFolderId,
+      folderName,
+      createdAt: new Date(),
+    };
+    this.ignoredScanFolders.set(row.id, row);
+    return row;
+  }
+
+  async removeIgnoredScanFolder(id: string): Promise<LibraryScanIgnored | undefined> {
+    const row = this.ignoredScanFolders.get(id);
+    this.ignoredScanFolders.delete(id);
+    return row;
   }
 
   // Integration API key methods
@@ -4411,6 +4453,44 @@ export class DatabaseStorage implements IStorage {
   async removeRootFolder(id: string): Promise<boolean> {
     const result = await db.delete(rootFolders).where(eq(rootFolders.id, id));
     return affectedRows(result) > 0;
+  }
+
+  async getIgnoredScanFolders(rootFolderId?: string): Promise<LibraryScanIgnored[]> {
+    const query = db.select().from(libraryScanIgnored);
+    return rootFolderId === undefined
+      ? query.orderBy(libraryScanIgnored.createdAt)
+      : query
+          .where(eq(libraryScanIgnored.rootFolderId, rootFolderId))
+          .orderBy(libraryScanIgnored.createdAt);
+  }
+
+  async addIgnoredScanFolder(
+    rootFolderId: string,
+    folderName: string
+  ): Promise<LibraryScanIgnored> {
+    await db
+      .insert(libraryScanIgnored)
+      .values({ id: randomUUID(), rootFolderId, folderName })
+      .onConflictDoNothing();
+    const [row] = await db
+      .select()
+      .from(libraryScanIgnored)
+      .where(
+        and(
+          eq(libraryScanIgnored.rootFolderId, rootFolderId),
+          eq(libraryScanIgnored.folderName, folderName)
+        )
+      )
+      .limit(1);
+    return firstOrThrow(row ? [row] : []);
+  }
+
+  async removeIgnoredScanFolder(id: string): Promise<LibraryScanIgnored | undefined> {
+    const [row] = await db
+      .delete(libraryScanIgnored)
+      .where(eq(libraryScanIgnored.id, id))
+      .returning();
+    return row;
   }
 
   // Integration API key methods

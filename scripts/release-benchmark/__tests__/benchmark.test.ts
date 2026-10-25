@@ -113,6 +113,16 @@ describe("runBenchmark", () => {
     expect(entry?.metrics.test.accuracy ?? 0).toBeGreaterThan(0.8);
   });
 
+  it("folds expansion labels in the input into dlc", async () => {
+    const records = toyRecords().map((r) =>
+      r.label === "dlc" ? { ...r, label: "expansion" as const } : r
+    );
+    const tfidf = new TfidfClassifier({ titleAware: false, seed: 1, threshold: 0 });
+    const result = await runBenchmark(records, [tfidf], { seed: 3 });
+    expect(Object.values(result.dataset.byLabel).every((n) => Number.isInteger(n))).toBe(true);
+    expect(result.dataset.byLabel.dlc).toBeGreaterThan(0);
+  });
+
   it("scores an expansion answer as dlc", async () => {
     const expansionist: BenchClassifier = {
       id: "expansionist",

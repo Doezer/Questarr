@@ -87,10 +87,12 @@ const sumOrNull = (values: readonly (number | null | undefined)[]): number | nul
  * abstains with `unknown` for that row and the failure is counted, never hidden.
  */
 export async function runBenchmark(
-  records: readonly LabeledRelease[],
+  input: readonly LabeledRelease[],
   classifiers: readonly BenchClassifier[],
   options: BenchmarkOptions
 ): Promise<BenchmarkResult> {
+  // Truth uses the same scored classes as the predictions: expansion is dlc.
+  const records = input.map((r) => ({ ...r, label: foldClass(r.label) }));
   const split = groupedSplit(records, options.seed, options.ratios);
   const concurrency = options.concurrency ?? 4;
   const results: ClassifierResult[] = [];

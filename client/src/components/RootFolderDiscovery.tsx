@@ -680,7 +680,7 @@ function UnmatchedEntryCard({
           variant="ghost"
           size="sm"
           className="shrink-0 gap-1 text-muted-foreground"
-          disabled={ignorePending}
+          disabled={ignorePending || matchPending}
           aria-label={`Ignore ${entry.folderName}`}
           onClick={onIgnore}
         >
@@ -699,7 +699,7 @@ function UnmatchedEntryCard({
               key={c.igdbId}
               variant="outline"
               size="sm"
-              disabled={matchPending}
+              disabled={matchPending || ignorePending}
               onClick={() => onMatch(c.igdbId)}
             >
               {c.name}

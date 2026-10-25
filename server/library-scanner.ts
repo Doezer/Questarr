@@ -21,7 +21,7 @@ import path from "node:path";
 import { storage } from "./storage.js";
 import { igdbClient, type IGDBGame } from "./igdb.js";
 import { toVideos } from "./igdb-videos.js";
-import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
+import { normalizeTitle, cleanReleaseName, parseSwitchTitleId } from "../shared/title-utils.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { igdbLogger, routesLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
@@ -252,7 +252,12 @@ function scoreMatch(folderClean: string, igdbName: string): number {
   return Math.min(1, jaccard + prefixBonus);
 }
 
-async function bestIgdbMatch(folderName: string): Promise<{
+const SWITCH_IGDB_PLATFORM_ID = 130;
+
+async function bestIgdbMatch(
+  folderName: string,
+  platformId?: number
+): Promise<{
   best: IGDBGame | null;
   candidates: IGDBGame[];
   cleaned: string;
@@ -261,7 +266,10 @@ async function bestIgdbMatch(folderName: string): Promise<{
   const cleaned = cleanReleaseName(folderName) || folderName;
   let candidates: IGDBGame[];
   try {
-    candidates = await igdbClient.searchGames(cleaned, 5);
+    // A platform hint (Switch title id in the name) narrows the search, but never replaces
+    // it: IGDB's platform list can lag, so fall back to an unfiltered search.
+    candidates = platformId ? await igdbClient.searchGames(cleaned, 5, { platformId }) : [];
+    if (candidates.length === 0) candidates = await igdbClient.searchGames(cleaned, 5);
   } catch (err) {
     igdbLogger.warn({ err, query: cleaned }, "IGDB search failed during library scan");
     return { best: null, candidates: [], cleaned, score: 0 };
@@ -337,9 +345,14 @@ async function assignFilesToGame(
     if (existingPaths.has(f.absolutePath)) continue;
     const name = path.basename(f.absolutePath);
     const parentDir = path.basename(path.dirname(f.absolutePath)).toLowerCase();
-    const category = ["dlc", "update", "extra", "packs"].includes(parentDir)
-      ? normalizeCategory(parentDir)
-      : normalizeCategory(categorizeDownload(path.parse(name).name).category);
+    // A Switch title id says exactly what the file is; titles like "Complete Edition" would
+    // otherwise read as DLC.
+    const switchKind = parseSwitchTitleId(name)?.kind;
+    const category = switchKind
+      ? ({ base: "main", update: "update", dlc: "dlc" } as const)[switchKind]
+      : ["dlc", "update", "extra", "packs"].includes(parentDir)
+        ? normalizeCategory(parentDir)
+        : normalizeCategory(categorizeDownload(path.parse(name).name).category);
     const insert: InsertGameFile = {
       gameId,
       downloadId: null,
@@ -517,7 +530,7 @@ async function recordMatchedCandidate(
   userId: string,
   files: Array<{ absolutePath: string; size: number }>,
   progress: ScanProgress
-): Promise<void> {
+): Promise<string> {
   // Flag before the first write: any of the writes below can succeed before a
   // later one throws, and clients must still refresh. An extra refresh when
   // nothing ended up written is harmless.
@@ -537,6 +550,7 @@ async function recordMatchedCandidate(
     }
   }
   await assignFilesToGame(game.id, files);
+  return game.id;
 }
 
 // Every IGDB id offered for an entry (scan candidates plus each name search),
@@ -592,7 +606,8 @@ async function processCandidate(
   cand: FolderCandidate,
   userId: string,
   progress: ScanProgress,
-  knownGameIds: ReadonlyMap<string, string>
+  knownGameIds: ReadonlyMap<string, string>,
+  switchFamilies: Map<string, string>
 ): Promise<void> {
   const files = cand.isFile
     ? [{ absolutePath: cand.absolutePath, size: cand.fileSize ?? 0 }]
@@ -605,14 +620,32 @@ async function processCandidate(
   if (knownGameId) {
     const added = await assignFilesToGame(knownGameId, files);
     if (added > 0) gamesChangedByScan.add(progress);
+    const knownSwitch = parseSwitchTitleId(cand.folderName);
+    if (knownSwitch) switchFamilies.set(knownSwitch.family, knownGameId);
     progress.matched += 1;
     return;
   }
 
-  const { best, candidates: igdbCandidates, score } = await bestIgdbMatch(cand.folderName);
+  // Switch dumps are flat files: an update or DLC rarely carries the base game's title, so
+  // it follows the base game found in this scan through its title id.
+  const switchInfo = parseSwitchTitleId(cand.folderName);
+  const familyGameId = switchInfo ? switchFamilies.get(switchInfo.family) : undefined;
+  if (familyGameId) {
+    await assignFilesToGame(familyGameId, files);
+    gamesChangedByScan.add(progress);
+    progress.matched += 1;
+    return;
+  }
+
+  const {
+    best,
+    candidates: igdbCandidates,
+    score,
+  } = await bestIgdbMatch(cand.folderName, switchInfo ? SWITCH_IGDB_PLATFORM_ID : undefined);
 
   if (best && score >= AUTO_MATCH_THRESHOLD) {
-    await recordMatchedCandidate(cand, best, userId, files, progress);
+    const gameId = await recordMatchedCandidate(cand, best, userId, files, progress);
+    if (switchInfo) switchFamilies.set(switchInfo.family, gameId);
     progress.matched += 1;
   } else {
     recordUnmatchedCandidate(rootFolder, cand, igdbCandidates);
@@ -636,11 +669,20 @@ async function runScan(
       if (g.libraryPath && !knownGameIds.has(g.libraryPath)) knownGameIds.set(g.libraryPath, g.id);
     }
 
+    // Base games first, so their updates and DLC can attach to them.
+    const switchRank = { base: 0, update: 1, dlc: 2 } as const;
+    const rank = (c: FolderCandidate) => {
+      const kind = parseSwitchTitleId(c.folderName)?.kind;
+      return kind ? switchRank[kind] : 0;
+    };
+    candidates.sort((a, b) => rank(a) - rank(b));
+    const switchFamilies = new Map<string, string>();
+
     for (const cand of candidates) {
       progress.currentCandidate = cand.folderName;
       emitProgress(progress);
       try {
-        await processCandidate(rootFolder, cand, userId, progress, knownGameIds);
+        await processCandidate(rootFolder, cand, userId, progress, knownGameIds, switchFamilies);
       } catch (err) {
         progress.errors += 1;
         routesLogger.error({ err, folder: cand.folderName }, "scan: error processing folder");

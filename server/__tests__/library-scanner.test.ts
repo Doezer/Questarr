@@ -669,3 +669,52 @@ describe("matchUnmatchedFolder with release-style folder names", () => {
     );
   });
 });
+
+describe("scanRootFolderById Nintendo Switch dumps", () => {
+  it("matches flat .nsp/.xci files and attaches their update and DLC to the base game", async () => {
+    const { storage } = await import("../storage.js");
+    const { igdbClient } = await import("../igdb.js");
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-switch-"));
+    const base = "Hades [0100535012974000][v0].nsp";
+    const update = "Hades [0100535012974800][v65536].nsp";
+    const dlc = "Bonus Pack Alpha [0100535012975001][v0].nsp";
+    for (const f of [base, update, dlc]) await fs.promises.writeFile(path.join(dir, f), "x");
+
+    vi.mocked(storage.getRootFolder).mockReset();
+    vi.mocked(storage.getRootFolder).mockResolvedValue({
+      ...mockRootFolder,
+      id: "rf-switch",
+      path: dir,
+    });
+    vi.mocked(storage.getAllGames).mockResolvedValue([]);
+    vi.mocked(storage.getGameByIgdbId).mockResolvedValue(undefined);
+    vi.mocked(storage.getGameFiles).mockResolvedValue([]);
+    vi.mocked(storage.addGame).mockResolvedValue({ id: "g-hades" } as Game);
+    vi.mocked(storage.addGameFile).mockClear();
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "Hades", platforms: [{ id: 130, name: "Nintendo Switch" }] } as never,
+    ]);
+
+    await scanRootFolderById("rf-switch", "user-1");
+
+    // The title id is not part of the query, and the Switch platform is tried first.
+    expect(igdbClient.searchGames).toHaveBeenCalledWith("Hades", 5, { platformId: 130 });
+    expect(getAllUnmatched().filter((e) => e.rootFolderId === "rf-switch")).toEqual([]);
+    expect(storage.addGame).toHaveBeenCalledTimes(1);
+    const added = vi
+      .mocked(storage.addGameFile)
+      .mock.calls.map(([f]) => [f.originalName, f.category]);
+    expect(added).toEqual(
+      expect.arrayContaining([
+        [base, "main"],
+        [update, "update"],
+        [dlc, "dlc"],
+      ])
+    );
+    expect(vi.mocked(storage.addGameFile).mock.calls.every(([f]) => f.gameId === "g-hades")).toBe(
+      true
+    );
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+});

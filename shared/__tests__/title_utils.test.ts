@@ -3,6 +3,7 @@ import {
   normalizeTitle,
   normalizeReleaseTitle,
   cleanReleaseName,
+  parseSwitchTitleId,
   titleMatches,
   releaseMatchesGame,
   parseReleaseMetadata,
@@ -321,5 +322,31 @@ describe("title-utils", () => {
         expect(matchesPlatformFilter(undefined, "Switch")).toBe(false);
       });
     });
+  });
+});
+
+describe("Nintendo Switch dump names", () => {
+  it("drops the title id, version and extension from the cleaned name", () => {
+    expect(
+      cleanReleaseName("The Legend of Zelda - Tears of the Kingdom [0100F2C0115B6000][v0].nsp")
+    ).toBe("The Legend of Zelda Tears of the Kingdom");
+    expect(cleanReleaseName("Super Mario Odyssey [01007EF00011E000][v0].xci")).toBe(
+      "Super Mario Odyssey"
+    );
+    expect(cleanReleaseName("Hades [0100535012974000][v1.0.2][US].nsz")).toBe("Hades US");
+    expect(cleanReleaseName("Celeste [010018E00C3F8000].xcz")).toBe("Celeste");
+    expect(cleanReleaseName("Super Mario Odyssey [0100000000010800][v327680] (UPD).nsp")).toBe(
+      "Super Mario Odyssey"
+    );
+  });
+
+  it("tells a base game, its update and its DLC apart and groups them", () => {
+    const base = parseSwitchTitleId("Hades [0100535012974000][v0].nsp");
+    const update = parseSwitchTitleId("Hades [0100535012974800][v65536].nsp");
+    const dlc = parseSwitchTitleId("Pack [0100535012975001][v0].nsp");
+    expect(base).toMatchObject({ kind: "base", family: "0100535012974" });
+    expect(update).toMatchObject({ kind: "update", family: "0100535012974" });
+    expect(dlc).toMatchObject({ kind: "dlc", family: "0100535012974" });
+    expect(parseSwitchTitleId("Celeste.iso")).toBeNull();
   });
 });

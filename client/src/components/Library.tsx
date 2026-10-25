@@ -769,6 +769,7 @@ export default function Library() {
               statusFilter !== "all" ||
               genreFilter !== "all" ||
               platformFilter !== "all" ||
+              showUpdateAvailableOnly ||
               minRating !== null ||
               showUnratedOnly ||
               (hideShelvedByDefault && games.some((g) => g.status === "shelved")) ||

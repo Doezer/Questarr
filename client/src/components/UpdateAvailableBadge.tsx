@@ -18,7 +18,7 @@ const UpdateAvailableBadge = memo(({ visible, variant = "overlay" }: UpdateAvail
       <Tooltip>
         <TooltipTrigger asChild>
           <Badge
-            className="absolute bottom-2 left-2 bg-sky-500/90 hover:bg-sky-500/90 text-white border-sky-600 gap-1 text-[10px] py-0 px-1.5 cursor-default no-default-hover-elevate no-default-active-elevate"
+            className="absolute bottom-2 left-2 bg-sky-700 hover:bg-sky-700 text-white border-sky-800 gap-1 text-[10px] py-0 px-1.5 cursor-default no-default-hover-elevate no-default-active-elevate"
             aria-label={LABEL}
             role="status"
           >
@@ -35,7 +35,7 @@ const UpdateAvailableBadge = memo(({ visible, variant = "overlay" }: UpdateAvail
     <Tooltip>
       <TooltipTrigger asChild>
         <span
-          className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-500 text-white shrink-0 inline-flex"
+          className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-700 text-white shrink-0 inline-flex"
           aria-label={LABEL}
           role="status"
         >

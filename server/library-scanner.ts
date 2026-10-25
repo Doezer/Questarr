@@ -264,31 +264,36 @@ async function bestIgdbMatch(
   score: number;
 }> {
   const cleaned = cleanReleaseName(folderName) || folderName;
+  const pick = (list: IGDBGame[]) => {
+    let best: IGDBGame | null = null;
+    let score = 0;
+    for (const candidate of list) {
+      const s = scoreMatch(cleaned, candidate.name);
+      if (!best || s > score) {
+        best = candidate;
+        score = s;
+      }
+    }
+    return { best, score };
+  };
   let candidates: IGDBGame[];
   try {
     // A platform hint (Switch title id in the name) narrows the search, but never replaces
-    // it: IGDB's platform list can lag, so fall back to an unfiltered search.
+    // it: IGDB's platform list can lag, so a weak filtered result also tries an unfiltered
+    // search, and the better of the two wins.
     candidates = platformId ? await igdbClient.searchGames(cleaned, 5, { platformId }) : [];
-    if (candidates.length === 0) candidates = await igdbClient.searchGames(cleaned, 5);
+    if (pick(candidates).score < AUTO_MATCH_THRESHOLD) {
+      const unfiltered = await igdbClient.searchGames(cleaned, 5);
+      if (candidates.length === 0 || pick(unfiltered).score > pick(candidates).score) {
+        candidates = unfiltered;
+      }
+    }
   } catch (err) {
     igdbLogger.warn({ err, query: cleaned }, "IGDB search failed during library scan");
     return { best: null, candidates: [], cleaned, score: 0 };
   }
-  if (candidates.length === 0) {
-    return { best: null, candidates: [], cleaned, score: 0 };
-  }
-
-  let best = candidates[0]!;
-  let bestScore = scoreMatch(cleaned, best.name);
-  for (let i = 1; i < candidates.length; i += 1) {
-    const candidate = candidates[i]!;
-    const s = scoreMatch(cleaned, candidate.name);
-    if (s > bestScore) {
-      best = candidate;
-      bestScore = s;
-    }
-  }
-  return { best, candidates, cleaned, score: bestScore };
+  const { best, score } = pick(candidates);
+  return { best, candidates, cleaned, score };
 }
 
 // ---------- Ingestion ----------
@@ -631,8 +636,8 @@ async function processCandidate(
   const switchInfo = parseSwitchTitleId(cand.folderName);
   const familyGameId = switchInfo ? switchFamilies.get(switchInfo.family) : undefined;
   if (familyGameId) {
-    await assignFilesToGame(familyGameId, files);
-    gamesChangedByScan.add(progress);
+    const added = await assignFilesToGame(familyGameId, files);
+    if (added > 0) gamesChangedByScan.add(progress);
     progress.matched += 1;
     return;
   }

@@ -33,6 +33,7 @@
     "test:e2e": "playwright test",
     "test:stack": "playwright test -c playwright.stack.config.ts",
     "reset-password": "tsx scripts/reset-password.ts",
+    "bench:releases": "tsx scripts/release-benchmark/run.ts",
     "check:overrides": "node scripts/check-overrides.mjs",
     "audit:prod": "node scripts/audit-prod.mjs",
     "check:deprecated": "node scripts/check-deprecated-deps.mjs",

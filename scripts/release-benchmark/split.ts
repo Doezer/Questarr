@@ -46,7 +46,7 @@ export function groupedSplit(
     // A part with a positive ratio must not end up empty: once the groups left are only just
     // enough to fill the empty parts, the next group goes to one of them.
     const empty = parts
-      .map((part, index) => index)
+      .map((_, index) => index)
       .filter((index) => parts[index]?.length === 0 && (ratios[index] ?? 0) > 0);
     const mustFill = empty.length > 0 && ordered.length - position <= empty.length;
     const candidates = mustFill ? empty : parts.map((_, index) => index);

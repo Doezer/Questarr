@@ -108,6 +108,15 @@ if (usesTfidf && ratios[0] === 0) {
   );
 }
 
+function isOpenRouterHttps(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname === "openrouter.ai";
+  } catch {
+    return false;
+  }
+}
+
 const classifiers: BenchClassifier[] = [];
 for (const id of values.classifiers
   .split(",")
@@ -118,13 +127,13 @@ for (const id of values.classifiers
     classifiers.push(new TfidfClassifier({ titleAware: id === "tfidf-title", seed, threshold }));
   } else if (id === "jev") {
     const url = process.env.TYPESAFE_API_URL ?? "https://api.typesafe.ai/v1/systemone";
-    // The OpenRouter key goes only to openrouter.ai, never to another host.
+    // The OpenRouter key goes only to openrouter.ai over HTTPS, never to another host.
     const apiKey =
       process.env.TYPESAFE_API_KEY ??
-      (new URL(url).hostname === "openrouter.ai" ? process.env.OPENROUTER_API_KEY : undefined);
+      (isOpenRouterHttps(url) ? process.env.OPENROUTER_API_KEY : undefined);
     if (!apiKey) {
       fail(
-        "jev needs TYPESAFE_API_KEY, or OPENROUTER_API_KEY together with an openrouter.ai TYPESAFE_API_URL"
+        "jev needs TYPESAFE_API_KEY, or OPENROUTER_API_KEY together with an https://openrouter.ai TYPESAFE_API_URL"
       );
     }
     classifiers.push(

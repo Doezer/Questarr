@@ -71,6 +71,7 @@ import {
   ChevronRight,
   ShieldCheck,
   BookOpen,
+  ArrowUpCircle,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -1118,7 +1119,17 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                       </span>
                     </span>
                   )}
-                  {game.searchResultsAvailable && (
+                  {game.updateSearchResultsAvailable && (
+                    <Badge
+                      variant="outline"
+                      className="gap-1 border-sky-500 text-sky-400"
+                      data-testid={`badge-update-available-${game.id}`}
+                    >
+                      <ArrowUpCircle className="h-3 w-3" />
+                      Update available
+                    </Badge>
+                  )}
+                  {game.searchResultsAvailable && !game.updateSearchResultsAvailable && (
                     <Badge
                       variant="outline"
                       className="gap-1 border-violet-500 text-violet-400"

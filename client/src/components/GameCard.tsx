@@ -11,6 +11,7 @@ import StatusPicker from "./StatusPicker";
 import { type Game, type DownloadSummary } from "@shared/schema";
 import DownloadIndicator from "./DownloadIndicator";
 import SearchResultsBadge from "./SearchResultsBadge";
+import UpdateAvailableBadge from "./UpdateAvailableBadge";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mapGameToInsertGame, isDiscoveryId, parseReleaseDate } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
@@ -196,7 +197,10 @@ const GameCard = ({
             </Tooltip>
           </div>
         )}
-        <SearchResultsBadge visible={game.searchResultsAvailable ?? false} />
+        <UpdateAvailableBadge visible={game.updateSearchResultsAvailable ?? false} />
+        <SearchResultsBadge
+          visible={(game.searchResultsAvailable ?? false) && !game.updateSearchResultsAvailable}
+        />
         {!isMobile && (
           <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-t-md bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100">
             {isDiscovery && (

@@ -621,7 +621,7 @@ async function processCandidate(
     const added = await assignFilesToGame(knownGameId, files);
     if (added > 0) gamesChangedByScan.add(progress);
     const knownSwitch = parseSwitchTitleId(cand.folderName);
-    if (knownSwitch) switchFamilies.set(knownSwitch.family, knownGameId);
+    if (knownSwitch?.kind === "base") switchFamilies.set(knownSwitch.family, knownGameId);
     progress.matched += 1;
     return;
   }
@@ -645,7 +645,7 @@ async function processCandidate(
 
   if (best && score >= AUTO_MATCH_THRESHOLD) {
     const gameId = await recordMatchedCandidate(cand, best, userId, files, progress);
-    if (switchInfo) switchFamilies.set(switchInfo.family, gameId);
+    if (switchInfo?.kind === "base") switchFamilies.set(switchInfo.family, gameId);
     progress.matched += 1;
   } else {
     recordUnmatchedCandidate(rootFolder, cand, igdbCandidates);

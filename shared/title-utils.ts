@@ -64,7 +64,7 @@ export interface SwitchTitleInfo {
  * the next 13-digit prefix, so all three of a game's files resolve to the same family.
  */
 export function parseSwitchTitleId(name: string): SwitchTitleInfo | null {
-  const match = /\b(01[0-9a-f]{14})\b/i.exec(name);
+  const match = /(?<![0-9a-z])(01[0-9a-f]{14})(?![0-9a-z])/i.exec(name);
   if (!match?.[1]) return null;
   const titleId = match[1].toUpperCase();
   const prefix = BigInt(`0x${titleId.slice(0, 13)}`);

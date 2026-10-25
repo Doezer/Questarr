@@ -347,6 +347,7 @@ describe("Nintendo Switch dump names", () => {
     expect(base).toMatchObject({ kind: "base", family: "0100535012974" });
     expect(update).toMatchObject({ kind: "update", family: "0100535012974" });
     expect(dlc).toMatchObject({ kind: "dlc", family: "0100535012974" });
+    expect(parseSwitchTitleId("Hades_0100535012974800_v65536.nsp")?.kind).toBe("update");
     expect(parseSwitchTitleId("Celeste.iso")).toBeNull();
   });
 });

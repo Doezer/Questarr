@@ -4,6 +4,9 @@ import type { BenchClassifier, LabeledRelease, Prediction } from "../types.js";
 
 const TIMEOUT_MS = 20_000;
 
+/** Error of a row the call cap stopped: no request was sent for it. */
+export const BUDGET_EXHAUSTED = "call budget exhausted";
+
 /** Both remote classifiers cap their own calls, so a mistake cannot run up a bill. */
 class CallBudget {
   private used = 0;
@@ -66,7 +69,7 @@ export function jevClassifier(config: JevConfig): BenchClassifier {
     remote: true,
     async classify(row: LabeledRelease): Promise<Prediction> {
       const started = performance.now();
-      if (!budget.take()) return failed("call budget exhausted", started);
+      if (!budget.take()) return failed(BUDGET_EXHAUSTED, started);
       try {
         const response = await fetch(config.url, {
           method: "POST",
@@ -148,7 +151,7 @@ export function openRouterClassifier(config: OpenRouterConfig): BenchClassifier 
     remote: true,
     async classify(row: LabeledRelease): Promise<Prediction> {
       const started = performance.now();
-      if (!budget.take()) return failed("call budget exhausted", started);
+      if (!budget.take()) return failed(BUDGET_EXHAUSTED, started);
       try {
         const response = await fetch(url, {
           method: "POST",

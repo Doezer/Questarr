@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { runBenchmark } from "../benchmark.js";
 import {
+  BUDGET_EXHAUSTED,
   jevClassifier,
   mapJevChoice,
   openRouterClassifier,
@@ -165,7 +166,7 @@ describe("remote classifiers", () => {
     });
     await jev.classify(row);
     const second = await jev.classify(row);
-    expect(second.error).toBe("call budget exhausted");
+    expect(second.error).toBe(BUDGET_EXHAUSTED);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -210,5 +211,29 @@ describe("remote classifiers", () => {
     const model = openRouterClassifier({ model: "m", apiKey: "k", maxCalls: 3 });
     const prediction = await model.classify(row);
     expect(prediction.costCredits).toBeNull();
+  });
+});
+
+describe("usage accounting", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("counts only the requests that were sent, not the rows the call cap stopped", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ answers: { releaseType: { choice: "dlc", confidence: 1 } } }))
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const jev = jevClassifier({
+      url: "https://example.test",
+      apiKey: "k",
+      model: "m",
+      maxCalls: 5,
+    });
+    const result = await runBenchmark(toyRecords(), [jev], { seed: 3 });
+    const entry = result.classifiers[0];
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(entry?.usage.calls).toBe(5);
+    expect(entry?.metrics.test.failures).toBeGreaterThan(0);
   });
 });

@@ -76,15 +76,18 @@ for (const id of values.classifiers
   else if (id === "tfidf" || id === "tfidf-title") {
     classifiers.push(new TfidfClassifier({ titleAware: id === "tfidf-title", seed, threshold }));
   } else if (id === "jev") {
-    const apiKey = process.env.TYPESAFE_API_KEY ?? process.env.OPENROUTER_API_KEY;
-    if (!apiKey) fail("jev needs TYPESAFE_API_KEY (or OPENROUTER_API_KEY with TYPESAFE_API_URL)");
+    const url = process.env.TYPESAFE_API_URL ?? "https://api.typesafe.ai/v1/systemone";
+    // The OpenRouter key goes only to openrouter.ai, never to another host.
+    const apiKey =
+      process.env.TYPESAFE_API_KEY ??
+      (new URL(url).hostname === "openrouter.ai" ? process.env.OPENROUTER_API_KEY : undefined);
+    if (!apiKey) {
+      fail(
+        "jev needs TYPESAFE_API_KEY, or OPENROUTER_API_KEY together with an openrouter.ai TYPESAFE_API_URL"
+      );
+    }
     classifiers.push(
-      jevClassifier({
-        url: process.env.TYPESAFE_API_URL ?? "https://api.typesafe.ai/v1/systemone",
-        model: process.env.TYPESAFE_MODEL ?? "jev-latest",
-        apiKey,
-        maxCalls,
-      })
+      jevClassifier({ url, model: process.env.TYPESAFE_MODEL ?? "jev-latest", apiKey, maxCalls })
     );
   } else if (id.startsWith("openrouter:")) {
     const apiKey = process.env.OPENROUTER_API_KEY;

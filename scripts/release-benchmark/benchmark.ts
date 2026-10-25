@@ -1,4 +1,5 @@
 import type { ReleaseClass } from "../../shared/release-classification.js";
+import { BUDGET_EXHAUSTED } from "./classifiers/remote.js";
 import { computeMetrics, percentile, type Metrics } from "./metrics.js";
 import { groupedSplit } from "./split.js";
 import { CLASSES, type BenchClassifier, type LabeledRelease, type Prediction } from "./types.js";
@@ -127,7 +128,7 @@ export async function runBenchmark(
         p95: percentile(latencies, 0.95),
       },
       usage: {
-        calls: classifier.remote ? all.length : 0,
+        calls: classifier.remote ? all.filter((p) => p.error !== BUDGET_EXHAUSTED).length : 0,
         callsWithCost: costed.length,
         costCredits: sumOrNull(all.map((p) => p.costCredits)),
         promptTokens: sumOrNull(all.map((p) => p.promptTokens)),

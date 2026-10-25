@@ -177,8 +177,11 @@ describe("remote classifiers", () => {
   it("stops at the call budget without calling the network again", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ answers: { releaseType: { choice: "dlc", confidence: 1 } } }))
+      .mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({ answers: { releaseType: { choice: "dlc", confidence: 1 } } })
+          )
       );
     vi.stubGlobal("fetch", fetchMock);
     const jev = jevClassifier({
@@ -243,8 +246,11 @@ describe("usage accounting", () => {
   it("counts only the requests that were sent, not the rows the call cap stopped", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ answers: { releaseType: { choice: "dlc", confidence: 1 } } }))
+      .mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({ answers: { releaseType: { choice: "dlc", confidence: 1 } } })
+          )
       );
     vi.stubGlobal("fetch", fetchMock);
     const jev = jevClassifier({

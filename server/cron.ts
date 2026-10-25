@@ -384,7 +384,8 @@ function applyPreferredPlatformFilter(
 
 const AUTO_SEARCH_PAGE_SIZE = 10;
 // How many result pages auto-search walks when the global release-name blacklist hides a
-// whole page, before concluding that no eligible release exists.
+// whole page, or when a wanted game has no main release on the pages fetched so far, before
+// concluding that no eligible release exists.
 const AUTO_SEARCH_MAX_PAGES = 5;
 
 /** Logs indexer errors from an auto-search, flagging when every error is network-related. */
@@ -472,17 +473,31 @@ export const AUTO_SEARCH_DEFERRED = Symbol("auto-search-deferred");
  * Searches all indexers for a game and returns its eligible releases, categorized by type.
  * Releases are title-matched, then filtered by the user's global release-name blacklist and
  * the game's own blacklist. When the global blacklist hides a whole page, later pages are
- * fetched (up to AUTO_SEARCH_MAX_PAGES). Returns null when no eligible release is found.
+ * fetched (up to AUTO_SEARCH_MAX_PAGES). When `hasUsableMainRelease` is given (wanted games),
+ * later pages are also fetched until it accepts the releases found so far: indexers return
+ * newest first, so a game with many update releases can push its base release off the first
+ * page. Eligible releases from every fetched page are kept. Returns null when no eligible
+ * release is found.
  */
 export async function searchAndCategorizeItemsForGame(
   game: Pick<Game, "id" | "title" | "targetPlatformId" | "targetPlatformName">,
   downloadRules: string | null,
   indexerPriorityMap?: Map<string, number>,
   blacklistTerms: string[] = [],
-  scoring?: AutoSearchScoring
+  scoring?: AutoSearchScoring,
+  hasUsableMainRelease?: (categorized: AutoSearchCategorizedItems) => boolean
 ): Promise<AutoSearchCategorizedItems | typeof AUTO_SEARCH_DEFERRED | null> {
+  let rules: AutoSearchRules;
+  try {
+    rules = getAutoSearchRules(downloadRules);
+  } catch (error) {
+    igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
+    rules = getAutoSearchRules(null);
+  }
+
   let matchedItems: SearchItem[] = [];
-  let globallyFiltered: SearchItem[] = [];
+  const globallyFiltered: SearchItem[] = [];
+  const blacklisted = await storage.getReleaseBlacklistSet(game.id);
   let xrelLookedUp = false;
   let xrelReleases: XrelPredbEntry[] | undefined;
 
@@ -549,14 +564,25 @@ export async function searchAndCategorizeItemsForGame(
 
     // Filter out releases matching the user's global release-name blacklist before anything
     // else touches them (including the AI auto-download check further down the pipeline).
-    globallyFiltered = filterByReleaseNameBlacklist(matchedItems, blacklistTerms);
+    const pageFiltered = filterByReleaseNameBlacklist(matchedItems, blacklistTerms);
+    globallyFiltered.push(...pageFiltered);
 
-    // Only page further when the blacklist hid this whole page and more results may exist.
-    if (globallyFiltered.length > 0 || items.length < AUTO_SEARCH_PAGE_SIZE) break;
+    // Only page further when more results may exist and either the blacklist hid this whole
+    // page or a wanted game still has no main release that would survive final selection.
+    if (items.length < AUTO_SEARCH_PAGE_SIZE) break;
+    const stillMissingMain =
+      hasUsableMainRelease !== undefined &&
+      !hasUsableMainRelease(
+        categorizeSearchItems(
+          filterBlacklistedReleases(globallyFiltered, blacklisted),
+          rules,
+          indexerPriorityMap
+        )
+      );
+    if (pageFiltered.length > 0 && !stillMissingMain) break;
   }
 
   // Filter out per-game blacklisted releases
-  const blacklisted = await storage.getReleaseBlacklistSet(game.id);
   const nonBlacklisted = filterBlacklistedReleases(globallyFiltered, blacklisted);
 
   if (nonBlacklisted.length === 0) {
@@ -565,14 +591,6 @@ export async function searchAndCategorizeItemsForGame(
       "All matched items were blacklisted"
     );
     return null;
-  }
-
-  let rules: AutoSearchRules;
-  try {
-    rules = getAutoSearchRules(downloadRules);
-  } catch (error) {
-    igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
-    rules = getAutoSearchRules(null);
   }
 
   return categorizeSearchItems(nonBlacklisted, rules, indexerPriorityMap);
@@ -1804,12 +1822,27 @@ export async function checkAutoSearch() {
               continue;
             }
 
+            const effectivePlatform = resolveGamePlatformPreference(game, preferredPlatform);
+            // Apply platform filter first (strict), then preferred groups filter, then
+            // de-duplicate releases that appear on multiple indexers (keep highest-priority indexer).
+            const selectMainItems = (items: SearchItem[]) => {
+              const platformFiltered = applyPreferredPlatformFilter(items, effectivePlatform);
+              const groupFiltered = scoring
+                ? narrowToPreferredGroupFormat(platformFiltered, scoring)
+                : applyPreferredGroupsFilter(
+                    platformFiltered,
+                    preferredGroups,
+                    settings.filterByPreferredGroups ?? false
+                  );
+              return deduplicateByTitle(groupFiltered, indexerPriorityMap);
+            };
             const searchResult = await searchAndCategorizeItemsForGame(
               game,
               settings.downloadRules,
               indexerPriorityMap,
               blacklistTerms,
-              scoring
+              scoring,
+              (categorized) => selectMainItems(categorized.mainItems).length > 0
             );
             if (searchResult === AUTO_SEARCH_DEFERRED) continue;
             if (!searchResult) {
@@ -1822,21 +1855,7 @@ export async function checkAutoSearch() {
             // notifications on the false→true transition instead of firing every cycle.
             const wasAvailable = game.searchResultsAvailable;
 
-            // Apply platform filter first (strict), then preferred groups filter, then
-            // de-duplicate releases that appear on multiple indexers (keep highest-priority indexer).
-            const effectivePlatform = resolveGamePlatformPreference(game, preferredPlatform);
-            const platformFilteredMain = applyPreferredPlatformFilter(
-              searchResult.mainItems,
-              effectivePlatform
-            );
-            const groupFilteredMain = scoring
-              ? narrowToPreferredGroupFormat(platformFilteredMain, scoring)
-              : applyPreferredGroupsFilter(
-                  platformFilteredMain,
-                  preferredGroups,
-                  settings.filterByPreferredGroups ?? false
-                );
-            const mainItems = deduplicateByTitle(groupFilteredMain, indexerPriorityMap);
+            const mainItems = selectMainItems(searchResult.mainItems);
 
             // Handle main items
             if (mainItems.length === 0) {

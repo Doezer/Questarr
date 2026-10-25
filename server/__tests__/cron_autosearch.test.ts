@@ -1283,6 +1283,156 @@ describe("Cron - checkAutoSearch", () => {
     expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, false);
   });
 
+  describe("Paging past update releases to the main release", () => {
+    const makeUpdatePage = (count: number, platformTag = "PS5") =>
+      Array.from({ length: count }, (_, i) => ({
+        title: `Test Game Update v1.${count - i} ${platformTag}-GROUP`,
+        link: `https://example.com/update${i}`,
+        pubDate: FIXED_PUB_DATE,
+        seeders: 50,
+        size: 1_000,
+      }));
+    const PLATFORM_MAIN = {
+      title: "Test Game PS5-GROUP",
+      link: "https://example.com/main",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 90,
+      size: 10_000,
+    };
+
+    beforeEach(() => {
+      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+    });
+
+    it("pages past a first page of update releases to find a wanted game's main release", async () => {
+      mockSearchAllIndexers
+        .mockResolvedValueOnce({ items: makeUpdatePage(10), errors: [], total: 11 })
+        .mockResolvedValueOnce({ items: [PLATFORM_MAIN], errors: [], total: 11 });
+
+      await checkAutoSearch();
+
+      expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
+      expect(mockSearchAllIndexers).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ limit: 10, offset: 10 })
+      );
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(baseGame.id, true);
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ userId, title: "Game Available" })
+      );
+    });
+
+    it("keeps paging when the first page's only main release is for another platform", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, preferredPlatform: "PS5" });
+      const pcMain = {
+        title: "Test Game-CODEX",
+        link: "https://example.com/pc",
+        pubDate: FIXED_PUB_DATE,
+        seeders: 80,
+        size: 10_000,
+      };
+      mockSearchAllIndexers
+        .mockResolvedValueOnce({ items: [pcMain, ...makeUpdatePage(9)], errors: [], total: 11 })
+        .mockResolvedValueOnce({ items: [PLATFORM_MAIN], errors: [], total: 11 });
+
+      await checkAutoSearch();
+
+      expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(baseGame.id, true);
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ userId, title: "Game Available" })
+      );
+    });
+
+    it("keeps paging when the first page's main release has too few seeders", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        downloadRules: JSON.stringify({
+          minSeeders: 10,
+          sortBy: "seeders",
+          visibleCategories: ["main", "update"],
+        }),
+      });
+      const deadMain = { ...PLATFORM_MAIN, link: "https://example.com/dead", seeders: 0 };
+      mockSearchAllIndexers
+        .mockResolvedValueOnce({ items: [deadMain, ...makeUpdatePage(9)], errors: [], total: 11 })
+        .mockResolvedValueOnce({
+          items: [{ ...PLATFORM_MAIN, title: "Test Game PS5-OTHER" }],
+          errors: [],
+          total: 11,
+        });
+
+      await checkAutoSearch();
+
+      expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(baseGame.id, true);
+    });
+
+    it("keeps paging when strict preferred groups reject the first page's main release", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        preferredReleaseGroups: '["PREFERRED"]',
+        filterByPreferredGroups: true,
+      });
+      mockSearchAllIndexers
+        .mockResolvedValueOnce({
+          items: [{ ...PLATFORM_MAIN, group: "GROUP" }, ...makeUpdatePage(9)],
+          errors: [],
+          total: 11,
+        })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              ...PLATFORM_MAIN,
+              title: "Test Game PS5-PREFERRED",
+              link: "https://example.com/preferred",
+              group: "PREFERRED",
+            },
+          ],
+          errors: [],
+          total: 11,
+        });
+
+      await checkAutoSearch();
+
+      expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(baseGame.id, true);
+    });
+
+    it("stops after the first page when it already has a main release", async () => {
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [PLATFORM_MAIN, ...makeUpdatePage(9)],
+        errors: [],
+        total: 100,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockSearchAllIndexers).toHaveBeenCalledTimes(1);
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(baseGame.id, true);
+    });
+
+    it("does not page for main releases when searching owned games for updates", async () => {
+      const ownedGame = {
+        ...baseGame,
+        status: "owned" as const,
+        releaseStatus: "released" as const,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      mockGetUserGames.mockResolvedValue([ownedGame]);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: makeUpdatePage(10),
+        errors: [],
+        total: 100,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockSearchAllIndexers).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it.each([
     ["network", ["fetch failed"], "Search failed due to network connectivity issues"],
     ["other", ["Indexer returned 500"], "Errors during search"],
@@ -2692,6 +2842,26 @@ describe("release scoring in auto-search", () => {
     );
     expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
     expect(result?.mainItems.map((i) => i.title)).toContain("Dishonored-CODEX");
+  });
+
+  it("pages past a first page of scored update releases to a wanted game's main release", async () => {
+    mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
+    mockSearchAllIndexers
+      .mockResolvedValueOnce({
+        items: Array.from({ length: 10 }, (_, n) => item(`Dishonored.Update.v1.${n}-CODEX`)),
+        errors: [],
+      })
+      .mockResolvedValueOnce({ items: [item("Dishonored-CODEX")], errors: [] });
+    const result = await searchAndCategorizeItemsForGame(
+      { id: "g1", ...game },
+      null,
+      undefined,
+      [],
+      scoring,
+      (categorized) => categorized.mainItems.length > 0
+    );
+    expect(mockSearchAllIndexers).toHaveBeenCalledTimes(2);
+    expect(result?.mainItems.map((i) => i.title)).toEqual(["Dishonored-CODEX"]);
   });
 
   it("keeps the better-scored copy of a duplicate, and the higher-priority indexer on a tie", () => {

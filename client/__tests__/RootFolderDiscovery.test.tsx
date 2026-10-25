@@ -31,11 +31,17 @@ function createJsonResponse(data: unknown): Response {
   return { ok: true, json: async () => data } as Response;
 }
 
-function mockFetch(folders: RootFolder[], scanStatus: unknown[] = [], unmatched: unknown[] = []) {
+function mockFetch(
+  folders: RootFolder[],
+  scanStatus: unknown[] = [],
+  unmatched: unknown[] = [],
+  ignored: unknown[] = []
+) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
     const u = getRequestUrl(url);
     if (u.includes("/api/library/scan/status")) return createJsonResponse(scanStatus);
     if (u.includes("/api/library/scan/unmatched")) return createJsonResponse(unmatched);
+    if (u.includes("/api/library/scan/ignored")) return createJsonResponse(ignored);
     if (u.includes("/api/root-folders")) return createJsonResponse(folders);
     return createJsonResponse({});
   });
@@ -281,6 +287,51 @@ describe("RootFolderDiscovery", () => {
         folderName: "Absolum v1.01 [CUSA53342] [EUR]",
         igdbId: 777,
       })
+    );
+  });
+
+  it("ignores a folder from Needs Review", async () => {
+    const { apiRequest } = await import("@/lib/queryClient");
+    mockFetch(
+      [folder],
+      [],
+      [
+        {
+          rootFolderId: "rf-1",
+          rootFolderPath: "/mnt/old-library",
+          folderName: "Proton 9.0",
+          absolutePath: "/mnt/old-library/Proton 9.0",
+          candidates: [],
+        },
+      ]
+    );
+    renderComponent();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Ignore Proton 9.0" }));
+
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("POST", "/api/library/scan/unmatched/ignore", {
+        rootFolderId: "rf-1",
+        folderName: "Proton 9.0",
+      })
+    );
+  });
+
+  it("lists ignored folders and restores one", async () => {
+    const { apiRequest } = await import("@/lib/queryClient");
+    mockFetch(
+      [folder],
+      [],
+      [],
+      [{ id: "ig-1", rootFolderId: "rf-1", folderName: "Proton 9.0", createdAt: null }]
+    );
+    renderComponent();
+
+    expect(await screen.findByText("Ignored Folders (1)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Restore Proton 9.0 to Needs Review" }));
+
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("DELETE", "/api/library/scan/ignored/ig-1")
     );
   });
 

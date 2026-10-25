@@ -150,6 +150,22 @@ export function clearUnmatched(rootFolderId: string, folderName: string): void {
 }
 
 /**
+ * Skip a folder of Needs Review for good: it leaves the list now and later
+ * scans no longer queue it. Resolved against the queued entry like
+ * `matchUnmatchedFolder`, so client input never reaches the filesystem.
+ */
+export async function ignoreUnmatchedFolder(
+  rootFolderId: string,
+  folderName: string
+): Promise<void> {
+  if (!getUnmatchedEntry(rootFolderId, folderName)) {
+    throw new Error("No matching unmatched entry for this root folder");
+  }
+  await storage.addIgnoredScanFolder(rootFolderId, folderName);
+  clearUnmatched(rootFolderId, folderName);
+}
+
+/**
  * Look up a specific queued unmatched entry. Used to resolve a client-supplied
  * `folderName` to a server-trusted `absolutePath` without ever joining
  * client input onto a filesystem path (see `matchUnmatchedFolder`).
@@ -592,7 +608,8 @@ async function processCandidate(
   cand: FolderCandidate,
   userId: string,
   progress: ScanProgress,
-  knownGameIds: ReadonlyMap<string, string>
+  knownGameIds: ReadonlyMap<string, string>,
+  ignoredNames: ReadonlySet<string>
 ): Promise<void> {
   const files = cand.isFile
     ? [{ absolutePath: cand.absolutePath, size: cand.fileSize ?? 0 }]
@@ -608,6 +625,10 @@ async function processCandidate(
     progress.matched += 1;
     return;
   }
+
+  // Ignored from Needs Review (e.g. a Proton build next to games): never queue
+  // it again, and spare the IGDB lookup.
+  if (ignoredNames.has(cand.folderName)) return;
 
   const { best, candidates: igdbCandidates, score } = await bestIgdbMatch(cand.folderName);
 
@@ -636,11 +657,15 @@ async function runScan(
       if (g.libraryPath && !knownGameIds.has(g.libraryPath)) knownGameIds.set(g.libraryPath, g.id);
     }
 
+    const ignoredNames = new Set(
+      (await storage.getIgnoredScanFolders(rootFolderId)).map((r) => r.folderName)
+    );
+
     for (const cand of candidates) {
       progress.currentCandidate = cand.folderName;
       emitProgress(progress);
       try {
-        await processCandidate(rootFolder, cand, userId, progress, knownGameIds);
+        await processCandidate(rootFolder, cand, userId, progress, knownGameIds, ignoredNames);
       } catch (err) {
         progress.errors += 1;
         routesLogger.error({ err, folder: cand.folderName }, "scan: error processing folder");

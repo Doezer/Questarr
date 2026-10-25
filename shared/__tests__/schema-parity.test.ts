@@ -36,6 +36,7 @@ const EXPECTED_TABLES = [
   "importTasks",
   "indexers",
   "integrationRequests",
+  "libraryScanIgnored",
   "notifications",
   "pathMappings",
   "platformMappings",

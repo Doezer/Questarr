@@ -80,6 +80,8 @@ import {
   sanitizeRootFolderId,
   sanitizeLibraryScanData,
   sanitizeUnmatchedMatchData,
+  sanitizeUnmatchedIgnoreData,
+  sanitizeIgnoredId,
   sanitizeUnmatchedSearchData,
   integrationRateLimiter,
 } from "./middleware.js";
@@ -331,6 +333,7 @@ import {
   getAllScanProgress,
   getAllUnmatched,
   matchUnmatchedFolder,
+  ignoreUnmatchedFolder,
   searchUnmatchedFolder,
 } from "./library-scanner.js";
 import { integrationRouter } from "./routes/integration.js";
@@ -2563,6 +2566,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
           msg === "Root folder not found" ||
           msg === "No matching unmatched entry for this root folder";
         res.status(notFound ? 404 : 500).json({ error: msg });
+      }
+    }
+  );
+
+  app.post(
+    "/api/library/scan/unmatched/ignore",
+    authenticateToken,
+    sanitizeUnmatchedIgnoreData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { rootFolderId, folderName } = req.body as {
+          rootFolderId: string;
+          folderName: string;
+        };
+        await ignoreUnmatchedFolder(rootFolderId, folderName);
+        res.json({ success: true });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        routesLogger.error({ error }, "error ignoring unmatched folder");
+        const notFound = msg === "No matching unmatched entry for this root folder";
+        res
+          .status(notFound ? 404 : 500)
+          .json({ error: notFound ? msg : "Failed to ignore folder" });
+      }
+    }
+  );
+
+  app.get("/api/library/scan/ignored", authenticateToken, async (_req: Request, res: Response) => {
+    try {
+      res.json(await storage.getIgnoredScanFolders());
+    } catch (error) {
+      routesLogger.error({ error }, "error listing ignored folders");
+      res.status(500).json({ error: "Failed to list ignored folders" });
+    }
+  });
+
+  // Un-ignoring queues a rescan of that root folder so the folder comes back
+  // to Needs Review without a manual scan.
+  app.delete(
+    "/api/library/scan/ignored/:id",
+    authenticateToken,
+    sanitizeIgnoredId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const removed = await storage.removeIgnoredScanFolder(req.params.id as string);
+        if (!removed) {
+          res.status(404).json({ error: "Ignored folder not found" });
+          return;
+        }
+        startRootFolderScan(removed.rootFolderId, req.user!.id, { queueIfRunning: true });
+        res.json({ success: true });
+      } catch (error) {
+        routesLogger.error({ error }, "error un-ignoring folder");
+        res.status(500).json({ error: "Failed to remove ignored folder" });
       }
     }
   );

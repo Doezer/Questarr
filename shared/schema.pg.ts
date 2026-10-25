@@ -559,6 +559,19 @@ export const rootFolders = pgTable("root_folders", {
   createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
 });
 
+export const libraryScanIgnored = pgTable(
+  "library_scan_ignored",
+  {
+    id: text("id").primaryKey(),
+    rootFolderId: text("root_folder_id")
+      .notNull()
+      .references(() => rootFolders.id, { onDelete: "cascade" }),
+    folderName: text("folder_name").notNull(),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [uniqueIndex("library_scan_ignored_root_name_idx").on(t.rootFolderId, t.folderName)]
+);
+
 export const apiKeys = pgTable(
   "api_keys",
   {

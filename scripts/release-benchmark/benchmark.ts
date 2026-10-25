@@ -16,7 +16,13 @@ export interface ClassifierResult {
   remote: boolean;
   /** Metrics per evaluated part. Trained models are never scored on their training rows. */
   metrics: { validation: Metrics; test: Metrics };
-  latencyMs: { mean: number | null; p50: number | null; p95: number | null };
+  latencyMs: {
+    mean: number | null;
+    p50: number | null;
+    p95: number | null;
+    /** Predictions the statistics are computed from (budget-stopped rows excluded). */
+    samples: number;
+  };
   /** Sums only what providers reported; `null` means unavailable, not zero. */
   usage: {
     calls: number;
@@ -105,7 +111,9 @@ export async function runBenchmark(
     const validationPredictions = await run(split.validation);
     const testPredictions = await run(split.test);
     const all = [...validationPredictions, ...testPredictions];
-    const latencies = all.map((p) => p.latencyMs);
+    // Rows the call cap stopped never reached the provider: they say nothing about its speed.
+    const sent = all.filter((p) => p.error !== BUDGET_EXHAUSTED);
+    const latencies = sent.map((p) => p.latencyMs);
     const costed = all.filter((p) => typeof p.costCredits === "number");
 
     results.push({
@@ -126,9 +134,10 @@ export async function runBenchmark(
         mean: latencies.length ? latencies.reduce((a, b) => a + b, 0) / latencies.length : null,
         p50: percentile(latencies, 0.5),
         p95: percentile(latencies, 0.95),
+        samples: latencies.length,
       },
       usage: {
-        calls: classifier.remote ? all.filter((p) => p.error !== BUDGET_EXHAUSTED).length : 0,
+        calls: classifier.remote ? sent.length : 0,
         callsWithCost: costed.length,
         costCredits: sumOrNull(all.map((p) => p.costCredits)),
         promptTokens: sumOrNull(all.map((p) => p.promptTokens)),

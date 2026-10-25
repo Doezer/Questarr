@@ -248,6 +248,7 @@ describe("usage accounting", () => {
     const entry = result.classifiers[0];
     expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(entry?.usage.calls).toBe(5);
+    expect(entry?.latencyMs.samples).toBe(5);
     expect(entry?.metrics.test.failures).toBeGreaterThan(0);
   });
 });

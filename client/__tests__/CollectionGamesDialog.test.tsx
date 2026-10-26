@@ -85,7 +85,8 @@ describe("CollectionGamesDialog", () => {
     search.focus();
     await waitFor(() => expect(apiRequest).toHaveBeenCalled());
     rerender(dialog(["g1", "g2"]));
-    await screen.findByRole("button", { name: "Remove Beta" });
+    const remove = await screen.findByRole("button", { name: "Remove Beta" });
+    await waitFor(() => expect((remove as HTMLButtonElement).disabled).toBe(false));
     expect(document.activeElement).toBe(search);
   });
 });

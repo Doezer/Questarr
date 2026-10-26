@@ -33,13 +33,14 @@ All notable changes to this project will be documented in this file.
 - **Usenet downloads**: a download marked failed is restored and imported once NZBGet or SABnzbd no longer reports a failure, for example after you fix a wrong archive password and post-process the item again. Questarr checks failed downloads from the last 14 days every 10 minutes. NZBGet failures now say why (wrong password, unpack, par2 repair, missing articles, malformed NZB, disk space) instead of a bare error, including the `SCAN` and `SPACE` statuses (#1235).
 - **Archive password over HTTP**: an NZBGet downloader with **Allow insecure LAN** turned on can send an archive password over plain HTTP again; without that option, the error now suggests it. A request carrying a password or credentials over plain HTTP is no longer sent to another host if the server redirects it, apart from a same-host upgrade to HTTPS (#1235).
 - **Home Assistant add-on**: the add-on starts the server with `node` directly instead of through npm (#1208).
+- **Recently Released sort**: the Library sort lists games already out first, newest first, then unreleased games soonest first, and games without a date last, instead of putting future releases at the top (#1243).
 - **Library rescans**: folders already linked to a game are skipped instead of reappearing in Needs Review, and new files in them are still attached (#1234).
 
 - **Legacy session token migration**: a pre-1.5.0 token left in `localStorage` is now carried over as an in-memory bearer token for the current tab and removed from `localStorage`, in a post-commit effect instead of during React render. The app waits for it before calling `/api/auth/me`, which also makes it safe under StrictMode. It is not stored as a cookie, so the next reload asks you to sign in again (#1193).
 
 ### Dependencies
 
-- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14, and `follow-redirects` pinned to 1.16.1 and `body-parser` to 2.4.0, with `multer` 2.5.0, for high advisories (#1188, #1189, #1190, #1191, #1205, #1206, #1218, #1219, #1220, #1228, #1229, #1236).
+- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14, and `follow-redirects` pinned to 1.16.1 and `body-parser` to 2.4.0, with `multer` 2.5.0, for high advisories (#1188, #1189, #1190, #1191, #1205, #1206, #1218, #1219, #1220, #1228, #1229, #1236, #1246, #1247).
 
 ### Contributors
 

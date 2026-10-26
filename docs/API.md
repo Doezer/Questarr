@@ -140,6 +140,14 @@ scans enabled roots. Settings changes during an active scan queue a rescan.
 counts and match/review/error counts; updates also arrive as `library-scan-progress`.
 See [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md) for the operator workflow.
 
+`POST /api/library/scan/unmatched/ignore` skips a Needs Review folder for good. Body:
+`{ rootFolderId, folderName }` (`folderName` is not trimmed and must match the scanned
+folder exactly). Returns `{ success: true }`, 400 for invalid input, 404 when the folder
+is no longer awaiting review. Later scans skip an ignored folder before listing its files,
+unless it is already linked to a game. `GET /api/library/scan/ignored` lists the ignored
+folders, and `DELETE /api/library/scan/ignored/:id` restores one (404 when unknown) and
+queues a rescan of its root folder so it returns to Needs Review.
+
 `POST /api/library/scan/unmatched/search` requires authentication, CSRF for cookie
 sessions, and the IGDB rate limiter. Body: `{ rootFolderId, folderName, query }`
 (trimmed strings, limits 200/1000/200 respectively). Returns an array of

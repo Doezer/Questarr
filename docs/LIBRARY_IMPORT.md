@@ -187,6 +187,11 @@ configuration does not delete the directory itself.
 - Under **Needs Review**, choose a suggested IGDB game or enter a different
   name in **Not listed? Search IGDB by name**. Search alone does not import the
   game; clicking a candidate confirms it and adds it to your library.
+- **Ignore** removes a folder from Needs Review for good, for example a Proton build
+  next to your games. Later scans skip it before listing its files, unless it is
+  already linked to a game. Ignored folders are listed under **Ignored Folders**, where
+  **Restore** brings one back and queues a rescan of its root folder. Ignore and
+  candidate matching are disabled while the other is in progress.
 
 If a folder is inaccessible, check the mount and the service user's permissions,
 then use its health-recheck button. If IGDB search fails, the folder stays in

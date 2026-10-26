@@ -17,15 +17,19 @@ All notable changes to this project will be documented in this file.
 - **Recommended custom formats**: an **Install recommended formats** button adds a starting set that pushes down crack-only, demo and pre-installed releases, rejects trainers, keygens and activators outright, and favors releases that include updates and DLC and a few trusted repackers. Formats you already have are not duplicated (#1224).
 - **Scoped API keys and SeerrNG**: API keys now have an access level (all, library write, read or game requests) and an optional expiry of 1 to 365 days, chosen in **Settings → Integrations → API Keys**. The new **Game requests (SeerrNG)** access lets SeerrNG request PC games from Questarr through a provider API that follows the QuestarrNG contract; such a key is refused on every other route except `GET /api/integration/ping`. Integration routes are limited to 300 requests per minute per key (#1198). The SeerrNG provider also implements the QuestarrNG v2.1 contract: editions and add-ons, the `selection` field of a request, and `catalog/discover` (#1225). See [SeerrNG](SEERRNG.md), [Gameyfin](GAMEYFIN.md) and [API](API.md#api-keys-management).
 - **Weekly pre-releases**: a weekly workflow publishes a `vX.Y.Z-dev.YYYYMMDD` pre-release and the Docker tags `weekly` and `dev`, never `latest` (#1192). Their notes end with a list of contributors, bots excluded (#1222). See [Operations](OPERATIONS.md).
+- **Update available badge and filter**: library games with newer update releases on your indexers show an **Update available** badge on their card and on the game page, and a new **Update Available** filter in the Library lists only those games. The plain search-results badge shows only when no update release is waiting (#1240).
+- **Ignored folders in Library Import**: **Ignore** on a Needs Review folder removes it for good, so later scans skip it before listing its files, for example a Proton build next to your games. An **Ignored Folders** list under Needs Review restores a folder, which queues a rescan of its root folder. New `POST /api/library/scan/unmatched/ignore`, `GET /api/library/scan/ignored` and `DELETE /api/library/scan/ignored/:id`, see [API](API.md#root-folders--library-scan) and [Library Import](LIBRARY_IMPORT.md) (#1239).
 
 ### Changed
 
 - **Game details page**: the game details modal is now a full page at `/games/:id`, for library games and for Discover results (`igdb-<id>`). The card title is a real link (right-click to copy or open it), and on grid and desktop list cards, middle-click or ctrl/cmd/shift-click anywhere on the card opens the game in a new tab. A game can be bookmarked or shared by URL. Back returns to where you came from, or to the library when the page was opened directly. A game that does not exist, belongs to someone else, or sits in a hidden content category shows "Game not found" (#1203). New `GET /api/games/:id` endpoint, see [API](API.md).
 - **Manual download dialog**: releases your scoring profile rejects (another game with the same group name, a nuked release, a score below your minimum) are hidden by default, with a badge showing how many. Untick **Hide rejected releases** in the dialog to bring them back, or set the default under **Settings → Discovery & Downloads → Auto-download rules**; the `downloadRules` setting gains `hideRejected` (default `true`) (#1231).
+- **RSS feed errors**: the error detail on a failing feed is now an accessible tooltip instead of the browser's native one (#1230).
 
 ### Fixed
 
 - **Library import**: platform names, folders and Game Gear are now handled correctly (#1212).
+- **Auto-search paging**: for a wanted game with many update releases, auto-search keeps paging through indexer results until a main release would survive final selection, instead of stopping on a first page made only of updates (#1214).
 - **Usenet downloads**: a download marked failed is restored and imported once NZBGet or SABnzbd no longer reports a failure, for example after you fix a wrong archive password and post-process the item again. Questarr checks failed downloads from the last 14 days every 10 minutes. NZBGet failures now say why (wrong password, unpack, par2 repair, missing articles, malformed NZB, disk space) instead of a bare error, including the `SCAN` and `SPACE` statuses (#1235).
 - **Archive password over HTTP**: an NZBGet downloader with **Allow insecure LAN** turned on can send an archive password over plain HTTP again; without that option, the error now suggests it. A request carrying a password or credentials over plain HTTP is no longer sent to another host if the server redirects it, apart from a same-host upgrade to HTTPS (#1235).
 - **Home Assistant add-on**: the add-on starts the server with `node` directly instead of through npm (#1208).
@@ -36,6 +40,13 @@ All notable changes to this project will be documented in this file.
 ### Dependencies
 
 - Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14, and `follow-redirects` pinned to 1.16.1 and `body-parser` to 2.4.0, with `multer` 2.5.0, for high advisories (#1188, #1189, #1190, #1191, #1205, #1206, #1218, #1219, #1220, #1228, #1229, #1236).
+
+### Contributors
+
+Thanks to everyone whose commits are in this release, counted by commit and not only by pull request (bots left out):
+
+- @UnderwaterOverground, 2 commits: auto-search paging past update releases (#1214).
+- @Doezer, 11 commits: release scoring fixes (#1166), Home Assistant start (#1208), import platform names (#1212), platform naming docs (#1215) and the Star History section of the README, committed directly.
 
 ## [1.5.0] - 2026-10-12
 

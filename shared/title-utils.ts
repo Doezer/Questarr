@@ -38,8 +38,8 @@ export function normalizeReleaseTitle(title: unknown): string {
 const RELEASE_TAGS = [
   /\b(1080p|720p|2160p|4k|uhd|bluray|h264|x264|h265|x265|hevc)\b/gi,
   /\b(multi\d*|multilingual|language|languages|german|english|french|italian|spanish|nordic|pal|ntsc|russian|japanese)\b/gi,
-  /\b(iso|rip|repack|re-repack|proper|internal|readnfo|nfo|re-nfo|crackfix|fix|fixed|hotfix|update|upd|dlc|unlocker)\b/gi,
-  /\b(ps3|ps4|ps5|xbox|xbox360|x360|switch|nsw|nsp|nsz|xci|xcz|wii|wiiu|nds|3ds|gba|psp|psvita|vita)\b/gi,
+  /\b(iso|rip|repack|re-repack|proper|internal|readnfo|nfo|re-nfo|crackfix|fix|fixed|hotfix|update|dlc|unlocker)\b/gi,
+  /\b(ps3|ps4|ps5|xbox|xbox360|x360|switch|nsw|nsp|xci|wii|wiiu|nds|3ds|gba|psp|psvita|vita)\b/gi,
   /\b(mac|linux|osx|os\.x|macos)\b/gi,
   /\b(gog|steam|epic|uplay|origin|drm[ -]?free)\b/gi,
   /\b(goty|deluxe|complete|gold|ultimate|collectors|definitive|remastered|remake|remaster)\b/gi,
@@ -89,7 +89,13 @@ export function cleanReleaseName(releaseName: string): string {
   // 1. Convert underscores and dots (but not dashes) to spaces early to help regex word boundaries
   // We keep dashes for now to detect -GROUP suffixes. Switch title ids ([0100F2C0115B6000]) are
   // hex, so the bracket cleanup below would keep them in the title.
-  let cleaned = releaseName.replace(/[._]/g, " ").replace(SWITCH_TITLE_ID_REGEX, " ");
+  let cleaned = releaseName.replace(/[._]/g, " ");
+  // `upd` and `nsz`/`xcz` are only release tags on Switch dumps ("NSZ Edition" can be a title),
+  // so they go only when a title id or a compressed-dump extension identifies one.
+  const switchDump = parseSwitchTitleId(releaseName) !== null || /\.(nsz|xcz)$/i.test(releaseName);
+  cleaned = cleaned.replace(SWITCH_TITLE_ID_REGEX, " ");
+  if (switchDump)
+    cleaned = cleaned.replace(/[([]\s*(?:upd|nsz|xcz)\s*[)\]]|\b(?:upd|nsz|xcz)\b/gi, " ");
 
   // 2. Remove common release group suffixes (usually -GROUP at the end)
   // Handle simple -GROUP at end

@@ -1,5 +1,5 @@
 import type { ReleaseClass } from "../../shared/release-classification.js";
-import { CLASSES, type Prediction } from "./types.js";
+import { CLASSES, foldClass, type Prediction } from "./types.js";
 
 export interface ClassMetrics {
   precision: number | null;
@@ -44,18 +44,20 @@ export function computeMetrics(
   let acceptedCorrect = 0;
   let failures = 0;
 
-  truth.forEach((actual, i) => {
+  truth.forEach((rawActual, i) => {
     const pred = predictions[i];
     if (!pred) return;
+    const actual = foldClass(rawActual);
+    const predicted = foldClass(pred.label);
     const row = confusion[index.get(actual) ?? 0];
-    if (row) row[index.get(pred.label) ?? 0] = (row[index.get(pred.label) ?? 0] ?? 0) + 1;
+    if (row) row[index.get(predicted) ?? 0] = (row[index.get(predicted) ?? 0] ?? 0) + 1;
     if (pred.error) failures++;
-    if (pred.label === actual) correct++;
-    if (pred.label === "unknown") {
+    if (predicted === actual) correct++;
+    if (predicted === "unknown") {
       abstained++;
     } else {
       accepted++;
-      if (pred.label === actual) acceptedCorrect++;
+      if (predicted === actual) acceptedCorrect++;
     }
   });
 

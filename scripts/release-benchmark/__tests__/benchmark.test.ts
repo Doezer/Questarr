@@ -92,6 +92,12 @@ describe("computeMetrics", () => {
     expect(m.macroF1).toBeCloseTo((0.5 + 0.5 + 2 / 3 + 0) / 4);
   });
 
+  it("scores expansion as dlc when called directly", () => {
+    const m = computeMetrics(["expansion", "dlc"], [{ label: "dlc" }, { label: "expansion" }]);
+    expect(m.accuracy).toBe(1);
+    expect(m.perClass.dlc.support).toBe(2);
+  });
+
   it("counts failures and rejects mismatched lengths", () => {
     const m = computeMetrics(["dlc"], [{ label: "unknown", error: "boom" }]);
     expect(m.failures).toBe(1);

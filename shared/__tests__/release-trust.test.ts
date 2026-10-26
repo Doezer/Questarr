@@ -96,15 +96,6 @@ describe("deriveReleaseTrust", () => {
     expect(trustOf("Elden.Ring-RUNE", { ...game, xrelReleases: [] }).level).toBe("unverified");
   });
 
-  it("uses the antivirus result only when known", () => {
-    expect(trustOf("Elden.Ring-RUNE", game, { av: "clean" }).level).toBe("trusted");
-    expect(trustOf("Elden.Ring-RUNE", game, { av: "blocked" }).level).toBe("risky");
-    expect(trustOf("Elden.Ring-RUNE", game, { av: "incomplete", preferredGroup: true }).level).toBe(
-      "unverified"
-    );
-    expect(trustOf("Elden.Ring-RUNE", game, { av: "unknown" }).level).toBe("unverified");
-  });
-
   it("does not trust a release for another game or a sequel", () => {
     const trust = trustOf("Dark.Souls-RUNE", game, { preferredGroup: true });
     expect(trust.level).toBe("unverified");

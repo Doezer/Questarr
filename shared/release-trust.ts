@@ -3,10 +3,10 @@
  *
  * Pure derivation of one verdict ("can I grab this release safely?") from the signals Questarr
  * already has for a search result: the scoring evaluation (title match, risky file, xREL), the
- * user's preferred release groups, the blacklist and, when known, an antivirus result.
+ * user's preferred release groups and the blacklist.
  *
  * - risky: a signal says the release is dangerous or unwanted (nuked, executable payload,
- *   blacklisted, antivirus hit). Nothing else can outweigh it.
+ *   blacklisted). Nothing else can outweigh it.
  * - trusted: accepted, a clear title match, and positive evidence that is hard to fake.
  * - unverified: everything else, including whenever a check could not run.
  *
@@ -19,8 +19,6 @@ import type { ReleaseEvaluation } from "./release-scoring.js";
 export type TrustLevel = "trusted" | "unverified" | "risky";
 export type TrustTone = "good" | "neutral" | "bad";
 
-export type AvResult = "clean" | "blocked" | "incomplete" | "unknown";
-
 export interface TrustReason {
   code:
     | "xrel_verified"
@@ -32,9 +30,6 @@ export interface TrustReason {
     | "blacklisted"
     | "risky_file"
     | "non_game_media"
-    | "av_clean"
-    | "av_blocked"
-    | "av_incomplete"
     | "title_unclear"
     | "rejected";
   tone: TrustTone;
@@ -54,8 +49,6 @@ export interface TrustSignals {
   preferredGroup?: boolean;
   /** The release matches the user's global or per-game blacklist. */
   blacklisted?: boolean;
-  /** Antivirus result, only known for something already downloaded. */
-  av?: AvResult;
 }
 
 /** A listed release this far from the xREL size is not the same payload under the same name. */
@@ -99,10 +92,6 @@ export function deriveReleaseTrust(
     risky = true;
     reasons.push({ code: "blacklisted", tone: "bad", label: "Blacklisted" });
   }
-  if (signals.av === "blocked") {
-    risky = true;
-    reasons.push({ code: "av_blocked", tone: "bad", label: "Antivirus flagged the download" });
-  }
 
   const agrees = sizeAgrees(signals.size, evaluation.xrelSizeBytes);
   let xrelEvidence = false;
@@ -143,11 +132,6 @@ export function deriveReleaseTrust(
   if (signals.preferredGroup) {
     reasons.push({ code: "preferred_group", tone: "good", label: "Preferred release group" });
   }
-  if (signals.av === "clean") {
-    reasons.push({ code: "av_clean", tone: "good", label: "Antivirus scan clean" });
-  } else if (signals.av === "incomplete") {
-    reasons.push({ code: "av_incomplete", tone: "neutral", label: "Antivirus scan incomplete" });
-  }
 
   const clearTitle = evaluation.titleMatch === "exact" || evaluation.titleMatch === "contains";
   if (!clearTitle) {
@@ -164,10 +148,7 @@ export function deriveReleaseTrust(
     evaluation.accepted &&
     clearTitle &&
     !sizeMismatch &&
-    signals.av !== "incomplete" &&
-    (xrelEvidence ||
-      (signals.preferredGroup && evaluation.xrel !== "unavailable") ||
-      signals.av === "clean")
+    (xrelEvidence || (signals.preferredGroup && evaluation.xrel !== "unavailable"))
   ) {
     level = "trusted";
   }

@@ -27,7 +27,9 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import ReleaseScoreBadge, { XrelStatusBadge } from "@/components/ReleaseScoreBadge";
+import ReleaseTrustBadge from "@/components/ReleaseTrustBadge";
 import type { ReleaseEvaluation } from "@shared/release-scoring";
+import type { ReleaseTrust } from "@shared/release-trust";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -120,6 +122,7 @@ interface DownloadItem {
   aiReleaseType?: ReleaseType;
   aiReleaseTypeConfidence?: number;
   evaluation?: ReleaseEvaluation;
+  trust?: ReleaseTrust;
 }
 
 interface SearchResult {
@@ -1407,6 +1410,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   />
                                   {download.evaluation && (
                                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      {download.trust && (
+                                        <ReleaseTrustBadge trust={download.trust} />
+                                      )}
                                       <ReleaseScoreBadge evaluation={download.evaluation} />
                                       <XrelStatusBadge evaluation={download.evaluation} />
                                     </div>
@@ -1511,6 +1517,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                 />
                                 {download.evaluation && (
                                   <div className="flex flex-wrap items-center gap-1.5">
+                                    {download.trust && <ReleaseTrustBadge trust={download.trust} />}
                                     <ReleaseScoreBadge evaluation={download.evaluation} />
                                     <XrelStatusBadge evaluation={download.evaluation} />
                                   </div>

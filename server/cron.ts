@@ -40,6 +40,7 @@ import { registerTask, startTaskScheduler, type TaskDefinition } from "./task-re
 import {
   activePreferredGroupFormat,
   isAutoEligible,
+  trustFor,
   loadScoringConfig,
   type ScoringConfig,
 } from "./release-scoring-service.js";
@@ -433,12 +434,18 @@ function evaluateItemsForGame(
   items: SearchItem[],
   game: Pick<Game, "title" | "targetPlatformId" | "targetPlatformName">,
   scoring: AutoSearchScoring,
-  xrelReleases?: XrelPredbEntry[]
+  xrelReleases?: XrelPredbEntry[],
+  xrelUnavailable = false
 ): { item: SearchItem; evaluation: ReleaseEvaluation }[] {
   const platform = resolveGamePlatformPreference(game, scoring.preferredPlatform);
   return evaluateReleases(
     items,
-    { gameTitle: game.title, platform, ...(xrelReleases ? { xrelReleases } : {}) },
+    {
+      gameTitle: game.title,
+      platform,
+      ...(xrelReleases ? { xrelReleases } : {}),
+      ...(xrelUnavailable ? { xrelUnavailable } : {}),
+    },
     scoring.config.profile,
     scoring.config.formats
   );
@@ -450,7 +457,11 @@ function keepEligibleEvaluations(
 ): SearchItem[] {
   return evaluated
     .filter(({ evaluation }) => isAutoEligible(evaluation, scoring.config))
-    .map(({ item, evaluation }) => ({ ...item, evaluation }));
+    .map(({ item, evaluation }) => ({
+      ...item,
+      evaluation,
+      trust: trustFor(evaluation, item.size, scoring.config),
+    }));
 }
 
 export function scoreReleasesForGame(
@@ -500,6 +511,7 @@ export async function searchAndCategorizeItemsForGame(
   const blacklisted = await storage.getReleaseBlacklistSet(game.id);
   let xrelLookedUp = false;
   let xrelReleases: XrelPredbEntry[] | undefined;
+  let xrelUnavailable = false;
 
   for (let page = 0; page < AUTO_SEARCH_MAX_PAGES; page++) {
     const { items, errors } = await searchAllIndexers({
@@ -519,7 +531,6 @@ export async function searchAndCategorizeItemsForGame(
     if (scoring?.xrelTypes && !xrelLookedUp) {
       xrelLookedUp = true;
       // bounded so a slow xREL cannot stall the whole cycle; the lookup still fills the cache
-      let xrelUnavailable = false;
       xrelReleases = await getXrelPredb(game.title, scoring.xrelTypes, {
         timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
         // cycles are hours apart, so a slow or failed lookup falls back on the last completed one
@@ -540,7 +551,9 @@ export async function searchAndCategorizeItemsForGame(
         xrelDeferredGames.delete(game.id);
       }
     }
-    const evaluated = scoring ? evaluateItemsForGame(items, game, scoring, xrelReleases) : null;
+    const evaluated = scoring
+      ? evaluateItemsForGame(items, game, scoring, xrelReleases, xrelUnavailable)
+      : null;
     matchedItems =
       evaluated && scoring
         ? keepEligibleEvaluations(evaluated, scoring)
@@ -1992,7 +2005,12 @@ export async function checkAutoSearch() {
                           }
 
                           igdbLogger.info(
-                            { gameTitle: game.title, type: item.downloadType },
+                            {
+                              gameTitle: game.title,
+                              type: item.downloadType,
+                              trust: item.trust?.level,
+                              trustReasons: item.trust?.reasons.map((reason) => reason.code),
+                            },
                             "Auto-downloaded result"
                           );
                         }

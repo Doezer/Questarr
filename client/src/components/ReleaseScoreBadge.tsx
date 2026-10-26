@@ -44,6 +44,11 @@ const XREL_BADGES = {
     title: "Not listed on xREL (P2P and usenet releases often are not)",
     className: "border-border text-muted-foreground",
   },
+  unavailable: {
+    label: "xREL?",
+    title: "xREL could not be checked (slow or unreachable), so nuke status is unknown",
+    className: "border-amber-500/50 text-amber-500",
+  },
 } as const;
 
 /** xREL PreDB verdict for a result, when the lookup worked. */

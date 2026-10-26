@@ -8,11 +8,12 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Check, Plus } from "lucide-react";
+import { Check, Plus, X } from "lucide-react";
 
 interface CollectionGamesDialogProps {
   open: boolean;
@@ -23,7 +24,7 @@ interface CollectionGamesDialogProps {
   memberIds: ReadonlySet<string>;
 }
 
-/** Add games to, or remove them from, a manual collection by picking from the library. */
+/** Add games to a manual collection by picking from the library; members can also be removed. */
 export default function CollectionGamesDialog({
   open,
   onOpenChange,
@@ -67,8 +68,11 @@ export default function CollectionGamesDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Games in “{collectionName}”</DialogTitle>
-          <DialogDescription>Pick games from your library to add or remove.</DialogDescription>
+          <DialogTitle>Add games to “{collectionName}”</DialogTitle>
+          <DialogDescription>
+            Pick games from your library. {memberIds.size}{" "}
+            {memberIds.size === 1 ? "game is" : "games are"} already in this collection.
+          </DialogDescription>
         </DialogHeader>
 
         <Input
@@ -111,28 +115,44 @@ export default function CollectionGamesDialog({
                   <div className="h-12 w-9 shrink-0 rounded bg-muted" aria-hidden="true" />
                 )}
                 <span className="min-w-0 flex-1 truncate text-sm">{game.title}</span>
-                <Button
-                  size="sm"
-                  variant={isMember ? "secondary" : "outline"}
-                  className="h-10 min-w-24 sm:h-9"
-                  disabled={toggleMutation.isPending}
-                  aria-label={`${isMember ? "Remove" : "Add"} ${game.title}`}
-                  onClick={() => toggleMutation.mutate({ gameId: game.id, add: !isMember })}
-                >
-                  {isMember ? (
-                    <>
-                      <Check className="mr-1 h-4 w-4" aria-hidden="true" /> Added
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="mr-1 h-4 w-4" aria-hidden="true" /> Add
-                    </>
-                  )}
-                </Button>
+                {isMember ? (
+                  <>
+                    <span className="inline-flex h-10 min-w-24 items-center justify-center gap-1 rounded-md bg-secondary px-3 text-sm text-secondary-foreground sm:h-9">
+                      <Check className="h-4 w-4" aria-hidden="true" /> Added
+                    </span>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-10 w-10 shrink-0 sm:h-9 sm:w-9"
+                      disabled={toggleMutation.isPending}
+                      aria-label={`Remove ${game.title}`}
+                      onClick={() => toggleMutation.mutate({ gameId: game.id, add: false })}
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-10 min-w-24 sm:h-9"
+                    disabled={toggleMutation.isPending}
+                    aria-label={`Add ${game.title}`}
+                    onClick={() => toggleMutation.mutate({ gameId: game.id, add: true })}
+                  >
+                    <Plus className="mr-1 h-4 w-4" aria-hidden="true" /> Add
+                  </Button>
+                )}
               </li>
             );
           })}
         </ul>
+
+        <DialogFooter>
+          <Button className="h-10 w-full sm:h-9 sm:w-auto" onClick={() => onOpenChange(false)}>
+            Done
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -703,6 +703,24 @@ export const sanitizeUnmatchedMatchData = [
   body("igdbId").isInt({ min: 1 }).withMessage("igdbId must be a positive integer").toInt(),
 ];
 
+// Sanitization rules for POST /api/library/scan/unmatched/ignore
+export const sanitizeUnmatchedIgnoreData = [
+  body("rootFolderId")
+    .isString()
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("rootFolderId is required"),
+  // Not trimmed: the name must match the scanned folder exactly, spaces included.
+  body("folderName")
+    .isString()
+    .isLength({ min: 1, max: 1000 })
+    .withMessage("folderName is required"),
+];
+
+export const sanitizeIgnoredId = [
+  param("id").isString().trim().isLength({ min: 1, max: 200 }).withMessage("id is required"),
+];
+
 export const sanitizeUnmatchedSearchData = [
   body("rootFolderId")
     .isString()

@@ -50,6 +50,15 @@ describe("deriveReleaseTrust", () => {
     expect(trust.reasons.map((r) => r.code)).toContain("xrel_size_mismatch");
   });
 
+  it("does not let a preferred group outweigh an xREL size mismatch", () => {
+    const trust = trustOf(
+      "Elden.Ring-RUNE",
+      { ...game, xrelReleases: [{ dirname: "Elden.Ring-RUNE", sizeBytes: 50 * GB }] },
+      { preferredGroup: true }
+    );
+    expect(trust.level).toBe("unverified");
+  });
+
   it("is risky when nuked, whatever else is positive", () => {
     const trust = trustOf(
       "Elden.Ring-RUNE",

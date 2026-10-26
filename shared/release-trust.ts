@@ -106,8 +106,10 @@ export function deriveReleaseTrust(
 
   const agrees = sizeAgrees(signals.size, evaluation.xrelSizeBytes);
   let xrelEvidence = false;
+  let sizeMismatch = false;
   if (evaluation.xrel === "verified") {
     if (agrees === false) {
+      sizeMismatch = true;
       reasons.push({
         code: "xrel_size_mismatch",
         tone: "bad",
@@ -161,6 +163,7 @@ export function deriveReleaseTrust(
   } else if (
     evaluation.accepted &&
     clearTitle &&
+    !sizeMismatch &&
     signals.av !== "incomplete" &&
     (xrelEvidence ||
       (signals.preferredGroup && evaluation.xrel !== "unavailable") ||

@@ -60,15 +60,31 @@ const compareNumbers = (
   return 0;
 };
 
+// "Recently Released" lists games already out, newest first. Unreleased games (future date)
+// follow them, soonest first, and games without a date stay last.
+const compareRecentlyReleased = (
+  dateA: Date | string | null | undefined,
+  dateB: Date | string | null | undefined,
+  now: number
+): number => {
+  const rank = missingRank(dateA, dateB);
+  if (rank !== null) return rank;
+  const futureA = new Date(dateA!).getTime() > now;
+  const futureB = new Date(dateB!).getTime() > now;
+  if (futureA !== futureB) return futureA ? 1 : -1;
+  return compareDates(dateA, dateB, futureA);
+};
+
 export function sortLibraryGames(gameList: Game[], sortBy: LibrarySortOption): Game[] {
   const sorted = [...gameList];
+  const now = Date.now();
 
   return sorted.sort((a, b) => {
     switch (sortBy) {
       case "added-desc":
         return compareDates(a.addedAt, b.addedAt, false);
       case "released-desc":
-        return compareDates(a.releaseDate, b.releaseDate, false);
+        return compareRecentlyReleased(a.releaseDate, b.releaseDate, now);
       case "released-asc":
         return compareDates(a.releaseDate, b.releaseDate, true);
       case "downloadable-desc":

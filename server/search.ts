@@ -3,6 +3,7 @@ import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { searchLogger } from "./logger.js";
 import { parseReleaseMetadata } from "../shared/title-utils.js";
+import type { ReleaseTrust } from "../shared/release-trust.js";
 import type { ReleaseEvaluation } from "../shared/release-scoring.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 
@@ -40,6 +41,8 @@ export interface SearchItem {
   // Release scoring decision (shared/release-scoring.ts), attached by the manual search route
   // and by auto-search. Absent when scoring was unavailable.
   evaluation?: ReleaseEvaluation;
+  // One trust verdict derived from the evaluation and the other signals (shared/release-trust.ts).
+  trust?: ReleaseTrust;
 }
 
 export interface AggregatedSearchOptions {

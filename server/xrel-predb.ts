@@ -31,6 +31,19 @@ export interface XrelPredbTypes {
 const cache = new Map<string, { at: number; lookup: Promise<XrelPredbEntry[] | undefined> }>();
 const staleResults = new Map<string, { at: number; value: XrelPredbEntry[] }>();
 
+const SIZE_UNITS: Record<string, number> = {
+  kb: 1024,
+  mb: 1024 ** 2,
+  gb: 1024 ** 3,
+  tb: 1024 ** 4,
+};
+
+function xrelSizeBytes(release: { sizeMb?: number | undefined; sizeUnit?: string | undefined }) {
+  const factor = SIZE_UNITS[release.sizeUnit?.toLowerCase() ?? ""];
+  if (!factor || !release.sizeMb || release.sizeMb <= 0) return undefined;
+  return Math.round(release.sizeMb * factor);
+}
+
 async function fetchPredb(
   gameTitle: string,
   types: XrelPredbTypes
@@ -42,10 +55,14 @@ async function fetchPredb(
     limit: LOOKUP_LIMIT,
     baseUrl,
   });
-  return releases.map((release) => ({
-    dirname: release.dirname,
-    ...(release.nukeReason !== undefined ? { nukeReason: release.nukeReason } : {}),
-  }));
+  return releases.map((release) => {
+    const sizeBytes = xrelSizeBytes(release);
+    return {
+      dirname: release.dirname,
+      ...(release.nukeReason !== undefined ? { nukeReason: release.nukeReason } : {}),
+      ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+    };
+  });
 }
 
 /**

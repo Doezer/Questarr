@@ -13,6 +13,7 @@ import {
 } from "../shared/release-scoring.js";
 import { DEFAULT_CUSTOM_FORMATS } from "../shared/default-custom-formats.js";
 import { parseJsonStringArray } from "../shared/title-utils.js";
+import { deriveReleaseTrust, type ReleaseTrust } from "../shared/release-trust.js";
 
 /** Points a release from a preferred group gains; the old setting only reordered. */
 export const PREFERRED_GROUP_SCORE = 50;
@@ -245,6 +246,22 @@ export function activePreferredGroupFormat(config: ScoringConfig): CustomFormat 
   );
   if (!format) return undefined;
   return (config.profile.formatScores[format.id] ?? format.score) > 0 ? format : undefined;
+}
+
+/**
+ * The trust verdict for an evaluated result. A release counts as from a preferred group when
+ * the user's preferred-groups format matched it.
+ */
+export function trustFor(
+  evaluation: ReleaseEvaluation,
+  size: number | undefined,
+  config: ScoringConfig
+): ReleaseTrust {
+  const preferredId = activePreferredGroupFormat(config)?.id;
+  return deriveReleaseTrust(evaluation, {
+    size,
+    preferredGroup: preferredId !== undefined && evaluation.matchedFormats.includes(preferredId),
+  });
 }
 
 /**

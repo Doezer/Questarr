@@ -247,6 +247,12 @@ describe("xREL Client", () => {
       );
     });
 
+    it("should treat a reply without release lists as a failure, not as no releases", async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+
+      await expect(xrelClient.searchReleases("odd")).rejects.toThrow("unexpected response");
+    });
+
     it("should handle rate limiting errors", async () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,

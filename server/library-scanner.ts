@@ -623,6 +623,22 @@ const AUTO_MATCH_THRESHOLD = 0.85;
 // finished matching.
 const gamesChangedByScan = new WeakSet<ScanProgress>();
 
+/**
+ * Remember which game each Switch base title in `files` belongs to, so sibling update and DLC
+ * candidates of the same scan attach to it. Reads the files, not the candidate name: a folder
+ * named "Hades" holds "Hades [0100…].nsp".
+ */
+function registerSwitchFamilies(
+  files: ReadonlyArray<{ absolutePath: string }>,
+  gameId: string,
+  switchFamilies: Map<string, string>
+): void {
+  for (const f of files) {
+    const info = parseSwitchTitleId(path.basename(f.absolutePath));
+    if (info?.kind === "base") switchFamilies.set(info.family, gameId);
+  }
+}
+
 /** Classify and (auto-)resolve a single scan candidate, updating `progress` in place. */
 async function processCandidate(
   rootFolder: RootFolderRow,
@@ -648,8 +664,7 @@ async function processCandidate(
   if (knownGameId) {
     const added = await assignFilesToGame(knownGameId, files);
     if (added > 0) gamesChangedByScan.add(progress);
-    const knownSwitch = parseSwitchTitleId(cand.folderName);
-    if (knownSwitch?.kind === "base") switchFamilies.set(knownSwitch.family, knownGameId);
+    registerSwitchFamilies(files, knownGameId, switchFamilies);
     progress.matched += 1;
     return;
   }
@@ -673,7 +688,7 @@ async function processCandidate(
 
   if (best && score >= AUTO_MATCH_THRESHOLD) {
     const gameId = await recordMatchedCandidate(cand, best, userId, files, progress);
-    if (switchInfo?.kind === "base") switchFamilies.set(switchInfo.family, gameId);
+    registerSwitchFamilies(files, gameId, switchFamilies);
     progress.matched += 1;
   } else {
     recordUnmatchedCandidate(rootFolder, cand, igdbCandidates);

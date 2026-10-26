@@ -333,7 +333,7 @@ describe("Nintendo Switch dump names", () => {
     expect(cleanReleaseName("Super Mario Odyssey [01007EF00011E000][v0].xci")).toBe(
       "Super Mario Odyssey"
     );
-    expect(cleanReleaseName("Hades [0100535012974000][v1.0.2][US].nsz")).toBe("Hades US");
+    expect(cleanReleaseName("Hades [0100535012974000][v1.0.2][US].nsz")).toBe("Hades");
     expect(cleanReleaseName("Celeste [010018E00C3F8000].xcz")).toBe("Celeste");
     expect(cleanReleaseName("Celeste.nsz")).toBe("Celeste");
     expect(cleanReleaseName("Chrono Trigger NSZ Edition.zip")).toContain("NSZ");

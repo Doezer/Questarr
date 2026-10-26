@@ -757,6 +757,47 @@ describe("scanRootFolderById Nintendo Switch dumps", () => {
     await fs.promises.rm(dir, { recursive: true, force: true });
   });
 
+  it("registers the family of a base dump inside a folder so a sibling DLC file attaches", async () => {
+    const { storage } = await import("../storage.js");
+    const { igdbClient } = await import("../igdb.js");
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-switch-"));
+    const base = "Hades [0100535012974000][v0].nsp";
+    const dlc = "Bonus Pack Alpha [0100535012975001][v0].nsp";
+    await fs.promises.mkdir(path.join(dir, "Hades"));
+    await fs.promises.writeFile(path.join(dir, "Hades", base), "x");
+    await fs.promises.writeFile(path.join(dir, dlc), "x");
+    vi.mocked(storage.getRootFolder).mockReset();
+    vi.mocked(storage.getRootFolder).mockResolvedValue({
+      ...mockRootFolder,
+      id: "rf-switch-dir",
+      path: dir,
+    });
+    vi.mocked(storage.getAllGames).mockResolvedValue([]);
+    vi.mocked(storage.getGameByIgdbId).mockResolvedValue(undefined);
+    vi.mocked(storage.getGameFiles).mockResolvedValue([]);
+    vi.mocked(storage.addGame).mockReset();
+    vi.mocked(storage.addGame).mockResolvedValue({ id: "g-hades" } as Game);
+    vi.mocked(storage.addGameFile).mockClear();
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "Hades", platforms: [{ id: 130, name: "Nintendo Switch" }] } as never,
+    ]);
+
+    await scanRootFolderById("rf-switch-dir", "user-1");
+
+    expect(storage.addGame).toHaveBeenCalledTimes(1);
+    const added = vi
+      .mocked(storage.addGameFile)
+      .mock.calls.map(([f]) => [f.originalName, f.gameId]);
+    expect(added).toEqual(
+      expect.arrayContaining([
+        [base, "g-hades"],
+        [dlc, "g-hades"],
+      ])
+    );
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+
   it("falls back to an unfiltered search when the Switch-filtered results are weak", async () => {
     const { storage } = await import("../storage.js");
     const { igdbClient } = await import("../igdb.js");

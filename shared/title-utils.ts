@@ -48,6 +48,7 @@ const RELEASE_TAGS = [
 const VERSION_REGEX = /\b(v\d+([.\s-]\d+)*|build[.\s-]\d+)\b/i;
 
 const SWITCH_TITLE_ID_REGEX = /\b01[0-9a-f]{14}\b/gi;
+const SWITCH_REGION_TAG_REGEX = /[([]\s*(?:US|EU|JP|UK|KR|CN|HK|TW|AU|WORLD|ASIA)\s*[)\]]/gi;
 
 export type SwitchTitleKind = "base" | "update" | "dlc";
 
@@ -94,8 +95,10 @@ export function cleanReleaseName(releaseName: string): string {
   // so they go only when a title id or a compressed-dump extension identifies one.
   const switchDump = parseSwitchTitleId(releaseName) !== null || /\.(nsz|xcz)$/i.test(releaseName);
   cleaned = cleaned.replace(SWITCH_TITLE_ID_REGEX, " ");
-  if (switchDump)
+  if (switchDump) {
     cleaned = cleaned.replace(/[([]\s*(?:upd|nsz|xcz)\s*[)\]]|\b(?:upd|nsz|xcz)\b/gi, " ");
+    cleaned = cleaned.replace(SWITCH_REGION_TAG_REGEX, " ");
+  }
 
   // 2. Remove common release group suffixes (usually -GROUP at the end)
   // Handle simple -GROUP at end

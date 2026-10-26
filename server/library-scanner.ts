@@ -334,6 +334,15 @@ function normalizeCategory(category: string): GameFileCategory {
   return category === "packs" ? "extra" : (category as GameFileCategory);
 }
 
+function categorizeFile(name: string, parentDir: string): GameFileCategory {
+  // A Switch title id says exactly what the file is; titles like "Complete Edition" would
+  // otherwise read as DLC.
+  const switchKind = parseSwitchTitleId(name)?.kind;
+  if (switchKind) return ({ base: "main", update: "update", dlc: "dlc" } as const)[switchKind];
+  if (["dlc", "update", "extra", "packs"].includes(parentDir)) return normalizeCategory(parentDir);
+  return normalizeCategory(categorizeDownload(path.parse(name).name).category);
+}
+
 /**
  * Record scanned files against a game, skipping ones already tracked
  * (matched by absolute path) so re-scans don't create duplicates.
@@ -350,14 +359,7 @@ async function assignFilesToGame(
     if (existingPaths.has(f.absolutePath)) continue;
     const name = path.basename(f.absolutePath);
     const parentDir = path.basename(path.dirname(f.absolutePath)).toLowerCase();
-    // A Switch title id says exactly what the file is; titles like "Complete Edition" would
-    // otherwise read as DLC.
-    const switchKind = parseSwitchTitleId(name)?.kind;
-    const category = switchKind
-      ? ({ base: "main", update: "update", dlc: "dlc" } as const)[switchKind]
-      : ["dlc", "update", "extra", "packs"].includes(parentDir)
-        ? normalizeCategory(parentDir)
-        : normalizeCategory(categorizeDownload(path.parse(name).name).category);
+    const category = categorizeFile(name, parentDir);
     const insert: InsertGameFile = {
       gameId,
       downloadId: null,

@@ -48,13 +48,6 @@ export default function CollectionGamesDialog({
       .sort((a, b) => a.title.localeCompare(b.title));
   }, [games, search]);
 
-  useEffect(() => {
-    const gameId = focusGameId.current;
-    if (!gameId) return;
-    focusGameId.current = null;
-    listRef.current?.querySelector<HTMLElement>(`[data-game-id="${gameId}"] button`)?.focus();
-  }, [memberIds]);
-
   const toggleMutation = useMutation({
     mutationFn: async ({ gameId, add }: { gameId: string; add: boolean }) => {
       if (add) {
@@ -76,6 +69,13 @@ export default function CollectionGamesDialog({
       });
     },
   });
+
+  useEffect(() => {
+    const gameId = focusGameId.current;
+    if (!gameId || toggleMutation.isPending) return;
+    focusGameId.current = null;
+    listRef.current?.querySelector<HTMLElement>(`[data-game-id="${gameId}"] button`)?.focus();
+  }, [memberIds, toggleMutation.isPending]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

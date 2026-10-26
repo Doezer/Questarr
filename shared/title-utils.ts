@@ -47,13 +47,58 @@ const RELEASE_TAGS = [
 
 const VERSION_REGEX = /\b(v\d+([.\s-]\d+)*|build[.\s-]\d+)\b/i;
 
+const SWITCH_TITLE_ID_REGEX = /\b01[0-9a-f]{14}\b/gi;
+const SWITCH_REGION_TAG_REGEX = /[([]\s*(?:US|EU|JP|UK|KR|CN|HK|TW|AU|WORLD|ASIA)\s*[)\]]/gi;
+
+export type SwitchTitleKind = "base" | "update" | "dlc";
+
+export interface SwitchTitleInfo {
+  titleId: string;
+  kind: SwitchTitleKind;
+  /** Shared by a base game, its updates and its DLC: the base title id's first 13 hex digits. */
+  family: string;
+}
+
+/**
+ * Reads a Nintendo Switch title id (16 hex digits starting with 01) from a file or folder name.
+ * A base game id ends in 000 with an even 13th digit, its update sets bit 0x800, and DLC ids use
+ * the next 13-digit prefix, so all three of a game's files resolve to the same family.
+ */
+export function parseSwitchTitleId(name: string): SwitchTitleInfo | null {
+  const match = /(?<![0-9a-z])(01[0-9a-f]{14})(?![0-9a-z])/i.exec(name);
+  if (!match?.[1]) return null;
+  const titleId = match[1].toUpperCase();
+  const prefix = BigInt(`0x${titleId.slice(0, 13)}`);
+  if (prefix % 2n === 1n) {
+    return {
+      titleId,
+      kind: "dlc",
+      family: (prefix - 1n).toString(16).toUpperCase().padStart(13, "0"),
+    };
+  }
+  return {
+    titleId,
+    kind: titleId.endsWith("800") ? "update" : "base",
+    family: titleId.slice(0, 13),
+  };
+}
+
 /**
  * Cleans a release name (e.g. from a torrent or NZB) to attempt to extract the base game title.
  */
 export function cleanReleaseName(releaseName: string): string {
   // 1. Convert underscores and dots (but not dashes) to spaces early to help regex word boundaries
-  // We keep dashes for now to detect -GROUP suffixes
+  // We keep dashes for now to detect -GROUP suffixes. Switch title ids ([0100F2C0115B6000]) are
+  // hex, so the bracket cleanup below would keep them in the title.
   let cleaned = releaseName.replace(/[._]/g, " ");
+  // `upd` and `nsz`/`xcz` are only release tags on Switch dumps ("NSZ Edition" can be a title),
+  // so they go only when a title id or a compressed-dump extension identifies one.
+  const switchDump = parseSwitchTitleId(releaseName) !== null || /\.(nsz|xcz)$/i.test(releaseName);
+  cleaned = cleaned.replace(SWITCH_TITLE_ID_REGEX, " ");
+  if (switchDump) {
+    cleaned = cleaned.replace(/[([]\s*(?:upd|nsz|xcz)\s*[)\]]|\b(?:upd|nsz|xcz)\b/gi, " ");
+    cleaned = cleaned.replace(SWITCH_REGION_TAG_REGEX, " ");
+  }
 
   // 2. Remove common release group suffixes (usually -GROUP at the end)
   // Handle simple -GROUP at end

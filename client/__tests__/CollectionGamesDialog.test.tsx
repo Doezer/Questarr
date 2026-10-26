@@ -18,19 +18,24 @@ vi.mock("@/hooks/use-fresh-games", () => ({
   }),
 }));
 
-function renderDialog() {
-  const client = new QueryClient();
-  return render(
+const client = new QueryClient();
+
+function dialog(memberIds: string[]) {
+  return (
     <QueryClientProvider client={client}>
       <CollectionGamesDialog
         open
         onOpenChange={vi.fn()}
         collectionId="c1"
         collectionName="Co-op"
-        memberIds={new Set(["g1"])}
+        memberIds={new Set(memberIds)}
       />
     </QueryClientProvider>
   );
+}
+
+function renderDialog() {
+  return render(dialog(["g1"]));
 }
 
 describe("CollectionGamesDialog", () => {
@@ -59,5 +64,28 @@ describe("CollectionGamesDialog", () => {
     await waitFor(() =>
       expect(apiRequest).toHaveBeenCalledWith("DELETE", "/api/collections/c1/games/g1")
     );
+  });
+
+  it("moves focus to the replacement control once the game becomes a member", async () => {
+    const { rerender } = renderDialog();
+    const add = screen.getByRole("button", { name: "Add Beta" });
+    add.focus();
+    fireEvent.click(add);
+    await waitFor(() => expect(apiRequest).toHaveBeenCalled());
+    rerender(dialog(["g1", "g2"]));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Remove Beta" }))
+    );
+  });
+
+  it("leaves focus alone when the user moved to the search field", async () => {
+    const { rerender } = renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: "Add Beta" }));
+    const search = screen.getByLabelText("Search your library");
+    search.focus();
+    await waitFor(() => expect(apiRequest).toHaveBeenCalled());
+    rerender(dialog(["g1", "g2"]));
+    await screen.findByRole("button", { name: "Remove Beta" });
+    expect(document.activeElement).toBe(search);
   });
 });

@@ -81,7 +81,8 @@ vi.mock("fs-extra", () => ({
 // Only the new /api/settings/security-scan/test ClamAV-ping route touches
 // node:net anywhere in routes.ts, so mocking it file-wide here is safe.
 const netTestState = vi.hoisted(() => ({ nextReply: "PONG\0" as string | null }));
-vi.mock("node:net", () => {
+vi.mock("node:net", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:net")>();
   class FakeSocket {
     private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
     on(event: string, cb: (...args: unknown[]) => void) {
@@ -114,7 +115,7 @@ vi.mock("node:net", () => {
     }
     destroy() {}
   }
-  return { default: { Socket: FakeSocket }, Socket: FakeSocket };
+  return { ...actual, default: { ...actual, Socket: FakeSocket }, Socket: FakeSocket };
 });
 // Real isWithinDeletableRootFolder (pure path logic, no fs access) is used by the
 // game-delete tests above; only probeRootFolder — which does real fs.stat/statfs —

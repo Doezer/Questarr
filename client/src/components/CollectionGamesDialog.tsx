@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useFreshGames } from "@/hooks/use-fresh-games";
@@ -35,6 +35,9 @@ export default function CollectionGamesDialog({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const listRef = useRef<HTMLUListElement>(null);
+  /** Row whose control just swapped (Add <-> Remove); focus moves to its replacement. */
+  const focusGameId = useRef<string | null>(null);
 
   const { games, isLoading, isError, retry } = useFreshGames(open);
 
@@ -45,6 +48,13 @@ export default function CollectionGamesDialog({
       .sort((a, b) => a.title.localeCompare(b.title));
   }, [games, search]);
 
+  useEffect(() => {
+    const gameId = focusGameId.current;
+    if (!gameId) return;
+    focusGameId.current = null;
+    listRef.current?.querySelector<HTMLElement>(`[data-game-id="${gameId}"] button`)?.focus();
+  }, [memberIds]);
+
   const toggleMutation = useMutation({
     mutationFn: async ({ gameId, add }: { gameId: string; add: boolean }) => {
       if (add) {
@@ -54,7 +64,10 @@ export default function CollectionGamesDialog({
       }
     },
     // Returned so the mutation stays pending until membership is refetched (no duplicate click).
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/collections"] }),
+    onSuccess: (_data, { gameId }) => {
+      focusGameId.current = gameId;
+      return queryClient.invalidateQueries({ queryKey: ["/api/collections"] });
+    },
     onError: (error: Error) => {
       toast({
         title: "Could not update the collection",
@@ -83,6 +96,7 @@ export default function CollectionGamesDialog({
         />
 
         <ul
+          ref={listRef}
           className="-mx-1 min-h-0 flex-1 space-y-1 overflow-y-auto px-1"
           aria-label="Library games"
         >
@@ -103,7 +117,11 @@ export default function CollectionGamesDialog({
           {visible.map((game) => {
             const isMember = memberIds.has(game.id);
             return (
-              <li key={game.id} className="flex items-center gap-3 rounded-md p-1.5">
+              <li
+                key={game.id}
+                data-game-id={game.id}
+                className="flex items-center gap-3 rounded-md p-1.5"
+              >
                 {game.coverUrl ? (
                   <img
                     src={game.coverUrl}

@@ -150,6 +150,22 @@ export function clearUnmatched(rootFolderId: string, folderName: string): void {
 }
 
 /**
+ * Skip a folder of Needs Review for good: it leaves the list now and later
+ * scans no longer queue it. Resolved against the queued entry like
+ * `matchUnmatchedFolder`, so client input never reaches the filesystem.
+ */
+export async function ignoreUnmatchedFolder(
+  rootFolderId: string,
+  folderName: string
+): Promise<void> {
+  if (!getUnmatchedEntry(rootFolderId, folderName)) {
+    throw new Error("No matching unmatched entry for this root folder");
+  }
+  await storage.addIgnoredScanFolder(rootFolderId, folderName);
+  clearUnmatched(rootFolderId, folderName);
+}
+
+/**
  * Look up a specific queued unmatched entry. Used to resolve a client-supplied
  * `folderName` to a server-trusted `absolutePath` without ever joining
  * client input onto a filesystem path (see `matchUnmatchedFolder`).
@@ -614,8 +630,14 @@ async function processCandidate(
   userId: string,
   progress: ScanProgress,
   knownGameIds: ReadonlyMap<string, string>,
+  ignoredNames: ReadonlySet<string>,
   switchFamilies: Map<string, string>
 ): Promise<void> {
+  // Ignored from Needs Review (e.g. a Proton build next to games): skip it
+  // before walking its files. A folder linked to a game is still processed.
+  const knownGameId = knownGameIds.get(cand.absolutePath);
+  if (!knownGameId && ignoredNames.has(cand.folderName)) return;
+
   const files = cand.isFile
     ? [{ absolutePath: cand.absolutePath, size: cand.fileSize ?? 0 }]
     : await listFiles(cand.absolutePath);
@@ -623,7 +645,6 @@ async function processCandidate(
 
   // Already linked to a game by an earlier scan or a manual match: keep it out
   // of the review list and skip the IGDB lookup, but still pick up new files.
-  const knownGameId = knownGameIds.get(cand.absolutePath);
   if (knownGameId) {
     const added = await assignFilesToGame(knownGameId, files);
     if (added > 0) gamesChangedByScan.add(progress);
@@ -685,11 +706,23 @@ async function runScan(
     candidates.sort((a, b) => rank(a) - rank(b));
     const switchFamilies = new Map<string, string>();
 
+    const ignoredNames = new Set(
+      (await storage.getIgnoredScanFolders(rootFolderId)).map((r) => r.folderName)
+    );
+
     for (const cand of candidates) {
       progress.currentCandidate = cand.folderName;
       emitProgress(progress);
       try {
-        await processCandidate(rootFolder, cand, userId, progress, knownGameIds, switchFamilies);
+        await processCandidate(
+          rootFolder,
+          cand,
+          userId,
+          progress,
+          knownGameIds,
+          ignoredNames,
+          switchFamilies
+        );
       } catch (err) {
         progress.errors += 1;
         routesLogger.error({ err, folder: cand.folderName }, "scan: error processing folder");

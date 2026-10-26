@@ -5,6 +5,7 @@ import path from "path";
 import {
   __testing,
   matchUnmatchedFolder,
+  ignoreUnmatchedFolder,
   searchUnmatchedFolder,
   clearUnmatched,
   rescanRootFolderById,
@@ -36,6 +37,8 @@ vi.mock("../storage.js", () => ({
     getEnabledRootFolders: vi.fn().mockResolvedValue([]),
     touchRootFolderScanned: vi.fn().mockResolvedValue(undefined),
     getAllGames: vi.fn().mockResolvedValue([]),
+    getIgnoredScanFolders: vi.fn().mockResolvedValue([]),
+    addIgnoredScanFolder: vi.fn().mockResolvedValue(undefined),
     getGameByIgdbId: vi.fn(),
     addGame: vi.fn(),
     updateGame: vi.fn(),
@@ -341,6 +344,42 @@ describe("scanRootFolderById full scan", () => {
     expect(storage.addGameFile).toHaveBeenCalledWith(
       expect.objectContaining({ gameId: "manual-game", originalName: "Mystery Game.iso" })
     );
+  });
+
+  it("keeps an ignored folder out of review and skips its IGDB lookup", async () => {
+    const { storage } = await import("../storage.js");
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockClear();
+    vi.mocked(storage.getIgnoredScanFolders).mockResolvedValueOnce([
+      { id: "ig-1", rootFolderId: "rf-1", folderName: "Mystery Game.iso", createdAt: new Date() },
+    ]);
+
+    await scanRootFolderById("rf-1", "user-1");
+
+    expect(storage.getIgnoredScanFolders).toHaveBeenCalledWith("rf-1");
+    expect(getAllUnmatched()).toHaveLength(0);
+    expect(getScanProgress("rf-1")?.unmatched).toBe(0);
+    expect(igdbClient.searchGames).not.toHaveBeenCalledWith("Mystery Game", 5);
+  });
+
+  it("ignoreUnmatchedFolder persists the name and drops the entry from review", async () => {
+    const { storage } = await import("../storage.js");
+    await scanRootFolderById("rf-1", "user-1");
+    expect(getAllUnmatched().map((e) => e.folderName)).toEqual(["Mystery Game.iso"]);
+
+    await ignoreUnmatchedFolder("rf-1", "Mystery Game.iso");
+
+    expect(storage.addIgnoredScanFolder).toHaveBeenCalledWith("rf-1", "Mystery Game.iso");
+    expect(getAllUnmatched()).toHaveLength(0);
+  });
+
+  it("ignoreUnmatchedFolder refuses a name that is not awaiting review", async () => {
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.addIgnoredScanFolder).mockClear();
+    await expect(ignoreUnmatchedFolder("rf-1", "../etc")).rejects.toThrow(
+      "No matching unmatched entry for this root folder"
+    );
+    expect(storage.addIgnoredScanFolder).not.toHaveBeenCalled();
   });
 
   it("still refreshes clients when the scan fails after adding games", async () => {

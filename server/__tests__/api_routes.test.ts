@@ -25,6 +25,7 @@ import {
 import { registerRoutes, parseCategories } from "../routes.js";
 import {
   matchUnmatchedFolder,
+  ignoreUnmatchedFolder,
   rescanRootFolderById,
   searchUnmatchedFolder,
 } from "../library-scanner.js";
@@ -80,7 +81,8 @@ vi.mock("fs-extra", () => ({
 // Only the new /api/settings/security-scan/test ClamAV-ping route touches
 // node:net anywhere in routes.ts, so mocking it file-wide here is safe.
 const netTestState = vi.hoisted(() => ({ nextReply: "PONG\0" as string | null }));
-vi.mock("node:net", () => {
+vi.mock("node:net", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:net")>();
   class FakeSocket {
     private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
     on(event: string, cb: (...args: unknown[]) => void) {
@@ -113,7 +115,7 @@ vi.mock("node:net", () => {
     }
     destroy() {}
   }
-  return { default: { Socket: FakeSocket }, Socket: FakeSocket };
+  return { ...actual, default: { ...actual, Socket: FakeSocket }, Socket: FakeSocket };
 });
 // Real isWithinDeletableRootFolder (pure path logic, no fs access) is used by the
 // game-delete tests above; only probeRootFolder — which does real fs.stat/statfs —
@@ -137,6 +139,7 @@ vi.mock("../library-scanner.js", () => ({
   getAllScanProgress: vi.fn().mockReturnValue([]),
   getAllUnmatched: vi.fn().mockReturnValue([]),
   matchUnmatchedFolder: vi.fn(),
+  ignoreUnmatchedFolder: vi.fn(),
   searchUnmatchedFolder: vi.fn(),
 }));
 
@@ -4690,6 +4693,56 @@ describe("API Routes - Extended Coverage", () => {
 
       expect(response.status).toBe(500);
       expect(response.body).toEqual({ error: "IGDB search failed" });
+    });
+  });
+
+  describe("ignored scan folders", () => {
+    it("POST /unmatched/ignore ignores a queued folder", async () => {
+      vi.mocked(ignoreUnmatchedFolder).mockResolvedValue(undefined);
+      const response = await request(app)
+        .post("/api/library/scan/unmatched/ignore")
+        .send({ rootFolderId: "rf-1", folderName: "Proton 9.0" });
+      expect(response.status).toBe(200);
+      expect(ignoreUnmatchedFolder).toHaveBeenCalledWith("rf-1", "Proton 9.0");
+    });
+
+    it("POST /unmatched/ignore returns 404 for a folder not awaiting review", async () => {
+      vi.mocked(ignoreUnmatchedFolder).mockRejectedValue(
+        new Error("No matching unmatched entry for this root folder")
+      );
+      const response = await request(app)
+        .post("/api/library/scan/unmatched/ignore")
+        .send({ rootFolderId: "rf-1", folderName: "Gone" });
+      expect(response.status).toBe(404);
+    });
+
+    it("POST /unmatched/ignore rejects a missing folderName", async () => {
+      const response = await request(app)
+        .post("/api/library/scan/unmatched/ignore")
+        .send({ rootFolderId: "rf-1" });
+      expect(response.status).toBe(400);
+    });
+
+    it("GET /ignored lists the ignored folders", async () => {
+      vi.mocked(storage.getIgnoredScanFolders).mockResolvedValue([
+        { id: "ig-1", rootFolderId: "rf-1", folderName: "Proton 9.0", createdAt: new Date() },
+      ]);
+      const response = await request(app).get("/api/library/scan/ignored");
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(1);
+    });
+
+    it("DELETE /ignored/:id restores a folder and 404s on an unknown id", async () => {
+      vi.mocked(storage.removeIgnoredScanFolder).mockResolvedValueOnce({
+        id: "ig-1",
+        rootFolderId: "rf-1",
+        folderName: "Proton 9.0",
+        createdAt: new Date(),
+      });
+      expect((await request(app).delete("/api/library/scan/ignored/ig-1")).status).toBe(200);
+
+      vi.mocked(storage.removeIgnoredScanFolder).mockResolvedValueOnce(undefined);
+      expect((await request(app).delete("/api/library/scan/ignored/nope")).status).toBe(404);
     });
   });
 

@@ -78,6 +78,7 @@ type LibraryListState = {
   platformFilter: string;
   showSearchResultsOnly: boolean;
   showDownloadsOnly: boolean;
+  showUpdateAvailableOnly: boolean;
   minRating: number | null;
   showUnratedOnly: boolean;
   showShelvedOverride: boolean;
@@ -100,6 +101,9 @@ export default function Library() {
     restored?.showSearchResultsOnly ?? false
   );
   const [showDownloadsOnly, setShowDownloadsOnly] = useState(restored?.showDownloadsOnly ?? false);
+  const [showUpdateAvailableOnly, setShowUpdateAvailableOnly] = useState(
+    restored?.showUpdateAvailableOnly ?? false
+  );
   const [minRating, setMinRating] = useState<number | null>(restored?.minRating ?? null);
   const [showUnratedOnly, setShowUnratedOnly] = useState(restored?.showUnratedOnly ?? false);
   // Session-only overrides for the account-level default filters (see Settings
@@ -124,6 +128,7 @@ export default function Library() {
       platformFilter,
       showSearchResultsOnly,
       showDownloadsOnly,
+      showUpdateAvailableOnly,
       minRating,
       showUnratedOnly,
       showShelvedOverride,
@@ -137,6 +142,7 @@ export default function Library() {
     platformFilter,
     showSearchResultsOnly,
     showDownloadsOnly,
+    showUpdateAvailableOnly,
     minRating,
     showUnratedOnly,
     showShelvedOverride,
@@ -149,6 +155,7 @@ export default function Library() {
     setPlatformFilter("all");
     setShowSearchResultsOnly(false);
     setShowDownloadsOnly(false);
+    setShowUpdateAvailableOnly(false);
     setMinRating(null);
     setShowUnratedOnly(false);
     setShowShelvedOverride(false);
@@ -284,6 +291,7 @@ export default function Library() {
       )
         return false;
       if (showDownloadsOnly && !downloadSummaries[game.id]) return false;
+      if (showUpdateAvailableOnly && !game.updateSearchResultsAvailable) return false;
       if (showUnratedOnly) return game.userRating === null;
       if (minRating !== null && (game.userRating === null || game.userRating < minRating))
         return false;
@@ -299,6 +307,7 @@ export default function Library() {
     hideShelvedByDefault,
     hideOwnedInHasResults,
     showDownloadsOnly,
+    showUpdateAvailableOnly,
     downloadSummaries,
     minRating,
     showUnratedOnly,
@@ -323,6 +332,11 @@ export default function Library() {
       });
     if (showDownloadsOnly)
       filters.push({ label: "Has Downloads", onRemove: () => setShowDownloadsOnly(false) });
+    if (showUpdateAvailableOnly)
+      filters.push({
+        label: "Update Available",
+        onRemove: () => setShowUpdateAvailableOnly(false),
+      });
     if (minRating !== null)
       filters.push({ label: `Rating: ≥ ${minRating}`, onRemove: () => setMinRating(null) });
     if (showUnratedOnly)
@@ -344,6 +358,7 @@ export default function Library() {
     platformFilter,
     showSearchResultsOnly,
     showDownloadsOnly,
+    showUpdateAvailableOnly,
     minRating,
     showUnratedOnly,
     showShelvedOverride,
@@ -480,6 +495,8 @@ export default function Library() {
                 setShowSearchResultsOnly={setShowSearchResultsOnly}
                 showDownloadsOnly={showDownloadsOnly}
                 setShowDownloadsOnly={setShowDownloadsOnly}
+                showUpdateAvailableOnly={showUpdateAvailableOnly}
+                setShowUpdateAvailableOnly={setShowUpdateAvailableOnly}
               />
             </div>
           }
@@ -506,6 +523,8 @@ export default function Library() {
                   setShowSearchResultsOnly={setShowSearchResultsOnly}
                   showDownloadsOnly={showDownloadsOnly}
                   setShowDownloadsOnly={setShowDownloadsOnly}
+                  showUpdateAvailableOnly={showUpdateAvailableOnly}
+                  setShowUpdateAvailableOnly={setShowUpdateAvailableOnly}
                 />
               </div>
               <Tooltip>
@@ -750,6 +769,7 @@ export default function Library() {
               statusFilter !== "all" ||
               genreFilter !== "all" ||
               platformFilter !== "all" ||
+              showUpdateAvailableOnly ||
               minRating !== null ||
               showUnratedOnly ||
               (hideShelvedByDefault && games.some((g) => g.status === "shelved")) ||

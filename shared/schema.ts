@@ -1565,6 +1565,26 @@ export const updateRootFolderSchema = z.object({
   allowDelete: z.boolean().optional(),
 });
 
+// Folders the user told the library scan to skip for good (e.g. Proton builds
+// next to games in a Steam folder). Matched by folder name within a root
+// folder, so they stay ignored across rescans and path edits of the root.
+export const libraryScanIgnored = sqliteTable(
+  "library_scan_ignored",
+  {
+    id: text("id").primaryKey(),
+    rootFolderId: text("root_folder_id")
+      .notNull()
+      .references(() => rootFolders.id, { onDelete: "cascade" }),
+    folderName: text("folder_name").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [uniqueIndex("library_scan_ignored_root_name_idx").on(t.rootFolderId, t.folderName)]
+);
+
+export type LibraryScanIgnored = typeof libraryScanIgnored.$inferSelect;
+
 export type RootFolder = typeof rootFolders.$inferSelect;
 export type InsertRootFolder = (typeof insertRootFolderSchema)["_output"];
 export type UpdateRootFolder = z.infer<typeof updateRootFolderSchema>;

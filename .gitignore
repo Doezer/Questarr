@@ -49,3 +49,6 @@ todo.md
 .tokensave/
 .claude/.headroom_wrap_marker.json
 .claude/worktrees/
+
+# Labeled release datasets live in the private Questarr-mgmt repository
+scripts/release-benchmark/data/

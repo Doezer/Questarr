@@ -74,6 +74,9 @@ export default function CollectionGamesDialog({
     const gameId = focusGameId.current;
     if (!gameId || toggleMutation.isPending) return;
     focusGameId.current = null;
+    // Leave focus alone if the user moved on (e.g. to the search input) while the update ran.
+    const active = document.activeElement;
+    if (active && active !== document.body && !listRef.current?.contains(active)) return;
     listRef.current?.querySelector<HTMLElement>(`[data-game-id="${gameId}"] button`)?.focus();
   }, [memberIds, toggleMutation.isPending]);
 

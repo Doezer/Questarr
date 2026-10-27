@@ -14,7 +14,7 @@ and optional `notes`.
 
 Labels are `full_game`, `patch`, `dlc`, `unknown`. `expansion` is the same class as `dlc` (both
 in the dataset and in what a classifier answers), as decided with the dataset owner; so is a DLC
-unlocker. Jev's vocabulary is folded in on import: `update` is `patch`, `repack` is `full_game` (flag `repack`), and `crack_only`, `demo`,
+unlocker. Jev's vocabulary is folded in on import: `update` is `patch`, `dlc_update` (an update shipped for a DLC or expansion) is also `patch`, as Questarr files both under its `update` category, `repack` is `full_game` (flag `repack`), and `crack_only`, `demo`,
 `soundtrack`, `other` are `unknown` plus a flag, as decided in the ADR. `unknown` is therefore
 also the right answer for a movie, a series or a trainer.
 

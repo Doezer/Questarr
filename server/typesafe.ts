@@ -80,6 +80,11 @@ class TypeSafeClient {
     this.loaded = true;
   }
 
+  /** The configured model identifier; part of classification cache keys and log lines. */
+  get modelId(): string {
+    return this.model;
+  }
+
   /** Forget the cached credentials so the next call re-reads them from storage. */
   invalidate(): void {
     this.loaded = false;

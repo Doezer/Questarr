@@ -20,6 +20,7 @@ from transformers import AutoModel, AutoModelForSequenceClassification, AutoToke
 from lib import (
     CLASSES,
     evaluate_logits,
+    class_scores,
     latency_ms,
     load_rows,
     metrics,
@@ -111,14 +112,14 @@ def frozen_logits(model_name, train, val, test, text):
     for c in [0.3, 1, 3, 10, 30, 100]:
         clf = LogisticRegression(C=c, class_weight="balanced", max_iter=3000).fit(xtr, ytr)
         yv = np.array([r.label for r in val])
-        scored.append((metrics(yv, clf.decision_function(embed([text(r) for r in val])).argmax(axis=1))["macro_f1"], c))
+        scored.append((metrics(yv, class_scores(clf, embed([text(r) for r in val])).argmax(axis=1))["macro_f1"], c))
     best_c = max(scored)[1]
     clf = LogisticRegression(C=best_c, class_weight="balanced", max_iter=3000).fit(xtr, ytr)
     return (
-        clf.decision_function(embed([text(r) for r in val])),
-        clf.decision_function(embed([text(r) for r in test])),
+        class_scores(clf, embed([text(r) for r in val])),
+        class_scores(clf, embed([text(r) for r in test])),
         {"C": best_c},
-        lambda s: clf.decision_function(embed([s])),
+        lambda s: class_scores(clf, embed([s])),
     )
 
 

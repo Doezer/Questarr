@@ -25,6 +25,7 @@ from lib import (
     fit_temperature,
     grouped_folds,
     load_rows,
+    class_scores,
     metrics,
     name_text,
     part,
@@ -79,7 +80,7 @@ def main():
 
         def fit_predict(train, predict_rows):
             m = fit(train, text, c)
-            return m.decision_function([text(r) for r in predict_rows])
+            return class_scores(m, [text(r) for r in predict_rows])
     else:
         from cv_encoder import train_fixed
         from eval_encoder import predict

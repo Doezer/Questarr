@@ -17,6 +17,7 @@ from sklearn.pipeline import make_pipeline
 from lib import (
     CLASSES,
     grouped_folds,
+    class_scores,
     latency_ms,
     load_rows,
     metrics,
@@ -47,7 +48,7 @@ def fit(rows, text, c):
 
 
 def logits(model, rows, text):
-    scores = model.decision_function([text(r) for r in rows])
+    scores = class_scores(model, [text(r) for r in rows])
     return scores
 
 
@@ -70,7 +71,7 @@ def main(splits_path: str, out_path: str) -> None:
         result["validation_grid"] = [{"C": c, "macro_f1": f} for f, c in scored]
 
         single = [text(r) for r in test]
-        result["cpu_latency"] = latency_ms(lambda s: model.decision_function([s]), single)
+        result["cpu_latency"] = latency_ms(lambda s: class_scores(model, [s]), single)
         # Size of the model as plain JSON (vocabulary, idf, coefficients), which is what a
         # TypeScript port would ship; no pickle involved.
         tfidf, linear = model.steps[0][1], model.steps[1][1]

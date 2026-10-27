@@ -108,6 +108,24 @@ def metrics(truth: np.ndarray, pred: np.ndarray) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def class_scores(model, x) -> np.ndarray:
+    """decision_function scores in the fixed CLASSES order, whichever classes the fit saw.
+
+    sklearn returns one column per class seen in training (one column for two classes), so a
+    game-grouped split that lacks a class would otherwise shift every later column index.
+    Unseen classes get a very low score and are never predicted.
+    """
+    est = model.steps[-1][1] if hasattr(model, "steps") else model
+    raw = np.asarray(model.decision_function(x))
+    seen = list(est.classes_)
+    if raw.ndim == 1:  # binary fit: positive score favours classes_[1]
+        raw = np.stack([-raw, raw], axis=1)
+    out = np.full((raw.shape[0], len(CLASSES)), -1e9)
+    for col, label in enumerate(seen):
+        out[:, int(label)] = raw[:, col]
+    return out
+
+
 def softmax(logits: np.ndarray, temperature: float = 1.0) -> np.ndarray:
     z = logits / temperature
     z = z - z.max(axis=1, keepdims=True)

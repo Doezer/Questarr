@@ -145,6 +145,9 @@ const {
   getAiAutoDownloadHoldReason,
 } = await import("../cron.js");
 const { config: appConfig } = await import("../config.js");
+// These tests cover the legacy Jev-only check; the default mode is `hybrid`, which the pipeline
+// describe below sets for itself
+(appConfig.classification as { mode: string }).mode = "cloud";
 const { igdbLogger } = await import("../logger.js");
 
 describe("Cron - checkAutoSearch", () => {

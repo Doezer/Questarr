@@ -183,7 +183,7 @@ export async function getAiAutoDownloadHoldReason(
   platform: string | null,
   gameTitle?: string
 ): Promise<string | null> {
-  // `cloud` (the default) keeps the Jev-only check below untouched
+  // `cloud` (the legacy mode) keeps the Jev-only check below untouched
   if (config.classification.mode !== "cloud") {
     return getPipelineHoldReason(item, platform, gameTitle);
   }

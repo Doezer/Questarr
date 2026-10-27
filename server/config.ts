@@ -35,9 +35,10 @@ const envSchema = z.object({
   // section in the game details Journal tab — player wishlist sync does not need it)
   STEAM_API_KEY: z.string().optional(),
 
-  // Release classification (see docs/RELEASE_CLASSIFICATION.md). "cloud" is the historical
-  // behaviour (TypeSafe/Jev only) and the default; "local" never calls a cloud provider.
-  CLASSIFICATION_MODE: z.enum(["local", "cloud", "hybrid"]).default("cloud"),
+  // Release classification (see docs/RELEASE_CLASSIFICATION.md). "hybrid" is the default
+  // (rules, local model, then the cloud provider if one is configured); "cloud" is the
+  // historical TypeSafe/Jev-only behaviour; "local" never calls a cloud provider.
+  CLASSIFICATION_MODE: z.enum(["local", "cloud", "hybrid"]).default("hybrid"),
   CLASSIFIER_MODEL_PATH: z.string().optional(),
   // Minimum probability for the local model to decide a release (0 < value <= 1).
   CLASSIFIER_LOCAL_THRESHOLD: z

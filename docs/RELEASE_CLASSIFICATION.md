@@ -21,11 +21,11 @@ A release that no layer can classify is `unknown`. It is never turned into `full
 
 ## Modes (`CLASSIFICATION_MODE`)
 
-| Mode                      | Behaviour                                                                                                                                                                                                                                                    |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `hybrid` (recommended)    | Rules, then the local model. The cloud provider is asked only when the local model abstains (below its threshold), fails, times out or is not installed. The cloud model decides alone: it does not see the local result, and it can still answer `unknown`. |
-| `local`                   | Rules, then the local model. No request ever leaves the server.                                                                                                                                                                                              |
-| `cloud` (default, legacy) | The historical Jev-only check, unchanged. Without a TypeSafe key nothing is checked. Kept so existing installs do not change behaviour.                                                                                                                      |
+| Mode               | Behaviour                                                                                                                                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hybrid` (default) | Rules, then the local model. The cloud provider is asked only when the local model abstains (below its threshold), fails, times out or is not installed. The cloud model decides alone: it does not see the local result, and it can still answer `unknown`. |
+| `local`            | Rules, then the local model. No request ever leaves the server.                                                                                                                                                                                              |
+| `cloud` (legacy)   | The historical Jev-only check, unchanged. Without a TypeSafe key nothing is checked. Needs a TypeSafe key, so it is not the default.                                                                                                                         |
 
 The cloud provider is the TypeSafe client already configured in Settings. Its model id
 (`typesafe.model`, for example `jev-latest` or an OpenRouter id) is the only thing that changes
@@ -76,6 +76,10 @@ precision: that is why the local layer abstains below `CLASSIFIER_LOCAL_THRESHOL
 
 ## Compatibility
 
-- Default `CLASSIFICATION_MODE=cloud`: behaviour, API and UI are unchanged.
+- Default `CLASSIFICATION_MODE=hybrid`. It needs no key: without a TypeSafe key and without a
+  model file only the rules run. Releases the rules identify as a patch, DLC, crack, demo or
+  soundtrack are held for review before an unattended download, which the Jev-only check never did
+  without a key. Set `CLASSIFICATION_MODE=cloud` to get the previous behaviour back.
+- API and UI are unchanged.
 - Search-result AI badges (`enrichWithAiAnalysis`) still use Jev only, in every mode.
 - No database change, no new setting in the UI.

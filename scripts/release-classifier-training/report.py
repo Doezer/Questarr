@@ -16,7 +16,12 @@ def pct(v):
 def main(out_path: str, paths: list[str]) -> None:
     results = {}
     for p in paths:
-        results.update(json.load(open(p)))
+        with open(p) as handle:
+            data = json.load(handle)
+        # Skip files that are not candidate results, e.g. the flat output of cv_encoder.py.
+        results.update(
+            {k: v for k, v in data.items() if "/" in k and isinstance(v, dict) and "test" in v}
+        )
     lines = [
         "# Local classifier comparison",
         "",

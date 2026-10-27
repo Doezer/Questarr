@@ -51,7 +51,9 @@ an expansion), not something a bigger encoder fixes.
 
 - Artifact: 23 MB int8 (91 MB fp32) plus a 0.7 MB tokenizer file. Accuracy and macro F1 on the test
   part are identical between fp32 and int8.
-- Native ONNX Runtime (Python), one thread: p50 1.8 ms, p95 2.5 ms, about 115 MB resident.
+- Native ONNX Runtime (Python), one thread: p50 1.8 ms, p95 2.5 ms, 115 MB peak resident in a
+  fresh process (66 MB before the session is created; the fp32 model peaks at 205 MB). Reproduced
+  by `export_onnx.py` through `measure_rss.py`.
 - `onnxruntime-web` (WASM backend) inside Node, one thread: p50 10 to 12 ms, p95 20 ms, 260 MB resident
   after loading the model and about 370 MB after a few hundred calls; logits within 0.035 of the
   native runtime. The WASM file is 15 MB. This path has no native binary, so it does not depend on

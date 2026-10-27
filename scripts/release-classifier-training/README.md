@@ -50,6 +50,7 @@ python report.py out/comparison.md out/*.json
 | `cv_encoder.py` | Game-grouped 5-fold cross-validation of a fine-tuned encoder (variance check). |
 | `eval_oof.py` | Fits temperature and class thresholds on out-of-fold predictions of train+validation. |
 | `export_onnx.py` | ONNX export, dynamic int8 quantization, single-row CPU latency and size. |
+| `measure_rss.py` | Peak resident memory of an ONNX model in a fresh process, called by `export_onnx.py`. |
 | `report.py` | Merges the JSON results into one Markdown comparison. |
 
 ## Rules the scripts follow

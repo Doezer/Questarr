@@ -80,4 +80,14 @@ describe("mergeCandidates", () => {
     });
     expect(report.csv.trim().split("\n").at(-1)).toBe("ok,patch,Hades,Hades Update 2");
   });
+
+  it("keeps a semicolon-delimited dataset readable", () => {
+    const dataset = "release_name;query;human_label;notes\nHades Update 1;Hades;patch;\n";
+    const report = mergeCandidates({
+      dataset,
+      incoming: `${header}Hades Update 2,Hades,patch,ok\n`,
+    });
+    expect(report.csv.trim().split("\n").at(-1)).toBe("Hades Update 2;Hades;patch;ok");
+    expect(importDataset(report.csv, "csv").records).toHaveLength(2);
+  });
 });

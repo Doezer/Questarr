@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { importDataset, parseCsv } from "./dataset.js";
+import { detectDelimiter, importDataset, parseCsv } from "./dataset.js";
 import type { LabeledRelease } from "./types.js";
 
 const keyOf = (r: Pick<LabeledRelease, "gameTitle" | "releaseName">): string =>
@@ -90,7 +90,9 @@ export function mergeCandidates(params: {
     }
   }
 
-  const [header = []] = parseCsv(params.dataset);
+  // Appended rows use the dataset's own delimiter, or re-importing would drop them as malformed
+  const delimiter = detectDelimiter(params.dataset.replace(/^\uFEFF/, ""));
+  const [header = []] = parseCsv(params.dataset, delimiter);
   const find = (...names: string[]) =>
     header.findIndex((h) => names.includes(h.trim().toLowerCase()));
   const slots = {
@@ -108,7 +110,7 @@ export function mergeCandidates(params: {
     cells[slots.game] = record.gameTitle;
     cells[slots.label] = record.rawLabel;
     if (slots.notes >= 0) cells[slots.notes] = record.notes ?? "";
-    return cells.map(cell).join(",");
+    return cells.map(cell).join(delimiter);
   });
   report.added = accepted.map((r) => r.releaseName);
   if (lines.length > 0) {

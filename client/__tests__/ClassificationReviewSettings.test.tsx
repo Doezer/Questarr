@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -127,6 +127,35 @@ describe("ClassificationReviewSettings", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(apiRequest).toHaveBeenCalledWith("DELETE", "/api/classification-candidates")
+    );
+  });
+
+  it("follows a cloud suggestion that arrives after the row was rendered", async () => {
+    const client = createTestQueryClient();
+    const key = ["/api/classification-candidates"];
+    const noGuess = { ...candidate, signals: { ...candidate.signals, local: null } };
+    client.setQueryData(key, { ...base, candidates: [noGuess] });
+    render(
+      <QueryClientProvider client={client}>
+        <ClassificationReviewSettings />
+      </QueryClientProvider>
+    );
+    expect(screen.getByRole("button", { name: /Verify label/ })).toBeDisabled();
+    act(() => {
+      client.setQueryData(key, {
+        ...base,
+        candidates: [
+          { ...noGuess, suggestion: { label: "update", confidence: 0.8, model: "jev-latest" } },
+        ],
+      });
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Verify label/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /Verify label/ }));
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("POST", "/api/classification-candidates/c1/review", {
+        action: "correct",
+        label: "update",
+      })
     );
   });
 });

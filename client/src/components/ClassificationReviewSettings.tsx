@@ -80,7 +80,9 @@ function CandidateRow({
   onReview: (id: string, body: Record<string, string>) => void;
   onSuggest: (id: string) => void;
 }>) {
-  const [label, setLabel] = useState<string | undefined>(proposedLabel(candidate));
+  // An explicit pick wins; otherwise follow the proposal, which can arrive after a cloud suggestion
+  const [picked, setPicked] = useState<string | undefined>();
+  const label = picked ?? proposedLabel(candidate);
   const { signals, suggestion } = candidate;
   const selectId = `candidate-label-${candidate.id}`;
 
@@ -133,7 +135,7 @@ function CandidateRow({
         <label htmlFor={selectId} className="sr-only">
           Label for {candidate.releaseName}
         </label>
-        <Select value={label ?? ""} onValueChange={setLabel}>
+        <Select value={label ?? ""} onValueChange={setPicked}>
           <SelectTrigger id={selectId} className="min-h-11 sm:w-44">
             <SelectValue placeholder="Pick a label" />
           </SelectTrigger>

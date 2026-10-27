@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useFreshGames } from "@/hooks/use-fresh-games";
@@ -8,11 +8,12 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Check, Plus } from "lucide-react";
+import { Check, Plus, X } from "lucide-react";
 
 interface CollectionGamesDialogProps {
   open: boolean;
@@ -23,7 +24,7 @@ interface CollectionGamesDialogProps {
   memberIds: ReadonlySet<string>;
 }
 
-/** Add games to, or remove them from, a manual collection by picking from the library. */
+/** Add games to a manual collection by picking from the library; members can also be removed. */
 export default function CollectionGamesDialog({
   open,
   onOpenChange,
@@ -34,6 +35,9 @@ export default function CollectionGamesDialog({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const listRef = useRef<HTMLUListElement>(null);
+  /** Row whose control just swapped (Add <-> Remove); focus moves to its replacement. */
+  const focusGameId = useRef<string | null>(null);
 
   const { games, isLoading, isError, retry } = useFreshGames(open);
 
@@ -53,7 +57,10 @@ export default function CollectionGamesDialog({
       }
     },
     // Returned so the mutation stays pending until membership is refetched (no duplicate click).
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/collections"] }),
+    onSuccess: (_data, { gameId }) => {
+      focusGameId.current = gameId;
+      return queryClient.invalidateQueries({ queryKey: ["/api/collections"] });
+    },
     onError: (error: Error) => {
       toast({
         title: "Could not update the collection",
@@ -63,12 +70,33 @@ export default function CollectionGamesDialog({
     },
   });
 
+  useEffect(() => {
+    const gameId = focusGameId.current;
+    if (!gameId || toggleMutation.isPending) return;
+    focusGameId.current = null;
+    // Leave focus alone if the user moved on (e.g. to the search input) while the update ran.
+    // Radix parks focus on the dialog container when the swapped button unmounts: not a user move.
+    const active = document.activeElement;
+    const dialog = listRef.current?.closest("[role='dialog']");
+    if (
+      active &&
+      active !== document.body &&
+      active !== dialog &&
+      !listRef.current?.contains(active)
+    )
+      return;
+    listRef.current?.querySelector<HTMLElement>(`[data-game-id="${gameId}"] button`)?.focus();
+  }, [memberIds, toggleMutation.isPending]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Games in “{collectionName}”</DialogTitle>
-          <DialogDescription>Pick games from your library to add or remove.</DialogDescription>
+          <DialogTitle>Add games to “{collectionName}”</DialogTitle>
+          <DialogDescription>
+            Pick games from your library. {memberIds.size}{" "}
+            {memberIds.size === 1 ? "game is" : "games are"} already in this collection.
+          </DialogDescription>
         </DialogHeader>
 
         <Input
@@ -79,6 +107,7 @@ export default function CollectionGamesDialog({
         />
 
         <ul
+          ref={listRef}
           className="-mx-1 min-h-0 flex-1 space-y-1 overflow-y-auto px-1"
           aria-label="Library games"
         >
@@ -99,7 +128,11 @@ export default function CollectionGamesDialog({
           {visible.map((game) => {
             const isMember = memberIds.has(game.id);
             return (
-              <li key={game.id} className="flex items-center gap-3 rounded-md p-1.5">
+              <li
+                key={game.id}
+                data-game-id={game.id}
+                className="flex items-center gap-3 rounded-md p-1.5"
+              >
                 {game.coverUrl ? (
                   <img
                     src={game.coverUrl}
@@ -111,28 +144,44 @@ export default function CollectionGamesDialog({
                   <div className="h-12 w-9 shrink-0 rounded bg-muted" aria-hidden="true" />
                 )}
                 <span className="min-w-0 flex-1 truncate text-sm">{game.title}</span>
-                <Button
-                  size="sm"
-                  variant={isMember ? "secondary" : "outline"}
-                  className="h-10 min-w-24 sm:h-9"
-                  disabled={toggleMutation.isPending}
-                  aria-label={`${isMember ? "Remove" : "Add"} ${game.title}`}
-                  onClick={() => toggleMutation.mutate({ gameId: game.id, add: !isMember })}
-                >
-                  {isMember ? (
-                    <>
-                      <Check className="mr-1 h-4 w-4" aria-hidden="true" /> Added
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="mr-1 h-4 w-4" aria-hidden="true" /> Add
-                    </>
-                  )}
-                </Button>
+                {isMember ? (
+                  <>
+                    <span className="inline-flex h-10 min-w-24 items-center justify-center gap-1 rounded-md bg-secondary px-3 text-sm text-secondary-foreground sm:h-9">
+                      <Check className="h-4 w-4" aria-hidden="true" /> Added
+                    </span>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-10 w-10 shrink-0 sm:h-9 sm:w-9"
+                      disabled={toggleMutation.isPending}
+                      aria-label={`Remove ${game.title}`}
+                      onClick={() => toggleMutation.mutate({ gameId: game.id, add: false })}
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-10 min-w-24 sm:h-9"
+                    disabled={toggleMutation.isPending}
+                    aria-label={`Add ${game.title}`}
+                    onClick={() => toggleMutation.mutate({ gameId: game.id, add: true })}
+                  >
+                    <Plus className="mr-1 h-4 w-4" aria-hidden="true" /> Add
+                  </Button>
+                )}
               </li>
             );
           })}
         </ul>
+
+        <DialogFooter>
+          <Button className="h-10 w-full sm:h-9 sm:w-auto" onClick={() => onOpenChange(false)}>
+            Done
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

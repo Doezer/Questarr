@@ -147,6 +147,10 @@ def apply_thresholds(probs: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
     return out
 
 
+# A probability never exceeds 1, so a threshold of 2 rejects even a saturated 1.0 confidence.
+ABSTAIN_ALWAYS = 2.0
+
+
 def choose_thresholds(
     probs: np.ndarray, truth: np.ndarray, target_precision: float = 0.9
 ) -> tuple[np.ndarray, float]:
@@ -154,8 +158,8 @@ def choose_thresholds(
 
     Coordinate search: for each class, the lowest threshold that keeps the class's accepted
     precision at or above the target while maximising how many rows are still acted on. A
-    class that cannot reach the target on validation is given a threshold of 1.0 (always
-    abstain), which is reported instead of hidden.
+    class that cannot reach the target on validation is given the ABSTAIN_ALWAYS threshold (above any
+    probability, so it always abstains), which is reported instead of hidden.
     """
     thresholds = np.full(len(CLASSES), 0.0)
     grid = np.linspace(0.3, 0.99, 70)
@@ -163,7 +167,7 @@ def choose_thresholds(
     for c in range(len(CLASSES)):
         if c == UNKNOWN:
             continue
-        chosen = 1.0
+        chosen = ABSTAIN_ALWAYS
         for t in grid:
             sel = (best_pred == c) & (probs.max(axis=1) >= t)
             if sel.sum() == 0:

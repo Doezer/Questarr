@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+splits.json
+out/
+models/
+onnx/

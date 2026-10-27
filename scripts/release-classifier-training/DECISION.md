@@ -25,8 +25,8 @@ decision gate in the task). Date of the measurements: 2026-10-27.
 | Deterministic rules (in the repo) | filename | 56.8% | 53.9% | n/a | 0.03 ms | 0 |
 | Jev through OpenRouter | filename | 79.5% | 74.8% | n/a | 840 ms (network) | none (cloud) |
 | TF-IDF + SGD (benchmark baseline, TS) | filename+title | 76.1% | 76.9% | n/a | 0.2 ms | in memory |
-| **TF-IDF char n-grams + logistic regression** | filename | 78.4% | 79.9% | 78.9% ± 10.9 | 0.7 ms | 154 KB |
-| **TF-IDF char n-grams + logistic regression** | filename+title | 80.7% | 82.1% | 81.0% ± 11.1 | 0.7 ms | 135 KB |
+| **TF-IDF char n-grams + logistic regression** | filename | 78.4% | 79.9% | 78.9% ± 10.9 | 0.7 ms | 201 KB |
+| **TF-IDF char n-grams + logistic regression** | filename+title | 80.7% | 82.1% | 81.0% ± 11.1 | 0.7 ms | 175 KB |
 | MiniLM-L6, frozen embeddings + LR | filename | 76.1% | 74.7% | n/a | 6.4 ms | 88 MB |
 | **MiniLM-L6 fine-tuned** | filename | 83.0% | 84.2% | 82.8% ± 11.9 | 1.8 ms (int8 ONNX) | 23 MB (int8) |
 | MiniLM-L6 fine-tuned | filename+title | 81.8% | 82.9% | n/a | n/a | n/a |
@@ -82,14 +82,14 @@ calibration is itself noisy. A production threshold should be set only after the
 ## Recommendation
 
 1. **Ship the pure-TypeScript path first: character n-gram TF-IDF + logistic regression with the
-   title-match feature.** 80.7% test accuracy and 81.0% grouped-CV accuracy, a 135 KB model, under
+   title-match feature.** 80.7% test accuracy and 81.0% grouped-CV accuracy, a 175 KB model, under
    1 ms, no new dependency, no Docker change. This is also within noise of Jev (79.0% average on
    validation+test) and removes the paid cloud dependency. The in-repo SGD baseline (76.1%) is weaker than the
    scikit-learn fit, so the TypeScript port should reproduce the logistic-regression training
    (class-balanced, `C` chosen on validation, `char_wb` 2 to 5 grams, `min_df` 2, sublinear TF)
    rather than reuse the SGD trainer as is.
 2. **Do not adopt DistilBERT or frozen MiniLM embeddings.** They are not better than TF-IDF and cost far more
-   (6 to 19 ms and 88 to 257 MB per model, against under 1 ms and 0.15 MB).
+   (6 to 19 ms and 88 to 257 MB per model, against under 1 ms and 0.2 MB).
 3. **Fine-tuned MiniLM-L6 (int8 ONNX, 23 MB) is the only neural candidate worth a runtime.** It
    measured +2 to +5 points over TF-IDF on test and in cross-validation, which is inside the noise
    of this dataset. It needs `onnxruntime-web` or `onnxruntime-node` in the Questarr runtime, which

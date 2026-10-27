@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import os
-import pickle
 import sys
 
 import numpy as np
@@ -72,7 +71,19 @@ def main(splits_path: str, out_path: str) -> None:
 
         single = [text(r) for r in test]
         result["cpu_latency"] = latency_ms(lambda s: model.decision_function([s]), single)
-        result["artifact_bytes"] = len(pickle.dumps(model))
+        # Size of the model as plain JSON (vocabulary, idf, coefficients), which is what a
+        # TypeScript port would ship; no pickle involved.
+        tfidf, linear = model.steps[0][1], model.steps[1][1]
+        result["artifact_bytes"] = len(
+            json.dumps(
+                {
+                    "vocabulary": {g: int(i) for g, i in tfidf.vocabulary_.items()},
+                    "idf": [round(float(v), 6) for v in tfidf.idf_],
+                    "coef": [[round(float(v), 6) for v in row] for row in linear.coef_],
+                    "intercept": [round(float(v), 6) for v in linear.intercept_],
+                }
+            ).encode()
+        )
 
         # Variance estimate: game-grouped 5-fold over every row, argmax only.
         folds = grouped_folds(rows)

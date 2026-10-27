@@ -13,7 +13,7 @@ Everything in this folder is training-time tooling. Python dependencies are in
 
 ```bash
 # 1. Export the benchmark's split (same seed 42 and ratios as `npm run bench:releases`)
-npx tsx scripts/release-classifier-training/export-splits.ts path/to/releases-labeled.csv splits.json
+npx tsx scripts/release-classifier-training/export-splits.ts path/to/releases-labeled.csv scripts/release-classifier-training/splits.json
 
 # 2. Python environment (CPU only)
 python -m venv .venv && . .venv/bin/activate

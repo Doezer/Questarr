@@ -43,6 +43,7 @@ def main() -> None:
     opts.intra_op_num_threads = 1
     session = ort.InferenceSession(model, opts, providers=["CPUExecutionProvider"])
     tokenizer = Tokenizer.from_file(tokenizer_path)
+    tokenizer.enable_truncation(max_length=96)  # same limit as the evaluation path
     names = [i.name for i in session.get_inputs()]
     for i in range(200):
         enc = tokenizer.encode(text(rows[i % len(rows)]))

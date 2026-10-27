@@ -184,6 +184,9 @@ configuration does not delete the directory itself.
 - A folder already linked to a game, by an earlier scan or a manual match, is not
   looked up on IGDB again and never returns to **Needs Review**. A rescan still
   attaches any new files found in it.
+- Nintendo Switch dumps are recognised by the title id in the file or folder name
+  (for example `Hades [0100535012974000][v0].nsp`). Flat files match like folders do, and an
+  update or DLC joins its base game.
 - Under **Needs Review**, choose a suggested IGDB game or enter a different
   name in **Not listed? Search IGDB by name**. Search alone does not import the
   game; clicking a candidate confirms it and adds it to your library.

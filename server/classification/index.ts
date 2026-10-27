@@ -55,6 +55,8 @@ export const releasePipeline = new ClassificationPipeline(async () => {
     localVersion: mode === "cloud" ? null : (localLayer()?.modelVersion ?? null),
     // Without a provider the cloud layer is absent, so a later configuration must not hit a stale entry
     cloudVersion:
-      mode !== "local" && (await typesafeClient.isConfigured()) ? typesafeClient.modelId : null,
+      mode !== "local" && (await typesafeClient.isConfigured())
+        ? `${typesafeClient.modelId}#${typesafeClient.configRevision}`
+        : null,
   };
 }, layers);

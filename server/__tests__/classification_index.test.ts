@@ -24,8 +24,16 @@ vi.mock("../config.js", () => ({ config: mockConfig }));
 
 const analyzeRelease = vi.hoisted(() => vi.fn());
 const isConfigured = vi.hoisted(() => vi.fn());
+const provider = vi.hoisted(() => ({ configRevision: 0 }));
 vi.mock("../typesafe.js", () => ({
-  typesafeClient: { analyzeRelease, isConfigured, modelId: "jev-test" },
+  typesafeClient: {
+    analyzeRelease,
+    isConfigured,
+    modelId: "jev-test",
+    get configRevision() {
+      return provider.configRevision;
+    },
+  },
 }));
 
 const { releasePipeline, reloadLocalModel } = await import("../classification/index.js");
@@ -42,6 +50,7 @@ describe("production classification pipeline", () => {
   beforeEach(() => {
     analyzeRelease.mockReset();
     isConfigured.mockReset().mockResolvedValue(false);
+    provider.configRevision = 0;
     mockConfig.classification.mode = "hybrid";
     mockConfig.classification.modelPath = modelFile;
     fs.rmSync(modelFile, { force: true });
@@ -96,5 +105,21 @@ describe("production classification pipeline", () => {
     });
     expect(local.class).toBe("unknown");
     expect(analyzeRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reuse a cached answer after the provider settings change", async () => {
+    isConfigured.mockResolvedValue(true);
+    analyzeRelease.mockResolvedValue({
+      releaseType: "dlc",
+      releaseTypeConfidence: 0.9,
+      legitimacyScore: null,
+    });
+    const input = { title: "Mystery 4.0-GRP", gameTitle: "Cyber Quest" };
+    await releasePipeline.classify(input);
+    await releasePipeline.classify(input);
+    expect(analyzeRelease).toHaveBeenCalledTimes(1);
+    provider.configRevision++;
+    await releasePipeline.classify(input);
+    expect(analyzeRelease).toHaveBeenCalledTimes(2);
   });
 });

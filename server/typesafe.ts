@@ -63,6 +63,7 @@ class TypeSafeClient {
   private apiKey: string | null = null;
   private model: string = DEFAULT_MODEL;
   private loaded = false;
+  private revision = 0;
 
   /**
    * Set credentials directly (used by the settings route right after a save). Mirrors
@@ -78,6 +79,12 @@ class TypeSafeClient {
     this.apiUrl = trimmedUrl ?? (trimmedKey ? DEFAULT_API_URL : null);
     this.model = trimmedModel ?? DEFAULT_MODEL;
     this.loaded = true;
+    this.revision++;
+  }
+
+  /** Counts credential or endpoint changes, so cached answers from a replaced provider are not reused. */
+  get configRevision(): number {
+    return this.revision;
   }
 
   /** The configured model identifier; part of classification cache keys and log lines. */
@@ -88,6 +95,7 @@ class TypeSafeClient {
   /** Forget the cached credentials so the next call re-reads them from storage. */
   invalidate(): void {
     this.loaded = false;
+    this.revision++;
   }
 
   /** Lazily loads credentials from system_config on first use (they're stored encrypted). */

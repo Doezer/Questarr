@@ -708,3 +708,117 @@ describe("matchUnmatchedFolder with release-style folder names", () => {
     );
   });
 });
+
+describe("scanRootFolderById Nintendo Switch dumps", () => {
+  it("matches flat .nsp/.xci files and attaches their update and DLC to the base game", async () => {
+    const { storage } = await import("../storage.js");
+    const { igdbClient } = await import("../igdb.js");
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-switch-"));
+    const base = "Hades [0100535012974000][v0].nsp";
+    const update = "Hades [0100535012974800][v65536].nsp";
+    const dlc = "Bonus Pack Alpha [0100535012975001][v0].nsp";
+    for (const f of [base, update, dlc]) await fs.promises.writeFile(path.join(dir, f), "x");
+
+    vi.mocked(storage.getRootFolder).mockReset();
+    vi.mocked(storage.getRootFolder).mockResolvedValue({
+      ...mockRootFolder,
+      id: "rf-switch",
+      path: dir,
+    });
+    vi.mocked(storage.getAllGames).mockResolvedValue([]);
+    vi.mocked(storage.getGameByIgdbId).mockResolvedValue(undefined);
+    vi.mocked(storage.getGameFiles).mockResolvedValue([]);
+    vi.mocked(storage.addGame).mockResolvedValue({ id: "g-hades" } as Game);
+    vi.mocked(storage.addGameFile).mockClear();
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "Hades", platforms: [{ id: 130, name: "Nintendo Switch" }] } as never,
+    ]);
+
+    await scanRootFolderById("rf-switch", "user-1");
+
+    // The title id is not part of the query, and the Switch platform is tried first.
+    expect(igdbClient.searchGames).toHaveBeenCalledWith("Hades", 5, { platformId: 130 });
+    expect(getAllUnmatched().filter((e) => e.rootFolderId === "rf-switch")).toEqual([]);
+    expect(storage.addGame).toHaveBeenCalledTimes(1);
+    const added = vi
+      .mocked(storage.addGameFile)
+      .mock.calls.map(([f]) => [f.originalName, f.category]);
+    expect(added).toEqual(
+      expect.arrayContaining([
+        [base, "main"],
+        [update, "update"],
+        [dlc, "dlc"],
+      ])
+    );
+    expect(vi.mocked(storage.addGameFile).mock.calls.every(([f]) => f.gameId === "g-hades")).toBe(
+      true
+    );
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+
+  it("registers the family of a base dump inside a folder so a sibling DLC file attaches", async () => {
+    const { storage } = await import("../storage.js");
+    const { igdbClient } = await import("../igdb.js");
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-switch-"));
+    const base = "Hades [0100535012974000][v0].nsp";
+    const dlc = "Bonus Pack Alpha [0100535012975001][v0].nsp";
+    await fs.promises.mkdir(path.join(dir, "Hades"));
+    await fs.promises.writeFile(path.join(dir, "Hades", base), "x");
+    await fs.promises.writeFile(path.join(dir, dlc), "x");
+    vi.mocked(storage.getRootFolder).mockReset();
+    vi.mocked(storage.getRootFolder).mockResolvedValue({
+      ...mockRootFolder,
+      id: "rf-switch-dir",
+      path: dir,
+    });
+    vi.mocked(storage.getAllGames).mockResolvedValue([]);
+    vi.mocked(storage.getGameByIgdbId).mockResolvedValue(undefined);
+    vi.mocked(storage.getGameFiles).mockResolvedValue([]);
+    vi.mocked(storage.addGame).mockReset();
+    vi.mocked(storage.addGame).mockResolvedValue({ id: "g-hades" } as Game);
+    vi.mocked(storage.addGameFile).mockClear();
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "Hades", platforms: [{ id: 130, name: "Nintendo Switch" }] } as never,
+    ]);
+
+    await scanRootFolderById("rf-switch-dir", "user-1");
+
+    expect(storage.addGame).toHaveBeenCalledTimes(1);
+    const added = vi
+      .mocked(storage.addGameFile)
+      .mock.calls.map(([f]) => [f.originalName, f.gameId]);
+    expect(added).toEqual(
+      expect.arrayContaining([
+        [base, "g-hades"],
+        [dlc, "g-hades"],
+      ])
+    );
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+
+  it("falls back to an unfiltered search when the Switch-filtered results are weak", async () => {
+    const { storage } = await import("../storage.js");
+    const { igdbClient } = await import("../igdb.js");
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-switch-"));
+    await fs.promises.writeFile(path.join(dir, "Hades [0100535012974000][v0].nsp"), "x");
+    vi.mocked(storage.getRootFolder).mockReset();
+    vi.mocked(storage.getRootFolder).mockResolvedValue({
+      ...mockRootFolder,
+      id: "rf-switch-weak",
+      path: dir,
+    });
+    vi.mocked(storage.addGame).mockResolvedValue({ id: "g-hades" } as Game);
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames)
+      .mockResolvedValueOnce([{ id: 2, name: "Hades Rival Quest" } as never])
+      .mockResolvedValueOnce([{ id: 1, name: "Hades" } as never]);
+
+    await scanRootFolderById("rf-switch-weak", "user-1");
+
+    expect(igdbClient.searchGames).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 1 });
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+});

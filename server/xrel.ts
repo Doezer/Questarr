@@ -209,6 +209,11 @@ export async function searchReleases(
   }
 
   const data = (await res.json()) as XrelSearchResponse;
+  // a reply with neither list is not "no releases": a changed format or a wrong base URL would
+  // otherwise mark every release as not on xREL
+  if (data.results === undefined && data.p2p_results === undefined) {
+    throw new Error("xREL API returned an unexpected response (no release lists)");
+  }
   const results = data.results ?? [];
   const p2pResults = data.p2p_results ?? [];
   return mergeAndFilterGameReleases(results, p2pResults);

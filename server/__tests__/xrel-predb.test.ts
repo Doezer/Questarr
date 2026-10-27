@@ -34,6 +34,19 @@ describe("getXrelPredb", () => {
     );
   });
 
+  it("converts the size xREL lists to bytes", async () => {
+    searchReleases.mockResolvedValue([
+      { dirname: "Game-CODEX", sizeMb: 2, sizeUnit: "GB" },
+      { dirname: "Game-FLT", sizeMb: 700, sizeUnit: "MB" },
+      { dirname: "Game-ODD", sizeMb: 5, sizeUnit: "??" },
+    ]);
+    expect(await getXrelPredb("Game")).toEqual([
+      { dirname: "Game-CODEX", sizeBytes: 2 * 1024 ** 3 },
+      { dirname: "Game-FLT", sizeBytes: 700 * 1024 ** 2 },
+      { dirname: "Game-ODD" },
+    ]);
+  });
+
   it("looks up a title written in a non-ASCII script and caches it", async () => {
     searchReleases.mockResolvedValue([{ dirname: "Eiyuu.Densetsu-GRP" }]);
     expect(await getXrelPredb("英雄伝説")).toEqual([{ dirname: "Eiyuu.Densetsu-GRP" }]);

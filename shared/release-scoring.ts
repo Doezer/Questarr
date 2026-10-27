@@ -153,6 +153,8 @@ export interface ReleaseContext {
   expectedSizeBytes?: number;
   /** xREL releases of the game. Leave undefined when the lookup failed or is off. */
   xrelReleases?: readonly XrelPredbEntry[];
+  /** True when the xREL lookup was wanted but failed or timed out (xrelReleases is undefined). */
+  xrelUnavailable?: boolean;
 }
 
 /** The subset of an indexer result the evaluation reads (SearchItem satisfies it). */
@@ -175,14 +177,17 @@ export interface XrelPredbEntry {
   dirname: string;
   /** Set when the release is nuked, with the reason xREL gives. */
   nukeReason?: string;
+  /** Size xREL lists for the release, when it gives one. */
+  sizeBytes?: number;
 }
 
 /**
  * How a release compares with the xREL PreDB: verified (listed), nuked (listed and nuked) or
- * not_found. Only set when the lookup worked; "not_found" is informational, not a penalty,
- * because P2P and usenet releases are often missing from xREL.
+ * not_found. "unavailable" means the lookup was wanted but failed or timed out, so nothing is
+ * known (it is not a penalty and not a confirmation). "not_found" is informational, not a
+ * penalty, because P2P and usenet releases are often missing from xREL.
  */
-export type XrelStatus = "verified" | "nuked" | "not_found";
+export type XrelStatus = "verified" | "nuked" | "not_found" | "unavailable";
 
 export interface ReleaseEvaluation {
   accepted: boolean;
@@ -200,6 +205,8 @@ export interface ReleaseEvaluation {
   xrel?: XrelStatus;
   /** The reason xREL gives for a nuked release. */
   xrelNukeReason?: string;
+  /** The size xREL lists for the matched release, when it gives one. */
+  xrelSizeBytes?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -613,7 +620,7 @@ interface ReleaseFacts {
   metadata: ReleaseMetadata;
   titleMatch: TitleMatch;
   indexerCategory: IndexerCategoryClass;
-  xrel: { status: XrelStatus; nukeReason?: string } | undefined;
+  xrel: { status: XrelStatus; nukeReason?: string; sizeBytes?: number } | undefined;
 }
 
 /** Dots for spaces and underscores, lower case: the form scene names are compared in. */
@@ -626,15 +633,19 @@ function releaseKey(name: string): string {
 
 function lookupXrel(
   title: string,
-  entries: readonly XrelPredbEntry[] | undefined
+  entries: readonly XrelPredbEntry[] | undefined,
+  unavailable = false
 ): ReleaseFacts["xrel"] {
-  if (!entries) return undefined;
+  if (!entries) return unavailable ? { status: "unavailable" } : undefined;
   const key = releaseKey(splitTrailingTags(title).name);
   const entry = entries.find((candidate) => releaseKey(candidate.dirname) === key);
   if (!entry) return { status: "not_found" };
   return entry.nukeReason !== undefined
     ? { status: "nuked", nukeReason: entry.nukeReason }
-    : { status: "verified" };
+    : {
+        status: "verified",
+        ...(entry.sizeBytes !== undefined ? { sizeBytes: entry.sizeBytes } : {}),
+      };
 }
 
 const NON_GAME_MEDIA_PATTERNS = [
@@ -1194,7 +1205,7 @@ export function evaluateRelease(
     metadata: releaseMetadata(input.title),
     titleMatch: classifyTitleMatch(input.title, ctx.gameTitle, ctx.alternativeTitles),
     indexerCategory: classifyIndexerCategories(input.category),
-    xrel: lookupXrel(input.title, ctx.xrelReleases),
+    xrel: lookupXrel(input.title, ctx.xrelReleases, ctx.xrelUnavailable),
   };
 
   const lines: ScoreLine[] = [];
@@ -1230,6 +1241,7 @@ export function evaluateRelease(
       profile.protocolPreference === "either" || input.downloadType === profile.protocolPreference,
     ...(facts.xrel ? { xrel: facts.xrel.status } : {}),
     ...(facts.xrel?.nukeReason !== undefined ? { xrelNukeReason: facts.xrel.nukeReason } : {}),
+    ...(facts.xrel?.sizeBytes !== undefined ? { xrelSizeBytes: facts.xrel.sizeBytes } : {}),
   };
 }
 

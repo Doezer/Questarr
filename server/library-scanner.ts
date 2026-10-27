@@ -21,7 +21,7 @@ import path from "node:path";
 import { storage } from "./storage.js";
 import { igdbClient, type IGDBGame } from "./igdb.js";
 import { toVideos } from "./igdb-videos.js";
-import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
+import { normalizeTitle, cleanReleaseName, parseSwitchTitleId } from "../shared/title-utils.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { igdbLogger, routesLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
@@ -268,35 +268,48 @@ function scoreMatch(folderClean: string, igdbName: string): number {
   return Math.min(1, jaccard + prefixBonus);
 }
 
-async function bestIgdbMatch(folderName: string): Promise<{
+const SWITCH_IGDB_PLATFORM_ID = 130;
+
+async function bestIgdbMatch(
+  folderName: string,
+  platformId?: number
+): Promise<{
   best: IGDBGame | null;
   candidates: IGDBGame[];
   cleaned: string;
   score: number;
 }> {
   const cleaned = cleanReleaseName(folderName) || folderName;
+  const pick = (list: IGDBGame[]) => {
+    let best: IGDBGame | null = null;
+    let score = 0;
+    for (const candidate of list) {
+      const s = scoreMatch(cleaned, candidate.name);
+      if (!best || s > score) {
+        best = candidate;
+        score = s;
+      }
+    }
+    return { best, score };
+  };
   let candidates: IGDBGame[];
   try {
-    candidates = await igdbClient.searchGames(cleaned, 5);
+    // A platform hint (Switch title id in the name) narrows the search, but never replaces
+    // it: IGDB's platform list can lag, so a weak filtered result also tries an unfiltered
+    // search, and the better of the two wins.
+    candidates = platformId ? await igdbClient.searchGames(cleaned, 5, { platformId }) : [];
+    if (pick(candidates).score < AUTO_MATCH_THRESHOLD) {
+      const unfiltered = await igdbClient.searchGames(cleaned, 5);
+      if (candidates.length === 0 || pick(unfiltered).score > pick(candidates).score) {
+        candidates = unfiltered;
+      }
+    }
   } catch (err) {
     igdbLogger.warn({ err, query: cleaned }, "IGDB search failed during library scan");
     return { best: null, candidates: [], cleaned, score: 0 };
   }
-  if (candidates.length === 0) {
-    return { best: null, candidates: [], cleaned, score: 0 };
-  }
-
-  let best = candidates[0]!;
-  let bestScore = scoreMatch(cleaned, best.name);
-  for (let i = 1; i < candidates.length; i += 1) {
-    const candidate = candidates[i]!;
-    const s = scoreMatch(cleaned, candidate.name);
-    if (s > bestScore) {
-      best = candidate;
-      bestScore = s;
-    }
-  }
-  return { best, candidates, cleaned, score: bestScore };
+  const { best, score } = pick(candidates);
+  return { best, candidates, cleaned, score };
 }
 
 // ---------- Ingestion ----------
@@ -337,6 +350,15 @@ function normalizeCategory(category: string): GameFileCategory {
   return category === "packs" ? "extra" : (category as GameFileCategory);
 }
 
+function categorizeFile(name: string, parentDir: string): GameFileCategory {
+  // A Switch title id says exactly what the file is; titles like "Complete Edition" would
+  // otherwise read as DLC.
+  const switchKind = parseSwitchTitleId(name)?.kind;
+  if (switchKind) return ({ base: "main", update: "update", dlc: "dlc" } as const)[switchKind];
+  if (["dlc", "update", "extra", "packs"].includes(parentDir)) return normalizeCategory(parentDir);
+  return normalizeCategory(categorizeDownload(path.parse(name).name).category);
+}
+
 /**
  * Record scanned files against a game, skipping ones already tracked
  * (matched by absolute path) so re-scans don't create duplicates.
@@ -353,9 +375,7 @@ async function assignFilesToGame(
     if (existingPaths.has(f.absolutePath)) continue;
     const name = path.basename(f.absolutePath);
     const parentDir = path.basename(path.dirname(f.absolutePath)).toLowerCase();
-    const category = ["dlc", "update", "extra", "packs"].includes(parentDir)
-      ? normalizeCategory(parentDir)
-      : normalizeCategory(categorizeDownload(path.parse(name).name).category);
+    const category = categorizeFile(name, parentDir);
     const insert: InsertGameFile = {
       gameId,
       downloadId: null,
@@ -533,7 +553,7 @@ async function recordMatchedCandidate(
   userId: string,
   files: Array<{ absolutePath: string; size: number }>,
   progress: ScanProgress
-): Promise<void> {
+): Promise<string> {
   // Flag before the first write: any of the writes below can succeed before a
   // later one throws, and clients must still refresh. An extra refresh when
   // nothing ended up written is harmless.
@@ -553,6 +573,7 @@ async function recordMatchedCandidate(
     }
   }
   await assignFilesToGame(game.id, files);
+  return game.id;
 }
 
 // Every IGDB id offered for an entry (scan candidates plus each name search),
@@ -602,6 +623,22 @@ const AUTO_MATCH_THRESHOLD = 0.85;
 // finished matching.
 const gamesChangedByScan = new WeakSet<ScanProgress>();
 
+/**
+ * Remember which game each Switch base title in `files` belongs to, so sibling update and DLC
+ * candidates of the same scan attach to it. Reads the files, not the candidate name: a folder
+ * named "Hades" holds "Hades [0100…].nsp".
+ */
+function registerSwitchFamilies(
+  files: ReadonlyArray<{ absolutePath: string }>,
+  gameId: string,
+  switchFamilies: Map<string, string>
+): void {
+  for (const f of files) {
+    const info = parseSwitchTitleId(path.basename(f.absolutePath));
+    if (info?.kind === "base") switchFamilies.set(info.family, gameId);
+  }
+}
+
 /** Classify and (auto-)resolve a single scan candidate, updating `progress` in place. */
 async function processCandidate(
   rootFolder: RootFolderRow,
@@ -609,7 +646,8 @@ async function processCandidate(
   userId: string,
   progress: ScanProgress,
   knownGameIds: ReadonlyMap<string, string>,
-  ignoredNames: ReadonlySet<string>
+  ignoredNames: ReadonlySet<string>,
+  switchFamilies: Map<string, string>
 ): Promise<void> {
   // Ignored from Needs Review (e.g. a Proton build next to games): skip it
   // before walking its files. A folder linked to a game is still processed.
@@ -626,14 +664,31 @@ async function processCandidate(
   if (knownGameId) {
     const added = await assignFilesToGame(knownGameId, files);
     if (added > 0) gamesChangedByScan.add(progress);
+    registerSwitchFamilies(files, knownGameId, switchFamilies);
     progress.matched += 1;
     return;
   }
 
-  const { best, candidates: igdbCandidates, score } = await bestIgdbMatch(cand.folderName);
+  // Switch dumps are flat files: an update or DLC rarely carries the base game's title, so
+  // it follows the base game found in this scan through its title id.
+  const switchInfo = parseSwitchTitleId(cand.folderName);
+  const familyGameId = switchInfo ? switchFamilies.get(switchInfo.family) : undefined;
+  if (familyGameId) {
+    const added = await assignFilesToGame(familyGameId, files);
+    if (added > 0) gamesChangedByScan.add(progress);
+    progress.matched += 1;
+    return;
+  }
+
+  const {
+    best,
+    candidates: igdbCandidates,
+    score,
+  } = await bestIgdbMatch(cand.folderName, switchInfo ? SWITCH_IGDB_PLATFORM_ID : undefined);
 
   if (best && score >= AUTO_MATCH_THRESHOLD) {
-    await recordMatchedCandidate(cand, best, userId, files, progress);
+    const gameId = await recordMatchedCandidate(cand, best, userId, files, progress);
+    registerSwitchFamilies(files, gameId, switchFamilies);
     progress.matched += 1;
   } else {
     recordUnmatchedCandidate(rootFolder, cand, igdbCandidates);
@@ -657,6 +712,15 @@ async function runScan(
       if (g.libraryPath && !knownGameIds.has(g.libraryPath)) knownGameIds.set(g.libraryPath, g.id);
     }
 
+    // Base games first, so their updates and DLC can attach to them.
+    const switchRank = { base: 0, update: 1, dlc: 2 } as const;
+    const rank = (c: FolderCandidate) => {
+      const kind = parseSwitchTitleId(c.folderName)?.kind;
+      return kind ? switchRank[kind] : 0;
+    };
+    candidates.sort((a, b) => rank(a) - rank(b));
+    const switchFamilies = new Map<string, string>();
+
     const ignoredNames = new Set(
       (await storage.getIgnoredScanFolders(rootFolderId)).map((r) => r.folderName)
     );
@@ -665,7 +729,15 @@ async function runScan(
       progress.currentCandidate = cand.folderName;
       emitProgress(progress);
       try {
-        await processCandidate(rootFolder, cand, userId, progress, knownGameIds, ignoredNames);
+        await processCandidate(
+          rootFolder,
+          cand,
+          userId,
+          progress,
+          knownGameIds,
+          ignoredNames,
+          switchFamilies
+        );
       } catch (err) {
         progress.errors += 1;
         routesLogger.error({ err, folder: cand.folderName }, "scan: error processing folder");

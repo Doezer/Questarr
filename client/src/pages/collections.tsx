@@ -248,12 +248,8 @@ function CollectionView({ id }: Readonly<{ id: string }>) {
         actions={
           <>
             {!isSmart && (
-              <Button
-                variant="outline"
-                className="h-10 justify-center sm:h-9"
-                onClick={() => setGamesOpen(true)}
-              >
-                <ListPlus className="mr-1.5 h-4 w-4" aria-hidden="true" /> Manage games
+              <Button className="h-10 justify-center sm:h-9" onClick={() => setGamesOpen(true)}>
+                <ListPlus className="mr-1.5 h-4 w-4" aria-hidden="true" /> Add games
               </Button>
             )}
             <Button

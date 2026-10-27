@@ -301,6 +301,7 @@ import { releaseScoringRoutes } from "./release-scoring-routes.js";
 import {
   isAutoEligible,
   loadScoringConfig,
+  trustFor,
   type ScoringConfig,
 } from "./release-scoring-service.js";
 import {
@@ -697,15 +698,28 @@ async function scoreManualSearchResults(
       : preferredPlatform;
     const gameTitle = ownGame?.title ?? query;
     // a slow xREL must not hold up the result list; the lookup finishes in the background
+    let xrelUnavailable = false;
     const xrelReleases = await getXrelPredb(gameTitle, xrelTypes, {
       timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
+      onUnavailable: () => {
+        xrelUnavailable = true;
+      },
     });
     const scored = evaluateReleases(
       items,
-      { gameTitle, platform, ...(xrelReleases ? { xrelReleases } : {}) },
+      {
+        gameTitle,
+        platform,
+        ...(xrelReleases ? { xrelReleases } : {}),
+        ...(xrelUnavailable ? { xrelUnavailable } : {}),
+      },
       config.profile,
       config.formats
-    ).map(({ item, evaluation }) => ({ ...item, evaluation }));
+    ).map(({ item, evaluation }) => ({
+      ...item,
+      evaluation,
+      trust: trustFor(evaluation, item.size, config),
+    }));
     return { items: scored, config };
   } catch (error) {
     // safe: unscored items are still valid results, the client shows them without badges

@@ -3,7 +3,7 @@
     python measure_rss.py <model.onnx> <tokenizer.json> <splits.json> [--title]
 
 Prints one JSON line: memory before the session exists, peak after 200 single-row calls, and
-the difference, in MB. Run it on its own, not from export_onnx.py, so the figure is not inflated
+the end-to-end difference (tokenizer, session and inference), in MB. Run it on its own, not from export_onnx.py, so the figure is not inflated
 by the torch export that produced the model.
 """
 
@@ -61,7 +61,7 @@ def main() -> None:
         }
         session.run(["logits"], {n: feed[n] for n in names})
     after = peak_mb()
-    print(json.dumps({"before_mb": round(before), "peak_mb": round(after), "session_mb": round(after - before)}))
+    print(json.dumps({"before_mb": round(before), "peak_mb": round(after), "end_to_end_peak_rss_delta_mb": round(after - before)}))
 
 
 if __name__ == "__main__":

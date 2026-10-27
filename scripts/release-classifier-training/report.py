@@ -54,6 +54,8 @@ def main(out_path: str, paths: list[str]) -> None:
         "|---|---|---:|---:|---:|---:|---:|---:|",
     ]
     for key, r in results.items():
+        if "thresholds" not in r["test"]:
+            continue  # e.g. Laya zero-shot: no calibration was fitted
         name, variant = key.split("/")
         t = r["test"]["thresholds"]
         lines.append(
@@ -62,6 +64,8 @@ def main(out_path: str, paths: list[str]) -> None:
         )
     lines += ["", "Class thresholds (fitted on validation, or on out-of-fold predictions of train+validation for [oof-calibrated] entries):", ""]
     for key, r in results.items():
+        if "thresholds" not in r:
+            continue
         th = ", ".join(f"{c} {v:.2f}" for c, v in r["thresholds"].items() if c != "unknown")
         lines.append(f"- {key}: temperature {r['temperature']:.2f}, {th}")
     with open(out_path, "w") as handle:

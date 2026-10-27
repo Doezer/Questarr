@@ -18,7 +18,7 @@ test = part(rows, 'test')
 MODEL = sys.argv[2]
 out_path = sys.argv[3]
 os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-router = Router()
+router = Router(device="cpu")
 questions = {"kind": {"type": "choice",
   "instructions": "Classify this PC game release name from a torrent/usenet indexer.",
   "criteria": {
@@ -26,15 +26,29 @@ questions = {"kind": {"type": "choice",
    "patch": "an update, patch or hotfix for a game or for one of its DLC",
    "dlc": "downloadable content, expansion, add-on, season pass or DLC unlocker",
    "unknown": "not a game release, or too ambiguous to tell (soundtrack, tool, crack-only, other)"}}}
-preds, t0, probs = [], time.time(), []
-for r in test:
-    out = router.predict(name_text(r), questions, model=MODEL)
-    a = out["answers"]["kind"]
-    preds.append(CLASSES.index(a["choice"]))
-    probs.append(a.get("probs") or a.get("confidence"))
-dt = (time.time()-t0)/len(test)*1000
+
+
+def predict(row):
+    out = router.predict(name_text(row), questions, model=MODEL)
+    return CLASSES.index(out["answers"]["kind"]["choice"]), out["routing"]["model"]
+
+
+# Load the checkpoint and warm it up before timing, so the download is not counted.
+for row in test[:3]:
+    predict(row)
+preds, times = [], []
+for row in test:
+    start = time.perf_counter()
+    label, routed = predict(row)
+    times.append((time.perf_counter() - start) * 1000)
+    preds.append(label)
+times.sort()
 truth = np.array([r.label for r in test])
 m = metrics(truth, np.array(preds))
-print(json.dumps({"n": len(test), "ms_per_row": round(dt,1), "accuracy": m["accuracy"], "macro_f1": m["macro_f1"], "model": out["routing"]["model"]}, indent=1))
+latency = {"p50_ms": times[len(times) // 2], "p95_ms": times[min(len(times) - 1, int(len(times) * 0.95))]}
+print(json.dumps({"n": len(test), "routed_to": routed, **latency,
+                  "accuracy": m["accuracy"], "macro_f1": m["macro_f1"]}, indent=1))
+# Same shape as the other candidates (no calibration or threshold results exist for Laya).
+result = {f"laya-{MODEL}/zero-shot": {"test": {"argmax": m}, "cpu_latency": latency, "preds": preds}}
 with open(out_path, "w") as handle:
-    json.dump({"preds": preds, "metrics": m}, handle, indent=1, default=float)
+    json.dump(result, handle, indent=1, default=float)

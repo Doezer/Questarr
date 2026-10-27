@@ -18,7 +18,7 @@ decision gate in the task). Date of the measurements: 2026-10-27.
 - Inputs: `filename` (release name only) and `filename+title` (adds the searched game title, the only
   metadata every row has; no seeders, size or category exist in the dataset).
 - Jev numbers were measured through OpenRouter (`~typesafe/jev-latest`, 176 calls) on the same
-  validation and test parts. Laya was run zero-shot on the test part (see Not evaluated).
+  validation and test parts. Laya was run zero-shot on the test part (see Laya, zero-shot).
 
 ## Results (test part, argmax of the model)
 
@@ -109,47 +109,56 @@ calibration is itself noisy. A production threshold should be set only after the
 Learning curve of the tf-idf classifier (`filename`, C = 10), game-grouped 5-fold over all 459 rows,
 training on a random subset of the training games, 6 draws per point (`learning_curve.py`):
 
-| Training games | Rows | Accuracy | Macro F1 |
-| -------------- | ---- | -------- | -------- |
-| 4              | 36   | 65.6     | 56.1     |
-| 8              | 72   | 67.6     | 61.6     |
-| 12             | 114  | 71.0     | 67.7     |
-| 20             | 185  | 75.2     | 72.9     |
-| 30             | 281  | 78.2     | 76.5     |
-| 39             | 365  | 79.4     | 77.9     |
+| Training games       | Rows | Accuracy | Macro F1 | SD of the 5 fold means |
+| -------------------- | ---- | -------- | -------- | ---------------------- |
+| 4                    | 37   | 63.2     | 54.0     | 7.9                    |
+| 8                    | 71   | 65.6     | 59.5     | 6.9                    |
+| 12                   | 115  | 71.6     | 68.8     | 9.4                    |
+| 20                   | 190  | 77.1     | 74.8     | 10.4                   |
+| 30                   | 276  | 78.2     | 76.7     | 11.0                   |
+| 39 (all, on average) | 367  | 80.0     | 78.3     | 10.3                   |
 
-Each doubling of the training rows still adds about 3 points and the curve has not flattened.
-Extrapolating that trend (an estimate, not a measurement, and the true curve will bend toward the
-label noise): about 700 rows reach 82 to 83%, 1,500 reach 85 to 86%, and 90% accuracy would need
-several thousand rows, if it is reachable at all given how often the labels themselves are
-arguable. The number of distinct games matters more than rows per game, since the model must
-generalize to unseen titles (the standard deviation across folds stays at 11 points whatever the
-size).
+The last row uses every training game of each fold, 39.2 on average (the folds hold 38 to 40
+games). The standard deviation is taken over the five fold means, so it measures how much the
+held-out games matter, not sampling noise.
+
+Reading the trend: fitted on the log of the row count, accuracy gains between 3.0 points per
+doubling (last four points) and 5.5 (all six points), and the gain has been slowing: 1.1 points
+from 276 to 367 rows. Extrapolated with those two slopes (estimates, not measurements, and the real
+curve will bend toward the label noise): 700 rows give about 83 to 86%, 1,500 rows about 86 to 92%,
+and 5,000 rows about 91% on the cautious fit. 90% therefore needs somewhere between 1,500 and
+5,000 rows, if it is reachable at all given how often the labels themselves are arguable. The
+number of distinct games matters more than rows per game, since the model must generalize to
+unseen titles, and the spread across folds (7 to 11 points) does not shrink with more training
+data.
 
 Recommended targets:
 
 - **Training set:** 1,000 rows over at least 100 games (about 10 per game, keeping the current
   mix of patch, DLC, full game and unknown) as the first milestone; 2,000 rows over 200 games
   for a clearly better model.
-- **Test set:** kept apart, game-grouped, at least 300 rows over 40 games. At 88 rows the 95%
-  interval is about ±8 points, at 300 rows about ±5, which is what it takes to tell two models
-  5 points apart.
-- **Every class large enough:** at least 100 rows of each class in the test set, so per-class
-  precision and thresholds can be read at all (the 90% precision target needs it).
+- **Test set:** kept apart, game-grouped, at least 400 rows over 40 games, with at least 100 rows
+  of each of the four classes so per-class precision and thresholds can be read at all (the 90%
+  precision target needs it). At 88 rows the 95% interval is about ±8 points, at 400 rows about
+  ±4, which is what it takes to tell two models 5 points apart.
 - **Cheaper than labelling everything:** label the releases the current model is least sure about
   first (active learning); the abstention scores already exist.
 
-## Not evaluated, and why
+## Laya, zero-shot
 
 - **Laya** (Apache-2.0, ModernBERT-large, 421M parameters, pip package `laya`, checkpoints fetched
   from Hugging Face on first use): measured zero-shot on the 88 test rows (`laya_zeroshot.py`, release
-  name as the state, one four-way `choice` question with a short description per class). The
-  router's own pick (`multilingual`) scores 27.3% accuracy / 28.0% macro F1 at 616 ms per row on CPU;
-  forcing the `english` checkpoint gives 38.6% / 27.4% at 360 ms. Both are below the deterministic
-  baseline (56.8%) and far below Jev (79.5%) and tf-idf (78.4%). The package also warned that the
-  checkpoint ships out-of-range temperatures, so its probabilities are uncalibrated. One prompt
-  wording was tried per checkpoint; fine-tuning a 421M encoder on CPU was not attempted. Laya is not
-  worth pursuing for this decision.
+  name as the state, one four-way `choice` question with a short description per class), with
+  the checkpoint forced and the model on CPU, timed after loading and warm-up. The `english`
+  checkpoint scores 38.6% accuracy / 27.4% macro F1 at 320 ms p50 per row; `multilingual` scores
+  23.9% / 23.4% at 128 ms. (A first run that let the router pick the checkpoint per row scored
+  27.3% / 28.0%.) All are below the deterministic baseline (56.8%) and far below Jev (79.5%) and
+  tf-idf (78.4%). The package also warned that the checkpoint ships out-of-range temperatures,
+  so its probabilities are uncalibrated. One prompt wording was tried per checkpoint;
+  fine-tuning a 421M encoder on CPU was not attempted. Laya is not worth pursuing for this decision.
+
+## Not evaluated, and why
+
 - **Kev checkpoints** (0.8B to 9B, PEFT) and **GLiNER2**: no credible reason to expect an advantage
   for a four-class decision on short release names, and their size and runtime are far outside a
   self-hosted budget.

@@ -14,6 +14,8 @@ import {
   filterByReleaseNameBlacklist,
   type SearchItem,
 } from "./search.js";
+import { config } from "./config.js";
+import { releasePipeline } from "./classification/index.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
@@ -178,8 +180,13 @@ const AI_AUTO_DOWNLOAD_LEGITIMACY_THRESHOLD = 0.5;
  */
 export async function getAiAutoDownloadHoldReason(
   item: Pick<SearchItem, "title" | "size">,
-  platform: string | null
+  platform: string | null,
+  gameTitle?: string
 ): Promise<string | null> {
+  // `cloud` (the legacy mode) keeps the Jev-only check below untouched
+  if (config.classification.mode !== "cloud") {
+    return getPipelineHoldReason(item, platform, gameTitle);
+  }
   let analysis: Awaited<ReturnType<typeof typesafeClient.analyzeRelease>>;
   try {
     if (!(await typesafeClient.isConfigured())) return null;
@@ -216,6 +223,53 @@ export async function getAiAutoDownloadHoldReason(
     return "AI flagged this release's file size as implausible for this type of release";
   }
 
+  return null;
+}
+
+const PIPELINE_HOLD_CLASSES = new Set(["patch", "dlc", "expansion"]);
+const PIPELINE_HOLD_FLAGS = new Set(["crack_only", "demo", "soundtrack", "other_artifact"]);
+
+/**
+ * The hold check for the `local` and `hybrid` classification modes. It holds what the layers
+ * agree is not the full game. A release no layer could classify goes through, as it does today,
+ * unless CLASSIFICATION_HOLD_UNKNOWN is set. Any failure fails open, like the Jev-only check.
+ */
+async function getPipelineHoldReason(
+  item: Pick<SearchItem, "title" | "size">,
+  platform: string | null,
+  gameTitle: string | undefined
+): Promise<string | null> {
+  let result: Awaited<ReturnType<typeof releasePipeline.classify>>;
+  try {
+    result = await releasePipeline.classify({
+      title: item.title,
+      ...(gameTitle ? { gameTitle } : {}),
+      sizeBytes: item.size,
+      platform: platform ?? undefined,
+    });
+  } catch (error) {
+    igdbLogger.warn(
+      { error, title: item.title },
+      "Release classification failed, proceeding without it"
+    );
+    return null;
+  }
+  const flag = result.flags?.find((f) => PIPELINE_HOLD_FLAGS.has(f));
+  if (PIPELINE_HOLD_CLASSES.has(result.class) || flag) {
+    return `Classified (${result.source}) as "${flag ?? result.class}" rather than the full game`;
+  }
+  // A layer failure is not a verdict: holding on it would block the release for days
+  if (result.class === "unknown" && config.classification.holdUnknown && !result.degraded) {
+    return "Could not be classified as the full game (hold-unknown is enabled)";
+  }
+  if (
+    item.size !== undefined &&
+    result.legitimacyScore !== undefined &&
+    result.legitimacyScore !== null &&
+    result.legitimacyScore < AI_AUTO_DOWNLOAD_LEGITIMACY_THRESHOLD
+  ) {
+    return "AI flagged this release's file size as implausible for this type of release";
+  }
   return null;
 }
 
@@ -1904,7 +1958,7 @@ export async function checkAutoSearch() {
                   const aiHoldReason =
                     alreadyFailed || alreadyHeld
                       ? null
-                      : await getAiAutoDownloadHoldReason(item, effectivePlatform);
+                      : await getAiAutoDownloadHoldReason(item, effectivePlatform, game.title);
 
                   if (alreadyFailed) {
                     igdbLogger.info(

@@ -572,6 +572,32 @@ export const libraryScanIgnored = pgTable(
   (t) => [uniqueIndex("library_scan_ignored_root_name_idx").on(t.rootFolderId, t.folderName)]
 );
 
+export const classificationCandidates = pgTable(
+  "classification_candidates",
+  {
+    id: text("id").primaryKey(),
+    dedupeKey: text("dedupe_key").notNull(),
+    releaseName: text("release_name").notNull(),
+    gameTitle: text("game_title"),
+    platform: text("platform"),
+    sizeBytes: bigint("size_bytes", { mode: "number" }),
+    reasons: text("reasons").notNull(),
+    signals: text("signals").notNull(),
+    priority: integer("priority").notNull().default(0),
+    seenCount: integer("seen_count").notNull().default(1),
+    status: text("status").notNull().default("pending"),
+    humanLabel: text("human_label"),
+    notes: text("notes"),
+    reviewedAt: timestampMs("reviewed_at"),
+    suggestedLabel: text("suggested_label"),
+    suggestedConfidence: doublePrecision("suggested_confidence"),
+    suggestedModel: text("suggested_model"),
+    suggestedAt: timestampMs("suggested_at"),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [uniqueIndex("classification_candidates_dedupe_idx").on(t.dedupeKey)]
+);
+
 export const apiKeys = pgTable(
   "api_keys",
   {

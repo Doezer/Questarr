@@ -257,6 +257,18 @@ export type _InsertLibraryScanIgnored = Expect<
     typeof pgSchema.libraryScanIgnored.$inferInsert
   >
 >;
+export type _SelectClassificationCandidates = Expect<
+  Equal<
+    typeof sqliteSchema.classificationCandidates.$inferSelect,
+    typeof pgSchema.classificationCandidates.$inferSelect
+  >
+>;
+export type _InsertClassificationCandidates = Expect<
+  Equal<
+    typeof sqliteSchema.classificationCandidates.$inferInsert,
+    typeof pgSchema.classificationCandidates.$inferInsert
+  >
+>;
 export type _SelectIntegrationRequests = Expect<
   Equal<
     typeof sqliteSchema.integrationRequests.$inferSelect,

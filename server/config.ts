@@ -53,6 +53,17 @@ const envSchema = z.object({
     .string()
     .transform((value) => value === "true")
     .optional(),
+  // Active learning (docs/RELEASE_CLASSIFICATION.md): both are off by default.
+  // COLLECT keeps unsure releases for labeling; CLOUD_SUGGEST lets a person ask the cloud
+  // provider (paid) for a suggested label on one collected release at a time.
+  ACTIVE_LEARNING_COLLECT: z
+    .string()
+    .transform((value) => value === "true")
+    .optional(),
+  ACTIVE_LEARNING_CLOUD_SUGGEST: z
+    .string()
+    .transform((value) => value === "true")
+    .optional(),
 
   // Encryption key for indexer/downloader credentials at rest (optional;
   // auto-generated and persisted to the DB if unset). Must be a 64-char hex
@@ -174,6 +185,10 @@ export const config = {
     modelPath: env.CLASSIFIER_MODEL_PATH,
     localThreshold: env.CLASSIFIER_LOCAL_THRESHOLD ?? 0.7,
     holdUnknown: env.CLASSIFICATION_HOLD_UNKNOWN ?? false,
+    activeLearning: {
+      collect: env.ACTIVE_LEARNING_COLLECT ?? false,
+      cloudSuggest: env.ACTIVE_LEARNING_CLOUD_SUGGEST ?? false,
+    },
   },
   credentials: {
     encryptionKey: env.CREDENTIALS_ENCRYPTION_KEY,

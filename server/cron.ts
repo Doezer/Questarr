@@ -15,7 +15,8 @@ import {
   type SearchItem,
 } from "./search.js";
 import { config } from "./config.js";
-import { releasePipeline } from "./classification/index.js";
+import { collectCandidate } from "./classification/active-learning.js";
+import { localGuess, releasePipeline } from "./classification/index.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
@@ -241,12 +242,17 @@ async function getPipelineHoldReason(
 ): Promise<string | null> {
   let result: Awaited<ReturnType<typeof releasePipeline.classify>>;
   try {
-    result = await releasePipeline.classify({
+    const input = {
       title: item.title,
       ...(gameTitle ? { gameTitle } : {}),
       sizeBytes: item.size,
       platform: platform ?? undefined,
-    });
+    };
+    result = await releasePipeline.classify(input);
+    // Optional, off by default, and it never throws: it cannot change the hold decision
+    if (config.classification.activeLearning.collect) {
+      void collectCandidate(input, result, localGuess(input));
+    }
   } catch (error) {
     igdbLogger.warn(
       { error, title: item.title },

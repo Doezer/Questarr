@@ -36,6 +36,15 @@ export function reloadLocalModel(): void {
   releasePipeline.clearCache();
 }
 
+/** The local model's best guess for a release, or null when no model is installed. */
+export function localGuess(
+  input: Parameters<LocalTfidfClassifier["guess"]>[0]
+): (ReturnType<LocalTfidfClassifier["guess"]> & object & { modelVersion: string }) | null {
+  const layer = localLayer();
+  const guessed = layer?.guess(input);
+  return layer && guessed ? { ...guessed, modelVersion: layer.modelVersion } : null;
+}
+
 async function layers(): Promise<PipelineLayers> {
   return {
     rules: rulesClassifier,

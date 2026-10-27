@@ -22,28 +22,28 @@ decision gate in the task). Date of the measurements: 2026-10-27.
 
 ## Results (test part, argmax of the model)
 
-| Candidate | Input | Accuracy | Macro F1 | Grouped 5-fold CV accuracy | CPU p50 per release | Artifact |
-|---|---|---:|---:|---:|---:|---:|
-| Deterministic rules (in the repo) | filename | 56.8% | 53.9% | n/a | 0.03 ms | 0 |
-| Jev through OpenRouter | filename | 79.5% | 74.8% | n/a | 840 ms (network) | none (cloud) |
-| TF-IDF + SGD (benchmark baseline, TS) | filename+title | 76.1% | 76.9% | n/a | 0.2 ms | in memory |
-| **TF-IDF char n-grams + logistic regression** | filename | 78.4% | 79.9% | 78.9% ± 10.9 | 0.7 ms | 201 KB |
-| **TF-IDF char n-grams + logistic regression** | filename+title | 80.7% | 82.1% | 81.0% ± 11.1 | 0.7 ms | 175 KB |
-| MiniLM-L6, frozen embeddings + LR | filename | 76.1% | 74.7% | n/a | 6.4 ms | 88 MB |
-| **MiniLM-L6 fine-tuned** | filename | 83.0% | 84.2% | 82.8% ± 11.9 | 1.8 ms (int8 ONNX) | 23 MB (int8) |
-| MiniLM-L6 fine-tuned | filename+title | 81.8% | 82.9% | n/a | n/a | n/a |
-| DistilBERT fine-tuned | filename | 80.7% | 81.7% | n/a | 18.5 ms (torch) | 257 MB |
-| DistilBERT fine-tuned | filename+title | 75.0% | 75.8% | n/a | 14.2 ms (torch) | 257 MB |
+| Candidate                                     | Input          | Accuracy | Macro F1 | Grouped 5-fold CV accuracy | CPU p50 per release |     Artifact |
+| --------------------------------------------- | -------------- | -------: | -------: | -------------------------: | ------------------: | -----------: |
+| Deterministic rules (in the repo)             | filename       |    56.8% |    53.9% |                        n/a |             0.03 ms |            0 |
+| Jev through OpenRouter                        | filename       |    79.5% |    74.8% |                        n/a |    840 ms (network) | none (cloud) |
+| TF-IDF + SGD (benchmark baseline, TS)         | filename+title |    76.1% |    76.9% |                        n/a |              0.2 ms |    in memory |
+| **TF-IDF char n-grams + logistic regression** | filename       |    78.4% |    79.9% |               78.9% ± 10.9 |              0.7 ms |       201 KB |
+| **TF-IDF char n-grams + logistic regression** | filename+title |    80.7% |    82.1% |               81.0% ± 11.1 |              0.7 ms |       175 KB |
+| MiniLM-L6, frozen embeddings + LR             | filename       |    76.1% |    74.7% |                        n/a |              6.4 ms |        88 MB |
+| **MiniLM-L6 fine-tuned**                      | filename       |    83.0% |    84.2% |               82.8% ± 11.9 |  1.8 ms (int8 ONNX) | 23 MB (int8) |
+| MiniLM-L6 fine-tuned                          | filename+title |    81.8% |    82.9% |                        n/a |                 n/a |          n/a |
+| DistilBERT fine-tuned                         | filename       |    80.7% |    81.7% |                        n/a |     18.5 ms (torch) |       257 MB |
+| DistilBERT fine-tuned                         | filename+title |    75.0% |    75.8% |                        n/a |     14.2 ms (torch) |       257 MB |
 
 Fine-tuned encoders: mean of 3 seeds is 83.0% ± 0.0 (MiniLM, filename), 81.4% ± 1.4 (MiniLM, title),
 79.5% ± 0.9 and 78.4% ± 2.5 (DistilBERT). Per-class test results of the two leading candidates:
 
-| Class | TF-IDF + LR (title): P / R | MiniLM fine-tuned (filename): P / R |
-|---|---:|---:|
-| full_game | 75.0% / 69.2% | 76.9% / 76.9% |
-| patch | 93.1% / 87.1% | 90.0% / 87.1% |
-| dlc | 64.0% / 80.0% | 72.7% / 80.0% |
-| unknown | 100% / 90.9% | 100% / 90.9% |
+| Class     | TF-IDF + LR (title): P / R | MiniLM fine-tuned (filename): P / R |
+| --------- | -------------------------: | ----------------------------------: |
+| full_game |              75.0% / 69.2% |                       76.9% / 76.9% |
+| patch     |              93.1% / 87.1% |                       90.0% / 87.1% |
+| dlc       |              64.0% / 80.0% |                       72.7% / 80.0% |
+| unknown   |               100% / 90.9% |                        100% / 90.9% |
 
 The main error of the two leading candidates is the same: `full_game` against `dlc` (5 to 7 of 26 full games are
 read as DLC). That is a data and signal limit (release names carry little about whether a title is
@@ -70,11 +70,11 @@ Raw softmax scores are over-confident or under-confident depending on the model.
 scaling and class-specific thresholds (lowest threshold that keeps a class's accepted precision at
 or above 90% on the calibration data) were tested two ways:
 
-| Calibration data | Model | Auto-accept precision, argmax → thresholds | Share still decided | Test accuracy, argmax → thresholds |
-|---|---|---:|---:|---:|
-| 88 validation rows | TF-IDF + LR (title) | 78.2% → 85.2% | 61% | 80.7% → 64.8% |
-| 371 out-of-fold rows | TF-IDF + LR (title) | 74.4% → 86.0% | 57% | 77.3% → 61.4% |
-| 371 out-of-fold rows | MiniLM fine-tuned | 80.8% → 82.3% | 70% | 83.0% → 69.3% |
+| Calibration data     | Model               | Auto-accept precision, argmax → thresholds | Share still decided | Test accuracy, argmax → thresholds |
+| -------------------- | ------------------- | -----------------------------------------: | ------------------: | ---------------------------------: |
+| 88 validation rows   | TF-IDF + LR (title) |                              78.2% → 85.2% |                 61% |                      80.7% → 64.8% |
+| 371 out-of-fold rows | TF-IDF + LR (title) |                              74.4% → 86.0% |                 57% |                      77.3% → 61.4% |
+| 371 out-of-fold rows | MiniLM fine-tuned   |                              80.8% → 82.3% |                 70% |                      83.0% → 69.3% |
 
 Findings: thresholds raise the precision of automatic decisions by 2 to 11 points but give up 30 to
 45% of the decisions, and **none of the models reaches 90% automatic precision on the test part**.

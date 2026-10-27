@@ -60,7 +60,8 @@ hundred KB, validated on load; a damaged file is ignored and logged.
 Run `scripts/release-benchmark/run.ts` on a held-out split before trusting a new model (see
 `scripts/release-benchmark/README.md`). Do not expect a small model to reach high automatic
 precision: that is why the local layer abstains below `CLASSIFIER_LOCAL_THRESHOLD` (0.7) and why
-`unknown` never authorizes anything.
+`unknown` is never turned into `full_game`. Whether an `unknown` release is downloaded is the
+hold's decision, not the classifier's: it goes through unless `CLASSIFICATION_HOLD_UNKNOWN=true`.
 
 ## Operations
 

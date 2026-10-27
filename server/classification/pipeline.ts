@@ -33,10 +33,23 @@ export type PipelineResult = Classification & {
   /** Layers consulted, in order; shows why a hybrid call went to the cloud. */
   path: ("rules" | "local" | "cloud")[];
   legitimacyScore?: number | null;
+  /** A consulted layer failed, timed out or gave an unusable answer; `unknown` here is not a verdict. */
+  degraded?: boolean;
 };
 
 /** Flags that say what the release is. `repack` only says how it is packaged, so it decides nothing. */
 const RESOLVING_FLAGS = new Set(["crack_only", "demo", "soundtrack", "other_artifact"]);
+
+const FAILURE_IDS = new Set([
+  "local.error",
+  "local.timeout",
+  "cloud.unavailable",
+  "cloud.invalid-answer",
+  "cloud.error",
+  "cloud.timeout",
+]);
+const failed = (result: Classification): boolean =>
+  result.ruleIds?.some((id) => FAILURE_IDS.has(id)) ?? false;
 
 const unresolved = (result: Classification): boolean =>
   result.class === "unknown" && !(result.flags ?? []).some((flag) => RESOLVING_FLAGS.has(flag));
@@ -89,7 +102,6 @@ export class ClassificationPipeline {
   ) {}
 
   private key(input: CloudInput, config: PipelineConfig): string {
-    const mb = input.sizeBytes === undefined ? "" : Math.round(input.sizeBytes / 1_048_576);
     return JSON.stringify([
       PIPELINE_VERSION,
       config.mode,
@@ -99,7 +111,7 @@ export class ClassificationPipeline {
       input.gameTitle ?? null,
       input.alternativeTitles ?? null,
       input.platform ?? null,
-      mb,
+      input.sizeBytes ?? null,
     ]);
   }
 
@@ -120,15 +132,13 @@ export class ClassificationPipeline {
     const path: PipelineResult["path"] = ["rules"];
     const ruled = await layers.rules.classify(input);
     let result: PipelineResult = { ...ruled, path };
-    // Failures and timeouts are not cached: the next call should try the layer again
-    let cacheable = true;
+    // A failing layer makes the result degraded and uncached: the next call tries it again
+    let degraded = false;
 
     if (unresolved(result) && config.mode !== "cloud" && layers.local) {
       path.push("local");
       const local = await guarded(layers.local, "local", input, timeoutMs);
-      if (local.ruleIds?.some((id) => id === "local.error" || id === "local.timeout")) {
-        cacheable = false;
-      }
+      degraded ||= failed(local);
       if (!unresolved(local)) result = { ...local, path };
       else if (config.mode === "local") result = { ...local, path };
     }
@@ -136,9 +146,7 @@ export class ClassificationPipeline {
     if (unresolved(result) && config.mode !== "local" && layers.cloud) {
       path.push("cloud");
       const cloud = await guarded(layers.cloud, "cloud", input, timeoutMs);
-      if (cloud.ruleIds?.some((id) => /^cloud\.(?:unavailable|error|timeout)$/.test(id))) {
-        cacheable = false;
-      }
+      degraded ||= failed(cloud);
       const { legitimacyScore } = cloud as PipelineResult;
       result = {
         ...cloud,
@@ -166,7 +174,9 @@ export class ClassificationPipeline {
       "Release classified"
     );
 
-    if (cacheable) {
+    if (degraded) result = { ...result, degraded };
+
+    if (!degraded) {
       if (this.cache.size >= CACHE_MAX_ENTRIES) {
         const oldest = this.cache.keys().next().value;
         if (oldest !== undefined) this.cache.delete(oldest);

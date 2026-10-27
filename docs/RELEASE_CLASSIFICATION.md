@@ -57,10 +57,10 @@ point `CLASSIFIER_MODEL_PATH` at it, then restart. Without the file, `local` mod
 rules and `hybrid` mode goes straight to the cloud provider. The file is plain JSON of a few
 hundred KB, validated on load; a damaged file is ignored and logged.
 
-Run `scripts/release-benchmark/run.ts` on a held-out split before trusting a new model. See
-`scripts/release-classifier-training/DECISION.md` for the measured accuracy: around 80% on the
-benchmark, and no candidate reaches 90% automatic precision yet. That is why the local layer
-abstains below `CLASSIFIER_LOCAL_THRESHOLD` (0.7) and why `unknown` never authorizes anything.
+Run `scripts/release-benchmark/run.ts` on a held-out split before trusting a new model (see
+`scripts/release-benchmark/README.md`). Do not expect a small model to reach high automatic
+precision: that is why the local layer abstains below `CLASSIFIER_LOCAL_THRESHOLD` (0.7) and why
+`unknown` never authorizes anything.
 
 ## Operations
 
@@ -68,7 +68,7 @@ abstains below `CLASSIFIER_LOCAL_THRESHOLD` (0.7) and why `unknown` never author
 - Cache: results are kept in memory for 24 h (2,000 entries). The key includes the pipeline
   version, the mode, the local model version, the cloud model id and whether a provider is
   configured, so installing a new model or changing the provider never serves stale answers.
-  Failures and timeouts are not cached.
+  Results from a failing layer (error, timeout, unusable answer) are not cached.
 - Logs: one `debug` line per release in the `classification` module with the layers consulted,
   class, confidence, source and model version.
 - Docker: no new container and no native dependency. The only addition is the optional model file

@@ -15,7 +15,7 @@ const DEFAULT_MODEL_FILE = "release-classifier.json";
 /** The model sits next to the database by default, so it rides along with the data volume. */
 function modelPath(): string {
   return (
-    config.classification.modelPath ??
+    config.classification.modelPath ||
     path.join(path.dirname(path.resolve(config.database.url)), "models", DEFAULT_MODEL_FILE)
   );
 }

@@ -2983,6 +2983,18 @@ describe("auto-download hold with the classification pipeline", () => {
     expect(await getAiAutoDownloadHoldReason(item, null, "Test Game")).toMatch(/hold-unknown/);
   });
 
+  it("does not hold a release just because a layer failed, even with hold-unknown", async () => {
+    classification.holdUnknown = true;
+    mockClassify.mockResolvedValue({
+      class: "unknown",
+      source: "cloud",
+      confidence: null,
+      degraded: true,
+      path: [],
+    });
+    expect(await getAiAutoDownloadHoldReason(item, null, "Test Game")).toBeNull();
+  });
+
   it("holds on an implausible size reported by the cloud layer", async () => {
     mockClassify.mockResolvedValue({
       class: "full_game",

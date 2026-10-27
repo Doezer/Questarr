@@ -101,6 +101,7 @@ describe("tf-idf model file", () => {
     expect(() => parseTfidfModel({ ...file, format: 2 })).toThrow(/format/);
     expect(() => parseTfidfModel({ ...file, idf: file.idf.slice(1) })).toThrow(/vocab/);
     expect(() => parseTfidfModel({ ...file, bias: [0] })).toThrow(/bias/);
+    expect(() => parseTfidfModel({ ...file, classes: ["a", "b", "c", "d"] })).toThrow(/classes/);
     expect(() => parseTfidfModel({ ...file, ngram: { min: 2, max: 99 } })).toThrow(/ngram/);
     const bad = structuredClone(file);
     bad.weights[0]![0] = Number.NaN;
@@ -355,6 +356,36 @@ describe("pipeline cache", () => {
     cloudVersion = "C2";
     await pipeline.classify(UNRULED);
     expect(cloud).toHaveBeenCalledTimes(2);
+  });
+
+  it("keys on the exact size, since the cloud model sees it", async () => {
+    const cloud = spy(result("cloud", "dlc"));
+    const pipeline = new ClassificationPipeline(
+      configOf("cloud"),
+      layersOf(null, { classify: cloud })
+    );
+    await pipeline.classify({ ...UNRULED, sizeBytes: 1_200_000 });
+    await pipeline.classify({ ...UNRULED, sizeBytes: 1_400_000 });
+    expect(cloud).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks a failing layer degraded and does not cache an invalid cloud answer", async () => {
+    const invalid = spy(() =>
+      Promise.resolve({ ...result("cloud", "unknown"), ruleIds: ["cloud.invalid-answer"] })
+    );
+    const pipeline = new ClassificationPipeline(
+      configOf("cloud"),
+      layersOf(null, { classify: invalid })
+    );
+    const first = await pipeline.classify(UNRULED);
+    await pipeline.classify(UNRULED);
+    expect(first.degraded).toBe(true);
+    expect(invalid).toHaveBeenCalledTimes(2);
+    const ordinary = new ClassificationPipeline(
+      configOf("cloud"),
+      layersOf(null, { classify: spy(result("cloud", "unknown", { confidence: 0.2 })) })
+    );
+    expect((await ordinary.classify(UNRULED)).degraded).toBeUndefined();
   });
 
   it("expires entries and does not cache failures", async () => {

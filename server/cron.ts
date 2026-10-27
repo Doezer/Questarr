@@ -258,7 +258,8 @@ async function getPipelineHoldReason(
   if (PIPELINE_HOLD_CLASSES.has(result.class) || flag) {
     return `Classified (${result.source}) as "${flag ?? result.class}" rather than the full game`;
   }
-  if (result.class === "unknown" && config.classification.holdUnknown) {
+  // A layer failure is not a verdict: holding on it would block the release for days
+  if (result.class === "unknown" && config.classification.holdUnknown && !result.degraded) {
     return "Could not be classified as the full game (hold-unknown is enabled)";
   }
   if (

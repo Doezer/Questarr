@@ -79,7 +79,13 @@ export function parseTfidfModel(raw: unknown): TfidfModelFile {
   if (typeof m.modelVersion !== "string" || m.modelVersion.length === 0) {
     return fail("missing modelVersion");
   }
-  if (!Array.isArray(m.classes) || m.classes.length < 2) return fail("classes");
+  if (
+    !Array.isArray(m.classes) ||
+    m.classes.length < 2 ||
+    !m.classes.every((c) => (TFIDF_CLASSES as readonly string[]).includes(c))
+  ) {
+    return fail("classes");
+  }
   if (typeof m.titleAware !== "boolean") return fail("titleAware");
   if (
     !m.ngram ||

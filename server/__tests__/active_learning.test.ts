@@ -423,4 +423,16 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     await seed("Stellaris Other Pack");
     expect(await ctx.storage.countClassificationCandidates()).toBe(2);
   });
+
+  it("counts a full table once per release per window and writes nothing", async () => {
+    activeConfig.collect = true;
+    const count = vi
+      .spyOn(ctx.storage, "countClassificationCandidates")
+      .mockResolvedValue(mod.MAX_CANDIDATES);
+    const upsert = vi.spyOn(ctx.storage, "upsertClassificationCandidate");
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    expect(count).toHaveBeenCalledTimes(1);
+    expect(upsert).not.toHaveBeenCalled();
+  });
 });

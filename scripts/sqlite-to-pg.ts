@@ -69,6 +69,8 @@ const TABLE_ORDER = [
   "gameFiles",
   // References rootFolders; nothing references it.
   "libraryScanIgnored",
+  // Nothing references it.
+  "classificationCandidates",
   // References users and games; nothing references it.
   "integrationRequests",
 ] as const;

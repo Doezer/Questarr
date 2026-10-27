@@ -21,6 +21,7 @@ const active = dialect === "postgres" ? (pgSchema as unknown as typeof sqliteSch
 export const {
   aiAutoDownloadHolds,
   apiKeys,
+  classificationCandidates,
   customFormats,
   collectionGames,
   collections,

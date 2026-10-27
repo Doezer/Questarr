@@ -69,7 +69,7 @@ export function parseCsv(text: string, delimiter?: string): string[][] {
   return rows.filter((r) => r.some((cell) => cell.trim() !== ""));
 }
 
-function detectDelimiter(text: string): string {
+export function detectDelimiter(text: string): string {
   const header = text.split(/\r?\n/, 1)[0] ?? "";
   return header.split(";").length > header.split(",").length ? ";" : ",";
 }

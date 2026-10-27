@@ -63,6 +63,8 @@ import {
   isUserCuratedGameStatus,
   type RootFolder,
   type LibraryScanIgnored,
+  type ClassificationCandidate,
+  type InsertClassificationCandidate,
   type InsertRootFolder,
   type UpdateRootFolder,
   type Collection,
@@ -104,6 +106,7 @@ import {
   gameJournalEntries,
   gameMilestones,
   gameScreenshots,
+  classificationCandidates,
 } from "./db/tables.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
@@ -546,6 +549,21 @@ export interface IStorage {
   addIgnoredScanFolder(rootFolderId: string, folderName: string): Promise<LibraryScanIgnored>;
   removeIgnoredScanFolder(id: string): Promise<LibraryScanIgnored | undefined>;
 
+  // Active-learning candidates (releases kept for labeling; never ground truth by themselves)
+  /** Inserts a candidate, or counts one more sighting of the existing one with the same key. */
+  upsertClassificationCandidate(
+    input: InsertClassificationCandidate
+  ): Promise<{ candidate: ClassificationCandidate; created: boolean }>;
+  getClassificationCandidates(filter?: { status?: string }): Promise<ClassificationCandidate[]>;
+  countClassificationCandidates(): Promise<number>;
+  getClassificationCandidate(id: string): Promise<ClassificationCandidate | undefined>;
+  updateClassificationCandidate(
+    id: string,
+    patch: Partial<Omit<InsertClassificationCandidate, "id" | "dedupeKey">>
+  ): Promise<ClassificationCandidate | undefined>;
+  /** Deletes every candidate, or only those with the given status. Returns how many. */
+  deleteClassificationCandidates(status?: string): Promise<number>;
+
   // Integration API key methods
   getApiKeys(userId: string): Promise<ApiKeyPublic[]>;
   /** Throws "API key limit reached" (as a plain Error) if the user already has maxKeys. */
@@ -605,6 +623,7 @@ export class MemStorage implements IStorage {
   private gameFiles: Map<string, GameFile>;
   private rootFolders: Map<string, RootFolder>;
   private ignoredScanFolders: Map<string, LibraryScanIgnored>;
+  private classificationCandidates: Map<string, ClassificationCandidate>;
   private apiKeys: Map<string, ApiKey>;
   private integrationRequests: Map<string, IntegrationRequest>;
   private collections: Map<string, Collection>;
@@ -635,6 +654,7 @@ export class MemStorage implements IStorage {
     this.gameFiles = new Map();
     this.rootFolders = new Map();
     this.ignoredScanFolders = new Map();
+    this.classificationCandidates = new Map();
     this.apiKeys = new Map();
     this.integrationRequests = new Map();
     this.collections = new Map();
@@ -2340,6 +2360,90 @@ export class MemStorage implements IStorage {
     const row = this.ignoredScanFolders.get(id);
     this.ignoredScanFolders.delete(id);
     return row;
+  }
+
+  async upsertClassificationCandidate(
+    input: InsertClassificationCandidate
+  ): Promise<{ candidate: ClassificationCandidate; created: boolean }> {
+    const existing = Array.from(this.classificationCandidates.values()).find(
+      (c) => c.dedupeKey === input.dedupeKey
+    );
+    if (existing) {
+      const refreshed: ClassificationCandidate = {
+        ...existing,
+        seenCount: existing.seenCount + 1,
+        ...(existing.status === "pending"
+          ? {
+              priority: input.priority ?? existing.priority,
+              reasons: input.reasons,
+              signals: input.signals,
+            }
+          : {}),
+      };
+      this.classificationCandidates.set(existing.id, refreshed);
+      return { candidate: refreshed, created: false };
+    }
+    const row: ClassificationCandidate = {
+      id: input.id,
+      dedupeKey: input.dedupeKey,
+      releaseName: input.releaseName,
+      gameTitle: input.gameTitle ?? null,
+      platform: input.platform ?? null,
+      sizeBytes: input.sizeBytes ?? null,
+      reasons: input.reasons,
+      signals: input.signals,
+      priority: input.priority ?? 0,
+      seenCount: 1,
+      status: "pending",
+      humanLabel: null,
+      notes: null,
+      reviewedAt: null,
+      suggestedLabel: null,
+      suggestedConfidence: null,
+      suggestedModel: null,
+      suggestedAt: null,
+      createdAt: new Date(),
+    };
+    this.classificationCandidates.set(row.id, row);
+    return { candidate: row, created: true };
+  }
+
+  async getClassificationCandidates(filter?: {
+    status?: string;
+  }): Promise<ClassificationCandidate[]> {
+    return Array.from(this.classificationCandidates.values()).filter(
+      (c) => filter?.status === undefined || c.status === filter.status
+    );
+  }
+
+  async countClassificationCandidates(): Promise<number> {
+    return this.classificationCandidates.size;
+  }
+
+  async getClassificationCandidate(id: string): Promise<ClassificationCandidate | undefined> {
+    return this.classificationCandidates.get(id);
+  }
+
+  async updateClassificationCandidate(
+    id: string,
+    patch: Partial<Omit<InsertClassificationCandidate, "id" | "dedupeKey">>
+  ): Promise<ClassificationCandidate | undefined> {
+    const existing = this.classificationCandidates.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...stripUndefined(patch) } as ClassificationCandidate;
+    this.classificationCandidates.set(id, updated);
+    return updated;
+  }
+
+  async deleteClassificationCandidates(status?: string): Promise<number> {
+    let removed = 0;
+    for (const [id, row] of this.classificationCandidates) {
+      if (status === undefined || row.status === status) {
+        this.classificationCandidates.delete(id);
+        removed++;
+      }
+    }
+    return removed;
   }
 
   // Integration API key methods
@@ -4491,6 +4595,87 @@ export class DatabaseStorage implements IStorage {
       .where(eq(libraryScanIgnored.id, id))
       .returning();
     return row;
+  }
+
+  async upsertClassificationCandidate(
+    input: InsertClassificationCandidate
+  ): Promise<{ candidate: ClassificationCandidate; created: boolean }> {
+    const inserted = await db
+      .insert(classificationCandidates)
+      .values(input)
+      .onConflictDoNothing()
+      .returning();
+    if (inserted[0]) return { candidate: inserted[0], created: true };
+    // Same key already collected: count the sighting, and only refresh what no one has reviewed yet
+    await db
+      .update(classificationCandidates)
+      .set({ seenCount: sql`${classificationCandidates.seenCount} + 1` })
+      .where(eq(classificationCandidates.dedupeKey, input.dedupeKey));
+    await db
+      .update(classificationCandidates)
+      .set({
+        priority: input.priority ?? 0,
+        reasons: input.reasons,
+        signals: input.signals,
+      })
+      .where(
+        and(
+          eq(classificationCandidates.dedupeKey, input.dedupeKey),
+          eq(classificationCandidates.status, "pending")
+        )
+      );
+    const [row] = await db
+      .select()
+      .from(classificationCandidates)
+      .where(eq(classificationCandidates.dedupeKey, input.dedupeKey))
+      .limit(1);
+    return { candidate: firstOrThrow(row ? [row] : []), created: false };
+  }
+
+  async getClassificationCandidates(filter?: {
+    status?: string;
+  }): Promise<ClassificationCandidate[]> {
+    const query = db.select().from(classificationCandidates);
+    return filter?.status === undefined
+      ? query.orderBy(desc(classificationCandidates.priority))
+      : query
+          .where(eq(classificationCandidates.status, filter.status))
+          .orderBy(desc(classificationCandidates.priority));
+  }
+
+  async countClassificationCandidates(): Promise<number> {
+    const [row] = await db.select({ value: count() }).from(classificationCandidates);
+    return Number(row?.value ?? 0);
+  }
+
+  async getClassificationCandidate(id: string): Promise<ClassificationCandidate | undefined> {
+    const [row] = await db
+      .select()
+      .from(classificationCandidates)
+      .where(eq(classificationCandidates.id, id))
+      .limit(1);
+    return row;
+  }
+
+  async updateClassificationCandidate(
+    id: string,
+    patch: Partial<Omit<InsertClassificationCandidate, "id" | "dedupeKey">>
+  ): Promise<ClassificationCandidate | undefined> {
+    const values = stripUndefined(patch);
+    if (Object.keys(values).length === 0) return this.getClassificationCandidate(id);
+    const [row] = await db
+      .update(classificationCandidates)
+      .set(values)
+      .where(eq(classificationCandidates.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteClassificationCandidates(status?: string): Promise<number> {
+    const result = await db
+      .delete(classificationCandidates)
+      .where(status === undefined ? undefined : eq(classificationCandidates.status, status));
+    return affectedRows(result);
   }
 
   // Integration API key methods

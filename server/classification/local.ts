@@ -31,6 +31,20 @@ export class LocalTfidfClassifier implements ReleaseClassifier {
     this.modelVersion = model.modelVersion;
   }
 
+  /** The model's best guess whatever its confidence, for reviewing releases it abstained on. */
+  guess(input: CloudInput): { class: Classification["class"]; confidence: number } | null {
+    if (this.scorer.model.titleAware && !input.gameTitle) return null;
+    try {
+      const { class: guessed, confidence } = this.scorer.predict({
+        title: input.title,
+        gameTitle: input.gameTitle,
+      });
+      return { class: guessed, confidence };
+    } catch {
+      return null;
+    }
+  }
+
   classify(input: CloudInput): Promise<Classification> {
     const abstain: Classification = {
       class: "unknown",

@@ -298,6 +298,7 @@ import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { releaseScoringRoutes } from "./release-scoring-routes.js";
+import { classificationCandidatesRoutes } from "./classification-candidates-routes.js";
 import {
   isAutoEligible,
   loadScoringConfig,
@@ -1050,6 +1051,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Use Steam Routes
   app.use(steamRoutes);
   app.use(releaseScoringRoutes);
+  app.use(classificationCandidatesRoutes);
   app.use(gameJournalRoutes);
   app.use(collectionRoutes);
   // Use PCGamingWiki Routes

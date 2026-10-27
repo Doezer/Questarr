@@ -379,6 +379,13 @@
       "when": 1792959731895,
       "tag": "0052_library_scan_ignored",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1793133434170,
+      "tag": "0053_classification_candidates",
+      "breakpoints": true
     }
   ]
 }

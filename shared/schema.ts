@@ -1585,6 +1585,42 @@ export const libraryScanIgnored = sqliteTable(
 
 export type LibraryScanIgnored = typeof libraryScanIgnored.$inferSelect;
 
+// Releases the classification pipeline was unsure about, kept for labeling when active
+// learning is enabled (docs/RELEASE_CLASSIFICATION.md). Nothing here is ground truth: only a
+// row a person verified (status "verified", humanLabel) can be exported as a training example.
+export const classificationCandidates = sqliteTable(
+  "classification_candidates",
+  {
+    id: text("id").primaryKey(),
+    dedupeKey: text("dedupe_key").notNull(),
+    releaseName: text("release_name").notNull(),
+    gameTitle: text("game_title"),
+    platform: text("platform"),
+    sizeBytes: integer("size_bytes"),
+    // JSON: why it was collected (low_confidence, disagreement, ...) and what each layer said
+    reasons: text("reasons").notNull(),
+    signals: text("signals").notNull(),
+    priority: integer("priority").notNull().default(0),
+    seenCount: integer("seen_count").notNull().default(1),
+    // pending | verified | ambiguous | rejected
+    status: text("status").notNull().default("pending"),
+    humanLabel: text("human_label"),
+    notes: text("notes"),
+    reviewedAt: integer("reviewed_at", { mode: "timestamp_ms" }),
+    suggestedLabel: text("suggested_label"),
+    suggestedConfidence: real("suggested_confidence"),
+    suggestedModel: text("suggested_model"),
+    suggestedAt: integer("suggested_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [uniqueIndex("classification_candidates_dedupe_idx").on(t.dedupeKey)]
+);
+
+export type ClassificationCandidate = typeof classificationCandidates.$inferSelect;
+export type InsertClassificationCandidate = typeof classificationCandidates.$inferInsert;
+
 export type RootFolder = typeof rootFolders.$inferSelect;
 export type InsertRootFolder = (typeof insertRootFolderSchema)["_output"];
 export type UpdateRootFolder = z.infer<typeof updateRootFolderSchema>;

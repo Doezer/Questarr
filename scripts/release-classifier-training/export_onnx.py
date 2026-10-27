@@ -69,18 +69,16 @@ def main():
             return session.run(["logits"], {n: enc[n].astype("int64") for n in names})[0]
 
         logits = np.concatenate([run(text(r)) for r in test])
+        measure = [sys.executable, os.path.join(os.path.dirname(__file__) or ".", "measure_rss.py"),
+                   file, os.path.join(args.out_dir, "tokenizer.json"), args.splits]
+        if args.title:
+            measure.append("--title")
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args -- argument list (no shell), run by the person invoking this local CLI on their own paths
+        measured = subprocess.run(measure, check=True, capture_output=True, text=True)
         out[label] = {
             "bytes": os.path.getsize(file),
             "cpu_latency_1_thread": latency_ms(run, [text(r) for r in test]),
-            "resident_memory": json.loads(
-                # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args -- argument list (no shell), run by the person invoking this local CLI on their own paths
-                subprocess.run(
-                    [sys.executable, os.path.join(os.path.dirname(__file__) or ".", "measure_rss.py"),
-                     file, os.path.join(args.out_dir, "tokenizer.json"), args.splits]
-                    + (["--title"] if args.title else []),
-                    check=True, capture_output=True, text=True,
-                ).stdout
-            ),
+            "resident_memory": json.loads(measured.stdout),
             "test_accuracy": metrics(truth, logits.argmax(axis=1))["accuracy"],
             "test_macro_f1": metrics(truth, logits.argmax(axis=1))["macro_f1"],
         }

@@ -43,12 +43,17 @@ export function cloudClassifier(
 ): ReleaseClassifier {
   return {
     async classify(input: CloudInput): Promise<CloudClassification> {
-      const unavailable = (reason: string): CloudClassification => ({
+      // The size judgment is independent of the type answer, so an unresolved type keeps it
+      const unavailable = (
+        reason: string,
+        legitimacyScore?: number | null
+      ): CloudClassification => ({
         class: "unknown",
         confidence: null,
         source: "cloud",
         modelVersion: modelVersion(),
         ruleIds: [reason],
+        ...(legitimacyScore !== undefined ? { legitimacyScore } : {}),
       });
       const analysis = await provider.analyzeRelease({
         releaseName: input.title,
@@ -57,10 +62,10 @@ export function cloudClassifier(
       });
       if (!analysis) return unavailable("cloud.unavailable");
       const mapped = analysis.releaseType ? CLOUD_TYPE_MAP[analysis.releaseType] : undefined;
-      if (!mapped) return unavailable("cloud.invalid-answer");
+      if (!mapped) return unavailable("cloud.invalid-answer", analysis.legitimacyScore);
       const confidence = analysis.releaseTypeConfidence;
       if (confidence === null || confidence < acceptThreshold) {
-        return { ...unavailable("cloud.low-confidence"), confidence };
+        return { ...unavailable("cloud.low-confidence", analysis.legitimacyScore), confidence };
       }
       return {
         class: mapped.class,

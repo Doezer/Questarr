@@ -192,6 +192,21 @@ describe("cloud layer", () => {
     });
     expect(low).toMatchObject({ class: "unknown", confidence: 0.3 });
   });
+
+  it("keeps the size judgment when the type is uncertain", async () => {
+    const out = await provider({
+      releaseType: "dlc",
+      releaseTypeConfidence: 0.4,
+      legitimacyScore: 0.1,
+    }).classify({ title: "x" });
+    expect(out).toMatchObject({ class: "unknown", legitimacyScore: 0.1 });
+    const invalid = await provider({
+      releaseType: null,
+      releaseTypeConfidence: null,
+      legitimacyScore: 0.2,
+    }).classify({ title: "x" });
+    expect(invalid).toMatchObject({ class: "unknown", legitimacyScore: 0.2 });
+  });
 });
 
 describe("pipeline modes", () => {

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 import numpy as np
 
@@ -92,6 +93,7 @@ def main():
             model, tok = train_fixed(model_name, train, text, ns.epochs, ns.lr)
             return predict(model, tok, [text(r) for r in predict_rows])
 
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     result = run(fit_predict, dev, test, ns.target)
     with open(out_path, "w") as handle:
         json.dump({key + " [oof-calibrated]": result}, handle, indent=2)

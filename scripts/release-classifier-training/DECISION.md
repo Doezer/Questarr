@@ -7,7 +7,9 @@ decision gate in the task). Date of the measurements: 2026-10-27.
 
 - Dataset: 459 labeled releases for 49 games, private (Questarr-mgmt). Classes `full_game` 127,
   `patch` 156, `dlc` 116, `unknown` 60 (`dlc_update` rows count as `patch`).
-- Split by game, seed 42: train 283, validation 88, test 88. The test part was scored once.
+- Split by game, seed 42: train 283, validation 88, test 88. Test rows were never used to choose
+  anything; the headline number is one scoring, while the seed repeats and the grouped
+  cross-validation also score or train on test rows and are variance estimates only.
   Hyperparameters, epochs, temperature and thresholds were chosen on validation (or on
   out-of-fold predictions of train+validation, see Calibration).
 - With 88 test rows, one release is 1.1 points and the 95% interval on an accuracy near 80% is about
@@ -51,8 +53,9 @@ an expansion), not something a bigger encoder fixes.
 
 - Artifact: 23 MB int8 (91 MB fp32) plus a 0.7 MB tokenizer file. Accuracy and macro F1 on the test
   part are identical between fp32 and int8.
-- Native ONNX Runtime (Python), one thread: p50 1.8 ms, p95 2.5 ms, 115 MB peak resident in a
-  fresh process (66 MB before the session is created; the fp32 model peaks at 205 MB). Reproduced
+- Native ONNX Runtime (Python), one thread: p50 1.8 ms, p95 2.5 ms, 101 to 115 MB peak resident in a
+  fresh process depending on the host (the session adds 50 to 54 MB on top of a 47 to 66 MB Python
+  and numpy baseline; the fp32 model peaks at 205 MB on the 115 MB host). Reproduced
   by `measure_rss.py`, run on its own after `export_onnx.py`.
 - `onnxruntime-web` (WASM backend) inside Node, one thread: p50 10 to 12 ms, p95 20 ms, 260 MB resident
   after loading the model and about 370 MB after a few hundred calls; logits within 0.035 of the

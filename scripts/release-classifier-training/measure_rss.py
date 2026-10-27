@@ -9,6 +9,7 @@ by the torch export that produced the model.
 
 from __future__ import annotations
 
+import argparse
 import json
 import resource
 import sys
@@ -35,8 +36,14 @@ def peak_mb() -> float:
 
 
 def main() -> None:
-    model, tokenizer_path, splits = sys.argv[1:4]
-    text = pair_text if "--title" in sys.argv else name_text
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("model")
+    ap.add_argument("tokenizer_path")
+    ap.add_argument("splits")
+    ap.add_argument("--title", action="store_true")
+    ns = ap.parse_args()
+    model, tokenizer_path, splits = ns.model, ns.tokenizer_path, ns.splits
+    text = pair_text if ns.title else name_text
     rows = part(load_rows(splits), "test")
     before = peak_mb()
     opts = ort.SessionOptions()

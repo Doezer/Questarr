@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 import numpy as np
 import torch
@@ -59,6 +60,7 @@ def main():
     ap.add_argument("--title", action="store_true")
     args = ap.parse_args()
     text = TEXTS["filename+title" if args.title else "filename"]
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     rows = load_rows(args.splits)
     accs, f1s = [], []
     for k, fold in enumerate(grouped_folds(rows)):
@@ -76,7 +78,8 @@ def main():
         "macro_f1_mean": float(np.mean(f1s)),
         "macro_f1_std": float(np.std(f1s)),
     }
-    json.dump(out, open(args.out, "w"), indent=2)
+    with open(args.out, "w") as handle:
+        json.dump(out, handle, indent=2)
     print(out)
 
 

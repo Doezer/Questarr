@@ -26,7 +26,7 @@ def main(out_path: str, paths: list[str]) -> None:
         "# Local classifier comparison",
         "",
         "Same game-grouped split as the TypeScript benchmark (seed 42, train/validation/test = 283/88/88).",
-        "Hyperparameters and early stopping use validation only. Test is scored once.",
+        "Hyperparameters and early stopping use validation only; test rows are never used for those choices. The seed and grouped-CV columns do score or train on test rows repeatedly, so they are variance estimates, not additional held-out results.",
         "",
         "## Test part, argmax of the model (no abstention)",
         "",
@@ -44,7 +44,7 @@ def main(out_path: str, paths: list[str]) -> None:
             + (f"{pct(seeds['test_accuracy_mean'])} ± {seeds['test_accuracy_std'] * 100:.1f}" if seeds else "n/a")
             + " | "
             + (f"{pct(cv['accuracy_mean'])} ± {cv['accuracy_std'] * 100:.1f}" if cv else "n/a")
-            + f" | {lat.get('p50_ms', float('nan')):.1f} |"
+            + (f" | {lat['p50_ms']:.1f} |" if "p50_ms" in lat else " | n/a |")
         )
     lines += [
         "",
@@ -60,7 +60,7 @@ def main(out_path: str, paths: list[str]) -> None:
             f"| {name} | {variant} | {r['ece_raw']:.3f} → {r['ece_calibrated']:.3f} | {pct(t['accuracy'])} | "
             f"{pct(t['macro_f1'])} | {pct(t['abstention'])} | {pct(t['auto_accept_precision'])} | {t['auto_accept_count']}/{t['n']} |"
         )
-    lines += ["", "Class thresholds fitted on validation:", ""]
+    lines += ["", "Class thresholds (fitted on validation, or on out-of-fold predictions of train+validation for [oof-calibrated] entries):", ""]
     for key, r in results.items():
         th = ", ".join(f"{c} {v:.2f}" for c, v in r["thresholds"].items() if c != "unknown")
         lines.append(f"- {key}: temperature {r['temperature']:.2f}, {th}")

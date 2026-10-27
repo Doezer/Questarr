@@ -235,6 +235,15 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     ).resolves.toBeUndefined();
   });
 
+  it("retries a release whose candidate count failed", async () => {
+    activeConfig.collect = true;
+    vi.spyOn(ctx.storage, "countClassificationCandidates").mockRejectedValueOnce(new Error("disk"));
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    expect(await ctx.storage.getClassificationCandidates()).toHaveLength(0);
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    expect(await ctx.storage.getClassificationCandidates()).toHaveLength(1);
+  });
+
   async function seed(title = "Stellaris Mystery Pack"): Promise<string> {
     activeConfig.collect = true;
     await mod.collectCandidate(input(title), unsure, {

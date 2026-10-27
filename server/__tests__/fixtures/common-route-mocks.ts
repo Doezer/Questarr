@@ -158,6 +158,7 @@ export function createStorageMock() {
     removeIgnoredScanFolder: vi.fn(),
     upsertClassificationCandidate: vi.fn(),
     getClassificationCandidates: vi.fn().mockResolvedValue([]),
+    countClassificationCandidates: vi.fn().mockResolvedValue(0),
     getClassificationCandidate: vi.fn(),
     updateClassificationCandidate: vi.fn(),
     deleteClassificationCandidates: vi.fn().mockResolvedValue(0),

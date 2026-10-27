@@ -555,6 +555,7 @@ export interface IStorage {
     input: InsertClassificationCandidate
   ): Promise<{ candidate: ClassificationCandidate; created: boolean }>;
   getClassificationCandidates(filter?: { status?: string }): Promise<ClassificationCandidate[]>;
+  countClassificationCandidates(): Promise<number>;
   getClassificationCandidate(id: string): Promise<ClassificationCandidate | undefined>;
   updateClassificationCandidate(
     id: string,
@@ -2413,6 +2414,10 @@ export class MemStorage implements IStorage {
     return Array.from(this.classificationCandidates.values()).filter(
       (c) => filter?.status === undefined || c.status === filter.status
     );
+  }
+
+  async countClassificationCandidates(): Promise<number> {
+    return this.classificationCandidates.size;
   }
 
   async getClassificationCandidate(id: string): Promise<ClassificationCandidate | undefined> {
@@ -4636,6 +4641,11 @@ export class DatabaseStorage implements IStorage {
       : query
           .where(eq(classificationCandidates.status, filter.status))
           .orderBy(desc(classificationCandidates.priority));
+  }
+
+  async countClassificationCandidates(): Promise<number> {
+    const [row] = await db.select({ value: count() }).from(classificationCandidates);
+    return Number(row?.value ?? 0);
   }
 
   async getClassificationCandidate(id: string): Promise<ClassificationCandidate | undefined> {

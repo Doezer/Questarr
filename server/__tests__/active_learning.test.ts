@@ -397,4 +397,30 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     const row = await ctx.storage.getClassificationCandidate(id);
     expect(row).toMatchObject({ status: "verified", humanLabel: "dlc", seenCount: 2 });
   });
+
+  it("writes a release once per window, and again after the candidates were deleted", async () => {
+    activeConfig.collect = true;
+    const upsert = vi.spyOn(ctx.storage, "upsertClassificationCandidate");
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    expect(upsert).toHaveBeenCalledTimes(1);
+
+    await request(app).delete("/api/classification-candidates");
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    expect(upsert).toHaveBeenCalledTimes(2);
+    expect(await ctx.storage.getClassificationCandidates()).toHaveLength(1);
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 61 * 60 * 1000);
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    vi.useRealTimers();
+    expect(upsert).toHaveBeenCalledTimes(3);
+    expect((await ctx.storage.getClassificationCandidates())[0]?.seenCount).toBe(2);
+  });
+
+  it("counts candidates without loading them", async () => {
+    await seed();
+    await seed("Stellaris Other Pack");
+    expect(await ctx.storage.countClassificationCandidates()).toBe(2);
+  });
 });

@@ -5,7 +5,11 @@ import { config } from "./config.js";
 import { routesLogger } from "./logger.js";
 import { storage } from "./storage.js";
 import { typesafeClient } from "./typesafe.js";
-import { exportVerifiedCsv, rankCandidates } from "./classification/active-learning.js";
+import {
+  exportVerifiedCsv,
+  rankCandidates,
+  resetCollectionMemory,
+} from "./classification/active-learning.js";
 
 /**
  * Review workflow for the releases active learning collected (docs/RELEASE_CLASSIFICATION.md).
@@ -170,7 +174,9 @@ router.delete("/api/classification-candidates", async (req: Request, res: Respon
     if (status !== undefined && !(CANDIDATE_STATUSES as readonly string[]).includes(status)) {
       return res.status(400).json({ error: "Unknown status" });
     }
-    return res.json({ deleted: await storage.deleteClassificationCandidates(status) });
+    const deleted = await storage.deleteClassificationCandidates(status);
+    resetCollectionMemory();
+    return res.json({ deleted });
   } catch (error) {
     routesLogger.error({ error }, "error deleting classification candidates");
     return res.status(500).json({ error: "Failed to delete candidates" });

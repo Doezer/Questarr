@@ -100,7 +100,27 @@ export function assessCandidate(
   };
 }
 
-const seenThisRun = new Set<string>();
+/** A release that keeps turning up is written once an hour, not on every auto-search cycle. */
+const SIGHTING_WINDOW_MS = 60 * 60 * 1000;
+const MAX_REMEMBERED = 10_000;
+const recentlySeen = new Map<string, number>();
+
+function seenRecently(key: string, now: number): boolean {
+  const at = recentlySeen.get(key);
+  return at !== undefined && now - at < SIGHTING_WINDOW_MS;
+}
+
+function remember(key: string, now: number): void {
+  if (recentlySeen.size >= MAX_REMEMBERED) {
+    for (const [k, at] of recentlySeen) if (now - at >= SIGHTING_WINDOW_MS) recentlySeen.delete(k);
+    // Still full of fresh entries: drop the oldest rather than grow
+    if (recentlySeen.size >= MAX_REMEMBERED) {
+      const oldest = recentlySeen.keys().next().value;
+      if (oldest !== undefined) recentlySeen.delete(oldest);
+    }
+  }
+  recentlySeen.set(key, now);
+}
 
 /**
  * Keeps an unsure release for labeling when `ACTIVE_LEARNING_COLLECT` is on. Never throws and
@@ -119,13 +139,14 @@ export async function collectCandidate(
     const assessment = assessCandidate(input, result, local);
     if (!assessment) return;
     const dedupeKey = candidateKey(input.title, input.gameTitle);
-    // The same release turns up on every search cycle; one write per run is enough to refresh it
-    if (seenThisRun.has(dedupeKey)) return;
-    if ((await storage.getClassificationCandidates()).length >= MAX_CANDIDATES) {
+    const now = Date.now();
+    if (seenRecently(dedupeKey, now)) return;
+    if ((await storage.countClassificationCandidates()) >= MAX_CANDIDATES) {
+      // An existing row would only be refreshed, which the limit does not need to stop
       alLogger.warn({ max: MAX_CANDIDATES }, "Candidate limit reached, not collecting more");
       return;
     }
-    seenThisRun.add(dedupeKey);
+    remember(dedupeKey, now);
     await storage.upsertClassificationCandidate({
       id: randomUUID(),
       dedupeKey,
@@ -142,9 +163,9 @@ export async function collectCandidate(
   }
 }
 
-/** Forgets the per-run dedupe memory; tests and "delete all" use it. */
+/** Forgets which releases were just written, so deleted candidates can be collected again. */
 export function resetCollectionMemory(): void {
-  seenThisRun.clear();
+  recentlySeen.clear();
 }
 
 export interface RankedCandidate {

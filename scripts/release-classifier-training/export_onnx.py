@@ -73,6 +73,8 @@ def main():
             "bytes": os.path.getsize(file),
             "cpu_latency_1_thread": latency_ms(run, [text(r) for r in test]),
             "resident_memory": json.loads(
+                # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
+                # Argument list (no shell), run by the person invoking this local CLI on their own paths.
                 subprocess.run(
                     [sys.executable, os.path.join(os.path.dirname(__file__) or ".", "measure_rss.py"),
                      file, os.path.join(args.out_dir, "tokenizer.json"), args.splits]

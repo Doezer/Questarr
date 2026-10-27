@@ -21,11 +21,11 @@ A release that no layer can classify is `unknown`. It is never turned into `full
 
 ## Modes (`CLASSIFICATION_MODE`)
 
-| Mode              | Behaviour                                                                                                                                                |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cloud` (default) | The historical Jev-only check, unchanged. Without a TypeSafe key nothing is checked.                                                                     |
-| `local`           | Rules, then the local model. No request ever leaves the server.                                                                                          |
-| `hybrid`          | Rules, then the local model. The cloud provider is asked only when the local model abstains (below its threshold), fails, times out or is not installed. |
+| Mode                      | Behaviour                                                                                                                                                                                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hybrid` (recommended)    | Rules, then the local model. The cloud provider is asked only when the local model abstains (below its threshold), fails, times out or is not installed. The cloud model decides alone: it does not see the local result, and it can still answer `unknown`. |
+| `local`                   | Rules, then the local model. No request ever leaves the server.                                                                                                                                                                                              |
+| `cloud` (default, legacy) | The historical Jev-only check, unchanged. Without a TypeSafe key nothing is checked. Kept so existing installs do not change behaviour.                                                                                                                      |
 
 The cloud provider is the TypeSafe client already configured in Settings. Its model id
 (`typesafe.model`, for example `jev-latest` or an OpenRouter id) is the only thing that changes

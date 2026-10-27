@@ -16,6 +16,8 @@ from laya import Router
 rows = load_rows(sys.argv[1])
 test = part(rows, 'test')
 MODEL = sys.argv[2]
+out_path = sys.argv[3]
+os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 router = Router()
 questions = {"kind": {"type": "choice",
   "instructions": "Classify this PC game release name from a torrent/usenet indexer.",
@@ -34,4 +36,5 @@ dt = (time.time()-t0)/len(test)*1000
 truth = np.array([r.label for r in test])
 m = metrics(truth, np.array(preds))
 print(json.dumps({"n": len(test), "ms_per_row": round(dt,1), "accuracy": m["accuracy"], "macro_f1": m["macro_f1"], "model": out["routing"]["model"]}, indent=1))
-json.dump({"preds": preds, "metrics": m}, open('/tmp/bench/train-out/laya-zeroshot-'+MODEL+'.json','w'), indent=1, default=float)
+with open(out_path, "w") as handle:
+    json.dump({"preds": preds, "metrics": m}, handle, indent=1, default=float)

@@ -17,6 +17,12 @@ RUN apk update && apk upgrade --no-cache && \
 COPY package*.json ./
 RUN npm ci --ignore-scripts
 
+# Production-only dependencies. Pruning here (not in the final stage) keeps the dev tree
+# (vite, typescript, esbuild...) out of every shipped layer: a later `npm prune` can't
+# shrink a layer that already contains the files.
+FROM base AS prod-deps
+RUN npm prune --omit=dev
+
 # Build client and server
 FROM base AS builder
 
@@ -73,16 +79,15 @@ RUN curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/unrar.tar.gz \
     install -Dm755 /tmp/rar/unrar /usr/local/bin/unrar && \
     rm -rf /tmp/unrar.tar.gz /tmp/rar
 
-# Reuse node_modules from base and prune dev dependencies (avoids a second npm ci)
-COPY --from=base /app/node_modules ./node_modules
+# Reuse the already-pruned production node_modules (avoids a second npm ci)
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY package*.json ./
 
-# Once pruned, the base image's global npm CLI (with its own bundled node_modules, e.g.
-# tar, ip-address, brace-expansion) isn't needed at runtime: CMD below execs node
+# The base image's global npm CLI (with its own bundled node_modules, e.g. tar,
+# ip-address, brace-expansion) isn't needed at runtime: CMD below execs node
 # directly. Removing it drops those bundled copies from the shipped image instead of
 # carrying whatever versions happened to be vendored into this Node release's npm.
-RUN npm prune --omit=dev && \
-    rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
       /usr/local/bin/corepack /usr/local/lib/node_modules/corepack
 
 # Copy necessary files from build stage
@@ -93,11 +98,15 @@ COPY --from=builder /app/migrations-pg ./migrations-pg
 COPY --from=builder /app/shared ./shared
 COPY --from=builder /app/package.json ./
 
-# Create user, group, data directory, and set ownership
+# Create user, group, and data directory. Ownership is deliberately non-recursive: a
+# recursive chown would rewrite all of node_modules into a new ~96 MB layer. App code
+# stays root-owned and world-readable; the runtime user only writes to /app/data and
+# creates server.log directly in /app (hence /app itself is chowned, as entrypoint.sh
+# also does at startup).
 RUN addgroup questarr && \
     adduser -G questarr -s /bin/sh -D questarr && \
     mkdir -p /app/data && \
-    chown -R questarr:questarr /app
+    chown questarr:questarr /app /app/data
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /entrypoint.sh

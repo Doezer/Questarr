@@ -22,6 +22,7 @@ describe("normalizeLabel", () => {
   it("folds Jev's vocabulary onto the ADR classes and flags", () => {
     expect(normalizeLabel("expansion")).toEqual({ label: "dlc", flags: [] });
     expect(normalizeLabel("update")).toEqual({ label: "patch", flags: [] });
+    expect(normalizeLabel("dlc_update")).toEqual({ label: "patch", flags: [] });
     expect(normalizeLabel("repack")).toEqual({ label: "full_game", flags: ["repack"] });
     expect(normalizeLabel("Other")).toEqual({ label: "unknown", flags: ["other_artifact"] });
     expect(normalizeLabel("crack_only")).toEqual({ label: "unknown", flags: ["crack_only"] });

@@ -13,6 +13,7 @@ const LABEL_MAP: Readonly<Record<string, { label: ReleaseClass; flags: Classific
   dlc: { label: "dlc", flags: [] },
   unknown: { label: "unknown", flags: [] },
   update: { label: "patch", flags: [] },
+  dlc_update: { label: "patch", flags: [] },
   repack: { label: "full_game", flags: ["repack"] },
   crack_only: { label: "unknown", flags: ["crack_only"] },
   demo: { label: "unknown", flags: ["demo"] },

@@ -42,17 +42,19 @@ python report.py out/comparison.md out/*.json
 
 ## What each script does
 
-| Script | Purpose |
-|---|---|
-| `export-splits.ts` | Writes the benchmark's train/validation/test assignment as JSON. |
-| `lib.py` | Rows, metrics (same definitions as `metrics.ts`), temperature scaling, class thresholds. |
-| `eval_classical.py` | Character n-gram TF-IDF + logistic regression; `C` picked on validation. |
-| `eval_encoder.py` | Fine-tunes (or freezes) a Hugging Face encoder; early stopping on validation macro F1; 3 seeds. |
-| `cv_encoder.py` | Game-grouped 5-fold cross-validation of a fine-tuned encoder (variance check). |
-| `eval_oof.py` | Fits temperature and class thresholds on out-of-fold predictions of train+validation. |
-| `export_onnx.py` | ONNX export, dynamic int8 quantization, single-row CPU latency and size. |
-| `measure_rss.py` | Peak resident memory of an ONNX model in a fresh process; run it by hand on `model.int8.onnx` after `export_onnx.py`. |
-| `report.py` | Merges the JSON results into one Markdown comparison. |
+| Script              | Purpose                                                                                                               |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `export-splits.ts`  | Writes the benchmark's train/validation/test assignment as JSON.                                                      |
+| `lib.py`            | Rows, metrics (same definitions as `metrics.ts`), temperature scaling, class thresholds.                              |
+| `eval_classical.py` | Character n-gram TF-IDF + logistic regression; `C` picked on validation.                                              |
+| `eval_encoder.py`   | Fine-tunes (or freezes) a Hugging Face encoder; early stopping on validation macro F1; 3 seeds.                       |
+| `cv_encoder.py`     | Game-grouped 5-fold cross-validation of a fine-tuned encoder (variance check).                                        |
+| `eval_oof.py`       | Fits temperature and class thresholds on out-of-fold predictions of train+validation.                                 |
+| `export_onnx.py`    | ONNX export, dynamic int8 quantization, single-row CPU latency and size.                                              |
+| `measure_rss.py`    | Peak resident memory of an ONNX model in a fresh process; run it by hand on `model.int8.onnx` after `export_onnx.py`. |
+| `learning_curve.py` | Accuracy of the tf-idf classifier against the number of training games (game-grouped 5-fold).                         |
+| `laya_zeroshot.py`  | Zero-shot Laya on the test part; needs its own environment (`pip install laya`).                                      |
+| `report.py`         | Merges the JSON results into one Markdown comparison.                                                                 |
 
 ## Rules the scripts follow
 

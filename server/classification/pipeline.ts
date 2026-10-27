@@ -140,7 +140,7 @@ export class ClassificationPipeline {
       const local = await guarded(layers.local, "local", input, timeoutMs);
       uncacheable ||= failed(local);
       if (!unresolved(local)) result = { ...local, path };
-      else if (config.mode === "local") result = { ...local, path };
+      else if (config.mode === "local" || failed(local)) result = { ...local, path };
     }
 
     if (unresolved(result) && config.mode !== "local" && layers.cloud) {

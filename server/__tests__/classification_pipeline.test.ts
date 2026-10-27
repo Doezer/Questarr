@@ -404,6 +404,19 @@ describe("pipeline cache", () => {
     expect(cloud).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps a local failure as degraded when hybrid has no cloud layer to fall back on", async () => {
+    const local = spy(() =>
+      Promise.resolve({ ...result("local", "unknown"), ruleIds: ["local.error"] })
+    );
+    const pipeline = new ClassificationPipeline(
+      configOf("hybrid"),
+      layersOf({ classify: local }, null)
+    );
+    const first = await pipeline.classify(UNRULED);
+    expect(first.path).toEqual(["rules", "local"]);
+    expect(first.degraded).toBe(true);
+  });
+
   it("expires entries and does not cache failures", async () => {
     let now = 0;
     const failing = spy(() =>

@@ -3,8 +3,8 @@
     python measure_rss.py <model.onnx> <tokenizer.json> <splits.json> [--title]
 
 Prints one JSON line: memory before the session exists, peak after 200 single-row calls, and
-the difference, in MB. Run as a subprocess by export_onnx.py so the figure is not inflated by
-the export that produced the model.
+the difference, in MB. Run it on its own, not from export_onnx.py, so the figure is not inflated
+by the torch export that produced the model.
 """
 
 from __future__ import annotations

@@ -34,6 +34,7 @@ python eval_oof.py encoder sentence-transformers/all-MiniLM-L6-v2 splits.json ou
 
 # 5. ONNX export, int8 quantization and CPU measurements of a fine-tuned model
 python export_onnx.py models/all-MiniLM-L6-v2-finetuned-filename splits.json onnx/minilm-l6
+python measure_rss.py onnx/minilm-l6/model.int8.onnx onnx/minilm-l6/tokenizer.json splits.json
 
 # 6. One comparison table
 python report.py out/comparison.md out/*.json
@@ -50,7 +51,7 @@ python report.py out/comparison.md out/*.json
 | `cv_encoder.py` | Game-grouped 5-fold cross-validation of a fine-tuned encoder (variance check). |
 | `eval_oof.py` | Fits temperature and class thresholds on out-of-fold predictions of train+validation. |
 | `export_onnx.py` | ONNX export, dynamic int8 quantization, single-row CPU latency and size. |
-| `measure_rss.py` | Peak resident memory of an ONNX model in a fresh process, called by `export_onnx.py`. |
+| `measure_rss.py` | Peak resident memory of an ONNX model in a fresh process; run it by hand on `model.int8.onnx` after `export_onnx.py`. |
 | `report.py` | Merges the JSON results into one Markdown comparison. |
 
 ## Rules the scripts follow

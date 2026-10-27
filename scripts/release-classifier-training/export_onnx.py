@@ -3,8 +3,8 @@
     python export_onnx.py <model-dir> <splits.json> <out-dir> [--title]
 
 Writes model.onnx (fp32), model.int8.onnx (dynamic int8), the tokenizer files, and
-measurements.json with artifact size, single-row latency and peak resident memory of a fresh
-inference process (measure_rss.py, run as a subprocess without torch). Inference needs only
+measurements.json with artifact size, single-row latency and test scores. Peak resident memory is
+measured separately by measure_rss.py in a fresh process without torch. Inference needs only
 onnxruntime + tokenizers, not torch.
 """
 
@@ -13,8 +13,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
-import sys
 
 import numpy as np
 import torch
@@ -69,16 +67,9 @@ def main():
             return session.run(["logits"], {n: enc[n].astype("int64") for n in names})[0]
 
         logits = np.concatenate([run(text(r)) for r in test])
-        measure = [sys.executable, os.path.join(os.path.dirname(__file__) or ".", "measure_rss.py"),
-                   file, os.path.join(args.out_dir, "tokenizer.json"), args.splits]
-        if args.title:
-            measure.append("--title")
-        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args -- argument list (no shell), run by the person invoking this local CLI on their own paths
-        measured = subprocess.run(measure, check=True, capture_output=True, text=True)
         out[label] = {
             "bytes": os.path.getsize(file),
             "cpu_latency_1_thread": latency_ms(run, [text(r) for r in test]),
-            "resident_memory": json.loads(measured.stdout),
             "test_accuracy": metrics(truth, logits.argmax(axis=1))["accuracy"],
             "test_macro_f1": metrics(truth, logits.argmax(axis=1))["macro_f1"],
         }

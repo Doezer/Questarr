@@ -123,7 +123,7 @@ games). The standard deviation is taken over the five fold means, so it measures
 held-out games matter, not sampling noise.
 
 Reading the trend: fitted on the log of the row count, accuracy gains between 3.0 points per
-doubling (last four points) and 5.5 (all six points), and the gain has been slowing: 1.1 points
+doubling (last three points) and 5.5 (all six points; 4.8 on the last four), and the gain has been slowing: 1.8 points
 from 276 to 367 rows. Extrapolated with those two slopes (estimates, not measurements, and the real
 curve will bend toward the label noise): 700 rows give about 83 to 86%, 1,500 rows about 86 to 92%,
 and 5,000 rows about 91% on the cautious fit. 90% therefore needs somewhere between 1,500 and

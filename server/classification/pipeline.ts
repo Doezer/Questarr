@@ -35,8 +35,11 @@ export type PipelineResult = Classification & {
   legitimacyScore?: number | null;
 };
 
+/** Flags that say what the release is. `repack` only says how it is packaged, so it decides nothing. */
+const RESOLVING_FLAGS = new Set(["crack_only", "demo", "soundtrack", "other_artifact"]);
+
 const unresolved = (result: Classification): boolean =>
-  result.class === "unknown" && !(result.flags && result.flags.length > 0);
+  result.class === "unknown" && !(result.flags ?? []).some((flag) => RESOLVING_FLAGS.has(flag));
 
 /** Runs a layer without letting it throw or hang: a failure is an unresolved result. */
 async function guarded(
@@ -115,7 +118,8 @@ export class ClassificationPipeline {
     const layers = await this.layers();
     const timeoutMs = this.options.layerTimeoutMs ?? DEFAULT_LAYER_TIMEOUT_MS;
     const path: PipelineResult["path"] = ["rules"];
-    let result: PipelineResult = { ...(await layers.rules.classify(input)), path };
+    const ruled = await layers.rules.classify(input);
+    let result: PipelineResult = { ...ruled, path };
     // Failures and timeouts are not cached: the next call should try the layer again
     let cacheable = true;
 
@@ -141,6 +145,11 @@ export class ClassificationPipeline {
         path,
         ...(legitimacyScore !== undefined ? { legitimacyScore } : {}),
       };
+    }
+
+    // A later layer replaces the rules' answer, but the packaging flag it found still holds
+    if (result.source !== "rules" && ruled.flags?.includes("repack")) {
+      result = { ...result, flags: [...new Set([...(result.flags ?? []), "repack" as const])] };
     }
 
     pipelineLogger.debug(

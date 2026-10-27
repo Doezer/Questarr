@@ -211,6 +211,37 @@ describe("pipeline modes", () => {
     expect(cloud).not.toHaveBeenCalled();
   });
 
+  it("does not stop at the rules for a repack-only name, and keeps the repack flag", async () => {
+    const cloud = spy(result("cloud", "dlc"));
+    const pipeline = new ClassificationPipeline(
+      configOf("hybrid"),
+      layersOf(
+        { classify: spy(result("local", "unknown", { confidence: 0.1 })) },
+        { classify: cloud }
+      )
+    );
+    const out = await pipeline.classify({
+      title: "Mystery Thing 1.0 REPACK-GRP",
+      gameTitle: "Cyber Quest",
+    });
+    expect(out).toMatchObject({ class: "dlc", source: "cloud", flags: ["repack"] });
+    expect(out.path).toEqual(["rules", "local", "cloud"]);
+  });
+
+  it("stops at the rules when they found a content flag", async () => {
+    const local = spy(result("local", "full_game"));
+    const pipeline = new ClassificationPipeline(
+      configOf("hybrid"),
+      layersOf({ classify: local }, null)
+    );
+    const out = await pipeline.classify({
+      title: "Cyber Quest Crack Only-GRP",
+      gameTitle: "Cyber Quest",
+    });
+    expect(out.flags).toContain("crack_only");
+    expect(local).not.toHaveBeenCalled();
+  });
+
   it("local mode never calls the cloud, even when nothing decides", async () => {
     const cloud = spy(result("cloud", "dlc"));
     const local = spy(result("local", "unknown", { confidence: 0.2 }));

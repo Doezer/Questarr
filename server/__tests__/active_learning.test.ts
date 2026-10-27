@@ -235,6 +235,15 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     ).resolves.toBeUndefined();
   });
 
+  it("retries a release whose candidate count failed", async () => {
+    activeConfig.collect = true;
+    vi.spyOn(ctx.storage, "countClassificationCandidates").mockRejectedValueOnce(new Error("disk"));
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    expect(await ctx.storage.getClassificationCandidates()).toHaveLength(0);
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    expect(await ctx.storage.getClassificationCandidates()).toHaveLength(1);
+  });
+
   async function seed(title = "Stellaris Mystery Pack"): Promise<string> {
     activeConfig.collect = true;
     await mod.collectCandidate(input(title), unsure, {
@@ -422,5 +431,17 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     await seed();
     await seed("Stellaris Other Pack");
     expect(await ctx.storage.countClassificationCandidates()).toBe(2);
+  });
+
+  it("counts a full table once per release per window and writes nothing", async () => {
+    activeConfig.collect = true;
+    const count = vi
+      .spyOn(ctx.storage, "countClassificationCandidates")
+      .mockResolvedValue(mod.MAX_CANDIDATES);
+    const upsert = vi.spyOn(ctx.storage, "upsertClassificationCandidate");
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    await mod.collectCandidate(input("Stellaris Mystery Pack"), unsure, null);
+    expect(count).toHaveBeenCalledTimes(1);
+    expect(upsert).not.toHaveBeenCalled();
   });
 });

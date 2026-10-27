@@ -141,12 +141,15 @@ export async function collectCandidate(
     const dedupeKey = candidateKey(input.title, input.gameTitle);
     const now = Date.now();
     if (seenRecently(dedupeKey, now)) return;
-    if ((await storage.countClassificationCandidates()) >= MAX_CANDIDATES) {
-      // An existing row would only be refreshed, which the limit does not need to stop
+    const stored = await storage.countClassificationCandidates();
+    // Remembered once the count succeeded, so a full table is not counted and logged on every
+    // cycle while a failed count is still retried
+    remember(dedupeKey, now);
+    if (stored >= MAX_CANDIDATES) {
+      // At the cap nothing is written, not even a refresh of an existing row: delete some first
       alLogger.warn({ max: MAX_CANDIDATES }, "Candidate limit reached, not collecting more");
       return;
     }
-    remember(dedupeKey, now);
     await storage.upsertClassificationCandidate({
       id: randomUUID(),
       dedupeKey,

@@ -132,13 +132,13 @@ export class ClassificationPipeline {
     const path: PipelineResult["path"] = ["rules"];
     const ruled = await layers.rules.classify(input);
     let result: PipelineResult = { ...ruled, path };
-    // A failing layer makes the result degraded and uncached: the next call tries it again
-    let degraded = false;
+    // Any failing layer keeps the result out of the cache so the next call tries it again
+    let uncacheable = false;
 
     if (unresolved(result) && config.mode !== "cloud" && layers.local) {
       path.push("local");
       const local = await guarded(layers.local, "local", input, timeoutMs);
-      degraded ||= failed(local);
+      uncacheable ||= failed(local);
       if (!unresolved(local)) result = { ...local, path };
       else if (config.mode === "local") result = { ...local, path };
     }
@@ -146,7 +146,7 @@ export class ClassificationPipeline {
     if (unresolved(result) && config.mode !== "local" && layers.cloud) {
       path.push("cloud");
       const cloud = await guarded(layers.cloud, "cloud", input, timeoutMs);
-      degraded ||= failed(cloud);
+      uncacheable ||= failed(cloud);
       const { legitimacyScore } = cloud as PipelineResult;
       result = {
         ...cloud,
@@ -174,9 +174,11 @@ export class ClassificationPipeline {
       "Release classified"
     );
 
-    if (degraded) result = { ...result, degraded };
+    // `degraded` only says the answer we return came from a failed layer; an earlier failure
+    // that a later layer made up for leaves a real verdict
+    if (failed(result)) result = { ...result, degraded: true };
 
-    if (!degraded) {
+    if (!uncacheable) {
       if (this.cache.size >= CACHE_MAX_ENTRIES) {
         const oldest = this.cache.keys().next().value;
         if (oldest !== undefined) this.cache.delete(oldest);

@@ -388,6 +388,22 @@ describe("pipeline cache", () => {
     expect((await ordinary.classify(UNRULED)).degraded).toBeUndefined();
   });
 
+  it("keeps a real cloud unknown non-degraded after a local failure, but does not cache it", async () => {
+    const local = spy(() =>
+      Promise.resolve({ ...result("local", "unknown"), ruleIds: ["local.error"] })
+    );
+    const cloud = spy(result("cloud", "unknown", { confidence: 0.2 }));
+    const pipeline = new ClassificationPipeline(
+      configOf("hybrid"),
+      layersOf({ classify: local }, { classify: cloud })
+    );
+    const first = await pipeline.classify(UNRULED);
+    expect(first.path).toEqual(["rules", "local", "cloud"]);
+    expect(first.degraded).toBeUndefined();
+    await pipeline.classify(UNRULED);
+    expect(cloud).toHaveBeenCalledTimes(2);
+  });
+
   it("expires entries and does not cache failures", async () => {
     let now = 0;
     const failing = spy(() =>

@@ -62,6 +62,7 @@ const SHARE_PREVIEW_KEY = ["/api/classification-candidates/share/preview"];
 interface SharePreview {
   enabled: boolean;
   url: string;
+  batchId: string;
   rows: { releaseName: string; gameTitle: string; label: string; modelVersion: string }[];
   remaining: number;
   alreadyShared: number;
@@ -268,9 +269,13 @@ export default function ClassificationReviewSettings() {
     onError,
   });
   const share = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/classification-candidates/share");
+    mutationFn: async (batchId: string) => {
+      const res = await apiRequest("POST", "/api/classification-candidates/share", { batchId });
       return (await res.json()) as { sent: number; remaining: number };
+    },
+    onError: (error: Error) => {
+      onError(error);
+      void queryClient.invalidateQueries({ queryKey: SHARE_PREVIEW_KEY });
     },
     onSuccess: ({ sent, remaining }) => {
       toast({
@@ -280,7 +285,6 @@ export default function ClassificationReviewSettings() {
       void queryClient.invalidateQueries({ queryKey: SHARE_PREVIEW_KEY });
       if (remaining === 0) setPreviewOpen(false);
     },
-    onError,
   });
 
   const exportVerified = async () => {
@@ -449,7 +453,7 @@ export default function ClassificationReviewSettings() {
             <Button
               className="min-h-11"
               disabled={!preview.data?.enabled || !preview.data.rows.length || share.isPending}
-              onClick={() => share.mutate()}
+              onClick={() => preview.data && share.mutate(preview.data.batchId)}
             >
               <Send className="mr-2 h-4 w-4" />
               Send {preview.data?.rows.length ?? 0} labels

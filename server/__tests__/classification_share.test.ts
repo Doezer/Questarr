@@ -32,6 +32,14 @@ describe.each(activeTestDialects())("sharing verified labels on %s", (dialect) =
     vi.restoreAllMocks();
   });
 
+  /** Sends like the dialog does: previews first, then names the batch it saw. */
+  async function send(batchId?: string) {
+    const id =
+      batchId ??
+      (await request(app).get("/api/classification-candidates/share/preview")).body.batchId;
+    return request(app).post("/api/classification-candidates/share").send({ batchId: id });
+  }
+
   async function addCandidate(
     releaseName: string,
     over: { status?: string; humanLabel?: string | null; gameTitle?: string | null } = {}
@@ -72,7 +80,9 @@ describe.each(activeTestDialects())("sharing verified labels on %s", (dialect) =
   it("refuses to send while sharing is off and never calls the network", async () => {
     await addCandidate("Stellaris Leviathans-GOG");
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const res = await request(app).post("/api/classification-candidates/share");
+    const res = await request(app)
+      .post("/api/classification-candidates/share")
+      .send({ batchId: "x" });
     expect(res.status).toBe(403);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -84,7 +94,7 @@ describe.each(activeTestDialects())("sharing verified labels on %s", (dialect) =
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(JSON.stringify({ accepted: 2 }), { status: 200 }));
-    const res = await request(app).post("/api/classification-candidates/share");
+    const res = await send();
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ sent: 2, remaining: 0 });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -101,7 +111,7 @@ describe.each(activeTestDialects())("sharing verified labels on %s", (dialect) =
     }
 
     // Nothing left to send, and the preview says why
-    const again = await request(app).post("/api/classification-candidates/share");
+    const again = await send("whatever");
     expect(again.status).toBe(409);
     const preview = await request(app).get("/api/classification-candidates/share/preview");
     expect(preview.body.rows).toHaveLength(0);
@@ -115,11 +125,43 @@ describe.each(activeTestDialects())("sharing verified labels on %s", (dialect) =
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response("no", { status: 429 }))
       .mockRejectedValueOnce(new Error("offline"));
-    expect((await request(app).post("/api/classification-candidates/share")).status).toBe(502);
-    expect((await request(app).post("/api/classification-candidates/share")).status).toBe(502);
+    expect((await send()).status).toBe(502);
+    expect((await send()).status).toBe(502);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     const preview = await request(app).get("/api/classification-candidates/share/preview");
     expect(preview.body.rows).toHaveLength(1);
+  });
+
+  it("refuses a batch that changed since the preview and sends nothing", async () => {
+    live.shareLabels = true;
+    await addCandidate("Stellaris Leviathans-GOG");
+    const previewed = (await request(app).get("/api/classification-candidates/share/preview")).body
+      .batchId;
+    await addCandidate("Stellaris Apocalypse-GOG");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const res = await send(previewed);
+    expect(res.status).toBe(409);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect((await request(app).post("/api/classification-candidates/share").send({})).status).toBe(
+      400
+    );
+  });
+
+  it("keeps the fingerprints of sent releases still in the queue", async () => {
+    live.shareLabels = true;
+    await addCandidate("Stellaris Leviathans-GOG");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    expect((await send()).status).toBe(200);
+    const kept = JSON.parse((await ctx.storage.getSystemConfig("classification.shared")) ?? "[]");
+    expect(kept).toHaveLength(1);
+    await ctx.storage.deleteClassificationCandidates();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    await addCandidate("Stellaris Apocalypse-GOG");
+    expect((await send()).status).toBe(200);
+    // The first release left the queue, so its fingerprint is dropped with it
+    expect(
+      JSON.parse((await ctx.storage.getSystemConfig("classification.shared")) ?? "[]")
+    ).toHaveLength(1);
   });
 
   it("caps a request and reports the rest", async () => {

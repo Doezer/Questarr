@@ -103,9 +103,14 @@ router.get("/api/classification-candidates/share/preview", async (_req: Request,
 });
 
 // Manual, one request per press: there is no background sharing
-router.post("/api/classification-candidates/share", async (_req: Request, res: Response) => {
+router.post("/api/classification-candidates/share", async (req: Request, res: Response) => {
+  const parsed = z
+    .object({ batchId: z.string().min(1).max(64) })
+    .strict()
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Name the previewed batch" });
   try {
-    return res.json(await sendShareBatch());
+    return res.json(await sendShareBatch(parsed.data.batchId));
   } catch (error) {
     if (error instanceof ShareError) return res.status(error.status).json({ error: error.message });
     routesLogger.error({ error }, "error sharing verified labels");

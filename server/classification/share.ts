@@ -21,7 +21,6 @@ export const SHARE_MAX_RELEASE_NAME = 300;
 export const SHARE_MAX_GAME_TITLE = 200;
 
 const SHARED_KEY = "classification.shared";
-const SHARED_MEMORY = 20_000;
 const SEND_TIMEOUT_MS = 10_000;
 
 /** The only four fields that leave the server. */
@@ -34,6 +33,8 @@ export interface SharedLabel {
 
 export interface ShareBatch {
   rows: SharedLabel[];
+  /** Fingerprint of the rows: a send must name the batch the person previewed */
+  batchId: string;
   /** Verified rows that fit no request yet (more than SHARE_MAX_ROWS) */
   remaining: number;
   alreadyShared: number;
@@ -92,8 +93,10 @@ export async function buildShareBatch(): Promise<ShareBatch> {
       modelVersion,
     });
   }
+  const rows = eligible.slice(0, SHARE_MAX_ROWS);
   return {
-    rows: eligible.slice(0, SHARE_MAX_ROWS),
+    rows,
+    batchId: createHash("sha256").update(JSON.stringify(rows)).digest("hex").slice(0, 24),
     remaining: Math.max(0, eligible.length - SHARE_MAX_ROWS),
     alreadyShared,
     skipped,
@@ -113,12 +116,18 @@ export class ShareError extends Error {
  * Sends the batch the person previewed. One manual request, no background task, no redirect
  * followed, nothing but the four fields in the body.
  */
-export async function sendShareBatch(): Promise<{ sent: number; remaining: number }> {
+export async function sendShareBatch(
+  batchId: string
+): Promise<{ sent: number; remaining: number }> {
   if (!config.classification.activeLearning.shareLabels) {
     throw new ShareError("Sharing is off", 403);
   }
   const batch = await buildShareBatch();
   if (batch.rows.length === 0) throw new ShareError("No verified labels to share", 409);
+  // Only what the person saw may leave: if the rows changed since the preview, ask for a new one
+  if (batch.batchId !== batchId) {
+    throw new ShareError("The labels changed since the preview: open it again", 409);
+  }
 
   let response: Response;
   try {
@@ -138,7 +147,18 @@ export async function sendShareBatch(): Promise<{ sent: number; remaining: numbe
     throw new ShareError(`The collection point refused the batch (${response.status})`, 502);
   }
 
-  const sent = [...(await readShared()), ...batch.rows.map((r) => fingerprint(r.releaseName))];
-  await storage.setSystemConfig(SHARED_KEY, JSON.stringify(sent.slice(-SHARED_MEMORY)));
+  // Remember what was sent, but only for releases still kept: the list stays bounded by the
+  // candidate cap, and a sent row can never be forgotten while it is still in the queue
+  const kept = new Set(
+    (await storage.getClassificationCandidates()).map((c) => fingerprint(c.releaseName))
+  );
+  const sent = new Set([
+    ...(await readShared()),
+    ...batch.rows.map((r) => fingerprint(r.releaseName)),
+  ]);
+  await storage.setSystemConfig(
+    SHARED_KEY,
+    JSON.stringify([...sent].filter((hash) => kept.has(hash)))
+  );
   return { sent: batch.rows.length, remaining: batch.remaining };
 }

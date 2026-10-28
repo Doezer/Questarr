@@ -231,6 +231,18 @@ describe("queryClient utilities", () => {
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer jwt-token");
   });
 
+  it("getQueryFn forwards the query abort signal to fetch", async () => {
+    const response = new Response(JSON.stringify({ items: [] }), { status: 200 });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+    const controller = new AbortController();
+
+    const queryFn = getQueryFn<{ items: unknown[] }>({ on401: "throw" });
+    await queryFn({ queryKey: ["/api/search?query=test"], signal: controller.signal } as never);
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(init?.signal).toBe(controller.signal);
+  });
+
   it("queryClient default options disable retries and refetching", () => {
     const defaults = queryClient.getDefaultOptions();
 

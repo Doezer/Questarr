@@ -293,6 +293,29 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     expect(recipients).toEqual(["u1", "u2", "u2"]);
   });
 
+  it("announces again after the list was worked down and grew back", async () => {
+    activeConfig.collect = true;
+    vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);
+    const added = vi
+      .spyOn(ctx.storage, "addNotification")
+      .mockImplementation(
+        async (n) => ({ ...n, id: "n1", read: false, createdAt: new Date() }) as never
+      );
+    for (let i = 1; i <= 25; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    expect(added).toHaveBeenCalledTimes(1);
+    const rows = await ctx.storage.getClassificationCandidates({ status: "pending" });
+    for (const row of rows.slice(0, 10)) {
+      await ctx.storage.updateClassificationCandidate(row.id, { status: "verified" } as never);
+    }
+    await mod.collectCandidate(input("Stellaris Mystery Pack 26"), unsure, null);
+    for (let i = 27; i <= 35; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    expect(added).toHaveBeenCalledTimes(2);
+  });
+
   it("notifies once when collections overlap across a multiple of 25", async () => {
     activeConfig.collect = true;
     vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);

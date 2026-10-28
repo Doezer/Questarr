@@ -129,8 +129,8 @@ let notifiedBucket: number | null = null;
 async function checkReviewBacklog(): Promise<void> {
   const waiting = (await storage.getClassificationCandidates({ status: "pending" })).length;
   const bucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
-  // Right after a restart the list was already one shorter, so only a real crossing notifies
-  const before = notifiedBucket ?? Math.floor(Math.max(waiting - 1, 0) / REVIEW_NOTIFY_EVERY);
+  // Without a baseline (it could not be read) nothing is announced rather than guessed
+  const before = notifiedBucket ?? bucket;
   notifiedBucket = bucket;
   if (bucket <= before) return;
   const users = await storage.getAllUsers();
@@ -146,6 +146,24 @@ async function checkReviewBacklog(): Promise<void> {
       notifyUser("notification", notification, notification.userId);
     })
   );
+}
+
+/**
+ * Reads the waiting list once, before the first insert of this run, so a crossing is measured
+ * against what was there and not inferred from a count taken after concurrent inserts.
+ */
+function ensureBacklogBaseline(): Promise<void> {
+  if (notifiedBucket !== null) return Promise.resolve();
+  backlogChain = backlogChain
+    .then(async () => {
+      if (notifiedBucket !== null) return;
+      const waiting = (await storage.getClassificationCandidates({ status: "pending" })).length;
+      notifiedBucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
+    })
+    .catch((error) => {
+      alLogger.warn({ error }, "Could not read the classification review backlog");
+    });
+  return backlogChain;
 }
 
 /**
@@ -211,6 +229,7 @@ export async function collectCandidate(
       alLogger.warn({ max }, "Candidate limit reached, not collecting more");
       return;
     }
+    await ensureBacklogBaseline();
     const { candidate, created } = await storage.upsertClassificationCandidate({
       id: randomUUID(),
       dedupeKey,

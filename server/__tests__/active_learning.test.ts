@@ -286,6 +286,25 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     expect(added).toHaveBeenCalledTimes(1);
   });
 
+  it("notifies after a restart when concurrent collections cross a multiple of 25", async () => {
+    activeConfig.collect = true;
+    for (let i = 1; i <= 24; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    // A restart: the process forgets what it saw and what it announced, the table keeps 24 rows
+    mod.resetCollectionMemory();
+    vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);
+    const added = vi
+      .spyOn(ctx.storage, "addNotification")
+      .mockImplementation(
+        async (n) => ({ ...n, id: "n1", read: false, createdAt: new Date() }) as never
+      );
+    await Promise.all(
+      [25, 26].map((i) => mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null))
+    );
+    expect(added).toHaveBeenCalledTimes(1);
+  });
+
   it("does not collect when a layer failed", async () => {
     activeConfig.collect = true;
     await mod.collectCandidate(

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Server,
@@ -229,12 +229,18 @@ function tabFromSearch(search: string): string | null {
 
 export default function SettingsPage() {
   const search = useSearch();
+  const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState(() => tabFromSearch(search) ?? "appearance");
   // A link to this page while it is already open, such as a notification, changes the tab
   useEffect(() => {
     const tab = tabFromSearch(search);
     if (tab) setActiveTab(tab);
   }, [search]);
+  // Picking a tab by hand updates the URL too, so a later link to ?tab= is a real change
+  const selectTab = (tab: string) => {
+    setActiveTab(tab);
+    navigate(`/settings?tab=${tab}`, { replace: true });
+  };
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -1274,7 +1280,7 @@ export default function SettingsPage() {
           </Alert>
         )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={selectTab} className="w-full">
           <div className="relative mb-4 sm:mb-8">
             <TabsList
               ref={setTabsScrollNode}

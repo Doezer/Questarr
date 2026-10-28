@@ -10,8 +10,20 @@ const SCRIPT = path.resolve(__dirname, "../weekly-release-notes.mjs");
 let repoDir: string;
 let binDir: string;
 
+// No inherited GIT_* variables or global config, so git only ever sees the fixture repository.
+const isolatedEnv = (): NodeJS.ProcessEnv => {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) if (key.startsWith("GIT_")) delete env[key];
+  return { ...env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" };
+};
+
 const git = (...args: string[]) =>
-  execFileSync("git", args, { cwd: repoDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("git", args, {
+    cwd: repoDir,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: isolatedEnv(),
+  });
 
 const commit = (name: string, email: string, message: string) => {
   git(
@@ -87,7 +99,7 @@ describe("weekly-release-notes contributors", () => {
     execFileSync(process.execPath, [SCRIPT, "v0", "v1"], {
       cwd: repoDir,
       encoding: "utf8",
-      env: { ...process.env, PATH: binDir, GITHUB_REPOSITORY: "" },
+      env: { ...isolatedEnv(), PATH: binDir, GITHUB_REPOSITORY: "" },
     });
 
   it("counts commits inside a merged pull request, one person under several names", () => {

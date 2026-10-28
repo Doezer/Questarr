@@ -120,19 +120,21 @@ const commitsOf = (pr) => {
 };
 
 const people = new Map();
-const credit = (sha, name, email, prNumber) => {
+// Commits are counted as distinct SHAs, so a squash author repeated in a trailer counts once.
+const credit = (sha, name, email, prNumber, commitSha = sha) => {
   if (isBotAuthor(name, email)) return;
   const key = email.toLowerCase();
-  const person = people.get(key) ?? { sha, name, email, commits: 0, prs: new Set() };
+  const person = people.get(key) ?? { sha, name, email, shas: new Set(), prs: new Set() };
   person.sha ||= sha;
-  person.commits += 1;
+  person.shas.add(commitSha);
   if (prNumber) person.prs.add(prNumber);
   people.set(key, person);
 };
 for (const pr of sorted) {
   // gh knows when the PR itself came from a bot account, whatever its commits say.
   if (pr.isBot) continue;
-  for (const [sha, name, email] of commitsOf(pr)) credit(sha, name, email, pr.number);
+  for (const [sha, name, email] of commitsOf(pr))
+    credit(sha, name, email, pr.number, sha || pr.sha);
 }
 for (const c of direct) {
   const email = run("git", ["show", "-s", "--format=%ae", c.sha]);
@@ -160,18 +162,18 @@ for (const person of people.values()) {
   const key = login ? `@${login.toLowerCase()}` : person.email.toLowerCase();
   const seen = merged.get(key);
   if (seen) {
-    seen.commits += person.commits;
+    for (const s of person.shas) seen.shas.add(s);
     for (const n of person.prs) seen.prs.add(n);
   } else {
-    merged.set(key, { ...person, login, prs: new Set(person.prs) });
+    merged.set(key, { ...person, login, shas: new Set(person.shas), prs: new Set(person.prs) });
   }
 }
 const contributors = [...merged.values()]
-  .sort((a, b) => b.commits - a.commits || a.name.localeCompare(b.name))
+  .sort((a, b) => b.shas.size - a.shas.size || a.name.localeCompare(b.name))
   .map((person) => {
     const who = person.login ? `@${person.login}` : person.name;
     const prs = [...person.prs].sort((x, y) => x - y).map((n) => `#${n}`);
-    const count = `${person.commits} commit${person.commits === 1 ? "" : "s"}`;
+    const count = `${person.shas.size} commit${person.shas.size === 1 ? "" : "s"}`;
     return `- ${who}, ${count}${prs.length ? ` (${prs.join(", ")})` : " (pushed directly to main)"}`;
   });
 

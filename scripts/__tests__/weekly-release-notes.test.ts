@@ -63,7 +63,7 @@ beforeAll(() => {
   commit(
     "Bob",
     "3+bob@users.noreply.github.com",
-    "Fix a thing (#9)\n\nCo-authored-by: Carol <4+carol@users.noreply.github.com>"
+    "Fix a thing (#9)\n\nCo-authored-by: Carol <4+carol@users.noreply.github.com>\nCo-authored-by: Bob <3+bob@users.noreply.github.com>"
   );
   commit("Alice", "alice@users.noreply.github.com", "Another fix");
   commit("Owner", "1+owner@users.noreply.github.com", "Tweak the README");

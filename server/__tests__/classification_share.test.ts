@@ -173,7 +173,7 @@ describe.each(activeTestDialects())("sharing verified labels on %s", (dialect) =
     await share.autoShareVerifiedLabels();
     expect(fetchSpy).not.toHaveBeenCalled();
     live.shareLabels = true;
-    await share.autoShareVerifiedLabels(); // collector down: nothing is marked sent
+    await expect(share.autoShareVerifiedLabels()).rejects.toThrow(); // collector down: nothing is marked sent
     await share.autoShareVerifiedLabels(); // next run succeeds
     await share.autoShareVerifiedLabels(); // nothing left
     expect(fetchSpy).toHaveBeenCalledTimes(2);

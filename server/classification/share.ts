@@ -170,7 +170,7 @@ async function deliver(batch: ShareBatch): Promise<void> {
   // Remember what was sent, but only for releases still kept: the list stays bounded by the
   // candidate cap, and a sent row can never be forgotten while it is still in the queue
   const kept = new Set(
-    (await storage.getClassificationCandidates({ status: "verified" })).flatMap((c) =>
+    (await storage.getClassificationCandidates()).flatMap((c) =>
       c.gameTitle && c.humanLabel
         ? [fingerprint(c.releaseName, c.gameTitle.trim(), c.humanLabel)]
         : []
@@ -206,8 +206,9 @@ async function autoShare(): Promise<void> {
     try {
       await deliver(batch);
     } catch (error) {
+      // Rethrown so System Tasks records the run as failed; the rows stay unsent for the next run
       shareLogger.warn({ error }, "Automatic label sharing failed, will retry");
-      return;
+      throw error;
     }
     shareLogger.info({ sent: batch.rows.length }, "Shared verified labels");
   }

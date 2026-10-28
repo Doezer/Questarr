@@ -136,7 +136,9 @@ export class TfidfScorer {
   /** False when no n-gram of the input is in the vocabulary, so a score would be the bias alone. */
   hasFeatures(input: TfidfInput): boolean {
     // The title-match token is synthetic and always known, so it must not count as a feature
-    const text = featureText(input, this.model.titleAware).replace(/\s*titlematch\S*$/, "");
+    const full = featureText(input, this.model.titleAware);
+    const marker = this.model.titleAware ? full.lastIndexOf("titlematch") : -1;
+    const text = (marker === -1 ? full : full.slice(0, marker)).trim();
     return text.length > 0 && this.vectorize(text).length > 0;
   }
 

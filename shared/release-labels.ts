@@ -31,11 +31,15 @@ export const CANDIDATE_REASONS = [
 ] as const;
 export type CandidateReason = (typeof CANDIDATE_REASONS)[number];
 
-/** Classes that mean the same thing for a reviewer: an expansion is a DLC, an update is a patch. */
+/**
+ * Classes that mean the same thing for a reviewer: an expansion is a DLC, an update is a patch and
+ * a repack is a full game with a packaging flag (as `cloud.ts` and the benchmark fold them).
+ */
 const SAME_CLASS: Record<string, string> = {
   expansion: "dlc",
   update: "patch",
   dlc_update: "patch",
+  repack: "full_game",
 };
 
 /** True when two answers name different classes. "unknown" says nothing, so it never conflicts. */

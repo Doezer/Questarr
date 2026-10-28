@@ -162,7 +162,7 @@ export async function collectCandidate(
       alLogger.warn({ max }, "Candidate limit reached, not collecting more");
       return;
     }
-    await storage.upsertClassificationCandidate({
+    const { candidate } = await storage.upsertClassificationCandidate({
       id: randomUUID(),
       dedupeKey,
       releaseName: input.title,
@@ -173,6 +173,12 @@ export async function collectCandidate(
       signals: JSON.stringify(assessment.signals),
       priority: assessment.priority,
     });
+    // A refresh rewrites the reasons of a pending candidate, so a disagreement found through the
+    // "Ask the cloud model" button is derived again from the suggestion that is still stored
+    if (candidate.status === "pending" && candidate.suggestedLabel) {
+      const flagged = disagreementUpdate(candidate, candidate.suggestedLabel);
+      if (flagged) await storage.updateClassificationCandidate(candidate.id, flagged);
+    }
   } catch (error) {
     alLogger.warn({ error, title: input.title }, "Could not store a classification candidate");
   }

@@ -391,6 +391,39 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     );
   });
 
+  it("keeps a button-added disagreement when the release is collected again", async () => {
+    const id = await seed();
+    activeConfig.cloudSuggest = true;
+    vi.spyOn(typesafe, "isConfigured").mockResolvedValue(true);
+    vi.spyOn(typesafe, "analyzeRelease").mockResolvedValue({
+      releaseType: "update",
+      releaseTypeConfidence: 0.8,
+      legitimacyScore: null,
+    } as never);
+    await request(app).post(`/api/classification-candidates/${id}/suggest`);
+    mod.resetCollectionMemory();
+    await seed();
+    const row = await ctx.storage.getClassificationCandidate(id);
+    expect(row?.seenCount).toBe(2);
+    expect(JSON.parse(row?.reasons ?? "[]")).toEqual(["unresolved", "model_disagreement"]);
+    expect(row?.priority).toBeGreaterThan(40);
+  });
+
+  it("does not flag a repack suggestion against a full-game guess", async () => {
+    mod.resetCollectionMemory();
+    activeConfig.collect = true;
+    await mod.collectCandidate(input("Stellaris Repack Edition"), unsure, {
+      class: "full_game",
+      confidence: 0.5,
+      modelVersion: "m1",
+    });
+    const row = (await ctx.storage.getClassificationCandidates()).find(
+      (r) => r.releaseName === "Stellaris Repack Edition"
+    );
+    expect(mod.disagreementUpdate(row!, "repack")).toBeNull();
+    expect(mod.disagreementUpdate(row!, "patch")).not.toBeNull();
+  });
+
   it("reports provider failures without touching the candidate", async () => {
     const id = await seed();
     activeConfig.cloudSuggest = true;

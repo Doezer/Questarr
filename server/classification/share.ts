@@ -198,8 +198,9 @@ export function autoShareVerifiedLabels(): Promise<void> {
 }
 
 async function autoShare(): Promise<void> {
-  if (!config.classification.activeLearning.shareLabels) return;
   for (let i = 0; i < AUTO_MAX_BATCHES; i++) {
+    // Checked before every request, so turning the switch off stops the batches still to come
+    if (!config.classification.activeLearning.shareLabels) return;
     const batch = await buildShareBatch();
     if (batch.rows.length === 0) return;
     try {

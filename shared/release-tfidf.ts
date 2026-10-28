@@ -133,6 +133,11 @@ export class TfidfScorer {
     return norm === 0 ? entries : entries.map((e) => ({ index: e.index, value: e.value / norm }));
   }
 
+  /** False when no n-gram of the input is in the vocabulary, so a score would be the bias alone. */
+  hasFeatures(input: TfidfInput): boolean {
+    return this.vectorize(featureText(input, this.model.titleAware)).length > 0;
+  }
+
   /** Class probabilities (softmax over the logits), in `model.classes` order. */
   probabilities(input: TfidfInput): number[] {
     const vector = this.vectorize(featureText(input, this.model.titleAware));

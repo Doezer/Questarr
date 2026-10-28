@@ -86,6 +86,11 @@ describe("production classification pipeline", () => {
     expect(bundled).toMatchObject({ class: "full_game" });
     expect(bundled?.modelVersion).toMatch(/^tfidf-/);
 
+    // A name with no known n-gram must abstain, not be scored by the model's bias alone
+    expect(localGuess({ title: "漢字", gameTitle: "Some Game" })).toBeNull();
+    const unscorable = await releasePipeline.classify({ title: "漢字", gameTitle: "Some Game" });
+    expect(unscorable.class).toBe("unknown");
+
     fs.mkdirSync(path.join(dir, "models"), { recursive: true });
     const classifier = new TfidfClassifier({ titleAware: false, seed: 1, threshold: 0 });
     classifier.train(

@@ -322,8 +322,11 @@ Steam app IDs. `steam-library-routes.ts` runs behind the API authentication/CSRF
 boundary and rechecks ownership through `steamService.getOwnedGames` at import
 time. The service calls the official Steam Web API over HTTPS through `safeFetch`.
 Only the server supplies the API key and linked Steam ID. Selected IDs are mapped
-by IGDB's existing external-games lookup, then `quickAddGameByTitle` receives the
-exact IGDB ID, Steam App ID, Owned status and Steam source. It performs the usual
-content filtering and duplicate detection. No files or download clients are
-involved. Existing status/progress data is preserved. This manual workflow uses
+by IGDB's existing external-games lookup. Metadata is fetched in one batch;
+content-filter preferences and the library are loaded once, with an in-memory
+IGDB map updated for every added row. Schema-validated new games use the exact
+IGDB ID, Steam App ID, Owned status and Steam source, with the usual content
+filters and initial release-status normalization. Existing entries may gain a
+missing Steam App ID but keep their status/progress. No files or download clients
+are involved. This manual workflow uses
 the existing game fields and adds no migration or background task.

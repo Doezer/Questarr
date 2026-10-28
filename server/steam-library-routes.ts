@@ -5,8 +5,9 @@ import { config } from "./config.js";
 import { storage } from "./storage.js";
 import { steamService } from "./steam.js";
 import { igdbClient } from "./igdb.js";
-import { quickAddGameByTitle } from "./game-quick-add.js";
-import type { User } from "../shared/schema.js";
+import { getContentFilterFlags, isContentFiltered } from "./content-filter.js";
+import { normalizeInitialReleaseStatus } from "./game-status.js";
+import { insertGameSchema, type User } from "../shared/schema.js";
 
 export const steamLibraryRoutes = Router();
 const importing = new Set<string>();
@@ -81,6 +82,15 @@ steamLibraryRoutes.post("/api/steam/library/import", async (req, res) => {
     const library = await storage.getUserGames(user.id, true);
     const tracked = new Set(library.map((game) => game.steamAppId));
     const mappings = await igdbClient.getGameIdsBySteamAppIds(ids.filter((id) => !tracked.has(id)));
+    const byIgdb = new Map(
+      library.filter((game) => game.igdbId != null).map((game) => [game.igdbId!, game])
+    );
+    const newIgdbIds = [...new Set(mappings.values())].filter((id) => !byIgdb.has(id));
+    const [details, filterFlags] = await Promise.all([
+      igdbClient.getGamesByIds(newIgdbIds),
+      getContentFilterFlags(user.id),
+    ]);
+    const detailsById = new Map(details.map((game) => [game.id, game]));
     const results: Array<{
       steamAppId: number;
       title: string;
@@ -98,13 +108,37 @@ steamLibraryRoutes.post("/api/steam/library/import", async (req, res) => {
         continue;
       }
       try {
-        const result = await quickAddGameByTitle(user.id, game.title, {
+        const existing = byIgdb.get(igdbId);
+        if (existing) {
+          // Link an exact match once so later previews recognize it. Never replace
+          // another edition's App ID or alter the existing game's status/progress.
+          if (existing.steamAppId == null) {
+            await storage.updateGame(existing.id, { steamAppId: id });
+            existing.steamAppId = id;
+          }
+          results.push({ ...game, outcome: "duplicate" });
+          continue;
+        }
+        const detail = detailsById.get(igdbId);
+        if (!detail) {
+          results.push({ ...game, outcome: "not_found" });
+          continue;
+        }
+        const data = insertGameSchema.parse({
+          ...igdbClient.formatGameData(detail),
+          userId: user.id,
           igdbId,
           steamAppId: id,
           status: "owned",
           source: "steam",
         });
-        results.push({ ...game, outcome: result.outcome });
+        if (isContentFiltered(data, filterFlags)) {
+          results.push({ ...game, outcome: "not_found" });
+          continue;
+        }
+        const added = await storage.addGame(normalizeInitialReleaseStatus(data));
+        byIgdb.set(igdbId, added);
+        results.push({ ...game, outcome: "added" });
       } catch {
         // Keep successful rows and let the user retry only failures. Never log provider URLs/keys.
         results.push({ ...game, outcome: "failed" });

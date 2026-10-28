@@ -544,7 +544,8 @@ require the usual CSRF header. Responses use `Cache-Control: no-store`.
   integer IDs. Ownership is checked again with Steam before any write. Returns
   `{ results: [{ steamAppId, title, outcome }] }`, where outcome is `added`,
   `duplicate`, `not_found` (unmapped or content-filtered), or `failed`. New games
-  are Owned/source `steam`; existing games remain unchanged. Invalid/stale
+  are Owned/source `steam`; existing game states remain unchanged, with missing
+  Steam App IDs linked on exact IGDB matches. Invalid/stale
   selections return 400, a concurrent import by the same account returns 409,
   and an upstream batch failure returns 502. Partial row failures return 200
   with per-row outcomes so callers can retry explicitly.

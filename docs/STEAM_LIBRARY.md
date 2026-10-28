@@ -13,9 +13,12 @@ not an apparently successful empty sync. Steam licenses unavailable to that API
 
 New games use exact Steam App ID → IGDB mappings, respect account content filters,
 and are added as **Owned** with source `steam`. Unmapped or filtered games are
-skipped, not guessed by title. Existing entries (including Wanted, Playing,
+skipped, not guessed by title. Existing game states (including Wanted, Playing,
 Completed, hidden games, ratings, journals and file paths) stay unchanged, even
-when matched by IGDB ID rather than Steam ID. Repeating an import skips duplicates.
+when matched by IGDB ID rather than Steam ID. Exact existing IGDB matches gain a
+missing Steam App ID so later previews recognize them; an existing Steam App ID
+is never replaced. Multiple Steam editions mapping to one IGDB game stay a single
+entry; tracking every edition's provenance remains future work. Repeating an import skips duplicates.
 Each row reports added, already tracked, no eligible match, or failed; successful
 rows are retained if another fails. The importer does not start downloads or move
 files. Normal account automation continues to apply to owned games afterward.

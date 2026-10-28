@@ -22,7 +22,7 @@ vi.mock("../steam.js", () => ({ steamService: { getOwnedGames: fixtures.owned } 
 vi.mock("../igdb.js", () => ({
   igdbClient: {
     getGameIdsBySteamAppIds: fixtures.mappings,
-    getGameById: fixtures.game,
+    getGamesByIds: (ids: number[]) => Promise.all(ids.map((id) => fixtures.game(id))),
     formatGameData: (game: { id: number; name: string; isAdultContent?: boolean }) => ({
       igdbId: game.id,
       title: game.name,
@@ -152,7 +152,7 @@ describe.each(activeTestDialects())("Steam owned-library (%s)", (dialect) => {
   });
 
   it("keeps duplicate rows when another row fails and lets failed rows retry", async () => {
-    fixtures.game.mockRejectedValueOnce(new Error("IGDB unavailable"));
+    const add = vi.spyOn(ctx.storage, "addGame").mockRejectedValueOnce(new Error("Database busy"));
     const response = await request(app)
       .post("/api/steam/library/import")
       .send({ appIds: [10, 20] });
@@ -168,6 +168,58 @@ describe.each(activeTestDialects())("Steam owned-library (%s)", (dialect) => {
           .send({ appIds: [20] })
       ).body.results[0].outcome
     ).toBe("added");
+    add.mockRestore();
+  });
+
+  it("links an existing IGDB entry so future previews recognize it without changing progress", async () => {
+    const legacy = await ctx.storage.addGame({
+      userId,
+      igdbId: 300,
+      title: "Legacy",
+      status: "playing",
+      userRating: 8,
+    });
+    await ctx.storage.updateGame(legacy.id, { userRating: 8 });
+    fixtures.owned.mockResolvedValue([{ steamAppId: 30, title: "Legacy" }]);
+    fixtures.mappings.mockResolvedValue(new Map([[30, 300]]));
+    expect(
+      (
+        await request(app)
+          .post("/api/steam/library/import")
+          .send({ appIds: [30] })
+      ).body.results[0].outcome
+    ).toBe("duplicate");
+    expect(await ctx.storage.getGame(legacy.id)).toMatchObject({
+      steamAppId: 30,
+      status: "playing",
+      userRating: 8,
+    });
+    expect((await request(app).get("/api/steam/library")).body.games[0].alreadyTracked).toBe(true);
+    expect(fixtures.game).not.toHaveBeenCalled();
+  });
+
+  it("batches metadata and loads the library once, deduplicating IDs added in the same batch", async () => {
+    fixtures.owned.mockResolvedValue([
+      { steamAppId: 40, title: "Edition A" },
+      { steamAppId: 50, title: "Edition B" },
+    ]);
+    fixtures.mappings.mockResolvedValue(
+      new Map([
+        [40, 400],
+        [50, 400],
+      ])
+    );
+    const reads = vi.spyOn(ctx.storage, "getUserGames");
+    const result = await request(app)
+      .post("/api/steam/library/import")
+      .send({ appIds: [40, 50] });
+    expect(result.body.results.map((row: { outcome: string }) => row.outcome)).toEqual([
+      "added",
+      "duplicate",
+    ]);
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(fixtures.game).toHaveBeenCalledTimes(1);
+    reads.mockRestore();
   });
 
   it("rejects a simultaneous import for the same account", async () => {

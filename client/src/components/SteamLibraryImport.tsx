@@ -17,7 +17,7 @@ interface ImportResult {
 }
 const RESULT_LABELS = {
   added: "Added as Owned",
-  duplicate: "Already tracked — kept unchanged",
+  duplicate: "Already tracked — progress preserved",
   not_found: "No eligible IGDB match — skipped",
   failed: "Import failed — retry this game",
 };
@@ -77,7 +77,7 @@ export function SteamLibraryImport() {
       </h3>
       <p className="text-sm text-muted-foreground">
         Preview your Steam library and select up to 50 games. New games are added as Owned; existing
-        entries, progress and files stay unchanged. This action does not start downloads.
+        progress, statuses and files stay unchanged. This action does not start downloads.
       </p>
       <p className="text-xs text-muted-foreground">
         Requires a saved Steam ID, STEAM_API_KEY on the server, configured IGDB, and public Steam

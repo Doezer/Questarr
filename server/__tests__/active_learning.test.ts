@@ -266,6 +266,24 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     expect(added).toHaveBeenCalledTimes(1);
   });
 
+  it("retries a failed delivery without repeating the users already notified", async () => {
+    activeConfig.collect = true;
+    vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }, { id: "u2" }] as never);
+    let failU2 = true;
+    const added = vi.spyOn(ctx.storage, "addNotification").mockImplementation(async (n) => {
+      if (n.userId === "u2" && failU2) throw new Error("db busy");
+      return { ...n, id: "n1", read: false, createdAt: new Date() } as never;
+    });
+    for (let i = 1; i <= 25; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    expect(added).toHaveBeenCalledTimes(2);
+    failU2 = false;
+    await mod.collectCandidate(input("Stellaris Mystery Pack 26"), unsure, null);
+    const recipients = added.mock.calls.map((c) => c[0].userId);
+    expect(recipients).toEqual(["u1", "u2", "u2"]);
+  });
+
   it("notifies once when collections overlap across a multiple of 25", async () => {
     activeConfig.collect = true;
     vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);

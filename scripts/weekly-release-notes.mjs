@@ -79,8 +79,8 @@ const security = sorted.filter((pr) => isSecurity(pr.title, pr.labels));
 const others = sorted.filter((pr) => !security.includes(pr));
 
 // Contributors, counted by commit: the commits inside each merged PR plus the ones pushed straight
-// to main. Bots and the Claude agent (it commits for the person who asked) are left out, and one
-// person with several git names is one contributor because the email is the key.
+// to main. Bots and the Claude agent (it commits for the person who asked) are left out. One person
+// with several git names or emails is one contributor: the email groups first, the login merges.
 const NOREPLY = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i;
 const BOT_NAME = /\[bot\]|[-\s]bot$/i; // dependabot[bot], snyk-bot
 // Bot accounts whose git identity has no bot suffix, e.g. "198982749+Copilot@users.noreply.github.com".
@@ -93,10 +93,30 @@ const isBotAuthor = (name, email) =>
 
 const commitsOf = (pr) => {
   const isMerge = run("git", ["rev-list", "--parents", "-n", "1", pr.sha]).split(" ").length > 2;
-  // A merge commit keeps the PR's commits on its second parent; a squash merge is one commit.
-  const range = isMerge ? [`${pr.sha}^1..${pr.sha}^2`] : ["-1", pr.sha];
-  const log = run("git", ["log", "--no-merges", "--format=%H%x1f%an%x1f%ae", ...range]);
-  return log ? log.split("\n").map((line) => line.split("\x1f")) : [];
+  // A merge commit keeps the PR's commits on its second parent.
+  if (isMerge) {
+    const log = run("git", [
+      "log",
+      "--no-merges",
+      "--format=%H%x1f%an%x1f%ae",
+      `${pr.sha}^1..${pr.sha}^2`,
+    ]);
+    return log ? log.split("\n").map((line) => line.split("\x1f")) : [];
+  }
+  // A squash merge is one commit; the other authors of the PR are in its Co-authored-by trailers.
+  const [author] = run("git", ["log", "-1", "--format=%H%x1f%an%x1f%ae", pr.sha]).split("\n");
+  const trailers = run("git", [
+    "log",
+    "-1",
+    "--format=%(trailers:key=Co-authored-by,valueonly,separator=%x1f)",
+    pr.sha,
+  ]);
+  const coAuthors = trailers
+    .split("\x1f")
+    .map((line) => line.trim().match(/^(.+?)\s*<([^>]+)>$/))
+    .filter(Boolean)
+    .map((m) => ["", m[1], m[2]]);
+  return [author.split("\x1f"), ...coAuthors];
 };
 
 const people = new Map();
@@ -104,6 +124,7 @@ const credit = (sha, name, email, prNumber) => {
   if (isBotAuthor(name, email)) return;
   const key = email.toLowerCase();
   const person = people.get(key) ?? { sha, name, email, commits: 0, prs: new Set() };
+  person.sha ||= sha;
   person.commits += 1;
   if (prNumber) person.prs.add(prNumber);
   people.set(key, person);
@@ -122,6 +143,7 @@ for (const c of direct) {
 const loginOf = (person) => {
   const fromEmail = person.email.match(NOREPLY)?.[1];
   if (fromEmail) return fromEmail;
+  if (!person.sha) return undefined; // a Co-authored-by trailer has no commit of its own to look up
   try {
     return (
       run("gh", ["api", `repos/${repo}/commits/${person.sha}`, "--jq", ".author.login // empty"]) ||
@@ -131,8 +153,20 @@ const loginOf = (person) => {
     return undefined;
   }
 };
-const contributors = [...people.values()]
-  .map((person) => ({ ...person, login: loginOf(person) }))
+// Emails that resolve to the same login (a personal address and a noreply one) are one person.
+const merged = new Map();
+for (const person of people.values()) {
+  const login = loginOf(person);
+  const key = login ? `@${login.toLowerCase()}` : person.email.toLowerCase();
+  const seen = merged.get(key);
+  if (seen) {
+    seen.commits += person.commits;
+    for (const n of person.prs) seen.prs.add(n);
+  } else {
+    merged.set(key, { ...person, login, prs: new Set(person.prs) });
+  }
+}
+const contributors = [...merged.values()]
   .sort((a, b) => b.commits - a.commits || a.name.localeCompare(b.name))
   .map((person) => {
     const who = person.login ? `@${person.login}` : person.name;

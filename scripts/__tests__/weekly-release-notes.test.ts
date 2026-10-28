@@ -59,8 +59,13 @@ beforeAll(() => {
     "Add feature"
   );
 
-  // A squash-merged PR and a commit pushed straight to main.
-  commit("Bob", "3+bob@users.noreply.github.com", "Fix a thing (#9)");
+  // A squash-merged PR with a co-author, a second email for Alice, and a commit pushed to main.
+  commit(
+    "Bob",
+    "3+bob@users.noreply.github.com",
+    "Fix a thing (#9)\n\nCo-authored-by: Carol <4+carol@users.noreply.github.com>"
+  );
+  commit("Alice", "alice@users.noreply.github.com", "Another fix");
   commit("Owner", "1+owner@users.noreply.github.com", "Tweak the README");
 });
 
@@ -78,13 +83,19 @@ describe("weekly-release-notes contributors", () => {
     });
 
   it("counts commits inside a merged pull request, one person under several names", () => {
-    expect(notes()).toContain("- @alice, 2 commits (#7)");
+    expect(notes()).toContain("- @alice, 3 commits (#7)");
   });
 
   it("counts a squash-merged pull request and a direct commit", () => {
     const out = notes();
     expect(out).toContain("- @bob, 1 commit (#9)");
+    expect(out).toContain("- @carol, 1 commit (#9)");
     expect(out).toContain("- @owner, 1 commit (pushed directly to main)");
+  });
+
+  it("merges two emails that resolve to the same login", () => {
+    // 2 commits under the numbered noreply address plus 1 under the old login-only form
+    expect(notes().match(/@alice/g)).toHaveLength(1);
   });
 
   it("leaves out the Claude agent and bots", () => {

@@ -5,12 +5,17 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ImportReviewModal from "../src/components/ImportReviewModal";
 
-const { mockInvalidateQueries, mockToast, mockFileBrowser, mockApiRequest } = vi.hoisted(() => ({
-  mockInvalidateQueries: vi.fn(),
-  mockToast: vi.fn(),
-  mockFileBrowser: vi.fn(),
-  mockApiRequest: vi.fn().mockResolvedValue(undefined),
-}));
+const { mockInvalidateQueries, mockToast, mockFileBrowser, mockApiRequest, mockImportConfig } =
+  vi.hoisted(() => ({
+    mockInvalidateQueries: vi.fn(),
+    mockToast: vi.fn(),
+    mockFileBrowser: vi.fn(),
+    mockApiRequest: vi.fn().mockResolvedValue(undefined),
+    mockImportConfig: {
+      current: undefined as
+        { transferMode: string; libraryRoot: string; autoUnpack?: boolean } | undefined,
+    },
+  }));
 
 vi.mock("@/lib/queryClient", () => ({
   apiRequest: mockApiRequest,
@@ -25,8 +30,8 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-query")>();
   return {
     ...actual,
-    useQuery: () => ({
-      data: { transferMode: "move", libraryRoot: "/games/library" },
+    useQuery: ({ queryKey }: { queryKey: string[] }) => ({
+      data: queryKey[0] === "/api/imports/config" ? mockImportConfig.current : undefined,
       isLoading: false,
       error: null,
     }),
@@ -91,6 +96,7 @@ function fillAndSubmitPassword(password: string): void {
 describe("ImportReviewModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockImportConfig.current = { transferMode: "move", libraryRoot: "/games/library" };
   });
 
   it("prefills the saved library root and opens the browser there", () => {
@@ -113,6 +119,127 @@ describe("ImportReviewModal", () => {
       initialPath: "/games/library",
       root: "/",
       title: "Select Destination",
+    });
+  });
+
+  describe("Auto-Unpack defaults", () => {
+    it.each([true, false, undefined])(
+      "defaults to autoUnpack=%s and submits that choice",
+      async (autoUnpack) => {
+        mockImportConfig.current = { ...mockImportConfig.current!, autoUnpack };
+        renderModal();
+
+        expect(screen.getByRole("switch")).toHaveAttribute(
+          "aria-checked",
+          String(autoUnpack ?? false)
+        );
+
+        fireEvent.change(screen.getByLabelText("Destination Path"), {
+          target: { value: "/games/library/PC/Encrypted" },
+        });
+        fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+
+        await waitFor(() =>
+          expect(mockApiRequest).toHaveBeenCalledWith(
+            "POST",
+            "/api/imports/download-1/confirm",
+            expect.objectContaining({ unpack: autoUnpack ?? false })
+          )
+        );
+      }
+    );
+
+    it("applies Auto-Unpack when settings arrive after the dialog opens", () => {
+      mockImportConfig.current = undefined;
+      const modal = renderModal();
+      expect(screen.getByRole("switch")).not.toBeChecked();
+
+      mockImportConfig.current = {
+        transferMode: "move",
+        libraryRoot: "/games/library",
+        autoUnpack: true,
+      };
+      modal.rerender(
+        <ImportReviewModal
+          open
+          onOpenChange={vi.fn()}
+          downloadId="download-1"
+          downloadTitle="Encrypted.rar"
+        />
+      );
+
+      expect(screen.getByRole("switch")).toBeChecked();
+    });
+
+    it.each([true, false])(
+      "preserves an explicit override of autoUnpack=%s across settings updates",
+      async (autoUnpack) => {
+        mockImportConfig.current = { ...mockImportConfig.current!, autoUnpack };
+        const modal = renderModal();
+        fireEvent.click(screen.getByRole("switch"));
+
+        mockImportConfig.current = {
+          transferMode: "hardlink",
+          libraryRoot: "/games/updated-library",
+          autoUnpack,
+        };
+        modal.rerender(
+          <ImportReviewModal
+            open
+            onOpenChange={vi.fn()}
+            downloadId="download-1"
+            downloadTitle="Encrypted.rar"
+          />
+        );
+        fireEvent.change(screen.getByLabelText("Destination Path"), {
+          target: { value: "/games/updated-library/PC/Encrypted" },
+        });
+        fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+
+        await waitFor(() =>
+          expect(mockApiRequest).toHaveBeenCalledWith(
+            "POST",
+            "/api/imports/download-1/confirm",
+            expect.objectContaining({ unpack: !autoUnpack })
+          )
+        );
+      }
+    );
+
+    it("restores the saved default when the dialog is reopened or another download is selected", () => {
+      mockImportConfig.current = { ...mockImportConfig.current!, autoUnpack: true };
+      const modal = renderModal();
+      fireEvent.click(screen.getByRole("switch"));
+      expect(screen.getByRole("switch")).not.toBeChecked();
+
+      modal.rerender(
+        <ImportReviewModal
+          open={false}
+          onOpenChange={vi.fn()}
+          downloadId="download-1"
+          downloadTitle="Encrypted.rar"
+        />
+      );
+      modal.rerender(
+        <ImportReviewModal
+          open
+          onOpenChange={vi.fn()}
+          downloadId="download-1"
+          downloadTitle="Encrypted.rar"
+        />
+      );
+      expect(screen.getByRole("switch")).toBeChecked();
+
+      fireEvent.click(screen.getByRole("switch"));
+      modal.rerender(
+        <ImportReviewModal
+          open
+          onOpenChange={vi.fn()}
+          downloadId="download-2"
+          downloadTitle="Other.rar"
+        />
+      );
+      expect(screen.getByRole("switch")).toBeChecked();
     });
   });
 

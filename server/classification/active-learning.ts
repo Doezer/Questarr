@@ -169,16 +169,17 @@ async function checkReviewBacklog(): Promise<void> {
 }
 
 /**
- * Reads the waiting list once, before the first insert of this run, so a crossing is measured
- * against what was there and not inferred from a count taken after concurrent inserts.
+ * Reads the waiting list before each insert, so a crossing is measured against what was there and
+ * not inferred from a count taken after concurrent inserts. The baseline only ever moves down
+ * here: labeling shrinks the list, and the climb back must announce again, while a delivery still
+ * owed (baseline below the current group) is kept for the retry.
  */
 function ensureBacklogBaseline(): Promise<void> {
-  if (notifiedBucket !== null) return Promise.resolve();
   backlogChain = backlogChain
     .then(async () => {
-      if (notifiedBucket !== null) return;
       const waiting = (await storage.getClassificationCandidates({ status: "pending" })).length;
-      notifiedBucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
+      const bucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
+      notifiedBucket = notifiedBucket === null ? bucket : Math.min(notifiedBucket, bucket);
     })
     .catch((error) => {
       alLogger.warn({ error }, "Could not read the classification review backlog");

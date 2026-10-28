@@ -317,6 +317,23 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     expect(added).toHaveBeenCalledTimes(2);
   });
 
+  it("announces when one release is labeled and a replacement brings the list back to 25", async () => {
+    activeConfig.collect = true;
+    vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);
+    const added = vi
+      .spyOn(ctx.storage, "addNotification")
+      .mockImplementation(
+        async (n) => ({ ...n, id: "n1", read: false, createdAt: new Date() }) as never
+      );
+    for (let i = 1; i <= 25; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    const [first] = await ctx.storage.getClassificationCandidates({ status: "pending" });
+    await ctx.storage.updateClassificationCandidate(first!.id, { status: "verified" } as never);
+    await mod.collectCandidate(input("Stellaris Mystery Pack 26"), unsure, null);
+    expect(added).toHaveBeenCalledTimes(2);
+  });
+
   it("notifies once when collections overlap across a multiple of 25", async () => {
     activeConfig.collect = true;
     vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);

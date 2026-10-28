@@ -126,6 +126,24 @@ class TypeSafeClient {
     return !!(this.apiUrl && this.apiKey);
   }
 
+  private readCachedAnalysis(key: string): ReleaseAnalysis | null {
+    const cached = this.analysisCache.get(key);
+    if (!cached) return null;
+    if (Date.now() - cached.at < ANALYSIS_CACHE_TTL_MS) return cached.analysis;
+    // An expired entry is dropped so its refresh is stored as the newest, not in its old slot
+    this.analysisCache.delete(key);
+    return null;
+  }
+
+  /** Callers keep only usable answers, so a failed or typeless one is retried next time. */
+  private storeAnalysis(key: string, analysis: ReleaseAnalysis): void {
+    if (this.analysisCache.size >= ANALYSIS_CACHE_MAX_ENTRIES) {
+      const oldest = this.analysisCache.keys().next().value;
+      if (oldest !== undefined) this.analysisCache.delete(oldest);
+    }
+    this.analysisCache.set(key, { at: Date.now(), analysis });
+  }
+
   /**
    * Asks Jev to classify a release and judge whether its file size looks plausible.
    * Returns null if not configured or the call fails/times out -- callers must treat
@@ -149,10 +167,8 @@ class TypeSafeClient {
       params.sizeBytes ?? null,
       params.platform ?? null,
     ]);
-    const cached = this.analysisCache.get(cacheKey);
-    if (cached && Date.now() - cached.at < ANALYSIS_CACHE_TTL_MS) return cached.analysis;
-    // An expired entry is dropped so its refresh is stored as the newest, not in its old slot
-    if (cached) this.analysisCache.delete(cacheKey);
+    const cached = this.readCachedAnalysis(cacheKey);
+    if (cached) return cached;
 
     const stateLines = [`Release name: ${params.releaseName}`];
     if (params.sizeBytes !== undefined) {
@@ -227,15 +243,7 @@ class TypeSafeClient {
         releaseTypeConfidence: toUnitInterval(releaseTypeAnswer?.confidence),
         legitimacyScore: toUnitInterval(legitimacyAnswer?.noul),
       };
-      // Only usable answers are kept: a failed call returns null above, and an answer with no
-      // recognized type stays out too, so the callers' retry paths still reach the provider
-      if (releaseType !== null) {
-        if (this.analysisCache.size >= ANALYSIS_CACHE_MAX_ENTRIES) {
-          const oldest = this.analysisCache.keys().next().value;
-          if (oldest !== undefined) this.analysisCache.delete(oldest);
-        }
-        this.analysisCache.set(cacheKey, { at: Date.now(), analysis });
-      }
+      if (releaseType !== null) this.storeAnalysis(cacheKey, analysis);
       return analysis;
     } catch (error) {
       typesafeLogger.warn({ error }, "TypeSafe API call failed, skipping AI enrichment");

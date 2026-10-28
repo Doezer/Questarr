@@ -114,11 +114,10 @@ export async function loadClassificationSettingsWithRetry(
   }
 }
 
-/**
- * Saves a change and applies it at once. A setting fixed by an environment variable is refused,
- * since it would silently have no effect.
- */
-export async function updateClassificationSettings(
+/** Updates run one at a time, so two patches cannot read the same saved JSON and lose one. */
+let updateQueue: Promise<unknown> = Promise.resolve();
+
+async function applyUpdate(
   patch: z.infer<typeof classificationSettingsSchema>
 ): Promise<{ rejected: SettingKey[] }> {
   const locked = lockedSettings();
@@ -133,4 +132,17 @@ export async function updateClassificationSettings(
     reloadLocalModel();
   }
   return { rejected: [] };
+}
+
+/**
+ * Saves a change and applies it at once. A setting fixed by an environment variable is refused,
+ * since it would silently have no effect.
+ */
+export function updateClassificationSettings(
+  patch: z.infer<typeof classificationSettingsSchema>
+): Promise<{ rejected: SettingKey[] }> {
+  const run = updateQueue.then(() => applyUpdate(patch));
+  // A failed update must not block the ones queued behind it
+  updateQueue = run.catch(() => undefined);
+  return run;
 }

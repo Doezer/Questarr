@@ -145,6 +145,28 @@ describe.each(activeTestDialects())("classification settings on %s", (dialect) =
     expect(live.mode).toBe("hybrid");
   });
 
+  it("keeps both patches when two saves arrive at once", async () => {
+    // A slow read lets the second save read the stored JSON before the first one wrote it
+    const real = ctx.storage.getSystemConfig.bind(ctx.storage);
+    const read = vi.spyOn(ctx.storage, "getSystemConfig").mockImplementation(async (key) => {
+      const value = await real(key);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return value;
+    });
+    try {
+      await Promise.all([
+        request(app).put("/api/settings/classification").send({ holdUnknown: true }),
+        request(app).put("/api/settings/classification").send({ collect: true }),
+      ]);
+    } finally {
+      read.mockRestore();
+    }
+    const saved = JSON.parse(
+      (await ctx.storage.getSystemConfig("classification.settings")) ?? "{}"
+    );
+    expect(saved).toMatchObject({ holdUnknown: true, collect: true });
+  });
+
   it("retries a failed startup load and stops after the last attempt", async () => {
     const read = vi.spyOn(ctx.storage, "getSystemConfig");
     read.mockRejectedValueOnce(new Error("busy"));

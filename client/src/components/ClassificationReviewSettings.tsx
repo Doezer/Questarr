@@ -441,7 +441,10 @@ export default function ClassificationReviewSettings() {
               <>
                 <ul className="max-h-80 space-y-2 overflow-y-auto" aria-label="Rows to send">
                   {preview.data.rows.map((row) => (
-                    <li key={row.releaseName} className="rounded-md border p-2 text-xs">
+                    <li
+                      key={`${row.releaseName}|${row.gameTitle}`}
+                      className="rounded-md border p-2 text-xs"
+                    >
                       <p className="break-all font-mono">{row.releaseName}</p>
                       <p className="text-muted-foreground">
                         {row.gameTitle} · {row.label} · model {row.modelVersion}

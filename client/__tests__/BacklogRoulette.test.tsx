@@ -36,6 +36,22 @@ describe("Backlog roulette", () => {
     vi.restoreAllMocks();
   });
 
+  it("formats fractional completion estimates without changing budget eligibility", async () => {
+    render(
+      <BacklogRoulette
+        games={[{ ...game("fractional"), timeToBeatNormally: 5.012345678 }]}
+        loading={false}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.getByText("About 5 hours to finish")).toBeVisible();
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Game length" }), { key: "ArrowDown" });
+    fireEvent.click(
+      await screen.findByRole("option", { name: "A short adventure · up to 5 hours" })
+    );
+    expect(screen.getByText("No games in this draw")).toBeVisible();
+  });
+
   it("draws only visible owned games and never repeats on consecutive rerolls", () => {
     render(
       <BacklogRoulette

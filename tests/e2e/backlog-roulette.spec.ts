@@ -10,7 +10,7 @@ test.describe("Backlog roulette", () => {
       title: `${prefix} Short adventure`,
       igdbId: id,
       status: "owned",
-      timeToBeatNormally: 5,
+      timeToBeatNormally: 4.56789,
     });
     await seedGame(page, {
       title: `${prefix} Epic journey`,
@@ -27,7 +27,7 @@ test.describe("Backlog roulette", () => {
     await page.getByRole("option", { name: "A weekend quest · up to 15 hours" }).click();
     await expect(dialog.getByTestId("roulette-title")).toHaveText(short.title);
     await expect(dialog.getByText("Chosen from 1 matching game.")).toBeVisible();
-    await expect(dialog.getByText("About 5 hours to finish")).toBeVisible();
+    await expect(dialog.getByText("About 4.6 hours to finish")).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Roll again" })).toBeDisabled();
     await page.screenshot({ path: testInfo.outputPath("weekend-quest-desktop.png") });
     await page.setViewportSize({ width: 390, height: 844 });

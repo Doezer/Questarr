@@ -202,7 +202,11 @@ export default function BacklogRoulette({
                     {Number.isFinite(selected.timeToBeatNormally) &&
                       (selected.timeToBeatNormally ?? 0) > 0 && (
                         <p className="text-sm text-muted-foreground">
-                          About {selected.timeToBeatNormally} hours to finish
+                          About{" "}
+                          {selected.timeToBeatNormally?.toLocaleString("en-US", {
+                            maximumFractionDigits: 1,
+                          })}{" "}
+                          hours to finish
                         </p>
                       )}
                     <p className="text-sm text-muted-foreground break-words">

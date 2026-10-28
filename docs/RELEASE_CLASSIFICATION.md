@@ -43,19 +43,23 @@ A result of `unknown` goes through, as it does today. Set `CLASSIFICATION_HOLD_U
 hold those too. That is a behaviour change, so it is off by default. Any error in the pipeline
 lets the download proceed, like the existing Jev check.
 
-## Install the local model
+## The local model
 
-The model is trained on a labeled dataset that is not published, so you generate the file
-yourself and place it next to the database (the Docker data volume):
+A model trained on 459 labeled releases ships with the application, in
+`shared/models/release-classifier.json` (a few hundred KB of plain JSON, also inside the Docker
+image). Nothing needs installing: `hybrid` and `local` mode use it out of the box.
+
+To use your own, for example after retraining on more data (the dataset is not published),
+generate the file and place it where the server looks first:
 
 ```powershell
 npx tsx scripts/release-benchmark/export-model.ts --dataset releases-labeled.csv --out release-classifier.json
 ```
 
-Copy `release-classifier.json` to `<database folder>/models/` (in Docker: `/app/data/models/`) or
-point `CLASSIFIER_MODEL_PATH` at it, then restart. Without the file, `local` mode can only use the
-rules and `hybrid` mode goes straight to the cloud provider. The file is plain JSON of a few
-hundred KB, validated on load; a damaged file is ignored and logged.
+Lookup order: `CLASSIFIER_MODEL_PATH`, then `<database folder>/models/release-classifier.json`
+(in Docker: `/app/data/models/`), then the bundled model. Restart after changing the file. The
+file is validated on load; a damaged one is ignored and logged. To replace the bundled model for
+everyone, overwrite `shared/models/release-classifier.json` in a pull request.
 
 Run `scripts/release-benchmark/run.ts` on a held-out split before trusting a new model (see
 `scripts/release-benchmark/README.md`). Do not expect a small model to reach high automatic
@@ -144,8 +148,8 @@ held-out file is a deliberate step you do by hand.
   Results from a failing layer (error, timeout, unusable answer) are not cached.
 - Logs: one `debug` line per release in the `classification` module with the layers consulted,
   class, confidence, source and model version.
-- Docker: no new container and no native dependency. The only addition is the optional model file
-  in the data volume.
+- Docker: no new container and no native dependency. The model file ships in the image; an
+  optional one in the data volume overrides it.
 
 ## Compatibility
 

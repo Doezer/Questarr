@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
 import { typesafeClient } from "../typesafe.js";
@@ -12,12 +13,21 @@ export { type PipelineResult } from "./pipeline.js";
 const CLOUD_ACCEPT_THRESHOLD = 0.6;
 const DEFAULT_MODEL_FILE = "release-classifier.json";
 
-/** The model sits next to the database by default, so it rides along with the data volume. */
+/** The model shipped with the application, read from the working directory (the repo root or /app). */
+const BUNDLED_MODEL = path.join("shared", "models", DEFAULT_MODEL_FILE);
+
+/**
+ * `CLASSIFIER_MODEL_PATH` wins, then a model next to the database (so a retrained one rides along
+ * with the data volume and overrides the bundled one), then the model shipped with the application.
+ */
 function modelPath(): string {
-  return (
-    config.classification.modelPath ||
-    path.join(path.dirname(path.resolve(config.database.url)), "models", DEFAULT_MODEL_FILE)
+  if (config.classification.modelPath) return config.classification.modelPath;
+  const installed = path.join(
+    path.dirname(path.resolve(config.database.url)),
+    "models",
+    DEFAULT_MODEL_FILE
   );
+  return fs.existsSync(installed) ? installed : path.resolve(BUNDLED_MODEL);
 }
 
 let local: LocalTfidfClassifier | null | undefined;

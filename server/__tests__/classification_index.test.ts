@@ -36,7 +36,8 @@ vi.mock("../typesafe.js", () => ({
   },
 }));
 
-const { releasePipeline, reloadLocalModel } = await import("../classification/index.js");
+const { localGuess, releasePipeline, reloadLocalModel } =
+  await import("../classification/index.js");
 
 const row = (releaseName: string, label: "full_game" | "patch" | "dlc") => ({
   releaseName,
@@ -74,6 +75,37 @@ describe("production classification pipeline", () => {
     });
     expect(out).toMatchObject({ source: "local", modelVersion: "m1", class: "full_game" });
     expect(analyzeRelease).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the model shipped with the application, and lets an installed one win", async () => {
+    mockConfig.classification.modelPath = undefined;
+    mockConfig.database.url = path.join(dir, "sqlite.db");
+    mockConfig.classification.localThreshold = 0.7;
+    reloadLocalModel();
+    const bundled = localGuess({ title: "Some.Game-FitGirl.Repack", gameTitle: "Some Game" });
+    expect(bundled).toMatchObject({ class: "full_game" });
+    expect(bundled?.modelVersion).toMatch(/^tfidf-/);
+
+    fs.mkdirSync(path.join(dir, "models"), { recursive: true });
+    const classifier = new TfidfClassifier({ titleAware: false, seed: 1, threshold: 0 });
+    classifier.train(
+      ["A", "B", "C"].flatMap((g) => [
+        row(`Game ${g} Edition-GRP`, "full_game"),
+        row(`Game ${g} Fabulous Mod Pack-GRP`, "dlc"),
+      ])
+    );
+    fs.writeFileSync(
+      path.join(dir, "models", "release-classifier.json"),
+      JSON.stringify(classifier.toModelFile("installed"))
+    );
+    reloadLocalModel();
+    expect(
+      localGuess({ title: "Game Z Edition-GRP", gameTitle: "Cyber Quest" })?.modelVersion
+    ).toBe("installed");
+
+    mockConfig.database.url = "sqlite.db";
+    mockConfig.classification.localThreshold = 0.3;
+    fs.rmSync(path.join(dir, "models"), { recursive: true, force: true });
   });
 
   it("is unknown when neither a model nor a provider is available", async () => {

@@ -127,18 +127,20 @@ games is what improves it most. If you have a dataset of your own, for example t
 exported from **Settings → Release classification**, you are invited to share it so the public
 classifier can be retrained on more data. Two ways, both your choice:
 
-- **From the app (opt-in).** In the review card, turn on **Allow sending my verified labels**
-  (off by default), press **See what will be sent**, then **Send**. It is one request per press,
-  never a background task. Only verified rows go, and each carries four fields and nothing else:
-  the release name, the game title, the label you chose and the version of the local model.
-  No account, path, address or library data. Rows already sent are not sent again, and a request
-  carries at most 200 rows. The address is fixed in the code and the request needs no key; it
-  follows no redirect. Turning the switch off stops any further sending; rows already received
-  cannot be recalled from the app.
+- **From the app (opt-in).** In the review card, tick **Share my verified labels
+  automatically** (off by default). While it is ticked, a task ("Label sharing", every 6 hours,
+  visible in System Tasks) sends the labels you verified since the last run. **See what will be
+  sent** shows the exact rows, and **Send now** sends them without waiting. Only verified rows go,
+  and each carries four fields and nothing else: the release name, the game title, the label you
+  chose and the version of the local model. No account, path, address or library data. Rows
+  already sent are not sent again, and a request carries at most 200 rows. The address is fixed in
+  the code and the request needs no key; it follows no redirect. If the collection point cannot
+  be reached, the rows stay unsent and the next run tries again. Unticking the box stops all
+  sending; rows already received cannot be recalled from the app.
 - **By hand.** Open an issue on [Doezer/Questarr](https://github.com/Doezer/Questarr/issues) and
   attach the CSV from **Export verified**.
 
-Nothing is shared automatically. A shared label is a proposal: the maintainer only trains on a
+Nothing is shared unless you tick the box. A shared label is a proposal: the maintainer only trains on a
 class that several independent senders agree on, or after checking it, and never retrains
 automatically. Only release names and their labels are needed, so with the manual route remove
 anything you do not want to publish before attaching it.

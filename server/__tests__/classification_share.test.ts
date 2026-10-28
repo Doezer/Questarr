@@ -164,6 +164,22 @@ describe.each(activeTestDialects())("sharing verified labels on %s", (dialect) =
     ).toHaveLength(1);
   });
 
+  it("shares automatically only while the switch is on, and retries after a failure", async () => {
+    await addCandidate("Stellaris Leviathans-GOG");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("no", { status: 500 }))
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+    await share.autoShareVerifiedLabels();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    live.shareLabels = true;
+    await share.autoShareVerifiedLabels(); // collector down: nothing is marked sent
+    await share.autoShareVerifiedLabels(); // next run succeeds
+    await share.autoShareVerifiedLabels(); // nothing left
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect((await share.buildShareBatch()).rows).toHaveLength(0);
+  });
+
   it("caps a request and reports the rest", async () => {
     for (let i = 0; i < share.SHARE_MAX_ROWS + 3; i++) await addCandidate(`Stellaris Pack ${i}`);
     const batch = await share.buildShareBatch();

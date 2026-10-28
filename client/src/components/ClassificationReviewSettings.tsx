@@ -361,12 +361,12 @@ export default function ClassificationReviewSettings() {
           <legend className="px-1 text-sm font-medium">Share verified labels</legend>
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
-              <Label htmlFor="classification-share">Allow sending my verified labels</Label>
+              <Label htmlFor="classification-share">Share my verified labels automatically</Label>
               <p className="text-xs text-muted-foreground">
-                Off by default. Helps improve the model shipped with Questarr. Nothing is ever sent
-                in the background: you press &quot;Send&quot; yourself, after seeing the exact rows.
-                Only the release name, the game title, the label you chose and the model version are
-                sent: no account, path, address or library data.
+                Off by default. Helps improve the model shipped with Questarr. When on, labels you
+                verify are sent automatically, every 6 hours. Only the release name, the game title,
+                the label you chose and the model version are sent: no account, path, address or
+                library data. Turn it off at any time to stop.
               </p>
             </div>
             <Switch
@@ -409,8 +409,9 @@ export default function ClassificationReviewSettings() {
           <DialogHeader>
             <DialogTitle>Labels that would be sent</DialogTitle>
             <DialogDescription>
-              These exact rows go to {preview.data?.url ?? "the collection point"} when you press
-              Send, and nothing else. Labels you already sent are not repeated.
+              These exact rows go to {preview.data?.url ?? "the collection point"} at the next
+              automatic run (or now, if you press Send now), and nothing else. Labels already sent
+              are not repeated.
             </DialogDescription>
           </DialogHeader>
           {preview.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
@@ -443,7 +444,8 @@ export default function ClassificationReviewSettings() {
             ))}
           {preview.data && !preview.data.enabled && (
             <p className="text-sm text-amber-500">
-              Sharing is off. Turn on &quot;Allow sending my verified labels&quot; to enable Send.
+              Sharing is off. Turn on &quot;Share my verified labels automatically&quot; to send
+              them.
             </p>
           )}
           <DialogFooter>
@@ -456,7 +458,7 @@ export default function ClassificationReviewSettings() {
               onClick={() => preview.data && share.mutate(preview.data.batchId)}
             >
               <Send className="mr-2 h-4 w-4" />
-              Send {preview.data?.rows.length ?? 0} labels
+              Send {preview.data?.rows.length ?? 0} now
             </Button>
           </DialogFooter>
         </DialogContent>

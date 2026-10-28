@@ -129,6 +129,12 @@ export async function sendShareBatch(
     throw new ShareError("The labels changed since the preview: open it again", 409);
   }
 
+  await deliver(batch);
+  return { sent: batch.rows.length, remaining: batch.remaining };
+}
+
+/** The one request: a POST with the four fields, no redirect, then the sent rows are remembered. */
+async function deliver(batch: ShareBatch): Promise<void> {
   let response: Response;
   try {
     response = await fetch(SHARE_URL, {
@@ -160,5 +166,26 @@ export async function sendShareBatch(
     SHARED_KEY,
     JSON.stringify([...sent].filter((hash) => kept.has(hash)))
   );
-  return { sent: batch.rows.length, remaining: batch.remaining };
+}
+
+const AUTO_MAX_BATCHES = 5;
+
+/**
+ * The scheduled run, for people who ticked "Allow sending my verified labels": sends what was
+ * verified since the last run. Does nothing while the switch is off. A failure is logged and
+ * retried at the next run; the rows stay unsent until the collection point accepts them.
+ */
+export async function autoShareVerifiedLabels(): Promise<void> {
+  if (!config.classification.activeLearning.shareLabels) return;
+  for (let i = 0; i < AUTO_MAX_BATCHES; i++) {
+    const batch = await buildShareBatch();
+    if (batch.rows.length === 0) return;
+    try {
+      await deliver(batch);
+    } catch (error) {
+      shareLogger.warn({ error }, "Automatic label sharing failed, will retry");
+      return;
+    }
+    shareLogger.info({ sent: batch.rows.length }, "Shared verified labels");
+  }
 }

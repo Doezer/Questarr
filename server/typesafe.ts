@@ -12,6 +12,9 @@ const DEFAULT_API_URL = "https://api.typesafe.ai/v1/systemone";
 // `typesafe/jev-1.13`) needs a different identifier here, so this is configurable too.
 const DEFAULT_MODEL = "jev-latest";
 const REQUEST_TIMEOUT_MS = 8000;
+// The same release name comes back on every search and cycle, and each call costs money
+const ANALYSIS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const ANALYSIS_CACHE_MAX_ENTRIES = 2000;
 
 export const TYPESAFE_URL_CONFIG_KEY = "typesafe.apiUrl";
 export const TYPESAFE_KEY_CONFIG_KEY = "typesafe.apiKey";
@@ -128,6 +131,8 @@ class TypeSafeClient {
    * Returns null if not configured or the call fails/times out -- callers must treat
    * this as a best-effort enrichment, never a blocking dependency.
    */
+  private readonly analysisCache = new Map<string, { at: number; analysis: ReleaseAnalysis }>();
+
   async analyzeRelease(params: {
     releaseName: string;
     sizeBytes?: number | undefined;
@@ -135,6 +140,17 @@ class TypeSafeClient {
   }): Promise<ReleaseAnalysis | null> {
     await this.ensureLoaded();
     if (!this.apiUrl || !this.apiKey) return null;
+
+    // A replaced provider, endpoint or model changes the revision or model id, so its answers are not reused
+    const cacheKey = JSON.stringify([
+      this.revision,
+      this.model,
+      params.releaseName,
+      params.sizeBytes ?? null,
+      params.platform ?? null,
+    ]);
+    const cached = this.analysisCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < ANALYSIS_CACHE_TTL_MS) return cached.analysis;
 
     const stateLines = [`Release name: ${params.releaseName}`];
     if (params.sizeBytes !== undefined) {
@@ -204,11 +220,18 @@ class TypeSafeClient {
           ? (releaseTypeAnswer.choice as ReleaseType)
           : null;
 
-      return {
+      const analysis: ReleaseAnalysis = {
         releaseType,
         releaseTypeConfidence: toUnitInterval(releaseTypeAnswer?.confidence),
         legitimacyScore: toUnitInterval(legitimacyAnswer?.noul),
       };
+      // Only answers are kept: a failed call returns null above and is retried next time
+      if (this.analysisCache.size >= ANALYSIS_CACHE_MAX_ENTRIES) {
+        const oldest = this.analysisCache.keys().next().value;
+        if (oldest !== undefined) this.analysisCache.delete(oldest);
+      }
+      this.analysisCache.set(cacheKey, { at: Date.now(), analysis });
+      return analysis;
     } catch (error) {
       typesafeLogger.warn({ error }, "TypeSafe API call failed, skipping AI enrichment");
       return null;

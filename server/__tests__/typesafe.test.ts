@@ -192,6 +192,50 @@ describe("TypeSafeClient", () => {
       expect(result?.releaseTypeConfidence).toBe(0.95);
     });
 
+    it("asks the provider once for the same release and serves the repeat from memory", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      const first = await client.analyzeRelease({ releaseName: "Some.Game.DLC-GRP", sizeBytes: 5 });
+      const second = await client.analyzeRelease({
+        releaseName: "Some.Game.DLC-GRP",
+        sizeBytes: 5,
+      });
+      await client.analyzeRelease({ releaseName: "Some.Game.DLC-GRP", sizeBytes: 6 });
+
+      expect(second).toEqual(first);
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not reuse an answer after the provider settings change", async () => {
+      mockSafeFetch.mockResolvedValue(makeResponse({ answers: {} }) as unknown as Response);
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+      await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+
+      client.configure("https://api.typesafe.ai/v1/systemone", "other-key");
+      await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not cache a failed call", async () => {
+      mockSafeFetch
+        .mockResolvedValueOnce(makeResponse({}, false, 500) as unknown as Response)
+        .mockResolvedValueOnce(makeResponse({ answers: {} }) as unknown as Response);
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      expect(await client.analyzeRelease({ releaseName: "Some.Game-GRP" })).toBeNull();
+      expect(await client.analyzeRelease({ releaseName: "Some.Game-GRP" })).not.toBeNull();
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
     it("uses a custom model when configure() is given one (e.g. for OpenRouter)", async () => {
       mockSafeFetch.mockResolvedValue(
         makeResponse({ model: "typesafe/jev-1.13", answers: {} }) as unknown as Response

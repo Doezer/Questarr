@@ -164,6 +164,8 @@ async function checkReviewBacklog(): Promise<void> {
   // The step is only taken once everyone has it; a retry skips those already notified
   if (failed) throw (failed as PromiseRejectedResult).reason;
   notifiedBucket = bucket;
+  deliveringBucket = null;
+  deliveredTo.clear();
 }
 
 /**

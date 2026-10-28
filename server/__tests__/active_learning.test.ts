@@ -286,6 +286,7 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     for (let i = 1; i <= 25; i++) {
       await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
     }
+    expect(await ctx.storage.getClassificationCandidates({ status: "pending" })).toHaveLength(25);
     expect(added).toHaveBeenCalledTimes(2);
     failU2 = false;
     await mod.collectCandidate(input("Stellaris Mystery Pack 26"), unsure, null);

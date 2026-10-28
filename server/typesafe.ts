@@ -151,6 +151,8 @@ class TypeSafeClient {
     ]);
     const cached = this.analysisCache.get(cacheKey);
     if (cached && Date.now() - cached.at < ANALYSIS_CACHE_TTL_MS) return cached.analysis;
+    // An expired entry is dropped so its refresh is stored as the newest, not in its old slot
+    if (cached) this.analysisCache.delete(cacheKey);
 
     const stateLines = [`Release name: ${params.releaseName}`];
     if (params.sizeBytes !== undefined) {

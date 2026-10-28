@@ -23,8 +23,26 @@ export type CandidateLabel = (typeof CANDIDATE_LABELS)[number];
 export const CANDIDATE_STATUSES = ["pending", "verified", "ambiguous", "rejected"] as const;
 export type CandidateStatus = (typeof CANDIDATE_STATUSES)[number];
 
-export const CANDIDATE_REASONS = ["unresolved", "low_confidence", "disagreement"] as const;
+export const CANDIDATE_REASONS = [
+  "unresolved",
+  "low_confidence",
+  "disagreement",
+  "model_disagreement",
+] as const;
 export type CandidateReason = (typeof CANDIDATE_REASONS)[number];
+
+/** Classes that mean the same thing for a reviewer: an expansion is a DLC, an update is a patch. */
+const SAME_CLASS: Record<string, string> = {
+  expansion: "dlc",
+  update: "patch",
+  dlc_update: "patch",
+};
+
+/** True when two answers name different classes. "unknown" says nothing, so it never conflicts. */
+export function classesConflict(a: string, b: string): boolean {
+  if (a === "unknown" || b === "unknown") return false;
+  return (SAME_CLASS[a] ?? a) !== (SAME_CLASS[b] ?? b);
+}
 
 /** What each layer said when the release was collected. Shown to the reviewer, never trusted. */
 export interface CandidateSignals {

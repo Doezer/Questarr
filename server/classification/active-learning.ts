@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { classifyReleaseByRules } from "../../shared/release-classification.js";
 import {
   CANDIDATE_LABELS,
+  classesConflict,
   type CandidateLabel,
   type CandidateReason,
   type CandidateSignals,
@@ -44,6 +45,9 @@ export interface Assessment {
  *
  * - unresolved: nothing could say what it is.
  * - disagreement: the rules and the local model's best guess name different classes.
+ * - model_disagreement: the cloud model decided where the local model only had a best guess
+ *   below its threshold, and the two name different classes. Costs nothing extra: the cloud
+ *   was already asked.
  * - low_confidence: a layer decided, but not by much.
  */
 export function assessCandidate(
@@ -62,6 +66,14 @@ export function assessCandidate(
     reasons.push("disagreement");
   }
   if (
+    result.source === "cloud" &&
+    local &&
+    result.class !== "unknown" &&
+    classesConflict(result.class, local.class)
+  ) {
+    reasons.push("model_disagreement");
+  }
+  if (
     result.source !== "rules" &&
     result.class !== "unknown" &&
     result.confidence !== null &&
@@ -75,6 +87,7 @@ export function assessCandidate(
   const priority =
     (reasons.includes("unresolved") ? 50 : 0) +
     (reasons.includes("disagreement") ? 40 : 0) +
+    (reasons.includes("model_disagreement") ? 40 : 0) +
     (reasons.includes("low_confidence") ? 20 : 0) +
     Math.round((1 - confidence) * 10);
 
@@ -163,6 +176,25 @@ export async function collectCandidate(
   } catch (error) {
     alLogger.warn({ error, title: input.title }, "Could not store a classification candidate");
   }
+}
+
+/**
+ * What a cloud suggestion adds to a candidate: when it names a different class than the local
+ * model's best guess, the candidate gets the `model_disagreement` reason and the priority that
+ * goes with it. Null when nothing changes (no local guess, same class, or already flagged).
+ */
+export function disagreementUpdate(
+  candidate: Pick<ClassificationCandidate, "reasons" | "signals" | "priority">,
+  suggestedLabel: string
+): { reasons: string; priority: number } | null {
+  const reasons = parse<CandidateReason[]>(candidate.reasons, []);
+  if (reasons.includes("model_disagreement")) return null;
+  const local = parse<CandidateSignals | null>(candidate.signals, null)?.local;
+  if (!local || !classesConflict(suggestedLabel, local.class)) return null;
+  return {
+    reasons: JSON.stringify([...reasons, "model_disagreement"]),
+    priority: candidate.priority + 40,
+  };
 }
 
 /** Forgets which releases were just written, so deleted candidates can be collected again. */

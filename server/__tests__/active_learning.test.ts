@@ -61,6 +61,31 @@ describe("assessCandidate", () => {
     expect(assessment?.reasons).toEqual(["disagreement"]);
   });
 
+  it("flags a cloud answer that contradicts the local model's best guess", () => {
+    const assessment = mod.assessCandidate(
+      input("Stellaris Galactic Edition"),
+      result({ class: "full_game", confidence: 0.9, source: "cloud" }),
+      { class: "dlc", confidence: 0.5, modelVersion: "m1" }
+    );
+    expect(assessment?.reasons).toEqual(["model_disagreement"]);
+    expect(assessment?.priority).toBeGreaterThanOrEqual(40);
+  });
+
+  it("does not flag the cloud and the local model naming the same class in other words", () => {
+    const expansion = mod.assessCandidate(
+      input("Stellaris Galactic Edition"),
+      result({ class: "expansion", confidence: 0.9, source: "cloud" }),
+      { class: "dlc", confidence: 0.5, modelVersion: "m1" }
+    );
+    const unknown = mod.assessCandidate(
+      input("Stellaris Galactic Edition"),
+      result({ class: "full_game", confidence: 0.9, source: "cloud" }),
+      { class: "unknown", confidence: 0.2, modelVersion: "m1" }
+    );
+    expect(expansion).toBeNull();
+    expect(unknown).toBeNull();
+  });
+
   it("ignores a confident, consistent release", () => {
     const assessment = mod.assessCandidate(
       input("Stellaris Update v3.4.1"),
@@ -356,6 +381,11 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
       humanLabel: null,
     });
     expect(analyze).toHaveBeenCalledTimes(1);
+    // the cloud says patch, the local model said dlc: now a better example, flagged once
+    expect(JSON.parse(on.body.reasons)).toEqual(["unresolved", "model_disagreement"]);
+    expect(on.body.priority).toBeGreaterThan(40);
+    const again = await request(app).post(`/api/classification-candidates/${id}/suggest`);
+    expect(JSON.parse(again.body.reasons)).toEqual(["unresolved", "model_disagreement"]);
     expect((await request(app).get("/api/classification-candidates/export")).text).not.toContain(
       "Mystery"
     );

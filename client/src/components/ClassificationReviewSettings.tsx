@@ -51,6 +51,7 @@ const REASON_LABEL: Record<CandidateReason, string> = {
   unresolved: "Unresolved",
   low_confidence: "Low confidence",
   disagreement: "Rules and model disagree",
+  model_disagreement: "Local and cloud models disagree",
 };
 
 const percent = (value: number | null | undefined) =>

@@ -367,6 +367,26 @@ describe("pipeline cache", () => {
     expect(cloud).toHaveBeenCalledTimes(2);
   });
 
+  it("does not let a call that started before clearCache() write its result back", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const cloud = spy(async () => {
+      await gate;
+      return result("cloud", "full_game");
+    });
+    const pipeline = new ClassificationPipeline(
+      configOf("cloud"),
+      layersOf(null, { classify: cloud })
+    );
+    const inFlight = pipeline.classify(UNRULED);
+    await vi.waitFor(() => expect(cloud).toHaveBeenCalledTimes(1));
+    pipeline.clearCache();
+    release();
+    await inFlight;
+    await pipeline.classify(UNRULED);
+    expect(cloud).toHaveBeenCalledTimes(2);
+  });
+
   it("keys on the exact size, since the cloud model sees it", async () => {
     const cloud = spy(result("cloud", "dlc"));
     const pipeline = new ClassificationPipeline(

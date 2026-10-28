@@ -19,6 +19,20 @@ this?". The auto-download hold in `server/cron.ts` decides what to do with the a
 
 A release that no layer can classify is `unknown`. It is never turned into `full_game`.
 
+## Settings page
+
+Everything below can be changed in Settings > Discovery & Downloads > Release classification,
+without restarting: the classification type, the local model confidence, holding unclassifiable
+releases, and the active-learning options (collection, cloud suggestions, the low-confidence
+threshold and the candidate limit). The card also shows whether a local model is installed (and
+its version) and whether a cloud provider is configured.
+
+**An environment variable wins.** When one of the variables in this page is set, the matching
+setting is shown read-only with the variable's name, and the API refuses to change it. Unset the
+variable to manage the setting from the page. The low-confidence threshold and the candidate
+limit have no variable: only the page changes them. Changing the type or the local confidence
+rebuilds the pipeline and clears its cache at once.
+
 ## Modes (`CLASSIFICATION_MODE`)
 
 | Mode               | Behaviour                                                                                                                                                                                                                                                    |
@@ -136,8 +150,8 @@ held-out file is a deliberate step you do by hand.
 ### Delete
 
 "Delete all candidates" in the card (or `DELETE /api/classification-candidates`, optionally
-`?status=rejected`) removes the collected releases. Turn collection off by unsetting
-`ACTIVE_LEARNING_COLLECT`; existing candidates stay until you delete them.
+`?status=rejected`) removes the collected releases. Turn collection off in the Settings page (or by unsetting
+`ACTIVE_LEARNING_COLLECT`); existing candidates stay until you delete them.
 
 ## Operations
 
@@ -159,4 +173,4 @@ held-out file is a deliberate step you do by hand.
   without a key. Set `CLASSIFICATION_MODE=cloud` to get the previous behaviour back.
 - API and UI are unchanged unless `ACTIVE_LEARNING_COLLECT` is set (see above).
 - Search-result AI badges (`enrichWithAiAnalysis`) still use Jev only, in every mode.
-- One new table, `classification_candidates` (SQLite and Postgres migrations), used only by active learning. No new setting in the UI.
+- One new table, `classification_candidates` (SQLite and Postgres migrations), used only by active learning. Settings are saved in the existing system configuration (`classification.settings`), so no migration.

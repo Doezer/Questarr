@@ -188,6 +188,9 @@ export const config = {
     activeLearning: {
       collect: env.ACTIVE_LEARNING_COLLECT ?? false,
       cloudSuggest: env.ACTIVE_LEARNING_CLOUD_SUGGEST ?? false,
+      // Not environment variables: only the Settings page changes them
+      lowConfidence: 0.85 as number,
+      maxCandidates: 5000 as number,
     },
   },
   credentials: {

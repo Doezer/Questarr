@@ -94,6 +94,8 @@ async function guarded(
  */
 export class ClassificationPipeline {
   private readonly cache = new Map<string, { at: number; result: PipelineResult }>();
+  /** Bumped by clearCache(), so a call that started before it cannot write a stale result back. */
+  private generation = 0;
 
   constructor(
     private readonly getConfig: () => Promise<PipelineConfig> | PipelineConfig,
@@ -116,6 +118,7 @@ export class ClassificationPipeline {
   }
 
   clearCache(): void {
+    this.generation++;
     this.cache.clear();
   }
 
@@ -123,6 +126,7 @@ export class ClassificationPipeline {
     const now = this.options.now ?? Date.now;
     const config = await this.getConfig();
     const key = this.key(input, config);
+    const generation = this.generation;
     const hit = this.cache.get(key);
     if (hit && now() - hit.at < CACHE_TTL_MS) return hit.result;
 
@@ -178,7 +182,7 @@ export class ClassificationPipeline {
     // that a later layer made up for leaves a real verdict
     if (failed(result)) result = { ...result, degraded: true };
 
-    if (!uncacheable) {
+    if (!uncacheable && generation === this.generation) {
       if (this.cache.size >= CACHE_MAX_ENTRIES) {
         const oldest = this.cache.keys().next().value;
         if (oldest !== undefined) this.cache.delete(oldest);

@@ -314,3 +314,16 @@ be treated as urgent, and should not be used to justify widening a PR's
 scope. If the multi-user goalposts ever move, that will be a deliberate,
 separately-scoped product decision — not something to infer from the
 partial `userId` scoping already present in the schema.
+
+### Direct Steam owned-library import
+
+The browser's Settings → Integrations view previews and explicitly selects owned
+Steam app IDs. `steam-library-routes.ts` runs behind the API authentication/CSRF
+boundary and rechecks ownership through `steamService.getOwnedGames` at import
+time. The service calls the official Steam Web API over HTTPS through `safeFetch`.
+Only the server supplies the API key and linked Steam ID. Selected IDs are mapped
+by IGDB's existing external-games lookup, then `quickAddGameByTitle` receives the
+exact IGDB ID, Steam App ID, Owned status and Steam source. It performs the usual
+content filtering and duplicate detection. No files or download clients are
+involved. Existing status/progress data is preserved. This manual workflow uses
+the existing game fields and adds no migration or background task.

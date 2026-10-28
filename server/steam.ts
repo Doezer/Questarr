@@ -1,5 +1,26 @@
 import { igdbLogger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
+import { z } from "zod";
+
+const ownedGamesResponse = z.object({
+  response: z.object({
+    game_count: z.number().int().nonnegative(),
+    games: z
+      .array(
+        z.object({
+          appid: z.number().int().positive(),
+          name: z.string().min(1).max(500),
+        })
+      )
+      .max(20_000)
+      .optional(),
+  }),
+});
+
+export interface SteamOwnedGame {
+  steamAppId: number;
+  title: string;
+}
 
 /**
  * Response shape from the official IWishlistService/GetWishlist/v1 endpoint.
@@ -132,6 +153,34 @@ async function fetchGlobalAchievementPercentages(appId: number): Promise<Map<str
 }
 
 export const steamService = {
+  /** Read the linked account's public owned library through the official Web API. */
+  async getOwnedGames(apiKey: string, steamId: string): Promise<SteamOwnedGame[]> {
+    if (!this.validateSteamId(steamId)) throw new Error("Invalid Steam ID format");
+    const params = new URLSearchParams({ key: apiKey, steamid: steamId, include_appinfo: "true" });
+    // Do not log the URL or upstream errors: the query string contains the API key.
+    let response: globalThis.Response;
+    try {
+      response = await safeFetch(
+        `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?${params}`,
+        { requireHttps: true, signal: AbortSignal.timeout(15_000) }
+      );
+    } catch {
+      throw new Error("Could not reach Steam. Try again later.");
+    }
+    if (!response.ok) throw new Error(`Steam owned-library request failed (${response.status}).`);
+    const parsed = ownedGamesResponse.safeParse(await response.json().catch(() => null));
+    if (!parsed.success || (parsed.data.response.game_count > 0 && !parsed.data.response.games)) {
+      throw new Error("Steam library unavailable. Check the API key and make Game details public.");
+    }
+    return Array.from(
+      new Map(
+        (parsed.data.response.games ?? []).map((game) => [
+          game.appid,
+          { steamAppId: game.appid, title: game.name },
+        ])
+      ).values()
+    );
+  },
   validateSteamId(id: string): boolean {
     return /^7656\d{13}$/.test(id);
   },

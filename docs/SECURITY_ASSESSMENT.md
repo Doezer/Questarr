@@ -81,3 +81,19 @@ this lighter table format matches the pragmatic tone of the rest of `docs/`.
   OSPS-SA-03.02 requirement. This document (`SECURITY_ASSESSMENT.md`)
   satisfies OSPS-SA-03.01 and takes a risk-register view rather than
   duplicating that analysis.
+
+### Steam owned-library import
+
+The new manual import reuses Steam and IGDB as existing external actors. Steam
+names and IDs are untrusted and schema-validated, with bounded array/name sizes;
+React renders names as text. The server controls the HTTPS endpoint, sends it
+through `safeFetch`, bounds requests with a timeout, and never logs the URL or
+provider error (the query string contains `STEAM_API_KEY`). Browser requests
+cannot choose a Steam ID, API key, upstream URL, title or IGDB mapping. Ownership
+is rechecked before writes; selections are capped at 50 and per-account imports
+are serialized. Authentication, CSRF protection, account content filters, exact
+ID matching, and duplicate checks remain in force. Preview is read-only and
+responses prohibit caching. The action neither starts downloads nor touches
+files; existing entries retain their states and progress. API errors are generic
+and never echo credentials. Normal automation can apply to imported Owned games
+later, as documented in [STEAM_LIBRARY.md](STEAM_LIBRARY.md).

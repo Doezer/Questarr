@@ -39,6 +39,8 @@ export async function quickAddGameByTitle(
     source?: Game["source"];
     /** Exact IGDB id (e.g. from a request app); skips the free-text title match. */
     igdbId?: number;
+    /** Exact Steam mapping supplied by the official owned-library importer. */
+    steamAppId?: number;
     /** Platform the release search should target instead of the account default. */
     targetPlatform?: { id: number; name: string };
   } = {}
@@ -62,6 +64,7 @@ export async function quickAddGameByTitle(
     userId,
     title: match.title,
     igdbId: match.igdbId,
+    ...(options.steamAppId ? { steamAppId: options.steamAppId } : {}),
     status: options.status ?? "wanted",
     platform: "PC", // Default platform, user can change later
     platforms: match.platforms,

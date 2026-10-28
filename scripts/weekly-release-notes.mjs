@@ -4,7 +4,7 @@ import process from "node:process";
 
 // Usage: node scripts/weekly-release-notes.mjs <previous-tag> <new-tag> [repo] [end-ref]
 // Builds the notes of a weekly pre-release from the pull requests merged on main
-// since <previous-tag>, plus commits pushed straight to main.
+// since <previous-tag>, plus commits pushed straight to main. Contributors are counted by commit.
 const [prevTag, newTag, repo = process.env.GITHUB_REPOSITORY, endRef = "HEAD"] =
   process.argv.slice(2);
 if (!prevTag || !newTag) {
@@ -74,29 +74,65 @@ const isSecurity = (title, labels = []) =>
 
 const fmtPr = (pr) => `- ${pr.title} (#${pr.number})${pr.author ? ` by @${pr.author}` : ""}`.trim();
 
-// Direct commits only carry a git name: resolve the GitHub login when gh can, else keep the name.
-for (const c of direct) {
-  try {
-    c.login =
-      run("gh", ["api", `repos/${repo}/commits/${c.sha}`, "--jq", ".author.login // empty"]) ||
-      undefined;
-  } catch {
-    // gh unavailable: the git author name is used instead.
-  }
-}
-
 const sorted = [...prs.values()].sort((a, b) => a.number - b.number);
 const security = sorted.filter((pr) => isSecurity(pr.title, pr.labels));
 const others = sorted.filter((pr) => !security.includes(pr));
 
-// Contributors: PR authors and direct committers, deduplicated, bots left out.
-const contributors = new Map();
-for (const label of [
-  ...sorted.map((pr) => (pr.author && !pr.isBot ? `@${pr.author}` : undefined)),
-  ...direct.map((c) => (c.login ? `@${c.login}` : c.author)),
-]) {
-  if (label && !/\[bot\]$/i.test(label)) contributors.set(label.toLowerCase(), label);
+// Contributors, counted by commit: the commits inside each merged PR plus the ones pushed straight
+// to main. Bots and the Claude agent (it commits for the person who asked) are left out, and one
+// person with several git names is one contributor because the email is the key.
+const NOREPLY = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i;
+const BOT_NAME = /\[bot\]|[-\s]bot$/i; // dependabot[bot], snyk-bot
+const isBotAuthor = (name, email) =>
+  BOT_NAME.test(name) || BOT_NAME.test(email.split("@")[0]) || /@anthropic\.com$/i.test(email);
+
+const commitsOf = (pr) => {
+  const isMerge = run("git", ["rev-list", "--parents", "-n", "1", pr.sha]).split(" ").length > 2;
+  // A merge commit keeps the PR's commits on its second parent; a squash merge is one commit.
+  const range = isMerge ? [`${pr.sha}^1..${pr.sha}^2`] : ["-1", pr.sha];
+  const log = run("git", ["log", "--no-merges", "--format=%H%x1f%an%x1f%ae", ...range]);
+  return log ? log.split("\n").map((line) => line.split("\x1f")) : [];
+};
+
+const people = new Map();
+const credit = (sha, name, email, prNumber) => {
+  if (isBotAuthor(name, email)) return;
+  const key = email.toLowerCase();
+  const person = people.get(key) ?? { sha, name, email, commits: 0, prs: new Set() };
+  person.commits += 1;
+  if (prNumber) person.prs.add(prNumber);
+  people.set(key, person);
+};
+for (const pr of sorted) {
+  for (const [sha, name, email] of commitsOf(pr)) credit(sha, name, email, pr.number);
 }
+for (const c of direct) {
+  const email = run("git", ["show", "-s", "--format=%ae", c.sha]);
+  credit(c.sha, c.author, email);
+}
+
+// A GitHub login is shown when the noreply address or gh can give one, else the git name.
+const loginOf = (person) => {
+  const fromEmail = person.email.match(NOREPLY)?.[1];
+  if (fromEmail) return fromEmail;
+  try {
+    return (
+      run("gh", ["api", `repos/${repo}/commits/${person.sha}`, "--jq", ".author.login // empty"]) ||
+      undefined
+    );
+  } catch {
+    return undefined;
+  }
+};
+const contributors = [...people.values()]
+  .map((person) => ({ ...person, login: loginOf(person) }))
+  .sort((a, b) => b.commits - a.commits || a.name.localeCompare(b.name))
+  .map((person) => {
+    const who = person.login ? `@${person.login}` : person.name;
+    const prs = [...person.prs].sort((x, y) => x - y).map((n) => `#${n}`);
+    const count = `${person.commits} commit${person.commits === 1 ? "" : "s"}`;
+    return `- ${who}, ${count}${prs.length ? ` (${prs.join(", ")})` : " (pushed directly to main)"}`;
+  });
 
 const out = [
   "> **Weekly development build** — automatically generated from `main`, not functionally tested.",
@@ -113,8 +149,15 @@ if (direct.length) {
     ""
   );
 }
-if (contributors.size) {
-  out.push("## Contributors", "", `Thanks to ${[...contributors.values()].join(", ")}.`, "");
+if (contributors.length) {
+  out.push(
+    "## Contributors",
+    "",
+    "Thanks to everyone whose commits are in this build, counted by commit:",
+    "",
+    ...contributors,
+    ""
+  );
 }
 if (!sorted.length && !direct.length) out.push("No changes since the previous build.", "");
 if (repo)

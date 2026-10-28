@@ -43,6 +43,7 @@ beforeAll(() => {
   commit("Alice Work", "2+alice@users.noreply.github.com", "Polish feature");
   commit("Claude", "noreply@anthropic.com", "Agent commit");
   commit("snyk-bot", "bot@snyk.io", "Bot commit");
+  commit("Copilot", "198982749+Copilot@users.noreply.github.com", "Copilot commit");
   git("checkout", "-q", "main");
   git(
     "-c",
@@ -88,6 +89,6 @@ describe("weekly-release-notes contributors", () => {
 
   it("leaves out the Claude agent and bots", () => {
     const section = notes().split("## Contributors")[1] ?? "";
-    expect(section).not.toMatch(/claude|snyk/i);
+    expect(section).not.toMatch(/claude|snyk|copilot/i);
   });
 });

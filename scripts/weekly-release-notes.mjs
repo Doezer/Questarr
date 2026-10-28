@@ -83,8 +83,13 @@ const others = sorted.filter((pr) => !security.includes(pr));
 // person with several git names is one contributor because the email is the key.
 const NOREPLY = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i;
 const BOT_NAME = /\[bot\]|[-\s]bot$/i; // dependabot[bot], snyk-bot
+// Bot accounts whose git identity has no bot suffix, e.g. "198982749+Copilot@users.noreply.github.com".
+const BOT_LOGIN = /^(copilot|github-actions|dependabot|renovate|snyk-bot)$/i;
 const isBotAuthor = (name, email) =>
-  BOT_NAME.test(name) || BOT_NAME.test(email.split("@")[0]) || /@anthropic\.com$/i.test(email);
+  BOT_NAME.test(name) ||
+  BOT_NAME.test(email.split("@")[0]) ||
+  BOT_LOGIN.test(email.match(NOREPLY)?.[1] ?? "") ||
+  /@anthropic\.com$/i.test(email);
 
 const commitsOf = (pr) => {
   const isMerge = run("git", ["rev-list", "--parents", "-n", "1", pr.sha]).split(" ").length > 2;
@@ -104,6 +109,8 @@ const credit = (sha, name, email, prNumber) => {
   people.set(key, person);
 };
 for (const pr of sorted) {
+  // gh knows when the PR itself came from a bot account, whatever its commits say.
+  if (pr.isBot) continue;
   for (const [sha, name, email] of commitsOf(pr)) credit(sha, name, email, pr.number);
 }
 for (const c of direct) {

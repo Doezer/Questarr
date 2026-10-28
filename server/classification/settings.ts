@@ -20,6 +20,7 @@ export const classificationSettingsSchema = z
     cloudSuggest: z.boolean(),
     lowConfidence: z.number().gt(0).lte(1),
     maxCandidates: z.number().int().min(100).max(50_000),
+    shareLabels: z.boolean(),
   })
   .partial()
   .strict();
@@ -56,6 +57,7 @@ export function currentSettings(): ClassificationSettings {
     cloudSuggest: activeLearning.cloudSuggest,
     lowConfidence: activeLearning.lowConfidence,
     maxCandidates: activeLearning.maxCandidates,
+    shareLabels: activeLearning.shareLabels,
   };
 }
 
@@ -73,6 +75,7 @@ function apply(values: z.infer<typeof classificationSettingsSchema>): void {
   if (free("cloudSuggest")) live.activeLearning.cloudSuggest = values.cloudSuggest!;
   if (free("lowConfidence")) live.activeLearning.lowConfidence = values.lowConfidence!;
   if (free("maxCandidates")) live.activeLearning.maxCandidates = values.maxCandidates!;
+  if (free("shareLabels")) live.activeLearning.shareLabels = values.shareLabels!;
 }
 
 async function readSaved(): Promise<z.infer<typeof classificationSettingsSchema>> {

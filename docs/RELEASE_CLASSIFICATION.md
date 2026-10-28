@@ -125,11 +125,23 @@ is tried. To replace the bundled model for everyone, overwrite `shared/models/re
 The bundled model is only as good as the 459 releases it learned from (49 games), and more labeled
 games is what improves it most. If you have a dataset of your own, for example the verified labels
 exported from **Settings → Release classification**, you are invited to share it so the public
-classifier can be retrained on more data: open an issue on
-[Doezer/Questarr](https://github.com/Doezer/Questarr/issues) and attach the CSV. Nothing is
-shared automatically; Questarr never sends your labels or matches anywhere, so this is always
-your choice. Only release names and their labels are needed, so remove anything you do not want
-to publish before attaching it.
+classifier can be retrained on more data. Two ways, both your choice:
+
+- **From the app (opt-in).** In the review card, turn on **Allow sending my verified labels**
+  (off by default), press **See what will be sent**, then **Send**. It is one request per press,
+  never a background task. Only verified rows go, and each carries four fields and nothing else:
+  the release name, the game title, the label you chose and the version of the local model.
+  No account, path, address or library data. Rows already sent are not sent again, and a request
+  carries at most 200 rows. The address is fixed in the code and the request needs no key; it
+  follows no redirect. Turning the switch off stops any further sending; rows already received
+  cannot be recalled from the app.
+- **By hand.** Open an issue on [Doezer/Questarr](https://github.com/Doezer/Questarr/issues) and
+  attach the CSV from **Export verified**.
+
+Nothing is shared automatically. A shared label is a proposal: the maintainer only trains on a
+class that several independent senders agree on, or after checking it, and never retrains
+automatically. Only release names and their labels are needed, so with the manual route remove
+anything you do not want to publish before attaching it.
 
 Run `scripts/release-benchmark/run.ts` on a held-out split before trusting a new model (see
 `scripts/release-benchmark/README.md`). Do not expect a small model to reach high automatic

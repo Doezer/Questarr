@@ -101,6 +101,17 @@ Lookup order: `CLASSIFIER_MODEL_PATH`, then `<database folder>/models/release-cl
 file is validated on load; a missing or damaged one is logged and the next in the list
 is tried. To replace the bundled model for everyone, overwrite `shared/models/release-classifier.json` in a pull request.
 
+### Share your dataset
+
+The bundled model is only as good as the 459 releases it learned from (49 games), and more labeled
+games is what improves it most. If you have a dataset of your own, for example the verified labels
+exported from **Settings → Release classification**, you are invited to share it so the public
+classifier can be retrained on more data: open an issue on
+[Doezer/Questarr](https://github.com/Doezer/Questarr/issues) and attach the CSV. Nothing is
+shared automatically; Questarr never sends your labels or matches anywhere, so this is always
+your choice. Only release names and their labels are needed, so remove anything you do not want
+to publish before attaching it.
+
 Run `scripts/release-benchmark/run.ts` on a held-out split before trusting a new model (see
 `scripts/release-benchmark/README.md`). Do not expect a small model to reach high automatic
 precision: that is why the local layer abstains below `CLASSIFIER_LOCAL_THRESHOLD` (0.7) and why

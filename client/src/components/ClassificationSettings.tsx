@@ -123,9 +123,10 @@ export default function ClassificationSettings() {
 
   const save = useMutation({
     mutationFn: (body: Partial<Values>) => apiRequest("PUT", "/api/settings/classification", body),
-    onSuccess: () => {
+    // Awaiting the refetch keeps Save disabled until the form holds the saved values
+    onSuccess: async () => {
       toast({ title: "Classification settings saved" });
-      void queryClient.invalidateQueries({ queryKey: CLASSIFICATION_SETTINGS_KEY });
+      await queryClient.invalidateQueries({ queryKey: CLASSIFICATION_SETTINGS_KEY });
       void queryClient.invalidateQueries({ queryKey: ["/api/classification-candidates"] });
     },
     onError: (error: Error) =>

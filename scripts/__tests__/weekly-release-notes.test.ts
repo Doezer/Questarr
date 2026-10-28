@@ -70,7 +70,11 @@ beforeAll(() => {
     "Fix a thing (#9)\n\nCo-authored-by: Carol <4+carol@users.noreply.github.com>\nCo-authored-by: Bob <3+bob@users.noreply.github.com>"
   );
   commit("Alice", "alice@users.noreply.github.com", "Another fix");
-  commit("Owner", "1+owner@users.noreply.github.com", "Tweak the README");
+  commit(
+    "Owner",
+    "1+owner@users.noreply.github.com",
+    "Tweak the README\n\nCo-authored-by: Erin <6+erin@users.noreply.github.com>"
+  );
 });
 
 afterAll(() => {
@@ -95,6 +99,7 @@ describe("weekly-release-notes contributors", () => {
     expect(out).toContain("- @bob, 1 commit (#9)");
     expect(out).toContain("- @carol, 1 commit (#9)");
     expect(out).toContain("- @dave, 1 commit (#7)");
+    expect(out).toContain("- @erin, 1 commit (pushed directly to main)");
     expect(out).toContain("- @owner, 1 commit (pushed directly to main)");
   });
 

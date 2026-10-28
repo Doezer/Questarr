@@ -139,6 +139,8 @@ for (const pr of sorted) {
 for (const c of direct) {
   const email = run("git", ["show", "-s", "--format=%ae", c.sha]);
   credit(c.sha, c.author, email);
+  for (const [sha, name, coEmail, commitSha] of coAuthorsOf(c.sha))
+    credit(sha, name, coEmail, undefined, commitSha);
 }
 
 // A GitHub login is shown when the noreply address or gh can give one, else the git name.

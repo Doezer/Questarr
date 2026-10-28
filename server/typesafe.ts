@@ -104,6 +104,7 @@ class TypeSafeClient {
   /** Lazily loads credentials from system_config on first use (they're stored encrypted). */
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
+    const startedAt = this.revision;
     const [storedUrl, storedKey, storedModel] = await Promise.all([
       storage.getSystemConfig(TYPESAFE_URL_CONFIG_KEY),
       storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY),
@@ -115,6 +116,8 @@ class TypeSafeClient {
     const apiKey = storedKey
       ? await (await import("./credential-crypto.js")).decryptCredential(storedKey)
       : null;
+    // A configure() or invalidate() during the read wins: this stale read must not overwrite it
+    if (this.revision !== startedAt) return this.ensureLoaded();
     this.apiUrl = storedUrl && storedUrl.trim().length > 0 ? storedUrl.trim() : DEFAULT_API_URL;
     this.apiKey = apiKey && apiKey.trim().length > 0 ? apiKey.trim() : null;
     this.model = storedModel && storedModel.trim().length > 0 ? storedModel.trim() : DEFAULT_MODEL;

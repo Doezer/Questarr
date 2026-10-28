@@ -286,6 +286,25 @@ describe("TypeSafeClient", () => {
       expect(mockSafeFetch).toHaveBeenCalledTimes(2);
     });
 
+    it("keeps a configure() made while the stored settings are still loading", async () => {
+      let release: (value: string | undefined) => void = () => {};
+      mockGetSystemConfig.mockReturnValue(
+        new Promise<string | undefined>((resolve) => (release = resolve))
+      );
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      const pending = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      client.configure("https://new.example/v1", "new-key");
+      release("https://old.example/v1");
+      await pending;
+
+      expect(String(mockSafeFetch.mock.calls[0]?.[0])).toContain("new.example");
+    });
+
     it("does not cache an answer with no recognized release type", async () => {
       mockSafeFetch.mockResolvedValue(makeResponse({ answers: {} }) as unknown as Response);
       const client = await getClient();

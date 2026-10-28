@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Server,
@@ -210,7 +211,30 @@ function SettingsFilterCard({
 /**
  * Configures application preferences, integrations, notifications, account security, and system maintenance settings.
  */
+const SETTINGS_TABS = [
+  "appearance",
+  "discovery",
+  "notifications",
+  "integrations",
+  "import",
+  "account-security",
+  "system",
+];
+
+/** The tab named by `?tab=` (a notification link), or null when there is none. */
+function tabFromSearch(search: string): string | null {
+  const tab = new URLSearchParams(search).get("tab");
+  return tab && SETTINGS_TABS.includes(tab) ? tab : null;
+}
+
 export default function SettingsPage() {
+  const search = useSearch();
+  const [activeTab, setActiveTab] = useState(() => tabFromSearch(search) ?? "appearance");
+  // A link to this page while it is already open, such as a notification, changes the tab
+  useEffect(() => {
+    const tab = tabFromSearch(search);
+    if (tab) setActiveTab(tab);
+  }, [search]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -1250,7 +1274,7 @@ export default function SettingsPage() {
           </Alert>
         )}
 
-        <Tabs defaultValue="appearance" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="relative mb-4 sm:mb-8">
             <TabsList
               ref={setTabsScrollNode}

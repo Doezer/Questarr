@@ -10,6 +10,7 @@ import {
 import type { ClassificationCandidate } from "../../shared/schema.js";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
+import { notifyUser } from "../socket.js";
 import { storage } from "../storage.js";
 import type { PipelineResult } from "./pipeline.js";
 import type { CloudInput } from "./types.js";
@@ -111,6 +112,36 @@ export function assessCandidate(
   };
 }
 
+/** The review card, reached from the notification: Settings > Discovery & Downloads. */
+export const REVIEW_LINK = "/settings?tab=discovery#classification-review";
+
+/** One notification each time the waiting list grows by this many, so it never turns into noise. */
+export const REVIEW_NOTIFY_EVERY = 25;
+
+/**
+ * Tells every user that releases are waiting for a label. Nobody opens the review card on their
+ * own, so a new candidate that brings the waiting list to a multiple of REVIEW_NOTIFY_EVERY
+ * sends one notification that opens the card. Never throws.
+ */
+async function notifyReviewBacklog(): Promise<void> {
+  try {
+    const waiting = (await storage.getClassificationCandidates({ status: "pending" })).length;
+    if (waiting === 0 || waiting % REVIEW_NOTIFY_EVERY !== 0) return;
+    for (const user of await storage.getAllUsers()) {
+      const notification = await storage.addNotification({
+        userId: user.id,
+        type: "info",
+        title: "Releases need your review",
+        message: `${waiting} releases the classifier was unsure about are waiting for a label. Labeling a few helps the local model improve.`,
+        link: REVIEW_LINK,
+      });
+      notifyUser("notification", notification, notification.userId);
+    }
+  } catch (error) {
+    alLogger.warn({ error }, "Could not notify about the classification review backlog");
+  }
+}
+
 /** A release that keeps turning up is written once an hour, not on every auto-search cycle. */
 const SIGHTING_WINDOW_MS = 60 * 60 * 1000;
 const MAX_REMEMBERED = 10_000;
@@ -162,7 +193,7 @@ export async function collectCandidate(
       alLogger.warn({ max }, "Candidate limit reached, not collecting more");
       return;
     }
-    const { candidate } = await storage.upsertClassificationCandidate({
+    const { candidate, created } = await storage.upsertClassificationCandidate({
       id: randomUUID(),
       dedupeKey,
       releaseName: input.title,
@@ -179,6 +210,7 @@ export async function collectCandidate(
       const flagged = disagreementUpdate(candidate, candidate.suggestedLabel);
       if (flagged) await storage.updateClassificationCandidate(candidate.id, flagged);
     }
+    if (created) await notifyReviewBacklog();
   } catch (error) {
     alLogger.warn({ error, title: input.title }, "Could not store a classification candidate");
   }

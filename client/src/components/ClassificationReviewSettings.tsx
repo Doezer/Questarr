@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Cloud, Download, HelpCircle, ListChecks, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -244,13 +244,22 @@ export default function ClassificationReviewSettings() {
     }
   };
 
+  const cardRef = useRef<HTMLDivElement>(null);
+  const visible = Boolean(data?.counts);
+  // The notification link ends in #classification-review: bring the card into view once it shows
+  useEffect(() => {
+    if (visible && window.location.hash === "#classification-review") {
+      cardRef.current?.scrollIntoView({ block: "start" });
+    }
+  }, [visible]);
+
   if (!data?.counts) return null;
   const total = Object.values(data.counts).reduce((sum, n) => sum + n, 0);
   if (!data.collecting && total === 0) return null;
 
   const busy = review.isPending || suggest.isPending;
   return (
-    <Card>
+    <Card id="classification-review" ref={cardRef} className="scroll-mt-4">
       <CardHeader>
         <div className="flex items-center space-x-3">
           <ListChecks className="h-5 w-5 text-muted-foreground" />

@@ -171,6 +171,9 @@ one you can verify a label (the local model's guess or the cloud suggestion is p
 applied), mark it ambiguous, or mark it as not an example. Ambiguous and rejected releases are
 never exported.
 
+Every time the waiting list reaches a multiple of 25 releases, each user gets one notification,
+"Releases need your review". Clicking it opens this card.
+
 `ACTIVE_LEARNING_CLOUD_SUGGEST=true` adds an "Ask the cloud model" button. It sends one release
 name (with its size and platform) to the configured provider, costs what one Jev call costs, and
 only when you press it. If its answer differs from the local model's best guess, the release is flagged `model_disagreement` and moves up the list. In `hybrid` mode the same flag is set without an extra request when the cloud was already asked because the local model was unsure. It needs a TypeSafe key; without one the button is hidden. If the

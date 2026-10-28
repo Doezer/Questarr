@@ -242,6 +242,30 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     expect(rows.find((r) => r.gameTitle === GAME)?.seenCount).toBe(2);
   });
 
+  it("notifies each user once when the waiting list reaches a multiple of 25", async () => {
+    activeConfig.collect = true;
+    vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);
+    const added = vi
+      .spyOn(ctx.storage, "addNotification")
+      .mockImplementation(
+        async (n) => ({ ...n, id: "n1", read: false, createdAt: new Date() }) as never
+      );
+    for (let i = 1; i <= 24; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    expect(added).not.toHaveBeenCalled();
+    await mod.collectCandidate(input("Stellaris Mystery Pack 25"), unsure, null);
+    expect(added).toHaveBeenCalledTimes(1);
+    expect(added.mock.calls[0]?.[0]).toMatchObject({
+      userId: "u1",
+      link: mod.REVIEW_LINK,
+    });
+    // Seeing a release again is not a new one waiting
+    mod.resetCollectionMemory();
+    await mod.collectCandidate(input("Stellaris Mystery Pack 25"), unsure, null);
+    expect(added).toHaveBeenCalledTimes(1);
+  });
+
   it("does not collect when a layer failed", async () => {
     activeConfig.collect = true;
     await mod.collectCandidate(

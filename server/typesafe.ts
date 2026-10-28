@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { logger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
 import { storage } from "./storage.js";
@@ -161,9 +162,12 @@ class TypeSafeClient {
     await this.ensureLoaded();
     if (!this.apiUrl || !this.apiKey) return null;
 
-    // A replaced provider, endpoint or model changes the revision or model id, so its answers are not reused
+    // The effective endpoint and a one-way fingerprint of the key are part of the cache key, so a
+    // replaced provider never reuses another provider's answer (the raw key is never retained)
     const cacheKey = JSON.stringify([
       this.revision,
+      this.apiUrl,
+      createHash("sha256").update(this.apiKey).digest("hex"),
       this.model,
       params.releaseName,
       params.sizeBytes ?? null,

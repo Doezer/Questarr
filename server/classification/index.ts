@@ -36,6 +36,12 @@ export function reloadLocalModel(): void {
   releasePipeline.clearCache();
 }
 
+/** Whether a local model file is installed and loaded, for the Settings page. */
+export function localModelStatus(): { installed: boolean; version: string | null; path: string } {
+  const layer = localLayer();
+  return { installed: layer !== null, version: layer?.modelVersion ?? null, path: modelPath() };
+}
+
 /** The local model's best guess for a release, or null when no model is installed. */
 export function localGuess(
   input: Parameters<LocalTfidfClassifier["guess"]>[0]

@@ -65,10 +65,14 @@ image). Nothing needs installing: `hybrid` and `local` mode use it out of the bo
 
 ### Performance
 
-Measured on 459 labeled releases for 49 games, split by game so that no game is in both the
-training and the test part (88 test releases, release name only). The shipped file is retrained
-on all 459 rows, so it has no held-out score of its own; these numbers come from the same method
-on the split. Full method and the other candidates are in
+In short: out of 10 releases the local model puts about 8 in the right category (full game, patch,
+DLC or unknown), against about 6 for the keyword rules alone. It does as well as the cloud model,
+runs in under a millisecond and needs no account.
+
+How it was measured: the 459 labeled releases (49 games) were split by game, so the model is
+tested on games it has never seen. 88 test releases were scored from the release name alone.
+The shipped file is retrained on all 459 releases, so it has no test score of its own; these
+numbers come from the same method on the split. The full method and the other candidates are in
 [`scripts/release-classifier-training/DECISION.md`](../scripts/release-classifier-training/DECISION.md).
 
 | Layer                                | Accuracy | Macro F1 |  Time per release | Size    |
@@ -77,14 +81,20 @@ on the split. Full method and the other candidates are in
 | Local model (tf-idf + logistic reg.) |    78.4% |    79.9% |            0.7 ms | ~200 KB |
 | Cloud model (Jev, for comparison)    |    79.5% |    74.8% | ~840 ms (network) | none    |
 
-- Game-grouped 5-fold cross-validation gives 78.9% ± 10.9 for the local model. With this little
-  data, differences under about 5 points are not significant, so the local model and the cloud
-  model should be read as equivalent.
-- The 70% confidence threshold trades coverage for precision: releases below it are passed on to
-  the cloud model (`hybrid`) or left `unknown` (`local`) instead of being guessed.
-- The main error is a full game read as a DLC; patches and unknown releases are the most reliable
-  classes. More labeled games is what improves it most (accuracy keeps rising up to the 49 games
-  available).
+- **Accuracy** is the share of releases given the right category.
+- **Macro F1** also scores each category separately and then averages them, so a model cannot
+  look good just by getting the most common category right. It is also a percentage, and higher
+  is better. For example, always answering "patch" can score a decent accuracy but a low macro F1.
+- **Cross-validation** repeats the test five times on different groups of games. It gives 78.9%
+  for the local model, give or take 10.9 points depending on which games are tested. With this
+  little data, differences under about 5 points are not significant, so the local model and the
+  cloud model should be read as equivalent.
+- **The 70% confidence threshold** is how sure the model must be before its answer is used.
+  Below it, the release is passed on to the cloud model (`hybrid`) or left `unknown` (`local`)
+  instead of being guessed.
+- **The main mistake** is a full game read as a DLC; patches and unknown releases are the most
+  reliable categories. More labeled games is what improves it most (accuracy was still rising
+  with the 49 games available).
 
 To use your own, for example after retraining on more data (the dataset is not published),
 generate the file and place it where the server looks first:

@@ -22,16 +22,17 @@ const BUNDLED_MODEL = path.join("shared", "models", DEFAULT_MODEL_FILE);
  * shipped with the application. A candidate that is missing or refused falls through to the next.
  */
 function modelCandidates(): string[] {
+  // SQLITE_DB_PATH may name the data folder itself, which connectSqlite() accepts
+  const dbPath = path.resolve(config.database.url);
+  const isFolder = fs.existsSync(dbPath) && fs.statSync(dbPath).isDirectory();
   const installed = path.join(
-    path.dirname(path.resolve(config.database.url)),
+    isFolder ? dbPath : path.dirname(dbPath),
     "models",
     DEFAULT_MODEL_FILE
   );
-  return [
-    config.classification.modelPath,
-    fs.existsSync(installed) ? installed : null,
-    path.resolve(BUNDLED_MODEL),
-  ].filter((candidate): candidate is string => !!candidate);
+  return [config.classification.modelPath, installed, path.resolve(BUNDLED_MODEL)].filter(
+    (candidate): candidate is string => !!candidate
+  );
 }
 
 function loadFirstModel(): {

@@ -119,6 +119,30 @@ describe("production classification pipeline", () => {
     fs.rmSync(path.join(dir, "models"), { recursive: true, force: true });
   });
 
+  it("finds the installed model when the database path is the data folder itself", async () => {
+    cwd.mockRestore();
+    mockConfig.classification.modelPath = undefined;
+    mockConfig.database.url = dir;
+    fs.mkdirSync(path.join(dir, "models"), { recursive: true });
+    const classifier = new TfidfClassifier({ titleAware: false, seed: 1, threshold: 0 });
+    classifier.train(
+      ["A", "B", "C"].flatMap((g) => [
+        row(`Game ${g} Edition-GRP`, "full_game"),
+        row(`Game ${g} Fabulous Mod Pack-GRP`, "dlc"),
+      ])
+    );
+    fs.writeFileSync(
+      path.join(dir, "models", "release-classifier.json"),
+      JSON.stringify(classifier.toModelFile("in-folder"))
+    );
+    reloadLocalModel();
+    expect(
+      localGuess({ title: "Game Z Edition-GRP", gameTitle: "Cyber Quest" })?.modelVersion
+    ).toBe("in-folder");
+    mockConfig.database.url = "sqlite.db";
+    fs.rmSync(path.join(dir, "models"), { recursive: true, force: true });
+  });
+
   it("falls through to the bundled model when the configured file is refused", async () => {
     cwd.mockRestore();
     fs.writeFileSync(modelFile, "{ not a model");

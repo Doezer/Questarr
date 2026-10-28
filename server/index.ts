@@ -68,11 +68,18 @@ void (async () => {
     // Initialize RSS service (seeding default feeds)
     await rssService.initialize();
 
-    // Apply the classification settings saved in the DB (environment variables still win)
-    try {
-      await loadClassificationSettings();
-    } catch (err) {
-      log("Failed to load classification settings: " + String(err));
+    // Apply the classification settings saved in the DB (environment variables still win).
+    // A failure here must not let auto-search run on the defaults, which could release a
+    // download the saved settings would hold, so it is retried and then stops the startup.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await loadClassificationSettings();
+        break;
+      } catch (err) {
+        log(`Failed to load classification settings (attempt ${attempt}/3): ${String(err)}`);
+        if (attempt >= 3) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      }
     }
 
     // Load the downloader debug-logging setting from the DB into memory

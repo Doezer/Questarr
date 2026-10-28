@@ -61,7 +61,7 @@ describe("ClassificationSettings", () => {
     expect(screen.getByText("No cloud provider configured")).toBeInTheDocument();
   });
 
-  it("saves every setting, with percentages turned back into fractions", async () => {
+  it("saves only the settings that changed, with percentages turned back into fractions", async () => {
     renderCard(base);
     fireEvent.change(screen.getByLabelText("Local model confidence (%)"), {
       target: { value: "80" },
@@ -74,12 +74,9 @@ describe("ClassificationSettings", () => {
     fireEvent.click(save());
     await waitFor(() => expect(apiRequest).toHaveBeenCalled());
     expect(apiRequest).toHaveBeenCalledWith("PUT", "/api/settings/classification", {
-      mode: "hybrid",
       localThreshold: 0.8,
       holdUnknown: true,
       collect: true,
-      cloudSuggest: false,
-      lowConfidence: 0.85,
       maxCandidates: 1200,
     });
   });
@@ -102,6 +99,7 @@ describe("ClassificationSettings", () => {
       locked: { mode: "CLASSIFICATION_MODE", collect: "ACTIVE_LEARNING_COLLECT" },
       settings: { ...base.settings, collect: true },
     });
+    fireEvent.click(screen.getByLabelText("Hold unclassifiable releases"));
     expect(screen.getByLabelText("Collect uncertain releases")).toBeDisabled();
     expect(screen.getByText(/CLASSIFICATION_MODE/)).toBeInTheDocument();
     fireEvent.click(save());
@@ -109,14 +107,14 @@ describe("ClassificationSettings", () => {
     const body = apiRequest.mock.calls[0]?.[2] as Record<string, unknown>;
     expect(body).not.toHaveProperty("mode");
     expect(body).not.toHaveProperty("collect");
-    expect(body).toMatchObject({ holdUnknown: false, localThreshold: 0.7 });
+    expect(body).toEqual({ holdUnknown: true });
   });
 
   it("still saves the free settings when a locked value shows as 0 %", async () => {
     renderCard({
       ...base,
       locked: { localThreshold: "CLASSIFIER_LOCAL_THRESHOLD" },
-      settings: { ...base.settings, localThreshold: 0.001 },
+      settings: { ...base.settings, localThreshold: 0.0000001 },
     });
     expect(screen.getByLabelText("Local model confidence (%)")).toHaveValue("0");
     fireEvent.click(screen.getByLabelText("Collect uncertain releases"));
@@ -126,6 +124,31 @@ describe("ClassificationSettings", () => {
     const body = apiRequest.mock.calls[0]?.[2] as Record<string, unknown>;
     expect(body).not.toHaveProperty("localThreshold");
     expect(body).toMatchObject({ collect: true });
+  });
+
+  it("keeps a fractional threshold readable and never resends it untouched", async () => {
+    renderCard({ ...base, settings: { ...base.settings, localThreshold: 0.705 } });
+    expect(screen.getByLabelText("Local model confidence (%)")).toHaveValue("70.5");
+    expect(save()).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("Collect uncertain releases"));
+    fireEvent.click(save());
+    await waitFor(() => expect(apiRequest).toHaveBeenCalled());
+    expect(apiRequest.mock.calls[0]?.[2]).toEqual({ collect: true });
+  });
+
+  it("accepts a fractional percentage", async () => {
+    renderCard(base);
+    fireEvent.change(screen.getByLabelText("Local model confidence (%)"), {
+      target: { value: "72.5" },
+    });
+    fireEvent.click(save());
+    await waitFor(() => expect(apiRequest).toHaveBeenCalled());
+    expect(apiRequest.mock.calls[0]?.[2]).toEqual({ localThreshold: 0.725 });
+  });
+
+  it("does not offer to save when nothing changed", () => {
+    renderCard(base);
+    expect(save()).toBeDisabled();
   });
 
   it("says a cloud key is needed for suggestions when no provider is configured", () => {

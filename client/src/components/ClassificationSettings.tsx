@@ -57,14 +57,25 @@ const MODES: { value: Mode; label: string; help: string }[] = [
   },
 ];
 
-const toPercent = (value: number) => String(Math.round(value * 100));
+/** Keeps a saved fraction such as 0.705 readable as 70.5 instead of rounding it. */
+const toPercent = (value: number) => String(Number((value * 100).toFixed(4)));
 
-/** "" while typing; null when the text is not a whole number in range. */
+/** null when the text is not a number above 0 and at most 100 (decimals allowed). */
+function parsePercent(text: string): number | null {
+  if (!/^\d{1,3}(\.\d{1,4})?$/.test(text.trim())) return null;
+  const value = Number(text);
+  return value > 0 && value <= 100 ? Number((value / 100).toFixed(6)) : null;
+}
+
+/** null when the text is not a whole number in range. */
 function parseWhole(text: string, min: number, max: number): number | null {
   if (!/^\d+$/.test(text.trim())) return null;
   const value = Number(text);
   return value >= min && value <= max ? value : null;
 }
+
+const sameValue = (a: unknown, b: unknown) =>
+  typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 1e-9 : a === b;
 
 function LockedNote({ name }: Readonly<{ name: string | undefined }>) {
   if (!name) return null;
@@ -123,9 +134,10 @@ export default function ClassificationSettings() {
 
   if (!data?.settings || !data.localModel || !data.cloud) return null;
   const { locked, localModel, cloud } = data;
+  const current = data.settings;
 
-  const thresholdValue = parseWhole(threshold, 1, 100);
-  const lowConfidenceValue = parseWhole(lowConfidence, 1, 100);
+  const thresholdValue = parsePercent(threshold);
+  const lowConfidenceValue = parsePercent(lowConfidence);
   const maxValue = parseWhole(maxCandidates, 100, 50000);
   // A setting fixed by an environment variable is never sent, so its text cannot block saving
   const valid =
@@ -133,22 +145,29 @@ export default function ClassificationSettings() {
     lowConfidenceValue !== null &&
     maxValue !== null;
 
-  const onSave = () => {
-    if (!valid || lowConfidenceValue === null || maxValue === null) return;
-    // Only send what can change: a setting fixed by an environment variable would be refused
-    const all: Values = {
+  // Only what changed and can change: a locked setting would be refused, and an untouched value
+  // must not overwrite a change made from another session since this form loaded
+  const changes: Partial<Values> = {};
+  if (valid && lowConfidenceValue !== null && maxValue !== null) {
+    const edited: Values = {
       mode,
-      localThreshold: (thresholdValue ?? 0) / 100,
+      localThreshold: thresholdValue ?? current.localThreshold,
       holdUnknown,
       collect,
       cloudSuggest,
-      lowConfidence: lowConfidenceValue / 100,
+      lowConfidence: lowConfidenceValue,
       maxCandidates: maxValue,
     };
-    const body = Object.fromEntries(
-      Object.entries(all).filter(([key]) => !(key in locked))
-    ) as Partial<Values>;
-    save.mutate(body);
+    for (const key of Object.keys(edited) as (keyof Values)[]) {
+      if (!(key in locked) && !sameValue(edited[key], current[key])) {
+        Object.assign(changes, { [key]: edited[key] });
+      }
+    }
+  }
+  const dirty = Object.keys(changes).length > 0;
+
+  const onSave = () => {
+    if (valid && dirty) save.mutate(changes);
   };
 
   const modelVersion = localModel.version ? ` (${localModel.version})` : "";
@@ -212,7 +231,8 @@ export default function ClassificationSettings() {
               onChange={(e) => setThreshold(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Below this the local model abstains and the next layer decides (1 to 100, default 70).
+              Below this the local model abstains and the next layer decides (above 0 up to 100,
+              default 70).
             </p>
             <LockedNote name={locked.localThreshold} />
           </div>
@@ -280,7 +300,8 @@ export default function ClassificationSettings() {
                 onChange={(e) => setLowConfidence(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                A decided release under this confidence is collected (1 to 100, default 85).
+                A decided release under this confidence is collected (above 0 up to 100, default
+                85).
               </p>
             </div>
             <div className="space-y-2">
@@ -300,7 +321,7 @@ export default function ClassificationSettings() {
           </div>
         </fieldset>
 
-        <Button className="min-h-11" disabled={!valid || save.isPending} onClick={onSave}>
+        <Button className="min-h-11" disabled={!valid || !dirty || save.isPending} onClick={onSave}>
           <Save className="mr-2 h-4 w-4" />
           Save classification settings
         </Button>

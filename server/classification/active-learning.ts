@@ -138,7 +138,7 @@ async function checkReviewBacklog(): Promise<void> {
   const waiting = (await storage.getClassificationCandidates({ status: "pending" })).length;
   const bucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
   // Without a baseline (it could not be read) nothing is announced rather than guessed
-  if (notifiedBucket === null) notifiedBucket = bucket;
+  notifiedBucket ??= bucket;
   if (bucket <= notifiedBucket) return;
   if (deliveringBucket !== bucket) {
     deliveringBucket = bucket;

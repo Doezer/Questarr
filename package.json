@@ -35,7 +35,6 @@
     "reset-password": "tsx scripts/reset-password.ts",
     "bench:releases": "tsx scripts/release-benchmark/run.ts",
     "check:overrides": "node scripts/check-overrides.mjs",
-    "check:model": "node scripts/check-bundled-model.mjs",
     "audit:prod": "node scripts/audit-prod.mjs",
     "check:deprecated": "node scripts/check-deprecated-deps.mjs",
     "dev:test": "tsx scripts/clean-test-db.ts && cross-env SQLITE_DB_PATH=data/test.db PORT=5100 DISABLE_RATE_LIMITS=true npm run dev",

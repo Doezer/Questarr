@@ -119,30 +119,47 @@ export const REVIEW_LINK = "/settings?tab=discovery#classification-review";
 export const REVIEW_NOTIFY_EVERY = 25;
 
 /**
+ * Checks run one at a time: collections of releases classified in a row overlap, and two of them
+ * reading the count together would skip a multiple of REVIEW_NOTIFY_EVERY or announce it twice.
+ */
+let backlogChain: Promise<void> = Promise.resolve();
+/** The last group of REVIEW_NOTIFY_EVERY the list reached; null until the first check. */
+let notifiedBucket: number | null = null;
+
+async function checkReviewBacklog(): Promise<void> {
+  const waiting = (await storage.getClassificationCandidates({ status: "pending" })).length;
+  const bucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
+  // Right after a restart the list was already one shorter, so only a real crossing notifies
+  const before = notifiedBucket ?? Math.floor(Math.max(waiting - 1, 0) / REVIEW_NOTIFY_EVERY);
+  notifiedBucket = bucket;
+  if (bucket <= before) return;
+  const users = await storage.getAllUsers();
+  await Promise.all(
+    users.map(async (user) => {
+      const notification = await storage.addNotification({
+        userId: user.id,
+        type: "info",
+        title: "Releases need your review",
+        message: `${waiting} releases the classifier was unsure about are waiting for a label. Labeling a few helps the local model improve.`,
+        link: REVIEW_LINK,
+      });
+      notifyUser("notification", notification, notification.userId);
+    })
+  );
+}
+
+/**
  * Tells every user that releases are waiting for a label. Nobody opens the review card on their
- * own, so a new candidate that brings the waiting list to a multiple of REVIEW_NOTIFY_EVERY
+ * own, so a new candidate that brings the waiting list into a new group of REVIEW_NOTIFY_EVERY
  * sends one notification that opens the card. Never throws.
  */
-async function notifyReviewBacklog(): Promise<void> {
-  try {
-    const waiting = (await storage.getClassificationCandidates({ status: "pending" })).length;
-    if (waiting === 0 || waiting % REVIEW_NOTIFY_EVERY !== 0) return;
-    const users = await storage.getAllUsers();
-    await Promise.all(
-      users.map(async (user) => {
-        const notification = await storage.addNotification({
-          userId: user.id,
-          type: "info",
-          title: "Releases need your review",
-          message: `${waiting} releases the classifier was unsure about are waiting for a label. Labeling a few helps the local model improve.`,
-          link: REVIEW_LINK,
-        });
-        notifyUser("notification", notification, notification.userId);
-      })
-    );
-  } catch (error) {
-    alLogger.warn({ error }, "Could not notify about the classification review backlog");
-  }
+function notifyReviewBacklog(): Promise<void> {
+  backlogChain = backlogChain.then(() =>
+    checkReviewBacklog().catch((error) => {
+      alLogger.warn({ error }, "Could not notify about the classification review backlog");
+    })
+  );
+  return backlogChain;
 }
 
 /** A release that keeps turning up is written once an hour, not on every auto-search cycle. */
@@ -241,6 +258,7 @@ export function disagreementUpdate(
 /** Forgets which releases were just written, so deleted candidates can be collected again. */
 export function resetCollectionMemory(): void {
   recentlySeen.clear();
+  notifiedBucket = null;
 }
 
 export interface RankedCandidate {

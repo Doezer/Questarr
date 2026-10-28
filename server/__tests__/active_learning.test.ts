@@ -266,6 +266,26 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     expect(added).toHaveBeenCalledTimes(1);
   });
 
+  it("notifies once when collections overlap across a multiple of 25", async () => {
+    activeConfig.collect = true;
+    vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);
+    const added = vi
+      .spyOn(ctx.storage, "addNotification")
+      .mockImplementation(
+        async (n) => ({ ...n, id: "n1", read: false, createdAt: new Date() }) as never
+      );
+    for (let i = 1; i <= 23; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    // Three in flight at once bring the list to 26: the 25 mark is crossed exactly once
+    await Promise.all(
+      [24, 25, 26].map((i) =>
+        mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null)
+      )
+    );
+    expect(added).toHaveBeenCalledTimes(1);
+  });
+
   it("does not collect when a layer failed", async () => {
     activeConfig.collect = true;
     await mod.collectCandidate(

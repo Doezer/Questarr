@@ -15,10 +15,8 @@ import type { CloudInput } from "./types.js";
 
 const alLogger = logger.child({ module: "active-learning" });
 
-/** Collection stops here; a person labels a few hundred releases, not tens of thousands. */
+/** Default cap; a person labels a few hundred releases, not tens of thousands. */
 export const MAX_CANDIDATES = 5000;
-/** A final answer below this is "low confidence" even when a layer accepted it. */
-const LOW_CONFIDENCE = 0.85;
 
 /** Same release for the same game, whatever the case or spacing. */
 export function candidateKey(releaseName: string, gameTitle: string | null | undefined): string {
@@ -67,7 +65,7 @@ export function assessCandidate(
     result.source !== "rules" &&
     result.class !== "unknown" &&
     result.confidence !== null &&
-    result.confidence < LOW_CONFIDENCE
+    result.confidence < config.classification.activeLearning.lowConfidence
   ) {
     reasons.push("low_confidence");
   }
@@ -145,9 +143,10 @@ export async function collectCandidate(
     // Remembered once the count succeeded, so a full table is not counted and logged on every
     // cycle while a failed count is still retried
     remember(dedupeKey, now);
-    if (stored >= MAX_CANDIDATES) {
+    const max = config.classification.activeLearning.maxCandidates;
+    if (stored >= max) {
       // At the cap nothing is written, not even a refresh of an existing row: delete some first
-      alLogger.warn({ max: MAX_CANDIDATES }, "Candidate limit reached, not collecting more");
+      alLogger.warn({ max }, "Candidate limit reached, not collecting more");
       return;
     }
     await storage.upsertClassificationCandidate({

@@ -327,7 +327,7 @@ export default function ClassificationReviewSettings() {
 
   if (!data?.counts) return null;
   const total = Object.values(data.counts).reduce((sum, n) => sum + n, 0);
-  if (!data.collecting && total === 0) return null;
+  if (!data.collecting && !data.shareLabels && total === 0) return null;
 
   const busy = review.isPending || suggest.isPending;
   return (

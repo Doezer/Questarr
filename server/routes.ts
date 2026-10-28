@@ -821,7 +821,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       ownGame
         ? resolveGamePlatformPreference(ownGame, userSettings?.preferredPlatform ?? null)
         : (userSettings?.preferredPlatform ?? null),
-      ownGame?.title
+      ownGame?.title ?? query.trim()
     );
 
     return res.json({

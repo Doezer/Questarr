@@ -17,24 +17,36 @@ const DEFAULT_MODEL_FILE = "release-classifier.json";
 const BUNDLED_MODEL = path.join("shared", "models", DEFAULT_MODEL_FILE);
 
 /**
- * `CLASSIFIER_MODEL_PATH` wins, then a model next to the database (so a retrained one rides along
- * with the data volume and overrides the bundled one), then the model shipped with the application.
+ * Model files in priority order: `CLASSIFIER_MODEL_PATH`, then a model next to the database (so a
+ * retrained one rides along with the data volume and overrides the bundled one), then the model
+ * shipped with the application. A candidate that is missing or refused falls through to the next.
  */
-function modelPath(): string {
-  if (config.classification.modelPath) return config.classification.modelPath;
+function modelCandidates(): string[] {
   const installed = path.join(
     path.dirname(path.resolve(config.database.url)),
     "models",
     DEFAULT_MODEL_FILE
   );
-  return fs.existsSync(installed) ? installed : path.resolve(BUNDLED_MODEL);
+  return [
+    config.classification.modelPath,
+    fs.existsSync(installed) ? installed : null,
+    path.resolve(BUNDLED_MODEL),
+  ].filter((candidate): candidate is string => !!candidate);
+}
+
+function loadFirstModel(): ReturnType<typeof loadLocalModel> {
+  for (const candidate of modelCandidates()) {
+    const model = loadLocalModel(candidate);
+    if (model) return model;
+  }
+  return null;
 }
 
 let local: LocalTfidfClassifier | null | undefined;
 
 function localLayer(): LocalTfidfClassifier | null {
   if (local === undefined) {
-    const model = loadLocalModel(modelPath());
+    const model = loadFirstModel();
     local = model ? new LocalTfidfClassifier(model, config.classification.localThreshold) : null;
   }
   return local;

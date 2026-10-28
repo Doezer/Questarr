@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TfidfClassifier } from "../../scripts/release-benchmark/classifiers/tfidf.js";
 
 vi.mock("../logger.js", () => {
@@ -47,6 +47,8 @@ const row = (releaseName: string, label: "full_game" | "patch" | "dlc") => ({
   rawLabel: label,
 });
 
+let cwd: ReturnType<typeof vi.spyOn>;
+
 describe("production classification pipeline", () => {
   beforeEach(() => {
     analyzeRelease.mockReset();
@@ -55,8 +57,11 @@ describe("production classification pipeline", () => {
     mockConfig.classification.mode = "hybrid";
     mockConfig.classification.modelPath = modelFile;
     fs.rmSync(modelFile, { force: true });
+    // The bundled model is resolved from the working directory: hide it unless a test asks for it
+    cwd = vi.spyOn(process, "cwd").mockReturnValue(dir);
     reloadLocalModel();
   });
+  afterEach(() => cwd.mockRestore());
   afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   it("uses the installed local model with no cloud provider", async () => {
@@ -78,6 +83,7 @@ describe("production classification pipeline", () => {
   });
 
   it("falls back to the model shipped with the application, and lets an installed one win", async () => {
+    cwd.mockRestore();
     mockConfig.classification.modelPath = undefined;
     mockConfig.database.url = path.join(dir, "sqlite.db");
     mockConfig.classification.localThreshold = 0.7;
@@ -111,6 +117,14 @@ describe("production classification pipeline", () => {
     mockConfig.database.url = "sqlite.db";
     mockConfig.classification.localThreshold = 0.3;
     fs.rmSync(path.join(dir, "models"), { recursive: true, force: true });
+  });
+
+  it("falls through to the bundled model when the configured file is refused", async () => {
+    cwd.mockRestore();
+    fs.writeFileSync(modelFile, "{ not a model");
+    reloadLocalModel();
+    const guessed = localGuess({ title: "Some.Game-FitGirl.Repack", gameTitle: "Some Game" });
+    expect(guessed?.modelVersion).toMatch(/^tfidf-/);
   });
 
   it("is unknown when neither a model nor a provider is available", async () => {

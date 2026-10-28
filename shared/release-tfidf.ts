@@ -139,7 +139,7 @@ export class TfidfScorer {
     const full = featureText(input, this.model.titleAware);
     const marker = this.model.titleAware ? full.lastIndexOf("titlematch") : -1;
     const text = (marker === -1 ? full : full.slice(0, marker)).trim();
-    return text.length > 0 && this.vectorize(text).length > 0;
+    return text.length > 0 && this.vectorize(text).some((entry) => entry.value !== 0);
   }
 
   /** Class probabilities (softmax over the logits), in `model.classes` order. */

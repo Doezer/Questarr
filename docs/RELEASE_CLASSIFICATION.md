@@ -58,7 +58,7 @@ npx tsx scripts/release-benchmark/export-model.ts --dataset releases-labeled.csv
 
 Lookup order: `CLASSIFIER_MODEL_PATH`, then `<database folder>/models/release-classifier.json`
 (in Docker: `/app/data/models/`), then the bundled model. Restart after changing the file. The
-file is validated on load; a damaged one is ignored and logged. To replace the bundled model for
+file is validated on load; a missing or damaged one is logged and the next in the list is tried. To replace the bundled model for
 everyone, overwrite `shared/models/release-classifier.json` in a pull request.
 
 Run `scripts/release-benchmark/run.ts` on a held-out split before trusting a new model (see

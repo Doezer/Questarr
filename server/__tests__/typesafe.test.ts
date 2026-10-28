@@ -213,12 +213,27 @@ describe("TypeSafeClient", () => {
     });
 
     it("does not reuse an answer after the provider settings change", async () => {
-      mockSafeFetch.mockResolvedValue(makeResponse({ answers: {} }) as unknown as Response);
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
       const client = await getClient();
       client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
       await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
 
       client.configure("https://api.typesafe.ai/v1/systemone", "other-key");
+      await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not cache an answer with no recognized release type", async () => {
+      mockSafeFetch.mockResolvedValue(makeResponse({ answers: {} }) as unknown as Response);
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
       await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
 
       expect(mockSafeFetch).toHaveBeenCalledTimes(2);

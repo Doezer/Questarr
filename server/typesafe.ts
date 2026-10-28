@@ -225,12 +225,15 @@ class TypeSafeClient {
         releaseTypeConfidence: toUnitInterval(releaseTypeAnswer?.confidence),
         legitimacyScore: toUnitInterval(legitimacyAnswer?.noul),
       };
-      // Only answers are kept: a failed call returns null above and is retried next time
-      if (this.analysisCache.size >= ANALYSIS_CACHE_MAX_ENTRIES) {
-        const oldest = this.analysisCache.keys().next().value;
-        if (oldest !== undefined) this.analysisCache.delete(oldest);
+      // Only usable answers are kept: a failed call returns null above, and an answer with no
+      // recognized type stays out too, so the callers' retry paths still reach the provider
+      if (releaseType !== null) {
+        if (this.analysisCache.size >= ANALYSIS_CACHE_MAX_ENTRIES) {
+          const oldest = this.analysisCache.keys().next().value;
+          if (oldest !== undefined) this.analysisCache.delete(oldest);
+        }
+        this.analysisCache.set(cacheKey, { at: Date.now(), analysis });
       }
-      this.analysisCache.set(cacheKey, { at: Date.now(), analysis });
       return analysis;
     } catch (error) {
       typesafeLogger.warn({ error }, "TypeSafe API call failed, skipping AI enrichment");

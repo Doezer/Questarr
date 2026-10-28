@@ -83,7 +83,12 @@ function LockedNote({ name }: Readonly<{ name: string | undefined }>) {
 export default function ClassificationSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data } = useQuery<SettingsResponse>({ queryKey: CLASSIFICATION_SETTINGS_KEY });
+  const { data } = useQuery<SettingsResponse>({
+    queryKey: CLASSIFICATION_SETTINGS_KEY,
+    // The provider is configured elsewhere on the page, so the status must be read again on return
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
 
   const [mode, setMode] = useState<Mode>("hybrid");
   const [threshold, setThreshold] = useState("70");
@@ -122,14 +127,18 @@ export default function ClassificationSettings() {
   const thresholdValue = parseWhole(threshold, 1, 100);
   const lowConfidenceValue = parseWhole(lowConfidence, 1, 100);
   const maxValue = parseWhole(maxCandidates, 100, 50000);
-  const valid = thresholdValue !== null && lowConfidenceValue !== null && maxValue !== null;
+  // A setting fixed by an environment variable is never sent, so its text cannot block saving
+  const valid =
+    (!!locked.localThreshold || thresholdValue !== null) &&
+    lowConfidenceValue !== null &&
+    maxValue !== null;
 
   const onSave = () => {
-    if (!valid) return;
+    if (!valid || lowConfidenceValue === null || maxValue === null) return;
     // Only send what can change: a setting fixed by an environment variable would be refused
     const all: Values = {
       mode,
-      localThreshold: thresholdValue / 100,
+      localThreshold: (thresholdValue ?? 0) / 100,
       holdUnknown,
       collect,
       cloudSuggest,

@@ -112,6 +112,22 @@ describe("ClassificationSettings", () => {
     expect(body).toMatchObject({ holdUnknown: false, localThreshold: 0.7 });
   });
 
+  it("still saves the free settings when a locked value shows as 0 %", async () => {
+    renderCard({
+      ...base,
+      locked: { localThreshold: "CLASSIFIER_LOCAL_THRESHOLD" },
+      settings: { ...base.settings, localThreshold: 0.001 },
+    });
+    expect(screen.getByLabelText("Local model confidence (%)")).toHaveValue("0");
+    fireEvent.click(screen.getByLabelText("Collect uncertain releases"));
+    expect(save()).toBeEnabled();
+    fireEvent.click(save());
+    await waitFor(() => expect(apiRequest).toHaveBeenCalled());
+    const body = apiRequest.mock.calls[0]?.[2] as Record<string, unknown>;
+    expect(body).not.toHaveProperty("localThreshold");
+    expect(body).toMatchObject({ collect: true });
+  });
+
   it("says a cloud key is needed for suggestions when no provider is configured", () => {
     renderCard(base);
     expect(screen.getByText(/Needs a TypeSafe key\./)).toBeInTheDocument();

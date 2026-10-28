@@ -7,7 +7,7 @@ import type { Page } from "@playwright/test";
  */
 export async function seedGame(
   page: Page,
-  game: { title: string; igdbId: number; status?: string }
+  game: { title: string; igdbId: number; status?: string; timeToBeatNormally?: number }
 ): Promise<{ id: string; title: string }> {
   const cookies = await page.context().cookies();
   const csrf = cookies.find((c) => c.name === "questarr_csrf")?.value ?? "";
@@ -17,6 +17,7 @@ export async function seedGame(
       title: game.title,
       igdbId: game.igdbId,
       status: game.status ?? "wanted",
+      timeToBeatNormally: game.timeToBeatNormally,
       platforms: ["PC (Microsoft Windows)"],
       genres: ["Adventure"],
       releaseDate: "2020-01-15",

@@ -365,7 +365,7 @@ Indexers return a lot of look-alikes: the game, a day-one patch, a DLC, a crack-
 2. The local model decides when it is confident enough (threshold 70% by default).
 3. Only what is left can go to the cloud model, if you enabled it.
 
-Choose the mode in **Settings → Release classification**: `hybrid` (default), `local` (never leaves your machine) or `cloud`. The same card controls the confidence threshold, holding unclassified releases, and active learning. An environment variable, when set, wins over the saved setting and locks the field. The classification applies to automatic downloads only: manual search results are not classified yet.
+Choose the mode in **Settings → Release classification**: `hybrid` (default), `local` (never leaves your machine) or `cloud`. The same card controls the confidence threshold, holding unclassified releases, and active learning. An environment variable, when set, wins over the saved setting and locks the field. The same pipeline types the manual search results and decides the automatic-download hold, so a release gets one type everywhere.
 
 Details, environment variables and the dataset are in [docs/RELEASE_CLASSIFICATION.md](docs/RELEASE_CLASSIFICATION.md).
 

@@ -356,7 +356,7 @@ Indexers return a lot of look-alikes: the game, a day-one patch, a DLC, a crack-
 - **Fewer wrong grabs.** Before the automatic search sends a release to your download client, patches, DLC, expansions, crack-only releases, demos, soundtracks and other extras are held for your review instead of being downloaded.
 - **Works offline once installed.** The second layer is a local model (tf-idf with logistic regression) that runs on your machine. No account, no API key, and release names are not sent anywhere.
 - **Learns from names, not only keywords.** It weighs the whole release name, so it handles spellings and group conventions that a hand-written rule list misses.
-- **Optional second opinion.** If you configure the TypeSafe cloud model, it only sees the releases the first layers are unsure about. Leave it out and Questarr stays fully local.
+- **Optional cloud model.** In `hybrid` mode, the TypeSafe cloud model only receives the releases the rules and the local model could not settle (or all unsettled releases, if no local model is installed). In `cloud` mode it handles them without the local model. Use `local` mode to keep release names on your server.
 - **Gets better with your input.** Optional active learning keeps the releases the classifier was unsure about so you can verify them in Settings and export the confirmed labels as CSV. Nothing is retrained automatically, and a cloud suggestion is never stored as a verified label.
 
 **How it works**

@@ -206,6 +206,38 @@ describe("ImportReviewModal", () => {
       }
     );
 
+    it.each([true, false])(
+      "preserves an explicit autoUnpack=%s choice when the saved default changes",
+      async (autoUnpack) => {
+        mockImportConfig.current = { ...mockImportConfig.current!, autoUnpack };
+        const modal = renderModal();
+        fireEvent.click(screen.getByRole("switch"));
+        fireEvent.click(screen.getByRole("switch"));
+
+        mockImportConfig.current = { ...mockImportConfig.current!, autoUnpack: !autoUnpack };
+        modal.rerender(
+          <ImportReviewModal
+            open
+            onOpenChange={vi.fn()}
+            downloadId="download-1"
+            downloadTitle="Encrypted.rar"
+          />
+        );
+        fireEvent.change(screen.getByLabelText("Destination Path"), {
+          target: { value: "/games/library/PC/Encrypted" },
+        });
+        fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+
+        await waitFor(() =>
+          expect(mockApiRequest).toHaveBeenCalledWith(
+            "POST",
+            "/api/imports/download-1/confirm",
+            expect.objectContaining({ unpack: autoUnpack })
+          )
+        );
+      }
+    );
+
     it("restores the saved default when the dialog is reopened or another download is selected", () => {
       mockImportConfig.current = { ...mockImportConfig.current!, autoUnpack: true };
       const modal = renderModal();

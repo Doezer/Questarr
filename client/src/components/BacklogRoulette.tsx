@@ -48,19 +48,27 @@ export default function BacklogRoulette({
 }) {
   const [open, setOpen] = useState(false);
   const [pool, setPool] = useState<Pool>(pools[0] ?? "all");
+  const [maxHours, setMaxHours] = useState("any");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [, navigate] = useLocation();
   const [starting, setStarting] = useState(false);
-  const candidates = games.filter(
-    (game) => !game.hidden && (pool === "all" || game.status === pool)
-  );
+  function eligibleGames(nextPool: Pool, nextMaxHours: string) {
+    return games.filter(
+      (game) =>
+        !game.hidden &&
+        (nextPool === "all" || game.status === nextPool) &&
+        (nextMaxHours === "any" ||
+          (Number.isFinite(game.timeToBeatNormally) &&
+            (game.timeToBeatNormally ?? 0) > 0 &&
+            (game.timeToBeatNormally ?? Infinity) <= Number(nextMaxHours)))
+    );
+  }
+  const candidates = eligibleGames(pool, maxHours);
   const selected = candidates.find((game) => game.id === selectedId);
 
   /** Draw uniformly from the chosen pool, skipping the previous game when possible. */
-  function roll(nextPool = pool) {
-    const eligible = games.filter(
-      (game) => !game.hidden && (nextPool === "all" || game.status === nextPool)
-    );
+  function roll(nextPool = pool, nextMaxHours = maxHours) {
+    const eligible = eligibleGames(nextPool, nextMaxHours);
     const choices =
       eligible.length > 1 ? eligible.filter((game) => game.id !== selectedId) : eligible;
     if (!choices.length) {
@@ -148,6 +156,31 @@ export default function BacklogRoulette({
               Your current search and filters apply. Hidden games stay out of the draw.
             </p>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="roulette-length">Game length</Label>
+            <Select
+              value={maxHours}
+              disabled={starting || loading}
+              onValueChange={(value) => {
+                setMaxHours(value);
+                roll(pool, value);
+              }}
+            >
+              <SelectTrigger id="roulette-length">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any length</SelectItem>
+                <SelectItem value="5">A short adventure · up to 5 hours</SelectItem>
+                <SelectItem value="15">A weekend quest · up to 15 hours</SelectItem>
+                <SelectItem value="40">A longer journey · up to 40 hours</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Estimated total time to finish, not a play session. Length filters exclude games
+              without a known normal completion time.
+            </p>
+          </div>
           <div aria-live="polite" aria-atomic="true">
             {selected ? (
               <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
@@ -166,6 +199,12 @@ export default function BacklogRoulette({
                       {selected.title}
                     </h2>
                     <StatusBadge status={selected.status} />
+                    {Number.isFinite(selected.timeToBeatNormally) &&
+                      (selected.timeToBeatNormally ?? 0) > 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          About {selected.timeToBeatNormally} hours to finish
+                        </p>
+                      )}
                     <p className="text-sm text-muted-foreground break-words">
                       {selected.genres?.join(" · ")}
                     </p>
@@ -188,7 +227,7 @@ export default function BacklogRoulette({
                 <p className="text-sm text-muted-foreground">
                   {candidates.length
                     ? "Roll again to pick from your updated list."
-                    : "Choose another pool or adjust your filters to find a game."}
+                    : "Choose another pool, game length or Library filters to find a game."}
                 </p>
               </div>
             )}

@@ -2,6 +2,45 @@ import { test, expect } from "@playwright/test";
 import { seedGame, uniqueId } from "./helpers";
 
 test.describe("Backlog roulette", () => {
+  test("picks a weekend quest by completion time", async ({ page }, testInfo) => {
+    const id = uniqueId();
+    const prefix = `Weekend quest ${id}`;
+    await page.goto("/");
+    const short = await seedGame(page, {
+      title: `${prefix} Short adventure`,
+      igdbId: id,
+      status: "owned",
+      timeToBeatNormally: 5,
+    });
+    await seedGame(page, {
+      title: `${prefix} Epic journey`,
+      igdbId: id + 1,
+      status: "owned",
+      timeToBeatNormally: 60,
+    });
+    await seedGame(page, { title: `${prefix} Mystery`, igdbId: id + 2, status: "owned" });
+    await page.reload();
+    await page.getByPlaceholder("Search your library...").fill(prefix);
+    await page.getByRole("button", { name: "Pick a game", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Backlog roulette" });
+    await dialog.getByRole("combobox", { name: "Game length" }).click();
+    await page.getByRole("option", { name: "A weekend quest · up to 15 hours" }).click();
+    await expect(dialog.getByTestId("roulette-title")).toHaveText(short.title);
+    await expect(dialog.getByText("Chosen from 1 matching game.")).toBeVisible();
+    await expect(dialog.getByText("About 5 hours to finish")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Roll again" })).toBeDisabled();
+    await page.screenshot({ path: testInfo.outputPath("weekend-quest-desktop.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: testInfo.outputPath("weekend-quest-mobile.png") });
+    await page.evaluate(() => {
+      document.documentElement.classList.remove("dark");
+      document.documentElement.classList.add("light");
+    });
+    await page.screenshot({ path: testInfo.outputPath("weekend-quest-light.png") });
+    await dialog.getByRole("combobox", { name: "Game length" }).click();
+    await page.getByRole("option", { name: "Any length", exact: true }).click();
+    await expect(dialog.getByText("Chosen from 3 matching games.")).toBeVisible();
+  });
   test("draws owned games, rerolls, opens details and saves Mark as Playing", async ({
     page,
   }, testInfo) => {

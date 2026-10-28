@@ -40,7 +40,11 @@ beforeAll(() => {
   // A merged PR with commits from one person under two git names, plus agent and bot commits.
   git("checkout", "-q", "-b", "feature");
   commit("Alice", "2+alice@users.noreply.github.com", "Add feature");
-  commit("Alice Work", "2+alice@users.noreply.github.com", "Polish feature");
+  commit(
+    "Alice Work",
+    "2+alice@users.noreply.github.com",
+    "Polish feature\n\nCo-authored-by: Dave <5+dave@users.noreply.github.com>"
+  );
   commit("Claude", "noreply@anthropic.com", "Agent commit");
   commit("snyk-bot", "bot@snyk.io", "Bot commit");
   commit("Copilot", "198982749+Copilot@users.noreply.github.com", "Copilot commit");
@@ -90,6 +94,7 @@ describe("weekly-release-notes contributors", () => {
     const out = notes();
     expect(out).toContain("- @bob, 1 commit (#9)");
     expect(out).toContain("- @carol, 1 commit (#9)");
+    expect(out).toContain("- @dave, 1 commit (#7)");
     expect(out).toContain("- @owner, 1 commit (pushed directly to main)");
   });
 

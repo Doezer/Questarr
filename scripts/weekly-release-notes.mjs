@@ -91,6 +91,14 @@ const isBotAuthor = (name, email) =>
   BOT_LOGIN.test(email.match(NOREPLY)?.[1] ?? "") ||
   /@anthropic\.com$/i.test(email);
 
+// Co-authors named in a commit's trailers; they have no commit of their own, so no sha to look up.
+const coAuthorsOf = (sha) =>
+  run("git", ["log", "-1", "--format=%(trailers:key=Co-authored-by,valueonly,separator=%x1f)", sha])
+    .split("\x1f")
+    .map((line) => line.trim().match(/^(.+?)\s*<([^>]+)>$/))
+    .filter(Boolean)
+    .map((m) => ["", m[1], m[2], sha]);
+
 const commitsOf = (pr) => {
   const isMerge = run("git", ["rev-list", "--parents", "-n", "1", pr.sha]).split(" ").length > 2;
   // A merge commit keeps the PR's commits on its second parent.
@@ -101,22 +109,14 @@ const commitsOf = (pr) => {
       "--format=%H%x1f%an%x1f%ae",
       `${pr.sha}^1..${pr.sha}^2`,
     ]);
-    return log ? log.split("\n").map((line) => line.split("\x1f")) : [];
+    return (log ? log.split("\n") : []).flatMap((line) => {
+      const [sha, name, email] = line.split("\x1f");
+      return [[sha, name, email, sha], ...coAuthorsOf(sha)];
+    });
   }
   // A squash merge is one commit; the other authors of the PR are in its Co-authored-by trailers.
   const [author] = run("git", ["log", "-1", "--format=%H%x1f%an%x1f%ae", pr.sha]).split("\n");
-  const trailers = run("git", [
-    "log",
-    "-1",
-    "--format=%(trailers:key=Co-authored-by,valueonly,separator=%x1f)",
-    pr.sha,
-  ]);
-  const coAuthors = trailers
-    .split("\x1f")
-    .map((line) => line.trim().match(/^(.+?)\s*<([^>]+)>$/))
-    .filter(Boolean)
-    .map((m) => ["", m[1], m[2]]);
-  return [author.split("\x1f"), ...coAuthors];
+  return [[...author.split("\x1f"), pr.sha], ...coAuthorsOf(pr.sha)];
 };
 
 const people = new Map();
@@ -133,8 +133,8 @@ const credit = (sha, name, email, prNumber, commitSha = sha) => {
 for (const pr of sorted) {
   // gh knows when the PR itself came from a bot account, whatever its commits say.
   if (pr.isBot) continue;
-  for (const [sha, name, email] of commitsOf(pr))
-    credit(sha, name, email, pr.number, sha || pr.sha);
+  for (const [sha, name, email, commitSha] of commitsOf(pr))
+    credit(sha, name, email, pr.number, commitSha);
 }
 for (const c of direct) {
   const email = run("git", ["show", "-s", "--format=%ae", c.sha]);

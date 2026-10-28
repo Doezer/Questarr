@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
@@ -90,6 +90,19 @@ export default function GameJournalTab({ gameId, steamAppId }: Readonly<GameJour
     queryKey: [`/api/games/${gameId}/achievements`],
     enabled: achievementsEnabled,
   });
+
+  const achievedCount = useMemo(() => {
+    if (!achievementsData?.achievements) return 0;
+    // ⚡ Bolt: Use a single-pass `for...of` loop to count matches instead of
+    // `.filter(...).length` to avoid O(N) array allocation overhead during renders
+    let count = 0;
+    for (const a of achievementsData.achievements) {
+      if (a.achieved) {
+        count++;
+      }
+    }
+    return count;
+  }, [achievementsData?.achievements]);
 
   const { data: journalEntries = [] } = useQuery<GameJournalEntry[]>({
     queryKey: [`/api/games/${gameId}/journal`],
@@ -193,8 +206,7 @@ export default function GameJournalTab({ gameId, steamAppId }: Readonly<GameJour
               <Trophy className="w-4 h-4" />
               Achievements
               <span className="text-xs font-normal text-muted-foreground">
-                {achievementsData.achievements.filter((a) => a.achieved).length}/
-                {achievementsData.achievements.length}
+                {achievedCount}/{achievementsData.achievements.length}
               </span>
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

@@ -146,11 +146,12 @@ made and the review card does not appear.
 
 What is collected (only in `local` and `hybrid` mode, and never while a layer failed):
 
-| Reason           | Meaning                                                            |
-| ---------------- | ------------------------------------------------------------------ |
-| `unresolved`     | No layer could say what the release is.                            |
-| `low_confidence` | A layer decided, but below 85 % confidence.                        |
-| `disagreement`   | The rules and the local model's best guess name different classes. |
+| Reason               | Meaning                                                                       |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `unresolved`         | No layer could say what the release is.                                       |
+| `low_confidence`     | A layer decided, but below 85 % confidence.                                   |
+| `disagreement`       | The rules and the local model's best guess name different classes.            |
+| `model_disagreement` | The cloud model answered a different class than the local model's best guess. |
 
 Each release is stored once per game (case and spacing ignored) with its name, game, platform,
 size, what each layer answered, and a count of how often it came back. A release you already
@@ -170,9 +171,12 @@ one you can verify a label (the local model's guess or the cloud suggestion is p
 applied), mark it ambiguous, or mark it as not an example. Ambiguous and rejected releases are
 never exported.
 
+Every time the waiting list reaches a multiple of 25 releases, each user gets one notification,
+"Releases need your review". Clicking it opens this card.
+
 `ACTIVE_LEARNING_CLOUD_SUGGEST=true` adds an "Ask the cloud model" button. It sends one release
 name (with its size and platform) to the configured provider, costs what one Jev call costs, and
-only when you press it. It needs a TypeSafe key; without one the button is hidden. If the
+only when you press it. If its answer differs from the local model's best guess, the release is flagged `model_disagreement` and moves up the list. In `hybrid` mode the same flag is set without an extra request when the cloud was already asked because the local model was unsure. It needs a TypeSafe key; without one the button is hidden. If the
 provider fails, the candidate is left as it was.
 
 The API behind the card is under `/api/classification-candidates` and uses the same

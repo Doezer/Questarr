@@ -58,6 +58,10 @@ export function NotificationCenter() {
       // Update query cache
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+      // The review list is never refetched on its own, so the card the link opens would be stale
+      if (notification.link?.includes("#classification-review")) {
+        queryClient.invalidateQueries({ queryKey: ["/api/classification-candidates"] });
+      }
     };
 
     socket.on("notification", handleNotification);

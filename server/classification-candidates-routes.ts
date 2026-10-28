@@ -6,6 +6,7 @@ import { routesLogger } from "./logger.js";
 import { storage } from "./storage.js";
 import { typesafeClient } from "./typesafe.js";
 import {
+  disagreementUpdate,
   exportVerifiedCsv,
   rankCandidates,
   resetCollectionMemory,
@@ -160,6 +161,8 @@ router.post("/api/classification-candidates/:id/suggest", async (req: Request, r
       suggestedConfidence: analysis.releaseTypeConfidence,
       suggestedModel: typesafeClient.modelId,
       suggestedAt: new Date(),
+      // A cloud answer that contradicts the local model's guess makes this a better example
+      ...disagreementUpdate(candidate, analysis.releaseType),
     });
     return res.json(updated);
   } catch (error) {

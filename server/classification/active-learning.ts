@@ -66,11 +66,16 @@ export function assessCandidate(
   if (rules.class !== "unknown" && local && local.class !== rules.class) {
     reasons.push("disagreement");
   }
+  // A cloud demo, soundtrack or crack-only verdict has class unknown plus a flag: still a
+  // definitive answer, and one a local guess of a real class contradicts
+  const cloudDecided = result.class !== "unknown" || resolvedByFlag;
   if (
     result.source === "cloud" &&
     local &&
-    result.class !== "unknown" &&
-    classesConflict(result.class, local.class)
+    cloudDecided &&
+    (result.class === "unknown"
+      ? local.class !== "unknown"
+      : classesConflict(result.class, local.class))
   ) {
     reasons.push("model_disagreement");
   }

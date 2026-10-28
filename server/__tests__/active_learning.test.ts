@@ -52,6 +52,15 @@ describe("assessCandidate", () => {
     expect(unresolved?.priority).toBeGreaterThan(low?.priority ?? 0);
   });
 
+  it("flags a cloud demo verdict against a local full_game guess", () => {
+    const assessment = mod.assessCandidate(
+      input("Stellaris Demo"),
+      result({ class: "unknown", confidence: 0.9, source: "cloud", flags: ["demo"] }),
+      { class: "full_game", confidence: 0.5, modelVersion: "m1" }
+    );
+    expect(assessment?.reasons).toContain("model_disagreement");
+  });
+
   it("flags a disagreement between the rules and the local model's best guess", () => {
     const assessment = mod.assessCandidate(
       input("Stellaris Update v3.4.1"),

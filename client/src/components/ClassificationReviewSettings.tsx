@@ -245,7 +245,10 @@ export default function ClassificationReviewSettings() {
   };
 
   const cardRef = useRef<HTMLDivElement>(null);
-  const visible = Boolean(data?.counts);
+  // Same condition as the early returns below: the card is only in the page when this holds
+  const visible =
+    Boolean(data?.counts) &&
+    (Boolean(data?.collecting) || Object.values(data?.counts ?? {}).some((n) => n > 0));
   // The notification link ends in #classification-review: bring the card into view once it shows,
   // and again when a link to it is followed while the card is already on screen (wouter's
   // navigation does not scroll to anchors by itself)

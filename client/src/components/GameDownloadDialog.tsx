@@ -155,6 +155,8 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 
+const SEARCH_DEBOUNCE_MS = 1000;
+
 type ReleaseMetadataBadgesProps = Readonly<{
   metadata: ReleaseMetadata;
   isUsenet: boolean;
@@ -295,7 +297,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   }, [game, queryClient]);
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  // Every search fans out to all enabled indexers, so wait for the user to pause typing
+  // long enough that partial queries don't flood the indexers (and trigger their backoff).
+  const debouncedSearchQuery = useDebounce(searchQuery, SEARCH_DEBOUNCE_MS);
   const [downloadingGuid, setDownloadingGuid] = useState<string | null>(null);
   const [showBundleDialog, setShowBundleDialog] = useState(false);
   const [selectedMainDownload, setSelectedMainDownload] = useState<DownloadItem | null>(null);

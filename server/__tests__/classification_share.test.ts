@@ -180,6 +180,36 @@ describe.each(activeTestDialects())("sharing verified labels on %s", (dialect) =
     expect((await share.buildShareBatch()).rows).toHaveLength(0);
   });
 
+  it("offers a corrected label again and tells apart the same release for two games", async () => {
+    live.shareLabels = true;
+    await addCandidate("Stellaris Leviathans-GOG");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    expect((await send()).status).toBe(200);
+    const [row] = await ctx.storage.getClassificationCandidates({ status: "verified" });
+    await ctx.storage.updateClassificationCandidate(row!.id, { humanLabel: "patch" });
+    expect((await share.buildShareBatch()).rows.map((r) => r.label)).toEqual(["patch"]);
+    await ctx.storage.deleteClassificationCandidates();
+    await addCandidate("Same.Release-X", { gameTitle: "Game A" });
+    expect((await send()).status).toBe(200);
+    await addCandidate("Same.Release-X", { gameTitle: "Game B" });
+    expect((await share.buildShareBatch()).rows.map((r) => r.gameTitle)).toEqual(["Game B"]);
+  });
+
+  it("sends once when two sends overlap", async () => {
+    live.shareLabels = true;
+    await addCandidate("Stellaris Leviathans-GOG");
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response("{}", { status: 200 }));
+    const { batchId } = await share.buildShareBatch();
+    const results = await Promise.allSettled([
+      share.sendShareBatch(batchId),
+      share.sendShareBatch(batchId),
+    ]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  });
+
   it("caps a request and reports the rest", async () => {
     for (let i = 0; i < share.SHARE_MAX_ROWS + 3; i++) await addCandidate(`Stellaris Pack ${i}`);
     const batch = await share.buildShareBatch();

@@ -42,10 +42,14 @@ export interface ShareBatch {
   skipped: number;
 }
 
-/** Short fingerprint of a release name, used only to remember what was already sent. */
-function fingerprint(releaseName: string): string {
-  const normalized = releaseName.toLowerCase().replace(/\s+/g, " ").trim();
-  return createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+/** Short fingerprint of a verified row, used only to remember what was already sent. */
+function fingerprint(releaseName: string, gameTitle: string, label: string): string {
+  const normalize = (v: string) => v.toLowerCase().replace(/\s+/g, " ").trim();
+  // The label is part of it: a corrected verdict counts as a new row to offer
+  return createHash("sha256")
+    .update(`${normalize(releaseName)}|${normalize(gameTitle)}|${label}`)
+    .digest("hex")
+    .slice(0, 16);
 }
 
 async function readShared(): Promise<string[]> {
@@ -73,11 +77,11 @@ export async function buildShareBatch(): Promise<ShareBatch> {
   let skipped = 0;
   for (const row of verified) {
     if (!row.humanLabel || !labels.includes(row.humanLabel)) continue;
-    if (sent.has(fingerprint(row.releaseName))) {
+    const gameTitle = row.gameTitle?.trim();
+    if (gameTitle && sent.has(fingerprint(row.releaseName, gameTitle, row.humanLabel))) {
       alreadyShared++;
       continue;
     }
-    const gameTitle = row.gameTitle?.trim();
     if (
       !gameTitle ||
       gameTitle.length > SHARE_MAX_GAME_TITLE ||
@@ -116,9 +120,19 @@ export class ShareError extends Error {
  * Sends the batch the person previewed. One manual request, no background task, no redirect
  * followed, nothing but the four fields in the body.
  */
-export async function sendShareBatch(
-  batchId: string
-): Promise<{ sent: number; remaining: number }> {
+export function sendShareBatch(batchId: string): Promise<{ sent: number; remaining: number }> {
+  return exclusive(() => sendPreviewed(batchId));
+}
+
+/** Select, post and record run one at a time, so overlapping sends cannot pick the same rows. */
+let queue: Promise<unknown> = Promise.resolve();
+function exclusive<T>(task: () => Promise<T>): Promise<T> {
+  const run = queue.then(task);
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+async function sendPreviewed(batchId: string): Promise<{ sent: number; remaining: number }> {
   if (!config.classification.activeLearning.shareLabels) {
     throw new ShareError("Sharing is off", 403);
   }
@@ -156,11 +170,15 @@ async function deliver(batch: ShareBatch): Promise<void> {
   // Remember what was sent, but only for releases still kept: the list stays bounded by the
   // candidate cap, and a sent row can never be forgotten while it is still in the queue
   const kept = new Set(
-    (await storage.getClassificationCandidates()).map((c) => fingerprint(c.releaseName))
+    (await storage.getClassificationCandidates({ status: "verified" })).flatMap((c) =>
+      c.gameTitle && c.humanLabel
+        ? [fingerprint(c.releaseName, c.gameTitle.trim(), c.humanLabel)]
+        : []
+    )
   );
   const sent = new Set([
     ...(await readShared()),
-    ...batch.rows.map((r) => fingerprint(r.releaseName)),
+    ...batch.rows.map((r) => fingerprint(r.releaseName, r.gameTitle, r.label)),
   ]);
   await storage.setSystemConfig(
     SHARED_KEY,
@@ -175,7 +193,11 @@ const AUTO_MAX_BATCHES = 5;
  * verified since the last run. Does nothing while the switch is off. A failure is logged and
  * retried at the next run; the rows stay unsent until the collection point accepts them.
  */
-export async function autoShareVerifiedLabels(): Promise<void> {
+export function autoShareVerifiedLabels(): Promise<void> {
+  return exclusive(autoShare);
+}
+
+async function autoShare(): Promise<void> {
   if (!config.classification.activeLearning.shareLabels) return;
   for (let i = 0; i < AUTO_MAX_BATCHES; i++) {
     const batch = await buildShareBatch();

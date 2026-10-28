@@ -4,7 +4,7 @@ import process from "node:process";
 
 // Usage: node scripts/weekly-release-notes.mjs <previous-tag> <new-tag> [repo] [end-ref]
 // Builds the notes of a weekly pre-release from the pull requests merged on main
-// since <previous-tag>, plus commits pushed straight to main.
+// since <previous-tag>, plus commits pushed straight to main. Contributors are counted by commit.
 const [prevTag, newTag, repo = process.env.GITHUB_REPOSITORY, endRef = "HEAD"] =
   process.argv.slice(2);
 if (!prevTag || !newTag) {
@@ -74,29 +74,110 @@ const isSecurity = (title, labels = []) =>
 
 const fmtPr = (pr) => `- ${pr.title} (#${pr.number})${pr.author ? ` by @${pr.author}` : ""}`.trim();
 
-// Direct commits only carry a git name: resolve the GitHub login when gh can, else keep the name.
-for (const c of direct) {
-  try {
-    c.login =
-      run("gh", ["api", `repos/${repo}/commits/${c.sha}`, "--jq", ".author.login // empty"]) ||
-      undefined;
-  } catch {
-    // gh unavailable: the git author name is used instead.
-  }
-}
-
 const sorted = [...prs.values()].sort((a, b) => a.number - b.number);
 const security = sorted.filter((pr) => isSecurity(pr.title, pr.labels));
 const others = sorted.filter((pr) => !security.includes(pr));
 
-// Contributors: PR authors and direct committers, deduplicated, bots left out.
-const contributors = new Map();
-for (const label of [
-  ...sorted.map((pr) => (pr.author && !pr.isBot ? `@${pr.author}` : undefined)),
-  ...direct.map((c) => (c.login ? `@${c.login}` : c.author)),
-]) {
-  if (label && !/\[bot\]$/i.test(label)) contributors.set(label.toLowerCase(), label);
+// Contributors, counted by commit: the commits inside each merged PR plus the ones pushed straight
+// to main. Bots and the Claude agent (it commits for the person who asked) are left out. One person
+// with several git names or emails is one contributor: the email groups first, the login merges.
+const NOREPLY = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i;
+const BOT_NAME = /\[bot\]|[-\s]bot$/i; // dependabot[bot], snyk-bot
+// Bot accounts whose git identity has no bot suffix, e.g. "198982749+Copilot@users.noreply.github.com".
+const BOT_LOGIN = /^(copilot|github-actions|dependabot|renovate|snyk-bot)$/i;
+const isBotAuthor = (name, email) =>
+  BOT_NAME.test(name) ||
+  BOT_NAME.test(email.split("@")[0]) ||
+  BOT_LOGIN.test(email.match(NOREPLY)?.[1] ?? "") ||
+  /@anthropic\.com$/i.test(email);
+
+// Co-authors named in a commit's trailers; they have no commit of their own, so no sha to look up.
+const coAuthorsOf = (sha) =>
+  run("git", ["log", "-1", "--format=%(trailers:key=Co-authored-by,valueonly,separator=%x1f)", sha])
+    .split("\x1f")
+    .map((line) => line.trim().match(/^(.+?)\s*<([^>]+)>$/))
+    .filter(Boolean)
+    .map((m) => ["", m[1], m[2], sha]);
+
+const commitsOf = (pr) => {
+  const isMerge = run("git", ["rev-list", "--parents", "-n", "1", pr.sha]).split(" ").length > 2;
+  // A merge commit keeps the PR's commits on its second parent.
+  if (isMerge) {
+    const log = run("git", [
+      "log",
+      "--no-merges",
+      "--format=%H%x1f%an%x1f%ae",
+      `${pr.sha}^1..${pr.sha}^2`,
+    ]);
+    return (log ? log.split("\n") : []).flatMap((line) => {
+      const [sha, name, email] = line.split("\x1f");
+      return [[sha, name, email, sha], ...coAuthorsOf(sha)];
+    });
+  }
+  // A squash merge is one commit; the other authors of the PR are in its Co-authored-by trailers.
+  const [author] = run("git", ["log", "-1", "--format=%H%x1f%an%x1f%ae", pr.sha]).split("\n");
+  return [[...author.split("\x1f"), pr.sha], ...coAuthorsOf(pr.sha)];
+};
+
+const people = new Map();
+// Commits are counted as distinct SHAs, so a squash author repeated in a trailer counts once.
+const credit = (sha, name, email, prNumber, commitSha = sha) => {
+  if (isBotAuthor(name, email)) return;
+  const key = email.toLowerCase();
+  const person = people.get(key) ?? { sha, name, email, shas: new Set(), prs: new Set() };
+  person.sha ||= sha;
+  person.shas.add(commitSha);
+  if (prNumber) person.prs.add(prNumber);
+  people.set(key, person);
+};
+for (const pr of sorted) {
+  // gh knows when the PR itself came from a bot account, whatever its commits say.
+  if (pr.isBot) continue;
+  for (const [sha, name, email, commitSha] of commitsOf(pr))
+    credit(sha, name, email, pr.number, commitSha);
 }
+for (const c of direct) {
+  const email = run("git", ["show", "-s", "--format=%ae", c.sha]);
+  credit(c.sha, c.author, email);
+  for (const [sha, name, coEmail, commitSha] of coAuthorsOf(c.sha))
+    credit(sha, name, coEmail, undefined, commitSha);
+}
+
+// A GitHub login is shown when the noreply address or gh can give one, else the git name.
+const loginOf = (person) => {
+  const fromEmail = person.email.match(NOREPLY)?.[1];
+  if (fromEmail) return fromEmail;
+  if (!person.sha) return undefined; // a Co-authored-by trailer has no commit of its own to look up
+  try {
+    return (
+      run("gh", ["api", `repos/${repo}/commits/${person.sha}`, "--jq", ".author.login // empty"]) ||
+      undefined
+    );
+  } catch {
+    return undefined;
+  }
+};
+// Emails that resolve to the same login (a personal address and a noreply one) are one person.
+const merged = new Map();
+for (const person of people.values()) {
+  const login = loginOf(person);
+  const key = login ? `@${login.toLowerCase()}` : person.email.toLowerCase();
+  const seen = merged.get(key);
+  if (seen) {
+    for (const s of person.shas) seen.shas.add(s);
+    for (const n of person.prs) seen.prs.add(n);
+  } else {
+    merged.set(key, { ...person, login, shas: new Set(person.shas), prs: new Set(person.prs) });
+  }
+}
+const contributors = [...merged.values()]
+  .sort((a, b) => b.shas.size - a.shas.size || a.name.localeCompare(b.name))
+  .map((person) => {
+    const who = person.login ? `@${person.login}` : person.name;
+    const prs = [...person.prs].sort((x, y) => x - y).map((n) => `#${n}`);
+    const count = `${person.shas.size} commit${person.shas.size === 1 ? "" : "s"}`;
+    return `- ${who}, ${count}${prs.length ? ` (${prs.join(", ")})` : " (pushed directly to main)"}`;
+  });
 
 const out = [
   "> **Weekly development build** — automatically generated from `main`, not functionally tested.",
@@ -113,8 +194,15 @@ if (direct.length) {
     ""
   );
 }
-if (contributors.size) {
-  out.push("## Contributors", "", `Thanks to ${[...contributors.values()].join(", ")}.`, "");
+if (contributors.length) {
+  out.push(
+    "## Contributors",
+    "",
+    "Thanks to everyone whose commits are in this build, counted by commit:",
+    "",
+    ...contributors,
+    ""
+  );
 }
 if (!sorted.length && !direct.length) out.push("No changes since the previous build.", "");
 if (repo)

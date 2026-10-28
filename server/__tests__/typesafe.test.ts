@@ -212,6 +212,46 @@ describe("TypeSafeClient", () => {
       expect(mockSafeFetch).toHaveBeenCalledTimes(2);
     });
 
+    it("asks the provider again once a cached answer is a day old", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+      vi.useFakeTimers();
+      try {
+        await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+        vi.advanceTimersByTime(24 * 60 * 60 * 1000 + 1);
+        await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("drops the oldest entry when the cache is full", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      for (let i = 0; i <= 2000; i++) {
+        await client.analyzeRelease({ releaseName: `Game.${i}-GRP` });
+      }
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2001);
+
+      await client.analyzeRelease({ releaseName: "Game.2000-GRP" });
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2001);
+      await client.analyzeRelease({ releaseName: "Game.0-GRP" });
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2002);
+    });
+
     it("does not reuse an answer after the provider settings change", async () => {
       mockSafeFetch.mockResolvedValue(
         makeResponse({

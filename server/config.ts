@@ -35,6 +35,36 @@ const envSchema = z.object({
   // section in the game details Journal tab — player wishlist sync does not need it)
   STEAM_API_KEY: z.string().optional(),
 
+  // Release classification (see docs/RELEASE_CLASSIFICATION.md). "hybrid" is the default
+  // (rules, local model, then the cloud provider if one is configured); "cloud" is the
+  // historical TypeSafe/Jev-only behaviour; "local" never calls a cloud provider.
+  CLASSIFICATION_MODE: z.enum(["local", "cloud", "hybrid"]).default("hybrid"),
+  CLASSIFIER_MODEL_PATH: z.string().optional(),
+  // Minimum probability for the local model to decide a release (0 < value <= 1).
+  CLASSIFIER_LOCAL_THRESHOLD: z
+    .string()
+    .optional()
+    .refine((value) => value === undefined || (Number(value) > 0 && Number(value) <= 1), {
+      message: "CLASSIFIER_LOCAL_THRESHOLD must be a number above 0 and at most 1.",
+    })
+    .transform((value) => (value === undefined ? undefined : Number(value))),
+  // Hold unattended downloads of releases no layer could classify (default: let them through).
+  CLASSIFICATION_HOLD_UNKNOWN: z
+    .string()
+    .transform((value) => value === "true")
+    .optional(),
+  // Active learning (docs/RELEASE_CLASSIFICATION.md): both are off by default.
+  // COLLECT keeps unsure releases for labeling; CLOUD_SUGGEST lets a person ask the cloud
+  // provider (paid) for a suggested label on one collected release at a time.
+  ACTIVE_LEARNING_COLLECT: z
+    .string()
+    .transform((value) => value === "true")
+    .optional(),
+  ACTIVE_LEARNING_CLOUD_SUGGEST: z
+    .string()
+    .transform((value) => value === "true")
+    .optional(),
+
   // Encryption key for indexer/downloader credentials at rest (optional;
   // auto-generated and persisted to the DB if unset). Must be a 64-char hex
   // string (32 bytes) when provided, for use as an AES-256 key.
@@ -149,6 +179,16 @@ export const config = {
   steam: {
     apiKey: env.STEAM_API_KEY,
     isConfigured: !!env.STEAM_API_KEY,
+  },
+  classification: {
+    mode: env.CLASSIFICATION_MODE,
+    modelPath: env.CLASSIFIER_MODEL_PATH,
+    localThreshold: env.CLASSIFIER_LOCAL_THRESHOLD ?? 0.7,
+    holdUnknown: env.CLASSIFICATION_HOLD_UNKNOWN ?? false,
+    activeLearning: {
+      collect: env.ACTIVE_LEARNING_COLLECT ?? false,
+      cloudSuggest: env.ACTIVE_LEARNING_CLOUD_SUGGEST ?? false,
+    },
   },
   credentials: {
     encryptionKey: env.CREDENTIALS_ENCRYPTION_KEY,

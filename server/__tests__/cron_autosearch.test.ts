@@ -128,6 +128,10 @@ vi.mock("../xrel.js", () => ({
   DEFAULT_XREL_BASE: "http://example.com",
 }));
 
+// The classification pipeline only runs for the local and hybrid modes
+const mockClassify = vi.hoisted(() => vi.fn());
+vi.mock("../classification/index.js", () => ({ releasePipeline: { classify: mockClassify } }));
+
 // Import the function under test
 // We need to use dynamic import or require because of the hoisting of vi.mock
 const {
@@ -138,7 +142,12 @@ const {
   AUTO_SEARCH_DEFERRED,
   deduplicateByTitle,
   narrowToPreferredGroupFormat,
+  getAiAutoDownloadHoldReason,
 } = await import("../cron.js");
+const { config: appConfig } = await import("../config.js");
+// These tests cover the legacy Jev-only check; the default mode is `hybrid`, which the pipeline
+// describe below sets for itself
+(appConfig.classification as { mode: string }).mode = "cloud";
 const { igdbLogger } = await import("../logger.js");
 
 describe("Cron - checkAutoSearch", () => {
@@ -2919,5 +2928,89 @@ describe("release scoring in auto-search", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("auto-download hold with the classification pipeline", () => {
+  const classification = appConfig.classification as {
+    mode: string;
+    holdUnknown: boolean;
+  };
+  const original = { ...classification };
+  const item = { title: "Test Game Update v1.2-GROUP", size: 1_000_000 };
+
+  beforeEach(() => {
+    mockClassify.mockReset();
+    mockAnalyzeRelease.mockReset().mockResolvedValue(null);
+    mockIsConfigured.mockReset().mockResolvedValue(false);
+    classification.mode = "hybrid";
+    classification.holdUnknown = false;
+  });
+  afterEach(() => Object.assign(classification, original));
+
+  it("keeps the Jev-only check, and skips the pipeline, in cloud mode", async () => {
+    classification.mode = "cloud";
+    expect(await getAiAutoDownloadHoldReason(item, null, "Test Game")).toBeNull();
+    expect(mockClassify).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ class: "patch", source: "local" }, /\(local\) as "patch"/],
+    [{ class: "dlc", source: "cloud" }, /\(cloud\) as "dlc"/],
+    [{ class: "unknown", source: "rules", flags: ["crack_only"] }, /as "crack_only"/],
+  ])("holds a release classified as not the full game: %j", async (result, reason) => {
+    mockClassify.mockResolvedValue({ confidence: 0.9, path: ["rules"], ...result });
+    expect(await getAiAutoDownloadHoldReason(item, "PC", "Test Game")).toMatch(reason);
+    expect(mockClassify).toHaveBeenCalledWith(
+      expect.objectContaining({ title: item.title, gameTitle: "Test Game", platform: "PC" })
+    );
+  });
+
+  it("lets a full game through, and an unclassified release unless hold-unknown is on", async () => {
+    mockClassify.mockResolvedValue({
+      class: "full_game",
+      source: "local",
+      confidence: 0.9,
+      path: [],
+    });
+    expect(await getAiAutoDownloadHoldReason(item, null, "Test Game")).toBeNull();
+
+    mockClassify.mockResolvedValue({
+      class: "unknown",
+      source: "local",
+      confidence: 0.2,
+      path: [],
+    });
+    expect(await getAiAutoDownloadHoldReason(item, null, "Test Game")).toBeNull();
+    classification.holdUnknown = true;
+    expect(await getAiAutoDownloadHoldReason(item, null, "Test Game")).toMatch(/hold-unknown/);
+  });
+
+  it("does not hold a release just because a layer failed, even with hold-unknown", async () => {
+    classification.holdUnknown = true;
+    mockClassify.mockResolvedValue({
+      class: "unknown",
+      source: "cloud",
+      confidence: null,
+      degraded: true,
+      path: [],
+    });
+    expect(await getAiAutoDownloadHoldReason(item, null, "Test Game")).toBeNull();
+  });
+
+  it("holds on an implausible size reported by the cloud layer", async () => {
+    mockClassify.mockResolvedValue({
+      class: "full_game",
+      source: "cloud",
+      confidence: 0.9,
+      legitimacyScore: 0.1,
+      path: [],
+    });
+    expect(await getAiAutoDownloadHoldReason(item, null, "Test Game")).toMatch(/file size/);
+  });
+
+  it("fails open when the pipeline throws", async () => {
+    mockClassify.mockRejectedValue(new Error("boom"));
+    expect(await getAiAutoDownloadHoldReason(item, null, "Test Game")).toBeNull();
   });
 });

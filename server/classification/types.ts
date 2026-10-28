@@ -10,7 +10,13 @@ import {
  * release may be downloaded, and it must resolve to a result rather than reject.
  */
 export interface ReleaseClassifier {
-  classify(input: ReleaseClassificationInput): Promise<Classification>;
+  classify(input: CloudInput): Promise<Classification>;
+}
+
+/** What the pipeline may pass along: the name-based input plus search metadata a cloud model can use. */
+export interface CloudInput extends ReleaseClassificationInput {
+  sizeBytes?: number | undefined;
+  platform?: string | undefined;
 }
 
 /** The deterministic layer as a ReleaseClassifier. */

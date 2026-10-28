@@ -1,12 +1,18 @@
-import { classifyTitleMatch } from "../../../shared/release-scoring.js";
 import type { ReleaseClass } from "../../../shared/release-classification.js";
+import {
+  TFIDF_MODEL_FORMAT,
+  charNgrams,
+  featureText as sharedFeatureText,
+  type TfidfModelFile,
+} from "../../../shared/release-tfidf.js";
 import { CLASSES, type BenchClassifier, type LabeledRelease } from "../types.js";
 
 /**
  * Classical baseline: character n-gram TF-IDF into a multinomial logistic regression trained
- * with seeded SGD. Pure TypeScript, no dependency; lives in the benchmark tooling only and is
- * not part of the production runtime. Confidence is the raw softmax probability, which is not
- * calibrated: calibration belongs to the model-selection task.
+ * with seeded SGD. Pure TypeScript, no dependency. Training lives in the tooling only; the
+ * server scores a file exported with `toModelFile()` through shared/release-tfidf.ts.
+ * Confidence is the raw softmax probability, which is not calibrated: calibration belongs to
+ * the model-selection task.
  */
 export interface TfidfOptions {
   /** `true` strips the game title and adds a title-match token (metadata-enriched variant). */
@@ -32,36 +38,7 @@ function mulberry32(seed: number): () => number {
 }
 
 export function featureText(row: LabeledRelease, titleAware: boolean): string {
-  let text = row.releaseName
-    .toLowerCase()
-    .replaceAll(/[._-]+/g, " ")
-    .replaceAll(/\s+/g, " ")
-    .trim();
-  if (titleAware) {
-    const title = row.gameTitle
-      .toLowerCase()
-      .replaceAll(/[._-]+/g, " ")
-      .replaceAll(/\s+/g, " ")
-      .trim();
-    if (title && text.includes(title)) text = text.replace(title, " ");
-    text = `${text.replaceAll(/\s+/g, " ").trim()} titlematch${classifyTitleMatch(
-      row.releaseName,
-      row.gameTitle
-    )}`;
-  }
-  return text;
-}
-
-export function charNgrams(text: string, min = 2, max = 5): Map<string, number> {
-  const padded = ` ${text} `;
-  const counts = new Map<string, number>();
-  for (let n = min; n <= max; n++) {
-    for (let i = 0; i + n <= padded.length; i++) {
-      const gram = padded.slice(i, i + n);
-      counts.set(gram, (counts.get(gram) ?? 0) + 1);
-    }
-  }
-  return counts;
+  return sharedFeatureText({ title: row.releaseName, gameTitle: row.gameTitle }, titleAware);
 }
 
 interface Model {
@@ -164,6 +141,23 @@ export class TfidfClassifier implements BenchClassifier {
       }
     }
     this.model = model;
+  }
+
+  /** The trained model in the format the server's local classifier loads. */
+  toModelFile(modelVersion: string): TfidfModelFile {
+    if (!this.model) throw new Error(`${this.id} must be trained before it is exported`);
+    const vocab = [...this.model.vocab.entries()].sort((a, b) => a[1] - b[1]).map(([g]) => g);
+    return {
+      format: TFIDF_MODEL_FORMAT,
+      modelVersion,
+      classes: CLASSES,
+      titleAware: this.options.titleAware,
+      ngram: { min: 2, max: 5 },
+      vocab,
+      idf: this.model.idf,
+      weights: this.model.weights,
+      bias: this.model.bias,
+    };
   }
 
   async classify(row: LabeledRelease) {

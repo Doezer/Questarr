@@ -91,6 +91,8 @@ const defaultUserSettings = {
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Picking a tab writes ?tab= to the URL, which would otherwise leak into the next test
+    window.history.replaceState(null, "", "/");
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.includes("/api/config")) {
@@ -161,6 +163,17 @@ describe("SettingsPage", () => {
 
     await screen.findByLabelText("Enable Auto-Search");
     expect(screen.queryByLabelText("Search Interval (hours)")).not.toBeInTheDocument();
+  });
+
+  it("opens the tab named by ?tab= in the URL", async () => {
+    window.history.replaceState(null, "", "/?tab=discovery");
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByLabelText("Enable Auto-Search");
   });
 
   it("renders library filtering defaults and saves them via the PATCH mutation", async () => {

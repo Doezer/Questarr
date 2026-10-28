@@ -276,10 +276,10 @@ const upload = multer({
 });
 import {
   searchAllIndexers,
+  classifySearchResults,
   type SearchItem,
   filterBlacklistedReleases,
   filterByReleaseNameBlacklist,
-  enrichWithAiAnalysis,
 } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
 import {
@@ -817,7 +817,13 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
         .catch((err) => routesLogger.warn({ err }, "Failed to update searchResultsAvailable"));
     }
 
-    const enrichedItems = await enrichWithAiAnalysis(scoredItems);
+    const enrichedItems = await classifySearchResults(
+      scoredItems,
+      ownGame
+        ? resolveGamePlatformPreference(ownGame, userSettings?.preferredPlatform ?? null)
+        : (userSettings?.preferredPlatform ?? null),
+      ownGame?.title ?? query.trim()
+    );
 
     return res.json({
       items: enrichedItems,

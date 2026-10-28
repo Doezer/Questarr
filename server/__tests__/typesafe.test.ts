@@ -212,6 +212,24 @@ describe("TypeSafeClient", () => {
       expect(mockSafeFetch).toHaveBeenCalledTimes(2);
     });
 
+    it("shares one provider call between concurrent requests for the same release", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      const [a, b] = await Promise.all([
+        client.analyzeRelease({ releaseName: "Some.Game-GRP" }),
+        client.analyzeRelease({ releaseName: "Some.Game-GRP" }),
+      ]);
+
+      expect(b).toEqual(a);
+      expect(mockSafeFetch).toHaveBeenCalledTimes(1);
+    });
+
     it("asks the provider again once a cached answer is a day old", async () => {
       mockSafeFetch.mockResolvedValue(
         makeResponse({

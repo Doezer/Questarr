@@ -126,6 +126,10 @@ class TypeSafeClient {
     return !!(this.apiUrl && this.apiKey);
   }
 
+  private readonly analysisCache = new Map<string, { at: number; analysis: ReleaseAnalysis }>();
+  /** Requests under way, so concurrent calls for the same release share one paid call. */
+  private readonly analysisInFlight = new Map<string, Promise<ReleaseAnalysis | null>>();
+
   private readCachedAnalysis(key: string): ReleaseAnalysis | null {
     const cached = this.analysisCache.get(key);
     if (!cached) return null;
@@ -149,8 +153,6 @@ class TypeSafeClient {
    * Returns null if not configured or the call fails/times out -- callers must treat
    * this as a best-effort enrichment, never a blocking dependency.
    */
-  private readonly analysisCache = new Map<string, { at: number; analysis: ReleaseAnalysis }>();
-
   async analyzeRelease(params: {
     releaseName: string;
     sizeBytes?: number | undefined;
@@ -169,6 +171,21 @@ class TypeSafeClient {
     ]);
     const cached = this.readCachedAnalysis(cacheKey);
     if (cached) return cached;
+    const pending = this.analysisInFlight.get(cacheKey);
+    if (pending) return pending;
+
+    const request = this.requestAnalysis(cacheKey, params).finally(() =>
+      this.analysisInFlight.delete(cacheKey)
+    );
+    this.analysisInFlight.set(cacheKey, request);
+    return request;
+  }
+
+  private async requestAnalysis(
+    cacheKey: string,
+    params: { releaseName: string; sizeBytes?: number | undefined; platform?: string | undefined }
+  ): Promise<ReleaseAnalysis | null> {
+    if (!this.apiUrl || !this.apiKey) return null;
 
     const stateLines = [`Release name: ${params.releaseName}`];
     if (params.sizeBytes !== undefined) {

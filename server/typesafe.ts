@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { logger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
 import { storage } from "./storage.js";
@@ -120,6 +119,7 @@ class TypeSafeClient {
     this.apiKey = apiKey && apiKey.trim().length > 0 ? apiKey.trim() : null;
     this.model = storedModel && storedModel.trim().length > 0 ? storedModel.trim() : DEFAULT_MODEL;
     this.loaded = true;
+    this.revision++;
   }
 
   async isConfigured(): Promise<boolean> {
@@ -162,12 +162,11 @@ class TypeSafeClient {
     await this.ensureLoaded();
     if (!this.apiUrl || !this.apiKey) return null;
 
-    // The effective endpoint and a one-way fingerprint of the key are part of the cache key, so a
-    // replaced provider never reuses another provider's answer (the raw key is never retained)
+    // Every assignment of the endpoint, key or model bumps the revision (configure, invalidate and
+    // ensureLoaded), so a replaced provider never reuses another provider's answer
     const cacheKey = JSON.stringify([
       this.revision,
       this.apiUrl,
-      createHash("sha256").update(this.apiKey).digest("hex"),
       this.model,
       params.releaseName,
       params.sizeBytes ?? null,

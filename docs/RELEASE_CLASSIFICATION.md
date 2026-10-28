@@ -165,6 +165,7 @@ held-out file is a deliberate step you do by hand.
   version, the mode, the local model version, the cloud model id and whether a provider is
   configured, so installing a new model or changing the provider never serves stale answers.
   Results from a failing layer (error, timeout, unusable answer) are not cached.
+- Cloud mode: the historical Jev call keeps its own in-memory cache (24 h, 2,000 entries, keyed by release name, size, platform, model and provider settings), so a name seen on every search is asked once. A failed call is never cached. Neither cache survives a restart.
 - Logs: one `debug` line per release in the `classification` module with the layers consulted,
   class, confidence, source and model version.
 - Docker: no new container and no native dependency. The only addition is the optional model file

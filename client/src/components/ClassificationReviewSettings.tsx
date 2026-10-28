@@ -246,11 +246,22 @@ export default function ClassificationReviewSettings() {
 
   const cardRef = useRef<HTMLDivElement>(null);
   const visible = Boolean(data?.counts);
-  // The notification link ends in #classification-review: bring the card into view once it shows
+  // The notification link ends in #classification-review: bring the card into view once it shows,
+  // and again when a link to it is followed while the card is already on screen (wouter's
+  // navigation does not scroll to anchors by itself)
   useEffect(() => {
-    if (visible && window.location.hash === "#classification-review") {
-      cardRef.current?.scrollIntoView({ block: "start" });
-    }
+    if (!visible) return;
+    const scrollToCard = () => {
+      if (window.location.hash === "#classification-review") {
+        cardRef.current?.scrollIntoView({ block: "start" });
+      }
+    };
+    scrollToCard();
+    const events = ["pushState", "replaceState", "hashchange"];
+    for (const event of events) window.addEventListener(event, scrollToCard);
+    return () => {
+      for (const event of events) window.removeEventListener(event, scrollToCard);
+    };
   }, [visible]);
 
   if (!data?.counts) return null;

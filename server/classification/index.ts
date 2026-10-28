@@ -34,20 +34,27 @@ function modelCandidates(): string[] {
   ].filter((candidate): candidate is string => !!candidate);
 }
 
-function loadFirstModel(): ReturnType<typeof loadLocalModel> {
+function loadFirstModel(): {
+  model: NonNullable<ReturnType<typeof loadLocalModel>>;
+  path: string;
+} | null {
   for (const candidate of modelCandidates()) {
     const model = loadLocalModel(candidate);
-    if (model) return model;
+    if (model) return { model, path: candidate };
   }
   return null;
 }
 
 let local: LocalTfidfClassifier | null | undefined;
+let localPath = "";
 
 function localLayer(): LocalTfidfClassifier | null {
   if (local === undefined) {
-    const model = loadFirstModel();
-    local = model ? new LocalTfidfClassifier(model, config.classification.localThreshold) : null;
+    const loaded = loadFirstModel();
+    localPath = loaded?.path ?? modelCandidates()[0] ?? "";
+    local = loaded
+      ? new LocalTfidfClassifier(loaded.model, config.classification.localThreshold)
+      : null;
   }
   return local;
 }
@@ -61,7 +68,7 @@ export function reloadLocalModel(): void {
 /** Whether a local model file is installed and loaded, for the Settings page. */
 export function localModelStatus(): { installed: boolean; version: string | null; path: string } {
   const layer = localLayer();
-  return { installed: layer !== null, version: layer?.modelVersion ?? null, path: modelPath() };
+  return { installed: layer !== null, version: layer?.modelVersion ?? null, path: localPath };
 }
 
 /** The local model's best guess for a release, or null when no model is installed. */

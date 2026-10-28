@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 import { activeTestDialects, setupTestDb, type TestDb } from "./helpers/db-harness.js";
@@ -143,6 +143,19 @@ describe.each(activeTestDialects())("classification settings on %s", (dialect) =
     live.mode = "hybrid";
     await expect(settings.loadClassificationSettings()).resolves.toBeUndefined();
     expect(live.mode).toBe("hybrid");
+  });
+
+  it("retries a failed startup load and stops after the last attempt", async () => {
+    const read = vi.spyOn(ctx.storage, "getSystemConfig");
+    read.mockRejectedValueOnce(new Error("busy"));
+    await expect(settings.loadClassificationSettingsWithRetry(3, 1)).resolves.toBeUndefined();
+    expect(read).toHaveBeenCalledTimes(2);
+
+    read.mockReset();
+    read.mockRejectedValue(new Error("down"));
+    await expect(settings.loadClassificationSettingsWithRetry(3, 1)).rejects.toThrow("down");
+    expect(read).toHaveBeenCalledTimes(3);
+    read.mockRestore();
   });
 
   it("makes the pipeline use a new threshold and clears its cache", async () => {

@@ -94,6 +94,27 @@ export async function loadClassificationSettings(): Promise<void> {
 }
 
 /**
+ * Startup load that survives a transient storage failure. After the last attempt the error is
+ * rethrown: running auto-search on the defaults could release a download the saved settings hold.
+ */
+export async function loadClassificationSettingsWithRetry(
+  attempts = 3,
+  delayMs = 1000
+): Promise<void> {
+  try {
+    await loadClassificationSettings();
+  } catch (error) {
+    if (attempts <= 1) throw error;
+    settingsLogger.warn(
+      { error, attemptsLeft: attempts - 1 },
+      "Retrying the classification settings load"
+    );
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return loadClassificationSettingsWithRetry(attempts - 1, delayMs * 2);
+  }
+}
+
+/**
  * Saves a change and applies it at once. A setting fixed by an environment variable is refused,
  * since it would silently have no effect.
  */

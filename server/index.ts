@@ -13,7 +13,7 @@ import { startCronJobs } from "./cron.js";
 import { setupSocketIO } from "./socket.js";
 import { createHttpsRedirect } from "./https-redirect.js";
 import { ensureDatabase } from "./migrate.js";
-import { loadClassificationSettings } from "./classification/settings.js";
+import { loadClassificationSettingsWithRetry } from "./classification/settings.js";
 import { rssService } from "./rss.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import { appriseClient, readAppriseSettings } from "./apprise.js";
@@ -71,16 +71,7 @@ void (async () => {
     // Apply the classification settings saved in the DB (environment variables still win).
     // A failure here must not let auto-search run on the defaults, which could release a
     // download the saved settings would hold, so it is retried and then stops the startup.
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await loadClassificationSettings();
-        break;
-      } catch (err) {
-        log(`Failed to load classification settings (attempt ${attempt}/3): ${String(err)}`);
-        if (attempt >= 3) throw err;
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
-      }
-    }
+    await loadClassificationSettingsWithRetry();
 
     // Load the downloader debug-logging setting from the DB into memory
     try {

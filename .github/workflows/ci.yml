@@ -208,6 +208,9 @@ jobs:
       - name: Build project
         run: npm run build
 
+      - name: Check the built server loads the bundled classifier model
+        run: npm run check:model
+
       - name: Check for build artifacts
         run: |
           if [ ! -d "dist" ]; then

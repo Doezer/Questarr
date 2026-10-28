@@ -50,6 +50,7 @@ import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import ReleaseScoringSettings from "@/components/ReleaseScoringSettings";
 import ReleaseNameBlacklistSettings from "@/components/ReleaseNameBlacklistSettings";
 import ClassificationReviewSettings from "@/components/ClassificationReviewSettings";
+import ClassificationSettings from "@/components/ClassificationSettings";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 import {
@@ -1491,6 +1492,7 @@ export default function SettingsPage() {
               blacklistTerms={releaseNameBlacklist}
               onTermsChange={setReleaseNameBlacklist}
             />
+            <ClassificationSettings />
             <ClassificationReviewSettings />
           </TabsContent>
 

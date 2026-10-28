@@ -66,11 +66,16 @@ export function assessCandidate(
   if (rules.class !== "unknown" && local && local.class !== rules.class) {
     reasons.push("disagreement");
   }
+  // A cloud demo, soundtrack or crack-only verdict has class unknown plus a flag: still a
+  // definitive answer, and one a local guess of a real class contradicts
+  const cloudDecided = result.class !== "unknown" || resolvedByFlag;
   if (
     result.source === "cloud" &&
     local &&
-    result.class !== "unknown" &&
-    classesConflict(result.class, local.class)
+    cloudDecided &&
+    (result.class === "unknown"
+      ? local.class !== "unknown"
+      : classesConflict(result.class, local.class))
   ) {
     reasons.push("model_disagreement");
   }
@@ -124,17 +129,25 @@ export const REVIEW_NOTIFY_EVERY = 25;
  */
 let backlogChain: Promise<void> = Promise.resolve();
 /** The last group of REVIEW_NOTIFY_EVERY the list reached; null until the first check. */
+/** Recipients already notified for `deliveringBucket`, so a retry does not repeat them. */
+const deliveredTo = new Set<string>();
+let deliveringBucket: number | null = null;
 let notifiedBucket: number | null = null;
 
 async function checkReviewBacklog(): Promise<void> {
-  const waiting = (await storage.getClassificationCandidates({ status: "pending" })).length;
+  const waiting = await storage.countClassificationCandidates({ status: "pending" });
   const bucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
-  // Right after a restart the list was already one shorter, so only a real crossing notifies
-  const before = notifiedBucket ?? Math.floor(Math.max(waiting - 1, 0) / REVIEW_NOTIFY_EVERY);
-  notifiedBucket = bucket;
-  if (bucket <= before) return;
-  const users = await storage.getAllUsers();
-  await Promise.all(
+  // Without a baseline (it could not be read) nothing is announced rather than guessed
+  notifiedBucket ??= bucket;
+  // Labeling shrinks the list: follow it down so the next climb to a multiple announces again
+  if (bucket < notifiedBucket) notifiedBucket = bucket;
+  if (bucket <= notifiedBucket) return;
+  if (deliveringBucket !== bucket) {
+    deliveringBucket = bucket;
+    deliveredTo.clear();
+  }
+  const users = (await storage.getAllUsers()).filter((user) => !deliveredTo.has(user.id));
+  const results = await Promise.allSettled(
     users.map(async (user) => {
       const notification = await storage.addNotification({
         userId: user.id,
@@ -143,9 +156,35 @@ async function checkReviewBacklog(): Promise<void> {
         message: `${waiting} releases the classifier was unsure about are waiting for a label. Labeling a few helps the local model improve.`,
         link: REVIEW_LINK,
       });
+      deliveredTo.add(user.id);
       notifyUser("notification", notification, notification.userId);
     })
   );
+  const failed = results.find((r) => r.status === "rejected");
+  // The step is only taken once everyone has it; a retry skips those already notified
+  if (failed) throw (failed as PromiseRejectedResult).reason;
+  notifiedBucket = bucket;
+  deliveringBucket = null;
+  deliveredTo.clear();
+}
+
+/**
+ * Reads the waiting list before each insert, so a crossing is measured against what was there and
+ * not inferred from a count taken after concurrent inserts. The baseline only ever moves down
+ * here: labeling shrinks the list, and the climb back must announce again, while a delivery still
+ * owed (baseline below the current group) is kept for the retry.
+ */
+function ensureBacklogBaseline(): Promise<void> {
+  backlogChain = backlogChain
+    .then(async () => {
+      const waiting = await storage.countClassificationCandidates({ status: "pending" });
+      const bucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
+      notifiedBucket = notifiedBucket === null ? bucket : Math.min(notifiedBucket, bucket);
+    })
+    .catch((error) => {
+      alLogger.warn({ error }, "Could not read the classification review backlog");
+    });
+  return backlogChain;
 }
 
 /**
@@ -211,6 +250,7 @@ export async function collectCandidate(
       alLogger.warn({ max }, "Candidate limit reached, not collecting more");
       return;
     }
+    await ensureBacklogBaseline();
     const { candidate, created } = await storage.upsertClassificationCandidate({
       id: randomUUID(),
       dedupeKey,
@@ -257,6 +297,8 @@ export function disagreementUpdate(
 export function resetCollectionMemory(): void {
   recentlySeen.clear();
   notifiedBucket = null;
+  deliveringBucket = null;
+  deliveredTo.clear();
 }
 
 export interface RankedCandidate {

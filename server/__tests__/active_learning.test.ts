@@ -52,6 +52,15 @@ describe("assessCandidate", () => {
     expect(unresolved?.priority).toBeGreaterThan(low?.priority ?? 0);
   });
 
+  it("flags a cloud demo verdict against a local full_game guess", () => {
+    const assessment = mod.assessCandidate(
+      input("Stellaris Demo"),
+      result({ class: "unknown", confidence: 0.9, source: "cloud", flags: ["demo"] }),
+      { class: "full_game", confidence: 0.5, modelVersion: "m1" }
+    );
+    expect(assessment?.reasons).toContain("model_disagreement");
+  });
+
   it("flags a disagreement between the rules and the local model's best guess", () => {
     const assessment = mod.assessCandidate(
       input("Stellaris Update v3.4.1"),
@@ -266,6 +275,65 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
     expect(added).toHaveBeenCalledTimes(1);
   });
 
+  it("retries a failed delivery without repeating the users already notified", async () => {
+    activeConfig.collect = true;
+    vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }, { id: "u2" }] as never);
+    let failU2 = true;
+    const added = vi.spyOn(ctx.storage, "addNotification").mockImplementation(async (n) => {
+      if (n.userId === "u2" && failU2) throw new Error("db busy");
+      return { ...n, id: "n1", read: false, createdAt: new Date() } as never;
+    });
+    for (let i = 1; i <= 25; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    expect(await ctx.storage.getClassificationCandidates({ status: "pending" })).toHaveLength(25);
+    expect(added).toHaveBeenCalledTimes(2);
+    failU2 = false;
+    await mod.collectCandidate(input("Stellaris Mystery Pack 26"), unsure, null);
+    const recipients = added.mock.calls.map((c) => c[0].userId);
+    expect(recipients).toEqual(["u1", "u2", "u2"]);
+  });
+
+  it("announces again after the list was worked down and grew back", async () => {
+    activeConfig.collect = true;
+    vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);
+    const added = vi
+      .spyOn(ctx.storage, "addNotification")
+      .mockImplementation(
+        async (n) => ({ ...n, id: "n1", read: false, createdAt: new Date() }) as never
+      );
+    for (let i = 1; i <= 25; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    expect(added).toHaveBeenCalledTimes(1);
+    const rows = await ctx.storage.getClassificationCandidates({ status: "pending" });
+    for (const row of rows.slice(0, 10)) {
+      await ctx.storage.updateClassificationCandidate(row.id, { status: "verified" } as never);
+    }
+    await mod.collectCandidate(input("Stellaris Mystery Pack 26"), unsure, null);
+    for (let i = 27; i <= 35; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    expect(added).toHaveBeenCalledTimes(2);
+  });
+
+  it("announces when one release is labeled and a replacement brings the list back to 25", async () => {
+    activeConfig.collect = true;
+    vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);
+    const added = vi
+      .spyOn(ctx.storage, "addNotification")
+      .mockImplementation(
+        async (n) => ({ ...n, id: "n1", read: false, createdAt: new Date() }) as never
+      );
+    for (let i = 1; i <= 25; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    const [first] = await ctx.storage.getClassificationCandidates({ status: "pending" });
+    await ctx.storage.updateClassificationCandidate(first!.id, { status: "verified" } as never);
+    await mod.collectCandidate(input("Stellaris Mystery Pack 26"), unsure, null);
+    expect(added).toHaveBeenCalledTimes(2);
+  });
+
   it("notifies once when collections overlap across a multiple of 25", async () => {
     activeConfig.collect = true;
     vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);
@@ -282,6 +350,25 @@ describe.each(activeTestDialects())("active learning on %s", (dialect) => {
       [24, 25, 26].map((i) =>
         mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null)
       )
+    );
+    expect(added).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies after a restart when concurrent collections cross a multiple of 25", async () => {
+    activeConfig.collect = true;
+    for (let i = 1; i <= 24; i++) {
+      await mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null);
+    }
+    // A restart: the process forgets what it saw and what it announced, the table keeps 24 rows
+    mod.resetCollectionMemory();
+    vi.spyOn(ctx.storage, "getAllUsers").mockResolvedValue([{ id: "u1" }] as never);
+    const added = vi
+      .spyOn(ctx.storage, "addNotification")
+      .mockImplementation(
+        async (n) => ({ ...n, id: "n1", read: false, createdAt: new Date() }) as never
+      );
+    await Promise.all(
+      [25, 26].map((i) => mod.collectCandidate(input(`Stellaris Mystery Pack ${i}`), unsure, null))
     );
     expect(added).toHaveBeenCalledTimes(1);
   });

@@ -127,16 +127,19 @@ async function notifyReviewBacklog(): Promise<void> {
   try {
     const waiting = (await storage.getClassificationCandidates({ status: "pending" })).length;
     if (waiting === 0 || waiting % REVIEW_NOTIFY_EVERY !== 0) return;
-    for (const user of await storage.getAllUsers()) {
-      const notification = await storage.addNotification({
-        userId: user.id,
-        type: "info",
-        title: "Releases need your review",
-        message: `${waiting} releases the classifier was unsure about are waiting for a label. Labeling a few helps the local model improve.`,
-        link: REVIEW_LINK,
-      });
-      notifyUser("notification", notification, notification.userId);
-    }
+    const users = await storage.getAllUsers();
+    await Promise.all(
+      users.map(async (user) => {
+        const notification = await storage.addNotification({
+          userId: user.id,
+          type: "info",
+          title: "Releases need your review",
+          message: `${waiting} releases the classifier was unsure about are waiting for a label. Labeling a few helps the local model improve.`,
+          link: REVIEW_LINK,
+        });
+        notifyUser("notification", notification, notification.userId);
+      })
+    );
   } catch (error) {
     alLogger.warn({ error }, "Could not notify about the classification review backlog");
   }

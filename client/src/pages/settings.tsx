@@ -211,7 +211,7 @@ function SettingsFilterCard({
 /**
  * Configures application preferences, integrations, notifications, account security, and system maintenance settings.
  */
-const SETTINGS_TABS = [
+const SETTINGS_TABS = new Set([
   "appearance",
   "discovery",
   "notifications",
@@ -219,12 +219,12 @@ const SETTINGS_TABS = [
   "import",
   "account-security",
   "system",
-];
+]);
 
 /** The tab named by `?tab=` (a notification link), or null when there is none. */
 function tabFromSearch(search: string): string | null {
   const tab = new URLSearchParams(search).get("tab");
-  return tab && SETTINGS_TABS.includes(tab) ? tab : null;
+  return tab && SETTINGS_TABS.has(tab) ? tab : null;
 }
 
 export default function SettingsPage() {

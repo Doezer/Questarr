@@ -31,6 +31,15 @@ The cloud provider is the TypeSafe client already configured in Settings. Its mo
 (`typesafe.model`, for example `jev-latest` or an OpenRouter id) is the only thing that changes
 to use another compatible model.
 
+## One pipeline for search and auto-download
+
+The manual search results go through the same pipeline as the auto-download check. Each result
+keeps the existing categories (Main, Update, DLC, Extra), but its type now comes from the
+rules, the local model and, in `hybrid` mode, the cloud layer. So the type you see in a search
+is the one auto-download would act on. In `hybrid` and `cloud` mode only the top 15 results of a
+search are sent through a layer that may call a provider, to bound the calls; `local` mode types
+every result. In `cloud` mode the search keeps the Jev-only call it always made.
+
 ## What the auto-download hold does
 
 In `local` and `hybrid` mode an unattended download is held for review when the pipeline says:

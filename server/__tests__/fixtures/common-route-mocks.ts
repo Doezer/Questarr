@@ -20,6 +20,8 @@ export const mockConfig = {
     allowedOrigins: [] as string[],
     basePath: "" as string,
   },
+  // `cloud` keeps the legacy Jev-only call, which is a no-op while TypeSafe is unconfigured
+  classification: { mode: "cloud" as const },
   igdb: {
     isConfigured: true,
     clientId: "test-id",
@@ -384,6 +386,7 @@ export function createSearchMock() {
     },
     // No-op by default: TypeSafe AI enrichment is unconfigured/off in tests.
     enrichWithAiAnalysis: vi.fn().mockImplementation((items: unknown[]) => Promise.resolve(items)),
+    classifySearchResults: vi.fn().mockImplementation((items: unknown[]) => Promise.resolve(items)),
   };
 }
 

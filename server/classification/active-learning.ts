@@ -135,7 +135,7 @@ let deliveringBucket: number | null = null;
 let notifiedBucket: number | null = null;
 
 async function checkReviewBacklog(): Promise<void> {
-  const waiting = (await storage.getClassificationCandidates({ status: "pending" })).length;
+  const waiting = await storage.countClassificationCandidates({ status: "pending" });
   const bucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
   // Without a baseline (it could not be read) nothing is announced rather than guessed
   notifiedBucket ??= bucket;
@@ -177,7 +177,7 @@ async function checkReviewBacklog(): Promise<void> {
 function ensureBacklogBaseline(): Promise<void> {
   backlogChain = backlogChain
     .then(async () => {
-      const waiting = (await storage.getClassificationCandidates({ status: "pending" })).length;
+      const waiting = await storage.countClassificationCandidates({ status: "pending" });
       const bucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
       notifiedBucket = notifiedBucket === null ? bucket : Math.min(notifiedBucket, bucket);
     })

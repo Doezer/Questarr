@@ -33,6 +33,8 @@ describe("steamService", () => {
         expect.stringContaining("IPlayerService/GetOwnedGames"),
         expect.objectContaining({ requireHttps: true })
       );
+      const requestUrl = new URL(String(vi.mocked(safeFetch).mock.calls[0]?.[0]));
+      expect(requestUrl.searchParams.get("include_played_free_games")).toBe("true");
     });
     it("distinguishes an empty library from private or malformed data", async () => {
       vi.mocked(safeFetch).mockResolvedValueOnce({

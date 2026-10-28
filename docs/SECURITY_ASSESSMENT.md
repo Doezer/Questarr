@@ -63,6 +63,22 @@ this lighter table format matches the pragmatic tone of the rest of `docs/`.
 | Unauthenticated Socket.IO channel                                      | The Socket.IO server used to accept any connection and broadcast every event to it, including the live server log stream (`logLine`), notifications, and download/import progress, so anyone who could reach the port could read them without logging in.                                                                                                                                                                                                                                          | Medium          | Medium     | Fixed for 1.5.0: `io.use` in `server/socket.ts` verifies the same JWT the REST API accepts (the httpOnly auth cookie, or a bearer token passed as `auth.token` for legacy sessions) and rejects the handshake otherwise. A cookie-authenticated handshake must also come from this server's own origin (its `Host`, or `X-Forwarded-Host` behind a reverse proxy) or one listed in `ALLOWED_ORIGINS` / `APP_URL`, since WebSockets bypass CORS and a same-site page could otherwise ride the cookie. Notifications are delivered to the owning user's Socket.IO room. Download, import, scan, and log events remain app-wide for authenticated sockets, consistent with the supported single-user configuration.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `server/socket.ts`, `client/src/lib/socket.ts`                                                                                                        |
 | Untrusted archive extraction during import                             | Downloaded releases come from indexers and other uploaders Questarr doesn't control. An archive extracted during import could be a decompression bomb (huge declared size or millions of entries) that fills the disk, or carry entries with absolute, drive-letter, or `..` paths, or symbolic/hard links, that write or point outside the extraction directory.                                                                                                                                  | Low–Medium      | Medium     | Fixed in #1149: before extracting, `ArchiveService` lists the archive (`unrar lt -v` for RAR, 7-Zip `-slt` otherwise) and refuses it if it lists more than `ARCHIVE_MAX_ENTRIES` entries (default 50,000), declares more than `ARCHIVE_MAX_EXPANDED_BYTES` total uncompressed bytes (default 250 GiB), or contains an unsafe path (absolute, drive letter, NUL, `..`, deeper than 64 levels, or resolving outside the output directory), a symlink or hard link, or an invalid size. Split RAR volume continuations are counted once. The size check relies on sizes the archive declares, so it bounds honest-but-huge archives and obvious bombs rather than an archive that lies about its sizes. Operators can raise the two limits via environment variables; see `docs/SECRETS.md` §1 (Archive extraction limits).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | `server/services/ArchiveService.ts` (`validateArchiveEntries`, `safeEntrySegments`)                                                                   |
 
+### Steam owned-library import
+
+The new manual import reuses Steam and IGDB as existing external actors. Steam
+names and IDs are untrusted and schema-validated, with bounded array/name sizes;
+React renders names as text. The server controls the HTTPS endpoint, sends it
+through `safeFetch`, bounds requests with a timeout, and never logs the URL or
+provider error (the query string contains `STEAM_API_KEY`). Browser requests
+cannot choose a Steam ID, API key, upstream URL, title or IGDB mapping. Ownership
+is rechecked before writes; selections are capped at 50 and per-account imports
+are serialized. Authentication, CSRF protection, account content filters, exact
+ID matching, and duplicate checks remain in force. Preview is read-only and
+responses prohibit caching. The action neither starts downloads nor touches
+files; existing entries retain their states and progress. API errors are generic
+and never echo credentials. Normal automation can apply to imported Owned games
+later, as documented in [STEAM_LIBRARY.md](STEAM_LIBRARY.md).
+
 ## Out of scope / already covered elsewhere
 
 - Full credential inventory, rotation procedures, and per-secret storage
@@ -81,19 +97,3 @@ this lighter table format matches the pragmatic tone of the rest of `docs/`.
   OSPS-SA-03.02 requirement. This document (`SECURITY_ASSESSMENT.md`)
   satisfies OSPS-SA-03.01 and takes a risk-register view rather than
   duplicating that analysis.
-
-### Steam owned-library import
-
-The new manual import reuses Steam and IGDB as existing external actors. Steam
-names and IDs are untrusted and schema-validated, with bounded array/name sizes;
-React renders names as text. The server controls the HTTPS endpoint, sends it
-through `safeFetch`, bounds requests with a timeout, and never logs the URL or
-provider error (the query string contains `STEAM_API_KEY`). Browser requests
-cannot choose a Steam ID, API key, upstream URL, title or IGDB mapping. Ownership
-is rechecked before writes; selections are capped at 50 and per-account imports
-are serialized. Authentication, CSRF protection, account content filters, exact
-ID matching, and duplicate checks remain in force. Preview is read-only and
-responses prohibit caching. The action neither starts downloads nor touches
-files; existing entries retain their states and progress. API errors are generic
-and never echo credentials. Normal automation can apply to imported Owned games
-later, as documented in [STEAM_LIBRARY.md](STEAM_LIBRARY.md).

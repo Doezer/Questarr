@@ -372,6 +372,29 @@ router), both behind the global auth gate plus explicit `authenticateToken`.
 | PATCH  | `/api/user/steam-id`       | JWT           | `{ steamId: string }` — must be a 17-digit SteamID64 starting with `7656` (`steamService.validateSteamId`) | `{ success: true, steamId }`; 400 if missing/invalid format                                              |
 | POST   | `/api/steam/wishlist/sync` | JWT           | —                                                                                                          | `{ success, addedCount, games }` (via `syncUserSteamWishlist`); 400 if Steam ID not linked or sync fails |
 
+### Owned Steam library
+
+`server/steam-library-routes.ts` — preview and import endpoints.
+
+Both endpoints require the normal authenticated session/token. Cookie mutations
+require the usual CSRF header. Responses use `Cache-Control: no-store`.
+
+- `GET /api/steam/library`: read the linked account's public Steam library.
+  Returns `{ games: [{ steamAppId, title, alreadyTracked }] }`; preview does not
+  write to the library. Missing server Steam key or linked ID returns 400;
+  Steam failure/private library returns 502 with an actionable generic error.
+- `POST /api/steam/library/import`: body `{ appIds: [400, 620] }`, 1–50 positive
+  integer IDs. Ownership is checked again with Steam before any write. Returns
+  `{ results: [{ steamAppId, title, outcome }] }`, where outcome is `added`,
+  `duplicate`, `not_found` (unmapped or content-filtered), or `failed`. New games
+  are Owned/source `steam`; existing game states remain unchanged, with missing
+  Steam App IDs linked on exact IGDB matches. Invalid/stale
+  selections return 400, a concurrent import by the same account returns 409,
+  and an upstream batch failure returns 502. Partial row failures return 200
+  with per-row outcomes so callers can retry explicitly.
+
+See [Steam library import](STEAM_LIBRARY.md) for prerequisites and limits.
+
 ## PCGamingWiki
 
 `server/pcgamingwiki-router.ts` — 1 route.
@@ -530,24 +553,3 @@ const socket = io({ withCredentials: true });
 socket.on("notification", (n) => console.log("for me:", n));
 socket.on("downloadUpdate", (gameId) => console.log("download changed:", gameId));
 ```
-
-### Owned Steam library
-
-Both endpoints require the normal authenticated session/token. Cookie mutations
-require the usual CSRF header. Responses use `Cache-Control: no-store`.
-
-- `GET /api/steam/library`: read the linked account's public Steam library.
-  Returns `{ games: [{ steamAppId, title, alreadyTracked }] }`; preview does not
-  write to the library. Missing server Steam key or linked ID returns 400;
-  Steam failure/private library returns 502 with an actionable generic error.
-- `POST /api/steam/library/import`: body `{ appIds: [400, 620] }`, 1–50 positive
-  integer IDs. Ownership is checked again with Steam before any write. Returns
-  `{ results: [{ steamAppId, title, outcome }] }`, where outcome is `added`,
-  `duplicate`, `not_found` (unmapped or content-filtered), or `failed`. New games
-  are Owned/source `steam`; existing game states remain unchanged, with missing
-  Steam App IDs linked on exact IGDB matches. Invalid/stale
-  selections return 400, a concurrent import by the same account returns 409,
-  and an upstream batch failure returns 502. Partial row failures return 200
-  with per-row outcomes so callers can retry explicitly.
-
-See [Steam library import](STEAM_LIBRARY.md) for prerequisites and limits.

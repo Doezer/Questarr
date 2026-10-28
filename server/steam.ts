@@ -156,7 +156,12 @@ export const steamService = {
   /** Read the linked account's public owned library through the official Web API. */
   async getOwnedGames(apiKey: string, steamId: string): Promise<SteamOwnedGame[]> {
     if (!this.validateSteamId(steamId)) throw new Error("Invalid Steam ID format");
-    const params = new URLSearchParams({ key: apiKey, steamid: steamId, include_appinfo: "true" });
+    const params = new URLSearchParams({
+      key: apiKey,
+      steamid: steamId,
+      include_appinfo: "true",
+      include_played_free_games: "true",
+    });
     // Do not log the URL or upstream errors: the query string contains the API key.
     let response: globalThis.Response;
     try {

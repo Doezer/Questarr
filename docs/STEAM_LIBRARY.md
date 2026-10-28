@@ -7,7 +7,8 @@ request). Search narrows the preview without clearing selections.
 Requirements: `STEAM_API_KEY` configured on the server, configured IGDB, a linked
 Steam ID, and Steam **Privacy Settings → Game details → Public**. The API key
 never goes to the browser. Preview uses Steam's official GetOwnedGames endpoint,
-not an indexer or a title scraper. A private/unavailable library produces an error,
+not an indexer or a title scraper. Played free-to-play games are included by
+requesting Steam's `include_played_free_games` option. A private/unavailable library produces an error,
 not an apparently successful empty sync. Steam licenses unavailable to that API
 (for example family sharing) are not inferred.
 

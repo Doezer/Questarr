@@ -259,7 +259,7 @@ export default function ClassificationReviewSettings() {
           Releases the classifier was unsure about, most useful first. Only labels you verify can be
           exported as training examples; suggestions and predictions never count. Nothing is
           retrained automatically.
-          {!data.collecting && " Collection is off (ACTIVE_LEARNING_COLLECT)."}
+          {!data.collecting && " Collection is off (see Release classification above)."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

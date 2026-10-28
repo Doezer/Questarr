@@ -13,6 +13,7 @@ import { startCronJobs } from "./cron.js";
 import { setupSocketIO } from "./socket.js";
 import { createHttpsRedirect } from "./https-redirect.js";
 import { ensureDatabase } from "./migrate.js";
+import { loadClassificationSettings } from "./classification/settings.js";
 import { rssService } from "./rss.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import { appriseClient, readAppriseSettings } from "./apprise.js";
@@ -66,6 +67,13 @@ void (async () => {
 
     // Initialize RSS service (seeding default feeds)
     await rssService.initialize();
+
+    // Apply the classification settings saved in the DB (environment variables still win)
+    try {
+      await loadClassificationSettings();
+    } catch (err) {
+      log("Failed to load classification settings: " + String(err));
+    }
 
     // Load the downloader debug-logging setting from the DB into memory
     try {

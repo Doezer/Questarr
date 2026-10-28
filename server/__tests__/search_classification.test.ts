@@ -55,8 +55,8 @@ describe("classifySearchResults", () => {
     );
     const items = await classifySearchResults([item("Game Update v2"), item("Game")], null, "Game");
     expect(items[0]).toMatchObject({ aiReleaseType: "update", aiReleaseTypeConfidence: 0.9 });
-    expect(items[1]).toMatchObject({ aiReleaseType: "full_game" });
-    expect(items[1]).not.toHaveProperty("aiReleaseTypeConfidence");
+    // a rule hit counts as certain, so the categorizer honours it
+    expect(items[1]).toMatchObject({ aiReleaseType: "full_game", aiReleaseTypeConfidence: 1 });
     expect(classify).toHaveBeenCalledWith(expect.objectContaining({ gameTitle: "Game" }));
   });
 

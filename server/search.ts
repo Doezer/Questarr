@@ -330,10 +330,13 @@ export async function classifySearchResults(
     const result = results[index];
     if (!result) return item;
     const type = legacyType(result);
+    // A rule hit has no probability but is deterministic: the categorizer only trusts a typed
+    // verdict that carries a confidence, so it counts as certain
+    const confidence = result.confidence ?? (result.source === "rules" ? 1 : null);
     return {
       ...item,
       ...(type ? { aiReleaseType: type } : {}),
-      ...(type && result.confidence !== null ? { aiReleaseTypeConfidence: result.confidence } : {}),
+      ...(type && confidence !== null ? { aiReleaseTypeConfidence: confidence } : {}),
       ...(typeof result.legitimacyScore === "number"
         ? { aiLegitimacyScore: result.legitimacyScore }
         : {}),

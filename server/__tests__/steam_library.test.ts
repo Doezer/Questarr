@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import type { SteamLibraryJobView } from "../../shared/steam-library.js";
 import express, { type Request, type Response, type NextFunction } from "express";
 import request from "supertest";
 import { activeTestDialects, setupTestDb, type TestDb } from "./helpers/db-harness.js";
@@ -43,11 +45,22 @@ describe.each(activeTestDialects())("Steam owned-library (%s)", (dialect) => {
     ctx = await setupTestDb(dialect);
     const user = await ctx.storage.registerSetupUser({ username: "owner", passwordHash: "hash" });
     userId = user.id;
+    await ctx.storage.updateUserSteamId(userId, "76561198000000000");
     const { steamLibraryRoutes } = await import("../steam-library-routes.js");
     app = express();
     app.use(express.json());
     app.use(steamLibraryRoutes);
   }, 60_000);
+  async function waitForJob(): Promise<SteamLibraryJobView> {
+    for (let attempt = 0; attempt < 2000; attempt++) {
+      const response = await request(app).get("/api/steam/library/import/jobs/current");
+      expect(response.status).toBe(200);
+      const job = response.body.job as SteamLibraryJobView;
+      if (job && job.state !== "queued" && job.state !== "running") return job;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error("Background import did not finish");
+  }
   afterAll(async () => {
     await ctx?.teardown();
   });
@@ -248,5 +261,221 @@ describe.each(activeTestDialects())("Steam owned-library (%s)", (dialect) => {
     ).toBe(409);
     release([{ steamAppId: 10, title: "First" }]);
     expect((await first).status).toBe(200);
+  });
+  it("imports 1,000 games from one request, reads Steam once and bounds metadata batches", async () => {
+    const owned = Array.from({ length: 1000 }, (_, i) => ({
+      steamAppId: 2000 + i,
+      title: `Bulk ${i}`,
+    }));
+    fixtures.owned.mockResolvedValue(owned);
+    fixtures.mappings.mockImplementation(
+      async (ids: number[]) => new Map(ids.map((id) => [id, id + 10_000]))
+    );
+    const response = await request(app)
+      .post("/api/steam/library/import/jobs")
+      .send({ appIds: owned.map((game) => game.steamAppId) });
+    expect(response.status).toBe(202);
+    expect(response.body.job.total).toBe(1000);
+    const job = await waitForJob();
+    expect(job).toMatchObject({
+      state: "completed",
+      processed: 1000,
+      added: 1000,
+      failed: 0,
+      skipped: 0,
+      canRetry: false,
+    });
+    expect(fixtures.owned).toHaveBeenCalledTimes(1);
+    expect(fixtures.mappings).toHaveBeenCalledTimes(20);
+    for (const [ids] of fixtures.mappings.mock.calls) expect(ids.length).toBeLessThanOrEqual(50);
+    expect(job.recentResults).toHaveLength(10);
+    const hiddenPayload = (await request(app).get("/api/steam/library/import/jobs/current")).body
+      .job;
+    expect(hiddenPayload).not.toHaveProperty("steamId");
+    expect(hiddenPayload).not.toHaveProperty("appIds");
+  }, 60_000);
+
+  it("rejects concurrent jobs and keeps status scoped to the account", async () => {
+    let release!: (games: Array<{ steamAppId: number; title: string }>) => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    fixtures.owned.mockImplementationOnce(() => {
+      entered();
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    });
+    expect(
+      (
+        await request(app)
+          .post("/api/steam/library/import/jobs")
+          .send({ appIds: [10] })
+      ).status
+    ).toBe(202);
+    await started;
+    try {
+      expect(
+        (
+          await request(app)
+            .post("/api/steam/library/import/jobs")
+            .send({ appIds: [10] })
+        ).status
+      ).toBe(409);
+      expect(
+        (
+          await request(app)
+            .post("/api/steam/library/import")
+            .send({ appIds: [10] })
+        ).status
+      ).toBe(409);
+      fixtures.user.id = "another-account";
+      expect(
+        (await request(app).get("/api/steam/library/import/jobs/current")).body.job
+      ).toBeNull();
+    } finally {
+      fixtures.user.id = userId;
+      release([{ steamAppId: 10, title: "First" }]);
+    }
+    expect((await waitForJob()).state).toBe("completed");
+  });
+
+  it("resumes a persisted checkpoint after restart without replaying completed batches", async () => {
+    const { resumeSteamLibraryImports } = await import("../steam-library-jobs.js");
+    await ctx.storage.setSystemConfig(
+      `steam.library.import.${userId}`,
+      JSON.stringify({
+        id: randomUUID(),
+        userId,
+        steamId: fixtures.user.steamId64,
+        appIds: [10, 6000, 6001],
+        results: [{ steamAppId: 10, title: "First", outcome: "duplicate" }],
+        state: "running",
+      })
+    );
+    fixtures.owned.mockResolvedValue([
+      { steamAppId: 6000, title: "Resume A" },
+      { steamAppId: 6001, title: "Resume B" },
+    ]);
+    fixtures.mappings.mockImplementation(
+      async (ids: number[]) => new Map(ids.map((id) => [id, id + 10_000]))
+    );
+    await resumeSteamLibraryImports();
+    await resumeSteamLibraryImports();
+    expect(await waitForJob()).toMatchObject({
+      total: 3,
+      processed: 3,
+      added: 2,
+      duplicates: 1,
+      state: "completed",
+    });
+    expect(fixtures.owned).toHaveBeenCalledTimes(1);
+    expect(fixtures.mappings).toHaveBeenCalledWith([6000, 6001]);
+  });
+
+  it("retries unfinished games after a later batch fails, preserving successful writes", async () => {
+    const owned = Array.from({ length: 65 }, (_, i) => ({
+      steamAppId: 7000 + i,
+      title: `Retry ${i}`,
+    }));
+    fixtures.owned.mockResolvedValue(owned);
+    let batches = 0;
+    fixtures.mappings.mockImplementation(async (ids: number[]) => {
+      if (++batches === 2) throw new Error("Provider URL with secret");
+      return new Map(ids.map((id) => [id, id + 10_000]));
+    });
+    await request(app)
+      .post("/api/steam/library/import/jobs")
+      .send({ appIds: owned.map((game) => game.steamAppId) });
+    const failed = await waitForJob();
+    expect(failed).toMatchObject({
+      state: "failed",
+      total: 65,
+      processed: 50,
+      added: 50,
+      canRetry: true,
+    });
+    expect(JSON.stringify(failed)).not.toContain("secret");
+    fixtures.mappings.mockImplementation(
+      async (ids: number[]) => new Map(ids.map((id) => [id, id + 10_000]))
+    );
+    expect((await request(app).post("/api/steam/library/import/jobs/retry").send({})).status).toBe(
+      202
+    );
+    expect(await waitForJob()).toMatchObject({
+      state: "completed",
+      total: 15,
+      processed: 15,
+      added: 15,
+      canRetry: false,
+    });
+    expect(
+      (await ctx.storage.getUserGames(userId, true)).filter(
+        (game) => (game.steamAppId ?? 0) >= 7000
+      )
+    ).toHaveLength(65);
+    expect((await request(app).post("/api/steam/library/import/jobs/retry").send({})).status).toBe(
+      400
+    );
+  });
+
+  it("fails an unowned selection before writing and rejects malformed bulk requests", async () => {
+    for (const appIds of [[], [-1], ["10"], Array.from({ length: 20001 }, () => 10)]) {
+      expect(
+        (await request(app).post("/api/steam/library/import/jobs").send({ appIds })).status
+      ).toBe(400);
+    }
+    const writes = vi.spyOn(ctx.storage, "addGame");
+    await request(app)
+      .post("/api/steam/library/import/jobs")
+      .send({ appIds: [999999] });
+    expect(await waitForJob()).toMatchObject({ state: "failed", processed: 0, canRetry: true });
+    expect(writes).not.toHaveBeenCalled();
+    writes.mockRestore();
+  });
+  it("offers a retry after a failed checkpoint write instead of showing stale running progress", async () => {
+    fixtures.owned.mockResolvedValue([{ steamAppId: 8000, title: "Checkpoint" }]);
+    fixtures.mappings.mockResolvedValue(new Map([[8000, 18000]]));
+    const save = ctx.storage.setSystemConfig.bind(ctx.storage);
+    let writes = 0;
+    const broken = vi
+      .spyOn(ctx.storage, "setSystemConfig")
+      .mockImplementation(async (key, value) => {
+        if (++writes >= 3) throw new Error("Temporary storage failure");
+        return save(key, value);
+      });
+    await request(app)
+      .post("/api/steam/library/import/jobs")
+      .send({ appIds: [8000] });
+    try {
+      expect(await waitForJob()).toMatchObject({ state: "failed", processed: 0, canRetry: true });
+    } finally {
+      broken.mockRestore();
+    }
+    expect((await request(app).post("/api/steam/library/import/jobs/retry").send({})).status).toBe(
+      202
+    );
+    expect(await waitForJob()).toMatchObject({
+      state: "completed",
+      processed: 1,
+      duplicates: 1,
+      added: 0,
+    });
+    expect(
+      (await ctx.storage.getUserGames(userId, true)).filter((game) => game.steamAppId === 8000)
+    ).toHaveLength(1);
+  });
+
+  it("keeps progress readable if the Steam configuration is removed", async () => {
+    fixtures.steam.isConfigured = false;
+    expect((await request(app).get("/api/steam/library/import/jobs/current")).status).toBe(200);
+    expect(
+      (
+        await request(app)
+          .post("/api/steam/library/import/jobs")
+          .send({ appIds: [10] })
+      ).status
+    ).toBe(400);
   });
 });

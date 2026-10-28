@@ -1,8 +1,27 @@
 # Import owned Steam games
 
 In **Settings → Integrations**, save your SteamID64, then use **Preview owned
-games**. Check the games to add and choose **Import selected** (up to 50 per
-request). Search narrows the preview without clearing selections.
+games**. All untracked games are selected by default. Choose **Import selected**
+once to import a large library, including thousands of games, without manually
+submitting batches.
+
+The preview shows 50 rows per page. **Select all matching** selects every eligible
+game matching your search across all pages; **Clear selection** clears the entire
+selection. Search and paging do not discard selections. Already tracked entries
+are disabled.
+
+Imports run on the server. The progress card shows processed games and added,
+already tracked, skipped and failed counts. You can navigate away, close the tab,
+or return later to follow the same job. Checkpoints survive server restarts and
+unfinished jobs resume automatically. Steam is read once per run; the server
+handles 50-game batches internally. A crash within a batch can replay that batch,
+but duplicate checks preserve existing writes.
+
+**Retry unfinished games** retries skipped/failed games and any unprocessed
+remainder without selecting them again. Games already imported are preserved.
+The card describes the latest import/retry, with its ten most recent results.
+Only one import per account can run at a time. A single job accepts up to 20,000
+games, matching the preview's existing Steam response bound.
 
 Requirements: `STEAM_API_KEY` configured on the server, configured IGDB, a linked
 Steam ID, and Steam **Privacy Settings → Game details → Public**. The API key
@@ -24,10 +43,10 @@ Each row reports added, already tracked, no eligible match, or failed; successfu
 rows are retained if another fails. The importer does not start downloads or move
 files. Normal account automation continues to apply to owned games afterward.
 
-The server rechecks Steam ownership at import time; a stale or invalid selection
-is rejected before adding anything. Concurrent imports by the same account return
-409; imports from different accounts are independent. This initial version is
-manual, separate from automatic wishlist sync. It does not track license removals,
+The worker rechecks Steam ownership before each run, including recovery after a
+restart. A stale or invalid selection fails the job before any game writes, with
+an instruction to preview the library again. Concurrent import starts by the same account return
+409; progress is scoped to the authenticated account. This workflow is manually initiated, separate from automatic wishlist sync. It does not track license removals,
 schedule owned-library resyncs, import playtime, or claim games are installed.
 
 ## Why this direction

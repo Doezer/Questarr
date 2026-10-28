@@ -4,13 +4,20 @@ import { authenticateToken } from "./auth.js";
 import { config } from "./config.js";
 import { storage } from "./storage.js";
 import { steamService } from "./steam.js";
-import { igdbClient } from "./igdb.js";
-import { getContentFilterFlags, isContentFiltered } from "./content-filter.js";
-import { normalizeInitialReleaseStatus } from "./game-status.js";
-import { insertGameSchema, type User } from "../shared/schema.js";
+import type { User } from "../shared/schema.js";
+import {
+  importSteamLibraryBatch,
+  steamLibraryImporting as importing,
+} from "./steam-library-import.js";
+import {
+  getSteamLibraryJob,
+  startSteamLibraryJob,
+  retrySteamLibraryJob,
+  steamLibrarySelectionSchema,
+  SteamLibraryBusyError,
+} from "./steam-library-jobs.js";
 
 export const steamLibraryRoutes = Router();
-const importing = new Set<string>();
 const selectionSchema = z
   .object({
     appIds: z
@@ -26,6 +33,20 @@ const selectionSchema = z
   })
   .strict();
 
+// Progress remains readable even if the Steam configuration changes during a job.
+steamLibraryRoutes.get(
+  "/api/steam/library/import/jobs/current",
+  authenticateToken,
+  async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    try {
+      return res.json({ job: await getSteamLibraryJob((req.user as User).id) });
+    } catch {
+      return res.status(500).json({ error: "Could not load import progress." });
+    }
+  }
+);
+
 steamLibraryRoutes.use("/api/steam/library", authenticateToken, (req, res, next) => {
   res.set("Cache-Control", "no-store");
   if (!config.steam.isConfigured) {
@@ -35,6 +56,39 @@ steamLibraryRoutes.use("/api/steam/library", authenticateToken, (req, res, next)
     return res.status(400).json({ error: "Save your Steam ID in Settings first." });
   }
   return next();
+});
+
+steamLibraryRoutes.post("/api/steam/library/import/jobs", async (req, res) => {
+  const parsed = steamLibrarySelectionSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Select between 1 and 20,000 games." });
+  try {
+    return res
+      .status(202)
+      .json({ job: await startSteamLibraryJob(req.user as User, parsed.data.appIds) });
+  } catch (error) {
+    return res.status(error instanceof SteamLibraryBusyError ? 409 : 500).json({
+      error:
+        error instanceof SteamLibraryBusyError
+          ? "An import is already running. Follow its progress below."
+          : "Could not start the import. Try again.",
+    });
+  }
+});
+
+steamLibraryRoutes.post("/api/steam/library/import/jobs/retry", async (req, res) => {
+  try {
+    const job = await retrySteamLibraryJob(req.user as User);
+    return job
+      ? res.status(202).json({ job })
+      : res.status(400).json({ error: "No unfinished games to retry." });
+  } catch (error) {
+    return res.status(error instanceof SteamLibraryBusyError ? 409 : 500).json({
+      error:
+        error instanceof SteamLibraryBusyError
+          ? "An import is already running."
+          : "Could not retry the import. Try again.",
+    });
+  }
 });
 
 steamLibraryRoutes.get("/api/steam/library", async (req, res) => {
@@ -79,71 +133,10 @@ steamLibraryRoutes.post("/api/steam/library/import", async (req, res) => {
         error: "Selection changed or contains a game not in your Steam library. Preview again.",
       });
     }
-    const library = await storage.getUserGames(user.id, true);
-    const tracked = new Set(library.map((game) => game.steamAppId));
-    const mappings = await igdbClient.getGameIdsBySteamAppIds(ids.filter((id) => !tracked.has(id)));
-    const byIgdb = new Map(
-      library.filter((game) => game.igdbId != null).map((game) => [game.igdbId!, game])
+    const results = await importSteamLibraryBatch(
+      user.id,
+      ids.map((id) => byAppId.get(id)!)
     );
-    const newIgdbIds = [...new Set(mappings.values())].filter((id) => !byIgdb.has(id));
-    const [details, filterFlags] = await Promise.all([
-      igdbClient.getGamesByIds(newIgdbIds),
-      getContentFilterFlags(user.id),
-    ]);
-    const detailsById = new Map(details.map((game) => [game.id, game]));
-    const results: Array<{
-      steamAppId: number;
-      title: string;
-      outcome: "added" | "duplicate" | "not_found" | "failed";
-    }> = [];
-    for (const id of ids) {
-      const game = byAppId.get(id)!;
-      if (tracked.has(id)) {
-        results.push({ ...game, outcome: "duplicate" });
-        continue;
-      }
-      const igdbId = mappings.get(id);
-      if (!igdbId) {
-        results.push({ ...game, outcome: "not_found" });
-        continue;
-      }
-      try {
-        const existing = byIgdb.get(igdbId);
-        if (existing) {
-          // Link an exact match once so later previews recognize it. Never replace
-          // another edition's App ID or alter the existing game's status/progress.
-          if (existing.steamAppId == null) {
-            await storage.updateGame(existing.id, { steamAppId: id });
-            existing.steamAppId = id;
-          }
-          results.push({ ...game, outcome: "duplicate" });
-          continue;
-        }
-        const detail = detailsById.get(igdbId);
-        if (!detail) {
-          results.push({ ...game, outcome: "not_found" });
-          continue;
-        }
-        const data = insertGameSchema.parse({
-          ...igdbClient.formatGameData(detail),
-          userId: user.id,
-          igdbId,
-          steamAppId: id,
-          status: "owned",
-          source: "steam",
-        });
-        if (isContentFiltered(data, filterFlags)) {
-          results.push({ ...game, outcome: "not_found" });
-          continue;
-        }
-        const added = await storage.addGame(normalizeInitialReleaseStatus(data));
-        byIgdb.set(igdbId, added);
-        results.push({ ...game, outcome: "added" });
-      } catch {
-        // Keep successful rows and let the user retry only failures. Never log provider URLs/keys.
-        results.push({ ...game, outcome: "failed" });
-      }
-    }
     return res.json({ results });
   } catch {
     return res

@@ -71,13 +71,19 @@ React renders names as text. The server controls the HTTPS endpoint, sends it
 through `safeFetch`, bounds requests with a timeout, and never logs the URL or
 provider error (the query string contains `STEAM_API_KEY`). Browser requests
 cannot choose a Steam ID, API key, upstream URL, title or IGDB mapping. Ownership
-is rechecked before writes; selections are capped at 50 and per-account imports
-are serialized. Authentication, CSRF protection, account content filters, exact
+is rechecked before writes; bulk selections are capped at 20,000, each worker
+batch at 50, and per-account imports are serialized. Authentication, CSRF protection, account content filters, exact
 ID matching, and duplicate checks remain in force. Preview is read-only and
 responses prohibit caching. The action neither starts downloads nor touches
 files; existing entries retain their states and progress. API errors are generic
 and never echo credentials. Normal automation can apply to imported Owned games
-later, as documented in [STEAM_LIBRARY.md](STEAM_LIBRARY.md).
+later, as documented in [STEAM_LIBRARY.md](STEAM_LIBRARY.md). Background jobs
+persist only their latest account-scoped selection/results/Steam identity in the
+existing database, with no API key. Status is read-only and omits the saved Steam
+identity/pending selection; retry uses only the authenticated account's saved IDs
+and rechecks ownership. Workers checkpoint bounded batches and safely deduplicate
+a replay after restart. The browser renders only 50 preview rows and polls active
+progress every two seconds; recent result payloads are capped at ten rows.
 
 ## Out of scope / already covered elsewhere
 

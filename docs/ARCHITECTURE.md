@@ -136,19 +136,31 @@ flowchart TB
 
 ### Direct Steam owned-library import
 
-The browser's Settings → Integrations view previews and explicitly selects owned
-Steam app IDs. `steam-library-routes.ts` runs behind the API authentication/CSRF
-boundary and rechecks ownership through `steamService.getOwnedGames` at import
-time. The service calls the official Steam Web API over HTTPS through `safeFetch`.
-Only the server supplies the API key and linked Steam ID. Selected IDs are mapped
-by IGDB's existing external-games lookup. Metadata is fetched in one batch;
-content-filter preferences and the library are loaded once, with an in-memory
-IGDB map updated for every added row. Schema-validated new games use the exact
-IGDB ID, Steam App ID, Owned status and Steam source, with the usual content
-filters and initial release-status normalization. Existing entries may gain a
-missing Steam App ID but keep their status/progress. No files or download clients
-are involved. This manual workflow uses
-the existing game fields and adds no migration or background task.
+The browser's Settings → Integrations view preselects untracked owned Steam games,
+with search and 50-row preview pages. `steam-library-routes.ts` provides preview,
+synchronous compatibility import, bulk-job start, progress and retry endpoints
+behind the authentication/CSRF boundary. `steam-library-jobs.ts` persists one
+latest job per account under `steam.library.import.<userId>` in `system_config`:
+linked Steam identity, selected app IDs, results and state. No credentials are
+stored in the job, and no schema migration is required.
+
+The worker rechecks the saved account identity and Steam ownership once per run,
+including after restart. `steam-library-import.ts` processes bounded 50-game
+batches, loading the library/filter preferences and fetching IGDB mappings and
+metadata per batch. New rows use schema validation, exact IDs, content filters,
+and initial release-status normalization. Existing entries may gain a missing
+Steam App ID but retain their status/progress. No files/download clients are
+involved. The synchronous endpoint shares the same batch implementation and
+per-account process lock.
+
+A checkpoint is saved after every batch. Startup resumes pending/running jobs
+before accepting requests. Replaying a partially committed batch safely dedupes
+existing game rows. A failed worker/checkpoint is exposed as retryable progress;
+GET status does not mutate storage. Retry starts a new job containing only
+skipped/failed and unprocessed IDs. Progress polling survives navigation and shows
+the latest job, counts and ten recent results. This is a single-server worker,
+consistent with Questarr's supported single-instance deployment, not a distributed
+queue. Manually started jobs are separate from scheduled wishlist sync.
 
 ## 4. Example flow: search, select a release, download
 

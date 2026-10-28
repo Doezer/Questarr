@@ -45,6 +45,15 @@ The cloud provider is the TypeSafe client already configured in Settings. Its mo
 (`typesafe.model`, for example `jev-latest` or an OpenRouter id) is the only thing that changes
 to use another compatible model.
 
+## One pipeline for search and auto-download
+
+The manual search results go through the same pipeline as the auto-download check. Each result
+keeps the existing categories (Main, Update, DLC, Extra), but its type now comes from the
+rules, the local model and, in `hybrid` mode, the cloud layer. So the type you see in a search
+is the one auto-download would act on. In `hybrid` and `cloud` mode only the top 15 results of a
+search are sent through a layer that may call a provider, to bound the calls; `local` mode types
+every result. In `cloud` mode the search keeps the Jev-only call it always made.
+
 ## What the auto-download hold does
 
 In `local` and `hybrid` mode an unattended download is held for review when the pipeline says:
@@ -57,19 +66,70 @@ A result of `unknown` goes through, as it does today. Set `CLASSIFICATION_HOLD_U
 hold those too. That is a behaviour change, so it is off by default. Any error in the pipeline
 lets the download proceed, like the existing Jev check.
 
-## Install the local model
+## The local model
 
-The model is trained on a labeled dataset that is not published, so you generate the file
-yourself and place it next to the database (the Docker data volume):
+A model trained on 459 labeled releases ships with the application, in
+`shared/models/release-classifier.json` (a few hundred KB of plain JSON, also inside the Docker
+image). Nothing needs installing: `hybrid` and `local` mode use it out of the box.
+
+### Performance
+
+In short: out of 10 releases the local model puts about 8 in the right category (full game, patch,
+DLC or unknown), against about 6 for the keyword rules alone. It does as well as the cloud model,
+runs in under a millisecond and needs no account.
+
+How it was measured: the 459 labeled releases (49 games) were split by game, so the model is
+tested on games it has never seen. 88 test releases were scored from the release name alone.
+The shipped file is retrained on all 459 releases, so it has no test score of its own; these
+numbers come from the same method on the split. The full method and the other candidates are in
+[`scripts/release-classifier-training/DECISION.md`](../scripts/release-classifier-training/DECISION.md).
+
+| Layer                                | Accuracy | Macro F1 |  Time per release | Size    |
+| ------------------------------------ | -------: | -------: | ----------------: | ------- |
+| Rules only                           |    56.8% |    53.9% |           0.03 ms | none    |
+| Local model (tf-idf + logistic reg.) |    78.4% |    79.9% |            0.7 ms | ~200 KB |
+| Cloud model (Jev, for comparison)    |    79.5% |    74.8% | ~840 ms (network) | none    |
+
+- **Accuracy** is the share of releases given the right category.
+- **Macro F1** also scores each category separately and then averages them, so a model cannot
+  look good just by getting the most common category right. It is also a percentage, and higher
+  is better. For example, always answering "patch" can score a decent accuracy but a low macro F1.
+- **Cross-validation** repeats the test five times on different groups of games. It gives 78.9%
+  for the local model, give or take 10.9 points depending on which games are tested. With this
+  little data, differences under about 5 points are not significant, so the local model and the
+  cloud model should be read as equivalent.
+- **The 70% confidence threshold** is how sure the model must be before its answer is used.
+  Below it, the release is passed on to the cloud model (`hybrid`) or left `unknown` (`local`)
+  instead of being guessed.
+- **The main mistake** is a full game read as a DLC; patches and unknown releases are the most
+  reliable categories. More labeled games is what improves it most (accuracy was still rising
+  with the 49 games available).
+
+To use your own, for example after retraining on more data (the dataset is not published),
+generate the file and place it where the server looks first:
 
 ```powershell
 npx tsx scripts/release-benchmark/export-model.ts --dataset releases-labeled.csv --out release-classifier.json
 ```
 
-Copy `release-classifier.json` to `<database folder>/models/` (in Docker: `/app/data/models/`) or
-point `CLASSIFIER_MODEL_PATH` at it, then restart. Without the file, `local` mode can only use the
-rules and `hybrid` mode goes straight to the cloud provider. The file is plain JSON of a few
-hundred KB, validated on load; a damaged file is ignored and logged.
+Copy the exported file to `<database folder>/models/release-classifier.json`, or keep it anywhere
+and set `CLASSIFIER_MODEL_PATH` to its location.
+
+Lookup order: `CLASSIFIER_MODEL_PATH`, then `<database folder>/models/release-classifier.json`
+(in Docker: `/app/data/models/`), then the bundled model. Restart after changing the file. The
+file is validated on load; a missing or damaged one is logged and the next in the list
+is tried. To replace the bundled model for everyone, overwrite `shared/models/release-classifier.json` in a pull request.
+
+### Share your dataset
+
+The bundled model is only as good as the 459 releases it learned from (49 games), and more labeled
+games is what improves it most. If you have a dataset of your own, for example the verified labels
+exported from **Settings → Release classification**, you are invited to share it so the public
+classifier can be retrained on more data: open an issue on
+[Doezer/Questarr](https://github.com/Doezer/Questarr/issues) and attach the CSV. Nothing is
+shared automatically; Questarr never sends your labels or matches anywhere, so this is always
+your choice. Only release names and their labels are needed, so remove anything you do not want
+to publish before attaching it.
 
 Run `scripts/release-benchmark/run.ts` on a held-out split before trusting a new model (see
 `scripts/release-benchmark/README.md`). Do not expect a small model to reach high automatic
@@ -156,10 +216,11 @@ held-out file is a deliberate step you do by hand.
   version, the mode, the local model version, the cloud model id and whether a provider is
   configured, so installing a new model or changing the provider never serves stale answers.
   Results from a failing layer (error, timeout, unusable answer) are not cached.
+- Cloud mode: the historical Jev call keeps its own in-memory cache (24 h, 2,000 entries, keyed by release name, size, platform, model and provider settings), so a name seen on every search is asked once. A failed call is never cached. Neither cache survives a restart.
 - Logs: one `debug` line per release in the `classification` module with the layers consulted,
   class, confidence, source and model version.
-- Docker: no new container and no native dependency. The only addition is the optional model file
-  in the data volume.
+- Docker: no new container and no native dependency. The model file ships in the image; an
+  optional one in the data volume overrides it.
 
 ## Compatibility
 

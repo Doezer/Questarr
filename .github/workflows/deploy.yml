@@ -509,6 +509,9 @@ jobs:
           # single dist/ tree), so shared/ does not need to be copied
           # separately the way the Dockerfile does defensively.
           Copy-Item -Path dist, migrations, node_modules -Destination $payloadRoot -Recurse
+          # The bundled classifier model is read at runtime from shared/models, next to dist/
+          New-Item -ItemType Directory -Force -Path (Join-Path $payloadRoot "shared") | Out-Null
+          Copy-Item -Path shared/models -Destination (Join-Path $payloadRoot "shared") -Recurse
           Copy-Item -Path package.json, package-lock.json, README.md, COPYING -Destination $payloadRoot
           Copy-Item -Path installer/windows/README.txt -Destination (Join-Path $payloadRoot "README-WINDOWS.txt")
           Copy-Item -Path release/service/Questarr.Service.exe -Destination (Join-Path $payloadRoot "Questarr.Service.exe")

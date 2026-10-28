@@ -144,6 +144,15 @@ describe("local layer", () => {
     const layer = new LocalTfidfClassifier(classifier.toModelFile("aware"), 0);
     expect((await layer.classify({ title: "Cyber Quest-GRP" })).class).toBe("unknown");
   });
+
+  it("abstains on a title-aware model when only the title-match token is known", async () => {
+    const classifier = new TfidfClassifier({ titleAware: true, seed: 7, threshold: 0 });
+    classifier.train(TRAINING);
+    const layer = new LocalTfidfClassifier(classifier.toModelFile("aware"), 0);
+    const result = await layer.classify({ title: "漢字", gameTitle: "Cyber Quest" });
+    expect(result.class).toBe("unknown");
+    expect(result.ruleIds).toEqual(["local.no-features"]);
+  });
 });
 
 describe("cloud layer", () => {

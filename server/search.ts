@@ -6,6 +6,8 @@ import { parseReleaseMetadata } from "../shared/title-utils.js";
 import type { ReleaseTrust } from "../shared/release-trust.js";
 import type { ReleaseEvaluation } from "../shared/release-scoring.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
+import { config } from "./config.js";
+import { classifyRelease, legacyType, PROVIDER_MAX_ITEMS } from "./classification/hold.js";
 
 // Cap how many top results get AI-enriched per search so an optional, user-supplied
 // TypeSafe key never turns a single search into dozens of outbound API calls.
@@ -306,4 +308,38 @@ export async function enrichWithAiAnalysis(items: SearchItem[]): Promise<SearchI
     searchLogger.warn({ error }, "AI enrichment failed, returning unmodified search results");
     return items;
   }
+}
+
+/**
+ * Attaches the pipeline's verdict to search results. It sets the same `ai*` fields the Jev-only
+ * enrichment used, so the search categories and the download dialog are unchanged, but every
+ * release is typed by the same pipeline that auto-download acts on.
+ */
+export async function classifySearchResults(
+  items: SearchItem[],
+  platform: string | null,
+  gameTitle: string | undefined
+): Promise<SearchItem[]> {
+  // `cloud` is the legacy mode: the Jev-only call it always made
+  if (config.classification.mode === "cloud") return enrichWithAiAnalysis(items);
+  const cap = config.classification.mode === "local" ? items.length : PROVIDER_MAX_ITEMS;
+  const results = await Promise.all(
+    items.slice(0, cap).map((item) => classifyRelease(item, platform, gameTitle))
+  );
+  return items.map((item, index) => {
+    const result = results[index];
+    if (!result) return item;
+    const type = legacyType(result);
+    // A rule hit has no probability but is deterministic: the categorizer only trusts a typed
+    // verdict that carries a confidence, so it counts as certain
+    const confidence = result.confidence ?? (result.source === "rules" ? 1 : null);
+    return {
+      ...item,
+      ...(type ? { aiReleaseType: type } : {}),
+      ...(type && confidence !== null ? { aiReleaseTypeConfidence: confidence } : {}),
+      ...(typeof result.legitimacyScore === "number"
+        ? { aiLegitimacyScore: result.legitimacyScore }
+        : {}),
+    };
+  });
 }

@@ -12,6 +12,9 @@ const DEFAULT_API_URL = "https://api.typesafe.ai/v1/systemone";
 // `typesafe/jev-1.13`) needs a different identifier here, so this is configurable too.
 const DEFAULT_MODEL = "jev-latest";
 const REQUEST_TIMEOUT_MS = 8000;
+// The same release name comes back on every search and cycle, and each call costs money
+const ANALYSIS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const ANALYSIS_CACHE_MAX_ENTRIES = 2000;
 
 export const TYPESAFE_URL_CONFIG_KEY = "typesafe.apiUrl";
 export const TYPESAFE_KEY_CONFIG_KEY = "typesafe.apiKey";
@@ -101,6 +104,7 @@ class TypeSafeClient {
   /** Lazily loads credentials from system_config on first use (they're stored encrypted). */
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
+    const startedAt = this.revision;
     const [storedUrl, storedKey, storedModel] = await Promise.all([
       storage.getSystemConfig(TYPESAFE_URL_CONFIG_KEY),
       storage.getSystemConfig(TYPESAFE_KEY_CONFIG_KEY),
@@ -112,15 +116,40 @@ class TypeSafeClient {
     const apiKey = storedKey
       ? await (await import("./credential-crypto.js")).decryptCredential(storedKey)
       : null;
+    // A configure() or invalidate() during the read wins: this stale read must not overwrite it
+    if (this.revision !== startedAt) return this.ensureLoaded();
     this.apiUrl = storedUrl && storedUrl.trim().length > 0 ? storedUrl.trim() : DEFAULT_API_URL;
     this.apiKey = apiKey && apiKey.trim().length > 0 ? apiKey.trim() : null;
     this.model = storedModel && storedModel.trim().length > 0 ? storedModel.trim() : DEFAULT_MODEL;
     this.loaded = true;
+    this.revision++;
   }
 
   async isConfigured(): Promise<boolean> {
     await this.ensureLoaded();
     return !!(this.apiUrl && this.apiKey);
+  }
+
+  private readonly analysisCache = new Map<string, { at: number; analysis: ReleaseAnalysis }>();
+  /** Requests under way, so concurrent calls for the same release share one paid call. */
+  private readonly analysisInFlight = new Map<string, Promise<ReleaseAnalysis | null>>();
+
+  private readCachedAnalysis(key: string): ReleaseAnalysis | null {
+    const cached = this.analysisCache.get(key);
+    if (!cached) return null;
+    if (Date.now() - cached.at < ANALYSIS_CACHE_TTL_MS) return cached.analysis;
+    // An expired entry is dropped so its refresh is stored as the newest, not in its old slot
+    this.analysisCache.delete(key);
+    return null;
+  }
+
+  /** Callers keep only usable answers, so a failed or typeless one is retried next time. */
+  private storeAnalysis(key: string, analysis: ReleaseAnalysis): void {
+    if (this.analysisCache.size >= ANALYSIS_CACHE_MAX_ENTRIES) {
+      const oldest = this.analysisCache.keys().next().value;
+      if (oldest !== undefined) this.analysisCache.delete(oldest);
+    }
+    this.analysisCache.set(key, { at: Date.now(), analysis });
   }
 
   /**
@@ -134,6 +163,34 @@ class TypeSafeClient {
     platform?: string | undefined;
   }): Promise<ReleaseAnalysis | null> {
     await this.ensureLoaded();
+    if (!this.apiUrl || !this.apiKey) return null;
+
+    // Every assignment of the endpoint, key or model bumps the revision (configure, invalidate and
+    // ensureLoaded), so a replaced provider never reuses another provider's answer
+    const cacheKey = JSON.stringify([
+      this.revision,
+      this.apiUrl,
+      this.model,
+      params.releaseName,
+      params.sizeBytes ?? null,
+      params.platform ?? null,
+    ]);
+    const cached = this.readCachedAnalysis(cacheKey);
+    if (cached) return cached;
+    const pending = this.analysisInFlight.get(cacheKey);
+    if (pending) return pending;
+
+    const request = this.requestAnalysis(cacheKey, params).finally(() =>
+      this.analysisInFlight.delete(cacheKey)
+    );
+    this.analysisInFlight.set(cacheKey, request);
+    return request;
+  }
+
+  private async requestAnalysis(
+    cacheKey: string,
+    params: { releaseName: string; sizeBytes?: number | undefined; platform?: string | undefined }
+  ): Promise<ReleaseAnalysis | null> {
     if (!this.apiUrl || !this.apiKey) return null;
 
     const stateLines = [`Release name: ${params.releaseName}`];
@@ -204,11 +261,13 @@ class TypeSafeClient {
           ? (releaseTypeAnswer.choice as ReleaseType)
           : null;
 
-      return {
+      const analysis: ReleaseAnalysis = {
         releaseType,
         releaseTypeConfidence: toUnitInterval(releaseTypeAnswer?.confidence),
         legitimacyScore: toUnitInterval(legitimacyAnswer?.noul),
       };
+      if (releaseType !== null) this.storeAnalysis(cacheKey, analysis);
+      return analysis;
     } catch (error) {
       typesafeLogger.warn({ error }, "TypeSafe API call failed, skipping AI enrichment");
       return null;

@@ -192,6 +192,142 @@ describe("TypeSafeClient", () => {
       expect(result?.releaseTypeConfidence).toBe(0.95);
     });
 
+    it("asks the provider once for the same release and serves the repeat from memory", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      const first = await client.analyzeRelease({ releaseName: "Some.Game.DLC-GRP", sizeBytes: 5 });
+      const second = await client.analyzeRelease({
+        releaseName: "Some.Game.DLC-GRP",
+        sizeBytes: 5,
+      });
+      await client.analyzeRelease({ releaseName: "Some.Game.DLC-GRP", sizeBytes: 6 });
+
+      expect(second).toEqual(first);
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("shares one provider call between concurrent requests for the same release", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      const [a, b] = await Promise.all([
+        client.analyzeRelease({ releaseName: "Some.Game-GRP" }),
+        client.analyzeRelease({ releaseName: "Some.Game-GRP" }),
+      ]);
+
+      expect(b).toEqual(a);
+      expect(mockSafeFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("asks the provider again once a cached answer is a day old", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+      vi.useFakeTimers();
+      try {
+        await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+        vi.advanceTimersByTime(24 * 60 * 60 * 1000 + 1);
+        await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("drops the oldest entry when the cache is full", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      for (let i = 0; i <= 2000; i++) {
+        await client.analyzeRelease({ releaseName: `Game.${i}-GRP` });
+      }
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2001);
+
+      await client.analyzeRelease({ releaseName: "Game.2000-GRP" });
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2001);
+      await client.analyzeRelease({ releaseName: "Game.0-GRP" });
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2002);
+    });
+
+    it("does not reuse an answer after the provider settings change", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+      await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+
+      client.configure("https://api.typesafe.ai/v1/systemone", "other-key");
+      await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps a configure() made while the stored settings are still loading", async () => {
+      let release: (value: string | undefined) => void = () => {};
+      mockGetSystemConfig.mockReturnValue(
+        new Promise<string | undefined>((resolve) => (release = resolve))
+      );
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      const client = await getClient();
+      const pending = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      client.configure("https://new.example/v1", "new-key");
+      release("https://old.example/v1");
+      await pending;
+
+      expect(String(mockSafeFetch.mock.calls[0]?.[0])).toContain("new.example");
+    });
+
+    it("does not cache an answer with no recognized release type", async () => {
+      mockSafeFetch.mockResolvedValue(makeResponse({ answers: {} }) as unknown as Response);
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not cache a failed call", async () => {
+      mockSafeFetch
+        .mockResolvedValueOnce(makeResponse({}, false, 500) as unknown as Response)
+        .mockResolvedValueOnce(makeResponse({ answers: {} }) as unknown as Response);
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+
+      expect(await client.analyzeRelease({ releaseName: "Some.Game-GRP" })).toBeNull();
+      expect(await client.analyzeRelease({ releaseName: "Some.Game-GRP" })).not.toBeNull();
+      expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
     it("uses a custom model when configure() is given one (e.g. for OpenRouter)", async () => {
       mockSafeFetch.mockResolvedValue(
         makeResponse({ model: "typesafe/jev-1.13", answers: {} }) as unknown as Response

@@ -142,6 +142,10 @@ export default function ClassificationSettings() {
     save.mutate(body);
   };
 
+  const modelVersion = localModel.version ? ` (${localModel.version})` : "";
+  const localModelLabel = localModel.installed
+    ? `Local model installed${modelVersion}`
+    : "Local model not installed";
   const modeHelp = MODES.find((item) => item.value === mode)?.help;
 
   return (
@@ -158,11 +162,7 @@ export default function ClassificationSettings() {
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="flex flex-wrap gap-2" aria-label="Classifier status">
-          <Badge variant={localModel.installed ? "secondary" : "outline"}>
-            {localModel.installed
-              ? `Local model installed${localModel.version ? ` (${localModel.version})` : ""}`
-              : "Local model not installed"}
-          </Badge>
+          <Badge variant={localModel.installed ? "secondary" : "outline"}>{localModelLabel}</Badge>
           <Badge variant={cloud.configured ? "secondary" : "outline"}>
             {cloud.configured ? `Cloud provider: ${cloud.model}` : "No cloud provider configured"}
           </Badge>

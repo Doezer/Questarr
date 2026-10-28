@@ -154,11 +154,9 @@ async function checkReviewBacklog(): Promise<void> {
  * sends one notification that opens the card. Never throws.
  */
 function notifyReviewBacklog(): Promise<void> {
-  backlogChain = backlogChain.then(() =>
-    checkReviewBacklog().catch((error) => {
-      alLogger.warn({ error }, "Could not notify about the classification review backlog");
-    })
-  );
+  backlogChain = backlogChain.then(checkReviewBacklog).catch((error) => {
+    alLogger.warn({ error }, "Could not notify about the classification review backlog");
+  });
   return backlogChain;
 }
 

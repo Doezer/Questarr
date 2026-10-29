@@ -127,7 +127,7 @@ import {
 // non-sensitive constant that VirusTotal has scanned so many times it is
 // guaranteed to return a verdict, giving a stable way to confirm an API key
 // authenticates without needing a real sample or hardcoding it in a URL path.
-const EICAR_TEST_FILE_SHA256 = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0";
+const EICAR_TEST_FILE_SHA256 = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
 import net from "node:net";
 import multer from "multer";
 import path from "path";

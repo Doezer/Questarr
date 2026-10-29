@@ -4449,6 +4449,10 @@ describe("API Routes - Extended Coverage", () => {
         expect.not.stringContaining("valid-key"),
         expect.objectContaining({ headers: { "x-apikey": "valid-key" } })
       );
+      // VirusTotal answers 400 to a malformed hash, so the EICAR lookup must be
+      // a full 64-character SHA-256.
+      const [url] = vi.mocked(ssrfModule.safeFetch).mock.calls.at(-1) as [string];
+      expect(url).toMatch(/\/files\/[0-9a-f]{64}$/);
     });
 
     it("reports an invalid VirusTotal API key", async () => {

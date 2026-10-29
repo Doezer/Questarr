@@ -7,6 +7,7 @@ import {
   matchesSelectedIgdbPlatform,
   visibleIgdbPlatforms,
 } from "../platforms";
+import { PLATFORM_CATALOG } from "../title-utils";
 
 const PLATFORMS = [
   { id: 130, name: "Nintendo Switch" },
@@ -85,6 +86,26 @@ describe("matchesSelectedIgdbPlatform", () => {
   it("treats a non-array selection as no restriction", () => {
     expect(matchesSelectedIgdbPlatform("PS5", "oops")).toBe(true);
   });
+
+  // Game Boy, Game Boy Color, Game Boy Advance, GameCube, Wii, Wii U, PlayStation, PS2, PS3
+  const RETRO_CONSOLES = [33, 22, 24, 21, 5, 41, 7, 8, 9];
+
+  it("keeps releases for every console in a mixed selection, not only PS3", () => {
+    for (const platform of ["GB", "GBC", "GBA", "GameCube", "Wii", "Wii U", "PS1", "PS2", "PS3"]) {
+      expect(matchesSelectedIgdbPlatform(platform, RETRO_CONSOLES)).toBe(true);
+    }
+    expect(matchesSelectedIgdbPlatform("PC", RETRO_CONSOLES)).toBe(false);
+    expect(matchesSelectedIgdbPlatform("Switch", RETRO_CONSOLES)).toBe(false);
+  });
+
+  it("keeps untagged releases when part of the selection has no release label", () => {
+    expect(matchesSelectedIgdbPlatform(undefined, [508, 130])).toBe(true);
+    expect(matchesSelectedIgdbPlatform("PS5", [508, 130])).toBe(false);
+  });
+
+  it("still drops untagged releases when every selected platform has a label and PC is not one", () => {
+    expect(matchesSelectedIgdbPlatform(undefined, RETRO_CONSOLES)).toBe(false);
+  });
 });
 
 describe("IGDB_ID_TO_CANONICAL_PLATFORM", () => {
@@ -93,5 +114,13 @@ describe("IGDB_ID_TO_CANONICAL_PLATFORM", () => {
     expect(labels).toContain("PC");
     expect(labels).toContain("Switch");
     expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it("covers every IGDB id in the release platform catalog", () => {
+    for (const { canonical, igdbIds } of PLATFORM_CATALOG) {
+      for (const id of igdbIds) {
+        expect(IGDB_ID_TO_CANONICAL_PLATFORM[id]).toBe(id === 11 ? "Xbox" : canonical);
+      }
+    }
   });
 });

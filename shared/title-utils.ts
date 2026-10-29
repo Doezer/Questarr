@@ -428,8 +428,9 @@ export const PLATFORM_CATALOG = [
     igdbNames: ["Nintendo Switch"],
     // A "Switch 2" release must not read as Switch (NSP/XCI tags included): the catalog has
     // no Switch 2 entry, so it stays untagged and the platform filter can let it through.
+    // The `s` flag lets both scans cross newlines, like the other patterns' plain searches.
     releasePattern:
-      /^(?!.*switch\s*2(?!\d)).*?(?:^|[^a-z0-9])(nintendo\s*switch|switch|nsw|nsp|xci)(?=$|[^a-z0-9])/i,
+      /^(?!.*switch\s*2(?!\d)).*?(?:^|[^a-z0-9])(nintendo\s*switch|switch|nsw|nsp|xci)(?=$|[^a-z0-9])/is,
   },
   {
     canonical: "GameCube",

@@ -36,6 +36,22 @@ describe("Backlog roulette", () => {
     vi.restoreAllMocks();
   });
 
+  it("formats fractional completion estimates without changing budget eligibility", async () => {
+    render(
+      <BacklogRoulette
+        games={[{ ...game("fractional"), timeToBeatNormally: 5.012345678 }]}
+        loading={false}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.getByText("About 5 hours to finish")).toBeVisible();
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Game length" }), { key: "ArrowDown" });
+    fireEvent.click(
+      await screen.findByRole("option", { name: "A short adventure · up to 5 hours" })
+    );
+    expect(screen.getByText("No games in this draw")).toBeVisible();
+  });
+
   it("draws only visible owned games and never repeats on consecutive rerolls", () => {
     render(
       <BacklogRoulette
@@ -162,5 +178,42 @@ describe("Backlog roulette", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
     expect(crypto.getRandomValues).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest a");
+  });
+
+  it("draws within the completion budget and keeps unknown lengths in Any length", async () => {
+    render(
+      <BacklogRoulette
+        games={[
+          { ...game("long"), timeToBeatNormally: 41 },
+          { ...game("short"), timeToBeatNormally: 5 },
+          { ...game("weekend"), timeToBeatNormally: 15 },
+          game("unknown"),
+          { ...game("zero"), timeToBeatNormally: 0 },
+          { ...game("hidden", "owned", true), timeToBeatNormally: 2 },
+        ]}
+        loading={false}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.getByText("Chosen from 5 matching games.")).toBeVisible();
+    const chooseLength = async (name: string) => {
+      fireEvent.keyDown(screen.getByRole("combobox", { name: "Game length" }), {
+        key: "ArrowDown",
+      });
+      fireEvent.click(await screen.findByRole("option", { name, exact: true }));
+    };
+    await chooseLength("A short adventure · up to 5 hours");
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest short");
+    expect(screen.getByText("About 5 hours to finish")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Roll again" })).toBeDisabled();
+    await chooseLength("A weekend quest · up to 15 hours");
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest weekend");
+    expect(screen.getByText("Chosen from 2 matching games.")).toBeVisible();
+    await choosePool("Currently playing");
+    expect(screen.getByText("No games in this draw")).toBeVisible();
+    await choosePool("Owned games");
+    expect(screen.getByText("Chosen from 2 matching games.")).toBeVisible();
+    await chooseLength("Any length");
+    expect(screen.getByText("Chosen from 5 matching games.")).toBeVisible();
   });
 });

@@ -7,7 +7,7 @@ import {
   matchesSelectedIgdbPlatform,
   visibleIgdbPlatforms,
 } from "../platforms";
-import { PLATFORM_CATALOG } from "../title-utils";
+import { PLATFORM_CATALOG, parseReleaseMetadata } from "../title-utils";
 
 const PLATFORMS = [
   { id: 130, name: "Nintendo Switch" },
@@ -101,6 +101,16 @@ describe("matchesSelectedIgdbPlatform", () => {
   it("keeps untagged releases when part of the selection has no release label", () => {
     expect(matchesSelectedIgdbPlatform(undefined, [508, 130])).toBe(true);
     expect(matchesSelectedIgdbPlatform("PS5", [508, 130])).toBe(false);
+  });
+
+  it("keeps a Switch 2 release when Switch 2 is selected alongside another console", () => {
+    const platform = parseReleaseMetadata("Game.Nintendo.Switch.2-GROUP").platform;
+    expect(matchesSelectedIgdbPlatform(platform, [508, 5])).toBe(true);
+  });
+
+  it("keeps Super Famicom releases when SNES is selected", () => {
+    const platform = parseReleaseMetadata("Super Mario World (Super Famicom)").platform;
+    expect(matchesSelectedIgdbPlatform(platform, [19])).toBe(true);
   });
 
   it("still drops untagged releases when every selected platform has a label and PC is not one", () => {

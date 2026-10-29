@@ -426,7 +426,10 @@ export const PLATFORM_CATALOG = [
     canonical: "Switch",
     igdbIds: [130],
     igdbNames: ["Nintendo Switch"],
-    releasePattern: /(?:^|[^a-z0-9])(nintendo\s*switch|switch|nsw|nsp|xci)(?=$|[^a-z0-9])/i,
+    // A "Switch 2" release must not read as Switch (NSP/XCI tags included): the catalog has
+    // no Switch 2 entry, so it stays untagged and the platform filter can let it through.
+    releasePattern:
+      /^(?!.*switch\s*2(?!\d)).*?(?:^|[^a-z0-9])(nintendo\s*switch|switch|nsw|nsp|xci)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "GameCube",
@@ -468,7 +471,8 @@ export const PLATFORM_CATALOG = [
     canonical: "SNES",
     igdbIds: [19],
     igdbNames: ["Super Nintendo Entertainment System"],
-    releasePattern: /(?:^|[^a-z0-9])(snes|super\s*nintendo|super\s*nes)(?=$|[^a-z0-9])/i,
+    releasePattern:
+      /(?:^|[^a-z0-9])(snes|super\s*nintendo|super\s*nes|super\s*famicom)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "NES",

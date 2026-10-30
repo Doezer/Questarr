@@ -10,6 +10,7 @@ const mockSetLocation = vi.fn();
 const mockToast = vi.fn();
 
 vi.mock("wouter", () => ({
+  useSearch: () => "",
   useLocation: () => ["/", mockSetLocation],
 }));
 

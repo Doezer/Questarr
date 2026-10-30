@@ -879,7 +879,7 @@ export async function checkGameUpdates() {
           type: "success",
           title: "Game Released" satisfies keyof typeof GAME_UPDATE_TITLE_TO_EVENT,
           message,
-          link: "/",
+          link: `/games/${encodeURIComponent(game.id)}`,
           userId: game.userId!,
         });
       }
@@ -913,7 +913,7 @@ export async function checkGameUpdates() {
             type: "delayed",
             title: "Game Delayed" satisfies keyof typeof GAME_UPDATE_TITLE_TO_EVENT,
             message,
-            link: "/wishlist",
+            link: `/games/${encodeURIComponent(game.id)}`,
             userId: game.userId!,
           });
         }
@@ -1371,7 +1371,7 @@ async function runDownloadStatusCheck() {
                 type: "success",
                 title: "Download Completed",
                 message,
-                link: "/",
+                link: `/games/${encodeURIComponent(download.gameId)}`,
                 userId: game?.userId ?? undefined,
               });
               notifyUser("notification", notification, notification.userId);
@@ -2015,7 +2015,7 @@ export async function checkAutoSearch() {
                               type: "success",
                               title: "Download Started",
                               message: `Started downloading ${game.title}${groupSuffix} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
-                              link: "/",
+                              link: `/games/${encodeURIComponent(game.id)}`,
                             });
                             notifyUser("notification", notification, notification.userId);
                             if (prefs.autoDownload.apprise) void appriseClient.send(notification);
@@ -2561,6 +2561,7 @@ export async function syncUserSteamWishlist(
         type: "success",
         title: "Steam Wishlist Synced",
         message: `Successfully added ${addedGames.length} games from your Steam Wishlist.`,
+        link: "/wishlist",
       });
       notifyUser("notification", notification, notification.userId);
       if (steamPrefs.steamSync.apprise) void appriseClient.send(notification);

@@ -24,3 +24,33 @@ apply only to API mode. Use HTTPS to protect credentials in transit; the setting
 page warns when the API URL uses HTTP.
 
 See [SECRETS.md](SECRETS.md) for credential handling.
+
+### Context links
+
+Set `APP_URL` to the address you use to open Questarr, for example
+`https://questarr.example.com`. Apprise alerts then include a clickable link to
+the page associated with the event, in both API and CLI mode. Game releases,
+delays, available releases, updates, and download start/completion/failure alerts
+open the game's details page from Apprise, where you can review the game and
+choose Download. In-app alerts for releases to review and available updates open
+the download dialog directly; release-date alerts open the game's details page.
+Operational download alerts open Downloads; settings alerts retain their tab
+and section links.
+
+For an installation under `/Questarr`, either set
+`APP_URL=https://example.com/Questarr`, or combine `APP_URL=https://example.com`
+with `QUESTARR_BASE_PATH=/Questarr`. Use an address reachable from the devices
+receiving notifications. Without `APP_URL`, notifications still deliver their
+text, but cannot include an absolute context link. Existing game-modal links
+are also converted when sent through Apprise. Diagnostic-report dialogs do not
+currently have an external deep link.
+
+Apprise passes the link in the message body. Link previews, cards, and buttons
+depend on the destination service and its Apprise plugin; a single portable
+card/button payload is not available across providers. Configure any supported
+presentation options in the provider URL (or in the Apprise server configuration
+when using a configuration key). See the
+[Apprise provider documentation](https://github.com/caronc/apprise/wiki) for the
+options of your service, including Telegram. A preview also depends on whether
+the service can access the linked page; an authenticated Questarr page will not
+necessarily produce a public preview. The link itself remains usable after login.

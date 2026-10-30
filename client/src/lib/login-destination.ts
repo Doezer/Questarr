@@ -5,7 +5,7 @@ export function loginDestination(search: string): string {
   try {
     const base = "https://questarr.invalid";
     const url = new URL(next, base);
-    if (url.origin !== base || ["/login", "/setup"].includes(url.pathname)) return "/";
+    if (url.origin !== base || /^\/(?:login|setup)\/?$/.test(url.pathname)) return "/";
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return "/";

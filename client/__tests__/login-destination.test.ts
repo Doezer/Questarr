@@ -13,7 +13,10 @@ describe("login destination", () => {
     "//evil.example",
     "/\\evil.example",
     "/login",
+    "/login/",
+    "/login/?next=%2Fgames%2Fgame-1",
     "/setup",
+    "/setup/",
     "/games/../login",
     "/\n/evil.example",
   ])("safely handles destination %s", (path) => {

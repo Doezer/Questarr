@@ -12,8 +12,10 @@ vi.mock("@/hooks/use-toast", () => ({
 
 const setLocationMock = vi.fn();
 let currentLocation = "/";
+let currentSearch = "";
 vi.mock("wouter", () => ({
   useLocation: () => [currentLocation, setLocationMock],
+  useSearch: () => currentSearch,
 }));
 
 const mockApiFetch = vi.fn();
@@ -69,6 +71,8 @@ describe("AuthProvider", () => {
     vi.clearAllMocks();
     localStorage.clear();
     currentLocation = "/";
+    currentSearch = "";
+    window.history.replaceState({}, "", "/");
     mockApiFetch.mockImplementation(async (url: string) => {
       if (url.includes("/api/auth/status")) return jsonResponse(200, { hasUsers: true });
       if (url.includes("/api/auth/me")) return jsonResponse(200, null);
@@ -112,6 +116,43 @@ describe("AuthProvider", () => {
       expect(screen.getByTestId("needs-setup")).toHaveTextContent("false");
     });
     expect(setLocationMock).not.toHaveBeenCalledWith("/login");
+  });
+
+  it("preserves a notification's path, query and anchor when requesting login", async () => {
+    currentLocation = "/settings";
+    currentSearch = "tab=discovery";
+    window.history.replaceState({}, "", "/settings?tab=discovery#classification-review");
+    renderAuth(createClient());
+    await waitFor(() => {
+      expect(setLocationMock).toHaveBeenCalledWith(
+        `/login?next=${encodeURIComponent("/settings?tab=discovery#classification-review")}`
+      );
+    });
+  });
+
+  it("returns to the notification after login even if the login page was reloaded", async () => {
+    currentLocation = "/login";
+    currentSearch = `next=${encodeURIComponent("/games/game-1?tab=downloads#releases")}`;
+    mockApiRequest.mockResolvedValue(jsonResponse(200, { user: { id: "u1", username: "a" } }));
+    renderAuth(createClient());
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    await act(async () => screen.getByRole("button", { name: "Login" }).click());
+    await waitFor(() => {
+      expect(setLocationMock).toHaveBeenCalledWith("/games/game-1?tab=downloads#releases");
+    });
+    expect(setLocationMock).not.toHaveBeenCalledWith("/");
+  });
+
+  it("honors the destination for an already authenticated visit to login", async () => {
+    currentLocation = "/login";
+    currentSearch = `next=${encodeURIComponent("/games/game-1")}`;
+    mockApiFetch.mockImplementation(async (url: string) =>
+      url.includes("/api/auth/status")
+        ? jsonResponse(200, { hasUsers: true })
+        : jsonResponse(200, { id: "u1", username: "a" })
+    );
+    renderAuth(createClient());
+    await waitFor(() => expect(setLocationMock).toHaveBeenCalledWith("/games/game-1"));
   });
 
   it("does not redirect when already on /setup", async () => {

@@ -29,6 +29,14 @@ describe("notification context links", () => {
     expect(notificationUrl("/downloads", undefined)).toBeNull();
   });
 
+  it.each(["/../admin", "/%2e%2e/admin", "/../Questarr-other/games/1", "/..\\admin"])(
+    "rejects links escaping the configured subpath: %s",
+    (link) => {
+      expect(notificationUrl(link, "https://example.com/Questarr")).toBeNull();
+      expect(notificationUrl(link, "https://example.com", "/Questarr")).toBeNull();
+    }
+  );
+
   it.each([null, "error-report:123", "//evil.example", "/\\evil.example", "javascript:alert(1)"])(
     "does not expose unsupported or external context %s",
     (link) => {

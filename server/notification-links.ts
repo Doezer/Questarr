@@ -10,6 +10,12 @@ export function notificationPath(link: string | null | undefined): string | null
   return link;
 }
 
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end--;
+  return value.slice(0, end);
+}
+
 export function notificationUrl(
   link: string | null | undefined,
   appUrl: string | undefined,
@@ -20,10 +26,12 @@ export function notificationUrl(
   try {
     const base = new URL(appUrl);
     if (!["http:", "https:"].includes(base.protocol) || base.username || base.password) return null;
-    const prefix = base.pathname.replace(/\/+$/, "") || basePath.replace(/\/+$/, "");
+    const prefix = trimTrailingSlashes(base.pathname) || trimTrailingSlashes(basePath);
     const result = new URL(`${prefix}${target}`, base.origin);
     // Reject backslashes and other URL syntax that could escape this instance.
-    return result.origin === base.origin ? result.href : null;
+    const insideBasePath =
+      !prefix || result.pathname === prefix || result.pathname.startsWith(`${prefix}/`);
+    return result.origin === base.origin && insideBasePath ? result.href : null;
   } catch {
     return null;
   }

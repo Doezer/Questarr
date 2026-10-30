@@ -1464,7 +1464,7 @@ async function runDownloadStatusCheck() {
                   type: "error",
                   title: "Download Aborted",
                   message,
-                  link: `/games/${encodeURIComponent(download.gameId)}`,
+                  link: `modal:game:${download.gameId}`,
                   userId: game?.userId ?? undefined,
                 });
                 notifyUser("notification", notification, notification.userId);
@@ -1629,7 +1629,7 @@ async function runDownloadStatusCheck() {
               type: "error",
               title: "Download Failed",
               message: `Download for "${gameTitle}" disappeared from the download client before completing and has been marked as failed. If it actually finished, you may need to import it manually.`,
-              link: `/games/${encodeURIComponent(download.gameId)}`,
+              link: `modal:game:${download.gameId}`,
               userId: game?.userId ?? undefined,
             });
             if (missedPrefs.downloadFailed.inApp)
@@ -1961,7 +1961,7 @@ export async function checkAutoSearch() {
                           type: "info",
                           title: "Release Flagged for Review",
                           message: `${game.title}: ${aiHoldReason}. Please review and choose.`,
-                          link: `/games/${encodeURIComponent(game.id)}`,
+                          link: `modal:game:${game.id}`,
                         });
                         if (prefs.multipleResults.inApp)
                           notifyUser("notification", notification, notification.userId);
@@ -2048,7 +2048,7 @@ export async function checkAutoSearch() {
                     type: "success",
                     title: "Game Available",
                     message: `${game.title} is now available for download`,
-                    link: `/games/${encodeURIComponent(game.id)}`,
+                    link: `modal:game:${game.id}`,
                   });
                   notifyUser("notification", notification, notification.userId);
                   if (prefs.gameAvailable.apprise) void appriseClient.send(notification);
@@ -2061,7 +2061,7 @@ export async function checkAutoSearch() {
                 type: "info",
                 title: "Multiple Results Found",
                 message: `${mainItems.length} result(s) found for ${game.title}. Please review and choose.`,
-                link: `/games/${encodeURIComponent(game.id)}`,
+                link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification, notification.userId);
               if (prefs.multipleResults.apprise) void appriseClient.send(notification);
@@ -2147,7 +2147,7 @@ export async function checkAutoSearch() {
                 type: "info",
                 title: "Game Updates Available",
                 message: `${updateItems.length} update(s) found for ${game.title}`,
-                link: `/games/${encodeURIComponent(game.id)}`,
+                link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification, notification.userId);
               if (prefs.gameUpdates.apprise) void appriseClient.send(notification);
@@ -2159,7 +2159,7 @@ export async function checkAutoSearch() {
                 type: "info",
                 title: "Game Packs Available",
                 message: `${packsItems.length} pack/add-on result(s) found for ${game.title}`,
-                link: `/games/${encodeURIComponent(game.id)}`,
+                link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification, notification.userId);
               if (prefs.gameUpdates.apprise) void appriseClient.send(notification);
@@ -2286,7 +2286,7 @@ export async function checkXrelReleases() {
               type: "info",
               title: "Available on xREL.to",
               message,
-              link: `/games/${encodeURIComponent(game.id)}`,
+              link: `modal:game:${game.id}`,
             });
             notifyUser("notification", notification, notification.userId);
             if (xrelPrefs.xrelRelease.apprise) void appriseClient.send(notification);

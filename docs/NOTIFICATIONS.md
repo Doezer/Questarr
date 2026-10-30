@@ -31,7 +31,9 @@ Set `APP_URL` to the address you use to open Questarr, for example
 `https://questarr.example.com`. Apprise alerts then include a clickable link to
 the page associated with the event, in both API and CLI mode. Game releases,
 delays, available releases, updates, and download start/completion/failure alerts
-open the game's details page, where you can review the game and choose Download.
+open the game's details page from Apprise, where you can review the game and
+choose Download. In-app alerts for releases to review and available updates open
+the download dialog directly; release-date alerts open the game's details page.
 Operational download alerts open Downloads; settings alerts retain their tab
 and section links.
 

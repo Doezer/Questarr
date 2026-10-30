@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { apiFetch, apiRequest, setBearerToken } from "./queryClient";
 import { disconnectSocket } from "./socket";
 import { useToast } from "@/hooks/use-toast";
+import { loginDestination } from "./login-destination";
 
 type User = {
   id: string;
@@ -71,6 +72,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [location, setLocation] = useLocation();
+  const search = useSearch();
+  const destination = loginDestination(search);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -198,7 +201,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     },
     onSuccess: () => {
       toast({ title: "Logged in successfully" });
-      setLocation("/");
+      setLocation(destination);
     },
     onError: (error: Error) => {
       toast({
@@ -265,15 +268,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (needsSetup && location !== "/setup") {
       setLocation("/setup");
     } else if (!needsSetup && !isAuthenticated && location !== "/login" && location !== "/setup") {
-      setLocation("/login");
+      const next = `${location}${search ? `?${search}` : ""}${window.location.hash}`;
+      setLocation(next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`);
     } else if (isAuthenticated && (location === "/login" || location === "/setup")) {
-      setLocation("/");
+      setLocation(location === "/login" ? destination : "/");
     }
   }, [
     user,
     meData,
     needsSetup,
     location,
+    search,
+    destination,
     setLocation,
     isCheckingSetup,
     isFetchingUser,

@@ -481,10 +481,6 @@ export function scoreReleasesForGame(
   return keepEligibleEvaluations(evaluateItemsForGame(items, game, scoring, xrelReleases), scoring);
 }
 
-// games whose automatic grab already waited one cycle for a slow xREL lookup; they leave the
-// set once a lookup completes in time
-const xrelDeferredGames = new Set<string>();
-
 /** Returned instead of null when the game is skipped for this cycle, so its badge stays as is. */
 export const AUTO_SEARCH_DEFERRED = Symbol("auto-search-deferred");
 
@@ -547,16 +543,15 @@ export async function searchAndCategorizeItemsForGame(
           xrelUnavailable = true;
         },
       });
-      // Nothing watches an automatic grab, so without the nuke check it waits for the next
-      // cycle, when the finished lookup is cached. Only once per game: if xREL stays down, the
-      // retry goes ahead without it rather than starving the game.
+      // Nothing watches an automatic grab, so without the nuke check it waits for a later
+      // cycle, when a finished lookup is cached. It never goes ahead unchecked: while xREL is
+      // down the game keeps its badge and nothing is downloaded (disable xREL to opt out).
       if (xrelUnavailable) {
-        if (!xrelDeferredGames.has(game.id)) {
-          xrelDeferredGames.add(game.id);
-          return AUTO_SEARCH_DEFERRED;
-        }
-      } else {
-        xrelDeferredGames.delete(game.id);
+        igdbLogger.warn(
+          { gameTitle: game.title },
+          "xREL unavailable, automatic grab skipped until the nuke check can run"
+        );
+        return AUTO_SEARCH_DEFERRED;
       }
     }
     const evaluated = scoring

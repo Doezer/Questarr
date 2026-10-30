@@ -2905,7 +2905,7 @@ describe("release scoring in auto-search", () => {
     expect(result?.mainItems.map((i) => i.title)).toEqual(["英雄伝説-GOG"]);
   });
 
-  it("defers the automatic grab once when xREL is too slow, then goes ahead without it", async () => {
+  it("keeps deferring the automatic grab while xREL is unavailable", async () => {
     vi.useFakeTimers();
     try {
       mockXrelSearchReleases.mockReturnValue(new Promise(() => {}));
@@ -2924,7 +2924,7 @@ describe("release scoring in auto-search", () => {
         return pending;
       };
       expect(await run()).toBe(AUTO_SEARCH_DEFERRED);
-      expect((await run())?.mainItems.map((i) => i.title)).toEqual(["Slowgame-CODEX"]);
+      expect(await run()).toBe(AUTO_SEARCH_DEFERRED);
     } finally {
       vi.useRealTimers();
     }

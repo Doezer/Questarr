@@ -13,7 +13,7 @@ const shareLogger = logger.child({ module: "classification-share" });
  * key shipped in an open-source app is not a secret, and a configurable address would turn this
  * into a way to post to any server.
  */
-export const SHARE_URL = "https://labels.questarr.app/v1/labels";
+export const SHARE_URL = "https://questarr-label-collector.questarr.workers.dev/v1/labels";
 
 /** What one request may carry, mirrored by the collector, which refuses more. */
 export const SHARE_MAX_ROWS = 200;

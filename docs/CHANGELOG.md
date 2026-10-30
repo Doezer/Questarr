@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-30
+
 ### Added
 
 - **Collections**: group games into manual collections or smart collections whose games are computed from rules (status, platform, genre, rating, release year, title), from the new **Collections** page under Library (#1199). See [API](API.md#collections).

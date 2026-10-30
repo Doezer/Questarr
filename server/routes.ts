@@ -127,7 +127,7 @@ import {
 // non-sensitive constant that VirusTotal has scanned so many times it is
 // guaranteed to return a verdict, giving a stable way to confirm an API key
 // authenticates without needing a real sample or hardcoding it in a URL path.
-const EICAR_TEST_FILE_SHA256 = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0";
+const EICAR_TEST_FILE_SHA256 = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
 import net from "node:net";
 import multer from "multer";
 import path from "path";
@@ -344,6 +344,8 @@ import { apiKeysRouter } from "./routes/api-keys.js";
 
 // Cache-Control header values for IGDB discovery endpoints
 const CC_IGDB_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
+// An empty metadata list means IGDB is unconfigured or unreachable; don't let browsers keep it
+const CC_NO_STORE = "no-store";
 // Adult-content filtering makes game-list responses vary per user, so they must not be shared-cacheable
 const CC_IGDB_GAME_LIST_PRIVATE = "private, max-age=3600, stale-while-revalidate=600";
 
@@ -3326,7 +3328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/igdb/genres", igdbRateLimiter, async (_req, res) => {
     try {
       const genres = await igdbClient.getGenres();
-      res.set("Cache-Control", CC_IGDB_METADATA);
+      res.set("Cache-Control", genres.length > 0 ? CC_IGDB_METADATA : CC_NO_STORE);
       res.json(genres);
     } catch (error) {
       console.error("Error fetching genres:", error);
@@ -3338,7 +3340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/igdb/platforms", igdbRateLimiter, async (_req, res) => {
     try {
       const platforms = await igdbClient.getPlatforms();
-      res.set("Cache-Control", CC_IGDB_METADATA);
+      res.set("Cache-Control", platforms.length > 0 ? CC_IGDB_METADATA : CC_NO_STORE);
       res.json(platforms);
     } catch (error) {
       console.error("Error fetching platforms:", error);

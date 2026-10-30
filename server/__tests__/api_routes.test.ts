@@ -1558,9 +1558,17 @@ describe("API Routes - Extended Coverage", () => {
 
     describe("GET /api/igdb/platforms", () => {
       it("should return platforms", async () => {
+        vi.mocked(igdbClient.getPlatforms).mockResolvedValue([{ id: 1, name: "Platform 1" }]);
+        const response = await request(app).get("/api/igdb/platforms");
+        expect(response.status).toBe(200);
+        expect(response.headers["cache-control"]).toContain("max-age=86400");
+      });
+
+      it("should not let browsers cache an empty platform list", async () => {
         vi.mocked(igdbClient.getPlatforms).mockResolvedValue([]);
         const response = await request(app).get("/api/igdb/platforms");
         expect(response.status).toBe(200);
+        expect(response.headers["cache-control"]).toBe("no-store");
       });
     });
 
@@ -4449,6 +4457,10 @@ describe("API Routes - Extended Coverage", () => {
         expect.not.stringContaining("valid-key"),
         expect.objectContaining({ headers: { "x-apikey": "valid-key" } })
       );
+      // VirusTotal answers 400 to a malformed hash, so the EICAR lookup must be
+      // a full 64-character SHA-256.
+      const [url] = vi.mocked(ssrfModule.safeFetch).mock.calls.at(-1) as [string];
+      expect(url).toMatch(/\/files\/[0-9a-f]{64}$/);
     });
 
     it("reports an invalid VirusTotal API key", async () => {

@@ -268,7 +268,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (needsSetup && location !== "/setup") {
       setLocation("/setup");
     } else if (!needsSetup && !isAuthenticated && location !== "/login" && location !== "/setup") {
-      const next = `${location}${search ? `?${search}` : ""}${window.location.hash}`;
+      const query = search ? `?${search}` : "";
+      const next = `${location}${query}${window.location.hash}`;
       setLocation(next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`);
     } else if (isAuthenticated && (location === "/login" || location === "/setup")) {
       setLocation(location === "/login" ? destination : "/");

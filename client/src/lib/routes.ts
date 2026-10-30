@@ -27,15 +27,9 @@ export const routePaths = {
 /** Wouter pattern for the per-game details page. */
 export const gameDetailsRoutePattern = "/games/:id";
 
-/** Recognize authentication pages using Wouter's decoding, case and slash rules. */
+/** Recognize auth pages in the already-decoded path returned by Wouter's useLocation. */
 export function authRoute(path: string): "login" | "setup" | null {
-  let decoded = path;
-  try {
-    decoded = decodeURI(path);
-  } catch {
-    // Wouter also leaves malformed escape sequences unchanged.
-  }
-  const route = /^\/(login|setup)\/?$/i.exec(decoded)?.[1]?.toLowerCase();
+  const route = /^\/(login|setup)\/?$/i.exec(path)?.[1]?.toLowerCase();
   return route === "login" || route === "setup" ? route : null;
 }
 

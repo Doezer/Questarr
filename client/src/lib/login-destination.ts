@@ -7,7 +7,7 @@ export function loginDestination(search: string): string {
   try {
     const base = "https://questarr.invalid";
     const url = new URL(next, base);
-    if (url.origin !== base || authRoute(url.pathname)) return "/";
+    if (url.origin !== base || authRoute(decodeURI(url.pathname))) return "/";
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return "/";

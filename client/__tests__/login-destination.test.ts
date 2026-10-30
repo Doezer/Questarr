@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { loginDestination } from "../src/lib/login-destination";
+import { authRoute } from "../src/lib/routes";
 
 describe("login destination", () => {
+  it("does not decode router paths a second time", () => {
+    expect(authRoute("/%6cogin")).toBeNull();
+    expect(authRoute("/LoGiN/")).toBe("login");
+    expect(authRoute("/SETUP")).toBe("setup");
+  });
   it("preserves a local path, query and anchor", () => {
     const path = "/settings?tab=discovery#classification-review";
     expect(loginDestination(`next=${encodeURIComponent(path)}`)).toBe(path);

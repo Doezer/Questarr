@@ -45,7 +45,7 @@ above `1`, and uses the `Recreate` strategy so two pods never hold the volume at
 | Key                | Default                   | Description                                                           |
 | ------------------ | ------------------------- | --------------------------------------------------------------------- |
 | `image.repository` | `ghcr.io/doezer/questarr` | Image repository                                                      |
-| `image.tag`        | `""`                      | Image tag; defaults to `v` + the chart's `appVersion` (e.g. `v1.5.0`) |
+| `image.tag`        | `""`                      | Image tag; defaults to `v` + the chart's `appVersion` (e.g. `v1.5.1`) |
 | `image.pullPolicy` | `IfNotPresent`            | Image pull policy                                                     |
 | `imagePullSecrets` | `[]`                      | Pull secrets for private registries                                   |
 | `replicaCount`     | `1`                       | Must stay `1` (see above)                                             |

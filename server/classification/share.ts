@@ -143,6 +143,11 @@ async function sendPreviewed(batchId: string): Promise<{ sent: number; remaining
     throw new ShareError("The labels changed since the preview: open it again", 409);
   }
 
+  // Consent can be withdrawn while the batch is being built
+  if (!config.classification.activeLearning.shareLabels) {
+    throw new ShareError("Sharing is off", 403);
+  }
+
   await deliver(batch);
   return { sent: batch.rows.length, remaining: batch.remaining };
 }
@@ -203,6 +208,7 @@ async function autoShare(): Promise<void> {
     if (!config.classification.activeLearning.shareLabels) return;
     const batch = await buildShareBatch();
     if (batch.rows.length === 0) return;
+    if (!config.classification.activeLearning.shareLabels) return;
     try {
       await deliver(batch);
     } catch (error) {

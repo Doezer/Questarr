@@ -108,8 +108,8 @@ describe("AuthProvider", () => {
     });
   });
 
-  it("does not redirect when already on /login", async () => {
-    currentLocation = "/login";
+  it.each(["/login", "/login/"])("does not redirect when already on %s", async (path) => {
+    currentLocation = path;
     renderAuth(createClient());
 
     await waitFor(() => {
@@ -143,20 +143,23 @@ describe("AuthProvider", () => {
     expect(setLocationMock).not.toHaveBeenCalledWith("/");
   });
 
-  it("honors the destination for an already authenticated visit to login", async () => {
-    currentLocation = "/login";
-    currentSearch = `next=${encodeURIComponent("/games/game-1")}`;
-    mockApiFetch.mockImplementation(async (url: string) =>
-      url.includes("/api/auth/status")
-        ? jsonResponse(200, { hasUsers: true })
-        : jsonResponse(200, { id: "u1", username: "a" })
-    );
-    renderAuth(createClient());
-    await waitFor(() => expect(setLocationMock).toHaveBeenCalledWith("/games/game-1"));
-  });
+  it.each(["/login", "/login/"])(
+    "honors the destination for an authenticated visit to %s",
+    async (path) => {
+      currentLocation = path;
+      currentSearch = `next=${encodeURIComponent("/games/game-1")}`;
+      mockApiFetch.mockImplementation(async (url: string) =>
+        url.includes("/api/auth/status")
+          ? jsonResponse(200, { hasUsers: true })
+          : jsonResponse(200, { id: "u1", username: "a" })
+      );
+      renderAuth(createClient());
+      await waitFor(() => expect(setLocationMock).toHaveBeenCalledWith("/games/game-1"));
+    }
+  );
 
-  it("does not redirect when already on /setup", async () => {
-    currentLocation = "/setup";
+  it.each(["/setup", "/setup/"])("does not redirect when already on %s", async (path) => {
+    currentLocation = path;
     mockApiFetch.mockImplementation(async (url: string) => {
       if (url.includes("/api/auth/status")) return jsonResponse(200, { hasUsers: false });
       return jsonResponse(200, null);

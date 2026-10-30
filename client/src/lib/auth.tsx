@@ -264,15 +264,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // false, the "derive user" effect above hasn't flushed its setUser call yet, so
     // `user` can still be stale. Reading meData here avoids acting on that stale value.
     const isAuthenticated = !!(user ?? meData);
+    const isLoginRoute = location === "/login" || location === "/login/";
+    const isSetupRoute = location === "/setup" || location === "/setup/";
 
-    if (needsSetup && location !== "/setup") {
+    if (needsSetup && !isSetupRoute) {
       setLocation("/setup");
-    } else if (!needsSetup && !isAuthenticated && location !== "/login" && location !== "/setup") {
+    } else if (!needsSetup && !isAuthenticated && !isLoginRoute && !isSetupRoute) {
       const query = search ? `?${search}` : "";
       const next = `${location}${query}${window.location.hash}`;
       setLocation(next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`);
-    } else if (isAuthenticated && (location === "/login" || location === "/setup")) {
-      setLocation(location === "/login" ? destination : "/");
+    } else if (isAuthenticated && (isLoginRoute || isSetupRoute)) {
+      setLocation(isLoginRoute ? destination : "/");
     }
   }, [
     user,

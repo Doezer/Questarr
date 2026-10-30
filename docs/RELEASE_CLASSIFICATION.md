@@ -216,6 +216,23 @@ npx tsx scripts/release-benchmark/run.ts --dataset releases-heldout.csv --classi
 npx tsx scripts/release-benchmark/export-model.ts --dataset releases-labeled.csv --out release-classifier.json
 ```
 
+#### Labels shared by other installs (collector)
+
+If you run the label collector (Doezer/Questarr-mgmt#60, repository `questarr-label-collector`), step 1
+above is replaced by an export from its database. `consolidate.sql` keeps only labels confirmed by at
+least 3 different senders with no contradicting majority. In PowerShell, from the collector's folder
+(this snippet is untested on real data, check the CSV before merging):
+
+```powershell
+$rows = (npx wrangler d1 execute questarr-labels --remote --file consolidate.sql --json | ConvertFrom-Json)[0].results
+# Neutralize spreadsheet formulas in any cell
+foreach ($r in $rows) { foreach ($p in 'release_name','query','human_label') { if ($r.$p -match '^[=+\-@]') { $r.$p = "'" + $r.$p } } }
+$rows | Select-Object release_name, query, human_label | Export-Csv verified-candidates.csv -NoTypeInformation -Encoding utf8
+```
+
+Then follow steps 2 to 4 above with `verified-candidates.csv`. Nothing from the collector reaches a
+model by itself: the merge reports conflicts, and you decide what to retrain and ship.
+
 Keep the **held-out evaluation set in its own file** and never merge candidates into it: the
 benchmark splits by game, and a game that is both in the held-out file and in the training file
 would leak. The merge script enforces that for games already in the held-out file. Growing the

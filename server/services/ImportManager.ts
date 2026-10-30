@@ -530,6 +530,7 @@ export class ImportManager {
         userId: game.userId ?? "",
         type: "error",
         title: "Import extraction failed",
+        link: `/games/${encodeURIComponent(game.id)}`,
         message: `"${game.title}" was moved into your library, but extracting the archive failed: ${err instanceof Error ? err.message : String(err)}. The archive is left at ${archiveInDest} — extract or delete it manually to finish the import.`,
       })
       .catch((notifErr) =>
@@ -712,7 +713,7 @@ export class ImportManager {
           type: "warning",
           title: "Import needs attention",
           message: `"${meta.gameTitle}" finished downloading but its local path could not be accessed. Check Settings → Path Mappings or trigger the import manually.`,
-          link: "/library",
+          link: "/downloads",
         });
         notifyUser("notification", notification, notification.userId);
       } catch (err) {
@@ -753,6 +754,7 @@ export class ImportManager {
           userId: game.userId ?? "",
           type: "warning",
           title: "Auto-delete failed",
+          link: "/downloads",
           message: `"${game.title}" was imported successfully, but removing it from the download client failed: ${result.message ?? "unknown error"}. Please remove it manually.`,
         })
         .catch((notifErr) =>

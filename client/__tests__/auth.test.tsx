@@ -15,6 +15,8 @@ let currentLocation = "/";
 let currentSearch = "";
 vi.mock("wouter", () => ({
   useLocation: () => [currentLocation, setLocationMock],
+}));
+vi.mock("wouter/use-browser-location", () => ({
   useSearch: () => currentSearch,
 }));
 
@@ -108,19 +110,22 @@ describe("AuthProvider", () => {
     });
   });
 
-  it.each(["/login", "/login/"])("does not redirect when already on %s", async (path) => {
-    currentLocation = path;
-    renderAuth(createClient());
+  it.each(["/login", "/login/", "/LOGIN", "/LoGiN/"])(
+    "does not redirect when already on %s",
+    async (path) => {
+      currentLocation = path;
+      renderAuth(createClient());
 
-    await waitFor(() => {
-      expect(screen.getByTestId("needs-setup")).toHaveTextContent("false");
-    });
-    expect(setLocationMock).not.toHaveBeenCalledWith("/login");
-  });
+      await waitFor(() => {
+        expect(screen.getByTestId("needs-setup")).toHaveTextContent("false");
+      });
+      expect(setLocationMock).not.toHaveBeenCalledWith("/login");
+    }
+  );
 
   it("preserves a notification's path, query and anchor when requesting login", async () => {
     currentLocation = "/settings";
-    currentSearch = "tab=discovery";
+    currentSearch = "?tab=discovery";
     window.history.replaceState({}, "", "/settings?tab=discovery#classification-review");
     renderAuth(createClient());
     await waitFor(() => {
@@ -132,7 +137,7 @@ describe("AuthProvider", () => {
 
   it("returns to the notification after login even if the login page was reloaded", async () => {
     currentLocation = "/login";
-    currentSearch = `next=${encodeURIComponent("/games/game-1?tab=downloads#releases")}`;
+    currentSearch = `?next=${encodeURIComponent("/games/game-1?tab=downloads#releases")}`;
     mockApiRequest.mockResolvedValue(jsonResponse(200, { user: { id: "u1", username: "a" } }));
     renderAuth(createClient());
     await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
@@ -143,11 +148,11 @@ describe("AuthProvider", () => {
     expect(setLocationMock).not.toHaveBeenCalledWith("/");
   });
 
-  it.each(["/login", "/login/"])(
+  it.each(["/login", "/login/", "/LOGIN", "/LoGiN/"])(
     "honors the destination for an authenticated visit to %s",
     async (path) => {
       currentLocation = path;
-      currentSearch = `next=${encodeURIComponent("/games/game-1")}`;
+      currentSearch = `?next=${encodeURIComponent("/games/game-1")}`;
       mockApiFetch.mockImplementation(async (url: string) =>
         url.includes("/api/auth/status")
           ? jsonResponse(200, { hasUsers: true })
@@ -158,19 +163,22 @@ describe("AuthProvider", () => {
     }
   );
 
-  it.each(["/setup", "/setup/"])("does not redirect when already on %s", async (path) => {
-    currentLocation = path;
-    mockApiFetch.mockImplementation(async (url: string) => {
-      if (url.includes("/api/auth/status")) return jsonResponse(200, { hasUsers: false });
-      return jsonResponse(200, null);
-    });
-    renderAuth(createClient());
+  it.each(["/setup", "/setup/", "/SETUP", "/SeTuP/"])(
+    "does not redirect when already on %s",
+    async (path) => {
+      currentLocation = path;
+      mockApiFetch.mockImplementation(async (url: string) => {
+        if (url.includes("/api/auth/status")) return jsonResponse(200, { hasUsers: false });
+        return jsonResponse(200, null);
+      });
+      renderAuth(createClient());
 
-    await waitFor(() => {
-      expect(screen.getByTestId("needs-setup")).toHaveTextContent("true");
-    });
-    expect(setLocationMock).not.toHaveBeenCalledWith("/setup");
-  });
+      await waitFor(() => {
+        expect(screen.getByTestId("needs-setup")).toHaveTextContent("true");
+      });
+      expect(setLocationMock).not.toHaveBeenCalledWith("/setup");
+    }
+  );
 
   it("loads the authenticated user from /api/auth/me when a token exists", async () => {
     localStorage.setItem("token", "existing-token");

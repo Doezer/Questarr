@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useSearch } from "wouter";
+import { useLocation } from "wouter";
+import { useSearch } from "wouter/use-browser-location";
 import { apiFetch, apiRequest, setBearerToken } from "./queryClient";
 import { disconnectSocket } from "./socket";
 import { useToast } from "@/hooks/use-toast";
 import { loginDestination } from "./login-destination";
+import { authRoute } from "./routes";
 
 type User = {
   id: string;
@@ -264,14 +266,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // false, the "derive user" effect above hasn't flushed its setUser call yet, so
     // `user` can still be stale. Reading meData here avoids acting on that stale value.
     const isAuthenticated = !!(user ?? meData);
-    const isLoginRoute = location === "/login" || location === "/login/";
-    const isSetupRoute = location === "/setup" || location === "/setup/";
+    const authenticationPage = authRoute(location);
+    const isLoginRoute = authenticationPage === "login";
+    const isSetupRoute = authenticationPage === "setup";
 
     if (needsSetup && !isSetupRoute) {
       setLocation("/setup");
     } else if (!needsSetup && !isAuthenticated && !isLoginRoute && !isSetupRoute) {
-      const query = search ? `?${search}` : "";
-      const next = `${location}${query}${window.location.hash}`;
+      const next = `${location}${search}${window.location.hash}`;
       setLocation(next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`);
     } else if (isAuthenticated && (isLoginRoute || isSetupRoute)) {
       setLocation(isLoginRoute ? destination : "/");

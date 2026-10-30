@@ -1,3 +1,5 @@
+import { authRoute } from "./routes";
+
 /** Only accept local router paths as post-login destinations. */
 export function loginDestination(search: string): string {
   const next = new URLSearchParams(search).get("next");
@@ -5,7 +7,7 @@ export function loginDestination(search: string): string {
   try {
     const base = "https://questarr.invalid";
     const url = new URL(next, base);
-    if (url.origin !== base || /^\/(?:login|setup)\/?$/.test(url.pathname)) return "/";
+    if (url.origin !== base || authRoute(url.pathname)) return "/";
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return "/";

@@ -14,13 +14,22 @@ describe("login destination", () => {
     "/\\evil.example",
     "/login",
     "/login/",
+    "/LOGIN",
+    "/LoGiN/",
+    "/log%69n/",
     "/login/?next=%2Fgames%2Fgame-1",
     "/setup",
     "/setup/",
+    "/SETUP/",
     "/games/../login",
     "/\n/evil.example",
   ])("safely handles destination %s", (path) => {
     const result = loginDestination(`next=${encodeURIComponent(path)}`);
     expect(result).toBe("/");
+  });
+
+  it("decodes next only once and retains encoded query values", () => {
+    const path = "/settings?tab=import&note=A%26B&literal=%252F#context";
+    expect(loginDestination(`?next=${encodeURIComponent(path)}`)).toBe(path);
   });
 });

@@ -1,6 +1,41 @@
 import { test, expect } from "@playwright/test";
 import { seedGame, uniqueId } from "./helpers";
 
+test("a mixed-case trailing-slash login uses the auth layout and restores encoded context", async ({
+  browser,
+}, testInfo) => {
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    storageState: { cookies: [], origins: [] },
+  });
+  try {
+    const page = await context.newPage();
+    const target = "/settings?tab=import&note=A%26B&literal=%252F#context";
+    const login = `/LoGiN/?next=${encodeURIComponent(target)}`;
+    await page.goto(login);
+    const submit = page.getByRole("button", { name: "Login", exact: true });
+    await expect(submit).toBeEnabled();
+    await expect(page).toHaveURL(login);
+    await expect(page.getByRole("button", { name: "Add Game", exact: true })).toHaveCount(0);
+    const screenshot = testInfo.outputPath("notification-login-auth-layout.png");
+    await page.screenshot({ path: screenshot, fullPage: true });
+    await testInfo.attach("notification-login-auth-layout", {
+      path: screenshot,
+      contentType: "image/png",
+    });
+    await page.fill('input[name="username"]', "admin");
+    await page.fill('input[name="password"]', "password123");
+    await submit.click();
+    await expect(page).toHaveURL(target);
+    await expect(page.getByRole("tab", { name: "Import", exact: true })).toHaveAttribute(
+      "data-state",
+      "active"
+    );
+  } finally {
+    await context.close();
+  }
+});
+
 test("a notification opens its game page after login and a login-page reload", async ({
   page,
   browser,
@@ -41,7 +76,7 @@ test("a settings notification retains its tab and anchor after login", async ({
   });
   try {
     const page = await context.newPage();
-    const target = "/settings?tab=notifications#context";
+    const target = "/settings?tab=notifications&note=A%26B#context";
     await page.goto(target);
     await expect(page).toHaveURL(`/login?next=${encodeURIComponent(target)}`);
     await page.fill('input[name="username"]', "admin");

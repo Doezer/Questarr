@@ -16,6 +16,7 @@ import {
 } from "./search.js";
 import { config } from "./config.js";
 import { pipelineHoldReason } from "./classification/hold.js";
+import { autoShareVerifiedLabels } from "./classification/share.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
@@ -625,6 +626,7 @@ export function startCronJobs() {
 const IMPORT_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const DOWNLOAD_EVENT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const IMPORT_TASK_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const LABEL_SHARE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 function registerCronTasks(): void {
   const tasks: TaskDefinition[] = [
@@ -691,6 +693,14 @@ function registerCronTasks(): void {
       intervalMs: RSS_REFRESH_INTERVAL_MS,
       runOnStartup: true,
       run: () => rssService.refreshFeeds(),
+    },
+    {
+      name: "label-sharing",
+      title: "Label sharing",
+      description:
+        "Send newly verified release labels to the collection point, only if you allowed it in Settings.",
+      intervalMs: LABEL_SHARE_INTERVAL_MS,
+      run: autoShareVerifiedLabels,
     },
     {
       name: "import-task-cleanup",

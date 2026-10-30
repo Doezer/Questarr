@@ -191,6 +191,8 @@ export const config = {
       // Not environment variables: only the Settings page changes them
       lowConfidence: 0.85 as number,
       maxCandidates: 5000 as number,
+      // Sharing verified labels is a consent choice: never an environment variable, off by default
+      shareLabels: false as boolean,
     },
   },
   credentials: {

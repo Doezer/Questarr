@@ -6,6 +6,8 @@ import path from "path";
 import { logger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
 import type { Notification } from "../shared/schema.js";
+import { config } from "./config.js";
+import { notificationUrl } from "./notification-links.js";
 
 const appriseLogger = logger.child({ module: "apprise" });
 
@@ -41,6 +43,18 @@ type ExecFileError = Error & {
 };
 
 const APPRISE_CLI_TIMEOUT_MS = 15_000;
+
+function notificationBody(notification: Notification): string {
+  const url = notificationUrl(notification.link, config.server.appUrl, config.server.basePath);
+  return url ? `${notification.message}\n\nOpen in Questarr: ${url}` : notification.message;
+}
+
+function testBody(): string {
+  const url = notificationUrl("/", config.server.appUrl, config.server.basePath);
+  return url
+    ? `Test notification from Questarr\n\nOpen in Questarr: ${url}`
+    : "Test notification from Questarr";
+}
 
 class AppriseCliError extends Error {
   readonly error: unknown;
@@ -302,7 +316,7 @@ class AppriseClient {
 
   private async sendViaApi(notification: Notification): Promise<void> {
     const type = TYPE_MAP[notification.type] ?? "info";
-    const request = this.buildApiRequest(notification.title, notification.message, type);
+    const request = this.buildApiRequest(notification.title, notificationBody(notification), type);
     if (!request) {
       appriseLogger.warn("Apprise API is configured without a key or URLs");
       return;
@@ -341,7 +355,7 @@ class AppriseClient {
         "-t",
         notification.title,
         "-b",
-        notification.message,
+        notificationBody(notification),
         "-n",
         type,
       ]);
@@ -378,14 +392,7 @@ class AppriseClient {
       }
 
       try {
-        await runAppriseCliWithUrls(urls, [
-          "-t",
-          "Questarr",
-          "-b",
-          "Test notification from Questarr",
-          "-n",
-          "info",
-        ]);
+        await runAppriseCliWithUrls(urls, ["-t", "Questarr", "-b", testBody(), "-n", "info"]);
         return { success: true };
       } catch (result) {
         const { error, stdout, stderr } =
@@ -394,7 +401,7 @@ class AppriseClient {
       }
     }
 
-    const request = this.buildApiRequest("Questarr", "Test notification from Questarr", "info");
+    const request = this.buildApiRequest("Questarr", testBody(), "info");
     if (!request) {
       return { success: false, error: "No config key or notification URLs provided" };
     }

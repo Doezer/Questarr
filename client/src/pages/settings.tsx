@@ -533,6 +533,7 @@ export default function SettingsPage() {
 
   const { data: appriseSettings } = useQuery<{
     configured: boolean;
+    contextLinksEnabled?: boolean;
     mode: "api" | "cli";
     apiUrl: string | null;
     key: string | null;
@@ -1674,6 +1675,40 @@ export default function SettingsPage() {
                       className="text-primary underline underline-offset-2"
                     >
                       appriseit.com/url-builder
+                    </a>
+                    .
+                  </p>
+                </div>
+                <div
+                  className="space-y-1 rounded-md border p-3 text-sm text-muted-foreground"
+                  data-testid="apprise-context-links-help"
+                >
+                  <p className="font-medium text-foreground">Context links</p>
+                  {appriseSettings?.contextLinksEnabled ? (
+                    <p>
+                      Alerts tied to a page end with an &ldquo;Open in Questarr&rdquo; link (for
+                      example the game&apos;s details page, where you can download). Error reports
+                      have no page to link to.
+                    </p>
+                  ) : (
+                    <p>
+                      Set the <code>APP_URL</code> environment variable (for example{" "}
+                      <code>https://questarr.example.com</code>) to add an &ldquo;Open in
+                      Questarr&rdquo; link to alerts that have a related page (error reports do
+                      not).
+                    </p>
+                  )}
+                  <p>
+                    The link is sent in the message body. Rich cards, buttons or link previews
+                    depend on the target service: set them in its Apprise URL (for example{" "}
+                    <code>format=markdown</code> for Telegram or Discord). See the{" "}
+                    <a
+                      href="https://github.com/caronc/apprise/wiki"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary underline underline-offset-2"
+                    >
+                      Apprise service documentation
                     </a>
                     .
                   </p>

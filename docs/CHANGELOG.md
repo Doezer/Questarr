@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [1.5.1] - 2026-10-30
+## [1.5.1] - 2026-10-31
 
 ### Added
 
@@ -24,7 +24,7 @@ All notable changes to this project will be documented in this file.
 - **Update available badge and filter**: library games with newer update releases on your indexers show an **Update available** badge on their card and on the game page, and a new **Update Available** filter in the Library lists only those games. The plain search-results badge shows only when no update release is waiting (#1240).
 - **Backlog roulette game length**: choose a short adventure (up to 5 hours), a weekend quest (up to 15 hours) or a longer journey (up to 40 hours) from the IGDB completion estimate; games without a known estimate stay out of length-filtered draws. See [Backlog roulette](BACKLOG_ROULETTE.md) (#1272).
 - **Ignored folders in Library Import**: **Ignore** on a Needs Review folder removes it for good, so later scans skip it before listing its files, for example a Proton build next to your games. An **Ignored Folders** list under Needs Review restores a folder, which queues a rescan of its root folder. New `POST /api/library/scan/unmatched/ignore`, `GET /api/library/scan/ignored` and `DELETE /api/library/scan/ignored/:id`, see [API](API.md#root-folders--library-scan) and [Library Import](LIBRARY_IMPORT.md) (#1239).
-- **Notification links**: set `APP_URL` and Apprise alerts include a link to the page they are about, such as the game, the Downloads page or the right settings tab. A link opened while signed out takes you to the login page and then on to that page (#1284). See [Notifications](NOTIFICATIONS.md#context-links).
+- **Notification links**: set `APP_URL` and Apprise alerts include a link to the page they are about, such as the game, the Downloads page or the right settings tab. A link opened while signed out takes you to the login page and then on to that page, and the Apprise settings explain `APP_URL` and the test notification carries a link (#1284, #1288). See [Notifications](NOTIFICATIONS.md#context-links).
 
 ### Changed
 
@@ -51,7 +51,7 @@ All notable changes to this project will be documented in this file.
 
 ### Dependencies
 
-- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14, and `follow-redirects` pinned to 1.16.1 and `body-parser` to 2.4.0, with `multer` 2.5.0, for high advisories (#1188, #1189, #1190, #1191, #1205, #1206, #1218, #1219, #1220, #1228, #1229, #1236, #1244, #1245, #1246, #1247, #1249, #1252, #1259).
+- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14, and `follow-redirects` pinned to 1.16.2 and `body-parser` to 2.4.0, with `multer` 2.5.0, for high advisories (#1188, #1189, #1190, #1191, #1205, #1206, #1218, #1219, #1220, #1228, #1229, #1236, #1244, #1245, #1246, #1247, #1249, #1252, #1259, #1288).
 
 ### Contributors
 

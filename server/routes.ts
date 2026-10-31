@@ -87,6 +87,7 @@ import {
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
+import { notificationUrl } from "./notification-links.js";
 import { prowlarrClient } from "./prowlarr.js";
 import {
   loadProwlarrSyncSettings,
@@ -5134,6 +5135,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const settings = await readAppriseSettings(storage);
       res.json({
         configured: isAppriseConfigured(settings),
+        // Whether alerts can carry an absolute link back to this instance (needs APP_URL).
+        contextLinksEnabled:
+          notificationUrl("/", appConfig.server.appUrl, appConfig.server.basePath) !== null,
         mode: settings.mode,
         apiUrl: settings.apiUrl,
         key: settings.key,

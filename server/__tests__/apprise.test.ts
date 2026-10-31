@@ -94,6 +94,25 @@ describe("Apprise client", () => {
     }
   });
 
+  it("adds the instance link to the test notification when APP_URL is set", async () => {
+    const previousUrl = config.server.appUrl;
+    const previousBasePath = config.server.basePath;
+    config.server.appUrl = "https://questarr.example";
+    config.server.basePath = "";
+    vi.mocked(safeFetch).mockResolvedValue({ ok: true } as never);
+    appriseClient.configure({ mode: "api", apiUrl: "http://apprise:8000", key: "key" });
+    try {
+      await appriseClient.test();
+      const options = vi.mocked(safeFetch).mock.calls[0][1];
+      expect(JSON.parse(options!.body as string).body).toBe(
+        "Test notification from Questarr\n\nOpen in Questarr: https://questarr.example/"
+      );
+    } finally {
+      config.server.appUrl = previousUrl;
+      config.server.basePath = previousBasePath;
+    }
+  });
+
   it("sends notifications via Apprise API mode", async () => {
     vi.mocked(safeFetch).mockResolvedValue({
       ok: true,

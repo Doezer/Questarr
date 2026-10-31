@@ -57,7 +57,10 @@ before the auth-gate line) are public unless they explicitly list
 (GET/PATCH), `/api/settings/ssl/generate`, `/api/settings/ssl/upload`,
 `/api/system/filesystem`, `/api/config`. Everything registered after that
 line — including every resource group below — requires a
-JWT even where a table row doesn't repeat `authenticateToken`.
+JWT even where a table row doesn't repeat `authenticateToken`. The only
+exceptions are the `/api/integration` routes, which also accept an integration
+API key, and the `admin`-scope allowlist of configuration routes (see
+[Configuration API for automation](#configuration-api-for-automation-admin-scope)).
 
 ## Games
 

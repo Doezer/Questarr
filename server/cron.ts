@@ -431,6 +431,8 @@ export interface AutoSearchScoring {
   /** Check the xREL PreDB (the user has an xREL feature on). */
   /** release types to check on xREL PreDB; absent when xREL is off */
   xrelTypes?: XrelPredbTypes;
+  /** Skip the game while xREL cannot be checked: set only when an automatic grab could follow. */
+  deferOnXrelUnavailable?: boolean;
 }
 
 /**
@@ -546,7 +548,9 @@ export async function searchAndCategorizeItemsForGame(
       // Nothing watches an automatic grab, so without the nuke check it waits for a later
       // cycle, when a finished lookup is cached. It never goes ahead unchecked: while xREL is
       // down the game keeps its badge and nothing is downloaded (disable xREL to opt out).
-      if (xrelUnavailable) {
+      // A cycle that cannot grab (notify-only, owned-game updates) goes on with the check marked
+      // unavailable.
+      if (xrelUnavailable && scoring.deferOnXrelUnavailable) {
         igdbLogger.warn(
           { gameTitle: game.title },
           "xREL unavailable, automatic grab skipped until the nuke check can run"
@@ -1866,7 +1870,9 @@ export async function checkAutoSearch() {
               settings.downloadRules,
               indexerPriorityMap,
               blacklistTerms,
-              scoring,
+              scoring && settings.autoDownloadEnabled
+                ? { ...scoring, deferOnXrelUnavailable: true }
+                : scoring,
               (categorized) => selectMainItems(categorized.mainItems).length > 0
             );
             if (searchResult === AUTO_SEARCH_DEFERRED) continue;

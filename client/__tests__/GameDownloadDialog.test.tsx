@@ -688,6 +688,53 @@ describe("GameDownloadDialog", () => {
     });
   });
 
+  it("does not tick a blacklisted update in the bundle dialog", async () => {
+    const mainItem = makeTorrentItem({
+      guid: "main-1",
+      title: "Test Game SKIDROW",
+      link: "http://test.com/main",
+      seeders: 50,
+    });
+    const goodUpdate = makeTorrentItem({
+      guid: "update-1",
+      title: "Test Game Update CODEX",
+      link: "http://test.com/update-1",
+      seeders: 20,
+    });
+    const blacklistedUpdate = {
+      ...makeTorrentItem({
+        guid: "update-2",
+        title: "Test Game Update PLAZA",
+        link: "http://test.com/update-2",
+        seeders: 10,
+      }),
+      blacklisted: true,
+    };
+
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([mainItem, goodUpdate, blacklistedUpdate]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game SKIDROW").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    fireEvent.click(screen.getAllByTestId("icon-download")[0]!.closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Download with Updates?")).toBeInTheDocument();
+    });
+    expect(screen.getByText("1 of 2 updates selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Select All"));
+    expect(screen.getByText("1 of 2 updates selected")).toBeInTheDocument();
+  });
+
   it("does not offer a bundle when every update is rejected and hidden", async () => {
     const evaluation = (accepted: boolean) => ({
       accepted,

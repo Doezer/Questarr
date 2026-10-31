@@ -2948,7 +2948,11 @@ describe("release scoring in auto-search", () => {
         { ...scoring, xrelTypes: { scene: true, p2p: false } }
       );
       await vi.advanceTimersByTimeAsync(3500);
-      expect((await pending)?.mainItems.map((i) => i.title)).toEqual(["Quietgame-CODEX"]);
+      const result = await pending;
+      expect(result).not.toBeNull();
+      expect(result).not.toBe(AUTO_SEARCH_DEFERRED);
+      if (result === null || result === AUTO_SEARCH_DEFERRED) throw new Error("unexpected");
+      expect(result.mainItems.map((i) => i.title)).toEqual(["Quietgame-CODEX"]);
     } finally {
       vi.useRealTimers();
     }

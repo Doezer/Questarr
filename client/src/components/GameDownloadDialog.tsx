@@ -810,6 +810,17 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       )
     );
 
+  // selections are index based: if fresh results replace the update list while the bundle
+  // dialog is open, close it so an index can never point at a different (e.g. blacklisted) update
+  const updateListRef = useRef(filteredCategorizedDownloads.update);
+  useEffect(() => {
+    if (updateListRef.current === filteredCategorizedDownloads.update) return;
+    updateListRef.current = filteredCategorizedDownloads.update;
+    setShowBundleDialog(false);
+    setSelectedMainDownload(null);
+    setSelectedUpdateIndices(new Set());
+  }, [filteredCategorizedDownloads.update]);
+
   const handleDownload = (download: DownloadItem) => {
     if (filteredCategorizedDownloads.update.length > 0) {
       const downloadCategory = groupDownloadsByCategory([download]);

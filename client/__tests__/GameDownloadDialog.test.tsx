@@ -729,10 +729,13 @@ describe("GameDownloadDialog", () => {
     await waitFor(() => {
       expect(screen.getByText("Download with Updates?")).toBeInTheDocument();
     });
+    const boxes = () => screen.getAllByRole("checkbox");
     expect(screen.getByText("1 of 2 updates selected")).toBeInTheDocument();
+    expect(boxes().map((b) => b.getAttribute("data-state"))).toEqual(["checked", "unchecked"]);
 
     fireEvent.click(screen.getByText("Select All"));
     expect(screen.getByText("1 of 2 updates selected")).toBeInTheDocument();
+    expect(boxes().map((b) => b.getAttribute("data-state"))).toEqual(["checked", "unchecked"]);
   });
 
   it("does not offer a bundle when every update is rejected and hidden", async () => {

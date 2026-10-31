@@ -1686,14 +1686,16 @@ export default function SettingsPage() {
                   <p className="font-medium text-foreground">Context links</p>
                   {appriseSettings?.contextLinksEnabled ? (
                     <p>
-                      Each alert ends with an &ldquo;Open in Questarr&rdquo; link to the related
-                      page (for example the game&apos;s details page, where you can download).
+                      Alerts tied to a page end with an &ldquo;Open in Questarr&rdquo; link (for
+                      example the game&apos;s details page, where you can download). Error reports
+                      have no page to link to.
                     </p>
                   ) : (
                     <p>
                       Set the <code>APP_URL</code> environment variable (for example{" "}
                       <code>https://questarr.example.com</code>) to add an &ldquo;Open in
-                      Questarr&rdquo; link to every alert.
+                      Questarr&rdquo; link to alerts that have a related page (error reports do
+                      not).
                     </p>
                   )}
                   <p>

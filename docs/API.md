@@ -27,8 +27,8 @@ PCGamingWiki sections when `server/steam-routes.ts` or
   routes registered earlier remain public (see the Authentication section
   below). The `/api/integration` subtree additionally accepts a long-lived
   integration API key (see the Integration API section), and keys with the `admin`
-  scope can call a fixed allowlist of configuration routes; every other route,
-  including key management, is JWT-only.
+  scope can call a fixed allowlist of configuration routes; every other protected
+  route, including key management, is JWT-only.
 - **Rate limiting**: `generalApiLimiter` (600 req/min/IP) applies to all
   `/api` routes; `authRateLimiter` additionally guards login;
   `sensitiveEndpointLimiter` additionally guards write-heavy/sensitive
@@ -412,8 +412,8 @@ gets 403 `{ error, code: "API_KEY_SCOPE_DENIED" }`; an expired key gets 401
 
 Authentication is handled by `authenticateApiKeyOrToken` in `server/auth.ts`,
 selected by `requireAuthenticationForApi` for paths under `/integration` and for
-the `admin`-scope allowlist below. Everywhere else on `/api` — key management
-included — stays JWT-only, so a leaked key cannot escalate into minting or
+the `admin`-scope allowlist below. Every other protected route on `/api` — key
+management included — stays JWT-only, so a leaked key cannot escalate into minting or
 revoking other keys.
 
 | Method | Path                             | Auth Required  | Request Body                                                                                                                 | Response                                                                                                                                                                                                                |
@@ -543,7 +543,7 @@ routes, so deployment tooling can set Questarr up without an interactive login.
 `all` does **not** imply `admin`, and an `admin` key is refused on the
 integration routes it was not granted. Any other key gets 403
 `API_KEY_SCOPE_DENIED` here. The integration routes above are the only other
-place a key is accepted; every route outside both lists stays JWT-only —
+place a key is accepted; every other protected route stays JWT-only —
 `/api/api-keys` in particular, so a key can never mint or revoke another key.
 Send the key in `X-Api-Key` or `Authorization: Bearer`. Treat an `admin` key like
 an administrator login: it can change download clients, indexers, notification

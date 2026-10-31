@@ -262,6 +262,19 @@ export function requireAuthenticationForApi(req: Request, res: Response, next: N
   if (isIntegrationApiRequest(req)) {
     return authenticateApiKeyOrToken(req, res, next);
   }
+  // Configuration endpoints for deployment automation: JWT, or an API key whose
+  // scope is exactly `admin` (`all` does not imply it). Any other key is refused.
+  if (isAdminApiRoute(req.method, req.path)) {
+    return authenticateApiKeyOrToken(req, res, (err?: unknown) => {
+      if (err) return next(err);
+      if (req.apiKeyId && req.apiKeyScope !== "admin") {
+        return res
+          .status(403)
+          .json({ error: "API key scope does not allow this route", code: "API_KEY_SCOPE_DENIED" });
+      }
+      return next();
+    });
+  }
   if (isSoftAuthApiRequest(req)) {
     return optionalAuthenticateToken(req, res, next);
   }
@@ -342,6 +355,7 @@ import {
 } from "./library-scanner.js";
 import { integrationRouter } from "./routes/integration.js";
 import { apiKeysRouter } from "./routes/api-keys.js";
+import { isAdminApiRoute } from "./admin-api-routes.js";
 
 // Cache-Control header values for IGDB discovery endpoints
 const CC_IGDB_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
@@ -1834,14 +1848,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   app.get("/api/ready", async (_req, res) => {
-    let isHealthy = true;
+    // Report each dependency separately so an updater can tell a local
+    // database/migration failure (roll back) from an IGDB outage (wait). The
+    // overall status stays "error"/503 when either fails, which is what the
+    // Helm readiness probe and Docker healthchecks already rely on.
+    const checks: { database: "ok" | "error"; igdb: "ok" | "error" } = {
+      database: "ok",
+      igdb: "ok",
+    };
 
     // Check database connectivity
     try {
       await pingDatabase();
     } catch (error) {
       routesLogger.error({ error }, "database health check failed");
-      isHealthy = false;
+      checks.database = "error";
     }
 
     // Check IGDB API connectivity
@@ -1850,14 +1871,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await igdbClient.getPopularGames(1);
     } catch (error) {
       routesLogger.error({ error }, "igdb health check failed");
-      isHealthy = false;
+      checks.igdb = "error";
     }
 
-    if (isHealthy) {
-      res.status(200).json({ status: "ok" });
-    } else {
-      res.status(503).json({ status: "error" });
-    }
+    const isHealthy = checks.database === "ok" && checks.igdb === "ok";
+    res.status(isHealthy ? 200 : 503).json({ status: isHealthy ? "ok" : "error", checks });
   });
 
   // Lightweight dashboard stats for external status widgets (Homepage, Homarr, Organizr, etc.)

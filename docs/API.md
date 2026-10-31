@@ -55,7 +55,7 @@ before the auth-gate line) are public unless they explicitly list
 `authenticateToken`: `/api/auth/*`, `/api/health`, `/api/settings/ssl`
 (GET/PATCH), `/api/settings/ssl/generate`, `/api/settings/ssl/upload`,
 `/api/system/filesystem`, `/api/config`. Everything registered after that
-line — including `/api/ready` and every resource group below — requires a
+line — including every resource group below — requires a
 JWT even where a table row doesn't repeat `authenticateToken`.
 
 ## Games
@@ -335,11 +335,11 @@ documented under [Settings](#settings).
 
 ## Health / Ready / Config
 
-| Method | Path          | Auth Required                                                                                       | Request Body | Response                                                                               |
-| ------ | ------------- | --------------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------- |
-| GET    | `/api/health` | None (public, pre-gate)                                                                             | —            | `{ status: "ok" }` (liveness probe only, no dependency checks)                         |
-| GET    | `/api/ready`  | JWT (registered after the global auth gate, so a token is required despite being a readiness probe) | —            | `{ status: "ok" }` (200) if DB + IGDB checks succeed, else `{ status: "error" }` (503) |
-| GET    | `/api/config` | `sensitiveEndpointLimiter` only, no JWT (public, pre-gate)                                          | —            | `{ igdb: { configured, source }, xrel: { apiBase } }`                                  |
+| Method | Path          | Auth Required                                              | Request Body | Response                                                                                                                                                                                                                                     |
+| ------ | ------------- | ---------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/health` | None (public, pre-gate)                                    | —            | `{ status: "ok" }` (liveness probe only, no dependency checks)                                                                                                                                                                               |
+| GET    | `/api/ready`  | None (public, listed in `PUBLIC_API_ROUTES`)               | —            | `{ status, checks: { database, igdb } }` — each check is `"ok"` or `"error"`. 200 with `status: "ok"` when both pass, else 503 with `status: "error"`; read `checks` to tell a local database failure (roll back) from an IGDB outage (wait) |
+| GET    | `/api/config` | `sensitiveEndpointLimiter` only, no JWT (public, pre-gate) | —            | `{ igdb: { configured, source }, xrel: { apiBase } }`                                                                                                                                                                                        |
 
 ## Dashboard Status
 
@@ -446,11 +446,11 @@ Keys are stored as a SHA-256 hash plus a short display prefix; the raw key is
 returned exactly once, in the 201 response that creates it, and is not
 recoverable afterwards. A user may hold at most 25 keys. `last_used_at` is written at most once per minute per key.
 
-| Method | Path                | Auth Required                    | Request Body                                                                                                                                               | Response                                                                                                                            |
-| ------ | ------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/api-keys`     | JWT                              | —                                                                                                                                                          | `Array<{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt }>` — never includes the hash                            |
-| POST   | `/api/api-keys`     | JWT + `sensitiveEndpointLimiter` | `{ name: string (1–100 chars), scope?: "all" \| "library:write" \| "read" \| "requests" (default "all"), expiresInDays?: 1–365 \| null (default: never) }` | 201 `{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt, key }` — `key` is shown only here; 409 once 25 keys exist |
-| DELETE | `/api/api-keys/:id` | JWT + `sensitiveEndpointLimiter` | —                                                                                                                                                          | 204; 404 if the key does not exist or belongs to another user                                                                       |
+| Method | Path                | Auth Required                    | Request Body                                                                                                                                                          | Response                                                                                                                            |
+| ------ | ------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/api-keys`     | JWT                              | —                                                                                                                                                                     | `Array<{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt }>` — never includes the hash                            |
+| POST   | `/api/api-keys`     | JWT + `sensitiveEndpointLimiter` | `{ name: string (1–100 chars), scope?: "all" \| "library:write" \| "read" \| "requests" \| "admin" (default "all"), expiresInDays?: 1–365 \| null (default: never) }` | 201 `{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt, key }` — `key` is shown only here; 409 once 25 keys exist |
+| DELETE | `/api/api-keys/:id` | JWT + `sensitiveEndpointLimiter` | —                                                                                                                                                                     | 204; 404 if the key does not exist or belongs to another user                                                                       |
 
 ## Error Format
 
@@ -530,3 +530,24 @@ const socket = io({ withCredentials: true });
 socket.on("notification", (n) => console.log("for me:", n));
 socket.on("downloadUpdate", (gameId) => console.log("download changed:", gameId));
 ```
+
+### Configuration API for automation (`admin` scope)
+
+A key with the `admin` scope can also call a fixed allowlist of configuration
+routes, so deployment tooling can set Questarr up without an interactive login.
+`all` does **not** imply `admin`, and an `admin` key is refused on the
+integration routes it was not granted. Any other key gets 403
+`API_KEY_SCOPE_DENIED` here, and every route outside the list stays JWT-only —
+`/api/api-keys` in particular, so a key can never mint or revoke another key.
+Send the key in `X-Api-Key` or `Authorization: Bearer`. Treat an `admin` key like
+an administrator login: it can change download clients, indexers, notification
+delivery, settings and import paths.
+
+| Area        | Routes                                                                                                                                                           |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Downloaders | `GET`/`POST /api/downloaders`, `PATCH`/`DELETE /api/downloaders/:id`, `POST /api/downloaders/:id/test`                                                           |
+| Indexers    | `GET /api/indexers`, `POST /api/indexers/:id/test`, `GET /api/indexers/prowlarr/settings`, `POST /api/indexers/prowlarr/sync`                                    |
+| Settings    | `GET`/`PATCH /api/settings`, `GET`/`POST /api/settings/apprise`, `POST /api/settings/apprise/test`                                                               |
+| Imports     | `GET`/`PATCH /api/imports/config`, `GET`/`POST /api/imports/mappings/paths`, `PATCH`/`DELETE /api/imports/mappings/paths/:id`, `GET /api/imports/hardlink/check` |
+
+The allowlist lives in `server/admin-api-routes.ts`.

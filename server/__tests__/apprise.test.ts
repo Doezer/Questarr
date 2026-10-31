@@ -7,6 +7,7 @@ import path from "path";
 import { appriseClient } from "../apprise.js";
 import { safeFetch } from "../ssrf.js";
 import type { Notification } from "../../shared/schema.js";
+import { config } from "../config.js";
 
 vi.mock("../logger.js", () => ({
   logger: {
@@ -57,6 +58,40 @@ describe("Apprise client", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     appriseClient.configure({ mode: "api", apiUrl: null, key: null, urls: null });
+  });
+
+  it.each(["api", "cli"] as const)("includes the game context in %s delivery", async (mode) => {
+    const previousUrl = config.server.appUrl;
+    const previousBasePath = config.server.basePath;
+    config.server.appUrl = "https://questarr.example/Questarr";
+    config.server.basePath = "/Questarr";
+    vi.mocked(safeFetch).mockResolvedValue({ ok: true } as never);
+    vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+      const callback = args[3] as (error: Error | null, stdout: string, stderr: string) => void;
+      callback(null, "ok", "");
+      return {} as never;
+    });
+    appriseClient.configure({
+      mode,
+      apiUrl: "http://apprise:8000",
+      key: "key",
+      urls: "tgram://token/chat",
+    });
+    try {
+      await appriseClient.send({ ...notification, link: "modal:game:game-1" });
+      const expectedBody =
+        "Test notification\n\nOpen in Questarr: https://questarr.example/Questarr/games/game-1";
+      if (mode === "api") {
+        const options = vi.mocked(safeFetch).mock.calls[0][1];
+        expect(JSON.parse(options!.body as string).body).toBe(expectedBody);
+      } else {
+        const args = vi.mocked(execFile).mock.calls[0][1] as string[];
+        expect(args[args.indexOf("-b") + 1]).toBe(expectedBody);
+      }
+    } finally {
+      config.server.appUrl = previousUrl;
+      config.server.basePath = previousBasePath;
+    }
   });
 
   it("sends notifications via Apprise API mode", async () => {

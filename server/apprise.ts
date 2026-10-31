@@ -49,6 +49,13 @@ function notificationBody(notification: Notification): string {
   return url ? `${notification.message}\n\nOpen in Questarr: ${url}` : notification.message;
 }
 
+function testBody(): string {
+  const url = notificationUrl("/", config.server.appUrl, config.server.basePath);
+  return url
+    ? `Test notification from Questarr\n\nOpen in Questarr: ${url}`
+    : "Test notification from Questarr";
+}
+
 class AppriseCliError extends Error {
   readonly error: unknown;
   readonly stdout: string;
@@ -385,14 +392,7 @@ class AppriseClient {
       }
 
       try {
-        await runAppriseCliWithUrls(urls, [
-          "-t",
-          "Questarr",
-          "-b",
-          "Test notification from Questarr",
-          "-n",
-          "info",
-        ]);
+        await runAppriseCliWithUrls(urls, ["-t", "Questarr", "-b", testBody(), "-n", "info"]);
         return { success: true };
       } catch (result) {
         const { error, stdout, stderr } =
@@ -401,7 +401,7 @@ class AppriseClient {
       }
     }
 
-    const request = this.buildApiRequest("Questarr", "Test notification from Questarr", "info");
+    const request = this.buildApiRequest("Questarr", testBody(), "info");
     if (!request) {
       return { success: false, error: "No config key or notification URLs provided" };
     }

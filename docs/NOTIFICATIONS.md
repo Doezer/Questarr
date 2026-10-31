@@ -27,6 +27,9 @@ See [SECRETS.md](SECRETS.md) for credential handling.
 
 ### Context links
 
+Settings → Notifications shows whether context links are active and where to configure
+provider presentation. The Apprise test notification includes the link too.
+
 Set `APP_URL` to the address you use to open Questarr, for example
 `https://questarr.example.com`. Apprise alerts then include a clickable link to
 the page associated with the event, in both API and CLI mode. Game releases,

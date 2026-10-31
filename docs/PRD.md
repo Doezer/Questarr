@@ -128,7 +128,7 @@ Steam owned-library and GOG import, with source tracking and periodic resync.
 
 ### External integrations
 
-Playnite is available. RomM, Gameyfin, and generic event webhooks remain planned.
+Playnite and RomM are available. Gameyfin and generic event webhooks remain planned.
 
 ### Ongoing quality
 

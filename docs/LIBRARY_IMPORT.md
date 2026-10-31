@@ -89,6 +89,26 @@ its connection test. A detection quarantines the download and produces a Securit
 Alert instead of importing it. See [SECRETS.md](SECRETS.md) for archive limits and
 credential handling.
 
+## RomM integration
+
+[RomM](https://romm.app) scans `<library>/roms/<platform>/...` and recognizes a
+platform from the folder name. The **RomM** card in **Settings → Import** lets
+Questarr import into that layout and talk to RomM. Questarr does not ship RomM:
+you host your own instance.
+
+| Setting                           | Behavior                                                                                                                                                                                                                                                                               |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RomM platform folders             | Imports go to `<library root>/<platform>/` using RomM folder names such as `snes`, `ps2` or `win`. Point the library root at RomM's `roms` folder. A platform without a known RomM name keeps its usual folder. Works without the API.                                                 |
+| Connect to the RomM API           | Needed to rescan RomM and to read its library. Enter the RomM URL and an API token created in RomM under **Profile → Client API Tokens** (read access to platforms and ROMs, plus permission to run tasks for the rescan).                                                             |
+| Rescan RomM after an import       | Queues a RomM library scan once an import finishes. A RomM outage never fails or delays an import.                                                                                                                                                                                     |
+| Mark games found in RomM as owned | Every 6 hours, wishlist games that RomM already has become owned. A ROM matches a game by IGDB ID, or by normalized title only when the ROM has no IGDB ID. A title shared by several games is never used. Nothing is created, and playing, shelved or completed games are left alone. |
+
+Use **Test connection** to check the URL and token without saving them, and
+**Sync now** to run the ownership sync on demand. The saved token is only ever
+sent to the saved URL, so changing the URL means entering the token again.
+Questarr warns when the URL uses `http://`, because the token then travels
+unencrypted. The token is encrypted at rest and never returned by the API.
+
 ## How completed downloads are imported
 
 Questarr checks completed downloads, translates their paths, determines the
@@ -161,9 +181,20 @@ configuration does not delete the directory itself.
 - Progress shows queued/running/completed/failed status and matched, review, and
   error counts. Library and Discover refresh when matches are saved, including
   matches saved before a scan fails.
+- A folder already linked to a game, by an earlier scan or a manual match, is not
+  looked up on IGDB again and never returns to **Needs Review**. A rescan still
+  attaches any new files found in it.
+- Nintendo Switch dumps are recognised by the title id in the file or folder name
+  (for example `Hades [0100535012974000][v0].nsp`). Flat files match like folders do, and an
+  update or DLC joins its base game.
 - Under **Needs Review**, choose a suggested IGDB game or enter a different
   name in **Not listed? Search IGDB by name**. Search alone does not import the
   game; clicking a candidate confirms it and adds it to your library.
+- **Ignore** removes a folder from Needs Review for good, for example a Proton build
+  next to your games. Later scans skip it before listing its files, unless it is
+  already linked to a game. Ignored folders are listed under **Ignored Folders**, where
+  **Restore** brings one back and queues a rescan of its root folder. Ignore and
+  candidate matching are disabled while the other is in progress.
 
 If a folder is inaccessible, check the mount and the service user's permissions,
 then use its health-recheck button. If IGDB search fails, the folder stays in

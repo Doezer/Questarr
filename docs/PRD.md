@@ -1,6 +1,6 @@
 # Questarr — Product Requirements Document
 
-**Version:** 1.5.1
+**Version:** 1.6.0
 
 **Date:** 2026-10-12
 
@@ -128,7 +128,7 @@ Steam owned-library and GOG import, with source tracking and periodic resync.
 
 ### External integrations
 
-Playnite is available. RomM, Gameyfin, and generic event webhooks remain planned.
+Playnite and RomM are available. Gameyfin and generic event webhooks remain planned.
 
 ### Ongoing quality
 

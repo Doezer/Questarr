@@ -5,7 +5,7 @@ type: application
 # Chart version — bump on every chart change (SemVer).
 version: 0.1.3
 # Version of Questarr shipped by default (image tag adds the v release prefix).
-appVersion: "1.5.1"
+appVersion: "1.6.0"
 kubeVersion: ">=1.23.0-0"
 home: https://github.com/Doezer/questarr
 icon: https://raw.githubusercontent.com/Doezer/questarr/main/images/Questarr_icon.png

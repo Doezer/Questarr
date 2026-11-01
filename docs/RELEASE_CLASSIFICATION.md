@@ -68,8 +68,8 @@ lets the download proceed, like the existing Jev check.
 
 ## The local model
 
-A model trained on 459 labeled releases ships with the application, in
-`shared/models/release-classifier.json` (a few hundred KB of plain JSON, also inside the Docker
+A model trained on 964 labeled releases ships with the application, in
+`shared/models/release-classifier.json` (about 1.4 MB of plain JSON, also inside the Docker
 image). Nothing needs installing: `hybrid` and `local` mode use it out of the box.
 
 ### Performance
@@ -78,17 +78,19 @@ In short: out of 10 releases the local model puts about 8 in the right category 
 DLC or unknown), against about 6 for the keyword rules alone. It does as well as the cloud model,
 runs in under a millisecond and needs no account.
 
-How it was measured: the 459 labeled releases (49 games) were split by game, so the model is
-tested on games it has never seen. 88 test releases were scored from the release name alone.
-The shipped file is retrained on all 459 releases, so it has no test score of its own; these
+How it was measured: the 964 labeled releases (123 games, including console releases, software,
+movies and series) were split by game, so the model is tested on games it has never seen. 187 test
+releases were scored from the release name alone. The shipped file is retrained on all 964 releases, so it has no test score of its own; these
 numbers come from the same method on the split. The full method and the other candidates are in
 [`scripts/release-classifier-training/DECISION.md`](../scripts/release-classifier-training/DECISION.md).
 
 | Layer                                | Accuracy | Macro F1 |  Time per release | Size    |
 | ------------------------------------ | -------: | -------: | ----------------: | ------- |
-| Rules only                           |    56.8% |    53.9% |           0.03 ms | none    |
-| Local model (tf-idf + logistic reg.) |    78.4% |    79.9% |            0.7 ms | ~200 KB |
+| Rules only                           |    55.6% |    49.7% |           0.06 ms | none    |
+| Local model (tf-idf + logistic reg.) |    79.1% |    75.1% |           0.06 ms | ~1.4 MB |
 | Cloud model (Jev, for comparison)    |    79.5% |    74.8% | ~840 ms (network) | none    |
+
+The cloud row comes from the earlier 88-release test and was not re-measured on the new split.
 
 - **Accuracy** is the share of releases given the right category.
 - **Macro F1** also scores each category separately and then averages them, so a model cannot
@@ -122,7 +124,7 @@ is tried. To replace the bundled model for everyone, overwrite `shared/models/re
 
 ### Share your dataset
 
-The bundled model is only as good as the 459 releases it learned from (49 games), and more labeled
+The bundled model is only as good as the 964 releases it learned from (123 games), and more labeled
 games is what improves it most. If you have a dataset of your own, for example the verified labels
 exported from **Settings → Release classification**, you are invited to share it so the public
 classifier can be retrained on more data. Two ways, both your choice:

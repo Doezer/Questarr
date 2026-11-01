@@ -255,11 +255,13 @@ export function activePreferredGroupFormat(config: ScoringConfig): CustomFormat 
 export function trustFor(
   evaluation: ReleaseEvaluation,
   size: number | undefined,
-  config: ScoringConfig
+  config: ScoringConfig,
+  blacklisted = false
 ): ReleaseTrust {
   const preferredId = activePreferredGroupFormat(config)?.id;
   return deriveReleaseTrust(evaluation, {
     size,
+    blacklisted,
     preferredGroup: preferredId !== undefined && evaluation.matchedFormats.includes(preferredId),
   });
 }

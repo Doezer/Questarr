@@ -1,8 +1,9 @@
 import { test, expect } from "@playwright/test";
-import { mkdir } from "node:fs/promises";
 import { seedGame, uniqueId } from "./helpers";
 
-test("personal screenshots live in Media and survive reload before deletion", async ({ page }) => {
+test("personal screenshots live in Media and survive reload before deletion", async ({
+  page,
+}, testInfo) => {
   await page.goto("/");
   const game = await seedGame(page, { title: "A memorable adventure", igdbId: uniqueId() });
   await page.goto(`/games/${game.id}`);
@@ -44,16 +45,15 @@ test("personal screenshots live in Media and survive reload before deletion", as
     page.getByRole("navigation", { name: "Game sections" }).getByRole("button", { name: /Media/ })
   ).toContainText("1");
   await gallery.scrollIntoViewIfNeeded();
-  await mkdir("docs/pr-evidence", { recursive: true });
-  await gallery.screenshot({ path: "docs/pr-evidence/personal-gallery-desktop.png" });
+  await gallery.screenshot({ path: testInfo.outputPath("personal-gallery-desktop.png") });
   await gallery.getByRole("button", { name: "View screenshot 1", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Screenshot", exact: true });
   await expect(dialog.getByRole("img")).toBeVisible();
-  await dialog.screenshot({ path: "docs/pr-evidence/personal-gallery-lightbox.png" });
+  await dialog.screenshot({ path: testInfo.outputPath("personal-gallery-lightbox.png") });
   await page.keyboard.press("Escape");
   await page.setViewportSize({ width: 390, height: 844 });
   await gallery.scrollIntoViewIfNeeded();
-  await gallery.screenshot({ path: "docs/pr-evidence/personal-gallery-mobile.png" });
+  await gallery.screenshot({ path: testInfo.outputPath("personal-gallery-mobile.png") });
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
   await gallery.getByRole("button", { name: "View screenshot 1", exact: true }).click();
   await dialog.getByRole("button", { name: "Delete", exact: true }).click();

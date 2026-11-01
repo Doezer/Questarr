@@ -169,5 +169,5 @@ At the time of this evaluation, no model file had been committed because the dat
 and the decision gate was pending. The 23 MB artifact was not reproducible by contributors
 without the data. `export_onnx.py` produces
 `model.onnx`, `model.int8.onnx`, the tokenizer and `measurements.json` from any fine-tuned model
-directory, and the label order is `full_game, patch, dlc, unknown`. A versioned artifact with its
-preprocessing configuration and evaluation results was recommended when the gate was approved.
+directory, and the label order is `full_game, patch, dlc, unknown`. The original recommendation was to generate a versioned artifact with its
+preprocessing configuration and evaluation results if the gate were approved.

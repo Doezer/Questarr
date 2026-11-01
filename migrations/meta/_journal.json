@@ -1,5 +1,5 @@
 {
-  "version": "7",
+  "version": "8",
   "dialect": "sqlite",
   "entries": [
     {
@@ -385,6 +385,13 @@
       "version": "6",
       "when": 1793133434170,
       "tag": "0053_classification_candidates",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1793133434171,
+      "tag": "0054_game_modes",
       "breakpoints": true
     }
   ]

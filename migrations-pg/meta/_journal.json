@@ -1,5 +1,5 @@
 {
-  "version": "7",
+  "version": "8",
   "dialect": "postgresql",
   "entries": [
     {
@@ -126,6 +126,13 @@
       "version": "7",
       "when": 1793133435963,
       "tag": "0017_classification_candidates",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1793133434171,
+      "tag": "0018_game_modes",
       "breakpoints": true
     }
   ]

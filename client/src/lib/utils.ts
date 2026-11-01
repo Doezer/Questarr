@@ -67,6 +67,7 @@ export function mapGameToInsertGame(game: Game): InsertGame {
     targetPlatformName: game.targetPlatformName,
     genres: game.genres,
     themes: game.themes,
+    gameModes: game.gameModes,
     screenshots: game.screenshots,
     videos: game.videos,
     igdbWebsites: game.igdbWebsites,

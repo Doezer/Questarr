@@ -17,8 +17,11 @@ export function useGameUpdatedSocket(): void {
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
     };
     socket.on("gameUpdated", handler);
+    // Queries do not expire: reconcile changes missed while the socket was offline.
+    socket.on("connect", handler);
     return () => {
       socket.off("gameUpdated", handler);
+      socket.off("connect", handler);
     };
   }, [queryClient]);
 }

@@ -37,6 +37,7 @@ export function SteamLibraryImport() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [previewedJobId, setPreviewedJobId] = useState<string | null>(null);
   const progress = useQuery<JobResponse>({
     queryKey: JOB_KEY,
     staleTime: 0,
@@ -59,6 +60,9 @@ export function SteamLibraryImport() {
     mutationFn: async () =>
       (await apiRequest("GET", "/api/steam/library")).json() as Promise<{ games: PreviewGame[] }>,
     onSuccess: (data) => {
+      // A fresh server preview supersedes historical job results (e.g. after deletion).
+      // Active/new jobs may still overlay writes made after the preview.
+      setPreviewedJobId(active(job) ? null : (job?.id ?? null));
       setGames(data.games);
       setSelected(
         new Set(data.games.filter((game) => !game.alreadyTracked).map((game) => game.steamAppId))
@@ -67,6 +71,7 @@ export function SteamLibraryImport() {
     },
   });
   function followJob(data: JobResponse) {
+    setPreviewedJobId(null);
     queryClient.setQueryData(JOB_KEY, data);
     queryClient.invalidateQueries({ queryKey: JOB_KEY });
     setSelected(new Set());
@@ -93,9 +98,9 @@ export function SteamLibraryImport() {
     () =>
       new Set([
         ...(games?.filter((game) => game.alreadyTracked).map((game) => game.steamAppId) ?? []),
-        ...(job?.completedAppIds ?? []),
+        ...(job?.id !== previewedJobId ? (job?.completedAppIds ?? []) : []),
       ]),
-    [games, job?.completedAppIds]
+    [games, job?.id, job?.completedAppIds, previewedJobId]
   );
   const selectedIds = [...selected].filter((id) => !tracked.has(id));
   const visible =

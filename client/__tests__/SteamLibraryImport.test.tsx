@@ -111,6 +111,29 @@ describe("Steam bulk import", () => {
     });
   });
 
+  it("lets a fresh preview reimport a removed game despite historical completed IDs", async () => {
+    job = complete([10]);
+    setup();
+    await screen.findByText("Import complete");
+    fireEvent.click(screen.getByRole("button", { name: "Preview owned games" }));
+    const first = await screen.findByRole("checkbox", { name: "Import First" });
+    expect(first).toBeEnabled();
+    expect(first).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Import selected (2)" }));
+    await waitFor(() =>
+      expect(screen.getByRole("checkbox", { name: "Import First" })).toBeDisabled()
+    );
+    expect(apiRequest).toHaveBeenCalledWith("POST", "/api/steam/library/import/jobs", {
+      appIds: [10, 30],
+    });
+    // A later authoritative preview can enable the same game again after removal.
+    fireEvent.click(screen.getByRole("button", { name: "Preview owned games" }));
+    await waitFor(() =>
+      expect(screen.getByRole("checkbox", { name: "Import First" })).toBeEnabled()
+    );
+    expect(screen.getByText("3 games in Steam · 2 selected")).toBeVisible();
+  });
+
   it("restores server-side progress when reopened without previewing again", async () => {
     job = { ...complete([]), state: "running", total: 1000, processed: 500, added: 500 };
     const first = setup();

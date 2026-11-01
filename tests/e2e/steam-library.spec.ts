@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { seedGame, uniqueId } from "./helpers";
 import type { SteamLibraryJobView } from "../../shared/steam-library";
 
 test("imports 1,000 games with one action and restores background progress after navigation", async ({
@@ -94,4 +95,38 @@ test("shows a failed preview and lets the user retry", async ({ page }) => {
   await expect(page.getByRole("alert").filter({ hasText: "Steam is unavailable" })).toBeVisible();
   await page.getByRole("button", { name: "Preview owned games" }).click();
   await expect(page.getByText("0 games in Steam · 0 selected")).toBeVisible();
+});
+
+test("refreshes a cached Library after socket reconnect without opening Settings", async ({
+  page,
+}, testInfo) => {
+  await Promise.all([
+    page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/games" && response.ok()
+    ),
+    page.goto("/"),
+  ]);
+  await page.waitForFunction(async () => {
+    const path = "/src/lib/socket.ts";
+    const module = await import(path);
+    return module.getSocket().connected;
+  });
+  await page.evaluate(async () => {
+    const path = "/src/lib/socket.ts";
+    const module = await import(path);
+    module.getSocket().disconnect();
+  });
+  const game = await seedGame(page, {
+    title: `Reconnect import ${uniqueId()}`,
+    igdbId: uniqueId(),
+    status: "owned",
+  });
+  await expect(page.getByTestId(`card-game-${game.id}`)).toHaveCount(0);
+  await page.evaluate(async () => {
+    const path = "/src/lib/socket.ts";
+    const module = await import(path);
+    module.getSocket().connect();
+  });
+  await expect(page.getByTestId(`card-game-${game.id}`)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("steam-reconnect-refresh.png") });
 });

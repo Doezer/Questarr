@@ -153,7 +153,8 @@ with missing mappings remain completed skips. New rows use schema validation, ex
 and initial release-status normalization. Existing entries may gain a missing
 Steam App ID but retain their status/progress. No files/download clients are
 involved. Each changed batch emits an owner-scoped `gameUpdated` event; the
-app-wide listener refreshes the Library even after Settings is closed. The synchronous endpoint shares the same batch implementation and
+app-wide listener refreshes the Library even after Settings is closed and reconciles
+missed updates when the socket reconnects. The synchronous endpoint shares the same batch implementation and
 per-account process lock.
 
 A checkpoint is saved after every batch. Startup resumes pending/running jobs

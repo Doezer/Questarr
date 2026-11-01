@@ -388,6 +388,46 @@ router), both behind the global auth gate plus explicit `authenticateToken`.
 | PATCH  | `/api/user/steam-id`       | JWT           | `{ steamId: string }` — must be a 17-digit SteamID64 starting with `7656` (`steamService.validateSteamId`) | `{ success: true, steamId }`; 400 if missing/invalid format                                              |
 | POST   | `/api/steam/wishlist/sync` | JWT           | —                                                                                                          | `{ success, addedCount, games }` (via `syncUserSteamWishlist`); 400 if Steam ID not linked or sync fails |
 
+### Owned Steam library
+
+`server/steam-library-routes.ts` — preview and import endpoints.
+
+These endpoints require the normal authenticated session/token. Cookie mutations
+require the usual CSRF header. Responses use `Cache-Control: no-store`.
+
+- `GET /api/steam/library`: read the linked account's public Steam library.
+  Returns `{ games: [{ steamAppId, title, alreadyTracked }] }`; preview does not
+  write to the library. Missing server Steam key or linked ID returns 400;
+  Steam failure/private library returns 502 with an actionable generic error.
+- `POST /api/steam/library/import`: synchronous compatibility endpoint, body `{ appIds: [400, 620] }`, 1–50 positive
+  integer IDs. Ownership is checked again with Steam before any write. Returns
+  `{ results: [{ steamAppId, title, outcome }] }`, where outcome is `added`,
+  `duplicate`, `not_found` (unmapped or content-filtered), or `failed`. New games
+  are Owned/source `steam`; existing game states remain unchanged, with missing
+  Steam App IDs linked on exact IGDB matches. Invalid/stale
+  selections return 400, a concurrent import by the same account returns 409,
+  and an upstream batch failure returns 502. Partial row failures return 200
+  with per-row outcomes so callers can retry explicitly.
+
+- `POST /api/steam/library/import/jobs`: body `{ appIds: [...] }`, 1–20,000
+  positive integer IDs. Returns `202 { job }` after durably queuing the selection.
+  Duplicate IDs are collapsed. The worker rechecks ownership before game writes;
+  invalid/stale ownership is reported as a failed job. A concurrent import start
+  returns 409. A new start replaces the account's previous terminal job.
+- `GET /api/steam/library/import/jobs/current`: returns `{ job: null }` or the
+  account's latest job view. Available even if Steam configuration is removed.
+  View fields: `id`, `state` (`queued`, `running`, `completed`, `failed`), `total`,
+  `processed`, `added`, `duplicates`, `skipped`, `failed`, `canRetry`,
+  `completedAppIds`, `recentResults` (last ten), and optional `message`. It does
+  not return the saved Steam ID or pending selection. The browser polls every two
+  seconds while active. A completed job may still contain skipped/failed rows.
+- `POST /api/steam/library/import/jobs/retry`: no body required. Queues failed
+  and unprocessed IDs from the latest job; returns `202 { job }`, 400 if
+  nothing remains, or 409 if another import is running. Successful earlier writes
+  are preserved. Retry revalidates current Steam ownership.
+
+See [Steam library import](STEAM_LIBRARY.md) for prerequisites and limits.
+
 ## PCGamingWiki
 
 `server/pcgamingwiki-router.ts` — 1 route.

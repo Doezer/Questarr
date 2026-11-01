@@ -11,6 +11,65 @@ describe("steamService", () => {
     vi.clearAllMocks();
   });
 
+  describe("getOwnedGames", () => {
+    const id = "76561198000000000";
+    it("uses HTTPS through safeFetch and returns deduplicated app IDs and titles", async () => {
+      vi.mocked(safeFetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          response: {
+            game_count: 2,
+            games: [
+              { appid: 10, name: "First", playtime_forever: 100 },
+              { appid: 10, name: "First" },
+            ],
+          },
+        }),
+      } as Response);
+      expect(await steamService.getOwnedGames("test-key", id)).toEqual([
+        { steamAppId: 10, title: "First" },
+      ]);
+      expect(safeFetch).toHaveBeenCalledWith(
+        expect.stringContaining("IPlayerService/GetOwnedGames"),
+        expect.objectContaining({ requireHttps: true })
+      );
+      const requestUrl = new URL(String(vi.mocked(safeFetch).mock.calls[0]?.[0]));
+      expect(requestUrl.searchParams.get("include_played_free_games")).toBe("true");
+    });
+    it("distinguishes an empty library from private or malformed data", async () => {
+      vi.mocked(safeFetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ response: { game_count: 0 } }),
+      } as Response);
+      expect(await steamService.getOwnedGames("test-key", id)).toEqual([]);
+      for (const response of [
+        {},
+        { game_count: 2 },
+        { game_count: 1, games: [{ appid: "bad", name: "bad" }] },
+      ]) {
+        vi.mocked(safeFetch).mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ response }),
+        } as Response);
+        await expect(steamService.getOwnedGames("test-key", id)).rejects.toThrow(
+          "Game details public"
+        );
+      }
+    });
+    it("validates the Steam ID and redacts network errors", async () => {
+      await expect(steamService.getOwnedGames("test-key", "bad")).rejects.toThrow(
+        "Invalid Steam ID"
+      );
+      expect(safeFetch).not.toHaveBeenCalled();
+      vi.mocked(safeFetch).mockRejectedValueOnce(new Error("https://example.test?key=secret"));
+      await expect(steamService.getOwnedGames("test-key", id)).rejects.toThrow(
+        "Could not reach Steam"
+      );
+      vi.mocked(safeFetch).mockResolvedValueOnce({ ok: false, status: 403 } as Response);
+      await expect(steamService.getOwnedGames("test-key", id)).rejects.toThrow("(403)");
+    });
+  });
+
   describe("validateSteamId", () => {
     it("should return true for valid Steam IDs", () => {
       expect(steamService.validateSteamId("76561198000000000")).toBe(true);

@@ -75,7 +75,7 @@ image). Nothing needs installing: `hybrid` and `local` mode use it out of the bo
 ### Performance
 
 In short: out of 10 releases the local model puts about 8 in the right category (full game, patch,
-DLC or unknown), against about 6 for the keyword rules alone. It does as well as the cloud model,
+DLC or unknown), against about 6 for the keyword rules alone. Its accuracy is close to the cloud model's (the cloud figure comes from an earlier split),
 runs in under a millisecond and needs no account.
 
 How it was measured: the 964 labeled releases (123 games, including console releases, software,
@@ -96,16 +96,17 @@ The cloud row comes from the earlier 88-release test and was not re-measured on 
 - **Macro F1** also scores each category separately and then averages them, so a model cannot
   look good just by getting the most common category right. It is also a percentage, and higher
   is better. For example, always answering "patch" can score a decent accuracy but a low macro F1.
-- **Cross-validation** repeats the test five times on different groups of games. It gives 78.9%
-  for the local model, give or take 10.9 points depending on which games are tested. With this
-  little data, differences under about 5 points are not significant, so the local model and the
-  cloud model should be read as equivalent.
+- **Cross-validation** repeats the test five times on different groups of games. On the earlier
+  459-release dataset it gave 78.9% for the local model, give or take 10.9 points depending on
+  which games are tested. With this little data, differences under about 5 points are not
+  significant. Because the cloud figure comes from a different split, these numbers do not show
+  that the two models are equivalent.
 - **The 70% confidence threshold** is how sure the model must be before its answer is used.
   Below it, the release is passed on to the cloud model (`hybrid`) or left `unknown` (`local`)
   instead of being guessed.
 - **The main mistake** is a full game read as a DLC; patches and unknown releases are the most
-  reliable categories. More labeled games is what improves it most (accuracy was still rising
-  with the 49 games available).
+  reliable categories. More labeled games is what improves it most; the earlier 459-release
+  evaluation showed accuracy still rising with its 49-game dataset.
 
 To use your own, for example after retraining on more data (the dataset is not published),
 generate the file and place it where the server looks first:

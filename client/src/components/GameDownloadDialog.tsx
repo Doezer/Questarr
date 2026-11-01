@@ -299,7 +299,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const [searchQuery, setSearchQuery] = useState("");
   // Every search fans out to all enabled indexers, so wait for the user to pause typing
   // long enough that partial queries don't flood the indexers (and trigger their backoff).
-  const debouncedSearchQuery = useDebounce(searchQuery, SEARCH_DEBOUNCE_MS);
+  const debouncedTypedQuery = useDebounce(searchQuery, SEARCH_DEBOUNCE_MS);
+  // The prefill on open is a single query, not typing: it must not wait for the debounce.
+  const debouncedSearchQuery =
+    game && searchQuery === game.title ? searchQuery : debouncedTypedQuery;
   const [downloadingGuid, setDownloadingGuid] = useState<string | null>(null);
   const [showBundleDialog, setShowBundleDialog] = useState(false);
   const [selectedMainDownload, setSelectedMainDownload] = useState<DownloadItem | null>(null);

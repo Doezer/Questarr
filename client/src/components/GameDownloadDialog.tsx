@@ -419,10 +419,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   // server applies that game's release blacklist.
   const searchQueryKey = buildSearchQueryKey(libraryGameId ?? game?.id);
 
-  const { data: searchResults, isLoading: isSearching } = useQuery<SearchResult>({
+  const { data: searchResults, isLoading: isSearchLoading } = useQuery<SearchResult>({
     queryKey: [searchQueryKey],
     enabled: open && debouncedSearchQuery.trim().length > 0,
   });
+  // While the user is still typing (input differs from the debounced query), the previous
+  // results are stale: show the searching state so they can't be picked by mistake.
+  const isSearching = isSearchLoading || searchQuery !== debouncedSearchQuery;
 
   // When a canonical search returns results, refresh the games list so the "Has results" badge
   // reflects the updated searchResultsAvailable flag. Only invalidate once per dialog session.

@@ -84,9 +84,7 @@ function view(job: Job): SteamLibraryJobView {
     ...counts,
     completedAppIds,
     recentResults: job.results.slice(-10),
-    canRetry:
-      !active(job) &&
-      (job.results.length < job.appIds.length || counts.failed + counts.skipped > 0),
+    canRetry: !active(job) && (job.results.length < job.appIds.length || counts.failed > 0),
     ...(job.message ? { message: job.message } : {}),
   };
 }
@@ -185,7 +183,7 @@ export async function retrySteamLibraryJob(user: User): Promise<SteamLibraryJobV
   if (!previous) return null;
   if (steamLibraryImporting.has(user.id)) throw new SteamLibraryBusyError();
   const retryIds = previous.results
-    .filter((row) => row.outcome === "failed" || row.outcome === "not_found")
+    .filter((row) => row.outcome === "failed")
     .map((row) => row.steamAppId);
   retryIds.push(...previous.appIds.slice(previous.results.length));
   return retryIds.length ? startSteamLibraryJob(user, retryIds) : null;

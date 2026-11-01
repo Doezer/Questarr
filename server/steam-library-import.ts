@@ -3,6 +3,7 @@ import { igdbClient } from "./igdb.js";
 import { getContentFilterFlags, isContentFiltered } from "./content-filter.js";
 import { normalizeInitialReleaseStatus } from "./game-status.js";
 import { insertGameSchema } from "../shared/schema.js";
+import { notifyUser } from "./socket.js";
 import type { SteamOwnedGame } from "./steam.js";
 import type { SteamImportResult } from "../shared/steam-library.js";
 
@@ -29,6 +30,7 @@ export async function importSteamLibraryBatch(
   ]);
   const detailsById = new Map(details.map((game) => [game.id, game]));
   const results: SteamImportResult[] = [];
+  let changedGameId: string | undefined;
   for (const id of ids) {
     const game = byAppId.get(id)!;
     if (tracked.has(id)) {
@@ -47,6 +49,7 @@ export async function importSteamLibraryBatch(
         // another edition's App ID or alter the existing game's status/progress.
         if (existing.steamAppId == null) {
           await storage.updateGame(existing.id, { steamAppId: id });
+          changedGameId ??= existing.id;
           existing.steamAppId = id;
         }
         results.push({ ...game, outcome: "duplicate" });
@@ -70,6 +73,7 @@ export async function importSteamLibraryBatch(
         continue;
       }
       const added = await storage.addGame(normalizeInitialReleaseStatus(data));
+      changedGameId ??= added.id;
       byIgdb.set(igdbId, added);
       results.push({ ...game, outcome: "added" });
     } catch {
@@ -77,5 +81,8 @@ export async function importSteamLibraryBatch(
       results.push({ ...game, outcome: "failed" });
     }
   }
+  // The app-wide listener refreshes cached games even when Settings is closed.
+  // One owner-scoped signal per changed batch avoids a burst of per-game events.
+  if (changedGameId) notifyUser("gameUpdated", changedGameId, userId);
   return results;
 }

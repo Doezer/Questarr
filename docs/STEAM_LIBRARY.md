@@ -17,8 +17,9 @@ unfinished jobs resume automatically. Steam is read once per run; the server
 handles 50-game batches internally. A crash within a batch can replay that batch,
 but duplicate checks preserve existing writes.
 
-**Retry unfinished games** retries skipped/failed games and any unprocessed
-remainder without selecting them again. Games already imported are preserved.
+**Retry unfinished games** retries failed games and any unprocessed
+remainder without selecting them again. Unmapped or content-filtered games count
+as completed skips; change the filters/mapping and preview again to reconsider them. Games already imported are preserved.
 The card describes the latest import/retry, with its ten most recent results.
 Only one import per account can run at a time. A single job accepts up to 20,000
 games, matching the preview's existing Steam response bound.

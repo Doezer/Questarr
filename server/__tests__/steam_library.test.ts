@@ -9,6 +9,7 @@ const fixtures = vi.hoisted(() => ({
   owned: vi.fn(),
   mappings: vi.fn(),
   game: vi.fn(),
+  notify: vi.fn(),
   steam: { isConfigured: true, apiKey: "test-key" as string | undefined },
   user: { id: "", steamId64: "76561198000000000" as string | null },
 }));
@@ -21,6 +22,7 @@ vi.mock("../auth.js", () => ({
 }));
 vi.mock("../config.js", () => ({ config: { steam: fixtures.steam } }));
 vi.mock("../steam.js", () => ({ steamService: { getOwnedGames: fixtures.owned } }));
+vi.mock("../socket.js", () => ({ notifyUser: fixtures.notify }));
 vi.mock("../igdb.js", () => ({
   igdbClient: {
     getGameIdsBySteamAppIds: fixtures.mappings,
@@ -287,6 +289,10 @@ describe.each(activeTestDialects())("Steam owned-library (%s)", (dialect) => {
     });
     expect(fixtures.owned).toHaveBeenCalledTimes(1);
     expect(fixtures.mappings).toHaveBeenCalledTimes(20);
+    expect(fixtures.notify).toHaveBeenCalledTimes(20);
+    for (const call of fixtures.notify.mock.calls) {
+      expect(call).toEqual(["gameUpdated", expect.any(String), userId]);
+    }
     for (const [ids] of fixtures.mappings.mock.calls) expect(ids.length).toBeLessThanOrEqual(50);
     expect(job.recentResults).toHaveLength(10);
     const hiddenPayload = (await request(app).get("/api/steam/library/import/jobs/current")).body
@@ -477,5 +483,32 @@ describe.each(activeTestDialects())("Steam owned-library (%s)", (dialect) => {
           .send({ appIds: [10] })
       ).status
     ).toBe(400);
+  });
+  it("treats unmapped and content-filtered games as finished skips, not retryable failures", async () => {
+    fixtures.owned.mockResolvedValue([
+      { steamAppId: 8100, title: "Unmapped" },
+      { steamAppId: 8101, title: "Filtered" },
+    ]);
+    fixtures.mappings.mockResolvedValue(new Map([[8101, 18101]]));
+    fixtures.game.mockResolvedValue({ id: 18101, name: "Filtered", isAdultContent: true });
+    await request(app)
+      .post("/api/steam/library/import/jobs")
+      .send({ appIds: [8100, 8101] });
+    expect(await waitForJob()).toMatchObject({
+      state: "completed",
+      total: 2,
+      processed: 2,
+      skipped: 2,
+      failed: 0,
+      canRetry: false,
+    });
+    expect((await request(app).post("/api/steam/library/import/jobs/retry").send({})).status).toBe(
+      400
+    );
+    expect(fixtures.owned).toHaveBeenCalledTimes(1);
+    expect(fixtures.notify).not.toHaveBeenCalled();
+    expect(
+      (await request(app).get("/api/steam/library/import/jobs/current")).body.job
+    ).toMatchObject({ total: 2, processed: 2 });
   });
 });

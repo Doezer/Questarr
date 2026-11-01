@@ -405,8 +405,8 @@ require the usual CSRF header. Responses use `Cache-Control: no-store`.
   `completedAppIds`, `recentResults` (last ten), and optional `message`. It does
   not return the saved Steam ID or pending selection. The browser polls every two
   seconds while active. A completed job may still contain skipped/failed rows.
-- `POST /api/steam/library/import/jobs/retry`: no body required. Queues skipped,
-  failed and unprocessed IDs from the latest job; returns `202 { job }`, 400 if
+- `POST /api/steam/library/import/jobs/retry`: no body required. Queues failed
+  and unprocessed IDs from the latest job; returns `202 { job }`, 400 if
   nothing remains, or 409 if another import is running. Successful earlier writes
   are preserved. Retry revalidates current Steam ownership.
 

@@ -150,14 +150,15 @@ batches, loading the library/filter preferences and fetching IGDB mappings and
 metadata per batch. New rows use schema validation, exact IDs, content filters,
 and initial release-status normalization. Existing entries may gain a missing
 Steam App ID but retain their status/progress. No files/download clients are
-involved. The synchronous endpoint shares the same batch implementation and
+involved. Each changed batch emits an owner-scoped `gameUpdated` event; the
+app-wide listener refreshes the Library even after Settings is closed. The synchronous endpoint shares the same batch implementation and
 per-account process lock.
 
 A checkpoint is saved after every batch. Startup resumes pending/running jobs
 before accepting requests. Replaying a partially committed batch safely dedupes
 existing game rows. A failed worker/checkpoint is exposed as retryable progress;
 GET status does not mutate storage. Retry starts a new job containing only
-skipped/failed and unprocessed IDs. Progress polling survives navigation and shows
+failed and unprocessed IDs. Progress polling survives navigation and shows
 the latest job, counts and ten recent results. This is a single-server worker,
 consistent with Questarr's supported single-instance deployment, not a distributed
 queue. Manually started jobs are separate from scheduled wishlist sync.

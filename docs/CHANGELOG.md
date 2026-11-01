@@ -34,6 +34,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Download search while typing**: the manual download dialog waits a little longer after you stop typing before searching, and a search that a newer one replaces is cancelled instead of piling up requests on your indexers (#1293).
 - **Library import**: platform names, folders and Game Gear are now handled correctly (#1212).
 - **Auto-search paging**: for a wanted game with many update releases, auto-search keeps paging through indexer results until a main release would survive final selection, instead of stopping on a first page made only of updates (#1214).
 - **Usenet downloads**: a download marked failed is restored and imported once NZBGet or SABnzbd no longer reports a failure, for example after you fix a wrong archive password and post-process the item again. Questarr checks failed downloads from the last 14 days every 10 minutes. NZBGet failures now say why (wrong password, unpack, par2 repair, missing articles, malformed NZB, disk space) instead of a bare error, including the `SCAN` and `SPACE` statuses (#1235).

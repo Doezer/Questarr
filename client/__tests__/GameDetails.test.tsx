@@ -7,6 +7,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import GameDetails from "../src/components/GameDetails";
 import { Toaster } from "@/components/ui/toaster";
+import { getQueryFn } from "@/lib/queryClient";
 
 // Mocking external dependencies
 vi.mock("socket.io-client", () => ({
@@ -83,6 +84,8 @@ vi.mock("../src/components/GameJournalTab", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  ImagePlus: (props: Record<string, unknown>) => <div {...props} />,
+  Upload: (props: Record<string, unknown>) => <div {...props} />,
   Plus: (props: Record<string, unknown>) => <div data-testid="icon-plus" {...props} />,
   Calendar: (props: Record<string, unknown>) => <div data-testid="icon-calendar" {...props} />,
   Star: (props: Record<string, unknown>) => <div data-testid="icon-star" {...props} />,
@@ -184,7 +187,7 @@ const mockGame = {
 const createQueryClient = () =>
   new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
+      queries: { retry: false, queryFn: getQueryFn({ on401: "throw" }) },
       mutations: { retry: false },
     },
   });
@@ -330,6 +333,25 @@ describe("GameDetails", () => {
     // Media tab uses forceMount so screenshots are always in the DOM (hidden until tab activated)
     expect(screen.getByTestId("screenshot-0")).toBeInTheDocument();
     expect(screen.getByTestId("screenshot-1")).toBeInTheDocument();
+  });
+
+  it("counts personal screenshots in Media alongside IGDB artwork", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({ "/screenshots": [{ id: "mine", url: "/api/screenshots/mine.png" }] })
+    );
+    renderComponent();
+    const gallery = await screen.findByRole("region", { name: "Your screenshots" });
+    expect(
+      await within(gallery).findByRole("button", { name: "View screenshot 1" })
+    ).toBeInTheDocument();
+    const navigation = screen.getByRole("navigation", { name: "Game sections" });
+    expect(within(navigation).getByRole("button", { name: /Media/ })).toHaveTextContent("3");
+  });
+
+  it("does not offer personal uploads on an unsaved discovery game", () => {
+    renderComponent({ ...mockGame, id: "igdb-123" });
+    expect(screen.queryByRole("region", { name: "Your screenshots" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Upload screenshot")).not.toBeInTheDocument();
   });
 
   it("renders the video carousel above the screenshots when the game has videos", () => {

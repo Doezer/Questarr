@@ -84,6 +84,7 @@ import {
 } from "react-icons/si";
 import { NexusModsIcon } from "./NexusModsIcon";
 import GameJournalTab from "./GameJournalTab";
+import GameScreenshotGallery, { useGameScreenshots } from "./GameScreenshotGallery";
 import FileCategorySelect from "./FileCategorySelect";
 import InstalledVersionField from "./InstalledVersionField";
 import { coverSrc } from "@/lib/cover";
@@ -940,6 +941,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
   const SUMMARY_LIMIT = 280;
   const isSummaryLong = game.summary && game.summary.length > SUMMARY_LIMIT;
   const isLibraryGame = !isDiscoveryId(game.id);
+  const { data: personalScreenshots = [] } = useGameScreenshots(game.id, isLibraryGame);
 
   // Include Steam link derived from steamAppId if IGDB didn't provide one (category 13)
   const rawWebsites = (game.igdbWebsites ?? []) as Array<{ category: number; url: string }>;
@@ -986,7 +988,11 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
       ? [{ id: "downloads", label: "Downloads", count: gameDownloads.length }]
       : []),
     ...(isLibraryGame ? [{ id: "journal", label: "Journal" }] : []),
-    { id: "media", label: "Media", count: screenshots.length + videos.length },
+    {
+      id: "media",
+      label: "Media",
+      count: screenshots.length + videos.length + personalScreenshots.length,
+    },
     ...(hasExpansions ? [{ id: "dlc", label: "DLC", count: game.expansions?.length ?? 0 }] : []),
     ...(nexusDomain ? [{ id: "mods", label: "Mods" }] : []),
     ...(isLibraryGame ? [{ id: "files", label: "Files" }] : []),
@@ -1620,7 +1626,11 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
             {/* ── Journal ── */}
             {isLibraryGame && (
               <Section id="journal" title="Journal" icon={<BookOpen className="h-5 w-5" />}>
-                <GameJournalTab gameId={game.id} steamAppId={game.steamAppId ?? null} />
+                <GameJournalTab
+                  gameId={game.id}
+                  steamAppId={game.steamAppId ?? null}
+                  showScreenshots={false}
+                />
               </Section>
             )}
 
@@ -1629,9 +1639,10 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
               id="media"
               title="Media"
               icon={<Image className="h-5 w-5" />}
-              count={screenshots.length + videos.length}
+              count={screenshots.length + videos.length + personalScreenshots.length}
             >
               <div className="space-y-6">
+                {isLibraryGame && <GameScreenshotGallery key={game.id} gameId={game.id} />}
                 {videos.length > 0 && <GameVideoCarousel videos={videos} />}
                 {screenshots.length > 0 && (
                   <section aria-label={videos.length > 0 ? "Screenshots" : undefined}>
@@ -1660,7 +1671,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     </div>
                   </section>
                 )}
-                {screenshots.length === 0 && videos.length === 0 && (
+                {!isLibraryGame && screenshots.length === 0 && videos.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
                     <Monitor className="w-8 h-8 opacity-40" />
                     <p className="text-sm">No screenshots or videos available.</p>

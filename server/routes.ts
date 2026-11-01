@@ -693,7 +693,8 @@ async function scoreManualSearchResults(
   ownGame: Awaited<ReturnType<typeof storage.getGame>>,
   query: string,
   preferredPlatform: string | null,
-  xrelTypes: XrelPredbTypes
+  xrelTypes: XrelPredbTypes,
+  blacklisted: Set<string> = new Set()
 ): Promise<{ items: SearchItem[]; config?: ScoringConfig }> {
   if (!userId || items.length === 0) return { items };
   try {
@@ -720,16 +721,21 @@ async function scoreManualSearchResults(
       },
       config.profile,
       config.formats
-    ).map(({ item, evaluation }) => ({
-      ...item,
-      evaluation,
-      trust: trustFor(evaluation, item.size, config),
-    }));
+    ).map(({ item, evaluation }) => {
+      const isBlacklisted = blacklisted.has(item.title);
+      return {
+        ...item,
+        evaluation,
+        trust: trustFor(evaluation, item.size, config, isBlacklisted),
+        ...(isBlacklisted ? { blacklisted: true } : {}),
+      };
+    });
     return { items: scored, config };
   } catch (error) {
-    // safe: unscored items are still valid results, the client shows them without badges
+    // safe: unscored items are still valid results, the client shows them without badges.
+    // Without a verdict a blacklisted release would look like any other, so it stays hidden.
     routesLogger.warn({ error }, "Release scoring failed, returning unscored results");
-    return { items };
+    return { items: filterBlacklistedReleases(items, blacklisted) };
   }
 }
 
@@ -775,26 +781,29 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       filteredItems = filterByReleaseNameBlacklist(items, blacklistTerms);
     }
 
-    // Filter out per-game blacklisted releases when a gameId context is provided
+    // The game's own blacklist keeps its releases in the list: the trust verdict marks them
+    // risky instead of hiding them (the global release-name blacklist still hides)
+    let gameBlacklist = new Set<string>();
     if (gameId && req.user) {
       const game = await storage.getGame(gameId);
       if (game && game.userId === req.user.id) {
-        const blacklisted = await storage.getReleaseBlacklistSet(gameId);
-        filteredItems = filterBlacklistedReleases(filteredItems, blacklisted);
+        gameBlacklist = await storage.getReleaseBlacklistSet(gameId);
 
         ownGame = game;
       }
     }
 
-    const blacklistedCount = items.length - filteredItems.length;
     const { items: scoredItems, config: scoringConfig } = await scoreManualSearchResults(
       filteredItems,
       req.user?.id,
       ownGame,
       query.trim(),
       userSettings?.preferredPlatform ?? null,
-      xrelTypesFor(userSettings)
+      xrelTypesFor(userSettings),
+      gameBlacklist
     );
+    // releases the scoring failure path dropped count as blacklisted, like the global ones
+    const blacklistedCount = items.length - scoredItems.length;
 
     // Update the "has results" flag only for canonical game-title searches so that
     // partial/custom user-typed queries in the download dialog don't flip the badge
@@ -806,8 +815,10 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
         ownGame,
         userSettings?.preferredPlatform ?? null
       );
-      const usable = scoredItems.filter(({ evaluation }) =>
-        evaluation && scoringConfig ? isAutoEligible(evaluation, scoringConfig) : true
+      const usable = scoredItems.filter(
+        ({ evaluation, blacklisted }) =>
+          !blacklisted &&
+          (evaluation && scoringConfig ? isAutoEligible(evaluation, scoringConfig) : true)
       );
       const platformFiltered = preferredPlatform
         ? usable.filter((item) => {

@@ -431,6 +431,8 @@ export interface AutoSearchScoring {
   /** Check the xREL PreDB (the user has an xREL feature on). */
   /** release types to check on xREL PreDB; absent when xREL is off */
   xrelTypes?: XrelPredbTypes;
+  /** Skip the game while xREL cannot be checked: set only when an automatic grab could follow. */
+  deferOnXrelUnavailable?: boolean;
 }
 
 /**
@@ -480,10 +482,6 @@ export function scoreReleasesForGame(
 ): SearchItem[] {
   return keepEligibleEvaluations(evaluateItemsForGame(items, game, scoring, xrelReleases), scoring);
 }
-
-// games whose automatic grab already waited one cycle for a slow xREL lookup; they leave the
-// set once a lookup completes in time
-const xrelDeferredGames = new Set<string>();
 
 /** Returned instead of null when the game is skipped for this cycle, so its badge stays as is. */
 export const AUTO_SEARCH_DEFERRED = Symbol("auto-search-deferred");
@@ -547,16 +545,17 @@ export async function searchAndCategorizeItemsForGame(
           xrelUnavailable = true;
         },
       });
-      // Nothing watches an automatic grab, so without the nuke check it waits for the next
-      // cycle, when the finished lookup is cached. Only once per game: if xREL stays down, the
-      // retry goes ahead without it rather than starving the game.
-      if (xrelUnavailable) {
-        if (!xrelDeferredGames.has(game.id)) {
-          xrelDeferredGames.add(game.id);
-          return AUTO_SEARCH_DEFERRED;
-        }
-      } else {
-        xrelDeferredGames.delete(game.id);
+      // Nothing watches an automatic grab, so without the nuke check it waits for a later
+      // cycle, when a finished lookup is cached. It never goes ahead unchecked: while xREL is
+      // down the game keeps its badge and nothing is downloaded (disable xREL to opt out).
+      // A cycle that cannot grab (notify-only, owned-game updates) goes on with the check marked
+      // unavailable.
+      if (xrelUnavailable && scoring.deferOnXrelUnavailable) {
+        igdbLogger.warn(
+          { gameTitle: game.title },
+          "xREL unavailable, automatic grab skipped until the nuke check can run"
+        );
+        return AUTO_SEARCH_DEFERRED;
       }
     }
     const evaluated = scoring
@@ -1871,7 +1870,9 @@ export async function checkAutoSearch() {
               settings.downloadRules,
               indexerPriorityMap,
               blacklistTerms,
-              scoring,
+              scoring && settings.autoDownloadEnabled
+                ? { ...scoring, deferOnXrelUnavailable: true }
+                : scoring,
               (categorized) => selectMainItems(categorized.mainItems).length > 0
             );
             if (searchResult === AUTO_SEARCH_DEFERRED) continue;

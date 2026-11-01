@@ -123,6 +123,7 @@ interface DownloadItem {
   aiReleaseTypeConfidence?: number;
   evaluation?: ReleaseEvaluation;
   trust?: ReleaseTrust;
+  blacklisted?: boolean;
 }
 
 interface SearchResult {
@@ -801,13 +802,32 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     },
   });
 
+  // blacklisted updates stay listed (marked risky) but are never ticked by default
+  const selectableUpdateIndices = () =>
+    new Set(
+      filteredCategorizedDownloads.update.flatMap((update, index) =>
+        update.blacklisted ? [] : [index]
+      )
+    );
+
+  // selections are index based: if fresh results replace the update list while the bundle
+  // dialog is open, close it so an index can never point at a different (e.g. blacklisted) update
+  const updateListRef = useRef(filteredCategorizedDownloads.update);
+  useEffect(() => {
+    if (updateListRef.current === filteredCategorizedDownloads.update) return;
+    updateListRef.current = filteredCategorizedDownloads.update;
+    setShowBundleDialog(false);
+    setSelectedMainDownload(null);
+    setSelectedUpdateIndices(new Set());
+  }, [filteredCategorizedDownloads.update]);
+
   const handleDownload = (download: DownloadItem) => {
     if (filteredCategorizedDownloads.update.length > 0) {
       const downloadCategory = groupDownloadsByCategory([download]);
       if (downloadCategory.main.length > 0) {
         setSelectedMainDownload(download);
         setIsDirectDownloadMode(false);
-        setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
+        setSelectedUpdateIndices(selectableUpdateIndices());
         setShowBundleDialog(true);
         return;
       }
@@ -887,8 +907,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     });
   };
 
-  const selectAllUpdates = () =>
-    setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
+  const selectAllUpdates = () => setSelectedUpdateIndices(selectableUpdateIndices());
   const deselectAllUpdates = () => setSelectedUpdateIndices(new Set());
 
   const toggleCategory = (category: DownloadCategory) => {
@@ -1689,7 +1708,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                         className="mt-1"
                       />
                       <label htmlFor={`update-${index}`} className="flex-1 cursor-pointer text-sm">
-                        <div className="font-medium">{update.title}</div>
+                        <div className="font-medium flex flex-wrap items-center gap-2">
+                          {update.title}
+                          {update.trust && <ReleaseTrustBadge trust={update.trust} />}
+                        </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
                           {update.size && <span>{formatBytes(update.size)}</span>}
                           {update.seeders !== undefined && (

@@ -24,11 +24,12 @@ PCGamingWiki sections when `server/steam-routes.ts` or
   `authenticateToken`/`optionalAuthenticateToken` in `server/auth.ts`. The
   whole `/api` surface is default-deny: `requireAuthenticationForApi`
   (`server/routes.ts`) is mounted before any route and requires a valid JWT
-  unless the request is in the `PUBLIC_API_ROUTES` allowlist (see the
-  Authentication section below). The `/api/integration` subtree additionally
-  accepts a long-lived integration API key (see the Integration API section),
-  and keys with the `admin` scope can call a fixed allowlist of configuration
-  routes; every other protected route, including key management, is JWT-only.
+  unless the request is in the `PUBLIC_API_ROUTES` allowlist or is the soft-auth
+  `POST /api/auth/logout` (see the Authentication section below). The
+  `/api/integration` subtree additionally accepts a long-lived integration API
+  key (see the Integration API section), and keys with the `admin` scope can
+  call a fixed allowlist of configuration routes; every other route, including
+  key management, is JWT-only.
 - **Rate limiting**: `generalApiLimiter` (600 req/min/IP) applies to all
   `/api` routes; `authRateLimiter` additionally guards login;
   `sensitiveEndpointLimiter` additionally guards write-heavy/sensitive
@@ -51,11 +52,12 @@ validation instead of an express-validator chain or a Zod schema (see the
 risk register in `docs/SECURITY_ASSESSMENT.md`). `/api/auth/password` uses a
 proper Zod schema (`updatePasswordSchema`).
 
-Every `/api` route requires authentication unless it is listed in
-`PUBLIC_API_ROUTES` in `server/routes.ts`. A route added without updating that
-list is protected by default, even when its handler does not call
-`authenticateToken` itself or a table row does not repeat it. The public routes
-are:
+Every `/api` route requires a JWT unless it is listed in `PUBLIC_API_ROUTES` in
+`server/routes.ts`, is the soft-auth `POST /api/auth/logout` described below, or
+is one of the API-key exceptions at the end of this section. A route added
+without updating that list is protected by default, even when its handler does
+not call `authenticateToken` itself or a table row does not repeat it. The
+public routes are:
 
 - `GET /api/auth/status`, `POST /api/auth/setup`,
   `POST /api/auth/setup/test-igdb` and `POST /api/auth/login`: used before a
@@ -226,23 +228,23 @@ curl -X POST http://localhost:5000/api/imports/naming/preview \
 
 ## Settings
 
-| Method | Path                         | Auth Required                                               | Request Body                                                                                                                                                | Response                                                                                       |
-| ------ | ---------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| GET    | `/api/settings/ssl`          | `authenticateToken` (pre-gate)                              | —                                                                                                                                                           | SSL config plus optional `certInfo` (subject, issuer, validity, selfSigned)                    |
-| PATCH  | `/api/settings/ssl`          | `authenticateToken` + `sensitiveEndpointLimiter` (pre-gate) | `{ enabled: boolean, port: number, certPath?, keyPath?, redirectHttp? }` — manual checks; cert/key paths path-traversal checked against `FILE_BROWSER_ROOT` | `{ success, message }`; 400/403 on invalid config or disallowed path                           |
-| POST   | `/api/settings/ssl/generate` | `authenticateToken` + `sensitiveEndpointLimiter` (pre-gate) | —                                                                                                                                                           | `{ success, message, certPath, keyPath }` (self-signed cert)                                   |
-| POST   | `/api/settings/ssl/upload`   | `authenticateToken` + `sensitiveEndpointLimiter` (pre-gate) | Multipart form: `cert` file + `key` file (5 MB limit, memory storage); validated as PEM                                                                     | `{ success, message, certPath, keyPath }`; 400 if missing/invalid PEM                          |
-| GET    | `/api/system/filesystem`     | `authenticateToken` + `sensitiveEndpointLimiter` (pre-gate) | Query: `path?` (relative; absolute paths/NUL bytes rejected; confined to `FILE_BROWSER_ROOT`)                                                               | `{ path, parent, files: {name, path, isDirectory, size}[] }`; 403 on traversal, 404 if missing |
-| GET    | `/api/config`                | `sensitiveEndpointLimiter` only, no JWT (pre-gate, public)  | —                                                                                                                                                           | `{ igdb: { configured, source }, xrel: { apiBase } }`                                          |
-| GET    | `/api/settings/igdb`         | JWT + `sensitiveEndpointLimiter`                            | —                                                                                                                                                           | `{ configured, source, clientId }`                                                             |
-| POST   | `/api/settings/igdb`         | JWT + `sensitiveEndpointLimiter`                            | `{ clientId: string (required), clientSecret?: string }` — manual checks; redacted-placeholder secret = keep existing                                       | `{ success: true }`; 400 if client secret required but missing                                 |
-| GET    | `/api/settings/discord`      | JWT + `sensitiveEndpointLimiter`                            | —                                                                                                                                                           | `{ configured: boolean, webhookUrl?: "********" }`                                             |
-| POST   | `/api/settings/discord`      | JWT + `sensitiveEndpointLimiter`                            | `{ webhookUrl?: string }` — must be a `discord.com`/`discordapp.com` webhook URL; redacted placeholder = keep unchanged                                     | `{ success: true }`; 400 on invalid webhook URL                                                |
-| GET    | `/api/settings`              | JWT                                                         | —                                                                                                                                                           | `UserSettings` (created with defaults if none exist)                                           |
-| PATCH  | `/api/settings`              | JWT                                                         | Validated via `updateUserSettingsSchema` (Zod)                                                                                                              | Updated `UserSettings`; 400 `{ error, details }` on Zod failure                                |
-| PATCH  | `/api/settings/xrel`         | JWT                                                         | `{ apiBase?: string (http/https, SSRF-checked, must match ALLOWED_XREL_DOMAINS), xrelSceneReleases?: boolean, xrelP2pReleases?: boolean }` — manual checks  | `{ success, xrel: { apiBase }, settings? }`; 400 on invalid/unsafe/unauthorized domain         |
-| GET    | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                            | —                                                                                                                                                           | `{ configured: boolean, source?: "env"\|"database" }`                                          |
-| POST   | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                            | `{ apiKey: string (required) }`                                                                                                                             | `{ success: true }`; 400 if missing                                                            |
+| Method | Path                         | Auth Required                                    | Request Body                                                                                                                                                | Response                                                                                       |
+| ------ | ---------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| GET    | `/api/settings/ssl`          | `authenticateToken`                              | —                                                                                                                                                           | SSL config plus optional `certInfo` (subject, issuer, validity, selfSigned)                    |
+| PATCH  | `/api/settings/ssl`          | `authenticateToken` + `sensitiveEndpointLimiter` | `{ enabled: boolean, port: number, certPath?, keyPath?, redirectHttp? }` — manual checks; cert/key paths path-traversal checked against `FILE_BROWSER_ROOT` | `{ success, message }`; 400/403 on invalid config or disallowed path                           |
+| POST   | `/api/settings/ssl/generate` | `authenticateToken` + `sensitiveEndpointLimiter` | —                                                                                                                                                           | `{ success, message, certPath, keyPath }` (self-signed cert)                                   |
+| POST   | `/api/settings/ssl/upload`   | `authenticateToken` + `sensitiveEndpointLimiter` | Multipart form: `cert` file + `key` file (5 MB limit, memory storage); validated as PEM                                                                     | `{ success, message, certPath, keyPath }`; 400 if missing/invalid PEM                          |
+| GET    | `/api/system/filesystem`     | `authenticateToken` + `sensitiveEndpointLimiter` | Query: `path?` (relative; absolute paths/NUL bytes rejected; confined to `FILE_BROWSER_ROOT`)                                                               | `{ path, parent, files: {name, path, isDirectory, size}[] }`; 403 on traversal, 404 if missing |
+| GET    | `/api/config`                | JWT + `sensitiveEndpointLimiter`                 | —                                                                                                                                                           | `{ igdb: { configured, source }, xrel: { apiBase } }`                                          |
+| GET    | `/api/settings/igdb`         | JWT + `sensitiveEndpointLimiter`                 | —                                                                                                                                                           | `{ configured, source, clientId }`                                                             |
+| POST   | `/api/settings/igdb`         | JWT + `sensitiveEndpointLimiter`                 | `{ clientId: string (required), clientSecret?: string }` — manual checks; redacted-placeholder secret = keep existing                                       | `{ success: true }`; 400 if client secret required but missing                                 |
+| GET    | `/api/settings/discord`      | JWT + `sensitiveEndpointLimiter`                 | —                                                                                                                                                           | `{ configured: boolean, webhookUrl?: "********" }`                                             |
+| POST   | `/api/settings/discord`      | JWT + `sensitiveEndpointLimiter`                 | `{ webhookUrl?: string }` — must be a `discord.com`/`discordapp.com` webhook URL; redacted placeholder = keep unchanged                                     | `{ success: true }`; 400 on invalid webhook URL                                                |
+| GET    | `/api/settings`              | JWT                                              | —                                                                                                                                                           | `UserSettings` (created with defaults if none exist)                                           |
+| PATCH  | `/api/settings`              | JWT                                              | Validated via `updateUserSettingsSchema` (Zod)                                                                                                              | Updated `UserSettings`; 400 `{ error, details }` on Zod failure                                |
+| PATCH  | `/api/settings/xrel`         | JWT                                              | `{ apiBase?: string (http/https, SSRF-checked, must match ALLOWED_XREL_DOMAINS), xrelSceneReleases?: boolean, xrelP2pReleases?: boolean }` — manual checks  | `{ success, xrel: { apiBase }, settings? }`; 400 on invalid/unsafe/unauthorized domain         |
+| GET    | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                 | —                                                                                                                                                           | `{ configured: boolean, source?: "env"\|"database" }`                                          |
+| POST   | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                 | `{ apiKey: string (required) }`                                                                                                                             | `{ success: true }`; 400 if missing                                                            |
 
 ### Apprise settings
 
@@ -349,11 +351,11 @@ documented under [Settings](#settings).
 
 ## Health / Ready / Config
 
-| Method | Path          | Auth Required                                              | Request Body | Response                                                                                                                                                                                                                                     |
-| ------ | ------------- | ---------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/health` | None (public, pre-gate)                                    | —            | `{ status: "ok" }` (liveness probe only, no dependency checks)                                                                                                                                                                               |
-| GET    | `/api/ready`  | None (public, listed in `PUBLIC_API_ROUTES`)               | —            | `{ status, checks: { database, igdb } }` — each check is `"ok"` or `"error"`. 200 with `status: "ok"` when both pass, else 503 with `status: "error"`; read `checks` to tell a local database failure (roll back) from an IGDB outage (wait) |
-| GET    | `/api/config` | `sensitiveEndpointLimiter` only, no JWT (public, pre-gate) | —            | `{ igdb: { configured, source }, xrel: { apiBase } }`                                                                                                                                                                                        |
+| Method | Path          | Auth Required                                | Request Body | Response                                                                                                                                                                                                                                     |
+| ------ | ------------- | -------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/health` | None (public, listed in `PUBLIC_API_ROUTES`) | —            | `{ status: "ok" }` (liveness probe only, no dependency checks)                                                                                                                                                                               |
+| GET    | `/api/ready`  | None (public, listed in `PUBLIC_API_ROUTES`) | —            | `{ status, checks: { database, igdb } }` — each check is `"ok"` or `"error"`. 200 with `status: "ok"` when both pass, else 503 with `status: "error"`; read `checks` to tell a local database failure (roll back) from an IGDB outage (wait) |
+| GET    | `/api/config` | JWT + `sensitiveEndpointLimiter`             | —            | `{ igdb: { configured, source }, xrel: { apiBase } }`                                                                                                                                                                                        |
 
 ## Dashboard Status
 

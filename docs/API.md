@@ -21,14 +21,14 @@ PCGamingWiki sections when `server/steam-routes.ts` or
 - **Authentication**: a JWT bearer token obtained from `POST /api/auth/login`
   (or `POST /api/auth/setup` for the first account), sent as
   `Authorization: Bearer <token>` on subsequent requests. Verified by
-  `authenticateToken`/`optionalAuthenticateToken` in `server/auth.ts`. A
-  global gate — `app.use("/api", authenticateToken)` in `server/routes.ts` —
-  requires a valid JWT for every route registered after it; a small set of
-  routes registered earlier remain public (see the Authentication section
-  below). The `/api/integration` subtree additionally accepts a long-lived
-  integration API key (see the Integration API section), and keys with the `admin`
-  scope can call a fixed allowlist of configuration routes; every other protected
-  route, including key management, is JWT-only.
+  `authenticateToken`/`optionalAuthenticateToken` in `server/auth.ts`. The
+  whole `/api` surface is default-deny: `requireAuthenticationForApi`
+  (`server/routes.ts`) is mounted before any route and requires a valid JWT
+  unless the request is in the `PUBLIC_API_ROUTES` allowlist (see the
+  Authentication section below). The `/api/integration` subtree additionally
+  accepts a long-lived integration API key (see the Integration API section),
+  and keys with the `admin` scope can call a fixed allowlist of configuration
+  routes; every other protected route, including key management, is JWT-only.
 - **Rate limiting**: `generalApiLimiter` (600 req/min/IP) applies to all
   `/api` routes; `authRateLimiter` additionally guards login;
   `sensitiveEndpointLimiter` additionally guards write-heavy/sensitive
@@ -51,15 +51,25 @@ validation instead of an express-validator chain or a Zod schema (see the
 risk register in `docs/SECURITY_ASSESSMENT.md`). `/api/auth/password` uses a
 proper Zod schema (`updatePasswordSchema`).
 
-Routes registered before the global `authenticateToken` gate (`server/routes.ts`,
-before the auth-gate line) are public unless they explicitly list
-`authenticateToken`: `/api/auth/*`, `/api/health`, `/api/settings/ssl`
-(GET/PATCH), `/api/settings/ssl/generate`, `/api/settings/ssl/upload`,
-`/api/system/filesystem`, `/api/config`. Everything registered after that
-line — including every resource group below — requires a
-JWT even where a table row doesn't repeat `authenticateToken`. The only
-exceptions are the `/api/integration` routes, which also accept an integration
-API key, and the `admin`-scope allowlist of configuration routes (see
+Every `/api` route requires authentication unless it is listed in
+`PUBLIC_API_ROUTES` in `server/routes.ts`. A route added without updating that
+list is protected by default, even when its handler does not call
+`authenticateToken` itself or a table row does not repeat it. The public routes
+are:
+
+- `GET /api/auth/status`, `POST /api/auth/setup`,
+  `POST /api/auth/setup/test-igdb` and `POST /api/auth/login`: used before a
+  token exists (setup wizard and login page).
+- `GET /api/health`: liveness probe.
+- `GET /api/ready`: readiness probe, with no sensitive data.
+
+`POST /api/auth/logout` is a "soft" route: it accepts a missing or expired token
+so a user with a stale cookie can still clear it, but a valid token is still
+read so CSRF protection applies. Everything else, including `/api/config`,
+`/api/system/filesystem`, `/api/settings/ssl` and every resource group below,
+requires a JWT. The only exceptions are the `/api/integration` routes, which
+also accept an integration API key, and the `admin`-scope allowlist of
+configuration routes (see
 [Configuration API for automation](#configuration-api-for-automation-admin-scope)).
 
 ## Games

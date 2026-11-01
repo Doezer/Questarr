@@ -55,6 +55,12 @@ const SCOPE_OPTIONS: { value: ApiKeyScope; label: string; description: string }[
     label: "Full access",
     description: "Everything the integration API offers",
   },
+  {
+    value: "admin",
+    label: "Administration (automation)",
+    description:
+      "Configure downloaders, indexers, notifications, settings and import paths. Treat it like an admin login.",
+  },
 ];
 
 const SCOPE_LABELS: Record<ApiKeyScope, string> = {
@@ -62,6 +68,7 @@ const SCOPE_LABELS: Record<ApiKeyScope, string> = {
   read: "Read only",
   requests: "Game requests",
   all: "Full access",
+  admin: "Administration",
 };
 
 const EXPIRY_OPTIONS = [
@@ -193,8 +200,8 @@ export function ApiKeysCard() {
         </div>
         <CardDescription>
           Let external clients such as the Playnite extension sync your library and request games.
-          Each key is limited to the access you choose, only works against the integration API, and
-          can be revoked at any time.
+          Each key is limited to the access you choose and can be revoked at any time. Only the
+          Administration access reaches the configuration routes.
         </CardDescription>
       </CardHeader>
 

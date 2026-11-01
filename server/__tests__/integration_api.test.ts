@@ -264,6 +264,50 @@ describe("integration API", () => {
     });
   });
 
+  describe("admin scope on configuration routes", () => {
+    it("lets an admin key list downloaders and indexers", async () => {
+      keyOverrides = { scope: "admin" };
+      expect((await withKey(request(app).get("/api/downloaders"))).status).toBe(200);
+      expect((await withKey(request(app).get("/api/indexers"))).status).toBe(200);
+    });
+
+    it.each(["all", "library:write", "read", "requests"])(
+      "refuses a %s key on a configuration route",
+      async (scope) => {
+        keyOverrides = { scope };
+        const res = await withKey(request(app).get("/api/downloaders"));
+        expect(res.status).toBe(403);
+        expect(res.body.code).toBe("API_KEY_SCOPE_DENIED");
+      }
+    );
+
+    it("refuses an admin key on routes outside the allowlist", async () => {
+      keyOverrides = { scope: "admin" };
+      expect((await withKey(request(app).get("/api/api-keys"))).status).toBe(401);
+      expect((await withKey(request(app).post("/api/api-keys").send({ name: "x" }))).status).toBe(
+        401
+      );
+      expect((await withKey(request(app).get("/api/games"))).status).toBe(401);
+    });
+
+    it("refuses an admin key on integration routes it was not granted", async () => {
+      keyOverrides = { scope: "admin" };
+      expect((await withKey(request(app).get("/api/integration/library"))).status).toBe(403);
+    });
+
+    it("still serves a JWT session on configuration routes", async () => {
+      const res = await request(app)
+        .get("/api/downloaders")
+        .set("Authorization", `Bearer ${tokenFor(USER.id)}`);
+      expect(res.status).toBe(200);
+    });
+
+    it("rejects an unknown key on a configuration route", async () => {
+      const res = await request(app).get("/api/downloaders").set("X-Api-Key", "qsr_nope");
+      expect(res.status).toBe(401);
+    });
+  });
+
   describe("GET /api/integration/library", () => {
     it("returns the caller's library in the external shape", async () => {
       (storage.getUserGames as Mock).mockResolvedValue([

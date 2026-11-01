@@ -1371,6 +1371,20 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     />
                   </div>
                 )}
+                {game.gameModes && game.gameModes.length > 0 && (
+                  <div>
+                    <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <Users className="h-3.5 w-3.5" />
+                      Game Modes
+                    </h4>
+                    <TagList
+                      items={game.gameModes}
+                      variant="secondary"
+                      maxVisible={6}
+                      getTestId={(m) => `badge-gamemode-${m.toLowerCase().replace(/\s+/g, "-")}`}
+                    />
+                  </div>
+                )}
                 {game.platforms && game.platforms.length > 0 && (
                   <div>
                     <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">

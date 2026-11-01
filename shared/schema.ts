@@ -180,6 +180,7 @@ export type CollectionRules = {
   statuses?: string[] | undefined;
   platforms?: string[] | undefined;
   genres?: string[] | undefined;
+  gameModes?: string[] | undefined;
   /** Minimum IGDB rating (0-10, as stored on games). */
   minRating?: number | undefined;
   /** Minimum personal rating (0.5-10). */
@@ -225,6 +226,7 @@ export const games = sqliteTable("games", {
   themes: text("themes", { mode: "json" }).$type<string[]>(),
   publishers: text("publishers", { mode: "json" }).$type<string[]>(),
   developers: text("developers", { mode: "json" }).$type<string[]>(),
+  gameModes: text("game_modes", { mode: "json" }).$type<string[]>(),
   screenshots: text("screenshots", { mode: "json" }).$type<string[]>(),
   // IGDB trailers/gameplay clips: `videoId` is the YouTube video id
   videos: text("videos", { mode: "json" }).$type<Array<{ name: string; videoId: string }>>(),

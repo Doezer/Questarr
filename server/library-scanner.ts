@@ -334,6 +334,7 @@ function igdbToInsertGame(igdb: IGDBGame, userId: string): InsertGame {
     genres: igdb.genres?.map((g) => g.name) ?? [],
     publishers:
       igdb.involved_companies?.filter((c) => c.publisher).map((c) => c.company.name) ?? [],
+    gameModes: igdb.game_modes?.map((m) => m.name) ?? [],
     developers:
       igdb.involved_companies?.filter((c) => c.developer).map((c) => c.company.name) ?? [],
     screenshots:

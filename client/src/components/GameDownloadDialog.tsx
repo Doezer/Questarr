@@ -155,6 +155,8 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 
+const SEARCH_DEBOUNCE_MS = 1000;
+
 type ReleaseMetadataBadgesProps = Readonly<{
   metadata: ReleaseMetadata;
   isUsenet: boolean;
@@ -295,7 +297,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   }, [game, queryClient]);
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  // Every search fans out to all enabled indexers, so wait for the user to pause typing
+  // long enough that partial queries don't flood the indexers (and trigger their backoff).
+  const debouncedTypedQuery = useDebounce(searchQuery, SEARCH_DEBOUNCE_MS);
+  // The prefill on open is a single query, not typing: it must not wait for the debounce.
+  const debouncedSearchQuery =
+    game && searchQuery === game.title ? searchQuery : debouncedTypedQuery;
   const [downloadingGuid, setDownloadingGuid] = useState<string | null>(null);
   const [showBundleDialog, setShowBundleDialog] = useState(false);
   const [selectedMainDownload, setSelectedMainDownload] = useState<DownloadItem | null>(null);
@@ -415,10 +422,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   // server applies that game's release blacklist.
   const searchQueryKey = buildSearchQueryKey(libraryGameId ?? game?.id);
 
-  const { data: searchResults, isLoading: isSearching } = useQuery<SearchResult>({
+  const { data: searchResults, isLoading: isSearchLoading } = useQuery<SearchResult>({
     queryKey: [searchQueryKey],
     enabled: open && debouncedSearchQuery.trim().length > 0,
   });
+  // While the user is still typing (input differs from the debounced query), the previous
+  // results are stale: show the searching state so they can't be picked by mistake.
+  const isSearching = isSearchLoading || searchQuery !== debouncedSearchQuery;
 
   // When a canonical search returns results, refresh the games list so the "Has results" badge
   // reflects the updated searchResultsAvailable flag. Only invalidate once per dialog session.

@@ -125,10 +125,18 @@ export default function CollectionDialog({
 
   const hasRules = !isEmptyCollectionRules(rules);
   const reversedYears = hasReversedYearRange(rules);
-  const matchCount = useMemo(
-    () => (hasRules ? games.filter((g) => gameMatchesCollectionRules(g, rules)).length : 0),
-    [games, rules, hasRules]
-  );
+  const matchCount = useMemo(() => {
+    if (!hasRules) return 0;
+    // ⚡ Bolt: Use a single-pass `for...of` loop to count matches instead of
+    // `.filter(...).length` to avoid O(N) array allocation overhead during renders
+    let count = 0;
+    for (const g of games) {
+      if (gameMatchesCollectionRules(g, rules)) {
+        count++;
+      }
+    }
+    return count;
+  }, [games, rules, hasRules]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {

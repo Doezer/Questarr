@@ -133,6 +133,15 @@ export class TfidfScorer {
     return norm === 0 ? entries : entries.map((e) => ({ index: e.index, value: e.value / norm }));
   }
 
+  /** False when no n-gram of the input is in the vocabulary, so a score would be the bias alone. */
+  hasFeatures(input: TfidfInput): boolean {
+    // The title-match token is synthetic and always known, so it must not count as a feature
+    const full = featureText(input, this.model.titleAware);
+    const marker = this.model.titleAware ? full.lastIndexOf("titlematch") : -1;
+    const text = (marker === -1 ? full : full.slice(0, marker)).trim();
+    return text.length > 0 && this.vectorize(text).some((entry) => entry.value !== 0);
+  }
+
   /** Class probabilities (softmax over the logits), in `model.classes` order. */
   probabilities(input: TfidfInput): number[] {
     const vector = this.vectorize(featureText(input, this.model.titleAware));

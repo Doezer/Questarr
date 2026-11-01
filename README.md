@@ -44,6 +44,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
   - [List of features](#list-of-features)
   - [Installation](#installation)
   - [Screenshots](#screenshots)
+  - [Release classification](#release-classification)
   - [Tech Stack](#tech-stack)
   - [Configuration](#configuration)
   - [Roadmap](#roadmap)
@@ -61,6 +62,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Game Discovery**          | Browse IGDB, RSS, and xREL.to, manage ratings and visibility from game details, sync your Steam wishlist, or discover games on disk with [Library Import](docs/LIBRARY_IMPORT.md).                                                                                                                                               |
 | **Search & Filter**         | Find games by genre, platform, and keyword, with automatic search until a release is found, plus release blacklisting and preferred release groups/platforms. Settings → Appearance → Platforms scopes the app to your chosen platforms, with optional filters to hide shelved/owned games and age-restricted or erotic content. |
 | **Download Management**     | Automate downloads and [library imports](docs/LIBRARY_IMPORT.md), with archive updates that preserve unrelated installed files, manual review, optional security scanning, and experimental AI matching.                                                                                                                         |
+| **Release Classification**  | A local machine-learning model tells the game from the patch, DLC, crack-only or demo release before an automatic download. The local model ships with Questarr and runs offline, no key needed. See [Release classification](#release-classification).                                                                          |
 | **Real-time Notifications** | Choose in-app and [Apprise alerts](docs/NOTIFICATIONS.md), including update controls for Shelved and Completed games.                                                                                                                                                                                                            |
 | **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available.                                                                                                                                                                                                                         |
 | **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                                                                                                                                                                                 |
@@ -344,6 +346,30 @@ Configure indexers, downloaders, and application preferences.
 <a href="images/Screenshots/settings.png"><img src="images/Screenshots/settings.png" /></a>
 
 </details>
+
+## Release classification
+
+Indexers return a lot of look-alikes: the game, a day-one patch, a DLC, a crack-only folder, a demo, a soundtrack. A fixed list of keywords cannot tell them apart reliably, because release names are inconsistent and the same words mean different things in different titles. Questarr classifies each release with a small machine-learning model and holds back the ones that are probably not the full game.
+
+**What you get**
+
+- **Fewer wrong grabs.** Before the automatic search sends a release to your download client, patches, DLC, expansions, crack-only releases, demos, soundtracks and other extras are held for your review instead of being downloaded.
+- **Works offline.** The second layer is a local model (tf-idf with logistic regression) that runs on your machine. No account, no API key, and release names are not sent anywhere.
+- **Learns from names, not only keywords.** It weighs the whole release name, so it handles spellings and group conventions that a hand-written rule list misses.
+- **Optional cloud model.** In `hybrid` mode, the TypeSafe cloud model only receives the releases the rules and the local model could not settle (or all unsettled releases, if the local model cannot be loaded). In `cloud` mode it handles them without the local model. Use `local` mode to keep release names on your server.
+- **Gets better with your input.** Optional active learning keeps the releases the classifier was unsure about so you can verify them in Settings and export the confirmed labels as CSV. Nothing is retrained automatically, a cloud suggestion is never stored as a verified label, and the labels and matches you provide stay on your server and are never sent to the cloud model. They are not sent anywhere else either, unless you tick **Share my verified labels automatically** in the review card (off by default, with a preview of the exact rows).
+
+**How it works**
+
+1. Fast rules catch the obvious cases.
+2. The local model decides when it is confident enough (threshold 70% by default).
+3. Only what is left can go to the cloud model, if you enabled it.
+
+The local model is bundled with Questarr (including the Docker image), so it works out of the box. To use your own, place a `release-classifier.json` in `<database folder>/models/` or point `CLASSIFIER_MODEL_PATH` at it; it takes priority over the bundled one (see [The local model](docs/RELEASE_CLASSIFICATION.md)). If no model can be loaded, only the rules run locally, and `hybrid` sends every release the rules cannot settle to the cloud model, if one is configured.
+
+Choose the mode in **Settings → Release classification**: `hybrid` (default), `local` (never leaves your machine) or `cloud`. The same card controls the confidence threshold, holding unclassified releases, and active learning. An environment variable, when set, wins over the saved setting and locks the field. The same pipeline types the manual search results and decides the automatic-download hold, so a release gets one type everywhere.
+
+Details, environment variables and the dataset are in [docs/RELEASE_CLASSIFICATION.md](docs/RELEASE_CLASSIFICATION.md).
 
 ## Tech Stack
 

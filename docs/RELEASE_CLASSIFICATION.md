@@ -19,6 +19,20 @@ this?". The auto-download hold in `server/cron.ts` decides what to do with the a
 
 A release that no layer can classify is `unknown`. It is never turned into `full_game`.
 
+## Settings page
+
+Everything below can be changed in Settings > Discovery & Downloads > Release classification,
+without restarting: the classification type, the local model confidence, holding unclassifiable
+releases, and the active-learning options (collection, cloud suggestions, the low-confidence
+threshold and the candidate limit). The card also shows whether a local model is installed (and
+its version) and whether a cloud provider is configured.
+
+**An environment variable wins.** When one of the variables in this page is set, the matching
+setting is shown read-only with the variable's name, and the API refuses to change it. Unset the
+variable to manage the setting from the page. The low-confidence threshold and the candidate
+limit have no variable: only the page changes them. Changing the type or the local confidence
+rebuilds the pipeline and clears its cache at once.
+
 ## Modes (`CLASSIFICATION_MODE`)
 
 | Mode               | Behaviour                                                                                                                                                                                                                                                    |
@@ -30,6 +44,15 @@ A release that no layer can classify is `unknown`. It is never turned into `full
 The cloud provider is the TypeSafe client already configured in Settings. Its model id
 (`typesafe.model`, for example `jev-latest` or an OpenRouter id) is the only thing that changes
 to use another compatible model.
+
+## One pipeline for search and auto-download
+
+The manual search results go through the same pipeline as the auto-download check. Each result
+keeps the existing categories (Main, Update, DLC, Extra), but its type now comes from the
+rules, the local model and, in `hybrid` mode, the cloud layer. So the type you see in a search
+is the one auto-download would act on. In `hybrid` and `cloud` mode only the top 15 results of a
+search are sent through a layer that may call a provider, to bound the calls; `local` mode types
+every result. In `cloud` mode the search keeps the Jev-only call it always made.
 
 ## What the auto-download hold does
 
@@ -43,19 +66,84 @@ A result of `unknown` goes through, as it does today. Set `CLASSIFICATION_HOLD_U
 hold those too. That is a behaviour change, so it is off by default. Any error in the pipeline
 lets the download proceed, like the existing Jev check.
 
-## Install the local model
+## The local model
 
-The model is trained on a labeled dataset that is not published, so you generate the file
-yourself and place it next to the database (the Docker data volume):
+A model trained on 459 labeled releases ships with the application, in
+`shared/models/release-classifier.json` (a few hundred KB of plain JSON, also inside the Docker
+image). Nothing needs installing: `hybrid` and `local` mode use it out of the box.
+
+### Performance
+
+In short: out of 10 releases the local model puts about 8 in the right category (full game, patch,
+DLC or unknown), against about 6 for the keyword rules alone. It does as well as the cloud model,
+runs in under a millisecond and needs no account.
+
+How it was measured: the 459 labeled releases (49 games) were split by game, so the model is
+tested on games it has never seen. 88 test releases were scored from the release name alone.
+The shipped file is retrained on all 459 releases, so it has no test score of its own; these
+numbers come from the same method on the split. The full method and the other candidates are in
+[`scripts/release-classifier-training/DECISION.md`](../scripts/release-classifier-training/DECISION.md).
+
+| Layer                                | Accuracy | Macro F1 |  Time per release | Size    |
+| ------------------------------------ | -------: | -------: | ----------------: | ------- |
+| Rules only                           |    56.8% |    53.9% |           0.03 ms | none    |
+| Local model (tf-idf + logistic reg.) |    78.4% |    79.9% |            0.7 ms | ~200 KB |
+| Cloud model (Jev, for comparison)    |    79.5% |    74.8% | ~840 ms (network) | none    |
+
+- **Accuracy** is the share of releases given the right category.
+- **Macro F1** also scores each category separately and then averages them, so a model cannot
+  look good just by getting the most common category right. It is also a percentage, and higher
+  is better. For example, always answering "patch" can score a decent accuracy but a low macro F1.
+- **Cross-validation** repeats the test five times on different groups of games. It gives 78.9%
+  for the local model, give or take 10.9 points depending on which games are tested. With this
+  little data, differences under about 5 points are not significant, so the local model and the
+  cloud model should be read as equivalent.
+- **The 70% confidence threshold** is how sure the model must be before its answer is used.
+  Below it, the release is passed on to the cloud model (`hybrid`) or left `unknown` (`local`)
+  instead of being guessed.
+- **The main mistake** is a full game read as a DLC; patches and unknown releases are the most
+  reliable categories. More labeled games is what improves it most (accuracy was still rising
+  with the 49 games available).
+
+To use your own, for example after retraining on more data (the dataset is not published),
+generate the file and place it where the server looks first:
 
 ```powershell
 npx tsx scripts/release-benchmark/export-model.ts --dataset releases-labeled.csv --out release-classifier.json
 ```
 
-Copy `release-classifier.json` to `<database folder>/models/` (in Docker: `/app/data/models/`) or
-point `CLASSIFIER_MODEL_PATH` at it, then restart. Without the file, `local` mode can only use the
-rules and `hybrid` mode goes straight to the cloud provider. The file is plain JSON of a few
-hundred KB, validated on load; a damaged file is ignored and logged.
+Copy the exported file to `<database folder>/models/release-classifier.json`, or keep it anywhere
+and set `CLASSIFIER_MODEL_PATH` to its location.
+
+Lookup order: `CLASSIFIER_MODEL_PATH`, then `<database folder>/models/release-classifier.json`
+(in Docker: `/app/data/models/`), then the bundled model. Restart after changing the file. The
+file is validated on load; a missing or damaged one is logged and the next in the list
+is tried. To replace the bundled model for everyone, overwrite `shared/models/release-classifier.json` in a pull request.
+
+### Share your dataset
+
+The bundled model is only as good as the 459 releases it learned from (49 games), and more labeled
+games is what improves it most. If you have a dataset of your own, for example the verified labels
+exported from **Settings → Release classification**, you are invited to share it so the public
+classifier can be retrained on more data. Two ways, both your choice:
+
+- **From the app (opt-in).** In the review card, tick **Share my verified labels
+  automatically** (off by default). While it is ticked, a task ("Label sharing", every 6 hours,
+  visible in System Tasks) sends the labels you verified since the last run. **See what will be
+  sent** shows the exact rows, and **Send now** sends them without waiting. Only verified rows go,
+  and each carries four fields and nothing else: the release name, the game title, the label you
+  chose and the version of the local model. No account, path, address or library data. Rows
+  already sent are not sent again, and a request carries at most 200 rows. The address is fixed in
+  the code and the request needs no key; it follows no redirect. If the collection point cannot
+  be reached, the rows stay unsent and the next run tries again. Unticking the box stops all
+  sending; rows already received cannot be recalled from the app.
+- **By hand.** Open an issue on [Doezer/Questarr](https://github.com/Doezer/Questarr/issues) and
+  attach the CSV from **Export verified**.
+
+Nothing is shared unless you tick the box. A shared label is a proposal: the maintainer only trains on a
+class that several independent senders agree on, or after checking it, and never retrains
+automatically. Only release names and their labels are needed, so with the manual route remove
+anything you do not want to publish before attaching it.
 
 Run `scripts/release-benchmark/run.ts` on a held-out split before trusting a new model (see
 `scripts/release-benchmark/README.md`). Do not expect a small model to reach high automatic
@@ -72,11 +160,12 @@ made and the review card does not appear.
 
 What is collected (only in `local` and `hybrid` mode, and never while a layer failed):
 
-| Reason           | Meaning                                                            |
-| ---------------- | ------------------------------------------------------------------ |
-| `unresolved`     | No layer could say what the release is.                            |
-| `low_confidence` | A layer decided, but below 85 % confidence.                        |
-| `disagreement`   | The rules and the local model's best guess name different classes. |
+| Reason               | Meaning                                                                       |
+| -------------------- | ----------------------------------------------------------------------------- |
+| `unresolved`         | No layer could say what the release is.                                       |
+| `low_confidence`     | A layer decided, but below 85 % confidence.                                   |
+| `disagreement`       | The rules and the local model's best guess name different classes.            |
+| `model_disagreement` | The cloud model answered a different class than the local model's best guess. |
 
 Each release is stored once per game (case and spacing ignored) with its name, game, platform,
 size, what each layer answered, and a count of how often it came back. A release you already
@@ -96,9 +185,12 @@ one you can verify a label (the local model's guess or the cloud suggestion is p
 applied), mark it ambiguous, or mark it as not an example. Ambiguous and rejected releases are
 never exported.
 
+Every time the waiting list reaches a multiple of 25 releases, each user gets one notification,
+"Releases need your review". Clicking it opens this card.
+
 `ACTIVE_LEARNING_CLOUD_SUGGEST=true` adds an "Ask the cloud model" button. It sends one release
 name (with its size and platform) to the configured provider, costs what one Jev call costs, and
-only when you press it. It needs a TypeSafe key; without one the button is hidden. If the
+only when you press it. If its answer differs from the local model's best guess, the release is flagged `model_disagreement` and moves up the list. In `hybrid` mode the same flag is set without an extra request when the cloud was already asked because the local model was unsure. It needs a TypeSafe key; without one the button is hidden. If the
 provider fails, the candidate is left as it was.
 
 The API behind the card is under `/api/classification-candidates` and uses the same
@@ -124,6 +216,23 @@ npx tsx scripts/release-benchmark/run.ts --dataset releases-heldout.csv --classi
 npx tsx scripts/release-benchmark/export-model.ts --dataset releases-labeled.csv --out release-classifier.json
 ```
 
+#### Labels shared by other installs (collector)
+
+If you run the label collector (Doezer/Questarr-mgmt#60, repository `questarr-label-collector`), step 1
+above is replaced by an export from its database. `consolidate.sql` keeps only labels confirmed by at
+least 3 different senders with no contradicting majority. In PowerShell, from the collector's folder
+(this snippet is untested on real data, check the CSV before merging):
+
+```powershell
+$rows = (npx wrangler d1 execute questarr-labels --remote --file consolidate.sql --json | ConvertFrom-Json)[0].results
+# Neutralize spreadsheet formulas in any cell
+foreach ($r in $rows) { foreach ($p in 'release_name','query','human_label') { if ($r.$p -match '^[=+\-@]') { $r.$p = "'" + $r.$p } } }
+$rows | Select-Object release_name, query, human_label | Export-Csv verified-candidates.csv -NoTypeInformation -Encoding utf8
+```
+
+Then follow steps 2 to 4 above with `verified-candidates.csv`. Nothing from the collector reaches a
+model by itself: the merge reports conflicts, and you decide what to retrain and ship.
+
 Keep the **held-out evaluation set in its own file** and never merge candidates into it: the
 benchmark splits by game, and a game that is both in the held-out file and in the training file
 would leak. The merge script enforces that for games already in the held-out file. Growing the
@@ -132,8 +241,8 @@ held-out file is a deliberate step you do by hand.
 ### Delete
 
 "Delete all candidates" in the card (or `DELETE /api/classification-candidates`, optionally
-`?status=rejected`) removes the collected releases. Turn collection off by unsetting
-`ACTIVE_LEARNING_COLLECT`; existing candidates stay until you delete them.
+`?status=rejected`) removes the collected releases. Turn collection off in the Settings page (or by unsetting
+`ACTIVE_LEARNING_COLLECT`); existing candidates stay until you delete them.
 
 ## Operations
 
@@ -142,10 +251,11 @@ held-out file is a deliberate step you do by hand.
   version, the mode, the local model version, the cloud model id and whether a provider is
   configured, so installing a new model or changing the provider never serves stale answers.
   Results from a failing layer (error, timeout, unusable answer) are not cached.
+- Cloud mode: the historical Jev call keeps its own in-memory cache (24 h, 2,000 entries, keyed by release name, size, platform, model and provider settings), so a name seen on every search is asked once. A failed call is never cached. Neither cache survives a restart.
 - Logs: one `debug` line per release in the `classification` module with the layers consulted,
   class, confidence, source and model version.
-- Docker: no new container and no native dependency. The only addition is the optional model file
-  in the data volume.
+- Docker: no new container and no native dependency. The model file ships in the image; an
+  optional one in the data volume overrides it.
 
 ## Compatibility
 
@@ -155,4 +265,4 @@ held-out file is a deliberate step you do by hand.
   without a key. Set `CLASSIFICATION_MODE=cloud` to get the previous behaviour back.
 - API and UI are unchanged unless `ACTIVE_LEARNING_COLLECT` is set (see above).
 - Search-result AI badges (`enrichWithAiAnalysis`) still use Jev only, in every mode.
-- One new table, `classification_candidates` (SQLite and Postgres migrations), used only by active learning. No new setting in the UI.
+- One new table, `classification_candidates` (SQLite and Postgres migrations), used only by active learning. Settings are saved in the existing system configuration (`classification.settings`), so no migration.

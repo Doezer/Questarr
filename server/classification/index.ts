@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
 import { typesafeClient } from "../typesafe.js";
@@ -12,20 +13,49 @@ export { type PipelineResult } from "./pipeline.js";
 const CLOUD_ACCEPT_THRESHOLD = 0.6;
 const DEFAULT_MODEL_FILE = "release-classifier.json";
 
-/** The model sits next to the database by default, so it rides along with the data volume. */
-function modelPath(): string {
-  return (
-    config.classification.modelPath ||
-    path.join(path.dirname(path.resolve(config.database.url)), "models", DEFAULT_MODEL_FILE)
+/** The model shipped with the application, read from the working directory (the repo root or /app). */
+const BUNDLED_MODEL = path.join("shared", "models", DEFAULT_MODEL_FILE);
+
+/**
+ * Model files in priority order: `CLASSIFIER_MODEL_PATH`, then a model next to the database (so a
+ * retrained one rides along with the data volume and overrides the bundled one), then the model
+ * shipped with the application. A candidate that is missing or refused falls through to the next.
+ */
+function modelCandidates(): string[] {
+  // SQLITE_DB_PATH may name the data folder itself, which connectSqlite() accepts
+  const dbPath = path.resolve(config.database.url);
+  const isFolder = fs.existsSync(dbPath) && fs.statSync(dbPath).isDirectory();
+  const installed = path.join(
+    isFolder ? dbPath : path.dirname(dbPath),
+    "models",
+    DEFAULT_MODEL_FILE
+  );
+  return [config.classification.modelPath, installed, path.resolve(BUNDLED_MODEL)].filter(
+    (candidate): candidate is string => !!candidate
   );
 }
 
+function loadFirstModel(): {
+  model: NonNullable<ReturnType<typeof loadLocalModel>>;
+  path: string;
+} | null {
+  for (const candidate of modelCandidates()) {
+    const model = loadLocalModel(candidate);
+    if (model) return { model, path: candidate };
+  }
+  return null;
+}
+
 let local: LocalTfidfClassifier | null | undefined;
+let localPath = "";
 
 function localLayer(): LocalTfidfClassifier | null {
   if (local === undefined) {
-    const model = loadLocalModel(modelPath());
-    local = model ? new LocalTfidfClassifier(model, config.classification.localThreshold) : null;
+    const loaded = loadFirstModel();
+    localPath = loaded?.path ?? modelCandidates()[0] ?? "";
+    local = loaded
+      ? new LocalTfidfClassifier(loaded.model, config.classification.localThreshold)
+      : null;
   }
   return local;
 }
@@ -34,6 +64,12 @@ function localLayer(): LocalTfidfClassifier | null {
 export function reloadLocalModel(): void {
   local = undefined;
   releasePipeline.clearCache();
+}
+
+/** Whether a local model file is installed and loaded, for the Settings page. */
+export function localModelStatus(): { installed: boolean; version: string | null; path: string } {
+  const layer = localLayer();
+  return { installed: layer !== null, version: layer?.modelVersion ?? null, path: localPath };
 }
 
 /** The local model's best guess for a release, or null when no model is installed. */

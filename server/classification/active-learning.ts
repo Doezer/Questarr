@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { classifyReleaseByRules } from "../../shared/release-classification.js";
 import {
   CANDIDATE_LABELS,
+  classesConflict,
   type CandidateLabel,
   type CandidateReason,
   type CandidateSignals,
@@ -9,16 +10,15 @@ import {
 import type { ClassificationCandidate } from "../../shared/schema.js";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
+import { notifyUser } from "../socket.js";
 import { storage } from "../storage.js";
 import type { PipelineResult } from "./pipeline.js";
 import type { CloudInput } from "./types.js";
 
 const alLogger = logger.child({ module: "active-learning" });
 
-/** Collection stops here; a person labels a few hundred releases, not tens of thousands. */
+/** Default cap; a person labels a few hundred releases, not tens of thousands. */
 export const MAX_CANDIDATES = 5000;
-/** A final answer below this is "low confidence" even when a layer accepted it. */
-const LOW_CONFIDENCE = 0.85;
 
 /** Same release for the same game, whatever the case or spacing. */
 export function candidateKey(releaseName: string, gameTitle: string | null | undefined): string {
@@ -46,6 +46,9 @@ export interface Assessment {
  *
  * - unresolved: nothing could say what it is.
  * - disagreement: the rules and the local model's best guess name different classes.
+ * - model_disagreement: the cloud model decided where the local model only had a best guess
+ *   below its threshold, and the two name different classes. Costs nothing extra: the cloud
+ *   was already asked.
  * - low_confidence: a layer decided, but not by much.
  */
 export function assessCandidate(
@@ -63,11 +66,24 @@ export function assessCandidate(
   if (rules.class !== "unknown" && local && local.class !== rules.class) {
     reasons.push("disagreement");
   }
+  // A cloud demo, soundtrack or crack-only verdict has class unknown plus a flag: still a
+  // definitive answer, and one a local guess of a real class contradicts
+  const cloudDecided = result.class !== "unknown" || resolvedByFlag;
+  if (
+    result.source === "cloud" &&
+    local &&
+    cloudDecided &&
+    (result.class === "unknown"
+      ? local.class !== "unknown"
+      : classesConflict(result.class, local.class))
+  ) {
+    reasons.push("model_disagreement");
+  }
   if (
     result.source !== "rules" &&
     result.class !== "unknown" &&
     result.confidence !== null &&
-    result.confidence < LOW_CONFIDENCE
+    result.confidence < config.classification.activeLearning.lowConfidence
   ) {
     reasons.push("low_confidence");
   }
@@ -77,6 +93,7 @@ export function assessCandidate(
   const priority =
     (reasons.includes("unresolved") ? 50 : 0) +
     (reasons.includes("disagreement") ? 40 : 0) +
+    (reasons.includes("model_disagreement") ? 40 : 0) +
     (reasons.includes("low_confidence") ? 20 : 0) +
     Math.round((1 - confidence) * 10);
 
@@ -98,6 +115,88 @@ export function assessCandidate(
       },
     },
   };
+}
+
+/** The review card, reached from the notification: Settings > Discovery & Downloads. */
+export const REVIEW_LINK = "/settings?tab=discovery#classification-review";
+
+/** One notification each time the waiting list grows by this many, so it never turns into noise. */
+export const REVIEW_NOTIFY_EVERY = 25;
+
+/**
+ * Checks run one at a time: collections of releases classified in a row overlap, and two of them
+ * reading the count together would skip a multiple of REVIEW_NOTIFY_EVERY or announce it twice.
+ */
+let backlogChain: Promise<void> = Promise.resolve();
+/** The last group of REVIEW_NOTIFY_EVERY the list reached; null until the first check. */
+/** Recipients already notified for `deliveringBucket`, so a retry does not repeat them. */
+const deliveredTo = new Set<string>();
+let deliveringBucket: number | null = null;
+let notifiedBucket: number | null = null;
+
+async function checkReviewBacklog(): Promise<void> {
+  const waiting = await storage.countClassificationCandidates({ status: "pending" });
+  const bucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
+  // Without a baseline (it could not be read) nothing is announced rather than guessed
+  notifiedBucket ??= bucket;
+  // Labeling shrinks the list: follow it down so the next climb to a multiple announces again
+  if (bucket < notifiedBucket) notifiedBucket = bucket;
+  if (bucket <= notifiedBucket) return;
+  if (deliveringBucket !== bucket) {
+    deliveringBucket = bucket;
+    deliveredTo.clear();
+  }
+  const users = (await storage.getAllUsers()).filter((user) => !deliveredTo.has(user.id));
+  const results = await Promise.allSettled(
+    users.map(async (user) => {
+      const notification = await storage.addNotification({
+        userId: user.id,
+        type: "info",
+        title: "Releases need your review",
+        message: `${waiting} releases the classifier was unsure about are waiting for a label. Labeling a few helps the local model improve.`,
+        link: REVIEW_LINK,
+      });
+      deliveredTo.add(user.id);
+      notifyUser("notification", notification, notification.userId);
+    })
+  );
+  const failed = results.find((r) => r.status === "rejected");
+  // The step is only taken once everyone has it; a retry skips those already notified
+  if (failed) throw (failed as PromiseRejectedResult).reason;
+  notifiedBucket = bucket;
+  deliveringBucket = null;
+  deliveredTo.clear();
+}
+
+/**
+ * Reads the waiting list before each insert, so a crossing is measured against what was there and
+ * not inferred from a count taken after concurrent inserts. The baseline only ever moves down
+ * here: labeling shrinks the list, and the climb back must announce again, while a delivery still
+ * owed (baseline below the current group) is kept for the retry.
+ */
+function ensureBacklogBaseline(): Promise<void> {
+  backlogChain = backlogChain
+    .then(async () => {
+      const waiting = await storage.countClassificationCandidates({ status: "pending" });
+      const bucket = Math.floor(waiting / REVIEW_NOTIFY_EVERY);
+      notifiedBucket = notifiedBucket === null ? bucket : Math.min(notifiedBucket, bucket);
+    })
+    .catch((error) => {
+      alLogger.warn({ error }, "Could not read the classification review backlog");
+    });
+  return backlogChain;
+}
+
+/**
+ * Tells every user that releases are waiting for a label. Nobody opens the review card on their
+ * own, so a new candidate that brings the waiting list into a new group of REVIEW_NOTIFY_EVERY
+ * sends one notification that opens the card. Never throws.
+ */
+function notifyReviewBacklog(): Promise<void> {
+  backlogChain = backlogChain.then(checkReviewBacklog).catch((error) => {
+    alLogger.warn({ error }, "Could not notify about the classification review backlog");
+  });
+  return backlogChain;
 }
 
 /** A release that keeps turning up is written once an hour, not on every auto-search cycle. */
@@ -141,14 +240,18 @@ export async function collectCandidate(
     const dedupeKey = candidateKey(input.title, input.gameTitle);
     const now = Date.now();
     if (seenRecently(dedupeKey, now)) return;
-    // Remembered before the cap check so a full table is not counted and logged on every cycle
+    const stored = await storage.countClassificationCandidates();
+    // Remembered once the count succeeded, so a full table is not counted and logged on every
+    // cycle while a failed count is still retried
     remember(dedupeKey, now);
-    if ((await storage.countClassificationCandidates()) >= MAX_CANDIDATES) {
+    const max = config.classification.activeLearning.maxCandidates;
+    if (stored >= max) {
       // At the cap nothing is written, not even a refresh of an existing row: delete some first
-      alLogger.warn({ max: MAX_CANDIDATES }, "Candidate limit reached, not collecting more");
+      alLogger.warn({ max }, "Candidate limit reached, not collecting more");
       return;
     }
-    await storage.upsertClassificationCandidate({
+    await ensureBacklogBaseline();
+    const { candidate, created } = await storage.upsertClassificationCandidate({
       id: randomUUID(),
       dedupeKey,
       releaseName: input.title,
@@ -159,14 +262,43 @@ export async function collectCandidate(
       signals: JSON.stringify(assessment.signals),
       priority: assessment.priority,
     });
+    // A refresh rewrites the reasons of a pending candidate, so a disagreement found through the
+    // "Ask the cloud model" button is derived again from the suggestion that is still stored
+    if (candidate.status === "pending" && candidate.suggestedLabel) {
+      const flagged = disagreementUpdate(candidate, candidate.suggestedLabel);
+      if (flagged) await storage.updateClassificationCandidate(candidate.id, flagged);
+    }
+    if (created) await notifyReviewBacklog();
   } catch (error) {
     alLogger.warn({ error, title: input.title }, "Could not store a classification candidate");
   }
 }
 
+/**
+ * What a cloud suggestion adds to a candidate: when it names a different class than the local
+ * model's best guess, the candidate gets the `model_disagreement` reason and the priority that
+ * goes with it. Null when nothing changes (no local guess, same class, or already flagged).
+ */
+export function disagreementUpdate(
+  candidate: Pick<ClassificationCandidate, "reasons" | "signals" | "priority">,
+  suggestedLabel: string
+): { reasons: string; priority: number } | null {
+  const reasons = parse<CandidateReason[]>(candidate.reasons, []);
+  if (reasons.includes("model_disagreement")) return null;
+  const local = parse<CandidateSignals | null>(candidate.signals, null)?.local;
+  if (!local || !classesConflict(suggestedLabel, local.class)) return null;
+  return {
+    reasons: JSON.stringify([...reasons, "model_disagreement"]),
+    priority: candidate.priority + 40,
+  };
+}
+
 /** Forgets which releases were just written, so deleted candidates can be collected again. */
 export function resetCollectionMemory(): void {
   recentlySeen.clear();
+  notifiedBucket = null;
+  deliveringBucket = null;
+  deliveredTo.clear();
 }
 
 export interface RankedCandidate {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Server,
@@ -50,6 +51,7 @@ import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import ReleaseScoringSettings from "@/components/ReleaseScoringSettings";
 import ReleaseNameBlacklistSettings from "@/components/ReleaseNameBlacklistSettings";
 import ClassificationReviewSettings from "@/components/ClassificationReviewSettings";
+import ClassificationSettings from "@/components/ClassificationSettings";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 import {
@@ -209,7 +211,36 @@ function SettingsFilterCard({
 /**
  * Configures application preferences, integrations, notifications, account security, and system maintenance settings.
  */
+const SETTINGS_TABS = new Set([
+  "appearance",
+  "discovery",
+  "notifications",
+  "integrations",
+  "import",
+  "account-security",
+  "system",
+]);
+
+/** The tab named by `?tab=` (a notification link), or null when there is none. */
+function tabFromSearch(search: string): string | null {
+  const tab = new URLSearchParams(search).get("tab");
+  return tab && SETTINGS_TABS.has(tab) ? tab : null;
+}
+
 export default function SettingsPage() {
+  const search = useSearch();
+  const [, navigate] = useLocation();
+  const [activeTab, setActiveTab] = useState(() => tabFromSearch(search) ?? "appearance");
+  // A link to this page while it is already open, such as a notification, changes the tab
+  useEffect(() => {
+    const tab = tabFromSearch(search);
+    if (tab) setActiveTab(tab);
+  }, [search]);
+  // Picking a tab by hand updates the URL too, so a later link to ?tab= is a real change
+  const selectTab = (tab: string) => {
+    setActiveTab(tab);
+    navigate(`/settings?tab=${tab}`, { replace: true });
+  };
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -502,6 +533,7 @@ export default function SettingsPage() {
 
   const { data: appriseSettings } = useQuery<{
     configured: boolean;
+    contextLinksEnabled?: boolean;
     mode: "api" | "cli";
     apiUrl: string | null;
     key: string | null;
@@ -1249,7 +1281,7 @@ export default function SettingsPage() {
           </Alert>
         )}
 
-        <Tabs defaultValue="appearance" className="w-full">
+        <Tabs value={activeTab} onValueChange={selectTab} className="w-full">
           <div className="relative mb-4 sm:mb-8">
             <TabsList
               ref={setTabsScrollNode}
@@ -1491,6 +1523,7 @@ export default function SettingsPage() {
               blacklistTerms={releaseNameBlacklist}
               onTermsChange={setReleaseNameBlacklist}
             />
+            <ClassificationSettings />
             <ClassificationReviewSettings />
           </TabsContent>
 
@@ -1642,6 +1675,40 @@ export default function SettingsPage() {
                       className="text-primary underline underline-offset-2"
                     >
                       appriseit.com/url-builder
+                    </a>
+                    .
+                  </p>
+                </div>
+                <div
+                  className="space-y-1 rounded-md border p-3 text-sm text-muted-foreground"
+                  data-testid="apprise-context-links-help"
+                >
+                  <p className="font-medium text-foreground">Context links</p>
+                  {appriseSettings?.contextLinksEnabled ? (
+                    <p>
+                      Alerts tied to a page end with an &ldquo;Open in Questarr&rdquo; link (for
+                      example the game&apos;s details page, where you can download). Error reports
+                      have no page to link to.
+                    </p>
+                  ) : (
+                    <p>
+                      Set the <code>APP_URL</code> environment variable (for example{" "}
+                      <code>https://questarr.example.com</code>) to add an &ldquo;Open in
+                      Questarr&rdquo; link to alerts that have a related page (error reports do
+                      not).
+                    </p>
+                  )}
+                  <p>
+                    The link is sent in the message body. Rich cards, buttons or link previews
+                    depend on the target service: set them in its Apprise URL (for example{" "}
+                    <code>format=markdown</code> for Telegram or Discord). See the{" "}
+                    <a
+                      href="https://github.com/caronc/apprise/wiki"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary underline underline-offset-2"
+                    >
+                      Apprise service documentation
                     </a>
                     .
                   </p>

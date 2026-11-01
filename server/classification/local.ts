@@ -35,6 +35,7 @@ export class LocalTfidfClassifier implements ReleaseClassifier {
   guess(input: CloudInput): { class: Classification["class"]; confidence: number } | null {
     if (this.scorer.model.titleAware && !input.gameTitle) return null;
     try {
+      if (!this.scorer.hasFeatures({ title: input.title, gameTitle: input.gameTitle })) return null;
       const { class: guessed, confidence } = this.scorer.predict({
         title: input.title,
         gameTitle: input.gameTitle,
@@ -55,6 +56,10 @@ export class LocalTfidfClassifier implements ReleaseClassifier {
     };
     if (this.scorer.model.titleAware && !input.gameTitle) return Promise.resolve(abstain);
     try {
+      // A name with no known n-gram would be scored by the model's bias alone: abstain instead
+      if (!this.scorer.hasFeatures({ title: input.title, gameTitle: input.gameTitle })) {
+        return Promise.resolve({ ...abstain, ruleIds: ["local.no-features"] });
+      }
       const prediction = this.scorer.predict({ title: input.title, gameTitle: input.gameTitle });
       if (prediction.confidence < this.acceptThreshold) {
         return Promise.resolve({ ...abstain, confidence: prediction.confidence });

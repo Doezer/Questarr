@@ -1558,9 +1558,17 @@ describe("API Routes - Extended Coverage", () => {
 
     describe("GET /api/igdb/platforms", () => {
       it("should return platforms", async () => {
+        vi.mocked(igdbClient.getPlatforms).mockResolvedValue([{ id: 1, name: "Platform 1" }]);
+        const response = await request(app).get("/api/igdb/platforms");
+        expect(response.status).toBe(200);
+        expect(response.headers["cache-control"]).toContain("max-age=86400");
+      });
+
+      it("should not let browsers cache an empty platform list", async () => {
         vi.mocked(igdbClient.getPlatforms).mockResolvedValue([]);
         const response = await request(app).get("/api/igdb/platforms");
         expect(response.status).toBe(200);
+        expect(response.headers["cache-control"]).toBe("no-store");
       });
     });
 
@@ -3212,7 +3220,30 @@ describe("API Routes - Extended Coverage", () => {
       }
     });
 
-    it("should include blacklistedCount in response when items are blacklisted", async () => {
+    // storage mock that lets release scoring load; without it scoring fails and results stay unscored
+    const mockScoringStorage = () => {
+      Object.assign(storage, {
+        getReleaseProfile: vi.fn().mockResolvedValue({
+          id: "p1",
+          userId: "user-1",
+          minScore: 0,
+          protocolPreference: "either",
+          requiredTerms: [],
+          ignoredTerms: [],
+          minSeeders: 0,
+          maxSizeBytes: null,
+          builtInOverrides: {},
+          formatScores: {},
+        }),
+        getCustomFormats: vi.fn().mockResolvedValue([]),
+      });
+    };
+    const clearScoringStorage = () => {
+      Reflect.deleteProperty(storage, "getReleaseProfile");
+      Reflect.deleteProperty(storage, "getCustomFormats");
+    };
+
+    it("keeps the game's blacklisted releases, marked risky", async () => {
       const mockGame = { id: "game-1", userId: "user-1", title: "Test Game" };
       vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
       vi.mocked(storage.getReleaseBlacklistSet).mockResolvedValue(
@@ -3240,11 +3271,28 @@ describe("API Routes - Extended Coverage", () => {
         errors: [],
       });
 
-      const response = await request(app).get("/api/search?query=Test+Game&gameId=game-1");
+      mockScoringStorage();
+      let response;
+      try {
+        response = await request(app).get("/api/search?query=Test+Game&gameId=game-1");
+      } finally {
+        clearScoringStorage();
+      }
 
       expect(response.status).toBe(200);
-      expect(response.body.items).toHaveLength(1);
-      expect(response.body.blacklistedCount).toBe(2);
+      expect(response.body.items).toHaveLength(3);
+      const byTitle = Object.fromEntries(
+        response.body.items.map((i: { title: string }) => [i.title, i])
+      );
+      expect(byTitle["Test Game-SKIDROW"].blacklisted).toBe(true);
+      expect(byTitle["Test Game-PLAZA"].blacklisted).toBe(true);
+      expect(byTitle["Test Game-SKIDROW"].trust.level).toBe("risky");
+      expect(
+        byTitle["Test Game-SKIDROW"].trust.reasons.map((r: { code: string }) => r.code)
+      ).toContain("blacklisted");
+      expect(byTitle["Test Game-CODEX"].blacklisted).toBeUndefined();
+      expect(byTitle["Test Game-CODEX"].trust.level).not.toBe("risky");
+      expect(response.body.blacklistedCount).toBeUndefined();
     });
 
     it("should not filter when game belongs to another user", async () => {
@@ -3334,13 +3382,20 @@ describe("API Routes - Extended Coverage", () => {
         errors: [],
       });
 
-      const response = await request(app).get("/api/search?query=Test+Game&gameId=game-1");
+      mockScoringStorage();
+      let response;
+      try {
+        response = await request(app).get("/api/search?query=Test+Game&gameId=game-1");
+      } finally {
+        clearScoringStorage();
+      }
 
       expect(response.status).toBe(200);
       expect(response.body.items.map((i: { title: string }) => i.title)).toEqual([
+        "Test Game-SKIDROW",
         "Test Game-CODEX",
       ]);
-      expect(response.body.blacklistedCount).toBe(2);
+      expect(response.body.blacklistedCount).toBe(1);
     });
   });
 
@@ -4449,6 +4504,10 @@ describe("API Routes - Extended Coverage", () => {
         expect.not.stringContaining("valid-key"),
         expect.objectContaining({ headers: { "x-apikey": "valid-key" } })
       );
+      // VirusTotal answers 400 to a malformed hash, so the EICAR lookup must be
+      // a full 64-character SHA-256.
+      const [url] = vi.mocked(ssrfModule.safeFetch).mock.calls.at(-1) as [string];
+      expect(url).toMatch(/\/files\/[0-9a-f]{64}$/);
     });
 
     it("reports an invalid VirusTotal API key", async () => {

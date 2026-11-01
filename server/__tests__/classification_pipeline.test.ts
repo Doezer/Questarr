@@ -144,6 +144,15 @@ describe("local layer", () => {
     const layer = new LocalTfidfClassifier(classifier.toModelFile("aware"), 0);
     expect((await layer.classify({ title: "Cyber Quest-GRP" })).class).toBe("unknown");
   });
+
+  it("abstains on a title-aware model when only the title-match token is known", async () => {
+    const classifier = new TfidfClassifier({ titleAware: true, seed: 7, threshold: 0 });
+    classifier.train(TRAINING);
+    const layer = new LocalTfidfClassifier(classifier.toModelFile("aware"), 0);
+    const result = await layer.classify({ title: "漢字", gameTitle: "Cyber Quest" });
+    expect(result.class).toBe("unknown");
+    expect(result.ruleIds).toEqual(["local.no-features"]);
+  });
 });
 
 describe("cloud layer", () => {
@@ -354,6 +363,26 @@ describe("pipeline cache", () => {
     await pipeline.classify(UNRULED);
     expect(cloud).toHaveBeenCalledTimes(1);
     cloudVersion = "C2";
+    await pipeline.classify(UNRULED);
+    expect(cloud).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a call that started before clearCache() write its result back", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const cloud = spy(async () => {
+      await gate;
+      return result("cloud", "full_game");
+    });
+    const pipeline = new ClassificationPipeline(
+      configOf("cloud"),
+      layersOf(null, { classify: cloud })
+    );
+    const inFlight = pipeline.classify(UNRULED);
+    await vi.waitFor(() => expect(cloud).toHaveBeenCalledTimes(1));
+    pipeline.clearCache();
+    release();
+    await inFlight;
     await pipeline.classify(UNRULED);
     expect(cloud).toHaveBeenCalledTimes(2);
   });

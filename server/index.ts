@@ -13,6 +13,7 @@ import { startCronJobs } from "./cron.js";
 import { setupSocketIO } from "./socket.js";
 import { createHttpsRedirect } from "./https-redirect.js";
 import { ensureDatabase } from "./migrate.js";
+import { loadClassificationSettingsWithRetry } from "./classification/settings.js";
 import { rssService } from "./rss.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import { appriseClient, readAppriseSettings } from "./apprise.js";
@@ -66,6 +67,11 @@ void (async () => {
 
     // Initialize RSS service (seeding default feeds)
     await rssService.initialize();
+
+    // Apply the classification settings saved in the DB (environment variables still win).
+    // A failure here must not let auto-search run on the defaults, which could release a
+    // download the saved settings would hold, so it is retried and then stops the startup.
+    await loadClassificationSettingsWithRetry();
 
     // Load the downloader debug-logging setting from the DB into memory
     try {

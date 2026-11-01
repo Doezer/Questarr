@@ -28,6 +28,17 @@ Drawing a game never changes your collection; only Mark as Playing changes statu
 No API key, command line or additional setup is needed. The feature uses the
 Library's existing authenticated data and status update endpoint.
 
+## Find a weekend quest
+
+Use **Game length** to choose **A short adventure** (up to 5 hours), **A weekend
+quest** (up to 15 hours), or **A longer journey** (up to 40 hours). Roulette uses
+the game's normal completion estimate from IGDB. This is estimated total time
+to finish, not a single play session or remaining time for a game in progress.
+Games without a positive, known estimate stay out of length-filtered draws;
+**Any length**, the default, includes them. The selected game's estimate appears
+beside its status. Changing the length draws again using the same pool and
+Library filters.
+
 ## Pick from Playing
 
 On **Playing**, **Pick a game** draws only from your currently playing games

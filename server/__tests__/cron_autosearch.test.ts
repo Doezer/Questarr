@@ -2905,13 +2905,17 @@ describe("release scoring in auto-search", () => {
     expect(result?.mainItems.map((i) => i.title)).toEqual(["英雄伝説-GOG"]);
   });
 
-  it("defers the automatic grab once when xREL is too slow, then goes ahead without it", async () => {
+  it("keeps deferring the automatic grab while xREL is unavailable", async () => {
     vi.useFakeTimers();
     try {
       mockXrelSearchReleases.mockReturnValue(new Promise(() => {}));
       mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
       mockSearchAllIndexers.mockResolvedValue({ items: [item("Slowgame-CODEX")], errors: [] });
-      const withXrel = { ...scoring, xrelTypes: { scene: true, p2p: false } };
+      const withXrel = {
+        ...scoring,
+        xrelTypes: { scene: true, p2p: false },
+        deferOnXrelUnavailable: true,
+      };
       const run = async () => {
         const pending = searchAndCategorizeItemsForGame(
           { id: "slow-1", title: "Slowgame", targetPlatformId: null, targetPlatformName: null },
@@ -2924,7 +2928,31 @@ describe("release scoring in auto-search", () => {
         return pending;
       };
       expect(await run()).toBe(AUTO_SEARCH_DEFERRED);
-      expect((await run())?.mainItems.map((i) => i.title)).toEqual(["Slowgame-CODEX"]);
+      expect(await run()).toBe(AUTO_SEARCH_DEFERRED);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still scores the game while xREL is unavailable when no automatic grab can follow", async () => {
+    vi.useFakeTimers();
+    try {
+      mockXrelSearchReleases.mockReturnValue(new Promise(() => {}));
+      mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
+      mockSearchAllIndexers.mockResolvedValue({ items: [item("Quietgame-CODEX")], errors: [] });
+      const pending = searchAndCategorizeItemsForGame(
+        { id: "quiet-1", title: "Quietgame", targetPlatformId: null, targetPlatformName: null },
+        null,
+        undefined,
+        [],
+        { ...scoring, xrelTypes: { scene: true, p2p: false } }
+      );
+      await vi.advanceTimersByTimeAsync(3500);
+      const result = await pending;
+      expect(result).not.toBeNull();
+      expect(result).not.toBe(AUTO_SEARCH_DEFERRED);
+      if (result === null || result === AUTO_SEARCH_DEFERRED) throw new Error("unexpected");
+      expect(result.mainItems.map((i) => i.title)).toEqual(["Quietgame-CODEX"]);
     } finally {
       vi.useRealTimers();
     }

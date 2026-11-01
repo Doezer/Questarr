@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TfidfClassifier } from "../../scripts/release-benchmark/classifiers/tfidf.js";
 
 vi.mock("../logger.js", () => {
@@ -36,7 +36,8 @@ vi.mock("../typesafe.js", () => ({
   },
 }));
 
-const { releasePipeline, reloadLocalModel } = await import("../classification/index.js");
+const { localGuess, releasePipeline, reloadLocalModel } =
+  await import("../classification/index.js");
 
 const row = (releaseName: string, label: "full_game" | "patch" | "dlc") => ({
   releaseName,
@@ -46,6 +47,8 @@ const row = (releaseName: string, label: "full_game" | "patch" | "dlc") => ({
   rawLabel: label,
 });
 
+let cwd: ReturnType<typeof vi.spyOn>;
+
 describe("production classification pipeline", () => {
   beforeEach(() => {
     analyzeRelease.mockReset();
@@ -54,8 +57,11 @@ describe("production classification pipeline", () => {
     mockConfig.classification.mode = "hybrid";
     mockConfig.classification.modelPath = modelFile;
     fs.rmSync(modelFile, { force: true });
+    // The bundled model is resolved from the working directory: hide it unless a test asks for it
+    cwd = vi.spyOn(process, "cwd").mockReturnValue(dir);
     reloadLocalModel();
   });
+  afterEach(() => cwd.mockRestore());
   afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   it("uses the installed local model with no cloud provider", async () => {
@@ -74,6 +80,75 @@ describe("production classification pipeline", () => {
     });
     expect(out).toMatchObject({ source: "local", modelVersion: "m1", class: "full_game" });
     expect(analyzeRelease).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the model shipped with the application, and lets an installed one win", async () => {
+    cwd.mockRestore();
+    mockConfig.classification.modelPath = undefined;
+    mockConfig.database.url = path.join(dir, "sqlite.db");
+    mockConfig.classification.localThreshold = 0.7;
+    reloadLocalModel();
+    const bundled = localGuess({ title: "Some.Game-FitGirl.Repack", gameTitle: "Some Game" });
+    expect(bundled).toMatchObject({ class: "full_game" });
+    expect(bundled?.modelVersion).toMatch(/^tfidf-/);
+
+    // A name with no known n-gram must abstain, not be scored by the model's bias alone
+    expect(localGuess({ title: "漢字", gameTitle: "Some Game" })).toBeNull();
+    const unscorable = await releasePipeline.classify({ title: "漢字", gameTitle: "Some Game" });
+    expect(unscorable.class).toBe("unknown");
+
+    fs.mkdirSync(path.join(dir, "models"), { recursive: true });
+    const classifier = new TfidfClassifier({ titleAware: false, seed: 1, threshold: 0 });
+    classifier.train(
+      ["A", "B", "C"].flatMap((g) => [
+        row(`Game ${g} Edition-GRP`, "full_game"),
+        row(`Game ${g} Fabulous Mod Pack-GRP`, "dlc"),
+      ])
+    );
+    fs.writeFileSync(
+      path.join(dir, "models", "release-classifier.json"),
+      JSON.stringify(classifier.toModelFile("installed"))
+    );
+    reloadLocalModel();
+    expect(
+      localGuess({ title: "Game Z Edition-GRP", gameTitle: "Cyber Quest" })?.modelVersion
+    ).toBe("installed");
+
+    mockConfig.database.url = "sqlite.db";
+    mockConfig.classification.localThreshold = 0.3;
+    fs.rmSync(path.join(dir, "models"), { recursive: true, force: true });
+  });
+
+  it("finds the installed model when the database path is the data folder itself", async () => {
+    cwd.mockRestore();
+    mockConfig.classification.modelPath = undefined;
+    mockConfig.database.url = dir;
+    fs.mkdirSync(path.join(dir, "models"), { recursive: true });
+    const classifier = new TfidfClassifier({ titleAware: false, seed: 1, threshold: 0 });
+    classifier.train(
+      ["A", "B", "C"].flatMap((g) => [
+        row(`Game ${g} Edition-GRP`, "full_game"),
+        row(`Game ${g} Fabulous Mod Pack-GRP`, "dlc"),
+      ])
+    );
+    fs.writeFileSync(
+      path.join(dir, "models", "release-classifier.json"),
+      JSON.stringify(classifier.toModelFile("in-folder"))
+    );
+    reloadLocalModel();
+    expect(
+      localGuess({ title: "Game Z Edition-GRP", gameTitle: "Cyber Quest" })?.modelVersion
+    ).toBe("in-folder");
+    mockConfig.database.url = "sqlite.db";
+    fs.rmSync(path.join(dir, "models"), { recursive: true, force: true });
+  });
+
+  it("falls through to the bundled model when the configured file is refused", async () => {
+    cwd.mockRestore();
+    fs.writeFileSync(modelFile, "{ not a model");
+    reloadLocalModel();
+    const guessed = localGuess({ title: "Some.Game-FitGirl.Repack", gameTitle: "Some Game" });
+    expect(guessed?.modelVersion).toMatch(/^tfidf-/);
   });
 
   it("is unknown when neither a model nor a provider is available", async () => {

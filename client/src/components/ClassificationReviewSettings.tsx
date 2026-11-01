@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Cloud, Download, HelpCircle, ListChecks, Trash2, X } from "lucide-react";
+import { Check, Cloud, Download, Eye, HelpCircle, ListChecks, Send, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch, apiRequest, throwIfResNotOk } from "@/lib/queryClient";
 import type { CandidateReason, CandidateSignals } from "@shared/release-labels";
@@ -40,17 +50,30 @@ interface CandidatesResponse {
   collecting: boolean;
   cloudSuggest: boolean;
   cloudAvailable: boolean;
+  shareLabels: boolean;
   labels: string[];
   counts: Record<"pending" | "verified" | "ambiguous" | "rejected", number>;
   candidates: Candidate[];
 }
 
 const QUERY_KEY = ["/api/classification-candidates"];
+const SHARE_PREVIEW_KEY = ["/api/classification-candidates/share/preview"];
+
+interface SharePreview {
+  enabled: boolean;
+  url: string;
+  batchId: string;
+  rows: { releaseName: string; gameTitle: string; label: string; modelVersion: string }[];
+  remaining: number;
+  alreadyShared: number;
+  skipped: number;
+}
 
 const REASON_LABEL: Record<CandidateReason, string> = {
   unresolved: "Unresolved",
   low_confidence: "Low confidence",
   disagreement: "Rules and model disagree",
+  model_disagreement: "Local and cloud models disagree",
 };
 
 const percent = (value: number | null | undefined) =>
@@ -202,6 +225,7 @@ export default function ClassificationReviewSettings() {
   const queryClient = useQueryClient();
   const { data } = useQuery<CandidatesResponse>({ queryKey: QUERY_KEY });
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: QUERY_KEY });
   const onError = (error: Error) =>
@@ -228,6 +252,41 @@ export default function ClassificationReviewSettings() {
     onError,
   });
 
+  const preview = useQuery<SharePreview>({
+    queryKey: SHARE_PREVIEW_KEY,
+    enabled: previewOpen,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+  const toggleShare = useMutation({
+    mutationFn: (shareLabels: boolean) =>
+      apiRequest("PUT", "/api/settings/classification", { shareLabels }),
+    onSuccess: () => {
+      void refresh();
+      void queryClient.invalidateQueries({ queryKey: ["/api/settings/classification"] });
+      void queryClient.invalidateQueries({ queryKey: SHARE_PREVIEW_KEY });
+    },
+    onError,
+  });
+  const share = useMutation({
+    mutationFn: async (batchId: string) => {
+      const res = await apiRequest("POST", "/api/classification-candidates/share", { batchId });
+      return (await res.json()) as { sent: number; remaining: number };
+    },
+    onError: (error: Error) => {
+      onError(error);
+      void queryClient.invalidateQueries({ queryKey: SHARE_PREVIEW_KEY });
+    },
+    onSuccess: ({ sent, remaining }) => {
+      toast({
+        title: `Shared ${sent} verified ${sent === 1 ? "label" : "labels"}`,
+        description: remaining > 0 ? `${remaining} more can be sent next.` : undefined,
+      });
+      void queryClient.invalidateQueries({ queryKey: SHARE_PREVIEW_KEY });
+      if (remaining === 0) setPreviewOpen(false);
+    },
+  });
+
   const exportVerified = async () => {
     try {
       const res = await apiFetch("/api/classification-candidates/export");
@@ -243,13 +302,36 @@ export default function ClassificationReviewSettings() {
     }
   };
 
+  const cardRef = useRef<HTMLDivElement>(null);
+  // Same condition as the early returns below: the card is only in the page when this holds
+  const visible =
+    Boolean(data?.counts) &&
+    (Boolean(data?.collecting) || Object.values(data?.counts ?? {}).some((n) => n > 0));
+  // The notification link ends in #classification-review: bring the card into view once it shows,
+  // and again when a link to it is followed while the card is already on screen (wouter's
+  // navigation does not scroll to anchors by itself)
+  useEffect(() => {
+    if (!visible) return;
+    const scrollToCard = () => {
+      if (window.location.hash === "#classification-review") {
+        cardRef.current?.scrollIntoView({ block: "start" });
+      }
+    };
+    scrollToCard();
+    const events = ["pushState", "replaceState", "hashchange"];
+    for (const event of events) window.addEventListener(event, scrollToCard);
+    return () => {
+      for (const event of events) window.removeEventListener(event, scrollToCard);
+    };
+  }, [visible]);
+
   if (!data?.counts) return null;
   const total = Object.values(data.counts).reduce((sum, n) => sum + n, 0);
-  if (!data.collecting && total === 0) return null;
+  if (!data.collecting && !data.shareLabels && total === 0) return null;
 
   const busy = review.isPending || suggest.isPending;
   return (
-    <Card>
+    <Card id="classification-review" ref={cardRef} className="scroll-mt-4">
       <CardHeader>
         <div className="flex items-center space-x-3">
           <ListChecks className="h-5 w-5 text-muted-foreground" />
@@ -259,7 +341,7 @@ export default function ClassificationReviewSettings() {
           Releases the classifier was unsure about, most useful first. Only labels you verify can be
           exported as training examples; suggestions and predictions never count. Nothing is
           retrained automatically.
-          {!data.collecting && " Collection is off (ACTIVE_LEARNING_COLLECT)."}
+          {!data.collecting && " Collection is off (see Release classification above)."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -289,6 +371,31 @@ export default function ClassificationReviewSettings() {
           </ul>
         )}
 
+        <fieldset className="space-y-3 rounded-md border p-4">
+          <legend className="px-1 text-sm font-medium">Share verified labels</legend>
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <Label htmlFor="classification-share">Share my verified labels automatically</Label>
+              <p className="text-xs text-muted-foreground">
+                Off by default. Helps improve the model shipped with Questarr. When on, labels you
+                verify are sent automatically, every 6 hours. Only the release name, the game title,
+                the label you chose and the model version are sent: no account, path, address or
+                library data. Turn it off at any time to stop.
+              </p>
+            </div>
+            <Switch
+              id="classification-share"
+              checked={data.shareLabels}
+              disabled={toggleShare.isPending}
+              onCheckedChange={(checked) => toggleShare.mutate(checked)}
+            />
+          </div>
+          <Button variant="outline" className="min-h-11" onClick={() => setPreviewOpen(true)}>
+            <Eye className="mr-2 h-4 w-4" />
+            See what will be sent
+          </Button>
+        </fieldset>
+
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button
             variant="outline"
@@ -310,6 +417,69 @@ export default function ClassificationReviewSettings() {
           </Button>
         </div>
       </CardContent>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Labels that would be sent</DialogTitle>
+            <DialogDescription>
+              These exact rows go to {preview.data?.url ?? "the collection point"} at the next
+              automatic run (or now, if you press Send now), and nothing else. Labels already sent
+              are not repeated.
+            </DialogDescription>
+          </DialogHeader>
+          {preview.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {preview.data &&
+            (preview.data.rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No verified label to send.
+                {preview.data.alreadyShared > 0 && ` ${preview.data.alreadyShared} already sent.`}
+                {preview.data.skipped > 0 &&
+                  ` ${preview.data.skipped} left out (no game title or too long).`}
+              </p>
+            ) : (
+              <>
+                <ul className="max-h-80 space-y-2 overflow-y-auto" aria-label="Rows to send">
+                  {preview.data.rows.map((row) => (
+                    <li
+                      key={`${row.releaseName}|${row.gameTitle}`}
+                      className="rounded-md border p-2 text-xs"
+                    >
+                      <p className="break-all font-mono">{row.releaseName}</p>
+                      <p className="text-muted-foreground">
+                        {row.gameTitle} · {row.label} · model {row.modelVersion}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+                {preview.data.remaining > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {preview.data.remaining} more will be offered after this batch.
+                  </p>
+                )}
+              </>
+            ))}
+          {preview.data && !preview.data.enabled && (
+            <p className="text-sm text-amber-500">
+              Sharing is off. Turn on &quot;Share my verified labels automatically&quot; to send
+              them.
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" className="min-h-11" onClick={() => setPreviewOpen(false)}>
+              Close
+            </Button>
+            <Button
+              className="min-h-11"
+              disabled={!preview.data?.enabled || !preview.data.rows.length || share.isPending}
+              onClick={() => preview.data && share.mutate(preview.data.batchId)}
+            >
+              <Send className="mr-2 h-4 w-4" />
+              Send {preview.data?.rows.length ?? 0} now
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>

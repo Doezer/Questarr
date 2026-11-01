@@ -15,8 +15,8 @@ import {
   type SearchItem,
 } from "./search.js";
 import { config } from "./config.js";
-import { collectCandidate } from "./classification/active-learning.js";
-import { localGuess, releasePipeline } from "./classification/index.js";
+import { pipelineHoldReason } from "./classification/hold.js";
+import { autoShareVerifiedLabels } from "./classification/share.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
@@ -186,7 +186,7 @@ export async function getAiAutoDownloadHoldReason(
 ): Promise<string | null> {
   // `cloud` (the legacy mode) keeps the Jev-only check below untouched
   if (config.classification.mode !== "cloud") {
-    return getPipelineHoldReason(item, platform, gameTitle);
+    return pipelineHoldReason(item, platform, gameTitle);
   }
   let analysis: Awaited<ReturnType<typeof typesafeClient.analyzeRelease>>;
   try {
@@ -224,58 +224,6 @@ export async function getAiAutoDownloadHoldReason(
     return "AI flagged this release's file size as implausible for this type of release";
   }
 
-  return null;
-}
-
-const PIPELINE_HOLD_CLASSES = new Set(["patch", "dlc", "expansion"]);
-const PIPELINE_HOLD_FLAGS = new Set(["crack_only", "demo", "soundtrack", "other_artifact"]);
-
-/**
- * The hold check for the `local` and `hybrid` classification modes. It holds what the layers
- * agree is not the full game. A release no layer could classify goes through, as it does today,
- * unless CLASSIFICATION_HOLD_UNKNOWN is set. Any failure fails open, like the Jev-only check.
- */
-async function getPipelineHoldReason(
-  item: Pick<SearchItem, "title" | "size">,
-  platform: string | null,
-  gameTitle: string | undefined
-): Promise<string | null> {
-  let result: Awaited<ReturnType<typeof releasePipeline.classify>>;
-  try {
-    const input = {
-      title: item.title,
-      ...(gameTitle ? { gameTitle } : {}),
-      sizeBytes: item.size,
-      platform: platform ?? undefined,
-    };
-    result = await releasePipeline.classify(input);
-    // Optional, off by default, and it never throws: it cannot change the hold decision
-    if (config.classification.activeLearning.collect) {
-      void collectCandidate(input, result, localGuess(input));
-    }
-  } catch (error) {
-    igdbLogger.warn(
-      { error, title: item.title },
-      "Release classification failed, proceeding without it"
-    );
-    return null;
-  }
-  const flag = result.flags?.find((f) => PIPELINE_HOLD_FLAGS.has(f));
-  if (PIPELINE_HOLD_CLASSES.has(result.class) || flag) {
-    return `Classified (${result.source}) as "${flag ?? result.class}" rather than the full game`;
-  }
-  // A layer failure is not a verdict: holding on it would block the release for days
-  if (result.class === "unknown" && config.classification.holdUnknown && !result.degraded) {
-    return "Could not be classified as the full game (hold-unknown is enabled)";
-  }
-  if (
-    item.size !== undefined &&
-    result.legitimacyScore !== undefined &&
-    result.legitimacyScore !== null &&
-    result.legitimacyScore < AI_AUTO_DOWNLOAD_LEGITIMACY_THRESHOLD
-  ) {
-    return "AI flagged this release's file size as implausible for this type of release";
-  }
   return null;
 }
 
@@ -483,6 +431,8 @@ export interface AutoSearchScoring {
   /** Check the xREL PreDB (the user has an xREL feature on). */
   /** release types to check on xREL PreDB; absent when xREL is off */
   xrelTypes?: XrelPredbTypes;
+  /** Skip the game while xREL cannot be checked: set only when an automatic grab could follow. */
+  deferOnXrelUnavailable?: boolean;
 }
 
 /**
@@ -532,10 +482,6 @@ export function scoreReleasesForGame(
 ): SearchItem[] {
   return keepEligibleEvaluations(evaluateItemsForGame(items, game, scoring, xrelReleases), scoring);
 }
-
-// games whose automatic grab already waited one cycle for a slow xREL lookup; they leave the
-// set once a lookup completes in time
-const xrelDeferredGames = new Set<string>();
 
 /** Returned instead of null when the game is skipped for this cycle, so its badge stays as is. */
 export const AUTO_SEARCH_DEFERRED = Symbol("auto-search-deferred");
@@ -599,16 +545,17 @@ export async function searchAndCategorizeItemsForGame(
           xrelUnavailable = true;
         },
       });
-      // Nothing watches an automatic grab, so without the nuke check it waits for the next
-      // cycle, when the finished lookup is cached. Only once per game: if xREL stays down, the
-      // retry goes ahead without it rather than starving the game.
-      if (xrelUnavailable) {
-        if (!xrelDeferredGames.has(game.id)) {
-          xrelDeferredGames.add(game.id);
-          return AUTO_SEARCH_DEFERRED;
-        }
-      } else {
-        xrelDeferredGames.delete(game.id);
+      // Nothing watches an automatic grab, so without the nuke check it waits for a later
+      // cycle, when a finished lookup is cached. It never goes ahead unchecked: while xREL is
+      // down the game keeps its badge and nothing is downloaded (disable xREL to opt out).
+      // A cycle that cannot grab (notify-only, owned-game updates) goes on with the check marked
+      // unavailable.
+      if (xrelUnavailable && scoring.deferOnXrelUnavailable) {
+        igdbLogger.warn(
+          { gameTitle: game.title },
+          "xREL unavailable, automatic grab skipped until the nuke check can run"
+        );
+        return AUTO_SEARCH_DEFERRED;
       }
     }
     const evaluated = scoring
@@ -678,6 +625,7 @@ export function startCronJobs() {
 const IMPORT_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const DOWNLOAD_EVENT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const IMPORT_TASK_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const LABEL_SHARE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 function registerCronTasks(): void {
   const tasks: TaskDefinition[] = [
@@ -744,6 +692,14 @@ function registerCronTasks(): void {
       intervalMs: RSS_REFRESH_INTERVAL_MS,
       runOnStartup: true,
       run: () => rssService.refreshFeeds(),
+    },
+    {
+      name: "label-sharing",
+      title: "Label sharing",
+      description:
+        "Send newly verified release labels to the collection point, only if you allowed it in Settings.",
+      intervalMs: LABEL_SHARE_INTERVAL_MS,
+      run: autoShareVerifiedLabels,
     },
     {
       name: "import-task-cleanup",
@@ -922,7 +878,7 @@ export async function checkGameUpdates() {
           type: "success",
           title: "Game Released" satisfies keyof typeof GAME_UPDATE_TITLE_TO_EVENT,
           message,
-          link: "/",
+          link: `/games/${encodeURIComponent(game.id)}`,
           userId: game.userId!,
         });
       }
@@ -956,7 +912,7 @@ export async function checkGameUpdates() {
             type: "delayed",
             title: "Game Delayed" satisfies keyof typeof GAME_UPDATE_TITLE_TO_EVENT,
             message,
-            link: "/wishlist",
+            link: `/games/${encodeURIComponent(game.id)}`,
             userId: game.userId!,
           });
         }
@@ -1414,7 +1370,7 @@ async function runDownloadStatusCheck() {
                 type: "success",
                 title: "Download Completed",
                 message,
-                link: "/",
+                link: `/games/${encodeURIComponent(download.gameId)}`,
                 userId: game?.userId ?? undefined,
               });
               notifyUser("notification", notification, notification.userId);
@@ -1914,7 +1870,9 @@ export async function checkAutoSearch() {
               settings.downloadRules,
               indexerPriorityMap,
               blacklistTerms,
-              scoring,
+              scoring && settings.autoDownloadEnabled
+                ? { ...scoring, deferOnXrelUnavailable: true }
+                : scoring,
               (categorized) => selectMainItems(categorized.mainItems).length > 0
             );
             if (searchResult === AUTO_SEARCH_DEFERRED) continue;
@@ -2058,7 +2016,7 @@ export async function checkAutoSearch() {
                               type: "success",
                               title: "Download Started",
                               message: `Started downloading ${game.title}${groupSuffix} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
-                              link: "/",
+                              link: `/games/${encodeURIComponent(game.id)}`,
                             });
                             notifyUser("notification", notification, notification.userId);
                             if (prefs.autoDownload.apprise) void appriseClient.send(notification);
@@ -2604,6 +2562,7 @@ export async function syncUserSteamWishlist(
         type: "success",
         title: "Steam Wishlist Synced",
         message: `Successfully added ${addedGames.length} games from your Steam Wishlist.`,
+        link: "/wishlist",
       });
       notifyUser("notification", notification, notification.userId);
       if (steamPrefs.steamSync.apprise) void appriseClient.send(notification);

@@ -349,6 +349,8 @@ Configure indexers, downloaders, and application preferences.
 
 ## Release classification
 
+**Smart release filtering, built in and free.** Questarr recognizes patches, DLC, full games and non-game files (software, movies, soundtracks) right on your server, before anything is downloaded. No account, no API key, nothing leaves your network. Unsure cases can optionally be double-checked by a cloud model, and you stay in control: anything doubtful is held for your review instead of being downloaded blindly.
+
 Indexers return a lot of look-alikes: the game, a day-one patch, a DLC, a crack-only folder, a demo, a soundtrack. A fixed list of keywords cannot tell them apart reliably, because release names are inconsistent and the same words mean different things in different titles. Questarr classifies each release with a small machine-learning model and holds back the ones that are probably not the full game.
 
 **What you get**

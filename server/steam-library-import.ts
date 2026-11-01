@@ -19,13 +19,16 @@ export async function importSteamLibraryBatch(
   const byAppId = new Map(selected.map((game) => [game.steamAppId, game]));
   const library = await storage.getUserGames(userId, true);
   const tracked = new Set(library.map((game) => game.steamAppId));
-  const mappings = await igdbClient.getGameIdsBySteamAppIds(ids.filter((id) => !tracked.has(id)));
+  const mappings = await igdbClient.getGameIdsBySteamAppIds(
+    ids.filter((id) => !tracked.has(id)),
+    { strict: true }
+  );
   const byIgdb = new Map(
     library.filter((game) => game.igdbId != null).map((game) => [game.igdbId!, game])
   );
   const newIgdbIds = [...new Set(mappings.values())].filter((id) => !byIgdb.has(id));
   const [details, filterFlags] = await Promise.all([
-    igdbClient.getGamesByIds(newIgdbIds),
+    igdbClient.getGamesByIds(newIgdbIds, { strict: true }),
     getContentFilterFlags(userId),
   ]);
   const detailsById = new Map(details.map((game) => [game.id, game]));

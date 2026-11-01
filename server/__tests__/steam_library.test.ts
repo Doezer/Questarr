@@ -377,7 +377,7 @@ describe.each(activeTestDialects())("Steam owned-library (%s)", (dialect) => {
       state: "completed",
     });
     expect(fixtures.owned).toHaveBeenCalledTimes(1);
-    expect(fixtures.mappings).toHaveBeenCalledWith([6000, 6001]);
+    expect(fixtures.mappings).toHaveBeenCalledWith([6000, 6001], { strict: true });
   });
 
   it("retries unfinished games after a later batch fails, preserving successful writes", async () => {

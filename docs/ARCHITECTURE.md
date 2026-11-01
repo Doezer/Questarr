@@ -147,7 +147,9 @@ stored in the job, and no schema migration is required.
 The worker rechecks the saved account identity and Steam ownership once per run,
 including after restart. `steam-library-import.ts` processes bounded 50-game
 batches, loading the library/filter preferences and fetching IGDB mappings and
-metadata per batch. New rows use schema validation, exact IDs, content filters,
+metadata per batch. Imports opt into strict IGDB lookups: configuration/request
+failures stop the batch with a retryable checkpoint, while successful lookups
+with missing mappings remain completed skips. New rows use schema validation, exact IDs, content filters,
 and initial release-status normalization. Existing entries may gain a missing
 Steam App ID but retain their status/progress. No files/download clients are
 involved. Each changed batch emits an owner-scoped `gameUpdated` event; the

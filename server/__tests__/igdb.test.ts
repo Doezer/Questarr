@@ -436,6 +436,56 @@ describe("IGDBClient - Batch Operations", () => {
     }),
   };
 
+  it("strict Steam mapping propagates a provider failure instead of returning missing IDs", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: "test-token", expires_in: 3600 }),
+    });
+    fetchMock.mockRejectedValue(new Error("Provider unavailable"));
+    const { igdbClient } = await import("../igdb.js");
+    await expect(igdbClient.getGameIdsBySteamAppIds([10], { strict: true })).rejects.toThrow(
+      "IGDB Steam mapping lookup failed"
+    );
+    expect(await igdbClient.getGameIdsBySteamAppIds([10])).toEqual(new Map());
+  });
+
+  it("strict Steam mapping accepts genuine misses from a successful provider response", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ access_token: "test-token", expires_in: 3600 }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => [] });
+    const { igdbClient } = await import("../igdb.js");
+    expect(await igdbClient.getGameIdsBySteamAppIds([10], { strict: true })).toEqual(new Map());
+  });
+
+  it("strict lookups reject missing configuration but do not require it for empty batches", async () => {
+    const { config } = await import("../config.js");
+    const previous = { ...config.igdb };
+    Object.assign(config.igdb, {
+      isConfigured: false,
+      clientId: undefined,
+      clientSecret: undefined,
+    });
+    try {
+      const { igdbClient } = await import("../igdb.js");
+      await expect(igdbClient.getGameIdsBySteamAppIds([10], { strict: true })).rejects.toThrow(
+        "not configured"
+      );
+      await expect(igdbClient.getGamesByIds([100], { strict: true })).rejects.toThrow(
+        "not configured"
+      );
+      expect(await igdbClient.getGameIdsBySteamAppIds([], { strict: true })).toEqual(new Map());
+      expect(await igdbClient.getGamesByIds([], { strict: true })).toEqual([]);
+      expect(await igdbClient.getGameIdsBySteamAppIds([10])).toEqual(new Map());
+      expect(await igdbClient.getGamesByIds([100])).toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      Object.assign(config.igdb, previous);
+    }
+  });
+
   it("should batch steam app ID lookups correctly", async () => {
     const successResponse1 = {
       ok: true,

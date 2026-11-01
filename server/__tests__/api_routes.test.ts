@@ -675,6 +675,7 @@ describe("API Routes - Extended Coverage", () => {
       const res = await request(app).get("/api/ready");
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("ok");
+      expect(res.body.checks).toEqual({ database: "ok", igdb: "ok" });
     });
 
     it("should return 503 when db check fails", async () => {
@@ -684,6 +685,7 @@ describe("API Routes - Extended Coverage", () => {
       const res = await request(app).get("/api/ready");
       expect(res.status).toBe(503);
       expect(res.body.status).toBe("error");
+      expect(res.body.checks).toEqual({ database: "error", igdb: "ok" });
     });
 
     it("should return 503 when igdb check fails", async () => {
@@ -693,6 +695,7 @@ describe("API Routes - Extended Coverage", () => {
       const res = await request(app).get("/api/ready");
       expect(res.status).toBe(503);
       expect(res.body.status).toBe("error");
+      expect(res.body.checks).toEqual({ database: "ok", igdb: "error" });
     });
   });
 

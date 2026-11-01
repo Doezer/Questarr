@@ -2212,6 +2212,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   rating: updatedData.rating as number | null,
                   genres: updatedData.genres as string[],
                   themes: updatedData.themes as string[],
+                  gameModes: updatedData.gameModes as string[],
                   isAdultContent: updatedData.isAdultContent as boolean,
                   isAgeRestricted: updatedData.isAgeRestricted as boolean,
                   platforms: updatedData.platforms as string[],

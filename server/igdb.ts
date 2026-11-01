@@ -17,7 +17,7 @@ export const IGDB_EARLY_ACCESS_STATUS = 4;
 
 // Shared field list for all IGDB game queries
 const IGDB_GAME_FIELDS =
-  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, videos.name, videos.video_id, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type, expansions.url";
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, videos.name, videos.video_id, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type, expansions.url, game_modes.name";
 
 // IGDB theme name flagged as adult content (Erotic)
 const ADULT_THEME_NAMES = new Set(["Erotic"]);
@@ -83,6 +83,10 @@ export interface IGDBGame {
   screenshots?: Array<{
     id: number;
     url: string;
+  }>;
+  game_modes?: Array<{
+    id: number;
+    name: string;
   }>;
   videos?: Array<{
     name?: string;
@@ -1543,6 +1547,7 @@ class IGDBClient {
       screenshots:
         igdbGame.screenshots?.map((s) => `https:${s.url.replace("t_thumb", "t_screenshot_big")}`) ||
         [],
+      gameModes: igdbGame.game_modes?.map((m) => m.name) || [],
       videos: toVideos(igdbGame.videos),
       igdbWebsites: igdbWebsiteSchema
         .array()

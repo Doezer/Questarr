@@ -24,17 +24,24 @@ export function isSensitivePath(rawPath: string): boolean {
   const unprefixed = rawPath
     .replace(/^[\\/]{2}[?.][\\/]UNC[\\/]/i, "\\\\")
     .replace(/^[\\/]{2}[?.][\\/]/, "");
-  let resolved = path.resolve(unprefixed);
+  const lexical = path.resolve(unprefixed);
+  let canonical = lexical;
   try {
     // Expands 8.3 short names (C:\PROGRA~1) and symlinks/junctions into system directories.
-    resolved = fs.realpathSync.native(resolved);
+    canonical = fs.realpathSync.native(lexical);
   } catch {
     // Not on disk (yet): the lexical form is all there is to check.
   }
-  resolved = resolved.replaceAll("\\", "/");
+  // Both forms are tested: the lexical one catches /etc on macOS (a symlink to /private/etc),
+  // the canonical one catches short names and links that lead into a system directory.
+  return matchesSensitivePattern(lexical) || matchesSensitivePattern(canonical);
+}
+
+function matchesSensitivePattern(resolvedPath: string): boolean {
+  const normalized = resolvedPath.replaceAll("\\", "/");
   // Administrative shares (\\host\C$\...) expose a whole drive, system directories included.
-  if (/^\/\/[^/]+\/[a-z]\$(?:\/|$)/i.test(resolved)) return true;
-  return SENSITIVE_PATH_REGEX.test(resolved) || SENSITIVE_WINDOWS_PATH_REGEX.test(resolved);
+  if (/^\/\/[^/]+\/[a-z]\$(?:\/|$)/i.test(normalized)) return true;
+  return SENSITIVE_PATH_REGEX.test(normalized) || SENSITIVE_WINDOWS_PATH_REGEX.test(normalized);
 }
 
 // Roots come from configuration, not request input, so resolving symlinks in them

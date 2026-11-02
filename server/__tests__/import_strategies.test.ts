@@ -808,7 +808,12 @@ describe("ImportStrategies", () => {
   // their own guard rather than trusting every future caller to check first.
   // ---------------------------------------------------------------------------
 
+  // The guard lists POSIX system directories (/etc, /proc, ...), which do not exist on
+  // Windows: there "/etc/passwd" resolves to "D:\\etc\\passwd", a legitimate user path
+  // (so is "D:\\dev"), and refusing it would block real folders.
   describe("sensitive-path guards", () => {
+    const sensitiveDir = process.platform === "win32" ? "C:\\Windows\\System32" : "/etc";
+
     it("executeImport refuses a source under a sensitive system path", async () => {
       const root = tempDir();
       const destination = path.join(root, "library", "PC", "My Game");
@@ -818,7 +823,7 @@ describe("ImportStrategies", () => {
         strategy.executeImport(
           {
             needsReview: false,
-            originalPath: "/etc/passwd",
+            originalPath: path.join(sensitiveDir, "passwd"),
             proposedPath: destination,
             strategy: "pc",
           },
@@ -828,7 +833,7 @@ describe("ImportStrategies", () => {
     });
 
     it("gatherFiles refuses a sensitive system path", async () => {
-      await expect(gatherFiles("/etc")).rejects.toThrow(
+      await expect(gatherFiles(sensitiveDir)).rejects.toThrow(
         "Refusing to process a sensitive system path"
       );
     });
@@ -845,7 +850,7 @@ describe("ImportStrategies", () => {
         strategy.executeImport(
           {
             needsReview: false,
-            originalPath: "/etc",
+            originalPath: sensitiveDir,
             proposedPath: destination,
             strategy: "pc",
             fileCategories: [{ name: "passwd", category: "main" }],

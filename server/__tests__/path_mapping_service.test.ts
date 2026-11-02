@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
 import { PathMappingService } from "../services/PathMappingService.js";
 
 describe("PathMappingService", () => {
@@ -46,7 +47,7 @@ describe("PathMappingService", () => {
     const service = new PathMappingService(storage as never);
     const roots = await service.getConfiguredRoots();
 
-    expect(roots).toEqual(["/data/downloads", "/data/incoming"]);
+    expect(roots).toEqual([path.resolve("/data/downloads"), path.resolve("/data/incoming")]);
   });
 
   it("getConfiguredRoots returns an empty list when no mappings are configured", async () => {

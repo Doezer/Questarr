@@ -596,25 +596,32 @@ async function listAssets(userId: string, gameId: string): Promise<Asset[]> {
     Boolean
   );
   if (roots.length === 0) return [];
-  const assets: Asset[] = [];
-  for (const file of files.slice(0, MAX_ASSETS)) {
-    try {
-      await assertWithinRoots(file.filePath, roots, "outside library");
-      const realPath = await fs.realpath(file.filePath);
-      await assertWithinRoots(realPath, roots, "outside library");
-      const stats = await fs.stat(realPath);
-      if (!stats.isFile()) continue;
-      assets.push({
-        id: file.id,
-        name: path.basename(file.originalName || file.storedName || realPath),
-        size: stats.size,
-        path: realPath,
-      });
-    } catch {
-      // Not deliverable: skipped on purpose.
-    }
-  }
-  return assets;
+  // realpath() returns the canonical path, so it must be compared with canonical roots: a
+  // library root that is a symlink (or a Windows 8.3 short name) would otherwise reject every
+  // file inside it.
+  const canonicalRoots = await Promise.all(
+    roots.map((root) => fs.realpath(root).catch(() => root))
+  );
+  const resolved = await Promise.all(
+    files.slice(0, MAX_ASSETS).map(async (file): Promise<Asset | null> => {
+      try {
+        const realPath = await fs.realpath(file.filePath);
+        await assertWithinRoots(realPath, canonicalRoots, "outside library");
+        const stats = await fs.stat(realPath);
+        if (!stats.isFile()) return null;
+        return {
+          id: file.id,
+          name: path.basename(file.originalName || file.storedName || realPath),
+          size: stats.size,
+          path: realPath,
+        };
+      } catch {
+        // Not deliverable: skipped on purpose.
+        return null;
+      }
+    })
+  );
+  return resolved.filter((asset): asset is Asset => asset !== null);
 }
 
 function safeBaseName(value: string): string {

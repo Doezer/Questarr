@@ -1,0 +1,201 @@
+name: Windows
+
+# Questarr ships a Windows installer (deploy.yml, windows-installer), but every other workflow
+# runs on Linux. This one runs the unit tests, the Playwright e2e suite and a production
+# build/start smoke test on windows-latest, so path-separator, file-locking and native-module
+# regressions show up before a release rather than in a user's bug report.
+
+# Slow and not needed on every push, so it runs weekly and on demand, plus on pull requests
+# that change this workflow.
+on:
+  schedule:
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+  pull_request:
+    branches: [main, release/*]
+    paths:
+      - ".github/workflows/windows.yml"
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Type check, build and unit tests
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.2.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.x
+          # Same accepted cache-poisoning trade-off as ci.yml (single maintainer with push access).
+          cache: "npm" # zizmor: ignore[cache-poisoning]
+
+      # Lifecycle scripts are required: better-sqlite3's native binding is fetched/compiled here.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npm run check
+
+      - name: Run unit tests
+        run: npm run test:run
+
+      - name: Build
+        run: npm run build
+
+      # The production build must start on Windows and answer its health check, using the same
+      # `node dist/server/index.js` entry point the installer's service host launches.
+      - name: Production start smoke test
+        shell: pwsh
+        env:
+          NODE_ENV: production
+          PORT: "5200"
+          SQLITE_DB_PATH: ${{ runner.temp }}\questarr-smoke\sqlite.db
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\questarr-smoke" | Out-Null
+          $log = Join-Path $env:RUNNER_TEMP "smoke-server.log"
+          $proc = Start-Process -FilePath node -ArgumentList "dist/server/index.js" `
+            -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -NoNewWindow
+          try {
+            $healthy = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              if ($proc.HasExited) { break }
+              try {
+                $r = Invoke-WebRequest -Uri "http://127.0.0.1:5200/api/health" -UseBasicParsing -TimeoutSec 3
+                if ($r.StatusCode -eq 200) { $healthy = $true; break }
+              } catch { }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $healthy) {
+              Get-Content $log, "$log.err" -ErrorAction SilentlyContinue
+              throw "Production server did not become healthy"
+            }
+            Write-Host "Production server is healthy"
+          } finally {
+            if (-not $proc.HasExited) { taskkill /PID $proc.Id /T /F | Out-Null }
+          }
+
+  e2e:
+    name: Playwright e2e
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.2.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.x
+          cache: "npm" # zizmor: ignore[cache-poisoning]
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      # Same server as e2e.yml (`dev:test`: wiped data/test.db, port 5100, rate limits off).
+      - name: Start test server
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $proc = Start-Process -FilePath npm.cmd -ArgumentList "run", "dev:test" `
+            -RedirectStandardOutput e2e-server.log -RedirectStandardError e2e-server.err.log `
+            -PassThru -NoNewWindow
+          $proc.Id | Set-Content e2e-server.pid
+          for ($i = 0; $i -lt 90; $i++) {
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:5100/api/health" -UseBasicParsing -TimeoutSec 3
+              if ($r.StatusCode -eq 200) { Write-Host "Server is up"; exit 0 }
+            } catch { }
+            Start-Sleep -Seconds 1
+          }
+          Get-Content e2e-server.log, e2e-server.err.log -ErrorAction SilentlyContinue
+          throw "Test server did not become healthy in time"
+
+      - name: Run Playwright tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-windows
+          path: |
+            playwright-report/
+            test-results/
+            e2e-server.log
+            e2e-server.err.log
+          retention-days: 14
+
+      - name: Stop test server
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path e2e-server.pid) {
+            taskkill /PID (Get-Content e2e-server.pid) /T /F | Out-Null
+          }
+          exit 0
+
+  service-host:
+    name: Windows service host
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.2.0
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "8.0.x"
+
+      # Same publish command as deploy.yml, so a break in the service host is caught weekly
+      # instead of only when a release installer is built.
+      - name: Publish Windows service host
+        run: >
+          dotnet publish installer/windows/Questarr.Service/Questarr.Service.csproj
+          --configuration Release --runtime win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:PublishTrimmed=false --output release/service
+
+      - name: Check the published executable
+        shell: pwsh
+        run: |
+          $exe = "release/service/Questarr.Service.exe"
+          if (-not (Test-Path $exe)) { throw "Missing $exe" }
+          Write-Host ("{0} ({1:N1} MB)" -f $exe, ((Get-Item $exe).Length / 1MB))

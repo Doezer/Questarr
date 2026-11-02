@@ -285,7 +285,8 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
 // Trailing edition words an indexer rarely carries in the release name ("... Game of the Year
 // Edition", "... Remastered"). Only stripped at the end of the title.
 const EDITION_SUFFIX_REGEX = new RegExp(
-  String.raw`\s*(?:[:\-\u2013\u2014]\s*)?(?:the\s+)?` +
+  // a separator is required, so "HeartGold" or "Superedition" keep their last word
+  String.raw`(?:\s+|\s*[:\-\u2013\u2014]\s*)(?:the\s+)?` +
     String.raw`(?:(?:game\s+of\s+the\s+year|goty|deluxe|definitive|complete|ultimate|gold|enhanced|` +
     String.raw`special|collector'?s|anniversary|standard|digital|premium|legendary|royal)(?:\s+edition)?|` +
     String.raw`remastered|remaster|director'?s\s+cut|edition)\s*$`,

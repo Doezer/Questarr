@@ -411,6 +411,12 @@ describe("buildQueryVariants", () => {
     );
   });
 
+  it("keeps edition-like endings of ordinary words", () => {
+    expect(buildQueryVariants("Pokemon HeartGold")).toEqual([]);
+    expect(strictMatchTitle("Pokemon HeartGold")).toBe("Pokemon HeartGold");
+    expect(strictMatchTitle("Pokemon Gold")).toBe("Pokemon");
+  });
+
   it("keeps a single possessive word: it is the title", () => {
     expect(buildQueryVariants("Baldur's Gate 3")).toEqual(["Baldurs Gate 3"]);
     expect(buildQueryVariants("Assassin's Creed Odyssey")).not.toContain("Creed Odyssey");

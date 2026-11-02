@@ -91,6 +91,12 @@ interface SearchResult {
   errors?: string[];
 }
 
+/** What a page of results is requested with: where it starts, and the fallback query if any. */
+interface SearchPageParam {
+  offset: number;
+  query?: string;
+}
+
 interface Downloader {
   id: string;
   name: string;
@@ -134,7 +140,6 @@ export default function SearchPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const lastSearchQueryRef = useRef("");
-  const fallbackQueryRef = useRef<{ original: string; used: string } | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -144,34 +149,28 @@ export default function SearchPage() {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useInfiniteQuery<SearchResult, Error, InfiniteData<SearchResult>, string[], number>({
+  } = useInfiniteQuery<SearchResult, Error, InfiniteData<SearchResult>, string[], SearchPageParam>({
     queryKey: ["/api/search", debouncedSearchQuery],
     queryFn: async ({ pageParam }): Promise<SearchResult> => {
-      // Later pages keep searching with the simpler query that found the first one: the
-      // server only retries variants on the first page.
-      const variant = fallbackQueryRef.current;
-      const query =
-        pageParam > 0 && variant?.original === debouncedSearchQuery
-          ? variant.used
-          : debouncedSearchQuery;
       const r = await apiRequest(
         "GET",
-        `/api/search?query=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${pageParam}`
+        `/api/search?query=${encodeURIComponent(pageParam.query ?? debouncedSearchQuery)}&limit=${PAGE_SIZE}&offset=${pageParam.offset}`
       );
-      const result: SearchResult = await r.json();
-      if (pageParam === 0) {
-        fallbackQueryRef.current = result.queryUsed
-          ? { original: debouncedSearchQuery, used: result.queryUsed }
-          : null;
-      }
-      return result;
+      return r.json();
     },
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, _allPages, lastPageParam) => {
+    initialPageParam: { offset: 0 },
+    getNextPageParam: (lastPage, allPages, lastPageParam) => {
       // Use "received a full page" as the continuation signal rather than comparing
       // against lastPage.total, which equals the current batch size for Torznab
       // indexers and would always terminate pagination after the first page.
-      return lastPage.items.length >= PAGE_SIZE ? lastPageParam + lastPage.items.length : undefined;
+      if (lastPage.items.length < PAGE_SIZE) return undefined;
+      // The server only retries simpler queries on the first page, so later pages keep the
+      // one that found it. Read from the first page itself, which survives a cached remount.
+      const query = allPages[0]?.queryUsed;
+      return {
+        offset: lastPageParam.offset + lastPage.items.length,
+        ...(query ? { query } : {}),
+      };
     },
     enabled: debouncedSearchQuery.trim().length > 0,
   });

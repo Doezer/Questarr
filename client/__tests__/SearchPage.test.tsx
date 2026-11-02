@@ -561,6 +561,33 @@ describe("SearchPage", () => {
       });
     });
 
+    it("requests the next page with the fallback query that found the first one", async () => {
+      const items = Array.from({ length: 50 }, (_, i) => ({
+        ...TORRENT_ITEM,
+        guid: `guid-${i}`,
+        title: `Game ${i}`,
+      }));
+      setupApiRequest({ items, total: 100, queryUsed: "Hellraiser: Revival" });
+      renderSearch();
+      typeSearch("Clive Barker's Hellraiser: Revival");
+
+      await waitFor(() => expect(capturedIntersectionCallback).not.toBeNull());
+      await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
+
+      void act(() => {
+        capturedIntersectionCallback?.([{ isIntersecting: true }], {});
+      });
+
+      await waitFor(() => {
+        const searchUrls = mockApiRequest.mock.calls
+          .map((c) => c[1] as string)
+          .filter((url) => url.startsWith("/api/search"));
+        expect(searchUrls).toHaveLength(2);
+        expect(searchUrls[1]).toContain(`query=${encodeURIComponent("Hellraiser: Revival")}`);
+        expect(searchUrls[1]).toContain("offset=50");
+      });
+    });
+
     it("does not fetch next page when date filter is active and list is empty", async () => {
       // 50 items so getNextPageParam returns a value → hasNextPage = true
       const items = Array.from({ length: 50 }, (_, i) => ({

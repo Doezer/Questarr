@@ -41,6 +41,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getSocket } from "@/lib/socket";
 import type { RootFolder, LibraryScanIgnored } from "@shared/schema";
 import { FileBrowser } from "./FileBrowser";
+import { ExternalGamesImport } from "./ExternalGamesImport";
 
 interface ScanProgress {
   rootFolderId: string;
@@ -391,7 +392,9 @@ export function RootFolderDiscovery() {
             Games found here are added as <strong>owned</strong> and linked to their folder on disk,
             but that folder stays outside your library root — it is never moved, renamed, or deleted
             by Questarr unless you turn on <strong>Allow Delete</strong> for that folder below. With
-            it off (the default), removing a game with its files skips anything discovered here.
+            it off (the default), removing a game with its files skips anything discovered here. Use{" "}
+            <strong>Import into library</strong> on a game to copy or move it into your library
+            root.
           </AlertDescription>
         </Alert>
 
@@ -576,6 +579,8 @@ export function RootFolderDiscovery() {
             ))}
           </div>
         )}
+
+        <ExternalGamesImport />
 
         {ignored.length > 0 && (
           <div className="space-y-3">

@@ -393,6 +393,23 @@ async function assignFilesToGame(
 
 // ---------- Public API ----------
 
+/**
+ * Replace a game's recorded files with what is now on disk at `absolutePath`
+ * (a folder, or a standalone file). Used after a game's files were moved or
+ * copied somewhere else, so `game_files` never keeps pointing at the old place.
+ */
+export async function replaceGameFilesFromPath(
+  gameId: string,
+  absolutePath: string
+): Promise<number> {
+  const stat = await fs.promises.stat(absolutePath);
+  const files = stat.isFile()
+    ? [{ absolutePath, size: stat.size }]
+    : await listFiles(absolutePath, Number.POSITIVE_INFINITY);
+  await storage.removeGameFilesByGameId(gameId);
+  return assignFilesToGame(gameId, files);
+}
+
 /** Force-assign an unmatched folder to a specific IGDB game (user override). */
 /**
  * Search IGDB with a name the user typed for a folder awaiting review, when

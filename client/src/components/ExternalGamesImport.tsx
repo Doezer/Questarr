@@ -5,6 +5,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
@@ -72,6 +73,10 @@ export function ExternalGamesImport() {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<ExternalGame | null>(null);
   const [mode, setMode] = useState<TransferMode>("copy");
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchDone, setBatchDone] = useState(0);
 
   const { data: games = [] } = useQuery<ExternalGame[]>({
     queryKey: ["/api/library/external-games"],
@@ -114,6 +119,49 @@ export function ExternalGamesImport() {
     },
   });
 
+  // Only games still listed can be selected (a finished import drops out of the list).
+  const selectedGames = games.filter((g) => checked.has(g.gameId));
+  const allChecked = games.length > 0 && selectedGames.length === games.length;
+
+  const toggleChecked = (gameId: string, on: boolean) =>
+    setChecked((current) => {
+      const next = new Set(current);
+      if (on) next.add(gameId);
+      else next.delete(gameId);
+      return next;
+    });
+
+  // Each game is its own import task; run them one after the other so a
+  // failure on one game never stops the rest.
+  const runBatch = async () => {
+    const queue = [...selectedGames];
+    setBatchRunning(true);
+    setBatchDone(0);
+    const failures: string[] = [];
+    for (const game of queue) {
+      try {
+        await apiRequest("POST", `/api/library/external-games/${game.gameId}/import`, { mode });
+      } catch (error) {
+        failures.push(`${game.title}: ${error instanceof Error ? error.message : "failed"}`);
+      }
+      setBatchDone((n) => n + 1);
+    }
+    setBatchRunning(false);
+    setBatchOpen(false);
+    setChecked(new Set());
+    const imported = queue.length - failures.length;
+    toast({
+      title: failures.length ? "Batch Import Finished With Errors" : "Games Imported",
+      description: failures.length
+        ? `${imported} imported, ${failures.length} failed. ${failures.slice(0, 3).join(" · ")}`
+        : `${imported} games are now in your library.`,
+      variant: failures.length ? "destructive" : "default",
+    });
+    queryClient.invalidateQueries({ queryKey: ["/api/library/external-games"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/import-tasks"] });
+  };
+
   const blocked = useMemo(
     () => !preview || preview.destinationExists || preview.needsSpace,
     [preview]
@@ -130,12 +178,44 @@ export function ExternalGamesImport() {
         These games live in a root folder. Copy or move them into your library root to name and
         organize them like downloaded games.
       </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="external-games-select-all"
+            checked={allChecked}
+            onCheckedChange={(on) =>
+              setChecked(on === true ? new Set(games.map((g) => g.gameId)) : new Set())
+            }
+          />
+          <Label htmlFor="external-games-select-all" className="text-xs font-normal">
+            Select all
+          </Label>
+        </div>
+        <Button
+          size="sm"
+          className="min-h-11 gap-2 sm:min-h-9"
+          disabled={selectedGames.length === 0}
+          onClick={() => {
+            setMode("copy");
+            setBatchOpen(true);
+          }}
+        >
+          <ArrowRightLeft className="h-4 w-4" aria-hidden="true" />
+          Import selected ({selectedGames.length})
+        </Button>
+      </div>
       {games.map((game) => (
         <div
           key={game.gameId}
           className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
         >
-          <div className="min-w-0">
+          <Checkbox
+            className="shrink-0"
+            checked={checked.has(game.gameId)}
+            onCheckedChange={(on) => toggleChecked(game.gameId, on === true)}
+            aria-label={`Select ${game.title}`}
+          />
+          <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{game.title}</p>
             <p className="break-all font-mono text-xs text-muted-foreground">{game.libraryPath}</p>
           </div>
@@ -154,6 +234,63 @@ export function ExternalGamesImport() {
           </Button>
         </div>
       ))}
+
+      <Dialog open={batchOpen} onOpenChange={(open) => !batchRunning && setBatchOpen(open)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Import {selectedGames.length} games into the library</DialogTitle>
+            <DialogDescription>
+              Each game goes to the library root with your naming pattern. Games that already exist
+              there, or that do not fit, are skipped and reported at the end.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-muted-foreground">
+            {selectedGames.map((g) => (
+              <li key={g.gameId} className="truncate">
+                {g.title}
+              </li>
+            ))}
+          </ul>
+          <RadioGroup
+            value={mode}
+            onValueChange={(value) => setMode(value as TransferMode)}
+            aria-label="Transfer mode"
+            className="gap-3"
+            disabled={batchRunning}
+          >
+            {(Object.keys(MODE_LABELS) as TransferMode[]).map((m) => (
+              <div key={m} className="flex items-start gap-3">
+                <RadioGroupItem value={m} id={`batch-mode-${m}`} className="mt-1" />
+                <Label htmlFor={`batch-mode-${m}`} className="space-y-0.5 font-normal">
+                  <span className="block text-sm font-medium">{MODE_LABELS[m].label}</span>
+                  <span className="block text-xs text-muted-foreground">{MODE_LABELS[m].hint}</span>
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+          {mode === "move" && (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                The original files of every selected game will be deleted after its move.
+              </AlertDescription>
+            </Alert>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" disabled={batchRunning} onClick={() => setBatchOpen(false)}>
+              Cancel
+            </Button>
+            <Button disabled={batchRunning} onClick={runBatch}>
+              {batchRunning && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {batchRunning
+                ? `Importing ${batchDone}/${selectedGames.length}`
+                : mode === "move"
+                  ? "Move into library"
+                  : "Import into library"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">

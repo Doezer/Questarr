@@ -591,6 +591,7 @@ export const insertGameSchema = createInsertSchema(games, {
       .array(z.object({ name: z.string(), videoId: z.string().regex(/^[\w-]{11}$/) }))
       .nullable()
       .optional(),
+  gameModes: () => z.array(z.string().trim().min(1).max(100)).max(50).nullable().optional(),
   status: (schema) =>
     schema
       .nullable()

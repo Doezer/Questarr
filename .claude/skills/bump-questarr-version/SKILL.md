@@ -3,7 +3,7 @@ name: bump-questarr-version
 description: Bump the Questarr version across package.json, lockfile, Docker, Home Assistant, Umbrel, CasaOS and Helm files for a release.
 ---
 
-Use when preparing a Questarr release (e.g. 1.5.0 -> 1.5.1). Branch from a fresh `origin/main` (`git fetch origin main` first).
+Use when preparing a Questarr release (e.g. 1.5.0 -> 1.6.0). Branch from a fresh `origin/main` (`git fetch origin main` first).
 
 Files to update to the new version (OLD -> NEW):
 

@@ -585,6 +585,11 @@ export const sanitizeIndexerSearchQuery = [
     .trim()
     .isLength({ min: 1, max: 200 })
     .withMessage("Search query must be between 1 and 200 characters"),
+  query("title")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Title must be at most 200 characters"),
   query("category")
     .optional()
     .trim()

@@ -154,7 +154,9 @@ export default function SearchPage() {
     queryFn: async ({ pageParam }): Promise<SearchResult> => {
       const r = await apiRequest(
         "GET",
-        `/api/search?query=${encodeURIComponent(pageParam.query ?? debouncedSearchQuery)}&limit=${PAGE_SIZE}&offset=${pageParam.offset}`
+        `/api/search?query=${encodeURIComponent(pageParam.query ?? debouncedSearchQuery)}${
+          pageParam.query ? `&title=${encodeURIComponent(debouncedSearchQuery)}` : ""
+        }&limit=${PAGE_SIZE}&offset=${pageParam.offset}`
       );
       return r.json();
     },

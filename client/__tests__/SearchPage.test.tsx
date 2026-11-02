@@ -585,6 +585,9 @@ describe("SearchPage", () => {
         expect(searchUrls).toHaveLength(2);
         expect(searchUrls[1]).toContain(`query=${encodeURIComponent("Hellraiser: Revival")}`);
         expect(searchUrls[1]).toContain("offset=50");
+        expect(searchUrls[1]).toContain(
+          `title=${encodeURIComponent("Clive Barker's Hellraiser: Revival")}`
+        );
       });
     });
 

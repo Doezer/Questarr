@@ -287,8 +287,11 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
 const EDITION_SUFFIX_REGEX = new RegExp(
   // a separator is required, so "HeartGold" or "Superedition" keep their last word
   String.raw`(?:\s+|\s*[:\-\u2013\u2014]\s*)(?:the\s+)?` +
-    String.raw`(?:(?:game\s+of\s+the\s+year|goty|deluxe|definitive|complete|ultimate|gold|enhanced|` +
-    String.raw`special|collector'?s|anniversary|standard|digital|premium|legendary|royal)(?:\s+edition)?|` +
+    // adjectives that can be part of a title ("Persona 5 Royal", "Pokemon Gold") only count
+    // as edition metadata when followed by "edition"
+    String.raw`(?:(?:game\s+of\s+the\s+year|goty)(?:\s+edition)?|` +
+    String.raw`(?:deluxe|definitive|complete|ultimate|gold|enhanced|special|collector'?s|` +
+    String.raw`anniversary|standard|digital|premium|legendary|royal)\s+edition|` +
     String.raw`remastered|remaster|director'?s\s+cut|edition)\s*$`,
   "i"
 );

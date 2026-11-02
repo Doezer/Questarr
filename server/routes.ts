@@ -781,6 +781,13 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       return res.status(400).json({ error: "Search query required" });
     }
 
+    // Sent by the continuation pages of a search that fell back on a simpler query: the title
+    // that query was derived from, which the results are still scored against.
+    const requestedTitle =
+      typeof req.query.title === "string" && req.query.title.trim()
+        ? req.query.title.trim()
+        : undefined;
+
     const { items, total, errors, queryUsed } = await searchAllIndexers({
       query: query.trim(),
       category: categories,
@@ -821,7 +828,9 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       userSettings?.preferredPlatform ?? null,
       xrelTypesFor(userSettings),
       gameBlacklist,
-      queryUsed ? strictMatchTitle(ownGame?.title ?? query.trim()) : undefined
+      queryUsed || requestedTitle
+        ? strictMatchTitle(queryUsed ? (ownGame?.title ?? query.trim()) : (requestedTitle ?? ""))
+        : undefined
     );
     // releases the scoring failure path dropped count as blacklisted, like the global ones
     const blacklistedCount = items.length - scoredItems.length;

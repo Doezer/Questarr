@@ -414,7 +414,10 @@ describe("buildQueryVariants", () => {
   it("keeps edition-like endings of ordinary words", () => {
     expect(buildQueryVariants("Pokemon HeartGold")).toEqual([]);
     expect(strictMatchTitle("Pokemon HeartGold")).toBe("Pokemon HeartGold");
-    expect(strictMatchTitle("Pokemon Gold")).toBe("Pokemon");
+    // adjectives that can belong to the title only count with "edition"
+    expect(strictMatchTitle("Pokemon Gold")).toBe("Pokemon Gold");
+    expect(strictMatchTitle("Persona 5 Royal")).toBe("Persona 5 Royal");
+    expect(strictMatchTitle("Pokemon Gold Edition")).toBe("Pokemon");
   });
 
   it("keeps a single possessive word: it is the title", () => {

@@ -21,6 +21,11 @@ vi.mock("../storage.js", () => ({ storage: storageMock }));
 vi.mock("../services/index.js", () => ({
   importManager: { resolveLibraryPlatformFolder: vi.fn(async () => "PC") },
 }));
+// Temp dirs may live under a prefix the guard treats as sensitive (e.g. a home under /root on CI).
+vi.mock("../path-security.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../path-security.js")>()),
+  isSensitivePath: vi.fn(async () => false),
+}));
 vi.mock("../library-scanner.js", () => ({ replaceGameFilesFromPath: replaceFiles }));
 vi.mock("../logger.js", () => ({
   routesLogger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },

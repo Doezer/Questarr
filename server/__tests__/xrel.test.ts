@@ -94,6 +94,43 @@ describe("xREL Client", () => {
       });
     });
 
+    it("flags a full list as truncated (xREL ignores pagination and caps each list)", async () => {
+      const scene = Array.from({ length: 50 }, (_, i) => ({
+        id: String(i),
+        dirname: `Game.Update.${i}-GRP`,
+        link_href: `/release/${i}.html`,
+        time: 1600000000 + i,
+        group_name: "GRP",
+        ext_info: { type: "master_game", id: "g", title: "Game", link_href: "/game/g.html" },
+      }));
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ results: scene, p2p_results: [] }),
+      });
+      const full = await xrelClient.searchReleasesWithMeta("Game", { limit: 100 });
+      expect(full.releases).toHaveLength(50);
+      expect(full.truncated).toBe(true);
+    });
+
+    it("does not flag a partial list as truncated", async () => {
+      const scene = Array.from({ length: 10 }, (_, i) => ({
+        id: String(i),
+        dirname: `Game.Update.${i}-GRP`,
+        link_href: `/release/${i}.html`,
+        time: 1600000000 + i,
+        group_name: "GRP",
+        ext_info: { type: "master_game", id: "g", title: "Game", link_href: "/game/g.html" },
+      }));
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ results: scene, p2p_results: [] }),
+      });
+      const partial = await xrelClient.searchReleasesWithMeta("Game", { limit: 100 });
+      expect(partial.truncated).toBe(false);
+    });
+
     it("captures the nuke reason when a scene release has been nuked", async () => {
       const mockResponse = {
         results: [

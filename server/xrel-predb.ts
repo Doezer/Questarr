@@ -2,7 +2,7 @@ import { storage } from "./storage.js";
 import { xrelClient } from "./xrel.js";
 import { logger } from "./logger.js";
 import { normalizeTitle } from "../shared/title-utils.js";
-import type { XrelPredbEntry } from "../shared/release-scoring.js";
+import type { XrelPredbEntry, XrelPredbList } from "../shared/release-scoring.js";
 
 /**
  * xREL PreDB lookup for release scoring (Questarr-mgmt #17 and #2). Based on the xREL boost in
@@ -54,13 +54,19 @@ async function fetchPredb(
   types: XrelPredbTypes
 ): Promise<XrelPredbEntry[] | undefined> {
   const baseUrl = (await storage.getSystemConfig("xrel_api_base"))?.trim() || null;
-  const releases = await xrelClient.searchReleases(gameTitle, {
+  const { releases, truncated } = await xrelClient.searchReleasesWithMeta(gameTitle, {
     scene: types.scene,
     p2p: types.p2p,
     limit: LOOKUP_LIMIT,
     baseUrl,
   });
-  return releases.map((release) => {
+  if (truncated) {
+    logger.warn(
+      { gameTitle },
+      "xREL list is full (xREL does not paginate), releases missing from it are reported as unknown"
+    );
+  }
+  const entries: XrelPredbList = releases.map((release) => {
     const sizeBytes = xrelSizeBytes(release);
     return {
       dirname: release.dirname,
@@ -69,6 +75,8 @@ async function fetchPredb(
       source: release.source,
     };
   });
+  if (truncated) entries.truncated = true;
+  return entries;
 }
 
 /**

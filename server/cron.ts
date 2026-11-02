@@ -1840,9 +1840,9 @@ export async function checkAutoSearch() {
             config: await loadScoringConfig(userId),
             preferredPlatform,
             ...(xrelEnabledFor(settings) ? { xrelTypes: xrelTypesFor(settings) } : {}),
-            // the result of the previous cycle must stay usable, even with an interval above
-            // 24 h, but no older: a nuke check never leans on data more than a cycle old
-            xrelStaleMaxAgeMs: Math.max(24, settings.searchIntervalHours + 1) * 60 * 60 * 1000,
+            // the previous cycle's result must stay usable, even with an interval above 24 h:
+            // interval + the hourly tick + the run time of a long cycle, and no older
+            xrelStaleMaxAgeMs: Math.max(24, settings.searchIntervalHours + 6) * 60 * 60 * 1000,
           };
         } catch (error) {
           igdbLogger.warn({ userId, error }, "Release scoring unavailable, using legacy filters");

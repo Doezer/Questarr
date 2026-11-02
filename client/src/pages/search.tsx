@@ -134,6 +134,7 @@ export default function SearchPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const lastSearchQueryRef = useRef("");
+  const fallbackQueryRef = useRef<{ original: string; used: string } | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -146,11 +147,24 @@ export default function SearchPage() {
   } = useInfiniteQuery<SearchResult, Error, InfiniteData<SearchResult>, string[], number>({
     queryKey: ["/api/search", debouncedSearchQuery],
     queryFn: async ({ pageParam }): Promise<SearchResult> => {
+      // Later pages keep searching with the simpler query that found the first one: the
+      // server only retries variants on the first page.
+      const variant = fallbackQueryRef.current;
+      const query =
+        pageParam > 0 && variant?.original === debouncedSearchQuery
+          ? variant.used
+          : debouncedSearchQuery;
       const r = await apiRequest(
         "GET",
-        `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&limit=${PAGE_SIZE}&offset=${pageParam}`
+        `/api/search?query=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${pageParam}`
       );
-      return r.json();
+      const result: SearchResult = await r.json();
+      if (pageParam === 0) {
+        fallbackQueryRef.current = result.queryUsed
+          ? { original: debouncedSearchQuery, used: result.queryUsed }
+          : null;
+      }
+      return result;
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {

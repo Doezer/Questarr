@@ -401,6 +401,15 @@ describe("buildQueryVariants", () => {
     expect(buildQueryVariants("Clive Barker's Hellraiser: Revival")[0]).toBe("Hellraiser: Revival");
   });
 
+  it("reaches the subtitle variant within the first three", () => {
+    expect(buildQueryVariants("Clive Barker's Hellraiser: Revival").slice(0, 3)).toContain(
+      "Hellraiser"
+    );
+    expect(buildQueryVariants("The Elder Scrolls V: Skyrim Special Edition").slice(0, 3)).toContain(
+      "The Elder Scrolls V"
+    );
+  });
+
   it("keeps a single possessive word: it is the title", () => {
     expect(buildQueryVariants("Baldur's Gate 3")).toEqual(["Baldurs Gate 3"]);
     expect(buildQueryVariants("Assassin's Creed Odyssey")).not.toContain("Creed Odyssey");

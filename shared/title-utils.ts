@@ -345,7 +345,9 @@ export function buildQueryVariants(title: string): string[] {
 
   const ordered: string[] = [
     ...bases,
-    ...[noPossessiveNoEdition, noPossessive, noEdition, original].map(stripPunctuation),
+    // only of the most simplified base: punctuation of the longer forms would use up the
+    // fallback budget before the subtitle variants
+    stripPunctuation(noPossessiveNoEdition),
     ...[noPossessiveNoEdition, noPossessive, noEdition, original].map(dropSubtitle),
     ...[noPossessiveNoEdition, noPossessive, noEdition, original].map((t) =>
       stripPunctuation(dropSubtitle(t))

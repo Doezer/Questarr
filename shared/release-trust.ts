@@ -24,6 +24,7 @@ export interface TrustReason {
     | "xrel_verified"
     | "xrel_size_mismatch"
     | "xrel_nuked"
+    | "xrel_p2p_unchecked"
     | "xrel_not_found"
     | "xrel_unavailable"
     | "preferred_group"
@@ -96,7 +97,18 @@ export function deriveReleaseTrust(
   const agrees = sizeAgrees(signals.size, evaluation.xrelSizeBytes);
   let xrelEvidence = false;
   let sizeMismatch = false;
-  if (evaluation.xrel === "verified") {
+  const p2p = evaluation.xrel === "verified" && evaluation.xrelSource === "p2p";
+  if (p2p && agrees !== false) {
+    // xREL only records nukes for scene releases, so a p2p listing is a missing check, not a
+    // clean one: never worded as "verified", and never a reason for the risky level
+    xrelEvidence = agrees === true;
+    reasons.push({
+      code: "xrel_p2p_unchecked",
+      tone: "neutral",
+      label: "Listed on xREL as P2P",
+      detail: "p2p releases cannot be checked for nukes",
+    });
+  } else if (evaluation.xrel === "verified") {
     if (agrees === false) {
       sizeMismatch = true;
       reasons.push({

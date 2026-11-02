@@ -1,16 +1,15 @@
-import { execFile } from "node:child_process";
 import { accessSync, constants as fsConstants, type Dir } from "node:fs";
 import { opendir } from "node:fs/promises";
 import path from "node:path";
 import fs from "fs-extra";
 import { logger } from "../logger.js";
 import { EXTRACT_STAGING_PREFIX } from "./extract-staging.js";
+import { ArchiveListingLimitError, runArchiveTool } from "./archive-tool.js";
 
 /** Archive sets reported per directory: the post-import scan is a best-effort warning. */
 const MAX_SETS_PER_DIR = 50;
 
 type ArchiveTool = "7zip" | "unrar";
-type ExecFileResult = { stdout: string; stderr: string };
 
 export interface ArchiveEntry {
   name: string;
@@ -23,8 +22,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-const EXEC_TIMEOUT_MS = 30 * 60_000;
-const EXEC_MAX_BUFFER = 10 * 1024 * 1024;
+const MAX_LISTING_NAME_BYTES = 32 * 1024 * 1024;
 const DEFAULT_ARCHIVE_MAX_ENTRIES = 50_000;
 const DEFAULT_ARCHIVE_MAX_EXPANDED_BYTES = 250 * 1024 ** 3;
 const MAX_ARCHIVE_PATH_DEPTH = 64;
@@ -137,51 +135,22 @@ function resolveTool(filePath: string): ArchiveTool {
   return path.extname(filePath).toLowerCase() === ".rar" ? "unrar" : "7zip";
 }
 
-function runTool(binary: string, args: string[], toolLabel: string): Promise<ExecFileResult> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      binary,
-      args,
-      {
-        encoding: "utf8",
-        timeout: EXEC_TIMEOUT_MS,
-        windowsHide: true,
-        maxBuffer: EXEC_MAX_BUFFER,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          const detail = (stderr || stdout || error.message).trim().slice(0, 500);
-          reject(new Error(`${toolLabel} failed: ${detail}`));
-          return;
-        }
-        resolve({ stdout, stderr });
-      }
-    );
-  });
+function requireArchiveBinary(tool: ArchiveTool): string {
+  const binary = tool === "unrar" ? resolveUnrarBinary() : resolveSevenZipBinary();
+  if (binary) return binary;
+  throw new NonRetryableArchiveError(
+    tool === "unrar"
+      ? "RAR archive detected but no unrar binary was found. Install it (see Dockerfile) or set UNRAR_PATH."
+      : "Archive extraction requires 7-Zip but no binary was found. Install the `7zip` apk package or set SEVENZIP_PATH."
+  );
 }
 
-function runSevenZip(args: string[]): Promise<ExecFileResult> {
-  const binary = resolveSevenZipBinary();
-  if (!binary) {
-    return Promise.reject(
-      new NonRetryableArchiveError(
-        "Archive extraction requires 7-Zip but no binary was found. Install the `7zip` apk package or set SEVENZIP_PATH."
-      )
-    );
-  }
-  return runTool(binary, args, "7-Zip");
+function runSevenZip(args: string[]): Promise<void> {
+  return runArchiveTool(requireArchiveBinary("7zip"), args, "7-Zip");
 }
 
-function runUnrar(args: string[]): Promise<ExecFileResult> {
-  const binary = resolveUnrarBinary();
-  if (!binary) {
-    return Promise.reject(
-      new NonRetryableArchiveError(
-        "RAR archive detected but no unrar binary was found. Install it (see Dockerfile) or set UNRAR_PATH."
-      )
-    );
-  }
-  return runTool(binary, args, "unrar");
+function runUnrar(args: string[]): Promise<void> {
+  return runArchiveTool(requireArchiveBinary("unrar"), args, "unrar");
 }
 
 // Splits one listing block into its "key<separator>value" fields.
@@ -222,41 +191,24 @@ function makeEntry(
 // describes one entry, including directories, so preflight bounds the filesystem work
 // caused by both files and directory trees. Zip-like formats flag directories with
 // "Folder = +", while 7z archives omit Folder and mark them with a "D" attribute.
-function parseSevenZipSltListing(stdout: string): ArchiveEntry[] {
-  const entries: ArchiveEntry[] = [];
-  for (const block of stdout.split(/\r?\n\r?\n/)) {
-    const fields = parseListingFields(block, " = ");
-    if (!fields.Path || "Type" in fields) continue;
-    if (!("Folder" in fields || "Attributes" in fields || "Size" in fields)) continue;
-    const attributes = fields.Attributes ?? "";
-    const isDirectory = fields.Folder === "+" || attributes.startsWith("D");
-    // Some formats print empty "Symbolic Link =" / "Hard Link =" fields for every
-    // entry; only a non-empty target marks a link.
-    const isLink =
-      Boolean(fields["Symbolic Link"] || fields["Hard Link"]) || /\blrwx/.test(attributes);
-    entries.push(
-      makeEntry(fields.Path, parseEntrySize(fields.Size, isDirectory), isDirectory, isLink)
-    );
-  }
-  return entries;
+function parseSevenZipSltRecord(block: string): ArchiveEntry | undefined {
+  const fields = parseListingFields(block, " = ");
+  if (!fields.Path || "Type" in fields) return;
+  if (!("Folder" in fields || "Attributes" in fields || "Size" in fields)) return;
+  const attributes = fields.Attributes ?? "";
+  const isDirectory = fields.Folder === "+" || attributes.startsWith("D");
+  const isLink =
+    Boolean(fields["Symbolic Link"] || fields["Hard Link"]) || /\blrwx/.test(attributes);
+  return makeEntry(fields.Path, parseEntrySize(fields.Size, isDirectory), isDirectory, isLink);
 }
 
-// Parses `unrar lt -v` output. Each "Archive:" line opens a volume; each blank-line-
-// delimited block with a "Name:" field describes one entry. A file split across volumes
-// is listed once per volume it spans: as the last entry of one volume and again as the
-// first entry of the next, so that continuation is dropped instead of counted twice.
-// Any type other than File or Directory (symbolic link, hard link, file copy, ...) is
-// reported as a link so preflight refuses it.
-function parseUnrarTechnicalListing(stdout: string): ArchiveEntry[] {
-  const entries: ArchiveEntry[] = [];
-  // UnRAR prints a header for every volume a file spans. Its `Ratio:` field marks the
-  // pieces: `-->` continues in the next volume, `<->` spans both sides, `<--` ends here.
-  // Only a piece split on both sides of a boundary is a continuation; a genuine
-  // same-named entry has no markers and must still count against the limits.
+function makeUnrarRecordParser(): (block: string) => ArchiveEntry | undefined {
+  // Only matching split-volume continuation records are duplicates. Ordinary same-named
+  // entries must still count toward the entry limit.
   let previous: { entry: ArchiveEntry; splitAfter: boolean } | undefined;
-  for (const block of stdout.split(/\r?\n\s*\r?\n/)) {
+  return (block) => {
     const fields = parseListingFields(block, ": ");
-    if (!fields.Name || !fields.Type) continue;
+    if (!fields.Name || !fields.Type) return;
     const isDirectory = fields.Type === "Directory";
     const entry = makeEntry(
       fields.Name,
@@ -270,10 +222,9 @@ function parseUnrarTechnicalListing(stdout: string): ArchiveEntry[] {
       previous?.splitAfter === true &&
       previous.entry.name === entry.name &&
       previous.entry.size === entry.size;
-    if (!continuesPrevious) entries.push(entry);
     previous = { entry, splitAfter: fields.Ratio === "-->" || fields.Ratio === "<->" };
-  }
-  return entries;
+    return continuesPrevious ? undefined : entry;
+  };
 }
 
 // Splits an archive entry name into path segments, rejecting absolute, drive-letter,
@@ -381,7 +332,7 @@ export class ArchiveService {
   // every time. Both re-throw as a more specific error type for the caller; anything else
   // returns normally so testArchive's loop can retry it as a possible transient read.
   private classifyNonRetryableFailure(err: unknown, password?: string): void {
-    if (err instanceof NonRetryableArchiveError) {
+    if (err instanceof NonRetryableArchiveError || err instanceof ArchiveListingLimitError) {
       throw err;
     }
     if (err instanceof Error && isPasswordProtectedError(err.message)) {
@@ -570,10 +521,8 @@ export class ArchiveService {
     outputDir: string,
     password?: string
   ): Promise<void> {
-    // Trailing separator tells unrar the operand is a destination directory. -idq suppresses
-    // the per-file "Extracting..." progress output — without it, a large multi-file archive
-    // can exceed execFile's maxBuffer and fail with ERR_CHILD_PROCESS_STDIO_MAXBUFFER after
-    // extraction has already started.
+    // Trailing separator marks the destination directory. -idq suppresses per-file
+    // progress to avoid unnecessary output processing for large archives.
     await runUnrar([
       "x",
       "-idq",
@@ -721,13 +670,36 @@ export class ArchiveService {
   async listEntries(filePath: string, password?: string): Promise<ArchiveEntry[]> {
     logger.debug({ filePath }, "Listing archive contents");
     const passwordArg = password ? `-p${password}` : "-p-";
-    if (resolveTool(filePath) === "unrar") {
-      // -v lists every volume of a multi-volume set, not just the first.
-      const { stdout } = await runUnrar(["lt", "-v", passwordArg, "--", filePath]);
-      return parseUnrarTechnicalListing(stdout);
-    }
-    const { stdout } = await runSevenZip(["l", "-slt", passwordArg, "--", filePath]);
-    return parseSevenZipSltListing(stdout);
+    const tool = resolveTool(filePath);
+    const parseRecord = tool === "unrar" ? makeUnrarRecordParser() : parseSevenZipSltRecord;
+    const entries: ArchiveEntry[] = [];
+    let nameBytes = 0;
+    await runArchiveTool(
+      requireArchiveBinary(tool),
+      tool === "unrar"
+        ? ["lt", "-v", passwordArg, "--", filePath]
+        : ["l", "-slt", passwordArg, "--", filePath],
+      tool === "unrar" ? "unrar" : "7-Zip",
+      {
+        onRecord: (record) => {
+          const entry = parseRecord(record);
+          if (!entry) return;
+          if (entries.length >= ARCHIVE_MAX_ENTRIES) {
+            throw new NonRetryableArchiveError(
+              `Archive contains too many entries (limit: ${ARCHIVE_MAX_ENTRIES}).`
+            );
+          }
+          nameBytes += Buffer.byteLength(entry.name);
+          if (nameBytes > MAX_LISTING_NAME_BYTES) {
+            throw new ArchiveListingLimitError(
+              `Archive listing names exceed the metadata limit (${MAX_LISTING_NAME_BYTES} bytes).`
+            );
+          }
+          entries.push(entry);
+        },
+      }
+    );
+    return entries;
   }
 
   /**

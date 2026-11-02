@@ -468,6 +468,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   // the opposite) is flagged and its download disabled, instead of failing at download time.
   const isUnsupportedRelease = (download: DownloadItem) =>
     downloadersLoaded && downloaders.length > 0 && !hasCompatibleDownloader(download, downloaders);
+  const downloadButtonState = (download: DownloadItem) => ({
+    disabled:
+      downloadingGuid === (download.guid || download.link) || isUnsupportedRelease(download),
+    title: isUnsupportedRelease(download) ? UNSUPPORTED_RELEASE_TITLE : undefined,
+  });
   const unsupportedCounts = useMemo(
     () =>
       downloadersLoaded && downloaders.length > 0
@@ -1445,15 +1450,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                         variant="ghost"
                                         size="icon"
                                         onClick={() => handleDownload(download)}
-                                        disabled={
-                                          downloadingGuid === (download.guid || download.link) ||
-                                          isUnsupportedRelease(download)
-                                        }
-                                        title={
-                                          isUnsupportedRelease(download)
-                                            ? UNSUPPORTED_RELEASE_TITLE
-                                            : undefined
-                                        }
+                                        {...downloadButtonState(download)}
                                         className="h-9 w-9 hover:bg-primary hover:text-primary-foreground transition-all"
                                         aria-label={`Download ${download.title.replace(/[._]/g, " ")}`}
                                       >
@@ -1660,15 +1657,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     variant="ghost"
                                     size="icon"
                                     onClick={() => handleDownload(download)}
-                                    disabled={
-                                      downloadingGuid === (download.guid || download.link) ||
-                                      isUnsupportedRelease(download)
-                                    }
-                                    title={
-                                      isUnsupportedRelease(download)
-                                        ? UNSUPPORTED_RELEASE_TITLE
-                                        : undefined
-                                    }
+                                    {...downloadButtonState(download)}
                                     className="h-9 w-9 hover:bg-primary hover:text-primary-foreground transition-all"
                                     aria-label={`Download ${download.title.replace(/[._]/g, " ")}`}
                                   >

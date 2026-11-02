@@ -170,6 +170,7 @@ linked file as the source of truth.
   application queries; the only raw SQL (`sql.raw`/`sql` template literals in
   `server/migrate.ts`) is hardcoded migration DDL with no user input.
 - **Archive extraction (import):** `server/services/ArchiveService.ts` — preflight listing
+  streams metadata with a 64 KiB per-record cap and a 32 MiB aggregate entry-name cap, and
   refuses archives over `ARCHIVE_MAX_ENTRIES` / `ARCHIVE_MAX_EXPANDED_BYTES`, with unsafe paths
   (absolute, drive letter, `..`, too deep), or with symlinks/hard links; see
   [`docs/SECRETS.md`](./SECRETS.md) §1

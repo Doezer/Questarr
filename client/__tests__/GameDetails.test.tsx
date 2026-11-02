@@ -214,7 +214,7 @@ function makeFetchMock(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const renderComponent = (game = mockGame) => {
+const renderComponent = (game: import("@shared/schema").Game = mockGame) => {
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <GameDetails game={game} onClose={() => {}} />
@@ -283,6 +283,21 @@ describe("GameDetails", () => {
     expect(screen.getByTestId("badge-genre-adventure")).toBeInTheDocument();
     expect(screen.getByTestId("badge-platform-pc")).toBeInTheDocument();
     expect(screen.getByTestId("badge-platform-ps5")).toBeInTheDocument();
+  });
+
+  it("renders game mode badges when the game has modes", () => {
+    renderComponent({ ...mockGame, gameModes: ["Single player", "Co-operative"] });
+    expect(screen.getByText("Game Modes")).toBeInTheDocument();
+    expect(screen.getByTestId("badge-gamemode-single-player")).toBeInTheDocument();
+    expect(screen.getByTestId("badge-gamemode-co-operative")).toBeInTheDocument();
+  });
+
+  it("hides the game modes section when modes are null or empty", () => {
+    const { unmount } = renderComponent({ ...mockGame, gameModes: null });
+    expect(screen.queryByText("Game Modes")).not.toBeInTheDocument();
+    unmount();
+    renderComponent({ ...mockGame, gameModes: [] });
+    expect(screen.queryByText("Game Modes")).not.toBeInTheDocument();
   });
 
   it("updates and clears the automatic download target", async () => {

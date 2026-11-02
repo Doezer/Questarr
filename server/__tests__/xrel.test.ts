@@ -94,6 +94,43 @@ describe("xREL Client", () => {
       });
     });
 
+    it("flags a full list as truncated (xREL ignores pagination and caps each list)", async () => {
+      const scene = Array.from({ length: 50 }, (_, i) => ({
+        id: String(i),
+        dirname: `Game.Update.${i}-GRP`,
+        link_href: `/release/${i}.html`,
+        time: 1600000000 + i,
+        group_name: "GRP",
+        ext_info: { type: "master_game", id: "g", title: "Game", link_href: "/game/g.html" },
+      }));
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ results: scene, p2p_results: [] }),
+      });
+      const full = await xrelClient.searchReleasesWithMeta("Game", { limit: 100 });
+      expect(full.releases).toHaveLength(50);
+      expect(full.truncated).toBe(true);
+    });
+
+    it("does not flag a partial list as truncated", async () => {
+      const scene = Array.from({ length: 10 }, (_, i) => ({
+        id: String(i),
+        dirname: `Game.Update.${i}-GRP`,
+        link_href: `/release/${i}.html`,
+        time: 1600000000 + i,
+        group_name: "GRP",
+        ext_info: { type: "master_game", id: "g", title: "Game", link_href: "/game/g.html" },
+      }));
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ results: scene, p2p_results: [] }),
+      });
+      const partial = await xrelClient.searchReleasesWithMeta("Game", { limit: 100 });
+      expect(partial.truncated).toBe(false);
+    });
+
     it("captures the nuke reason when a scene release has been nuked", async () => {
       const mockResponse = {
         results: [
@@ -251,6 +288,27 @@ describe("xREL Client", () => {
       fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
 
       await expect(xrelClient.searchReleases("odd")).rejects.toThrow("unexpected response");
+    });
+
+    it.each([
+      ["a null body", null],
+      ["a non-object body", "oops"],
+      ["a results field that is not a list", { results: { total: 0 } }],
+      ["a p2p_results field that is not a list", { results: [], p2p_results: "none" }],
+    ])("should treat %s as a failure", async (_label, body) => {
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => body });
+
+      await expect(xrelClient.searchReleases("odd")).rejects.toThrow("unexpected response");
+    });
+
+    it("should still accept an explicit empty list as no releases", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ results: [] }),
+      });
+
+      await expect(xrelClient.searchReleases("none")).resolves.toEqual([]);
     });
 
     it("should handle rate limiting errors", async () => {

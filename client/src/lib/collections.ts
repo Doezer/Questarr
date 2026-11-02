@@ -16,6 +16,7 @@ export function describeRules(rules: CollectionRules | null | undefined): string
   const parts: string[] = [];
   if (rules.statuses?.length) parts.push(`Status: ${rules.statuses.join(", ")}`);
   if (rules.genres?.length) parts.push(`Genre: ${rules.genres.join(", ")}`);
+  if (rules.gameModes?.length) parts.push(`Game Mode: ${rules.gameModes.join(", ")}`);
   if (rules.platforms?.length) parts.push(`Platform: ${rules.platforms.join(", ")}`);
   if (rules.minRating !== undefined) parts.push(`IGDB rating ≥ ${rules.minRating}`);
   if (rules.minUserRating !== undefined) parts.push(`My rating ≥ ${rules.minUserRating}`);

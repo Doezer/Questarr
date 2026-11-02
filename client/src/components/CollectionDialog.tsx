@@ -59,6 +59,7 @@ export default function CollectionDialog({
   const [type, setType] = useState<"manual" | "smart">("manual");
   const [statuses, setStatuses] = useState<string[]>([]);
   const [genres, setGenres] = useState<string[]>([]);
+  const [gameModes, setGameModes] = useState<string[]>([]);
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [minRating, setMinRating] = useState("");
   const [minUserRating, setMinUserRating] = useState("");
@@ -83,6 +84,7 @@ export default function CollectionDialog({
     setType(collection?.type ?? "manual");
     setStatuses(rules.statuses ?? []);
     setGenres(rules.genres ?? []);
+    setGameModes(rules.gameModes ?? []);
     setPlatforms(rules.platforms ?? []);
     setMinRating(rules.minRating?.toString() ?? "");
     setMinUserRating(rules.minUserRating?.toString() ?? "");
@@ -93,17 +95,23 @@ export default function CollectionDialog({
 
   const { games, isLoading: gamesLoading, isError: gamesError, retry } = useFreshGames(open);
 
-  const { genreOptions, platformOptions } = useMemo(() => {
+  const { genreOptions, gameModeOptions, platformOptions } = useMemo(() => {
     const genreSet = new Set<string>(genres);
+    const gameModeSet = new Set<string>(gameModes);
     const platformSet = new Set<string>(platforms);
     for (const game of games) {
       game.genres?.forEach((g) => genreSet.add(g));
+      game.gameModes?.forEach((m) => gameModeSet.add(m));
       game.platforms?.forEach((p) => platformSet.add(p));
     }
     const sorted = (set: Set<string>) =>
       toOptions(Array.from(set).sort((a, b) => a.localeCompare(b)));
-    return { genreOptions: sorted(genreSet), platformOptions: sorted(platformSet) };
-  }, [games, genres, platforms]);
+    return {
+      genreOptions: sorted(genreSet),
+      gameModeOptions: sorted(gameModeSet),
+      platformOptions: sorted(platformSet),
+    };
+  }, [games, genres, gameModes, platforms]);
 
   const rules = useMemo<CollectionRules>(() => {
     const minRatingValue = toNumber(minRating);
@@ -114,6 +122,7 @@ export default function CollectionDialog({
     return {
       ...(statuses.length > 0 && { statuses }),
       ...(genres.length > 0 && { genres }),
+      ...(gameModes.length > 0 && { gameModes }),
       ...(platforms.length > 0 && { platforms }),
       ...(minRatingValue !== undefined && { minRating: minRatingValue }),
       ...(minUserRatingValue !== undefined && { minUserRating: minUserRatingValue }),
@@ -121,7 +130,17 @@ export default function CollectionDialog({
       ...(yearToValue !== undefined && { releaseYearTo: yearToValue }),
       ...(title !== "" && { titleContains: title }),
     };
-  }, [statuses, genres, platforms, minRating, minUserRating, yearFrom, yearTo, titleContains]);
+  }, [
+    statuses,
+    genres,
+    gameModes,
+    platforms,
+    minRating,
+    minUserRating,
+    yearFrom,
+    yearTo,
+    titleContains,
+  ]);
 
   const hasRules = !isEmptyCollectionRules(rules);
   const reversedYears = hasReversedYearRange(rules);
@@ -271,6 +290,16 @@ export default function CollectionDialog({
                   selected={genres}
                   onChange={setGenres}
                   placeholder="Any genre"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Game Mode</Label>
+                <MultiSelect
+                  aria-label="Game mode rule"
+                  options={gameModeOptions}
+                  selected={gameModes}
+                  onChange={setGameModes}
+                  placeholder="Any game mode"
                 />
               </div>
               <div className="space-y-1.5">

@@ -179,6 +179,16 @@ export interface XrelPredbEntry {
   nukeReason?: string;
   /** Size xREL lists for the release, when it gives one. */
   sizeBytes?: number;
+  /** Where xREL lists it. Only scene releases can be nuked; absent is read as scene. */
+  source?: "scene" | "p2p";
+}
+
+/**
+ * The PreDB entries for a game. `truncated` is set when xREL's list was full, so older entries
+ * may be missing and a release absent from it is not known to be unlisted.
+ */
+export interface XrelPredbList extends Array<XrelPredbEntry> {
+  truncated?: boolean;
 }
 
 /**
@@ -207,6 +217,8 @@ export interface ReleaseEvaluation {
   xrelNukeReason?: string;
   /** The size xREL lists for the matched release, when it gives one. */
   xrelSizeBytes?: number;
+  /** Where the matched xREL entry is listed. A p2p entry cannot be checked for a nuke. */
+  xrelSource?: "scene" | "p2p";
 }
 
 // ---------------------------------------------------------------------------
@@ -620,7 +632,9 @@ interface ReleaseFacts {
   metadata: ReleaseMetadata;
   titleMatch: TitleMatch;
   indexerCategory: IndexerCategoryClass;
-  xrel: { status: XrelStatus; nukeReason?: string; sizeBytes?: number } | undefined;
+  xrel:
+    | { status: XrelStatus; nukeReason?: string; sizeBytes?: number; source?: "scene" | "p2p" }
+    | undefined;
 }
 
 /** Dots for spaces and underscores, lower case: the form scene names are compared in. */
@@ -639,12 +653,18 @@ function lookupXrel(
   if (!entries) return unavailable ? { status: "unavailable" } : undefined;
   const key = releaseKey(splitTrailingTags(title).name);
   const entry = entries.find((candidate) => releaseKey(candidate.dirname) === key);
-  if (!entry) return { status: "not_found" };
+  if (!entry) {
+    // a full list may have cut this release off: that is "unknown", not "not listed"
+    return (entries as XrelPredbList).truncated
+      ? { status: "unavailable" }
+      : { status: "not_found" };
+  }
   return entry.nukeReason !== undefined
     ? { status: "nuked", nukeReason: entry.nukeReason }
     : {
         status: "verified",
         ...(entry.sizeBytes !== undefined ? { sizeBytes: entry.sizeBytes } : {}),
+        ...(entry.source !== undefined ? { source: entry.source } : {}),
       };
 }
 
@@ -1242,6 +1262,7 @@ export function evaluateRelease(
     ...(facts.xrel ? { xrel: facts.xrel.status } : {}),
     ...(facts.xrel?.nukeReason !== undefined ? { xrelNukeReason: facts.xrel.nukeReason } : {}),
     ...(facts.xrel?.sizeBytes !== undefined ? { xrelSizeBytes: facts.xrel.sizeBytes } : {}),
+    ...(facts.xrel?.source !== undefined ? { xrelSource: facts.xrel.source } : {}),
   };
 }
 

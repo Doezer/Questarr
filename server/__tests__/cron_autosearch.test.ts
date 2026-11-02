@@ -124,6 +124,10 @@ vi.mock("../xrel.js", () => ({
   xrelClient: {
     getLatestReleases: vi.fn(),
     searchReleases: mockXrelSearchReleases,
+    searchReleasesWithMeta: async (...args: unknown[]) => ({
+      releases: await mockXrelSearchReleases(...args),
+      truncated: false,
+    }),
   },
   DEFAULT_XREL_BASE: "http://example.com",
 }));
@@ -2932,6 +2936,31 @@ describe("release scoring in auto-search", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("defers the automatic grab when xREL answers with a malformed body, without caching it", async () => {
+    mockXrelSearchReleases.mockRejectedValue(
+      new Error("xREL API returned an unexpected response (no release lists)")
+    );
+    mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
+    mockSearchAllIndexers.mockResolvedValue({ items: [item("Brokengame-CODEX")], errors: [] });
+    const withXrel = {
+      ...scoring,
+      xrelTypes: { scene: true, p2p: false },
+      deferOnXrelUnavailable: true,
+    };
+    const run = () =>
+      searchAndCategorizeItemsForGame(
+        { id: "broken-1", title: "Brokengame", targetPlatformId: null, targetPlatformName: null },
+        null,
+        undefined,
+        [],
+        withXrel
+      );
+    expect(await run()).toBe(AUTO_SEARCH_DEFERRED);
+    expect(await run()).toBe(AUTO_SEARCH_DEFERRED);
+    // the failure was not cached as an empty result: xREL was asked again
+    expect(mockXrelSearchReleases).toHaveBeenCalledTimes(2);
   });
 
   it("still scores the game while xREL is unavailable when no automatic grab can follow", async () => {

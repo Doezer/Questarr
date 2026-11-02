@@ -1195,6 +1195,28 @@ describe("SeerrNG provider API", () => {
       });
     });
 
+    it("lists files when the library root is a symlink to the real directory", async () => {
+      const link = `${tmp}-link`;
+      fs.symlinkSync(tmp, link, "junction");
+      try {
+        (storage.getImportConfig as Mock).mockResolvedValue({ libraryRoot: link });
+        await registerFiles([{ id: "f1", name: "Example Game.zip", body: "hello world" }]);
+        // registerFiles writes under tmp; the file rows point through the symlinked root.
+        (storage.getGameFiles as Mock).mockResolvedValue([
+          {
+            id: "f1",
+            originalName: "Example Game.zip",
+            storedName: "Example Game.zip",
+            filePath: path.join(link, "Example Game.zip"),
+          },
+        ]);
+        const res = await request(app).get(`${base}/requests/seerrng:request:1/assets`);
+        expect(res.body.assets).toHaveLength(1);
+      } finally {
+        fs.rmSync(link, { force: true });
+      }
+    });
+
     it("skips files outside the library or missing on disk", async () => {
       await request(app).post(`${base}/requests`).send(createBody);
       const outside = fs.mkdtempSync(path.join(os.tmpdir(), "outside-"));

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   insertApiKeySchema,
   insertDownloaderSchema,
+  collectionRulesSchema,
   insertGameSchema,
   insertIndexerSchema,
   updateGameTargetPlatformSchema,
@@ -49,6 +50,25 @@ describe("insertGameSchema", () => {
         }),
       ])
     );
+  });
+});
+
+describe("game modes validation", () => {
+  it("accepts a string array, null and omission for insertGameSchema.gameModes", () => {
+    for (const gameModes of [["Single player", "Co-operative"], null, undefined]) {
+      expect(insertGameSchema.safeParse({ title: "Hades", gameModes }).success).toBe(true);
+    }
+  });
+
+  it.each([[{}], ["Multiplayer"], [[1, 2]], [[""]]])(
+    "rejects malformed insertGameSchema.gameModes %j",
+    (gameModes) => {
+      expect(insertGameSchema.safeParse({ title: "Hades", gameModes }).success).toBe(false);
+    }
+  );
+
+  it("accepts gameModes in collection rules", () => {
+    expect(collectionRulesSchema.safeParse({ gameModes: ["Multiplayer"] }).success).toBe(true);
   });
 });
 

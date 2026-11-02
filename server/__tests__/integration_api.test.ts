@@ -517,6 +517,25 @@ describe("integration API", () => {
       );
     });
 
+    it("persists the IGDB game modes on the added game", async () => {
+      const { igdbClient } = await import("../igdb.js");
+      (igdbClient.formatGameData as Mock).mockReturnValue({
+        title: "Hades",
+        igdbId: 113112,
+        platforms: ["PC"],
+        gameModes: ["Single player", "Co-operative"],
+        releaseDate: "2020-09-17",
+        isAdultContent: false,
+        isAgeRestricted: false,
+      });
+
+      await withKey(request(app).post("/api/integration/games/request")).send({ title: "Hades" });
+
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ gameModes: ["Single player", "Co-operative"] })
+      );
+    });
+
     it("stamps an already-released game so it is not filed as upcoming", async () => {
       await withKey(request(app).post("/api/integration/games/request")).send({ title: "Hades" });
 

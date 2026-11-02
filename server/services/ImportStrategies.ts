@@ -360,7 +360,7 @@ async function transferFile(
 }
 
 export async function gatherFiles(rootPath: string, options: WalkOptions = {}): Promise<string[]> {
-  if (isSensitivePath(rootPath)) {
+  if (await isSensitivePath(rootPath)) {
     throw new Error("Refusing to process a sensitive system path");
   }
 
@@ -544,7 +544,7 @@ export class PCImportStrategy implements ImportStrategy {
     platformDir?: string,
     options?: PlanImportOptions
   ): Promise<ImportReview> {
-    if (isSensitivePath(sourcePath)) {
+    if (await isSensitivePath(sourcePath)) {
       throw new Error("Refusing to process a sensitive system path");
     }
 
@@ -595,7 +595,10 @@ export class PCImportStrategy implements ImportStrategy {
     // categorized branch below calls transferSingleFile directly (bypassing
     // transferFile's own checks), so a single guard at this shared entry point is what
     // actually covers every branch, including that one.
-    if (isSensitivePath(review.originalPath) || isSensitivePath(review.proposedPath)) {
+    if (
+      (await isSensitivePath(review.originalPath)) ||
+      (await isSensitivePath(review.proposedPath))
+    ) {
       throw new Error("Refusing to process a sensitive system path");
     }
 

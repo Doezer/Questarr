@@ -348,6 +348,26 @@ describe("GameDetails", () => {
     expect(within(navigation).getByRole("button", { name: /Media/ })).toHaveTextContent("3");
   });
 
+  it("resolves personal screenshots to the saved game when opened through discovery", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({
+        "/api/games?includeHidden=true": [{ ...mockGame, igdbId: 123 }],
+        "/api/games/1/screenshots": [{ id: "mine", url: "/api/screenshots/mine.png" }],
+      })
+    );
+    renderComponent({ ...mockGame, id: "igdb-123", igdbId: 123 });
+    const gallery = await screen.findByRole("region", { name: "Your screenshots" });
+    expect(
+      await within(gallery).findByRole("button", { name: "View screenshot 1" })
+    ).toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      "/api/games/igdb-123/screenshots",
+      expect.anything()
+    );
+    const navigation = screen.getByRole("navigation", { name: "Game sections" });
+    expect(within(navigation).getByRole("button", { name: /Media/ })).toHaveTextContent("3");
+  });
+
   it("does not offer personal uploads on an unsaved discovery game", () => {
     renderComponent({ ...mockGame, id: "igdb-123" });
     expect(screen.queryByRole("region", { name: "Your screenshots" })).not.toBeInTheDocument();

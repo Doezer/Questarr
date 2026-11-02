@@ -941,7 +941,12 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
   const SUMMARY_LIMIT = 280;
   const isSummaryLong = game.summary && game.summary.length > SUMMARY_LIMIT;
   const isLibraryGame = !isDiscoveryId(game.id);
-  const { data: personalScreenshots = [] } = useGameScreenshots(game.id, isLibraryGame);
+  const personalScreenshotGameId = libraryGame?.id ?? game.id;
+  const canShowPersonalScreenshots = isLibraryGame || !!libraryGame;
+  const { data: personalScreenshots = [] } = useGameScreenshots(
+    personalScreenshotGameId,
+    canShowPersonalScreenshots
+  );
 
   // Include Steam link derived from steamAppId if IGDB didn't provide one (category 13)
   const rawWebsites = (game.igdbWebsites ?? []) as Array<{ category: number; url: string }>;
@@ -1642,7 +1647,12 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
               count={screenshots.length + videos.length + personalScreenshots.length}
             >
               <div className="space-y-6">
-                {isLibraryGame && <GameScreenshotGallery key={game.id} gameId={game.id} />}
+                {canShowPersonalScreenshots && (
+                  <GameScreenshotGallery
+                    key={personalScreenshotGameId}
+                    gameId={personalScreenshotGameId}
+                  />
+                )}
                 {videos.length > 0 && <GameVideoCarousel videos={videos} />}
                 {screenshots.length > 0 && (
                   <section aria-label={videos.length > 0 ? "Screenshots" : undefined}>
@@ -1671,7 +1681,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     </div>
                   </section>
                 )}
-                {!isLibraryGame && screenshots.length === 0 && videos.length === 0 && (
+                {!canShowPersonalScreenshots && screenshots.length === 0 && videos.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
                     <Monitor className="w-8 h-8 opacity-40" />
                     <p className="text-sm">No screenshots or videos available.</p>

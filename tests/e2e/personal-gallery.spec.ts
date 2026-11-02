@@ -5,7 +5,8 @@ test("personal screenshots live in Media and survive reload before deletion", as
   page,
 }, testInfo) => {
   await page.goto("/");
-  const game = await seedGame(page, { title: "A memorable adventure", igdbId: uniqueId() });
+  const igdbId = uniqueId();
+  const game = await seedGame(page, { title: "A memorable adventure", igdbId });
   await page.goto(`/games/${game.id}`);
   const gallery = page.getByRole("region", { name: "Your screenshots", exact: true });
   await expect(gallery.getByText("No screenshots yet.")).toBeVisible();
@@ -44,6 +45,18 @@ test("personal screenshots live in Media and survive reload before deletion", as
   await expect(
     page.getByRole("navigation", { name: "Game sections" }).getByRole("button", { name: /Media/ })
   ).toContainText("1");
+  // Discovery URLs resolve the saved row before enabling personal media.
+  await page.route(`**/api/igdb/game/${igdbId}`, (route) =>
+    route.fulfill({ json: { ...game, id: `igdb-${igdbId}`, igdbId } })
+  );
+  await page.goto(`/games/igdb-${igdbId}`);
+  await expect(
+    gallery.getByRole("button", { name: "View screenshot 1", exact: true })
+  ).toBeVisible();
+  await page.goto(`/games/${game.id}`);
+  await expect(
+    gallery.getByRole("button", { name: "View screenshot 1", exact: true })
+  ).toBeVisible();
   await gallery.scrollIntoViewIfNeeded();
   await gallery.screenshot({ path: testInfo.outputPath("personal-gallery-desktop.png") });
   await gallery.getByRole("button", { name: "View screenshot 1", exact: true }).click();

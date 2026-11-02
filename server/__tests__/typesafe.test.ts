@@ -8,6 +8,9 @@ vi.mock("../ssrf.js", () => createSafeFetchOnlyMock());
 vi.mock("../storage.js", () => ({
   storage: {
     getSystemConfig: vi.fn(),
+    getClassificationCacheEntry: vi.fn(),
+    putClassificationCacheEntry: vi.fn(),
+    pruneClassificationCache: vi.fn(),
   },
 }));
 
@@ -284,6 +287,30 @@ describe("TypeSafeClient", () => {
       await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
 
       expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("asks the provider the key was built from when settings change during the cache lookup", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      let finishLookup: (row: undefined) => void = () => {};
+      vi.mocked(storage.getClassificationCacheEntry).mockReturnValue(
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        })
+      );
+      const client = await getClient();
+      client.configure("https://old.example.com/v1/systemone", "old-key");
+      const pending = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      // Let the call reach the (pending) cache lookup before the settings change
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      client.configure("https://new.example.com/v1/systemone", "new-key");
+      finishLookup(undefined);
+      await pending;
+
+      expect(mockSafeFetch.mock.calls[0]?.[0]).toBe("https://old.example.com/v1/systemone");
     });
 
     it("keeps a configure() made while the stored settings are still loading", async () => {

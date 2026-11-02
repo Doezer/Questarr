@@ -172,6 +172,9 @@ class TypeSafeClient {
   }): Promise<ReleaseAnalysis | null> {
     await this.ensureLoaded();
     if (!this.apiUrl || !this.apiKey) return null;
+    // The request must use the provider the key was built from, even if the settings change
+    // while the cache lookup is awaiting the database
+    const provider = { apiUrl: this.apiUrl, apiKey: this.apiKey, model: this.model };
 
     // The fingerprint changes with the endpoint or model, so a replaced provider never
     // reuses another provider's answer, and it survives a restart so stored answers are found
@@ -188,7 +191,7 @@ class TypeSafeClient {
     const request = (async () => {
       const generation = this.analysisCache.generation;
       const cached = await this.analysisCache.get(cacheKey);
-      return cached ?? this.requestAnalysis(cacheKey, params, generation);
+      return cached ?? this.requestAnalysis(cacheKey, params, generation, provider);
     })().finally(() => this.analysisInFlight.delete(cacheKey));
     this.analysisInFlight.set(cacheKey, request);
     return request;
@@ -197,10 +200,9 @@ class TypeSafeClient {
   private async requestAnalysis(
     cacheKey: string,
     params: { releaseName: string; sizeBytes?: number | undefined; platform?: string | undefined },
-    generation: number
+    generation: number,
+    provider: { apiUrl: string; apiKey: string; model: string }
   ): Promise<ReleaseAnalysis | null> {
-    if (!this.apiUrl || !this.apiKey) return null;
-
     const stateLines = [`Release name: ${params.releaseName}`];
     if (params.sizeBytes !== undefined) {
       stateLines.push(`File size: ${formatBytes(params.sizeBytes)}`);
@@ -211,7 +213,7 @@ class TypeSafeClient {
 
     const body = {
       state: stateLines.join("\n"),
-      model: this.model,
+      model: provider.model,
       questions: {
         releaseType: {
           type: "choice",
@@ -241,10 +243,10 @@ class TypeSafeClient {
     };
 
     try {
-      const response = await safeFetch(this.apiUrl, {
+      const response = await safeFetch(provider.apiUrl, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${this.apiKey}`,
+          Authorization: `Bearer ${provider.apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),

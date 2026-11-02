@@ -11,7 +11,10 @@ export const classificationCacheStore: PersistentCacheStore = {
 /** Forgets every cached verdict, in memory and in the table. Returns how many rows the table held. */
 export async function clearClassificationCache(): Promise<number> {
   clearAllMemoryCaches();
-  return storage.clearClassificationCache();
+  const removed = await storage.clearClassificationCache();
+  // A lookup that began during the deletion may have read a row the table still held
+  clearAllMemoryCaches();
+  return removed;
 }
 
 export function classificationCacheSize(): Promise<number> {

@@ -368,6 +368,32 @@ describe("GameDetails", () => {
     expect(within(navigation).getByRole("button", { name: /Media/ })).toHaveTextContent("3");
   });
 
+  it("recovers a failed saved-library lookup from the discovery Media section", async () => {
+    let failLookup = true;
+    const success = makeFetchMock({
+      "/api/games?includeHidden=true": [{ ...mockGame, igdbId: 123 }],
+      "/api/games/1/screenshots": [{ id: "mine", url: "/api/screenshots/mine.png" }],
+    });
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url === "/api/games?includeHidden=true" && failLookup) {
+        return Promise.resolve({ ok: false, status: 503, text: async () => "Unavailable" });
+      }
+      return success(url);
+    });
+    renderComponent({ ...mockGame, id: "igdb-123", igdbId: 123, screenshots: [] });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not check your saved game's screenshots."
+    );
+    expect(screen.queryByText("No screenshots or videos available.")).not.toBeInTheDocument();
+    failLookup = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry library lookup" }));
+    const gallery = await screen.findByRole("region", { name: "Your screenshots" });
+    expect(
+      await within(gallery).findByRole("button", { name: "View screenshot 1" })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry library lookup" })).not.toBeInTheDocument();
+  });
+
   it("does not offer personal uploads on an unsaved discovery game", () => {
     renderComponent({ ...mockGame, id: "igdb-123" });
     expect(screen.queryByRole("region", { name: "Your screenshots" })).not.toBeInTheDocument();

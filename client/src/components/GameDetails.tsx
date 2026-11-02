@@ -753,7 +753,13 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
   // game endpoints reject. Look up the library row for the same IGDB game so
   // Hide, Remove and the rating act on it instead.
   const isDiscoveryGame = isDiscoveryId(game.id);
-  const { data: libraryGames } = useQuery<Game[]>({
+  const {
+    data: libraryGames,
+    isError: libraryLookupError,
+    isPending: libraryLookupPending,
+    isFetching: libraryLookupFetching,
+    refetch: refetchLibraryGames,
+  } = useQuery<Game[]>({
     queryKey: ["/api/games", "", true],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/games?includeHidden=true");
@@ -1653,6 +1659,24 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     gameId={personalScreenshotGameId}
                   />
                 )}
+                {isDiscoveryGame && !libraryGame && libraryLookupPending && (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Checking saved game screenshots…
+                  </p>
+                )}
+                {isDiscoveryGame && !libraryGame && libraryLookupError && (
+                  <div role="alert" className="text-sm space-y-2">
+                    <p>Could not check your saved game's screenshots.</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void refetchLibraryGames()}
+                      disabled={libraryLookupFetching}
+                    >
+                      Retry library lookup
+                    </Button>
+                  </div>
+                )}
                 {videos.length > 0 && <GameVideoCarousel videos={videos} />}
                 {screenshots.length > 0 && (
                   <section aria-label={videos.length > 0 ? "Screenshots" : undefined}>
@@ -1681,12 +1705,16 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     </div>
                   </section>
                 )}
-                {!canShowPersonalScreenshots && screenshots.length === 0 && videos.length === 0 && (
-                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
-                    <Monitor className="w-8 h-8 opacity-40" />
-                    <p className="text-sm">No screenshots or videos available.</p>
-                  </div>
-                )}
+                {!canShowPersonalScreenshots &&
+                  !libraryLookupPending &&
+                  !libraryLookupError &&
+                  screenshots.length === 0 &&
+                  videos.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                      <Monitor className="w-8 h-8 opacity-40" />
+                      <p className="text-sm">No screenshots or videos available.</p>
+                    </div>
+                  )}
               </div>
             </Section>
 

@@ -1,6 +1,6 @@
 # Personal screenshots
 
-Open a saved game's details and jump to **Media → Your screenshots → Upload** to keep a memorable moment alongside its trailers and IGDB artwork. Choose one JPEG, PNG, or WebP image, up to 8 MB. A game can be saved with any library status, including Wanted; discovery results must be added first.
+Open a saved game's details and jump to **Media → Your screenshots → Upload** to keep a memorable moment alongside its trailers and IGDB artwork. Choose one JPEG, PNG, or WebP image, up to 8 MB. A game can be saved with any library status, including Wanted; discovery results must be added first. Saved games also show their personal gallery when opened through a discovery URL. If that saved-library lookup fails, use **Retry library lookup** in Media.
 
 Click a thumbnail to view the full image. **Delete** removes that personal image. Uploads persist across reloads and remain separate from IGDB screenshots, so refreshing game metadata does not replace them. Existing journal uploads automatically appear here; there is no migration or duplicate upload required.
 

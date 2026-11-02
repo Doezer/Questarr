@@ -49,7 +49,21 @@ test("personal screenshots live in Media and survive reload before deletion", as
   await page.route(`**/api/igdb/game/${igdbId}`, (route) =>
     route.fulfill({ json: { ...game, id: `igdb-${igdbId}`, igdbId } })
   );
+  let failLibraryLookup = true;
+  await page.route("**/api/games?includeHidden=true", (route) =>
+    failLibraryLookup
+      ? route.fulfill({ status: 503, json: { error: "Unavailable" } })
+      : route.continue()
+  );
   await page.goto(`/games/igdb-${igdbId}`);
+  await expect(page.getByRole("alert")).toContainText(
+    "Could not check your saved game's screenshots."
+  );
+  await page
+    .getByRole("alert")
+    .screenshot({ path: testInfo.outputPath("personal-gallery-lookup-retry.png") });
+  failLibraryLookup = false;
+  await page.getByRole("button", { name: "Retry library lookup" }).click();
   await expect(
     gallery.getByRole("button", { name: "View screenshot 1", exact: true })
   ).toBeVisible();

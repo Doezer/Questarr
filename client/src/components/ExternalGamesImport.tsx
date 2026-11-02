@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRightLeft, Loader2, AlertTriangle } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -62,6 +62,24 @@ function formatBytes(bytes: number | null): string {
     unit += 1;
   }
   return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+// The import route allows 30 requests a minute. A rate-limited game waits for the
+// window to reopen instead of being dropped from the batch.
+const RATE_LIMIT_WAIT_MS = 10_000;
+const RATE_LIMIT_RETRIES = 8;
+
+async function importWithRetry(gameId: string, mode: TransferMode): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await apiRequest("POST", `/api/library/external-games/${gameId}/import`, { mode });
+      return;
+    } catch (error) {
+      const limited = error instanceof ApiError && error.status === 429;
+      if (!limited || attempt >= RATE_LIMIT_RETRIES) throw error;
+      await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_WAIT_MS));
+    }
+  }
 }
 
 /**
@@ -140,7 +158,7 @@ export function ExternalGamesImport() {
     const failures: string[] = [];
     for (const game of queue) {
       try {
-        await apiRequest("POST", `/api/library/external-games/${game.gameId}/import`, { mode });
+        await importWithRetry(game.gameId, mode);
       } catch (error) {
         failures.push(`${game.title}: ${error instanceof Error ? error.message : "failed"}`);
       }

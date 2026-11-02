@@ -163,7 +163,10 @@ export function RootFolderDiscovery() {
       return gainedMatch || justFinished;
     });
     previousGameProgress.current = new Map(scanProgress.map((p) => [p.rootFolderId, p]));
-    if (refreshGames) queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    if (refreshGames) {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/library/external-games"] });
+    }
   }, [scanProgress, queryClient]);
 
   const invalidateAll = () => {
@@ -171,6 +174,7 @@ export function RootFolderDiscovery() {
     queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] });
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/status"] });
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/library/external-games"] });
   };
 
   const addMutation = useMutation({
@@ -266,6 +270,7 @@ export function RootFolderDiscovery() {
       toast({ title: "Game Matched", description: "Added to your library." });
       queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/library/external-games"] });
     },
     onError: (error: Error) => {
       toast({ title: "Match Failed", description: error.message, variant: "destructive" });

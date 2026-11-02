@@ -188,6 +188,7 @@ describe("isSensitivePath", () => {
       expect(await isSensitivePath("\\\\.\\C:\\Windows\\System32")).toBe(true);
       expect(await isSensitivePath("\\\\localhost\\C$\\Windows")).toBe(true);
       expect(await isSensitivePath("\\\\?\\UNC\\localhost\\C$\\Users")).toBe(true);
+      expect(await isSensitivePath("\\\\localhost\\ADMIN$\\System32")).toBe(true);
     }
   );
 

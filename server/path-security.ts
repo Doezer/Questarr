@@ -2,10 +2,13 @@ import fs from "fs-extra";
 import path from "node:path";
 
 const SENSITIVE_PATH_PREFIXES = ["/proc", "/sys", "/dev", "/run/secrets", "/etc", "/root"];
+// macOS keeps /etc, /var and friends as links into /private, so the canonical form of /etc is
+// /private/etc.
+const MACOS_CANONICAL_PREFIXES = ["/private/etc"];
 
 // Same prefixes as SENSITIVE_PATH_PREFIXES, as a single regex test.
 const SENSITIVE_PATH_REGEX = new RegExp(
-  `^(?:${SENSITIVE_PATH_PREFIXES.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?:/|$)`
+  `^(?:${[...SENSITIVE_PATH_PREFIXES, ...MACOS_CANONICAL_PREFIXES].map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?:/|$)`
 );
 
 // Windows system locations, on any drive letter. Matched case-insensitively (NTFS is) after
@@ -53,7 +56,7 @@ async function canonicalizeExistingPrefix(resolvedPath: string): Promise<string>
 function matchesSensitivePattern(resolvedPath: string): boolean {
   const normalized = resolvedPath.replaceAll("\\", "/");
   // Administrative shares (\\host\C$\...) expose a whole drive, system directories included.
-  if (/^\/\/[^/]+\/[a-z]\$(?:\/|$)/i.test(normalized)) return true;
+  if (/^\/\/[^/]+\/(?:[a-z]|admin)\$(?:\/|$)/i.test(normalized)) return true;
   return SENSITIVE_PATH_REGEX.test(normalized) || SENSITIVE_WINDOWS_PATH_REGEX.test(normalized);
 }
 

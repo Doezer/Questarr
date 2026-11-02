@@ -10,6 +10,7 @@ import { setupVite, serveStatic, log } from "./vite.js";
 import { errorHandler } from "./middleware.js";
 import { config } from "./config.js";
 import { startCronJobs } from "./cron.js";
+import { resumeSteamLibraryImports } from "./steam-library-jobs.js";
 import { setupSocketIO } from "./socket.js";
 import { createHttpsRedirect } from "./https-redirect.js";
 import { ensureDatabase } from "./migrate.js";
@@ -127,6 +128,9 @@ void (async () => {
 
     const { port, host } = config.server;
     const { ssl } = config;
+
+    // Recover persisted imports before accepting new requests for the same account.
+    await resumeSteamLibraryImports().catch(() => log("Could not resume Steam library imports"));
 
     // Start HTTP server
     server.listen(port, host, () => {

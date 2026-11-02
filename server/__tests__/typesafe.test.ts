@@ -280,7 +280,7 @@ describe("TypeSafeClient", () => {
       client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
       await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
 
-      client.configure("https://api.typesafe.ai/v1/systemone", "other-key");
+      client.configure("https://proxy.example.com/v1/systemone", "other-key");
       await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
 
       expect(mockSafeFetch).toHaveBeenCalledTimes(2);

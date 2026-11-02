@@ -254,8 +254,8 @@ held-out file is a deliberate step you do by hand.
   and in the `classification_cache` table (SQLite or Postgres) for 7 days (20,000 rows), so a
   restart or a Docker update no longer repeats paid cloud calls. The key includes the pipeline
   version, the mode, the local model version and confidence bar, the cloud model id and a
-  fingerprint of the provider endpoint and key, and the release name, size, platform and game
-  title. Installing a new model, changing the provider, key, mode or confidence bar, or bumping
+  fingerprint of the provider endpoint and model, and the release name, size, platform and game
+  title. Installing a new model, changing the provider endpoint or model, the mode or the confidence bar, or bumping
   the pipeline version therefore never serves an older answer; those rows just age out. Expired
   and surplus rows are pruned at most once an hour. Results from a failing layer (error, timeout,
   unusable answer) are never stored, a stored verdict is stored as it was (an `unknown` stays

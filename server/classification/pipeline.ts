@@ -21,7 +21,7 @@ export interface PipelineConfig {
   /** The local model's confidence bar; it changes verdicts, so it belongs in cache keys. */
   localThreshold?: number | null;
   /**
-   * Identifies the cloud provider across restarts (endpoint, key and model). `cloudVersion` may carry
+   * Identifies the cloud provider across restarts (endpoint and model). `cloudVersion` may carry
    * a counter that restarts at zero, so the persisted key uses this one when it is given.
    */
   cloudFingerprint?: string | null;

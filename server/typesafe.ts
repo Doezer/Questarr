@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { logger } from "./logger.js";
 import { TieredCache } from "./classification/cache.js";
 import { classificationCacheStore } from "./classification/persistent-store.js";
@@ -103,16 +102,12 @@ class TypeSafeClient {
   }
 
   /**
-   * Names the endpoint, credentials and model, and stays the same across restarts (unlike the
-   * revision), so it can key persisted cache rows. Only a hash is used: no credential reaches
-   * a key, a row or a log line.
+   * Names the endpoint and model, and stays the same across restarts (unlike the revision), so it
+   * can key persisted cache rows. The credentials are left out on purpose: the same endpoint and
+   * model give the same answers whichever key asked, and no secret reaches a cache key.
    */
   get providerFingerprint(): string {
-    const digest = createHash("sha256")
-      .update(`${this.apiUrl ?? ""}\n${this.apiKey ?? ""}`)
-      .digest("hex")
-      .slice(0, 16);
-    return `${this.model}@${digest}`;
+    return `${this.model}@${this.apiUrl ?? ""}`;
   }
 
   /** The configured model identifier; part of classification cache keys and log lines. */
@@ -178,7 +173,7 @@ class TypeSafeClient {
     await this.ensureLoaded();
     if (!this.apiUrl || !this.apiKey) return null;
 
-    // The fingerprint changes with the endpoint, key or model, so a replaced provider never
+    // The fingerprint changes with the endpoint or model, so a replaced provider never
     // reuses another provider's answer, and it survives a restart so stored answers are found
     const cacheKey = JSON.stringify([
       this.providerFingerprint,

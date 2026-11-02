@@ -4,7 +4,11 @@ import path from "node:path";
 import fs from "fs-extra";
 import { logger } from "../logger.js";
 import { EXTRACT_STAGING_PREFIX } from "./extract-staging.js";
-import { ArchiveListingLimitError, runArchiveTool } from "./archive-tool.js";
+import {
+  ArchiveListingLimitError,
+  ArchiveToolPasswordError,
+  runArchiveTool,
+} from "./archive-tool.js";
 
 /** Archive sets reported per directory: the post-import scan is a best-effort warning. */
 const MAX_SETS_PER_DIR = 50;
@@ -67,19 +71,6 @@ class NonRetryableArchiveError extends Error {}
 // (ImportManager) catch this specifically to route the download to manual review with a
 // password prompt instead of the generic failure message.
 export class ArchivePasswordRequiredError extends Error {}
-
-// Both unrar and 7-Zip mention "password" in every message they produce for an encrypted
-// archive they can't read (unrar: e.g. a prompt-refusal or "wrong password" notice; 7-Zip:
-// "Wrong password?"). Matching on the bare word "password" would also fire on a genuinely
-// corrupt archive whose path/filename happens to contain it (e.g. "MyPasswordVault.rar"),
-// since runTool's error text can include the file path — so this requires one of the actual
-// diagnostic phrases both tools use for an encryption failure, not just the word appearing
-// anywhere in the message.
-function isPasswordProtectedError(message: string): boolean {
-  return /wrong password|password protected|password is incorrect|password required|enter password/i.test(
-    message
-  );
-}
 
 // Resolves a CLI tool to a fixed, unwriteable absolute path — rather than letting execFile
 // search $PATH for a bare command name — to avoid executing an attacker-controlled binary
@@ -335,7 +326,7 @@ export class ArchiveService {
     if (err instanceof NonRetryableArchiveError || err instanceof ArchiveListingLimitError) {
       throw err;
     }
-    if (err instanceof Error && isPasswordProtectedError(err.message)) {
+    if (err instanceof ArchiveToolPasswordError) {
       throw new ArchivePasswordRequiredError(
         password
           ? "The provided password was rejected — it may be incorrect."

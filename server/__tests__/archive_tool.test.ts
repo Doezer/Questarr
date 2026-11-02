@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ArchiveListingLimitError, runArchiveTool } from "../services/archive-tool.js";
+import {
+  ArchiveListingLimitError,
+  ArchiveToolPasswordError,
+  runArchiveTool,
+} from "../services/archive-tool.js";
 
 function runScript(
   script: string,
@@ -76,6 +80,26 @@ describe("streaming archive tools", () => {
     expect((invalidArgument as Error).message).toContain("invalid archive tool invocation");
     expect((invalidArgument as Error).message).not.toContain("private-password");
   });
+
+  it.each(["password", "pass", "word", "a"])(
+    "classifies password failures before redacting '%s' from diagnostics",
+    async (password) => {
+      const error = await runArchiveTool(
+        process.execPath,
+        [
+          "-e",
+          'process.stderr.write("Wrong password?"); process.exitCode = 2;',
+          "--",
+          `-p${password}`,
+        ],
+        "fixture"
+      ).catch((error: Error) => error);
+      expect(error).toBeInstanceOf(ArchiveToolPasswordError);
+      expect((error as Error).message).toContain("[redacted]");
+      expect((error as Error).message).not.toContain("Wrong password?");
+      expect(error).not.toHaveProperty("rawDetail");
+    }
+  );
 
   it("reaps a child that ignores SIGTERM when the record consumer refuses it", async () => {
     let pid: number | undefined;

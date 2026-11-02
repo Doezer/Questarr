@@ -703,6 +703,32 @@ describe("ArchiveService", () => {
       }
     );
 
+    it.each(
+      ["zip", "rar"].flatMap((extension) =>
+        ["listing", "integrity"].flatMap((phase) =>
+          ["password", "pass", "word", "a"].map((password) => ({ extension, phase, password }))
+        )
+      )
+    )(
+      "keeps $extension $phase password failures non-retryable when the password is '$password'",
+      async ({ extension, phase, password }) => {
+        const service = await freshArchiveService();
+        const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
+        if (phase === "integrity") mockToolOnce(null, "");
+        mockToolAlways(new Error("exit code 2"), "", "Wrong password?");
+
+        const result = service.extract(
+          `/downloads/game.${extension}`,
+          "/tmp/password-out",
+          password
+        );
+        await expect(result).rejects.toBeInstanceOf(ArchivePasswordRequiredError);
+        await expect(result).rejects.toThrow("provided password was rejected");
+        expect(spawn).toHaveBeenCalledTimes(phase === "listing" ? 1 : 2);
+        expect(ensureDirMock).not.toHaveBeenCalled();
+      }
+    );
+
     it("reports a rejected-password message distinct from the initial 'required' message on a wrong retry password", async () => {
       const service = await freshArchiveService();
       mockToolAlways(new Error("exit code 3"), "", "wrong password for the archive");

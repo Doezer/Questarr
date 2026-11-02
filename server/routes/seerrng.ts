@@ -596,12 +596,18 @@ async function listAssets(userId: string, gameId: string): Promise<Asset[]> {
     Boolean
   );
   if (roots.length === 0) return [];
+  // realpath() returns the canonical path, so it must be compared with canonical roots: a
+  // library root that is a symlink (or a Windows 8.3 short name) would otherwise reject every
+  // file inside it.
+  const canonicalRoots = await Promise.all(
+    roots.map(async (root) => fs.realpath(root).catch(() => root))
+  );
   const assets: Asset[] = [];
   for (const file of files.slice(0, MAX_ASSETS)) {
     try {
       await assertWithinRoots(file.filePath, roots, "outside library");
       const realPath = await fs.realpath(file.filePath);
-      await assertWithinRoots(realPath, roots, "outside library");
+      await assertWithinRoots(realPath, canonicalRoots, "outside library");
       const stats = await fs.stat(realPath);
       if (!stats.isFile()) continue;
       assets.push({

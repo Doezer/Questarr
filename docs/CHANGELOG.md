@@ -15,12 +15,7 @@ All notable changes to this project will be documented in this file.
 - **Naming templates**: the import rename pattern now accepts the tokens `{Title}`, `{TitleThe}`, `{Year}`, `{Platform}`, `{Version}`, `{Group}`, `{Source}`, `{IgdbId}`, `{SteamAppId}` and `{Region}` (#1197). See [Library import](LIBRARY_IMPORT.md).
 - **RomM integration**: If enabled, it places imports in RomM's platform folders (`snes`, `ps2`, `win`...). You can ask RomM to rescan after an import, and mark wishlist games that RomM already has as owned, from **Settings → Import** (#1202). See [Library import](LIBRARY_IMPORT.md#romm-integration).
 - **Game videos**: IGDB trailers and gameplay clips are shown in a carousel on the Media tab of the game details page. They play in a privacy-enhanced YouTube embed that loads only on click (#1194).
-- **Release scoring**: every search result now gets a score built from:
-  - title match
-  - indexer category
-  - platform and quality rules
-  - a per-user **release profile** (minimum score, preferred protocol, required and ignored terms, minimum seeders, maximum size)
-  - your own **custom formats** (conditions on the title, group, uploader, category, protocol or indexer, each adding or removing points, or rejecting the release outright).
+- **Release scoring**: every search result now gets a score built from a title match, indexer category, platform and quality rules, a per-user **release profile** (minimum score, preferred protocol, required and ignored terms, minimum seeders, maximum size) and your own **custom formats** (conditions on the title, group, uploader, category, protocol or indexer, each adding or removing points, or rejecting the release outright).
   - The manual search shows the score, its breakdown and why a release was rejected
     - The auto-search only considers accepted releases, keeps the best-scored copy of a duplicate and orders the rest by score, then preferred protocol, then your sort order.
   - Releases the xREL PreDB lists as nuked are rejected, and the search shows an xREL badge.

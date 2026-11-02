@@ -122,26 +122,34 @@ jobs:
         run: npx playwright install chromium
 
       # Same server as e2e.yml (`dev:test`: wiped data/test.db, port 5100, rate limits off).
-      - name: Start test server
+      # The runner kills processes left behind by a finished step on Windows, so the server is
+      # started, used and stopped within this single step.
+      - name: Run Playwright tests against the test server
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $proc = Start-Process -FilePath $env:ComSpec -ArgumentList "/d", "/c", "npm.cmd run dev:test" `
             -RedirectStandardOutput e2e-server.log -RedirectStandardError e2e-server.err.log `
             -PassThru -NoNewWindow
-          $proc.Id | Set-Content e2e-server.pid
-          for ($i = 0; $i -lt 90; $i++) {
-            try {
-              $r = Invoke-WebRequest -Uri "http://127.0.0.1:5100/api/health" -UseBasicParsing -TimeoutSec 3
-              if ($r.StatusCode -eq 200) { Write-Host "Server is up"; exit 0 }
-            } catch { }
-            Start-Sleep -Seconds 1
+          try {
+            $healthy = $false
+            for ($i = 0; $i -lt 90; $i++) {
+              try {
+                $r = Invoke-WebRequest -Uri "http://127.0.0.1:5100/api/health" -UseBasicParsing -TimeoutSec 3
+                if ($r.StatusCode -eq 200) { $healthy = $true; break }
+              } catch { }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $healthy) {
+              Get-Content e2e-server.log, e2e-server.err.log -ErrorAction SilentlyContinue
+              throw "Test server did not become healthy in time"
+            }
+            Write-Host "Server is up"
+            npm run test:e2e
+            if ($LASTEXITCODE -ne 0) { throw "Playwright tests failed (exit code $LASTEXITCODE)" }
+          } finally {
+            if (-not $proc.HasExited) { taskkill /PID $proc.Id /T /F | Out-Null }
           }
-          Get-Content e2e-server.log, e2e-server.err.log -ErrorAction SilentlyContinue
-          throw "Test server did not become healthy in time"
-
-      - name: Run Playwright tests
-        run: npm run test:e2e
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
@@ -154,15 +162,6 @@ jobs:
             e2e-server.log
             e2e-server.err.log
           retention-days: 14
-
-      - name: Stop test server
-        if: always()
-        shell: pwsh
-        run: |
-          if (Test-Path e2e-server.pid) {
-            taskkill /PID (Get-Content e2e-server.pid) /T /F | Out-Null
-          }
-          exit 0
 
   service-host:
     name: Windows service host

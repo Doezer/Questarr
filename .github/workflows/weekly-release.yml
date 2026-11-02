@@ -48,7 +48,7 @@ jobs:
         with:
           node-version: 22.x
 
-      # Version scheme: <next patch of the latest stable tag>-dev.<UTC date>, e.g. v1.5.1-dev.20261019.
+      # Version scheme: <next patch of the latest stable tag>-dev.<UTC date>, e.g. v1.6.0-dev.20261019.
       # Semver sorts it before the stable release it leads to, and it is a valid Docker tag.
       # A previous run that pushed its tag but did not finish (no GitHub release) is resumed.
       - name: Compute version

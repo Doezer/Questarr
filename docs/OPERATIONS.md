@@ -63,7 +63,7 @@ deployment workflow, and publication remain maintainer actions.
 
 `.github/workflows/weekly-release.yml` runs every Monday at 06:00 UTC (and on demand from the Actions tab). If `main` has new commits since the last tag it:
 
-1. tags `main` as `v<next patch>-dev.<YYYYMMDD>` (for example `v1.5.1-dev.20261019`);
+1. tags `main` as `v<next patch>-dev.<YYYYMMDD>` (for example `v1.6.0-dev.20261019`);
 2. publishes a GitHub **pre-release** whose notes list the merged pull requests (security and dependency fixes first) any commit pushed straight to `main`, and a closing list of the contributors (PR authors and direct committers, bots excluded);
 3. dispatches the Deploy workflow for the `dev` environment, which pushes `ghcr.io/doezer/questarr` and `doezer/questarr` images tagged with the release tag, `weekly` (moves only when a new pre-release is built; follow it to stay on the weekly build) and `dev` (moves with the daily dev build) (multi-arch), built from the tag. `latest` is only moved by production deployments.
 
@@ -76,4 +76,4 @@ The release is published as soon as the image build is dispatched, without waiti
 
 ### Registry retention
 
-The daily dev build prunes GHCR (`deploy.yml`): versions tagged only `test-sha-*` and untagged versions older than 15 days are deleted. Weekly images are not affected, because they always carry their dated tag (`v1.5.1-dev.20261019`). The flip side is that those dated tags are never purged automatically and pile up at roughly one multi-arch image per week; delete old ones by hand from the package page when needed. Docker Hub is not pruned by any workflow.
+The daily dev build prunes GHCR (`deploy.yml`): versions tagged only `test-sha-*` and untagged versions older than 15 days are deleted. Weekly images are not affected, because they always carry their dated tag (`v1.6.0-dev.20261019`). The flip side is that those dated tags are never purged automatically and pile up at roughly one multi-arch image per week; delete old ones by hand from the package page when needed. Docker Hub is not pruned by any workflow.

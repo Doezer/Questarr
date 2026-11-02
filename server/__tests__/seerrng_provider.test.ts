@@ -45,8 +45,9 @@ describe("SeerrNG provider API", () => {
     vi.clearAllMocks();
     vi.resetModules();
     keyScope = "requests";
-    // Canonical path: on Windows os.tmpdir() can be an 8.3 short name, which realpath expands.
-    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "seerrng-")));
+    // Canonical path: on Windows os.tmpdir() can be an 8.3 short name, which the native realpath
+    // expands, and the library-root containment check compares real paths.
+    tmp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "seerrng-")));
     ledger = new Map();
     games = new Map();
 

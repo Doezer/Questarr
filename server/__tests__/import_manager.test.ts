@@ -812,7 +812,7 @@ describe("ImportManager", () => {
     // move mode relocates the raw archive into the library first (game.zip's basename,
     // under the confirmed proposedPath), then extracts it in place there.
     expect(archiveService.extract).toHaveBeenCalledWith(
-      "/safe/root/PC/My Game/game.zip",
+      path.join("/safe/root/PC/My Game", "game.zip"),
       "/safe/root/PC/My Game",
       undefined
     );
@@ -1000,7 +1000,7 @@ describe("ImportManager", () => {
     });
 
     expect(archiveService.extract).toHaveBeenCalledWith(
-      "/safe/root/PC/My Game/game.rar",
+      path.join("/safe/root/PC/My Game", "game.rar"),
       "/safe/root/PC/My Game",
       "hunter2"
     );

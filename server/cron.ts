@@ -21,6 +21,7 @@ import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { runScheduledRommSync } from "./romm-sync.js";
+import { runScheduledLibraryRescan, LIBRARY_RESCAN_TICK_MS } from "./library-rescan.js";
 import { appriseClient } from "./apprise.js";
 import { importManager } from "./services/index.js";
 import {
@@ -676,6 +677,17 @@ function registerCronTasks(): void {
       intervalMs: ROMM_SYNC_INTERVAL_MS,
       runOnStartup: true,
       run: runScheduledRommSync,
+    },
+    {
+      name: "library-rescan",
+      title: "Library rescan",
+      description:
+        "Rescan the root folders for new games, at the interval set in Library Import (off by default).",
+      intervalMs: LIBRARY_RESCAN_TICK_MS,
+      runOnStartup: true,
+      run: async () => {
+        await runScheduledLibraryRescan();
+      },
     },
     {
       name: "client-versions",

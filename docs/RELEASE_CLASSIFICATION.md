@@ -31,7 +31,7 @@ its version) and whether a cloud provider is configured.
 setting is shown read-only with the variable's name, and the API refuses to change it. Unset the
 variable to manage the setting from the page. The low-confidence threshold and the candidate
 limit have no variable: only the page changes them. Changing the type or the local confidence
-rebuilds the pipeline and clears its cache at once.
+rebuilds the pipeline and clears its memory cache at once.
 
 ## Modes (`CLASSIFICATION_MODE`)
 
@@ -250,11 +250,21 @@ held-out file is a deliberate step you do by hand.
 ## Operations
 
 - Timeouts: each model layer is bounded to 10 s, a failing layer counts as "unresolved".
-- Cache: results are kept in memory for 24 h (2,000 entries). The key includes the pipeline
-  version, the mode, the local model version, the cloud model id and whether a provider is
-  configured, so installing a new model or changing the provider never serves stale answers.
-  Results from a failing layer (error, timeout, unusable answer) are not cached.
-- Cloud mode: the historical Jev call keeps its own in-memory cache (24 h, 2,000 entries, keyed by release name, size, platform, model and provider settings), so a name seen on every search is asked once. A failed call is never cached. Neither cache survives a restart.
+- Cache: two levels, shared by every mode. Results are kept in memory for 24 h (2,000 entries)
+  and in the `classification_cache` table (SQLite or Postgres) for 7 days (20,000 rows), so a
+  restart or a Docker update no longer repeats paid cloud calls. The key includes the pipeline
+  version, the mode, the local model version and confidence bar, the cloud model id and a
+  fingerprint of the provider endpoint and key, and the release name, size, platform and game
+  title. Installing a new model, changing the provider, key, mode or confidence bar, or bumping
+  the pipeline version therefore never serves an older answer; those rows just age out. Expired
+  and surplus rows are pruned at most once an hour. Results from a failing layer (error, timeout,
+  unusable answer) are never stored, a stored verdict is stored as it was (an `unknown` stays
+  `unknown`), and a table failure only means a cache miss. Active-learning candidates stay in
+  their own table: the cache holds pipeline verdicts, not labels. **Clear classification cache**
+  on the Release classification card empties both levels.
+- Cloud mode: the historical Jev call (`analyzeRelease`, also used by search and auto-search)
+  uses the same two levels, keyed by provider fingerprint, release name, size and platform. A
+  failed call is never cached.
 - Logs: one `debug` line per release in the `classification` module with the layers consulted,
   class, confidence, source and model version.
 - Docker: no new container and no native dependency. The model file ships in the image; an

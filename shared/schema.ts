@@ -1618,6 +1618,23 @@ export const classificationCandidates = sqliteTable(
   (t) => [uniqueIndex("classification_candidates_dedupe_idx").on(t.dedupeKey)]
 );
 
+// Persistent second level behind the in-memory classification caches (docs/RELEASE_CLASSIFICATION.md).
+// `id` is "<namespace>:<sha256 of the cache key>": the key carries the pipeline version, mode, model
+// versions and provider, so a changed version simply never matches and ages out. `verdict` is JSON.
+// Rows are pruned by age and by count; none of this is ground truth.
+export const classificationCache = sqliteTable(
+  "classification_cache",
+  {
+    id: text("id").primaryKey(),
+    namespace: text("namespace").notNull(),
+    verdict: text("verdict").notNull(),
+    storedAt: integer("stored_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("classification_cache_stored_at_idx").on(t.storedAt)]
+);
+
+export type ClassificationCacheRow = typeof classificationCache.$inferSelect;
+
 export type ClassificationCandidate = typeof classificationCandidates.$inferSelect;
 export type InsertClassificationCandidate = typeof classificationCandidates.$inferInsert;
 

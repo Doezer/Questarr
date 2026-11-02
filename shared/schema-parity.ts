@@ -269,6 +269,18 @@ export type _InsertClassificationCandidates = Expect<
     typeof pgSchema.classificationCandidates.$inferInsert
   >
 >;
+export type _SelectClassificationCache = Expect<
+  Equal<
+    typeof sqliteSchema.classificationCache.$inferSelect,
+    typeof pgSchema.classificationCache.$inferSelect
+  >
+>;
+export type _InsertClassificationCache = Expect<
+  Equal<
+    typeof sqliteSchema.classificationCache.$inferInsert,
+    typeof pgSchema.classificationCache.$inferInsert
+  >
+>;
 export type _SelectIntegrationRequests = Expect<
   Equal<
     typeof sqliteSchema.integrationRequests.$inferSelect,

@@ -71,6 +71,8 @@ const TABLE_ORDER = [
   "libraryScanIgnored",
   // Nothing references it.
   "classificationCandidates",
+  // Nothing references it.
+  "classificationCache",
   // References users and games; nothing references it.
   "integrationRequests",
 ] as const;

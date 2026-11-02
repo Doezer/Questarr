@@ -3,6 +3,10 @@ import { routesLogger } from "./logger.js";
 import { typesafeClient } from "./typesafe.js";
 import { localModelStatus } from "./classification/index.js";
 import {
+  classificationCacheSize,
+  clearClassificationCache,
+} from "./classification/persistent-store.js";
+import {
   classificationSettingsSchema,
   currentSettings,
   lockedSettings,
@@ -15,8 +19,19 @@ import {
  */
 const router = Router();
 
+/** A failing count must not hide the settings page: the cache is only an optimisation. */
+async function cacheEntries(): Promise<number | null> {
+  try {
+    return await classificationCacheSize();
+  } catch (error) {
+    routesLogger.warn({ error }, "Could not count the classification cache");
+    return null;
+  }
+}
+
 async function overview() {
   return {
+    cache: { entries: await cacheEntries() },
     settings: currentSettings(),
     locked: lockedSettings(),
     localModel: localModelStatus(),
@@ -57,6 +72,15 @@ router.put("/api/settings/classification", async (req: Request, res: Response): 
   } catch (error) {
     routesLogger.error({ error }, "Could not save the classification settings");
     res.status(500).json({ error: "Could not save the classification settings" });
+  }
+});
+
+router.delete("/api/settings/classification/cache", async (_req: Request, res: Response) => {
+  try {
+    res.json({ cleared: await clearClassificationCache() });
+  } catch (error) {
+    routesLogger.error({ error }, "Could not clear the classification cache");
+    res.status(500).json({ error: "Could not clear the classification cache" });
   }
 });
 

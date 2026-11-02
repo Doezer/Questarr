@@ -128,6 +128,17 @@ describe("library transfer", () => {
     expect(await fs.readFile(path.join(preview.destinationPath, "keep.txt"), "utf8")).toBe("mine");
   });
 
+  it("never writes the same destination from two concurrent transfers", async () => {
+    const other = { ...game, id: "g2" };
+    storageMock.getGame.mockImplementation(async (id: string) => (id === "g2" ? other : game));
+    const results = await Promise.allSettled([
+      transferExternalGame("g1", "copy", "u1"),
+      transferExternalGame("g2", "copy", "u1"),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+  });
+
   it("does not expose another user's game", async () => {
     storageMock.getGame.mockResolvedValue({ ...game, userId: "someone-else" });
     await expect(transferExternalGame("g1", "copy", "u1")).rejects.toMatchObject({ status: 404 });

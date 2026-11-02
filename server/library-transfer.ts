@@ -57,6 +57,8 @@ export interface TransferPreview {
 }
 
 const inFlight = new Set<string>();
+// Destinations being written right now: two games can resolve to the same one.
+const reservedDestinations = new Set<string>();
 
 /** Root folder strictly containing `resolvedPath`, preferring the deepest match. */
 function findContainingRootFolder(folders: RootFolder[], resolvedPath: string): RootFolder | null {
@@ -237,8 +239,18 @@ export async function transferExternalGame(
   }
   inFlight.add(gameId);
   let taskId: string | null = null;
+  let reserved: string | null = null;
   try {
     const t = await resolveTransfer(gameId, userId);
+    const destination = path.resolve(t.plan.proposedPath);
+    if (reservedDestinations.has(destination)) {
+      throw new LibraryTransferError(
+        `Another transfer is already writing to ${t.plan.proposedPath}`,
+        409
+      );
+    }
+    reservedDestinations.add(destination);
+    reserved = destination;
     if (t.plan.needsReview) {
       throw new LibraryTransferError(
         `Destination already exists in the library: ${t.plan.proposedPath}`,
@@ -334,6 +346,7 @@ export async function transferExternalGame(
     }
     throw error;
   } finally {
+    if (reserved) reservedDestinations.delete(reserved);
     inFlight.delete(gameId);
   }
 }

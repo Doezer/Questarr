@@ -331,11 +331,23 @@ export async function transferExternalGame(
     // half-written copy can be removed safely. A same-disk move is a rename
     // that already took files out of the source: never delete those.
     const sourceUntouched = mode !== "move" || crossMove;
+    // Claim the destination atomically (non-recursive mkdir fails with EEXIST):
+    // anything cleaned up below was created by this call, never by another import.
+    await fs.ensureDir(path.dirname(t.plan.proposedPath));
+    try {
+      await nodeFs.promises.mkdir(t.plan.proposedPath);
+    } catch {
+      throw new LibraryTransferError(
+        `Destination already exists in the library: ${t.plan.proposedPath}`,
+        409
+      );
+    }
     let result;
     try {
       result = await t.strategy.executeImport(t.plan, crossMove ? "copy" : mode);
     } catch (error) {
       if (sourceUntouched) await fs.remove(t.plan.proposedPath).catch(() => undefined);
+      else await nodeFs.promises.rmdir(t.plan.proposedPath).catch(() => undefined);
       throw error;
     }
     if (crossMove) {

@@ -188,10 +188,9 @@ describe("isSensitivePath", () => {
   it.skipIf(process.platform !== "win32")(
     "expands 8.3 short names of existing directories",
     (ctx) => {
-      // 8.3 aliases are an NTFS option: only assert on the ones this machine really has.
-      const shortNames = ["C:\\PROGRA~1", "C:\\WINDOW~1"].filter((candidate) =>
-        fs.existsSync(candidate)
-      );
+      // 8.3 aliases are an NTFS option: only assert on the ones this machine really has. PROGRA~1 is
+      // Program Files or Program Files (x86), both sensitive; WINDOW~1 can be WindowsAzure, which is not.
+      const shortNames = ["C:\\PROGRA~1"].filter((candidate) => fs.existsSync(candidate));
       if (shortNames.length === 0) ctx.skip();
       for (const shortName of shortNames) {
         expect(isSensitivePath(path.join(shortName, "Anything"))).toBe(true);

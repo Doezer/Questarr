@@ -103,7 +103,9 @@ beforeAll(() => {
     "1+owner@users.noreply.github.com",
     "Tweak the README\n\nCo-authored-by: Erin <6+erin@users.noreply.github.com>"
   );
-});
+  // Fifteen git processes: well over the 10 s default hook timeout on a loaded Windows runner,
+  // where every process start is slow.
+}, 120_000);
 
 afterAll(() => {
   fs.rmSync(repoDir, { recursive: true, force: true });

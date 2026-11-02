@@ -90,7 +90,10 @@ jobs:
             }
             Write-Host "Production server is healthy"
           } finally {
-            if (-not $proc.HasExited) { taskkill /PID $proc.Id /T /F | Out-Null }
+            if (-not $proc.HasExited) { taskkill /PID $proc.Id /T /F 2>&1 | Out-Null }
+            # taskkill often exits non-zero when part of the tree is already gone; the step
+            # must not inherit that (a failure above still fails the step through `throw`).
+            $global:LASTEXITCODE = 0
           }
 
   e2e:
@@ -148,7 +151,10 @@ jobs:
             npm run test:e2e
             if ($LASTEXITCODE -ne 0) { throw "Playwright tests failed (exit code $LASTEXITCODE)" }
           } finally {
-            if (-not $proc.HasExited) { taskkill /PID $proc.Id /T /F | Out-Null }
+            if (-not $proc.HasExited) { taskkill /PID $proc.Id /T /F 2>&1 | Out-Null }
+            # taskkill often exits non-zero when part of the tree is already gone; the step
+            # must not inherit that (a failure above still fails the step through `throw`).
+            $global:LASTEXITCODE = 0
           }
 
       - name: Upload Playwright report

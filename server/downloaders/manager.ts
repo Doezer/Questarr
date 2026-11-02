@@ -14,6 +14,7 @@ import { SABnzbdClient } from "./sabnzbd.js";
 import { NZBGetClient } from "./nzbget.js";
 import { SynologyDownloadStationClient } from "./synology.js";
 import { DelugeClient } from "./deluge.js";
+import { RealDebridClient } from "./realdebrid.js";
 
 // To add a new downloader:
 // 1. Create server/downloaders/mynewclient.ts — implement DownloaderClient from ./types.js
@@ -39,6 +40,8 @@ export class DownloaderManager {
         return new SynologyDownloadStationClient(downloader);
       case "deluge":
         return new DelugeClient(downloader);
+      case "realdebrid":
+        return new RealDebridClient(downloader);
       default:
         throw new Error(`Unsupported downloader type: ${downloader.type}`);
     }

@@ -180,6 +180,7 @@ export type CollectionRules = {
   statuses?: string[] | undefined;
   platforms?: string[] | undefined;
   genres?: string[] | undefined;
+  gameModes?: string[] | undefined;
   /** Minimum IGDB rating (0-10, as stored on games). */
   minRating?: number | undefined;
   /** Minimum personal rating (0.5-10). */
@@ -225,6 +226,7 @@ export const games = sqliteTable("games", {
   themes: text("themes", { mode: "json" }).$type<string[]>(),
   publishers: text("publishers", { mode: "json" }).$type<string[]>(),
   developers: text("developers", { mode: "json" }).$type<string[]>(),
+  gameModes: text("game_modes", { mode: "json" }).$type<string[]>(),
   screenshots: text("screenshots", { mode: "json" }).$type<string[]>(),
   // IGDB trailers/gameplay clips: `videoId` is the YouTube video id
   videos: text("videos", { mode: "json" }).$type<Array<{ name: string; videoId: string }>>(),
@@ -589,6 +591,7 @@ export const insertGameSchema = createInsertSchema(games, {
       .array(z.object({ name: z.string(), videoId: z.string().regex(/^[\w-]{11}$/) }))
       .nullable()
       .optional(),
+  gameModes: () => z.array(z.string().trim().min(1).max(100)).max(50).nullable().optional(),
   status: (schema) =>
     schema
       .nullable()
@@ -724,6 +727,7 @@ export const collectionRulesSchema = z
     statuses: z.array(z.enum(GAME_STATUSES)).max(GAME_STATUSES.length).optional(),
     platforms: trimmedList.optional(),
     genres: trimmedList.optional(),
+    gameModes: trimmedList.optional(),
     minRating: z.number().min(0).max(10).optional(),
     minUserRating: z.number().min(0).max(10).optional(),
     releaseYearFrom: z.number().int().min(1950).max(2100).optional(),

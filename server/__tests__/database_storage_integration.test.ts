@@ -103,6 +103,31 @@ describe("DatabaseStorage Integration", () => {
     expect(emptyFilterGames).toHaveLength(3);
   });
 
+  it("addGame persists gameModes through the real migrations and leaves them null when absent", async () => {
+    const userId = randomUUID();
+    await db.insert(users).values({ id: userId, username: "modes_user", passwordHash: "hash" });
+
+    const withModes = await storage.addGame({
+      title: "Co-op Game",
+      status: "wanted",
+      userId,
+      hidden: false,
+      gameModes: ["Single player", "Co-operative"],
+    });
+    const withoutModes = await storage.addGame({
+      title: "Legacy Game",
+      status: "wanted",
+      userId,
+      hidden: false,
+    });
+
+    expect((await storage.getGame(withModes.id))?.gameModes).toEqual([
+      "Single player",
+      "Co-operative",
+    ]);
+    expect((await storage.getGame(withoutModes.id))?.gameModes).toBeNull();
+  });
+
   it("getDownloadSummaryByGame should aggregate downloads in the database layer", async () => {
     // Insert required parent records to satisfy FK constraints
     const userId = randomUUID();

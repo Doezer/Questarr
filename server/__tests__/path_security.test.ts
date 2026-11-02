@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
-import { assertWithinRoots } from "../path-security.js";
+import { assertWithinRoots, isSensitivePath } from "../path-security.js";
 
 describe("assertWithinRoots", () => {
   it("never throws when no roots are configured", async () => {
@@ -159,5 +159,66 @@ describe("assertWithinRoots", () => {
         )
       ).resolves.toBeUndefined();
     });
+  });
+});
+
+describe("isSensitivePath", () => {
+  it.skipIf(process.platform === "win32")("flags POSIX system directories", async () => {
+    expect(await isSensitivePath("/etc/passwd")).toBe(true);
+    expect(await isSensitivePath("/data/../etc")).toBe(true);
+    expect(await isSensitivePath("/data/games")).toBe(false);
+  });
+
+  it.skipIf(process.platform !== "win32")(
+    "flags Windows system directories on any drive",
+    async () => {
+      expect(await isSensitivePath("C:\\Windows\\System32")).toBe(true);
+      expect(await isSensitivePath("d:\\windows")).toBe(true);
+      expect(await isSensitivePath("C:\\Program Files\\Questarr")).toBe(true);
+      expect(await isSensitivePath("C:\\Program Files (x86)\\Tool")).toBe(true);
+      expect(await isSensitivePath("C:\\ProgramData\\Microsoft\\Crypto")).toBe(true);
+      expect(await isSensitivePath("C:\\Games\\..\\Windows")).toBe(true);
+    }
+  );
+
+  it.skipIf(process.platform !== "win32")(
+    "sees through device prefixes and admin shares",
+    async () => {
+      expect(await isSensitivePath("\\\\?\\C:\\Windows")).toBe(true);
+      expect(await isSensitivePath("\\\\.\\C:\\Windows\\System32")).toBe(true);
+      expect(await isSensitivePath("\\\\localhost\\C$\\Windows")).toBe(true);
+      expect(await isSensitivePath("\\\\?\\UNC\\localhost\\C$\\Users")).toBe(true);
+      expect(await isSensitivePath("\\\\localhost\\ADMIN$\\System32")).toBe(true);
+    }
+  );
+
+  it.skipIf(process.platform !== "win32")(
+    "expands 8.3 short names of existing directories",
+    async (ctx) => {
+      // 8.3 aliases are an NTFS option: only assert on the ones this machine really has. PROGRA~1 is
+      // Program Files or Program Files (x86), both sensitive; WINDOW~1 can be WindowsAzure, which is not.
+      const shortNames = ["C:\\PROGRA~1"].filter((candidate) => fs.existsSync(candidate));
+      if (shortNames.length === 0) ctx.skip();
+      for (const shortName of shortNames) {
+        expect(await isSensitivePath(path.join(shortName, "Anything"))).toBe(true);
+      }
+    }
+  );
+
+  it.skipIf(process.platform === "win32")("follows a symlink into a system directory", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "q-sens-"));
+    try {
+      const link = path.join(dir, "etc-link");
+      fs.symlinkSync("/etc", link);
+      expect(await isSensitivePath(link)).toBe(true);
+    } finally {
+      fs.removeSync(dir);
+    }
+  });
+
+  it.skipIf(process.platform !== "win32")("keeps ordinary Windows locations allowed", async () => {
+    expect(await isSensitivePath("C:\\ProgramData\\Questarr\\data")).toBe(false);
+    expect(await isSensitivePath("D:\\Games\\Windows Store Games")).toBe(false);
+    expect(await isSensitivePath("C:\\Users\\me\\Downloads")).toBe(false);
   });
 });

@@ -2423,6 +2423,7 @@ async function addNewSteamWishlistGames(
       platforms: formatted.platforms as string[],
       genres: formatted.genres as string[],
       themes: formatted.themes as string[],
+      gameModes: formatted.gameModes as string[],
       isAdultContent: formatted.isAdultContent as boolean,
       isAgeRestricted: formatted.isAgeRestricted as boolean,
       developers: formatted.developers as string[],

@@ -1,5 +1,5 @@
 {
-  "id": "d0323870-beac-4088-8cfa-5b477f9e38ff",
+  "id": "b359f864-9fa9-4a03-aa67-96b2f84d5cdf",
   "prevId": "67f69c80-3799-4a8f-a371-c0834577cc31",
   "version": "7",
   "dialect": "postgresql",
@@ -184,59 +184,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.classification_cache": {
-      "name": "classification_cache",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "namespace": {
-          "name": "namespace",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "verdict": {
-          "name": "verdict",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "stored_at": {
-          "name": "stored_at",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "classification_cache_stored_at_idx": {
-          "name": "classification_cache_stored_at_idx",
-          "columns": [
-            {
-              "expression": "stored_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1540,6 +1487,12 @@
         },
         "developers": {
           "name": "developers",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "game_modes": {
+          "name": "game_modes",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false

@@ -171,6 +171,35 @@ describe("getXrelPredb", () => {
     expect(await getXrelPredb("Game")).toEqual([{ dirname: "Game-CODEX" }]);
   });
 
+  it("reports a malformed response as unavailable and never caches or remembers it", async () => {
+    vi.useFakeTimers();
+    try {
+      const malformed = new Error("xREL API returned an unexpected response (no release lists)");
+      searchReleases.mockRejectedValueOnce(malformed);
+      const onUnavailable = vi.fn();
+      const types = { scene: true, p2p: true };
+      expect(
+        await getXrelPredb("Broken", types, { timeoutMs: 1000, onUnavailable, staleFallback: true })
+      ).toBeUndefined();
+      expect(onUnavailable).toHaveBeenCalledTimes(1);
+
+      // not cached: the next call asks xREL again, and no stale empty list is served
+      searchReleases.mockRejectedValueOnce(malformed);
+      const again = vi.fn();
+      expect(
+        await getXrelPredb("Broken", types, {
+          timeoutMs: 1000,
+          onUnavailable: again,
+          staleFallback: true,
+        })
+      ).toBeUndefined();
+      expect(again).toHaveBeenCalledTimes(1);
+      expect(searchReleases).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("is only used when an xREL feature is on", () => {
     expect(xrelEnabledFor({ xrelSceneReleases: true, xrelP2pReleases: false })).toBe(true);
     expect(xrelEnabledFor({ xrelSceneReleases: false, xrelP2pReleases: false })).toBe(false);

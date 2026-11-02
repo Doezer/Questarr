@@ -311,6 +311,7 @@ import type { XrelGameStatus } from "../shared/xrel-types.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import { steamLibraryRoutes } from "./steam-library-routes.js";
 import { releaseScoringRoutes } from "./release-scoring-routes.js";
 import { classificationCandidatesRoutes } from "./classification-candidates-routes.js";
 import { classificationSettingsRoutes } from "./classification-settings-routes.js";
@@ -991,6 +992,7 @@ function registerIgdbParamListRoute(
  * @param app - The Express application to configure
  * @returns The configured HTTP server
  */
+/** Mount authenticated API routers and initialize the services they share before listening. */
 export async function registerRoutes(app: Express): Promise<Server> {
   // Express 5 parses `req.query` simply by default and re-parses it on every access, so
   // express-validator sanitizers (toInt/toBoolean) would write to a throwaway object. Keep the
@@ -1085,6 +1087,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Use Steam Routes
   app.use(steamRoutes);
+  app.use(steamLibraryRoutes);
   app.use(releaseScoringRoutes);
   app.use(classificationCandidatesRoutes);
   app.use(classificationSettingsRoutes);

@@ -1,0 +1,237 @@
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { storage } from "./storage.js";
+import { config } from "./config.js";
+import { steamService } from "./steam.js";
+import { importSteamLibraryBatch, steamLibraryImporting } from "./steam-library-import.js";
+import { routesLogger } from "./logger.js";
+import type { User } from "../shared/schema.js";
+import type { SteamLibraryJobView } from "../shared/steam-library.js";
+
+const RECENT_LIMIT = 10;
+
+/** Validate a bounded list of Steam app IDs; the job and synchronous routes use different caps. */
+export const steamLibrarySelection = (max: number) =>
+  z
+    .object({
+      appIds: z
+        .array(
+          z
+            .number()
+            .int()
+            .positive()
+            .max(2 ** 31 - 1)
+        )
+        .min(1)
+        .max(max),
+    })
+    .strict();
+export const steamLibrarySelectionSchema = steamLibrarySelection(20_000);
+
+const outcomeSchema = z.enum(["added", "duplicate", "not_found", "failed"]);
+const resultSchema = z.object({
+  steamAppId: z.number().int().positive(),
+  title: z.string().max(500),
+  outcome: outcomeSchema,
+});
+const jobSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string(),
+  steamId: z.string(),
+  appIds: steamLibrarySelectionSchema.shape.appIds,
+  // Compact `[steamAppId, outcome]` rows: the whole checkpoint is rewritten after every batch,
+  // so titles are kept only for the few `recent` rows that the interface displays.
+  results: z.array(z.tuple([z.number().int().positive(), outcomeSchema])).max(20_000),
+  recent: z.array(resultSchema).max(RECENT_LIMIT).default([]),
+  state: z.enum(["queued", "running", "completed", "failed"]),
+  message: z.string().optional(),
+});
+type Job = z.infer<typeof jobSchema>;
+type JobResult = Job["results"][number];
+const key = (userId: string) => `steam.library.import.${userId}`;
+/** Queued and running jobs still own their account’s import reservation. */
+const active = (job: Job) => job.state === "queued" || job.state === "running";
+
+export class SteamLibraryBusyError extends Error {}
+class SteamLibraryJobError extends Error {}
+
+/** Load an owner-scoped checkpoint and reject corrupt or reordered results before resuming. */
+async function readJob(userId: string): Promise<Job | null> {
+  const value = await storage.getSystemConfig(key(userId));
+  if (!value) return null;
+  const job = jobSchema.parse(JSON.parse(value));
+  if (
+    job.userId !== userId ||
+    job.results.length > job.appIds.length ||
+    job.results.some((row, i) => row[0] !== job.appIds[i])
+  ) {
+    throw new Error("Invalid Steam import checkpoint");
+  }
+  return job;
+}
+
+/** Persist the latest complete batch so a restart can safely replay only uncheckpointed work. */
+async function saveJob(job: Job): Promise<void> {
+  await storage.setSystemConfig(key(job.userId), JSON.stringify(job));
+}
+
+/** Summarize a checkpoint for its owner without exposing account identifiers or credentials. */
+function view(job: Job): SteamLibraryJobView {
+  const counts = { added: 0, duplicates: 0, skipped: 0, failed: 0 };
+  const completedAppIds: number[] = [];
+  for (const [steamAppId, outcome] of job.results) {
+    if (outcome === "added" || outcome === "duplicate") {
+      completedAppIds.push(steamAppId);
+      if (outcome === "added") counts.added++;
+      else counts.duplicates++;
+    } else if (outcome === "not_found") counts.skipped++;
+    else counts.failed++;
+  }
+  return {
+    id: job.id,
+    state: job.state,
+    total: job.appIds.length,
+    processed: job.results.length,
+    ...counts,
+    completedAppIds,
+    recentResults: job.recent,
+    canRetry: !active(job) && (job.results.length < job.appIds.length || counts.failed > 0),
+    ...(job.message ? { message: job.message } : {}),
+  };
+}
+
+/** Read progress, exposing an abandoned active checkpoint as retryable without mutating it. */
+export async function getSteamLibraryJob(userId: string): Promise<SteamLibraryJobView | null> {
+  const job = await readJob(userId);
+  // If a checkpoint write failed and its worker exited, expose an actionable retry
+  // instead of showing a stale "running" state forever. GET does not mutate storage.
+  if (job && active(job) && !steamLibraryImporting.has(userId)) {
+    return view({
+      ...job,
+      state: "failed",
+      message: "Import interrupted. Retry unfinished games.",
+    });
+  }
+  return job ? view(job) : null;
+}
+
+/**
+ * Revalidate ownership, then import and checkpoint batches in order. Awaiting each batch and
+ * checkpoint is intentional: parallel batches could race duplicate detection and persist gaps.
+ */
+async function runJob(job: Job): Promise<void> {
+  try {
+    job.state = "running";
+    await saveJob(job);
+    const user = await storage.getUser(job.userId);
+    if (!config.steam.isConfigured || user?.steamId64 !== job.steamId) {
+      throw new SteamLibraryJobError(
+        "Your Steam configuration or linked account changed. Restore it or preview your library again."
+      );
+    }
+    // Read Steam once per run, including after a restart, before performing any writes.
+    const owned = await steamService.getOwnedGames(config.steam.apiKey!, job.steamId);
+    const byId = new Map(owned.map((game) => [game.steamAppId, game]));
+    if (job.appIds.slice(job.results.length).some((id) => !byId.has(id))) {
+      throw new SteamLibraryJobError(
+        "Your Steam library changed. Preview it again to select games that are still available."
+      );
+    }
+    while (job.results.length < job.appIds.length) {
+      const ids = job.appIds.slice(job.results.length, job.results.length + 50);
+      const results = await importSteamLibraryBatch(
+        job.userId,
+        ids.map((id) => byId.get(id)!)
+      );
+      for (const result of results) job.results.push([result.steamAppId, result.outcome]);
+      job.recent = [...job.recent, ...results].slice(-RECENT_LIMIT);
+      // Checkpoint each batch. A crash within a batch is safe: the repeat deduplicates writes.
+      await saveJob(job);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    job.state = "completed";
+    delete job.message;
+    await saveJob(job);
+  } catch (error) {
+    job.state = "failed";
+    job.message =
+      error instanceof SteamLibraryJobError
+        ? error.message
+        : "Import interrupted. Check your Steam/IGDB connection and linked account, then retry unfinished games.";
+    await saveJob(job);
+  } finally {
+    steamLibraryImporting.delete(job.userId);
+  }
+}
+
+/** Schedule a reserved job without retaining the HTTP request or logging provider credentials. */
+function launch(job: Job): void {
+  setImmediate(() => {
+    // Do not log provider exceptions: URLs can contain credentials.
+    void runJob(job).catch(() => routesLogger.error("Could not save Steam import progress"));
+  });
+}
+
+/** Reserve the account, persist a deduplicated selection, and schedule its background import. */
+export async function startSteamLibraryJob(
+  user: User,
+  appIds: number[],
+  carried: { results: JobResult[]; recent: Job["recent"] } = { results: [], recent: [] }
+): Promise<SteamLibraryJobView> {
+  if (steamLibraryImporting.has(user.id)) throw new SteamLibraryBusyError();
+  steamLibraryImporting.add(user.id);
+  try {
+    const job: Job = {
+      id: randomUUID(),
+      userId: user.id,
+      steamId: user.steamId64!,
+      // A retry carries finished rows first so totals and counters survive; the worker then
+      // continues from `results.length` with only the games that still need work.
+      appIds: [...carried.results.map(([id]) => id), ...new Set(appIds)],
+      results: [...carried.results],
+      recent: carried.recent,
+      state: "queued",
+    };
+    await saveJob(job);
+    launch(job);
+    return view(job);
+  } catch (error) {
+    steamLibraryImporting.delete(user.id);
+    throw error;
+  }
+}
+
+/**
+ * Queue only failed and unprocessed IDs; deterministic skips are completed work. The new job
+ * keeps the previous outcomes, so progress and counters continue instead of restarting.
+ */
+export async function retrySteamLibraryJob(user: User): Promise<SteamLibraryJobView | null> {
+  const previous = await readJob(user.id);
+  if (!previous) return null;
+  if (steamLibraryImporting.has(user.id)) throw new SteamLibraryBusyError();
+  const retryIds = previous.results.filter(([, outcome]) => outcome === "failed").map(([id]) => id);
+  retryIds.push(...previous.appIds.slice(previous.results.length));
+  if (!retryIds.length) return null;
+  return startSteamLibraryJob(user, retryIds, {
+    results: previous.results.filter(([, outcome]) => outcome !== "failed"),
+    recent: previous.recent.filter((row) => row.outcome !== "failed"),
+  });
+}
+
+/**
+ * Reserve and resume saved imports before HTTP requests can start competing jobs. Checkpoints
+ * are read sequentially to bound startup database work; each worker itself is scheduled.
+ */
+export async function resumeSteamLibraryImports(): Promise<void> {
+  for (const user of await storage.getAllUsers()) {
+    try {
+      const job = await readJob(user.id);
+      if (job && active(job) && !steamLibraryImporting.has(user.id)) {
+        steamLibraryImporting.add(user.id);
+        launch(job);
+      }
+    } catch {
+      routesLogger.error("Could not restore a saved Steam library import");
+    }
+  }
+}

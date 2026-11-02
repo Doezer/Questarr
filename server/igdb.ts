@@ -1002,8 +1002,14 @@ class IGDBClient {
     }
   }
 
-  async getGameIdsBySteamAppIds(steamAppIds: number[]): Promise<Map<number, number>> {
-    if (!(await this.ensureConfigured()) || steamAppIds.length === 0) {
+  /** Map exact Steam IDs in bounded batches; strict mode propagates outages instead of misses. */
+  async getGameIdsBySteamAppIds(
+    steamAppIds: number[],
+    options: { strict?: boolean } = {}
+  ): Promise<Map<number, number>> {
+    if (steamAppIds.length === 0) return new Map();
+    if (!(await this.ensureConfigured())) {
+      if (options.strict) throw new Error("IGDB is not configured");
       return new Map();
     }
 
@@ -1029,6 +1035,8 @@ class IGDBClient {
           idMap.set(parseInt(result.uid, 10), result.game);
         }
       } catch (error) {
+        // Imports must distinguish an unavailable provider from a genuine missing mapping.
+        if (options.strict) throw new Error("IGDB Steam mapping lookup failed", { cause: error });
         igdbLogger.warn(
           { steamAppIds: chunk, error },
           "Failed to lookup a chunk of IGDB IDs from Steam App IDs"
@@ -1079,9 +1087,13 @@ class IGDBClient {
     return result;
   }
 
-  async getGamesByIds(ids: number[]): Promise<IGDBGame[]> {
-    if (!(await this.ensureConfigured())) return [];
+  /** Fetch paced metadata batches; strict callers must distinguish provider failure from no match. */
+  async getGamesByIds(ids: number[], options: { strict?: boolean } = {}): Promise<IGDBGame[]> {
     if (ids.length === 0) return [];
+    if (!(await this.ensureConfigured())) {
+      if (options.strict) throw new Error("IGDB is not configured");
+      return [];
+    }
 
     // Get rate limit from settings
     let rateLimit = 3;

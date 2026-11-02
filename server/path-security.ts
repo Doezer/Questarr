@@ -18,14 +18,14 @@ const SENSITIVE_WINDOWS_PATH_REGEX =
  * Returns true if the given path resolves to a sensitive system directory.
  * Resolves the path before comparing so traversal tricks like /data/../etc are caught.
  */
-export function isSensitivePath(rawPath: string): boolean {
+export async function isSensitivePath(rawPath: string): Promise<boolean> {
   // Windows device prefixes (\\?\C:\Windows, \\.\C:\Windows, \\?\UNC\host\share) name the
   // same location as the plain form but would not match the drive-letter regex below.
   const unprefixed = rawPath
     .replace(/^[\\/]{2}[?.][\\/]UNC[\\/]/i, "\\\\")
     .replace(/^[\\/]{2}[?.][\\/]/, "");
   const lexical = path.resolve(unprefixed);
-  const canonical = canonicalizeExistingPrefix(lexical);
+  const canonical = await canonicalizeExistingPrefix(lexical);
   // Both forms are tested: the lexical one catches /etc on macOS (a symlink to /private/etc),
   // the canonical one catches short names and links that lead into a system directory.
   return matchesSensitivePattern(lexical) || matchesSensitivePattern(canonical);
@@ -34,12 +34,12 @@ export function isSensitivePath(rawPath: string): boolean {
 // realpath needs the whole path to exist, but a short name or a link can sit in any leading
 // directory of a path that does not exist yet: canonicalize the deepest existing ancestor and
 // re-append the rest.
-function canonicalizeExistingPrefix(resolvedPath: string): string {
+async function canonicalizeExistingPrefix(resolvedPath: string): Promise<string> {
   let current = resolvedPath;
   let rest = "";
   for (;;) {
     try {
-      const real = fs.realpathSync.native(current);
+      const real = await fs.promises.realpath(current);
       return rest === "" ? real : path.join(real, rest);
     } catch {
       const parent = path.dirname(current);

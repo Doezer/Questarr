@@ -17,7 +17,17 @@ let ownBinDir: string | undefined;
 const isolatedEnv = (): NodeJS.ProcessEnv => {
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith("GIT_")) delete env[key];
-  return { ...env, GIT_CONFIG_GLOBAL: emptyGitConfig, GIT_CONFIG_NOSYSTEM: "1" };
+  return {
+    ...env,
+    GIT_CONFIG_GLOBAL: emptyGitConfig,
+    GIT_CONFIG_NOSYSTEM: "1",
+    // If a gh binary shares a directory with git (Scoop shims), it must still fail here: an
+    // unreachable host without credentials, so the script always takes its git fallback.
+    GH_HOST: "gh.invalid",
+    GH_REPO: "",
+    GH_TOKEN: "",
+    GH_ENTERPRISE_TOKEN: "",
+  };
 };
 
 const git = (...args: string[]) =>

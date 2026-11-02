@@ -25,16 +25,29 @@ export function isSensitivePath(rawPath: string): boolean {
     .replace(/^[\\/]{2}[?.][\\/]UNC[\\/]/i, "\\\\")
     .replace(/^[\\/]{2}[?.][\\/]/, "");
   const lexical = path.resolve(unprefixed);
-  let canonical = lexical;
-  try {
-    // Expands 8.3 short names (C:\PROGRA~1) and symlinks/junctions into system directories.
-    canonical = fs.realpathSync.native(lexical);
-  } catch {
-    // Not on disk (yet): the lexical form is all there is to check.
-  }
+  const canonical = canonicalizeExistingPrefix(lexical);
   // Both forms are tested: the lexical one catches /etc on macOS (a symlink to /private/etc),
   // the canonical one catches short names and links that lead into a system directory.
   return matchesSensitivePattern(lexical) || matchesSensitivePattern(canonical);
+}
+
+// realpath needs the whole path to exist, but a short name or a link can sit in any leading
+// directory of a path that does not exist yet: canonicalize the deepest existing ancestor and
+// re-append the rest.
+function canonicalizeExistingPrefix(resolvedPath: string): string {
+  let current = resolvedPath;
+  let rest = "";
+  for (;;) {
+    try {
+      const real = fs.realpathSync.native(current);
+      return rest === "" ? real : path.join(real, rest);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return resolvedPath;
+      rest = rest === "" ? path.basename(current) : path.join(path.basename(current), rest);
+      current = parent;
+    }
+  }
 }
 
 function matchesSensitivePattern(resolvedPath: string): boolean {

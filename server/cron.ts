@@ -61,6 +61,7 @@ import {
 } from "../shared/release-scoring.js";
 import {
   releaseMatchesGame,
+  strictMatchTitle,
   normalizeTitle,
   cleanReleaseName,
   parseJsonStringArray,
@@ -513,8 +514,10 @@ export async function searchAndCategorizeItemsForGame(
   }
 
   let matchedItems: SearchItem[] = [];
-  // the title releases are matched against: the game's own, or the simpler query variant that
-  // found them when the full title returned nothing (later pages search with it too)
+  // The query of the pages after the first: the simpler variant that found them when the full
+  // title returned nothing. Releases are then matched against the strict form of the game's
+  // title, not the variant, which may have lost the subtitle and so fit another game.
+  let searchQuery = game.title;
   let matchTitle = game.title;
   const globallyFiltered: SearchItem[] = [];
   const blacklisted = await storage.getReleaseBlacklistSet(game.id);
@@ -524,12 +527,15 @@ export async function searchAndCategorizeItemsForGame(
 
   for (let page = 0; page < AUTO_SEARCH_MAX_PAGES; page++) {
     const { items, errors, queryUsed } = await searchAllIndexers({
-      query: matchTitle,
+      query: searchQuery,
       limit: AUTO_SEARCH_PAGE_SIZE,
       offset: page * AUTO_SEARCH_PAGE_SIZE,
       fallback: true,
     });
-    if (queryUsed) matchTitle = queryUsed;
+    if (queryUsed) {
+      searchQuery = queryUsed;
+      matchTitle = strictMatchTitle(game.title);
+    }
 
     logAutoSearchErrors(game.title, errors);
 

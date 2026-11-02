@@ -2889,6 +2889,31 @@ describe("release scoring in auto-search", () => {
     expect(tie.map((i) => i.indexerId)).toEqual(["a"]);
   });
 
+  it("matches releases found through a fallback query against the strict title", async () => {
+    mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
+    mockSearchAllIndexers.mockResolvedValueOnce({
+      items: [item("Hellraiser.Revival-CODEX"), item("Hellraiser.Inferno-CODEX")],
+      errors: [],
+      queryUsed: "Hellraiser",
+    });
+    const result = await searchAndCategorizeItemsForGame(
+      {
+        id: "g3",
+        title: "Clive Barker's Hellraiser: Revival",
+        targetPlatformId: null,
+        targetPlatformName: null,
+      },
+      null,
+      undefined,
+      [],
+      scoring
+    );
+    expect(mockSearchAllIndexers).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "Clive Barker's Hellraiser: Revival", fallback: true })
+    );
+    expect(result?.mainItems.map((i) => i.title)).toEqual(["Hellraiser.Revival-CODEX"]);
+  });
+
   it("does not treat a non-Latin title as an unrelated search", async () => {
     mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
     mockSearchAllIndexers.mockResolvedValueOnce({

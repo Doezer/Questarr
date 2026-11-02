@@ -6,6 +6,7 @@ import {
   parseSwitchTitleId,
   titleMatches,
   buildQueryVariants,
+  strictMatchTitle,
   releaseMatchesGame,
   parseReleaseMetadata,
   parseJsonStringArray,
@@ -434,5 +435,21 @@ describe("buildQueryVariants", () => {
     expect(releaseMatchesGame("Hellraiser.2.PROPER-GRP", "Hellraiser")).toBe(false);
     expect(releaseMatchesGame("Hellraiser.Revival-GRP", "Hellraiser: Revival")).toBe(true);
     expect(releaseMatchesGame("Hellraiser.Revival-GRP", "Hellraiser")).toBe(true);
+  });
+});
+
+describe("strictMatchTitle", () => {
+  it("drops the possessive prefix and edition words but keeps the subtitle", () => {
+    expect(strictMatchTitle("Clive Barker's Hellraiser: Revival")).toBe("Hellraiser: Revival");
+    expect(strictMatchTitle("The Witcher 3: Wild Hunt - Game of the Year Edition")).toBe(
+      "The Witcher 3: Wild Hunt"
+    );
+    expect(strictMatchTitle("Cyberpunk 2077")).toBe("Cyberpunk 2077");
+  });
+
+  it("does not take another game of the series for the wanted one", () => {
+    const strict = strictMatchTitle("Clive Barker's Hellraiser: Revival");
+    expect(releaseMatchesGame("Hellraiser.Revival-GRP", strict)).toBe(true);
+    expect(releaseMatchesGame("Hellraiser.Inferno-GRP", strict)).toBe(false);
   });
 });

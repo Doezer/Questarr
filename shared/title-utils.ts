@@ -327,6 +327,16 @@ function stripPunctuation(title: string): string {
 }
 
 /**
+ * The title releases found through a fallback query are matched against: the full title minus
+ * only the parts indexers commonly leave out (a possessive publisher prefix, edition words).
+ * The subtitle stays, so a release of another game of the series ("Hellraiser.Inferno" for
+ * "Hellraiser: Revival") found through the subtitle-less query is not taken for the wanted one.
+ */
+export function strictMatchTitle(title: string): string {
+  return stripEditionWords(stripPossessivePrefix(title.trim()));
+}
+
+/**
  * Fallback search queries for a game title whose full form returned nothing, from the least to
  * the most lossy: without a possessive publisher prefix ("Clive Barker's Hellraiser: Revival" ->
  * "Hellraiser: Revival"), without edition words, without punctuation, and finally without the

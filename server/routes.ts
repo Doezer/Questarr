@@ -300,6 +300,7 @@ import {
   normalizeTitle,
   cleanReleaseName,
   releaseMatchesGame,
+  strictMatchTitle,
   parseReleaseMetadata,
   resolveGamePlatformPreference,
   matchesPlatformFilter,
@@ -820,7 +821,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       userSettings?.preferredPlatform ?? null,
       xrelTypesFor(userSettings),
       gameBlacklist,
-      queryUsed
+      queryUsed ? strictMatchTitle(ownGame?.title ?? query.trim()) : undefined
     );
     // releases the scoring failure path dropped count as blacklisted, like the global ones
     const blacklistedCount = items.length - scoredItems.length;
@@ -856,7 +857,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       ownGame
         ? resolveGamePlatformPreference(ownGame, userSettings?.preferredPlatform ?? null)
         : (userSettings?.preferredPlatform ?? null),
-      queryUsed ?? ownGame?.title ?? query.trim()
+      ownGame?.title ?? query.trim()
     );
 
     return res.json({

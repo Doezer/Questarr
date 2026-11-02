@@ -605,7 +605,6 @@ async function listAssets(userId: string, gameId: string): Promise<Asset[]> {
   const resolved = await Promise.all(
     files.slice(0, MAX_ASSETS).map(async (file): Promise<Asset | null> => {
       try {
-        await assertWithinRoots(file.filePath, roots, "outside library");
         const realPath = await fs.realpath(file.filePath);
         await assertWithinRoots(realPath, canonicalRoots, "outside library");
         const stats = await fs.stat(realPath);

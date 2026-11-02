@@ -185,10 +185,19 @@ describe("isSensitivePath", () => {
     expect(isSensitivePath("\\\\?\\UNC\\localhost\\C$\\Users")).toBe(true);
   });
 
-  it.skipIf(process.platform !== "win32")("expands 8.3 short names of existing directories", () => {
-    expect(isSensitivePath("C:\\PROGRA~1\\Anything")).toBe(true);
-    expect(isSensitivePath("C:\\WINDOW~1")).toBe(true);
-  });
+  it.skipIf(process.platform !== "win32")(
+    "expands 8.3 short names of existing directories",
+    (ctx) => {
+      // 8.3 aliases are an NTFS option: only assert on the ones this machine really has.
+      const shortNames = ["C:\\PROGRA~1", "C:\\WINDOW~1"].filter((candidate) =>
+        fs.existsSync(candidate)
+      );
+      if (shortNames.length === 0) ctx.skip();
+      for (const shortName of shortNames) {
+        expect(isSensitivePath(path.join(shortName, "Anything"))).toBe(true);
+      }
+    }
+  );
 
   it.skipIf(process.platform === "win32")("follows a symlink into a system directory", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "q-sens-"));

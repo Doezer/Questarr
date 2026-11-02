@@ -243,6 +243,24 @@ describe("ClassificationPipeline persistent cache", () => {
     expect((await restarted.classify(input)).class).toBe("dlc");
   });
 
+  it("does not store a verdict when the provider changed while the layers ran", async () => {
+    const { store, rows } = fakeStore();
+    let current = { ...config, cloudFingerprint: "jev@A" };
+    const local: ReleaseClassifier = {
+      classify: async () => {
+        current = { ...config, cloudFingerprint: "jev@B" };
+        return { class: "patch", confidence: 0.9, source: "local" };
+      },
+    };
+    const pipeline = new ClassificationPipeline(
+      () => current,
+      () => layersWith(local),
+      { store }
+    );
+    expect((await pipeline.classify(input)).class).toBe("patch");
+    expect(rows.size).toBe(0);
+  });
+
   it("rejects a stored result whose class is no longer known", async () => {
     const { store, rows } = fakeStore();
     const local = answering({ class: "patch", confidence: 0.9, source: "local" });

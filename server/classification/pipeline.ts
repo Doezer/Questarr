@@ -217,7 +217,10 @@ export class ClassificationPipeline {
     if (failed(result)) result = { ...result, degraded: true };
 
     // `degraded` is a failed layer's answer; neither it nor a result with a failed layer is kept
-    if (!uncacheable && !result.degraded) await this.cache.set(key, result, generation);
+    // A provider or model change while the layers ran would file this answer under the old key
+    if (!uncacheable && !result.degraded && this.key(input, await this.getConfig()) === key) {
+      await this.cache.set(key, result, generation);
+    }
     return result;
   }
 }

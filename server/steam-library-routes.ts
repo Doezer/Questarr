@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { z } from "zod";
 import { authenticateToken } from "./auth.js";
 import { config } from "./config.js";
 import { storage } from "./storage.js";
@@ -13,25 +12,13 @@ import {
   getSteamLibraryJob,
   startSteamLibraryJob,
   retrySteamLibraryJob,
+  steamLibrarySelection,
   steamLibrarySelectionSchema,
   SteamLibraryBusyError,
 } from "./steam-library-jobs.js";
 
 export const steamLibraryRoutes = Router();
-const selectionSchema = z
-  .object({
-    appIds: z
-      .array(
-        z
-          .number()
-          .int()
-          .positive()
-          .max(2 ** 31 - 1)
-      )
-      .min(1)
-      .max(50),
-  })
-  .strict();
+const selectionSchema = steamLibrarySelection(50);
 
 // Progress remains readable even if the Steam configuration changes during a job.
 steamLibraryRoutes.get(

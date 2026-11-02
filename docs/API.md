@@ -472,7 +472,8 @@ require the usual CSRF header. Responses use `Cache-Control: no-store`.
   seconds while active. A completed job may still contain skipped/failed rows.
 - `POST /api/steam/library/import/jobs/retry`: no body required. Queues failed
   and unprocessed IDs from the latest job; returns `202 { job }`, 400 if
-  nothing remains, or 409 if another import is running. Successful earlier writes
+  nothing remains, or 409 if another import is running. The new job carries the
+  earlier outcomes, so `total` and the counters continue; successful earlier writes
   are preserved. Retry revalidates current Steam ownership.
 
 See [Steam library import](STEAM_LIBRARY.md) for prerequisites and limits.

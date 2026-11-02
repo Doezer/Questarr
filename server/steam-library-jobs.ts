@@ -8,39 +8,46 @@ import { routesLogger } from "./logger.js";
 import type { User } from "../shared/schema.js";
 import type { SteamLibraryJobView } from "../shared/steam-library.js";
 
-export const steamLibrarySelectionSchema = z
-  .object({
-    appIds: z
-      .array(
-        z
-          .number()
-          .int()
-          .positive()
-          .max(2 ** 31 - 1)
-      )
-      .min(1)
-      .max(20_000),
-  })
-  .strict();
+const RECENT_LIMIT = 10;
 
+/** Validate a bounded list of Steam app IDs; the job and synchronous routes use different caps. */
+export const steamLibrarySelection = (max: number) =>
+  z
+    .object({
+      appIds: z
+        .array(
+          z
+            .number()
+            .int()
+            .positive()
+            .max(2 ** 31 - 1)
+        )
+        .min(1)
+        .max(max),
+    })
+    .strict();
+export const steamLibrarySelectionSchema = steamLibrarySelection(20_000);
+
+const outcomeSchema = z.enum(["added", "duplicate", "not_found", "failed"]);
+const resultSchema = z.object({
+  steamAppId: z.number().int().positive(),
+  title: z.string().max(500),
+  outcome: outcomeSchema,
+});
 const jobSchema = z.object({
   id: z.string().uuid(),
   userId: z.string(),
   steamId: z.string(),
   appIds: steamLibrarySelectionSchema.shape.appIds,
-  results: z
-    .array(
-      z.object({
-        steamAppId: z.number().int().positive(),
-        title: z.string().max(500),
-        outcome: z.enum(["added", "duplicate", "not_found", "failed"]),
-      })
-    )
-    .max(20_000),
+  // Compact `[steamAppId, outcome]` rows: the whole checkpoint is rewritten after every batch,
+  // so titles are kept only for the few `recent` rows that the interface displays.
+  results: z.array(z.tuple([z.number().int().positive(), outcomeSchema])).max(20_000),
+  recent: z.array(resultSchema).max(RECENT_LIMIT).default([]),
   state: z.enum(["queued", "running", "completed", "failed"]),
   message: z.string().optional(),
 });
 type Job = z.infer<typeof jobSchema>;
+type JobResult = Job["results"][number];
 const key = (userId: string) => `steam.library.import.${userId}`;
 /** Queued and running jobs still own their account’s import reservation. */
 const active = (job: Job) => job.state === "queued" || job.state === "running";
@@ -56,7 +63,7 @@ async function readJob(userId: string): Promise<Job | null> {
   if (
     job.userId !== userId ||
     job.results.length > job.appIds.length ||
-    job.results.some((row, i) => row.steamAppId !== job.appIds[i])
+    job.results.some((row, i) => row[0] !== job.appIds[i])
   ) {
     throw new Error("Invalid Steam import checkpoint");
   }
@@ -72,12 +79,12 @@ async function saveJob(job: Job): Promise<void> {
 function view(job: Job): SteamLibraryJobView {
   const counts = { added: 0, duplicates: 0, skipped: 0, failed: 0 };
   const completedAppIds: number[] = [];
-  for (const row of job.results) {
-    if (row.outcome === "added" || row.outcome === "duplicate") {
-      completedAppIds.push(row.steamAppId);
-      if (row.outcome === "added") counts.added++;
+  for (const [steamAppId, outcome] of job.results) {
+    if (outcome === "added" || outcome === "duplicate") {
+      completedAppIds.push(steamAppId);
+      if (outcome === "added") counts.added++;
       else counts.duplicates++;
-    } else if (row.outcome === "not_found") counts.skipped++;
+    } else if (outcome === "not_found") counts.skipped++;
     else counts.failed++;
   }
   return {
@@ -87,7 +94,7 @@ function view(job: Job): SteamLibraryJobView {
     processed: job.results.length,
     ...counts,
     completedAppIds,
-    recentResults: job.results.slice(-10),
+    recentResults: job.recent,
     canRetry: !active(job) && (job.results.length < job.appIds.length || counts.failed > 0),
     ...(job.message ? { message: job.message } : {}),
   };
@@ -136,7 +143,8 @@ async function runJob(job: Job): Promise<void> {
         job.userId,
         ids.map((id) => byId.get(id)!)
       );
-      job.results.push(...results);
+      for (const result of results) job.results.push([result.steamAppId, result.outcome]);
+      job.recent = [...job.recent, ...results].slice(-RECENT_LIMIT);
       // Checkpoint each batch. A crash within a batch is safe: the repeat deduplicates writes.
       await saveJob(job);
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -167,7 +175,8 @@ function launch(job: Job): void {
 /** Reserve the account, persist a deduplicated selection, and schedule its background import. */
 export async function startSteamLibraryJob(
   user: User,
-  appIds: number[]
+  appIds: number[],
+  carried: { results: JobResult[]; recent: Job["recent"] } = { results: [], recent: [] }
 ): Promise<SteamLibraryJobView> {
   if (steamLibraryImporting.has(user.id)) throw new SteamLibraryBusyError();
   steamLibraryImporting.add(user.id);
@@ -176,8 +185,11 @@ export async function startSteamLibraryJob(
       id: randomUUID(),
       userId: user.id,
       steamId: user.steamId64!,
-      appIds: [...new Set(appIds)],
-      results: [],
+      // A retry carries finished rows first so totals and counters survive; the worker then
+      // continues from `results.length` with only the games that still need work.
+      appIds: [...carried.results.map(([id]) => id), ...new Set(appIds)],
+      results: [...carried.results],
+      recent: carried.recent,
       state: "queued",
     };
     await saveJob(job);
@@ -189,16 +201,21 @@ export async function startSteamLibraryJob(
   }
 }
 
-/** Queue only failed and unprocessed IDs; deterministic skips are completed work. */
+/**
+ * Queue only failed and unprocessed IDs; deterministic skips are completed work. The new job
+ * keeps the previous outcomes, so progress and counters continue instead of restarting.
+ */
 export async function retrySteamLibraryJob(user: User): Promise<SteamLibraryJobView | null> {
   const previous = await readJob(user.id);
   if (!previous) return null;
   if (steamLibraryImporting.has(user.id)) throw new SteamLibraryBusyError();
-  const retryIds = previous.results
-    .filter((row) => row.outcome === "failed")
-    .map((row) => row.steamAppId);
+  const retryIds = previous.results.filter(([, outcome]) => outcome === "failed").map(([id]) => id);
   retryIds.push(...previous.appIds.slice(previous.results.length));
-  return retryIds.length ? startSteamLibraryJob(user, retryIds) : null;
+  if (!retryIds.length) return null;
+  return startSteamLibraryJob(user, retryIds, {
+    results: previous.results.filter(([, outcome]) => outcome !== "failed"),
+    recent: previous.recent.filter((row) => row.outcome !== "failed"),
+  });
 }
 
 /**

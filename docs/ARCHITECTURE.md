@@ -160,8 +160,10 @@ per-account process lock.
 A checkpoint is saved after every batch. Startup resumes pending/running jobs
 before accepting requests. Replaying a partially committed batch safely dedupes
 existing game rows. A failed worker/checkpoint is exposed as retryable progress;
-GET status does not mutate storage. Retry starts a new job containing only
-failed and unprocessed IDs. Progress polling survives navigation and shows
+GET status does not mutate storage. Retry starts a new job that carries the
+finished outcomes and then processes only failed and unprocessed IDs. The checkpoint keeps
+compact `[steamAppId, outcome]` rows, plus titles for the ten recent results only, because it is
+rewritten after every batch. Progress polling survives navigation and shows
 the latest job, counts and ten recent results. This is a single-server worker,
 consistent with Questarr's supported single-instance deployment, not a distributed
 queue. Manually started jobs are separate from scheduled wishlist sync.

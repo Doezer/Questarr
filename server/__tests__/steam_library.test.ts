@@ -356,7 +356,8 @@ describe.each(activeTestDialects())("Steam owned-library (%s)", (dialect) => {
         userId,
         steamId: fixtures.user.steamId64,
         appIds: [10, 6000, 6001],
-        results: [{ steamAppId: 10, title: "First", outcome: "duplicate" }],
+        results: [[10, "duplicate"]],
+        recent: [{ steamAppId: 10, title: "First", outcome: "duplicate" }],
         state: "running",
       })
     );
@@ -410,10 +411,11 @@ describe.each(activeTestDialects())("Steam owned-library (%s)", (dialect) => {
       202
     );
     expect(await waitForJob()).toMatchObject({
+      // The retry continues the same totals and counters instead of restarting from zero.
       state: "completed",
-      total: 15,
-      processed: 15,
-      added: 15,
+      total: 65,
+      processed: 65,
+      added: 65,
       canRetry: false,
     });
     expect(

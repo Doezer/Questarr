@@ -73,17 +73,48 @@ function overlaps(a: string, b: string): boolean {
   return a === b || isStrictlyInside(a, b) || isStrictlyInside(b, a);
 }
 
+/**
+ * Real path of `target`, following symlinks. A path that does not exist yet
+ * (a library root not created so far) resolves through its closest existing
+ * ancestor, so a symlinked parent cannot hide an overlap.
+ */
+async function canonicalize(target: string): Promise<string> {
+  const resolved = path.resolve(target);
+  const rest: string[] = [];
+  let probe = resolved;
+  for (;;) {
+    try {
+      return path.join(await fs.realpath(probe), ...rest.reverse());
+    } catch {
+      const parent = path.dirname(probe);
+      if (parent === probe) return resolved;
+      rest.push(path.basename(probe));
+      probe = parent;
+    }
+  }
+}
+
+async function overlapsLibraryRoot(libraryRoot: string, source: string): Promise<boolean> {
+  if (overlaps(path.resolve(libraryRoot), path.resolve(source))) return true;
+  return overlaps(await canonicalize(libraryRoot), await canonicalize(source));
+}
+
 /** Games whose files live in a root folder rather than in the library root. */
 export async function listExternalGames(userId: string): Promise<ExternalGame[]> {
-  const [folders, games] = await Promise.all([
+  const [folders, games, config] = await Promise.all([
     storage.getAllRootFolders(),
     storage.getUserGames(userId, true),
+    storage.getImportConfig(userId),
   ]);
+  const libraryRoot = path.resolve(config.libraryRoot || "/data");
   const result: ExternalGame[] = [];
   for (const game of games) {
     if (!game.libraryPath) continue;
     const folder = findContainingRootFolder(folders, path.resolve(game.libraryPath));
     if (!folder) continue;
+    // A root folder can contain the library root: games already in the library
+    // are not "external" and could never be transferred.
+    if (await overlapsLibraryRoot(libraryRoot, game.libraryPath)) continue;
     result.push({
       gameId: game.id,
       title: game.title,
@@ -130,7 +161,7 @@ async function resolveTransfer(gameId: string, userId: string): Promise<Resolved
   if (!rootFolder) {
     throw new LibraryTransferError("This game is not stored in a root folder", 400);
   }
-  if (isSensitivePath(source)) {
+  if (await isSensitivePath(source)) {
     throw new LibraryTransferError("Refusing to process a sensitive system path", 400);
   }
   if (!(await fs.pathExists(source))) {
@@ -139,7 +170,7 @@ async function resolveTransfer(gameId: string, userId: string): Promise<Resolved
 
   const config = await storage.getImportConfig(userId);
   const libraryRoot = path.resolve(config.libraryRoot || "/data");
-  if (overlaps(libraryRoot, source)) {
+  if (await overlapsLibraryRoot(libraryRoot, source)) {
     throw new LibraryTransferError("The game is already inside the library root", 409);
   }
 

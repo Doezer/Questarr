@@ -82,6 +82,29 @@ describe("library transfer", () => {
     expect(list[0]?.rootFolderId).toBe("rf1");
   });
 
+  it("leaves out games already inside a library root nested in the root folder", async () => {
+    storageMock.getAllRootFolders.mockResolvedValue([{ id: "rf1", path: tmp }]);
+    storageMock.getUserGames.mockResolvedValue([
+      game,
+      { id: "g2", title: "Inside", libraryPath: path.join(library, "PC", "Inside") },
+    ]);
+    const list = await listExternalGames("u1");
+    expect(list.map((g) => g.gameId)).toEqual(["g1"]);
+  });
+
+  it("refuses a library root that is a symlink into the source", async () => {
+    const link = path.join(tmp, "library-link");
+    await fs.symlink(gameDir, link);
+    storageMock.getImportConfig.mockResolvedValue({
+      libraryRoot: link,
+      renamePattern: "{Title}",
+      overwriteExisting: false,
+      sortExtras: true,
+    });
+    await expect(transferExternalGame("g1", "move", "u1")).rejects.toMatchObject({ status: 409 });
+    expect(await fs.pathExists(path.join(gameDir, "game.bin"))).toBe(true);
+  });
+
   it("previews destination and size", async () => {
     const preview = await previewLibraryTransfer("g1", "u1");
     expect(preview.sizeBytes).toBe(8);

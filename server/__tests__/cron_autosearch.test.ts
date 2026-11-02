@@ -124,6 +124,10 @@ vi.mock("../xrel.js", () => ({
   xrelClient: {
     getLatestReleases: vi.fn(),
     searchReleases: mockXrelSearchReleases,
+    searchReleasesWithMeta: async (...args: unknown[]) => ({
+      releases: await mockXrelSearchReleases(...args),
+      truncated: false,
+    }),
   },
   DEFAULT_XREL_BASE: "http://example.com",
 }));

@@ -19,7 +19,21 @@ const SENSITIVE_WINDOWS_PATH_REGEX =
  * Resolves the path before comparing so traversal tricks like /data/../etc are caught.
  */
 export function isSensitivePath(rawPath: string): boolean {
-  const resolved = path.resolve(rawPath).replaceAll("\\", "/");
+  // Windows device prefixes (\\?\C:\Windows, \\.\C:\Windows, \\?\UNC\host\share) name the
+  // same location as the plain form but would not match the drive-letter regex below.
+  const unprefixed = rawPath
+    .replace(/^[\\/]{2}[?.][\\/]UNC[\\/]/i, "\\\\")
+    .replace(/^[\\/]{2}[?.][\\/]/, "");
+  let resolved = path.resolve(unprefixed);
+  try {
+    // Expands 8.3 short names (C:\PROGRA~1) and symlinks/junctions into system directories.
+    resolved = fs.realpathSync.native(resolved);
+  } catch {
+    // Not on disk (yet): the lexical form is all there is to check.
+  }
+  resolved = resolved.replaceAll("\\", "/");
+  // Administrative shares (\\host\C$\...) expose a whole drive, system directories included.
+  if (/^\/\/[^/]+\/[a-z]\$(?:\/|$)/i.test(resolved)) return true;
   return SENSITIVE_PATH_REGEX.test(resolved) || SENSITIVE_WINDOWS_PATH_REGEX.test(resolved);
 }
 

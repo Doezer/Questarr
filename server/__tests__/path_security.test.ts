@@ -178,6 +178,29 @@ describe("isSensitivePath", () => {
     expect(isSensitivePath("C:\\Games\\..\\Windows")).toBe(true);
   });
 
+  it.skipIf(process.platform !== "win32")("sees through device prefixes and admin shares", () => {
+    expect(isSensitivePath("\\\\?\\C:\\Windows")).toBe(true);
+    expect(isSensitivePath("\\\\.\\C:\\Windows\\System32")).toBe(true);
+    expect(isSensitivePath("\\\\localhost\\C$\\Windows")).toBe(true);
+    expect(isSensitivePath("\\\\?\\UNC\\localhost\\C$\\Users")).toBe(true);
+  });
+
+  it.skipIf(process.platform !== "win32")("expands 8.3 short names of existing directories", () => {
+    expect(isSensitivePath("C:\\PROGRA~1\\Anything")).toBe(true);
+    expect(isSensitivePath("C:\\WINDOW~1")).toBe(true);
+  });
+
+  it.skipIf(process.platform === "win32")("follows a symlink into a system directory", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "q-sens-"));
+    try {
+      const link = path.join(dir, "etc-link");
+      fs.symlinkSync("/etc", link);
+      expect(isSensitivePath(link)).toBe(true);
+    } finally {
+      fs.removeSync(dir);
+    }
+  });
+
   it.skipIf(process.platform !== "win32")("keeps ordinary Windows locations allowed", () => {
     expect(isSensitivePath("C:\\ProgramData\\Questarr\\data")).toBe(false);
     expect(isSensitivePath("D:\\Games\\Windows Store Games")).toBe(false);

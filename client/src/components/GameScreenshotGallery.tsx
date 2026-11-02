@@ -15,6 +15,7 @@ interface GameScreenshotWithUrl {
   url: string;
 }
 
+/** Share owner-scoped personal media between the gallery and the game section counts. */
 export function useGameScreenshots(gameId: string, enabled = true) {
   return useQuery<GameScreenshotWithUrl[]>({
     queryKey: [`/api/games/${gameId}/screenshots`],
@@ -31,6 +32,7 @@ export default function GameScreenshotGallery({
   const queryClient = useQueryClient();
   const screenshotsQuery = useGameScreenshots(gameId);
   const screenshots = screenshotsQuery.data ?? [];
+  /** Refresh this game after a write, close completed actions, and report sanitized failures. */
   const invalidateOnSuccess = (queryKey: string, errorMessage: string, extra?: () => void) => ({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [queryKey] });
@@ -65,11 +67,57 @@ export default function GameScreenshotGallery({
     ),
   });
 
+  /** Clear the input before uploading so the same file can be chosen again after a failure. */
   const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (file) uploadScreenshotMutation.mutate(file);
   };
+
+  /** Render each fetch state explicitly so failed requests never look like an empty gallery. */
+  function renderScreenshots() {
+    if (screenshotsQuery.isPending) {
+      return <output className="block text-sm text-muted-foreground">Loading screenshots…</output>;
+    }
+    if (screenshotsQuery.isError) {
+      return (
+        <div role="alert" className="text-sm space-y-2">
+          <p>Could not load your screenshots.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void screenshotsQuery.refetch()}
+            disabled={screenshotsQuery.isFetching}
+          >
+            Retry
+          </Button>
+        </div>
+      );
+    }
+    if (screenshots.length === 0) {
+      return <p className="text-sm text-muted-foreground">No screenshots yet.</p>;
+    }
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {screenshots.map((screenshot, index) => (
+          <button
+            key={screenshot.id}
+            type="button"
+            className="relative aspect-video rounded-md overflow-hidden border border-border"
+            onClick={() => setLightboxScreenshot(screenshot)}
+            aria-label={`View screenshot ${index + 1}`}
+          >
+            <img
+              src={withBasePath(screenshot.url)}
+              alt={screenshot.caption ?? "Game screenshot"}
+              loading="lazy"
+              className="w-full h-full object-cover"
+            />
+          </button>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -105,44 +153,7 @@ export default function GameScreenshotGallery({
         <p className="text-xs text-muted-foreground mb-3">
           JPEG, PNG or WebP · up to 8 MB per image · stored on your server.
         </p>
-        {screenshotsQuery.isPending ? (
-          <p role="status" className="text-sm text-muted-foreground">
-            Loading screenshots…
-          </p>
-        ) : screenshotsQuery.isError ? (
-          <div role="alert" className="text-sm space-y-2">
-            <p>Could not load your screenshots.</p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void screenshotsQuery.refetch()}
-              disabled={screenshotsQuery.isFetching}
-            >
-              Retry
-            </Button>
-          </div>
-        ) : screenshots.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {screenshots.map((screenshot, index) => (
-              <button
-                key={screenshot.id}
-                type="button"
-                className="relative aspect-video rounded-md overflow-hidden border border-border"
-                onClick={() => setLightboxScreenshot(screenshot)}
-                aria-label={`View screenshot ${index + 1}`}
-              >
-                <img
-                  src={withBasePath(screenshot.url)}
-                  alt={screenshot.caption ?? "Game screenshot"}
-                  loading="lazy"
-                  className="w-full h-full object-cover"
-                />
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No screenshots yet.</p>
-        )}
+        {renderScreenshots()}
       </section>
       <Dialog
         open={!!lightboxScreenshot}

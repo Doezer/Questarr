@@ -536,6 +536,10 @@ function StarRatingInput({
   );
 }
 
+/**
+ * Show catalog details alongside account-owned progress and media. Discovery routes resolve the
+ * saved row before accessing personal screenshots; failed lookups remain explicitly retryable.
+ */
 export default function GameDetails({ game, onClose }: GameDetailsProps) {
   const isMobile = useIsMobile();
   const [selectedScreenshotIndex, setSelectedScreenshotIndex] = useState<number | null>(null);
@@ -1660,9 +1664,9 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                   />
                 )}
                 {isDiscoveryGame && !libraryGame && libraryLookupPending && (
-                  <p role="status" className="text-sm text-muted-foreground">
+                  <output className="block text-sm text-muted-foreground">
                     Checking saved game screenshots…
-                  </p>
+                  </output>
                 )}
                 {isDiscoveryGame && !libraryGame && libraryLookupError && (
                   <div role="alert" className="text-sm space-y-2">

@@ -33,6 +33,7 @@ interface AchievementsResponse {
   reason?: "not_configured" | "no_steam_app_id" | "no_steam_id";
 }
 
+/** Format valid journal timestamps in the reader’s locale while tolerating missing dates. */
 function formatDate(value: string | Date | null): string {
   if (!value) return "";
   const date = typeof value === "string" ? new Date(value) : value;
@@ -43,6 +44,10 @@ function formatDate(value: string | Date | null): string {
   });
 }
 
+/**
+ * Manage personal notes, milestones and achievements for a saved game. Standalone uses include
+ * screenshots; GameDetails places that shared gallery in Media and disables the duplicate here.
+ */
 export default function GameJournalTab({
   gameId,
   steamAppId,

@@ -39,6 +39,7 @@ const {
   filterBlacklistedReleases,
   filterByReleaseNameBlacklist,
   enrichWithAiAnalysis,
+  MAX_FALLBACK_QUERIES,
 } = await import("../search.js");
 const { storage } = await import("../storage.js");
 const { torznabClient } = await import("../torznab.js");
@@ -452,6 +453,86 @@ describe("Search Module - searchAllIndexers", () => {
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0].files).toBeUndefined();
+  });
+});
+
+describe("Search Module - query fallback", () => {
+  const torznabItem = (title: string) => ({
+    title,
+    link: "http://x/dl",
+    pubDate: "2024-01-01",
+    guid: title,
+    indexerId: "torznab-1",
+    indexerName: "Torznab Indexer",
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([makeTorznabIndexer()]);
+  });
+
+  it("retries with a simpler query and reports which one produced the results", async () => {
+    vi.mocked(torznabClient.searchMultipleIndexers).mockImplementation(async (_i, params) =>
+      makeTorznabResponse(
+        params.query === "Hellraiser: Revival" ? [torznabItem("Hellraiser.Revival-GRP")] : []
+      )
+    );
+
+    const result = await searchAllIndexers({
+      query: "Clive Barker's Hellraiser: Revival",
+      fallback: true,
+    });
+
+    expect(result.queryUsed).toBe("Hellraiser: Revival");
+    expect(result.items.map((i) => i.title)).toEqual(["Hellraiser.Revival-GRP"]);
+    expect(
+      vi.mocked(torznabClient.searchMultipleIndexers).mock.calls.map((c) => c[1].query)
+    ).toEqual(["Clive Barker's Hellraiser: Revival", "Hellraiser: Revival"]);
+  });
+
+  it("does not retry when the first query has results", async () => {
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeTorznabResponse([torznabItem("Hellraiser.Revival-GRP")])
+    );
+
+    const result = await searchAllIndexers({ query: "Hellraiser: Revival", fallback: true });
+
+    expect(result.queryUsed).toBeUndefined();
+    expect(torznabClient.searchMultipleIndexers).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry without the fallback option or past the first page", async () => {
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(makeTorznabResponse([]));
+
+    await searchAllIndexers({ query: "Clive Barker's Hellraiser: Revival" });
+    await searchAllIndexers({
+      query: "Clive Barker's Hellraiser: Revival",
+      fallback: true,
+      offset: 50,
+    });
+
+    expect(torznabClient.searchMultipleIndexers).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after a bounded number of variants", async () => {
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(makeTorznabResponse([]));
+
+    const result = await searchAllIndexers({
+      query: "Clive Barker's Hellraiser: Revival",
+      fallback: true,
+    });
+
+    expect(result.items).toEqual([]);
+    expect(result.queryUsed).toBeUndefined();
+    expect(torznabClient.searchMultipleIndexers).toHaveBeenCalledTimes(1 + MAX_FALLBACK_QUERIES);
+  });
+
+  it("does not retry a title with nothing to simplify", async () => {
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(makeTorznabResponse([]));
+
+    await searchAllIndexers({ query: "Cyberpunk 2077", fallback: true });
+
+    expect(torznabClient.searchMultipleIndexers).toHaveBeenCalledTimes(1);
   });
 });
 

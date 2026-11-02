@@ -513,6 +513,9 @@ export async function searchAndCategorizeItemsForGame(
   }
 
   let matchedItems: SearchItem[] = [];
+  // the title releases are matched against: the game's own, or the simpler query variant that
+  // found them when the full title returned nothing (later pages search with it too)
+  let matchTitle = game.title;
   const globallyFiltered: SearchItem[] = [];
   const blacklisted = await storage.getReleaseBlacklistSet(game.id);
   let xrelLookedUp = false;
@@ -520,11 +523,13 @@ export async function searchAndCategorizeItemsForGame(
   let xrelUnavailable = false;
 
   for (let page = 0; page < AUTO_SEARCH_MAX_PAGES; page++) {
-    const { items, errors } = await searchAllIndexers({
-      query: game.title,
+    const { items, errors, queryUsed } = await searchAllIndexers({
+      query: matchTitle,
       limit: AUTO_SEARCH_PAGE_SIZE,
       offset: page * AUTO_SEARCH_PAGE_SIZE,
+      fallback: true,
     });
+    if (queryUsed) matchTitle = queryUsed;
 
     logAutoSearchErrors(game.title, errors);
 
@@ -559,12 +564,18 @@ export async function searchAndCategorizeItemsForGame(
       }
     }
     const evaluated = scoring
-      ? evaluateItemsForGame(items, game, scoring, xrelReleases, xrelUnavailable)
+      ? evaluateItemsForGame(
+          items,
+          { ...game, title: matchTitle },
+          scoring,
+          xrelReleases,
+          xrelUnavailable
+        )
       : null;
     matchedItems =
       evaluated && scoring
         ? keepEligibleEvaluations(evaluated, scoring)
-        : items.filter((item) => releaseMatchesGame(item.title, game.title));
+        : items.filter((item) => releaseMatchesGame(item.title, matchTitle));
     // A first page with no title match means the search is not about this game. Later pages
     // are only fetched because the blacklist hid a whole page, so an unrelated page there
     // should not stop the search.

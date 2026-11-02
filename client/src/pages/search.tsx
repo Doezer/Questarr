@@ -3,7 +3,19 @@ import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { formatBytes, formatAge, isUsenetItem, getDownloadTypeColor } from "@/lib/downloads-utils";
+import {
+  formatBytes,
+  formatAge,
+  isUsenetItem,
+  getDownloadTypeColor,
+  hasCompatibleDownloader,
+  countUnsupportedReleases,
+} from "@/lib/downloads-utils";
+import {
+  SearchFallbackNotice,
+  UnsupportedReleasesNotice,
+  UNSUPPORTED_RELEASE_TITLE,
+} from "@/components/SearchResultNotices";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
 import { cleanReleaseName } from "@shared/title-utils";
 import {
@@ -75,6 +87,7 @@ interface SearchResult {
   items: DownloadItem[];
   total: number;
   offset: number;
+  queryUsed?: string;
   errors?: string[];
 }
 
@@ -263,9 +276,17 @@ export default function SearchPage() {
     }
   }, [data, isSearching, searchError, debouncedSearchQuery, toast]);
 
-  const { data: downloaders = [] } = useQuery<Downloader[]>({
+  const { data: downloaders = [], isSuccess: downloadersLoaded } = useQuery<Downloader[]>({
     queryKey: ["/api/downloaders/enabled"],
   });
+  // releases that no configured downloader can take: flagged, with their download disabled
+  const unsupportedCounts = useMemo(
+    () =>
+      downloadersLoaded && downloaders.length > 0
+        ? countUnsupportedReleases(allItems, downloaders)
+        : { torrent: 0, usenet: 0 },
+    [downloadersLoaded, downloaders, allItems]
+  );
 
   const downloadMutation = useMutation({
     mutationFn: async ({
@@ -492,6 +513,14 @@ export default function SearchPage() {
             )}
           </div>
 
+          <div className="mb-4 space-y-3 empty:hidden">
+            <SearchFallbackNotice
+              queryUsed={firstPage?.queryUsed}
+              originalQuery={debouncedSearchQuery}
+            />
+            <UnsupportedReleasesNotice counts={unsupportedCounts} />
+          </div>
+
           {!!indexerErrors && indexerErrors.length > 0 && (
             <Card className="mb-4" data-testid="card-indexer-errors">
               <CardHeader>
@@ -557,6 +586,8 @@ export default function SearchPage() {
               <>
                 {filteredAndSortedItems.map((download, index) => {
                   const isUsenet = isUsenetItem(download);
+                  const unsupported =
+                    downloaders.length > 0 && !hasCompatibleDownloader(download, downloaders);
                   const itemKey = download.guid ?? download.link;
                   return (
                     <div
@@ -657,13 +688,13 @@ export default function SearchPage() {
                           <TooltipTrigger asChild>
                             <div
                               className="inline-block"
-                              tabIndex={downloaders.length === 0 ? 0 : -1}
+                              tabIndex={downloaders.length === 0 || unsupported ? 0 : -1}
                             >
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleDownload(download)}
-                                disabled={downloaders.length === 0}
+                                disabled={downloaders.length === 0 || unsupported}
                                 className="h-8 w-8"
                                 data-testid={`button-download-${index}`}
                                 aria-label={`Start download for ${download.title}`}
@@ -676,7 +707,9 @@ export default function SearchPage() {
                             <p>
                               {downloaders.length === 0
                                 ? "Configure a downloader first"
-                                : "Start download"}
+                                : unsupported
+                                  ? UNSUPPORTED_RELEASE_TITLE
+                                  : "Start download"}
                             </p>
                           </TooltipContent>
                         </Tooltip>

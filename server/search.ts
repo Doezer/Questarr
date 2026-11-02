@@ -2,7 +2,7 @@ import { storage } from "./storage.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { searchLogger } from "./logger.js";
-import { parseReleaseMetadata } from "../shared/title-utils.js";
+import { buildQueryVariants, parseReleaseMetadata } from "../shared/title-utils.js";
 import type { ReleaseTrust } from "../shared/release-trust.js";
 import type { ReleaseEvaluation } from "../shared/release-scoring.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
@@ -55,6 +55,12 @@ export interface AggregatedSearchOptions {
   category?: string[] | undefined;
   limit?: number;
   offset?: number;
+  /**
+   * When the query returns nothing on the first page, retry with simpler variants of it
+   * (see buildQueryVariants) and stop at the first one that returns results. The caller still
+   * has to filter the results against the title they were found with (`queryUsed`).
+   */
+  fallback?: boolean;
 }
 
 export interface AggregatedSearchResults {
@@ -62,9 +68,42 @@ export interface AggregatedSearchResults {
   total: number;
   offset: number;
   errors: string[];
+  /** The variant that produced the results; absent when the query itself did. */
+  queryUsed?: string;
 }
 
+/** Variants tried after the original query: bounds the extra indexer load of a failed search. */
+export const MAX_FALLBACK_QUERIES = 3;
+
 export async function searchAllIndexers(
+  options: AggregatedSearchOptions
+): Promise<AggregatedSearchResults> {
+  const first = await searchIndexersOnce(options);
+  const canFallback =
+    options.fallback === true &&
+    !!options.query &&
+    (options.offset ?? 0) === 0 &&
+    first.items.length === 0 &&
+    first.errors[0] !== "No indexers configured";
+  if (!canFallback) return first;
+
+  const errors = [...first.errors];
+  for (const variant of buildQueryVariants(options.query).slice(0, MAX_FALLBACK_QUERIES)) {
+    const result = await searchIndexersOnce({ ...options, query: variant });
+    if (result.items.length > 0) {
+      searchLogger.info(
+        { query: options.query, variant, count: result.items.length },
+        "Search fell back to a simpler query"
+      );
+      // errors of the original query are kept: an indexer that failed there may well have
+      // failed for the variant too
+      return { ...result, errors: [...new Set([...errors, ...result.errors])], queryUsed: variant };
+    }
+  }
+  return first;
+}
+
+async function searchIndexersOnce(
   options: AggregatedSearchOptions
 ): Promise<AggregatedSearchResults> {
   const enabledIndexers = await storage.getEnabledIndexers();

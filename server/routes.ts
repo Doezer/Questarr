@@ -709,7 +709,10 @@ async function scoreManualSearchResults(
   query: string,
   preferredPlatform: string | null,
   xrelTypes: XrelPredbTypes,
-  blacklisted: Set<string> = new Set()
+  blacklisted: Set<string> = new Set(),
+  // the simpler query variant that produced the results: releases are named after it, so the
+  // title match is made against it instead of the game's full title
+  fallbackTitle?: string
 ): Promise<{ items: SearchItem[]; config?: ScoringConfig }> {
   if (!userId || items.length === 0) return { items };
   try {
@@ -717,7 +720,7 @@ async function scoreManualSearchResults(
     const platform = ownGame
       ? resolveGamePlatformPreference(ownGame, preferredPlatform)
       : preferredPlatform;
-    const gameTitle = ownGame?.title ?? query;
+    const gameTitle = fallbackTitle ?? ownGame?.title ?? query;
     // a slow xREL must not hold up the result list; the lookup finishes in the background
     let xrelUnavailable = false;
     const xrelReleases = await getXrelPredb(gameTitle, xrelTypes, {
@@ -777,11 +780,12 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       return res.status(400).json({ error: "Search query required" });
     }
 
-    const { items, total, errors } = await searchAllIndexers({
+    const { items, total, errors, queryUsed } = await searchAllIndexers({
       query: query.trim(),
       category: categories,
       limit,
       offset,
+      fallback: true,
     });
 
     // Global release-name blacklist (case-insensitive substring match) applies to every
@@ -815,7 +819,8 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       query.trim(),
       userSettings?.preferredPlatform ?? null,
       xrelTypesFor(userSettings),
-      gameBlacklist
+      gameBlacklist,
+      queryUsed
     );
     // releases the scoring failure path dropped count as blacklisted, like the global ones
     const blacklistedCount = items.length - scoredItems.length;
@@ -851,13 +856,14 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       ownGame
         ? resolveGamePlatformPreference(ownGame, userSettings?.preferredPlatform ?? null)
         : (userSettings?.preferredPlatform ?? null),
-      ownGame?.title ?? query.trim()
+      queryUsed ?? ownGame?.title ?? query.trim()
     );
 
     return res.json({
       items: enrichedItems,
       total,
       offset,
+      ...(queryUsed ? { queryUsed } : {}),
       ...(blacklistedCount > 0 ? { blacklistedCount } : {}),
       errors: errors.length > 0 ? errors : undefined,
     });

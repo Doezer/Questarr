@@ -5,6 +5,7 @@ import {
   cleanReleaseName,
   parseSwitchTitleId,
   titleMatches,
+  buildQueryVariants,
   releaseMatchesGame,
   parseReleaseMetadata,
   parseJsonStringArray,
@@ -370,5 +371,59 @@ describe("Nintendo Switch dump names", () => {
     expect(dlc).toMatchObject({ kind: "dlc", family: "0100535012974" });
     expect(parseSwitchTitleId("Hades_0100535012974800_v65536.nsp")?.kind).toBe("update");
     expect(parseSwitchTitleId("Celeste.iso")).toBeNull();
+  });
+});
+
+describe("buildQueryVariants", () => {
+  // real titles: possessives, colons, subtitles, edition words, roman numerals
+  const corpus: [string, string[]][] = [
+    [
+      "Clive Barker's Hellraiser: Revival",
+      ["Hellraiser: Revival", "Hellraiser Revival", "Hellraiser"],
+    ],
+    ["Sid Meier's Civilization VI", ["Civilization VI"]],
+    ["Tom Clancy's Rainbow Six Siege", ["Rainbow Six Siege"]],
+    [
+      "The Witcher 3: Wild Hunt - Game of the Year Edition",
+      ["The Witcher 3: Wild Hunt", "The Witcher 3"],
+    ],
+    ["Resident Evil 4 Remastered", ["Resident Evil 4"]],
+    ["Pokémon Legends: Arceus", ["Pokémon Legends Arceus", "Pokémon Legends"]],
+    ["Dark Souls III - Deluxe Edition", ["Dark Souls III"]],
+  ];
+
+  it.each(corpus)("%s", (title, expected) => {
+    const variants = buildQueryVariants(title);
+    for (const wanted of expected) expect(variants).toContain(wanted);
+  });
+
+  it("puts the least lossy variant first", () => {
+    expect(buildQueryVariants("Clive Barker's Hellraiser: Revival")[0]).toBe("Hellraiser: Revival");
+  });
+
+  it("keeps a single possessive word: it is the title", () => {
+    expect(buildQueryVariants("Baldur's Gate 3")).toEqual(["Baldurs Gate 3"]);
+    expect(buildQueryVariants("Assassin's Creed Odyssey")).not.toContain("Creed Odyssey");
+  });
+
+  it("has nothing to offer for a plain title", () => {
+    expect(buildQueryVariants("Cyberpunk 2077")).toEqual([]);
+    expect(buildQueryVariants("Hades II")).toEqual([]);
+    expect(buildQueryVariants("  ")).toEqual([]);
+  });
+
+  it("never returns the original title or a duplicate", () => {
+    for (const [title] of corpus) {
+      const variants = buildQueryVariants(title);
+      expect(variants).not.toContain(title);
+      expect(new Set(variants.map((v) => v.toLowerCase())).size).toBe(variants.length);
+    }
+  });
+
+  it("does not turn a variant into a sequel match", () => {
+    // "Hellraiser" is the loosest variant; a sequel number after it must still be refused
+    expect(releaseMatchesGame("Hellraiser.2.PROPER-GRP", "Hellraiser")).toBe(false);
+    expect(releaseMatchesGame("Hellraiser.Revival-GRP", "Hellraiser: Revival")).toBe(true);
+    expect(releaseMatchesGame("Hellraiser.Revival-GRP", "Hellraiser")).toBe(true);
   });
 });

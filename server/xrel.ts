@@ -221,18 +221,24 @@ export async function searchReleasesWithMeta(
     throw new Error(`xREL API error: ${res.status} ${res.statusText}`);
   }
 
-  const data = (await res.json()) as XrelSearchResponse;
-  // a reply with neither list is not "no releases": a changed format or a wrong base URL would
-  // otherwise mark every release as not on xREL
-  if (data.results === undefined && data.p2p_results === undefined) {
+  const data = (await res.json()) as XrelSearchResponse | null;
+  // a reply without a usable release list is not "no releases": a changed format, a null body
+  // or a wrong base URL would otherwise mark every release as not on xREL
+  const results = data?.results;
+  const p2pResults = data?.p2p_results;
+  const hasList = Array.isArray(results) || Array.isArray(p2pResults);
+  const badList =
+    (results !== undefined && !Array.isArray(results)) ||
+    (p2pResults !== undefined && !Array.isArray(p2pResults));
+  if (!hasList || badList) {
     throw new Error("xREL API returned an unexpected response (no release lists)");
   }
-  const results = data.results ?? [];
-  const p2pResults = data.p2p_results ?? [];
+  const scenes = Array.isArray(results) ? results : [];
+  const p2ps = Array.isArray(p2pResults) ? p2pResults : [];
   const truncated =
-    results.length >= Math.min(limit, XREL_SCENE_LIST_CAP) ||
-    p2pResults.length >= Math.min(limit, XREL_P2P_LIST_CAP);
-  return { releases: mergeAndFilterGameReleases(results, p2pResults), truncated };
+    scenes.length >= Math.min(limit, XREL_SCENE_LIST_CAP) ||
+    p2ps.length >= Math.min(limit, XREL_P2P_LIST_CAP);
+  return { releases: mergeAndFilterGameReleases(scenes, p2ps), truncated };
 }
 
 /**

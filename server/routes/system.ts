@@ -82,7 +82,7 @@ systemRouter.get("/browse", async (req, res) => {
       return res.status(400).json({ error: "Invalid path: traversal detected" });
     }
 
-    if (isSensitivePath(validPath)) {
+    if (await isSensitivePath(validPath)) {
       return res.status(403).json({ error: "Access to this path is not allowed" });
     }
 

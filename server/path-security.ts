@@ -2,19 +2,62 @@ import fs from "fs-extra";
 import path from "node:path";
 
 const SENSITIVE_PATH_PREFIXES = ["/proc", "/sys", "/dev", "/run/secrets", "/etc", "/root"];
+// macOS keeps /etc, /var and friends as links into /private, so the canonical form of /etc is
+// /private/etc.
+const MACOS_CANONICAL_PREFIXES = ["/private/etc"];
 
 // Same prefixes as SENSITIVE_PATH_PREFIXES, as a single regex test.
 const SENSITIVE_PATH_REGEX = new RegExp(
-  `^(?:${SENSITIVE_PATH_PREFIXES.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?:/|$)`
+  `^(?:${[...SENSITIVE_PATH_PREFIXES, ...MACOS_CANONICAL_PREFIXES].map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?:/|$)`
 );
+
+// Windows system locations, on any drive letter. Matched case-insensitively (NTFS is) after
+// path.resolve() has normalized separators and "..". C:/ProgramData itself is deliberately not
+// listed: the Windows installer keeps Questarr's own data there; only Microsoft's subtree is.
+const SENSITIVE_WINDOWS_PATH_REGEX =
+  /^[a-z]:\/(?:windows|program files|program files \(x86\)|programdata\/microsoft|system volume information|\$recycle\.bin)(?:\/|$)/i;
 
 /**
  * Returns true if the given path resolves to a sensitive system directory.
  * Resolves the path before comparing so traversal tricks like /data/../etc are caught.
  */
-export function isSensitivePath(rawPath: string): boolean {
-  const resolved = path.resolve(rawPath).replaceAll("\\", "/");
-  return SENSITIVE_PATH_REGEX.test(resolved);
+export async function isSensitivePath(rawPath: string): Promise<boolean> {
+  // Windows device prefixes (\\?\C:\Windows, \\.\C:\Windows, \\?\UNC\host\share) name the
+  // same location as the plain form but would not match the drive-letter regex below.
+  const unprefixed = rawPath
+    .replace(/^[\\/]{2}[?.][\\/]UNC[\\/]/i, "\\\\")
+    .replace(/^[\\/]{2}[?.][\\/]/, "");
+  const lexical = path.resolve(unprefixed);
+  const canonical = await canonicalizeExistingPrefix(lexical);
+  // Both forms are tested: the lexical one catches /etc on macOS (a symlink to /private/etc),
+  // the canonical one catches short names and links that lead into a system directory.
+  return matchesSensitivePattern(lexical) || matchesSensitivePattern(canonical);
+}
+
+// realpath needs the whole path to exist, but a short name or a link can sit in any leading
+// directory of a path that does not exist yet: canonicalize the deepest existing ancestor and
+// re-append the rest.
+async function canonicalizeExistingPrefix(resolvedPath: string): Promise<string> {
+  let current = resolvedPath;
+  let rest = "";
+  for (;;) {
+    try {
+      const real = await fs.promises.realpath(current);
+      return rest === "" ? real : path.join(real, rest);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return resolvedPath;
+      rest = rest === "" ? path.basename(current) : path.join(path.basename(current), rest);
+      current = parent;
+    }
+  }
+}
+
+function matchesSensitivePattern(resolvedPath: string): boolean {
+  const normalized = resolvedPath.replaceAll("\\", "/");
+  // Administrative shares (\\host\C$\...) expose a whole drive, system directories included.
+  if (/^\/\/[^/]+\/(?:[a-z]|admin)\$(?:\/|$)/i.test(normalized)) return true;
+  return SENSITIVE_PATH_REGEX.test(normalized) || SENSITIVE_WINDOWS_PATH_REGEX.test(normalized);
 }
 
 // Roots come from configuration, not request input, so resolving symlinks in them

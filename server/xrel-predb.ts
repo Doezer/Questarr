@@ -67,6 +67,7 @@ async function fetchPredb(
       dirname: release.dirname,
       ...(release.nukeReason !== undefined ? { nukeReason: release.nukeReason } : {}),
       ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+      source: release.source,
     };
   });
   if (truncated) entries.truncated = true;

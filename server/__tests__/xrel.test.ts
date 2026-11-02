@@ -290,6 +290,27 @@ describe("xREL Client", () => {
       await expect(xrelClient.searchReleases("odd")).rejects.toThrow("unexpected response");
     });
 
+    it.each([
+      ["a null body", null],
+      ["a non-object body", "oops"],
+      ["a results field that is not a list", { results: { total: 0 } }],
+      ["a p2p_results field that is not a list", { results: [], p2p_results: "none" }],
+    ])("should treat %s as a failure", async (_label, body) => {
+      fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => body });
+
+      await expect(xrelClient.searchReleases("odd")).rejects.toThrow("unexpected response");
+    });
+
+    it("should still accept an explicit empty list as no releases", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ results: [] }),
+      });
+
+      await expect(xrelClient.searchReleases("none")).resolves.toEqual([]);
+    });
+
     it("should handle rate limiting errors", async () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,

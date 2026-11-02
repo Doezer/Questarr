@@ -18,6 +18,9 @@ const storageMock = vi.hoisted(() => ({
 const replaceFiles = vi.hoisted(() => vi.fn());
 
 vi.mock("../storage.js", () => ({ storage: storageMock }));
+vi.mock("../services/index.js", () => ({
+  importManager: { resolveLibraryPlatformFolder: vi.fn(async () => "PC") },
+}));
 vi.mock("../library-scanner.js", () => ({ replaceGameFilesFromPath: replaceFiles }));
 vi.mock("../logger.js", () => ({
   routesLogger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
@@ -93,7 +96,7 @@ describe("library transfer", () => {
     expect(storageMock.updateGame).toHaveBeenCalledWith("g1", {
       libraryPath: outcome.destinationPath,
     });
-    expect(replaceFiles).toHaveBeenCalledWith("g1", outcome.destinationPath);
+    expect(replaceFiles).toHaveBeenCalledWith("g1", outcome.destinationPath, gameDir);
     expect(storageMock.updateImportTask).toHaveBeenLastCalledWith(
       "t1",
       expect.objectContaining({ status: "completed", addedItems: 1 })

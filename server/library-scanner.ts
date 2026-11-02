@@ -19,6 +19,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { storage } from "./storage.js";
+import { isStrictlyInside } from "./root-folders.js";
 import { igdbClient, type IGDBGame } from "./igdb.js";
 import { toVideos } from "./igdb-videos.js";
 import { normalizeTitle, cleanReleaseName, parseSwitchTitleId } from "../shared/title-utils.js";
@@ -394,19 +395,27 @@ async function assignFilesToGame(
 // ---------- Public API ----------
 
 /**
- * Replace a game's recorded files with what is now on disk at `absolutePath`
- * (a folder, or a standalone file). Used after a game's files were moved or
- * copied somewhere else, so `game_files` never keeps pointing at the old place.
+ * Re-point a game's recorded files after its folder (or standalone file) was
+ * copied or moved from `previousPath` to `absolutePath`. Only records that
+ * belonged to `previousPath` are replaced: files tracked elsewhere (e.g. a
+ * Switch update next to the base file) stay as they are.
  */
 export async function replaceGameFilesFromPath(
   gameId: string,
-  absolutePath: string
+  absolutePath: string,
+  previousPath: string
 ): Promise<number> {
+  const previous = path.resolve(previousPath);
+  for (const file of await storage.getGameFiles(gameId)) {
+    const filePath = path.resolve(file.filePath);
+    if (filePath === previous || isStrictlyInside(previous, filePath)) {
+      await storage.removeGameFile(file.id);
+    }
+  }
   const stat = await fs.promises.stat(absolutePath);
   const files = stat.isFile()
     ? [{ absolutePath, size: stat.size }]
     : await listFiles(absolutePath, Number.POSITIVE_INFINITY);
-  await storage.removeGameFilesByGameId(gameId);
   return assignFilesToGame(gameId, files);
 }
 

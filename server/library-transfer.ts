@@ -20,6 +20,7 @@ import { routesLogger } from "./logger.js";
 import { isStrictlyInside } from "./root-folders.js";
 import { isSensitivePath } from "./path-security.js";
 import { replaceGameFilesFromPath } from "./library-scanner.js";
+import { importManager } from "./services/index.js";
 import { PCImportStrategy, gatherFiles, type TransferMode } from "./services/ImportStrategies.js";
 import { isUserCuratedGameStatus, type Game, type RootFolder } from "../shared/schema.js";
 
@@ -145,10 +146,17 @@ async function resolveTransfer(gameId: string, userId: string): Promise<Resolved
   const strategy = new PCImportStrategy([rootFolder.path]);
   // Never let the general "overwrite existing" import setting reach this flow:
   // an existing destination must always be reported as a collision.
-  const plan = await strategy.planImport(source, game, libraryRoot, {
-    ...config,
-    overwriteExisting: false,
-  });
+  const platformDir = await importManager.resolveLibraryPlatformFolder(
+    game,
+    config.importPlatformIds
+  );
+  const plan = await strategy.planImport(
+    source,
+    game,
+    libraryRoot,
+    { ...config, overwriteExisting: false },
+    platformDir
+  );
   return { game, rootFolder, source, libraryRoot, strategy, plan, config };
 }
 
@@ -298,7 +306,7 @@ export async function transferExternalGame(
     if (t.game.status !== "owned" && !isUserCuratedGameStatus(t.game.status)) {
       await storage.updateGameStatus(t.game.id, { status: "owned" }, { preserveCurated: true });
     }
-    const filesPlaced = await replaceGameFilesFromPath(t.game.id, result.destDir);
+    const filesPlaced = await replaceGameFilesFromPath(t.game.id, result.destDir, t.source);
 
     await storage.addImportTaskItem({
       taskId: task.id,

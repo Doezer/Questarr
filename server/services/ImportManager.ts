@@ -187,6 +187,14 @@ export class ImportManager {
     return this.resolvePlatformFolderName(downloadTitle, game, allowed);
   }
 
+  /** Platform folder a game lands in under the library root (same rule as a download import). */
+  async resolveLibraryPlatformFolder(
+    game: { platforms?: unknown; targetPlatformId?: number | null },
+    allowedPlatformIds: number[]
+  ): Promise<string> {
+    return this.resolvePlatformFolder("", game, allowedPlatformIds);
+  }
+
   private resolvePlatformFolderName(
     downloadTitle: string,
     game: { platforms?: unknown },

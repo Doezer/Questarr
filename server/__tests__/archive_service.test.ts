@@ -729,6 +729,31 @@ describe("ArchiveService", () => {
       }
     );
 
+    it.each(["zip", "rar"])(
+      "retries transient %s listing failures even when a listed filename contains a password diagnostic",
+      async (extension) => {
+        const service = await freshArchiveService();
+        const listing =
+          extension === "zip"
+            ? makeSltOutput([{ name: "password required.txt", size: 12 }])
+            : "Name: password required.txt\nType: File\nSize: 12\n\n";
+        mockToolOnce(new Error("exit code 2"), listing);
+        mockToolOnce(null, listing);
+        mockToolAlways(null);
+        readdirMock.mockResolvedValueOnce([
+          { name: "password required.txt", isDirectory: () => false },
+        ]);
+        vi.useFakeTimers();
+        const result = service.extract(`/downloads/game.${extension}`, "/tmp/password-name-out");
+        const assertion = expect(result).resolves.toEqual([
+          path.join("/tmp/password-name-out", "password required.txt"),
+        ]);
+        await vi.runAllTimersAsync();
+        await assertion;
+        expect(spawn).toHaveBeenCalledTimes(4);
+      }
+    );
+
     it("reports a rejected-password message distinct from the initial 'required' message on a wrong retry password", async () => {
       const service = await freshArchiveService();
       mockToolAlways(new Error("exit code 3"), "", "wrong password for the archive");

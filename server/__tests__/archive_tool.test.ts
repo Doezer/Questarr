@@ -101,6 +101,39 @@ describe("streaming archive tools", () => {
     }
   );
 
+  it.each(["password required.txt", "wrong password.txt", "enter password.txt"])(
+    "does not classify the listing filename '%s' as a password failure",
+    async (name) => {
+      const records: string[] = [];
+      const error = await runScript(
+        `process.stdout.write(${JSON.stringify("Path = ")} + ${JSON.stringify(name)} + "\\nSize = 1\\n\\n"); process.exitCode = 2;`,
+        { onRecord: (record) => records.push(record) }
+      ).catch((error: Error) => error);
+      expect(records).toHaveLength(1);
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(ArchiveToolPasswordError);
+      expect((error as Error).message).toContain(name);
+    }
+  );
+
+  it.each([false, true])(
+    "preserves real stderr password failures with record parsing %s",
+    async (parseRecords) => {
+      await expect(
+        runScript(
+          'process.stderr.write("Wrong password?"); process.exitCode = 2;',
+          parseRecords ? { onRecord: () => {} } : {}
+        )
+      ).rejects.toBeInstanceOf(ArchiveToolPasswordError);
+    }
+  );
+
+  it("preserves stdout password diagnostics for commands without listing records", async () => {
+    await expect(
+      runScript('process.stdout.write("Wrong password?"); process.exitCode = 2;')
+    ).rejects.toBeInstanceOf(ArchiveToolPasswordError);
+  });
+
   it("reaps a child that ignores SIGTERM when the record consumer refuses it", async () => {
     let pid: number | undefined;
     const refusal = new Error("unsafe listing");

@@ -101,11 +101,12 @@ export function runArchiveTool(
       }
       if (code !== 0) {
         let detail = (stderrTail || stdoutTail).trim();
+        const classificationDetail = (options.onRecord ? stderrTail : detail).trim();
         // Redaction can erase diagnostic phrases when the password is "pass" or "a".
         // Preserve classification without attaching unredacted output to the error.
         const ErrorType =
           /wrong password|password protected|password is incorrect|password required|enter password/i.test(
-            detail
+            classificationDetail
           )
             ? ArchiveToolPasswordError
             : Error;

@@ -179,6 +179,8 @@ export interface XrelPredbEntry {
   nukeReason?: string;
   /** Size xREL lists for the release, when it gives one. */
   sizeBytes?: number;
+  /** Where xREL lists it. Only scene releases can be nuked; absent is read as scene. */
+  source?: "scene" | "p2p";
 }
 
 /**
@@ -207,6 +209,8 @@ export interface ReleaseEvaluation {
   xrelNukeReason?: string;
   /** The size xREL lists for the matched release, when it gives one. */
   xrelSizeBytes?: number;
+  /** Where the matched xREL entry is listed. A p2p entry cannot be checked for a nuke. */
+  xrelSource?: "scene" | "p2p";
 }
 
 // ---------------------------------------------------------------------------
@@ -620,7 +624,9 @@ interface ReleaseFacts {
   metadata: ReleaseMetadata;
   titleMatch: TitleMatch;
   indexerCategory: IndexerCategoryClass;
-  xrel: { status: XrelStatus; nukeReason?: string; sizeBytes?: number } | undefined;
+  xrel:
+    | { status: XrelStatus; nukeReason?: string; sizeBytes?: number; source?: "scene" | "p2p" }
+    | undefined;
 }
 
 /** Dots for spaces and underscores, lower case: the form scene names are compared in. */
@@ -645,6 +651,7 @@ function lookupXrel(
     : {
         status: "verified",
         ...(entry.sizeBytes !== undefined ? { sizeBytes: entry.sizeBytes } : {}),
+        ...(entry.source !== undefined ? { source: entry.source } : {}),
       };
 }
 
@@ -1242,6 +1249,7 @@ export function evaluateRelease(
     ...(facts.xrel ? { xrel: facts.xrel.status } : {}),
     ...(facts.xrel?.nukeReason !== undefined ? { xrelNukeReason: facts.xrel.nukeReason } : {}),
     ...(facts.xrel?.sizeBytes !== undefined ? { xrelSizeBytes: facts.xrel.sizeBytes } : {}),
+    ...(facts.xrel?.source !== undefined ? { xrelSource: facts.xrel.source } : {}),
   };
 }
 

@@ -126,7 +126,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $proc = Start-Process -FilePath npm.cmd -ArgumentList "run", "dev:test" `
+          $proc = Start-Process -FilePath $env:ComSpec -ArgumentList "/d", "/c", "npm.cmd run dev:test" `
             -RedirectStandardOutput e2e-server.log -RedirectStandardError e2e-server.err.log `
             -PassThru -NoNewWindow
           $proc.Id | Set-Content e2e-server.pid

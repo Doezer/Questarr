@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
-import { assertWithinRoots } from "../path-security.js";
+import { assertWithinRoots, isSensitivePath } from "../path-security.js";
 
 describe("assertWithinRoots", () => {
   it("never throws when no roots are configured", async () => {
@@ -159,5 +159,28 @@ describe("assertWithinRoots", () => {
         )
       ).resolves.toBeUndefined();
     });
+  });
+});
+
+describe("isSensitivePath", () => {
+  it.skipIf(process.platform === "win32")("flags POSIX system directories", () => {
+    expect(isSensitivePath("/etc/passwd")).toBe(true);
+    expect(isSensitivePath("/data/../etc")).toBe(true);
+    expect(isSensitivePath("/data/games")).toBe(false);
+  });
+
+  it.skipIf(process.platform !== "win32")("flags Windows system directories on any drive", () => {
+    expect(isSensitivePath("C:\\Windows\\System32")).toBe(true);
+    expect(isSensitivePath("d:\\windows")).toBe(true);
+    expect(isSensitivePath("C:\\Program Files\\Questarr")).toBe(true);
+    expect(isSensitivePath("C:\\Program Files (x86)\\Tool")).toBe(true);
+    expect(isSensitivePath("C:\\ProgramData\\Microsoft\\Crypto")).toBe(true);
+    expect(isSensitivePath("C:\\Games\\..\\Windows")).toBe(true);
+  });
+
+  it.skipIf(process.platform !== "win32")("keeps ordinary Windows locations allowed", () => {
+    expect(isSensitivePath("C:\\ProgramData\\Questarr\\data")).toBe(false);
+    expect(isSensitivePath("D:\\Games\\Windows Store Games")).toBe(false);
+    expect(isSensitivePath("C:\\Users\\me\\Downloads")).toBe(false);
   });
 });

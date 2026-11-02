@@ -8,13 +8,19 @@ const SENSITIVE_PATH_REGEX = new RegExp(
   `^(?:${SENSITIVE_PATH_PREFIXES.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?:/|$)`
 );
 
+// Windows system locations, on any drive letter. Matched case-insensitively (NTFS is) after
+// path.resolve() has normalized separators and "..". C:/ProgramData itself is deliberately not
+// listed: the Windows installer keeps Questarr's own data there; only Microsoft's subtree is.
+const SENSITIVE_WINDOWS_PATH_REGEX =
+  /^[a-z]:\/(?:windows|program files|program files \(x86\)|programdata\/microsoft|system volume information|\$recycle\.bin)(?:\/|$)/i;
+
 /**
  * Returns true if the given path resolves to a sensitive system directory.
  * Resolves the path before comparing so traversal tricks like /data/../etc are caught.
  */
 export function isSensitivePath(rawPath: string): boolean {
   const resolved = path.resolve(rawPath).replaceAll("\\", "/");
-  return SENSITIVE_PATH_REGEX.test(resolved);
+  return SENSITIVE_PATH_REGEX.test(resolved) || SENSITIVE_WINDOWS_PATH_REGEX.test(resolved);
 }
 
 // Roots come from configuration, not request input, so resolving symlinks in them

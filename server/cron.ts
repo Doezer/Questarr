@@ -433,6 +433,8 @@ export interface AutoSearchScoring {
   xrelTypes?: XrelPredbTypes;
   /** Skip the game while xREL cannot be checked: set only when an automatic grab could follow. */
   deferOnXrelUnavailable?: boolean;
+  /** Oldest completed xREL result a slow lookup may fall back on (the auto-search interval). */
+  xrelStaleMaxAgeMs?: number;
 }
 
 /**
@@ -541,6 +543,9 @@ export async function searchAndCategorizeItemsForGame(
         timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
         // cycles are hours apart, so a slow or failed lookup falls back on the last completed one
         staleFallback: true,
+        ...(scoring.xrelStaleMaxAgeMs !== undefined
+          ? { staleMaxAgeMs: scoring.xrelStaleMaxAgeMs }
+          : {}),
         onUnavailable: () => {
           xrelUnavailable = true;
         },
@@ -1835,6 +1840,8 @@ export async function checkAutoSearch() {
             config: await loadScoringConfig(userId),
             preferredPlatform,
             ...(xrelEnabledFor(settings) ? { xrelTypes: xrelTypesFor(settings) } : {}),
+            // a result must stay usable for the next cycle, even with an interval above 24 h
+            xrelStaleMaxAgeMs: Math.max(24, 2 * settings.searchIntervalHours) * 60 * 60 * 1000,
           };
         } catch (error) {
           igdbLogger.warn({ userId, error }, "Release scoring unavailable, using legacy filters");

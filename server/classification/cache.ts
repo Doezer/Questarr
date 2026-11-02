@@ -44,6 +44,11 @@ export function clearAllMemoryCaches(): void {
   for (const cache of registry) cache.clearMemory();
 }
 
+/** Resolves once every table write that was already under way has finished. */
+export async function settlePendingWrites(): Promise<void> {
+  await Promise.all(Array.from(registry, (cache) => cache.settled()));
+}
+
 /**
  * A verdict cache with the in-memory map as first level and the `classification_cache` table
  * behind it. The key must carry everything that changes the answer (pipeline version, mode, model
@@ -54,6 +59,7 @@ export class TieredCache<T> {
   private readonly memory = new Map<string, { at: number; value: T }>();
   private generation_ = 0;
   private lastPrune = 0;
+  private readonly pendingWrites = new Set<Promise<void>>();
   private readonly now: () => number;
 
   constructor(private readonly options: TieredCacheOptions<T>) {
@@ -105,12 +111,26 @@ export class TieredCache<T> {
     this.memory.set(key, { at: this.now(), value });
   }
 
+  settled(): Promise<void> {
+    return Promise.all(this.pendingWrites).then(() => undefined);
+  }
+
   /** `generation` is the value read before the work began; a clear since then drops the write. */
   async set(key: string, value: T, generation: number = this.generation_): Promise<void> {
     if (generation !== this.generation_) return;
     this.remember(key, value);
     const store = this.options.store;
     if (!store) return;
+    const write = this.persist(store, key, value);
+    this.pendingWrites.add(write);
+    try {
+      await write;
+    } finally {
+      this.pendingWrites.delete(write);
+    }
+  }
+
+  private async persist(store: PersistentCacheStore, key: string, value: T): Promise<void> {
     try {
       await store.put({
         id: this.id(key),

@@ -6,6 +6,7 @@ import {
   MEMORY_TTL_MS,
   PERSISTENT_TTL_MS,
   TieredCache,
+  settlePendingWrites,
   type PersistentCacheStore,
   type StoredVerdict,
 } from "../classification/cache.js";
@@ -125,6 +126,33 @@ describe("TieredCache", () => {
     await cache.set("k", 1, generation);
     expect(rows.size).toBe(0);
     expect(await cache.get("k")).toBeNull();
+  });
+
+  it("lets a write under way finish before a clear can delete the table", async () => {
+    const { rows } = fakeStore();
+    let release: () => void = () => {};
+    const slow: PersistentCacheStore = {
+      get: async () => undefined,
+      put: async (row) => {
+        await new Promise<void>((resolve) => (release = resolve));
+        rows.set(row.id, { verdict: row.verdict, storedAt: row.storedAt });
+      },
+      prune: async () => 0,
+    };
+    const cache = new TieredCache<number>({
+      namespace: "analysis",
+      parse: parseNumber,
+      store: slow,
+    });
+    const writing = cache.set("k", 1);
+    let settled = false;
+    const done = settlePendingWrites().then(() => (settled = true));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    await writing;
+    await done;
+    expect(rows.size).toBe(1);
   });
 
   it("prunes at most once an hour", async () => {

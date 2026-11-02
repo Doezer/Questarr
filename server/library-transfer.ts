@@ -71,8 +71,11 @@ function overlaps(a: string, b: string): boolean {
 }
 
 /** Games whose files live in a root folder rather than in the library root. */
-export async function listExternalGames(): Promise<ExternalGame[]> {
-  const [folders, games] = await Promise.all([storage.getAllRootFolders(), storage.getAllGames()]);
+export async function listExternalGames(userId: string): Promise<ExternalGame[]> {
+  const [folders, games] = await Promise.all([
+    storage.getAllRootFolders(),
+    storage.getUserGames(userId, true),
+  ]);
   const result: ExternalGame[] = [];
   for (const game of games) {
     if (!game.libraryPath) continue;
@@ -115,7 +118,7 @@ interface ResolvedTransfer {
 
 async function resolveTransfer(gameId: string, userId: string): Promise<ResolvedTransfer> {
   const game = await storage.getGame(gameId);
-  if (!game) throw new LibraryTransferError("Game not found", 404);
+  if (!game || game.userId !== userId) throw new LibraryTransferError("Game not found", 404);
   if (!game.libraryPath) throw new LibraryTransferError("This game has no files on disk", 400);
 
   const folders = await storage.getAllRootFolders();
@@ -138,7 +141,12 @@ async function resolveTransfer(gameId: string, userId: string): Promise<Resolved
   }
 
   const strategy = new PCImportStrategy([rootFolder.path]);
-  const plan = await strategy.planImport(source, game, libraryRoot, config);
+  // Never let the general "overwrite existing" import setting reach this flow:
+  // an existing destination must always be reported as a collision.
+  const plan = await strategy.planImport(source, game, libraryRoot, {
+    ...config,
+    overwriteExisting: false,
+  });
   return { game, rootFolder, source, libraryRoot, strategy, plan, config };
 }
 
@@ -190,24 +198,21 @@ export async function previewLibraryTransfer(
   };
 }
 
-/** Every file of `source` exists in `destination` with the same size. */
+/**
+ * The destination holds as many files and bytes as the source. Layout-agnostic
+ * on purpose: with Sort Extras the import places files in category subfolders.
+ */
 async function verifyCopy(source: string, destination: string): Promise<boolean> {
-  const srcStat = await fs.stat(source);
-  if (srcStat.isFile()) {
-    return (await fs.stat(destination)).size === srcStat.size;
+  try {
+    const [src, dest] = await Promise.all([gatherFiles(source), gatherFiles(destination)]);
+    if (src.length !== dest.length) return false;
+    const total = async (files: string[]) =>
+      (await Promise.all(files.map((f) => fs.stat(f)))).reduce((sum, st) => sum + st.size, 0);
+    const [a, b] = await Promise.all([total(src), total(dest)]);
+    return a === b;
+  } catch {
+    return false;
   }
-  for (const file of await gatherFiles(source)) {
-    try {
-      const [a, b] = await Promise.all([
-        fs.stat(file),
-        fs.stat(path.join(destination, path.relative(source, file))),
-      ]);
-      if (a.size !== b.size) return false;
-    } catch {
-      return false;
-    }
-  }
-  return true;
 }
 
 export interface TransferOutcome {

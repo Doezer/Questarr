@@ -2608,18 +2608,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Games found in a root folder, with what an "Import into library" would do.
-  app.get(
-    "/api/library/external-games",
-    authenticateToken,
-    async (_req: Request, res: Response) => {
-      try {
-        res.json(await listExternalGames());
-      } catch (error) {
-        routesLogger.error({ error }, "error listing external games");
-        res.status(500).json({ error: "Failed to list games in root folders" });
-      }
+  app.get("/api/library/external-games", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      res.json(await listExternalGames(req.user!.id));
+    } catch (error) {
+      routesLogger.error({ error }, "error listing external games");
+      res.status(500).json({ error: "Failed to list games in root folders" });
     }
-  );
+  });
 
   app.get(
     "/api/library/external-games/:id/preview",

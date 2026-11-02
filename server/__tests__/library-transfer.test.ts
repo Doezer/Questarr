@@ -5,7 +5,7 @@ import path from "node:path";
 
 const storageMock = vi.hoisted(() => ({
   getAllRootFolders: vi.fn(),
-  getAllGames: vi.fn(),
+  getUserGames: vi.fn(),
   getGame: vi.fn(),
   getImportConfig: vi.fn(),
   updateGame: vi.fn(),
@@ -36,7 +36,7 @@ describe("library transfer", () => {
   let external: string;
   let library: string;
   let gameDir: string;
-  const game = { id: "g1", title: "Hades", status: "wishlist", libraryPath: "" };
+  const game = { id: "g1", userId: "u1", title: "Hades", status: "wishlist", libraryPath: "" };
 
   beforeEach(async () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), "questarr-transfer-"));
@@ -50,7 +50,7 @@ describe("library transfer", () => {
 
     vi.clearAllMocks();
     storageMock.getAllRootFolders.mockResolvedValue([{ id: "rf1", path: external }]);
-    storageMock.getAllGames.mockResolvedValue([game]);
+    storageMock.getUserGames.mockResolvedValue([game]);
     storageMock.getGame.mockResolvedValue(game);
     storageMock.getImportConfig.mockResolvedValue({
       libraryRoot: library,
@@ -69,12 +69,12 @@ describe("library transfer", () => {
   });
 
   it("lists games stored inside a root folder", async () => {
-    storageMock.getAllGames.mockResolvedValue([
+    storageMock.getUserGames.mockResolvedValue([
       game,
       { id: "g2", title: "Inside", libraryPath: path.join(library, "PC", "Inside") },
       { id: "g3", title: "No path", libraryPath: null },
     ]);
-    const list = await listExternalGames();
+    const list = await listExternalGames("u1");
     expect(list.map((g) => g.gameId)).toEqual(["g1"]);
     expect(list[0]?.rootFolderId).toBe("rf1");
   });
@@ -112,6 +112,26 @@ describe("library transfer", () => {
     await expect(transferExternalGame("g1", "copy", "u1")).rejects.toMatchObject({ status: 409 });
     expect(await fs.pathExists(path.join(gameDir, "game.bin"))).toBe(true);
     expect(storageMock.updateGame).not.toHaveBeenCalled();
+  });
+
+  it("refuses to overwrite an existing destination even with overwriteExisting on", async () => {
+    storageMock.getImportConfig.mockResolvedValue({
+      libraryRoot: library,
+      renamePattern: "{Title}",
+      overwriteExisting: true,
+      sortExtras: false,
+    });
+    const preview = await previewLibraryTransfer("g1", "u1");
+    await fs.ensureDir(preview.destinationPath);
+    await fs.writeFile(path.join(preview.destinationPath, "keep.txt"), "mine");
+    await expect(transferExternalGame("g1", "move", "u1")).rejects.toMatchObject({ status: 409 });
+    expect(await fs.readFile(path.join(preview.destinationPath, "keep.txt"), "utf8")).toBe("mine");
+  });
+
+  it("does not expose another user's game", async () => {
+    storageMock.getGame.mockResolvedValue({ ...game, userId: "someone-else" });
+    await expect(transferExternalGame("g1", "copy", "u1")).rejects.toMatchObject({ status: 404 });
+    await expect(previewLibraryTransfer("g1", "u1")).rejects.toMatchObject({ status: 404 });
   });
 
   it("refuses a game that is not in a root folder", async () => {

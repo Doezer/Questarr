@@ -163,8 +163,13 @@ export function ExternalGamesImport() {
   };
 
   const blocked = useMemo(
-    () => !preview || preview.destinationExists || preview.needsSpace,
-    [preview]
+    () =>
+      !preview ||
+      preview.destinationExists ||
+      // Free space only matters when data is actually written: a copy, or any
+      // transfer across filesystems. A same-disk move or hardlink needs none.
+      (preview.needsSpace && (mode === "copy" || preview.crossFilesystem)),
+    [preview, mode]
   );
 
   if (games.length === 0) return null;

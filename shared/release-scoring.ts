@@ -182,6 +182,14 @@ export interface XrelPredbEntry {
 }
 
 /**
+ * The PreDB entries for a game. `truncated` is set when xREL's list was full, so older entries
+ * may be missing and a release absent from it is not known to be unlisted.
+ */
+export interface XrelPredbList extends Array<XrelPredbEntry> {
+  truncated?: boolean;
+}
+
+/**
  * How a release compares with the xREL PreDB: verified (listed), nuked (listed and nuked) or
  * not_found. "unavailable" means the lookup was wanted but failed or timed out, so nothing is
  * known (it is not a penalty and not a confirmation). "not_found" is informational, not a
@@ -639,7 +647,12 @@ function lookupXrel(
   if (!entries) return unavailable ? { status: "unavailable" } : undefined;
   const key = releaseKey(splitTrailingTags(title).name);
   const entry = entries.find((candidate) => releaseKey(candidate.dirname) === key);
-  if (!entry) return { status: "not_found" };
+  if (!entry) {
+    // a full list may have cut this release off: that is "unknown", not "not listed"
+    return (entries as XrelPredbList).truncated
+      ? { status: "unavailable" }
+      : { status: "not_found" };
+  }
   return entry.nukeReason !== undefined
     ? { status: "nuked", nukeReason: entry.nukeReason }
     : {

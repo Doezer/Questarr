@@ -27,6 +27,7 @@ vi.mock("../logger.js", () => ({
   logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
 
+import { PCImportStrategy } from "../services/ImportStrategies.js";
 import {
   listExternalGames,
   previewLibraryTransfer,
@@ -163,6 +164,19 @@ describe("library transfer", () => {
     ]);
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+  });
+
+  it("removes a half-written copy when the transfer fails", async () => {
+    const preview = await previewLibraryTransfer("g1", "u1");
+    vi.spyOn(PCImportStrategy.prototype, "executeImport").mockImplementationOnce(async () => {
+      await fs.ensureDir(preview.destinationPath);
+      await fs.writeFile(path.join(preview.destinationPath, "partial.bin"), "x");
+      throw new Error("disk full");
+    });
+    await expect(transferExternalGame("g1", "copy", "u1")).rejects.toThrow("disk full");
+    expect(await fs.pathExists(preview.destinationPath)).toBe(false);
+    expect(await fs.pathExists(path.join(gameDir, "game.bin"))).toBe(true);
+    expect(storageMock.updateGame).not.toHaveBeenCalled();
   });
 
   it("does not expose another user's game", async () => {

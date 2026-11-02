@@ -207,8 +207,8 @@ async function freeBytesAt(dir: string): Promise<number | null> {
   }
 }
 
-async function onDifferentDevices(source: string, libraryRoot: string): Promise<boolean> {
-  let probe = libraryRoot;
+async function onDifferentDevices(source: string, destinationDir: string): Promise<boolean> {
+  let probe = destinationDir;
   while (!(await fs.pathExists(probe))) {
     const parent = path.dirname(probe);
     if (parent === probe) return true;
@@ -223,8 +223,8 @@ export async function previewLibraryTransfer(
 ): Promise<TransferPreview> {
   const t = await resolveTransfer(gameId, userId);
   const sizeBytes = await directorySize(t.source);
-  const freeBytes = await freeBytesAt(t.libraryRoot);
-  const crossFilesystem = await onDifferentDevices(t.source, t.libraryRoot);
+  const freeBytes = await freeBytesAt(path.dirname(t.plan.proposedPath));
+  const crossFilesystem = await onDifferentDevices(t.source, path.dirname(t.plan.proposedPath));
   return {
     gameId,
     title: t.game.title,
@@ -297,11 +297,14 @@ export async function transferExternalGame(
       );
     }
 
-    const crossFilesystem = await onDifferentDevices(t.source, t.libraryRoot);
+    const crossFilesystem = await onDifferentDevices(t.source, path.dirname(t.plan.proposedPath));
     // A hardlink across filesystems falls back to a copy, so it needs space too.
     const needsSpace = mode === "copy" || crossFilesystem;
     if (needsSpace) {
-      const [size, free] = await Promise.all([directorySize(t.source), freeBytesAt(t.libraryRoot)]);
+      const [size, free] = await Promise.all([
+        directorySize(t.source),
+        freeBytesAt(path.dirname(t.plan.proposedPath)),
+      ]);
       if (free !== null && size > free) {
         throw new LibraryTransferError(
           `Not enough free space in the library root (${size} bytes needed, ${free} available)`,
@@ -324,7 +327,17 @@ export async function transferExternalGame(
     // A move across filesystems is copy + verify + delete: never remove the
     // source until the destination is confirmed complete.
     const crossMove = mode === "move" && crossFilesystem;
-    const result = await t.strategy.executeImport(t.plan, crossMove ? "copy" : mode);
+    // The destination did not exist (checked above) and is reserved, so a
+    // half-written copy can be removed safely. A same-disk move is a rename
+    // that already took files out of the source: never delete those.
+    const sourceUntouched = mode !== "move" || crossMove;
+    let result;
+    try {
+      result = await t.strategy.executeImport(t.plan, crossMove ? "copy" : mode);
+    } catch (error) {
+      if (sourceUntouched) await fs.remove(t.plan.proposedPath).catch(() => undefined);
+      throw error;
+    }
     if (crossMove) {
       if (!(await verifyCopy(t.source, result.destDir))) {
         await fs.remove(result.destDir).catch(() => undefined);

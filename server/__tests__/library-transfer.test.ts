@@ -132,6 +132,22 @@ describe("library transfer", () => {
     );
   });
 
+  it("refuses when a library platform folder is a symlink into the source", async () => {
+    await fs.ensureDir(library);
+    await fs.symlink(gameDir, path.join(library, "PC"));
+    await expect(transferExternalGame("g1", "move", "u1")).rejects.toMatchObject({ status: 409 });
+    expect(await fs.pathExists(path.join(gameDir, "game.bin"))).toBe(true);
+  });
+
+  it("copies a standalone file source", async () => {
+    const file = path.join(external, "Hades.nsp");
+    await fs.writeFile(file, "switch");
+    game.libraryPath = file;
+    const outcome = await transferExternalGame("g1", "copy", "u1");
+    expect((await fs.stat(outcome.destinationPath)).isFile()).toBe(true);
+    expect(await fs.readFile(outcome.destinationPath, "utf8")).toBe("switch");
+  });
+
   it("moves the files out of the external folder", async () => {
     const outcome = await transferExternalGame("g1", "move", "u1");
     expect(await fs.pathExists(path.join(outcome.destinationPath, "data", "a.pak"))).toBe(true);

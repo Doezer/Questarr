@@ -188,6 +188,10 @@ async function resolveTransfer(gameId: string, userId: string): Promise<Resolved
     { ...config, overwriteExisting: false },
     platformDir
   );
+  // A platform folder inside the library can itself be a symlink into the source.
+  if (overlaps(await canonicalize(plan.proposedPath), await canonicalize(source))) {
+    throw new LibraryTransferError("The library destination overlaps the game's folder", 409);
+  }
   return { game, rootFolder, source, libraryRoot, strategy, plan, config };
 }
 
@@ -335,7 +339,12 @@ export async function transferExternalGame(
     // anything cleaned up below was created by this call, never by another import.
     await fs.ensureDir(path.dirname(t.plan.proposedPath));
     try {
-      await nodeFs.promises.mkdir(t.plan.proposedPath);
+      // Keep the destination's type: a standalone file source gets a file placeholder.
+      if ((await fs.stat(t.source)).isFile()) {
+        await (await nodeFs.promises.open(t.plan.proposedPath, "wx")).close();
+      } else {
+        await nodeFs.promises.mkdir(t.plan.proposedPath);
+      }
     } catch {
       throw new LibraryTransferError(
         `Destination already exists in the library: ${t.plan.proposedPath}`,
@@ -347,7 +356,14 @@ export async function transferExternalGame(
       result = await t.strategy.executeImport(t.plan, crossMove ? "copy" : mode);
     } catch (error) {
       if (sourceUntouched) await fs.remove(t.plan.proposedPath).catch(() => undefined);
-      else await nodeFs.promises.rmdir(t.plan.proposedPath).catch(() => undefined);
+      else {
+        // Same-disk move failed before taking anything: drop only our empty placeholder.
+        await nodeFs.promises.rmdir(t.plan.proposedPath).catch(() => undefined);
+        const left = await nodeFs.promises.stat(t.plan.proposedPath).catch(() => null);
+        if (left?.isFile() && left.size === 0) {
+          await nodeFs.promises.unlink(t.plan.proposedPath).catch(() => undefined);
+        }
+      }
       throw error;
     }
     if (crossMove) {

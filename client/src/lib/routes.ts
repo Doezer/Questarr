@@ -27,6 +27,12 @@ export const routePaths = {
 /** Wouter pattern for the per-game details page. */
 export const gameDetailsRoutePattern = "/games/:id";
 
+/** Recognize auth pages in the already-decoded path returned by Wouter's useLocation. */
+export function authRoute(path: string): "login" | "setup" | null {
+  const route = /^\/(login|setup)\/?$/i.exec(path)?.[1]?.toLowerCase();
+  return route === "login" || route === "setup" ? route : null;
+}
+
 /** Path of the details page for a library game or a Discover game (`igdb-<id>`). */
 export function gameDetailsPath(gameId: string): string {
   return `/games/${encodeURIComponent(gameId)}`;

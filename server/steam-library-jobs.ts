@@ -42,11 +42,13 @@ const jobSchema = z.object({
 });
 type Job = z.infer<typeof jobSchema>;
 const key = (userId: string) => `steam.library.import.${userId}`;
+/** Queued and running jobs still own their account’s import reservation. */
 const active = (job: Job) => job.state === "queued" || job.state === "running";
 
 export class SteamLibraryBusyError extends Error {}
 class SteamLibraryJobError extends Error {}
 
+/** Load an owner-scoped checkpoint and reject corrupt or reordered results before resuming. */
 async function readJob(userId: string): Promise<Job | null> {
   const value = await storage.getSystemConfig(key(userId));
   if (!value) return null;
@@ -61,10 +63,12 @@ async function readJob(userId: string): Promise<Job | null> {
   return job;
 }
 
+/** Persist the latest complete batch so a restart can safely replay only uncheckpointed work. */
 async function saveJob(job: Job): Promise<void> {
   await storage.setSystemConfig(key(job.userId), JSON.stringify(job));
 }
 
+/** Summarize a checkpoint for its owner without exposing account identifiers or credentials. */
 function view(job: Job): SteamLibraryJobView {
   const counts = { added: 0, duplicates: 0, skipped: 0, failed: 0 };
   const completedAppIds: number[] = [];
@@ -89,6 +93,7 @@ function view(job: Job): SteamLibraryJobView {
   };
 }
 
+/** Read progress, exposing an abandoned active checkpoint as retryable without mutating it. */
 export async function getSteamLibraryJob(userId: string): Promise<SteamLibraryJobView | null> {
   const job = await readJob(userId);
   // If a checkpoint write failed and its worker exited, expose an actionable retry
@@ -103,6 +108,10 @@ export async function getSteamLibraryJob(userId: string): Promise<SteamLibraryJo
   return job ? view(job) : null;
 }
 
+/**
+ * Revalidate ownership, then import and checkpoint batches in order. Awaiting each batch and
+ * checkpoint is intentional: parallel batches could race duplicate detection and persist gaps.
+ */
 async function runJob(job: Job): Promise<void> {
   try {
     job.state = "running";
@@ -147,6 +156,7 @@ async function runJob(job: Job): Promise<void> {
   }
 }
 
+/** Schedule a reserved job without retaining the HTTP request or logging provider credentials. */
 function launch(job: Job): void {
   setImmediate(() => {
     // Do not log provider exceptions: URLs can contain credentials.
@@ -154,6 +164,7 @@ function launch(job: Job): void {
   });
 }
 
+/** Reserve the account, persist a deduplicated selection, and schedule its background import. */
 export async function startSteamLibraryJob(
   user: User,
   appIds: number[]
@@ -178,6 +189,7 @@ export async function startSteamLibraryJob(
   }
 }
 
+/** Queue only failed and unprocessed IDs; deterministic skips are completed work. */
 export async function retrySteamLibraryJob(user: User): Promise<SteamLibraryJobView | null> {
   const previous = await readJob(user.id);
   if (!previous) return null;
@@ -189,7 +201,10 @@ export async function retrySteamLibraryJob(user: User): Promise<SteamLibraryJobV
   return retryIds.length ? startSteamLibraryJob(user, retryIds) : null;
 }
 
-/** Resume saved imports at startup, independently of any browser session. */
+/**
+ * Reserve and resume saved imports before HTTP requests can start competing jobs. Checkpoints
+ * are read sequentially to bound startup database work; each worker itself is scheduled.
+ */
 export async function resumeSteamLibraryImports(): Promise<void> {
   for (const user of await storage.getAllUsers()) {
     try {

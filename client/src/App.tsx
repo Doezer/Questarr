@@ -16,7 +16,7 @@ import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
 import "@/lib/in-app-history";
 import { routerBase } from "@/lib/app-path";
-import { gameDetailsRoutePattern, routePaths } from "@/lib/routes";
+import { authRoute, gameDetailsRoutePattern, routePaths } from "@/lib/routes";
 import { applyThemeClass, migrateLegacyTheme } from "@/lib/theme-mode";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
@@ -190,11 +190,7 @@ function AppShell() {
   };
 
   // If on login, setup, or the hidden /play easter egg, render simplified layout without sidebar/header
-  if (
-    location === routePaths.login ||
-    location === routePaths.setup ||
-    location === routePaths.play
-  ) {
+  if (authRoute(location) || location === routePaths.play) {
     return (
       <QueryClientProvider client={queryClient}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>

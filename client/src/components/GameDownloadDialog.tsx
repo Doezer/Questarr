@@ -123,6 +123,7 @@ interface DownloadItem {
   aiReleaseTypeConfidence?: number;
   evaluation?: ReleaseEvaluation;
   trust?: ReleaseTrust;
+  blacklisted?: boolean;
 }
 
 interface SearchResult {
@@ -153,6 +154,8 @@ import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useDebounce } from "@/hooks/use-debounce";
 import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+
+const SEARCH_DEBOUNCE_MS = 1000;
 
 type ReleaseMetadataBadgesProps = Readonly<{
   metadata: ReleaseMetadata;
@@ -294,7 +297,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   }, [game, queryClient]);
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  // Every search fans out to all enabled indexers, so wait for the user to pause typing
+  // long enough that partial queries don't flood the indexers (and trigger their backoff).
+  const debouncedTypedQuery = useDebounce(searchQuery, SEARCH_DEBOUNCE_MS);
+  // The prefill on open is a single query, not typing: it must not wait for the debounce.
+  const debouncedSearchQuery =
+    game && searchQuery === game.title ? searchQuery : debouncedTypedQuery;
   const [downloadingGuid, setDownloadingGuid] = useState<string | null>(null);
   const [showBundleDialog, setShowBundleDialog] = useState(false);
   const [selectedMainDownload, setSelectedMainDownload] = useState<DownloadItem | null>(null);
@@ -414,10 +422,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   // server applies that game's release blacklist.
   const searchQueryKey = buildSearchQueryKey(libraryGameId ?? game?.id);
 
-  const { data: searchResults, isLoading: isSearching } = useQuery<SearchResult>({
+  const { data: searchResults, isLoading: isSearchLoading } = useQuery<SearchResult>({
     queryKey: [searchQueryKey],
     enabled: open && debouncedSearchQuery.trim().length > 0,
   });
+  // While the user is still typing (input differs from the debounced query), the previous
+  // results are stale: show the searching state so they can't be picked by mistake.
+  const isSearching = isSearchLoading || searchQuery !== debouncedSearchQuery;
 
   // When a canonical search returns results, refresh the games list so the "Has results" badge
   // reflects the updated searchResultsAvailable flag. Only invalidate once per dialog session.
@@ -801,13 +812,32 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     },
   });
 
+  // blacklisted updates stay listed (marked risky) but are never ticked by default
+  const selectableUpdateIndices = () =>
+    new Set(
+      filteredCategorizedDownloads.update.flatMap((update, index) =>
+        update.blacklisted ? [] : [index]
+      )
+    );
+
+  // selections are index based: if fresh results replace the update list while the bundle
+  // dialog is open, close it so an index can never point at a different (e.g. blacklisted) update
+  const updateListRef = useRef(filteredCategorizedDownloads.update);
+  useEffect(() => {
+    if (updateListRef.current === filteredCategorizedDownloads.update) return;
+    updateListRef.current = filteredCategorizedDownloads.update;
+    setShowBundleDialog(false);
+    setSelectedMainDownload(null);
+    setSelectedUpdateIndices(new Set());
+  }, [filteredCategorizedDownloads.update]);
+
   const handleDownload = (download: DownloadItem) => {
     if (filteredCategorizedDownloads.update.length > 0) {
       const downloadCategory = groupDownloadsByCategory([download]);
       if (downloadCategory.main.length > 0) {
         setSelectedMainDownload(download);
         setIsDirectDownloadMode(false);
-        setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
+        setSelectedUpdateIndices(selectableUpdateIndices());
         setShowBundleDialog(true);
         return;
       }
@@ -887,8 +917,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     });
   };
 
-  const selectAllUpdates = () =>
-    setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
+  const selectAllUpdates = () => setSelectedUpdateIndices(selectableUpdateIndices());
   const deselectAllUpdates = () => setSelectedUpdateIndices(new Set());
 
   const toggleCategory = (category: DownloadCategory) => {
@@ -1689,7 +1718,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                         className="mt-1"
                       />
                       <label htmlFor={`update-${index}`} className="flex-1 cursor-pointer text-sm">
-                        <div className="font-medium">{update.title}</div>
+                        <div className="font-medium flex flex-wrap items-center gap-2">
+                          {update.title}
+                          {update.trust && <ReleaseTrustBadge trust={update.trust} />}
+                        </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
                           {update.size && <span>{formatBytes(update.size)}</span>}
                           {update.seeders !== undefined && (

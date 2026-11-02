@@ -131,9 +131,12 @@ export async function apiRequest(
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: { on401: UnauthorizedBehavior }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
+  async ({ queryKey, signal }) => {
+    // Forward React Query's abort signal so superseded queries (e.g. a release search
+    // whose query text changed) cancel their in-flight request instead of piling up.
     const res = await apiFetch(queryKey.join("/") as string, {
       headers: {},
+      signal,
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

@@ -45,6 +45,9 @@ export interface SearchItem {
   evaluation?: ReleaseEvaluation;
   // One trust verdict derived from the evaluation and the other signals (shared/release-trust.ts).
   trust?: ReleaseTrust;
+  // The title is on the game's own release blacklist. Manual search keeps such results visible
+  // (marked risky by the trust verdict) so the user sees why they are not recommended.
+  blacklisted?: boolean;
 }
 
 export interface AggregatedSearchOptions {

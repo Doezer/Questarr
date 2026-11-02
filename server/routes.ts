@@ -87,6 +87,7 @@ import {
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
+import { notificationUrl } from "./notification-links.js";
 import { prowlarrClient } from "./prowlarr.js";
 import {
   loadProwlarrSyncSettings,
@@ -127,7 +128,7 @@ import {
 // non-sensitive constant that VirusTotal has scanned so many times it is
 // guaranteed to return a verdict, giving a stable way to confirm an API key
 // authenticates without needing a real sample or hardcoding it in a URL path.
-const EICAR_TEST_FILE_SHA256 = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0";
+const EICAR_TEST_FILE_SHA256 = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
 import net from "node:net";
 import multer from "multer";
 import path from "path";
@@ -261,6 +262,19 @@ export function requireAuthenticationForApi(req: Request, res: Response, next: N
   if (isIntegrationApiRequest(req)) {
     return authenticateApiKeyOrToken(req, res, next);
   }
+  // Configuration endpoints for deployment automation: JWT, or an API key whose
+  // scope is exactly `admin` (`all` does not imply it). Any other key is refused.
+  if (isAdminApiRoute(req.method, req.path)) {
+    return authenticateApiKeyOrToken(req, res, (err?: unknown) => {
+      if (err) return next(err);
+      if (req.apiKeyId && req.apiKeyScope !== "admin") {
+        return res
+          .status(403)
+          .json({ error: "API key scope does not allow this route", code: "API_KEY_SCOPE_DENIED" });
+      }
+      return next();
+    });
+  }
   if (isSoftAuthApiRequest(req)) {
     return optionalAuthenticateToken(req, res, next);
   }
@@ -342,9 +356,12 @@ import {
 } from "./library-scanner.js";
 import { integrationRouter } from "./routes/integration.js";
 import { apiKeysRouter } from "./routes/api-keys.js";
+import { isAdminApiRoute } from "./admin-api-routes.js";
 
 // Cache-Control header values for IGDB discovery endpoints
 const CC_IGDB_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
+// An empty metadata list means IGDB is unconfigured or unreachable; don't let browsers keep it
+const CC_NO_STORE = "no-store";
 // Adult-content filtering makes game-list responses vary per user, so they must not be shared-cacheable
 const CC_IGDB_GAME_LIST_PRIVATE = "private, max-age=3600, stale-while-revalidate=600";
 
@@ -691,7 +708,8 @@ async function scoreManualSearchResults(
   ownGame: Awaited<ReturnType<typeof storage.getGame>>,
   query: string,
   preferredPlatform: string | null,
-  xrelTypes: XrelPredbTypes
+  xrelTypes: XrelPredbTypes,
+  blacklisted: Set<string> = new Set()
 ): Promise<{ items: SearchItem[]; config?: ScoringConfig }> {
   if (!userId || items.length === 0) return { items };
   try {
@@ -718,16 +736,21 @@ async function scoreManualSearchResults(
       },
       config.profile,
       config.formats
-    ).map(({ item, evaluation }) => ({
-      ...item,
-      evaluation,
-      trust: trustFor(evaluation, item.size, config),
-    }));
+    ).map(({ item, evaluation }) => {
+      const isBlacklisted = blacklisted.has(item.title);
+      return {
+        ...item,
+        evaluation,
+        trust: trustFor(evaluation, item.size, config, isBlacklisted),
+        ...(isBlacklisted ? { blacklisted: true } : {}),
+      };
+    });
     return { items: scored, config };
   } catch (error) {
-    // safe: unscored items are still valid results, the client shows them without badges
+    // safe: unscored items are still valid results, the client shows them without badges.
+    // Without a verdict a blacklisted release would look like any other, so it stays hidden.
     routesLogger.warn({ error }, "Release scoring failed, returning unscored results");
-    return { items };
+    return { items: filterBlacklistedReleases(items, blacklisted) };
   }
 }
 
@@ -773,26 +796,29 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       filteredItems = filterByReleaseNameBlacklist(items, blacklistTerms);
     }
 
-    // Filter out per-game blacklisted releases when a gameId context is provided
+    // The game's own blacklist keeps its releases in the list: the trust verdict marks them
+    // risky instead of hiding them (the global release-name blacklist still hides)
+    let gameBlacklist = new Set<string>();
     if (gameId && req.user) {
       const game = await storage.getGame(gameId);
       if (game && game.userId === req.user.id) {
-        const blacklisted = await storage.getReleaseBlacklistSet(gameId);
-        filteredItems = filterBlacklistedReleases(filteredItems, blacklisted);
+        gameBlacklist = await storage.getReleaseBlacklistSet(gameId);
 
         ownGame = game;
       }
     }
 
-    const blacklistedCount = items.length - filteredItems.length;
     const { items: scoredItems, config: scoringConfig } = await scoreManualSearchResults(
       filteredItems,
       req.user?.id,
       ownGame,
       query.trim(),
       userSettings?.preferredPlatform ?? null,
-      xrelTypesFor(userSettings)
+      xrelTypesFor(userSettings),
+      gameBlacklist
     );
+    // releases the scoring failure path dropped count as blacklisted, like the global ones
+    const blacklistedCount = items.length - scoredItems.length;
 
     // Update the "has results" flag only for canonical game-title searches so that
     // partial/custom user-typed queries in the download dialog don't flip the badge
@@ -804,8 +830,10 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
         ownGame,
         userSettings?.preferredPlatform ?? null
       );
-      const usable = scoredItems.filter(({ evaluation }) =>
-        evaluation && scoringConfig ? isAutoEligible(evaluation, scoringConfig) : true
+      const usable = scoredItems.filter(
+        ({ evaluation, blacklisted }) =>
+          !blacklisted &&
+          (evaluation && scoringConfig ? isAutoEligible(evaluation, scoringConfig) : true)
       );
       const platformFiltered = preferredPlatform
         ? usable.filter((item) => {
@@ -964,6 +992,7 @@ function registerIgdbParamListRoute(
  * @param app - The Express application to configure
  * @returns The configured HTTP server
  */
+/** Mount authenticated API routers and initialize the services they share before listening. */
 export async function registerRoutes(app: Express): Promise<Server> {
   // Express 5 parses `req.query` simply by default and re-parses it on every access, so
   // express-validator sanitizers (toInt/toBoolean) would write to a throwaway object. Keep the
@@ -1833,14 +1862,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   app.get("/api/ready", async (_req, res) => {
-    let isHealthy = true;
+    // Report each dependency separately so an updater can tell a local
+    // database/migration failure (roll back) from an IGDB outage (wait). The
+    // overall status stays "error"/503 when either fails, which is what the
+    // Helm readiness probe and Docker healthchecks already rely on.
+    const checks: { database: "ok" | "error"; igdb: "ok" | "error" } = {
+      database: "ok",
+      igdb: "ok",
+    };
 
     // Check database connectivity
     try {
       await pingDatabase();
     } catch (error) {
       routesLogger.error({ error }, "database health check failed");
-      isHealthy = false;
+      checks.database = "error";
     }
 
     // Check IGDB API connectivity
@@ -1849,14 +1885,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await igdbClient.getPopularGames(1);
     } catch (error) {
       routesLogger.error({ error }, "igdb health check failed");
-      isHealthy = false;
+      checks.igdb = "error";
     }
 
-    if (isHealthy) {
-      res.status(200).json({ status: "ok" });
-    } else {
-      res.status(503).json({ status: "error" });
-    }
+    const isHealthy = checks.database === "ok" && checks.igdb === "ok";
+    res.status(isHealthy ? 200 : 503).json({ status: isHealthy ? "ok" : "error", checks });
   });
 
   // Lightweight dashboard stats for external status widgets (Homepage, Homarr, Organizr, etc.)
@@ -3328,7 +3361,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/igdb/genres", igdbRateLimiter, async (_req, res) => {
     try {
       const genres = await igdbClient.getGenres();
-      res.set("Cache-Control", CC_IGDB_METADATA);
+      res.set("Cache-Control", genres.length > 0 ? CC_IGDB_METADATA : CC_NO_STORE);
       res.json(genres);
     } catch (error) {
       console.error("Error fetching genres:", error);
@@ -3340,7 +3373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/igdb/platforms", igdbRateLimiter, async (_req, res) => {
     try {
       const platforms = await igdbClient.getPlatforms();
-      res.set("Cache-Control", CC_IGDB_METADATA);
+      res.set("Cache-Control", platforms.length > 0 ? CC_IGDB_METADATA : CC_NO_STORE);
       res.json(platforms);
     } catch (error) {
       console.error("Error fetching platforms:", error);
@@ -5134,6 +5167,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const settings = await readAppriseSettings(storage);
       res.json({
         configured: isAppriseConfigured(settings),
+        // Whether alerts can carry an absolute link back to this instance (needs APP_URL).
+        contextLinksEnabled:
+          notificationUrl("/", appConfig.server.appUrl, appConfig.server.basePath) !== null,
         mode: settings.mode,
         apiUrl: settings.apiUrl,
         key: settings.key,

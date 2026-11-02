@@ -102,6 +102,17 @@ vi.mock("../auth.js", () => ({
     };
     next();
   },
+  authenticateApiKeyOrToken: (
+    req: express.Request,
+    _res: express.Response,
+    next: express.NextFunction
+  ) => {
+    (req as express.Request & { user: { id: string; username: string } }).user = {
+      id: "test-user-id",
+      username: "testuser",
+    };
+    next();
+  },
   optionalAuthenticateToken: (
     _req: express.Request,
     _res: express.Response,

@@ -58,7 +58,9 @@ export default function ImportReviewModal({
   const [transferMode, setTransferMode] = useState<"move" | "copy" | "hardlink" | "symlink">(
     "move"
   );
-  const [unpackArchive, setUnpackArchive] = useState(false);
+  const [unpackArchiveOverride, setUnpackArchiveOverride] = useState<boolean>();
+  const unpackArchive =
+    passwordRequired || (unpackArchiveOverride ?? importConfig?.autoUnpack ?? false);
   const [password, setPassword] = useState("");
   const [isSourceBrowserOpen, setIsSourceBrowserOpen] = useState(false);
   const [isDestBrowserOpen, setIsDestBrowserOpen] = useState(false);
@@ -90,12 +92,13 @@ export default function ImportReviewModal({
       setSourcePath("");
       setDestinationPath(importConfig?.libraryRoot ?? "");
       setTransferMode(importConfig?.transferMode ?? "move");
-      // A password-required retry always needs to re-run extraction, so pre-enable Unpack
-      // Archive rather than making the user notice and flip it on themselves.
-      setUnpackArchive(passwordRequired);
       setPassword("");
     }
   }, [open, downloadId, importConfig?.libraryRoot, importConfig?.transferMode, passwordRequired]);
+
+  useEffect(() => {
+    if (open) setUnpackArchiveOverride(undefined);
+  }, [open, downloadId]);
 
   // Pre-fill paths from plan once when it loads
   useEffect(() => {
@@ -321,7 +324,7 @@ export default function ImportReviewModal({
               </div>
               <Switch
                 checked={unpackArchive}
-                onCheckedChange={setUnpackArchive}
+                onCheckedChange={setUnpackArchiveOverride}
                 disabled={passwordRequired}
               />
             </div>

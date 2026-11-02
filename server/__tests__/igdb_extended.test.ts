@@ -245,6 +245,20 @@ describe("IGDBClient - extended coverage", { timeout: 20000 }, () => {
     expect(results[0].name <= results[results.length - 1].name).toBe(true);
   });
 
+  it("getPlatforms filters the primary query on platform_type, not the deprecated category", async () => {
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(gamesResponse([{ id: 1, name: "Platform 1" }]));
+
+    const { igdbClient } = await import("../igdb.js");
+    await igdbClient.getPlatforms();
+
+    const [url, init] = fetchMock.mock.calls[1];
+    expect(url).toBe("https://api.igdb.com/v4/platforms");
+    expect(String(init?.body)).toContain("where platform_type = (1, 4, 5, 6);");
+    expect(String(init?.body)).not.toContain("category");
+  });
+
   it("getPlatforms falls back to a broad query when the primary category returns nothing", async () => {
     fetchMock
       .mockResolvedValueOnce(authResponse)

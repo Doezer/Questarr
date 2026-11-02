@@ -10,7 +10,7 @@
  * matching the import engine's long-standing eligibility rule.
  */
 
-import { matchesPlatformFilter, type CanonicalPlatform } from "./title-utils.js";
+import { matchesPlatformFilter, PLATFORM_CATALOG, type CanonicalPlatform } from "./title-utils.js";
 
 /** Shape of one entry in the `/api/igdb/platforms` response. */
 export interface IgdbPlatform {
@@ -25,20 +25,20 @@ export interface IgdbPlatform {
  * Library, Discover and Add Game filter by IGDB id, so they work for every
  * platform IGDB reports. The download-search filter only sees release-title
  * labels, so it can be narrowed for these ids and no others.
+ *
+ * Built from `PLATFORM_CATALOG` so every label the release parser can emit
+ * (GameCube, Wii, Game Boy, PS2…) is covered. A hand-picked subset dropped the
+ * other selected ids, so a mixed selection such as Wii + PS3 hid every non-PS3
+ * release.
  */
 export const IGDB_ID_TO_CANONICAL_PLATFORM: Record<number, CanonicalPlatform | "Xbox"> = {
-  6: "PC",
-  167: "PS5",
-  48: "PS4",
-  9: "PS3",
-  130: "Switch",
-  169: "Xbox Series",
+  ...Object.fromEntries(
+    PLATFORM_CATALOG.flatMap(({ canonical, igdbIds }) => igdbIds.map((id) => [id, canonical]))
+  ),
   // The original Xbox is IGDB id 11, but this repo's own generation-specific
   // "Xbox Classic" label wouldn't match older release names tagged with the
   // legacy account-wide "Xbox" umbrella `matchesPlatformFilter` understands.
   11: "Xbox",
-  14: "Mac",
-  3: "Linux",
 };
 
 function normalizeSelectedIds(selectedIds: unknown): number[] {
@@ -110,7 +110,9 @@ export function isPlatformNameSelected(
  * Returns true when nothing is selected, and also when the selection covers no
  * release label at all (e.g. only "Nintendo Switch 2" is checked) — release
  * names cannot express that platform, so the filter stays out of the way
- * instead of hiding every result.
+ * instead of hiding every result. For the same reason, when only some selected
+ * ids have no label, releases with no detected platform are kept: they may be
+ * for one of those platforms.
  */
 export function matchesSelectedIgdbPlatform(
   releasePlatform: string | undefined,
@@ -120,5 +122,6 @@ export function matchesSelectedIgdbPlatform(
   if (ids.length === 0) return true;
   const labels = canonicalPlatformsForIgdbIds(ids);
   if (labels.length === 0) return true;
+  if (!releasePlatform && ids.some((id) => !(id in IGDB_ID_TO_CANONICAL_PLATFORM))) return true;
   return labels.some((label) => matchesPlatformFilter(releasePlatform, label));
 }

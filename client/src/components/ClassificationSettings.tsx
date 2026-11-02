@@ -27,6 +27,7 @@ interface Values {
   cloudSuggest: boolean;
   lowConfidence: number;
   maxCandidates: number;
+  shareLabels?: boolean;
 }
 
 interface SettingsResponse {

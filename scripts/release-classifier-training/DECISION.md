@@ -1,7 +1,7 @@
 # Model selection record: local release classifier (ADR Task 4)
 
-Status: **recommendation, waiting for approval** (the choice below that needs a new runtime is a
-decision gate in the task). Date of the measurements: 2026-10-27.
+Status: **historical evaluation, superseded by the bundled model and the updated evaluation in
+`docs/RELEASE_CLASSIFICATION.md`**. Date of the measurements: 2026-10-27.
 
 ## Data and method
 
@@ -165,8 +165,9 @@ Recommended targets:
 
 ## Model artifact
 
-No model file is committed: the dataset is private, the decision gate is pending, and the 23 MB
-artifact would not be reproducible by contributors without the data. `export_onnx.py` produces
+At the time of this evaluation, no model file had been committed because the dataset was private
+and the decision gate was pending. The 23 MB artifact was not reproducible by contributors
+without the data. `export_onnx.py` produces
 `model.onnx`, `model.int8.onnx`, the tokenizer and `measurements.json` from any fine-tuned model
-directory, and the label order is `full_game, patch, dlc, unknown`. A versioned artifact with its
-preprocessing configuration and evaluation results should be generated when the gate is approved.
+directory, and the label order is `full_game, patch, dlc, unknown`. The original recommendation was to generate a versioned artifact with its
+preprocessing configuration and evaluation results if the gate were approved.

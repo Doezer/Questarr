@@ -21,13 +21,15 @@ PCGamingWiki sections when `server/steam-routes.ts` or
 - **Authentication**: a JWT bearer token obtained from `POST /api/auth/login`
   (or `POST /api/auth/setup` for the first account), sent as
   `Authorization: Bearer <token>` on subsequent requests. Verified by
-  `authenticateToken`/`optionalAuthenticateToken` in `server/auth.ts`. A
-  global gate — `app.use("/api", authenticateToken)` in `server/routes.ts` —
-  requires a valid JWT for every route registered after it; a small set of
-  routes registered earlier remain public (see the Authentication section
-  below). The `/api/integration` subtree additionally accepts a long-lived
-  integration API key (see the Integration API section); every other route,
-  including key management, is JWT-only.
+  `authenticateToken`/`optionalAuthenticateToken` in `server/auth.ts`. The
+  whole `/api` surface is default-deny: `requireAuthenticationForApi`
+  (`server/routes.ts`) is mounted before any route and requires a valid JWT
+  unless the request is in the `PUBLIC_API_ROUTES` allowlist or is the soft-auth
+  `POST /api/auth/logout` (see the Authentication section below). The
+  `/api/integration` subtree additionally accepts a long-lived integration API
+  key (see the Integration API section), and keys with the `admin` scope can
+  call a fixed allowlist of configuration routes; every other route, including
+  key management, is JWT-only.
 - **Rate limiting**: `generalApiLimiter` (600 req/min/IP) applies to all
   `/api` routes; `authRateLimiter` additionally guards login;
   `sensitiveEndpointLimiter` additionally guards write-heavy/sensitive
@@ -50,13 +52,27 @@ validation instead of an express-validator chain or a Zod schema (see the
 risk register in `docs/SECURITY_ASSESSMENT.md`). `/api/auth/password` uses a
 proper Zod schema (`updatePasswordSchema`).
 
-Routes registered before the global `authenticateToken` gate (`server/routes.ts`,
-before the auth-gate line) are public unless they explicitly list
-`authenticateToken`: `/api/auth/*`, `/api/health`, `/api/settings/ssl`
-(GET/PATCH), `/api/settings/ssl/generate`, `/api/settings/ssl/upload`,
-`/api/system/filesystem`, `/api/config`. Everything registered after that
-line — including `/api/ready` and every resource group below — requires a
-JWT even where a table row doesn't repeat `authenticateToken`.
+Every `/api` route requires a JWT unless it is listed in `PUBLIC_API_ROUTES` in
+`server/routes.ts`, is the soft-auth `POST /api/auth/logout` described below, or
+is one of the API-key exceptions at the end of this section. A route added
+without updating that list is protected by default, even when its handler does
+not call `authenticateToken` itself or a table row does not repeat it. The
+public routes are:
+
+- `GET /api/auth/status`, `POST /api/auth/setup`,
+  `POST /api/auth/setup/test-igdb` and `POST /api/auth/login`: used before a
+  token exists (setup wizard and login page).
+- `GET /api/health`: liveness probe.
+- `GET /api/ready`: readiness probe, with no sensitive data.
+
+`POST /api/auth/logout` is a "soft" route: it accepts a missing or expired token
+so a user with a stale cookie can still clear it, but a valid token is still
+read so CSRF protection applies. Everything else, including `/api/config`,
+`/api/system/filesystem`, `/api/settings/ssl` and every resource group below,
+requires a JWT. The only exceptions are the `/api/integration` routes, which
+also accept an integration API key, and the `admin`-scope allowlist of
+configuration routes (see
+[Configuration API for automation](#configuration-api-for-automation-admin-scope)).
 
 ## Games
 
@@ -66,6 +82,7 @@ JWT even where a table row doesn't repeat `authenticateToken`.
 | GET    | `/api/games/status/:status`            | JWT                                                                                         | Query: `includeHidden?`                                                                                                                                                                           | `Game[]`                                                                                                                                                                                                                                                                                                                                                                                             |
 | GET    | `/api/games/search`                    | JWT + `sanitizeSearchQuery`, `validateRequest`                                              | Query: `q` (1–200 chars, required), `search?` (≤200), `limit?` (1–100)                                                                                                                            | `Game[]`; 400 if `q` missing                                                                                                                                                                                                                                                                                                                                                                         |
 | POST   | `/api/games`                           | JWT + `sensitiveEndpointLimiter`, `sanitizeGameData`, `validateRequest`                     | `{ title (1–500), igdbId?, summary? (≤5000), coverUrl? (URL), releaseDate? (YYYY-MM-DD), rating? (0–10), platforms?, genres?, publishers?, developers? }`, re-parsed via `insertGameSchema` (Zod) | 201 `Game`; 409 `{ error, game }` if duplicate; 400 `{ error, details }` on Zod failure                                                                                                                                                                                                                                                                                                              |
+| GET    | `/api/games/:id`                       | JWT + `sanitizeGameId`, `validateRequest`                                                   | —                                                                                                                                                                                                 | Game object. 404 if the game does not exist or is in a hidden content category; 403 if it belongs to another user. Registered after `/api/games/discover`, so that literal path is never read as an id.                                                                                                                                                                                              |
 | PATCH  | `/api/games/:id/status`                | JWT + `sensitiveEndpointLimiter`, `sanitizeGameId`, `sanitizeGameStatus`, `validateRequest` | `{ status: "wanted"\|"owned"\|"completed"\|"downloading" }` via `updateGameStatusSchema`                                                                                                          | Updated `Game`; 404 if not found                                                                                                                                                                                                                                                                                                                                                                     |
 | PATCH  | `/api/games/:id/hidden`                | JWT + `sensitiveEndpointLimiter`, `sanitizeGameId`, `validateRequest`                       | `{ hidden: boolean }` via `updateGameHiddenSchema`                                                                                                                                                | Updated `Game`; 404 if not found                                                                                                                                                                                                                                                                                                                                                                     |
 | PATCH  | `/api/games/:id/user-rating`           | JWT + `sensitiveEndpointLimiter`, `sanitizeGameId`, `validateRequest`                       | `{ userRating: number\|null }` (0.5–10, step 0.5) via `updateGameUserRatingSchema`                                                                                                                | Updated `Game`; 404 if not found                                                                                                                                                                                                                                                                                                                                                                     |
@@ -139,6 +156,14 @@ scans enabled roots. Settings changes during an active scan queue a rescan.
 counts and match/review/error counts; updates also arrive as `library-scan-progress`.
 See [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md) for the operator workflow.
 
+`POST /api/library/scan/unmatched/ignore` skips a Needs Review folder for good. Body:
+`{ rootFolderId, folderName }` (`folderName` is not trimmed and must match the scanned
+folder exactly). Returns `{ success: true }`, 400 for invalid input, 404 when the folder
+is no longer awaiting review. Later scans skip an ignored folder before listing its files,
+unless it is already linked to a game. `GET /api/library/scan/ignored` lists the ignored
+folders, and `DELETE /api/library/scan/ignored/:id` restores one (404 when unknown) and
+queues a rescan of its root folder so it returns to Needs Review.
+
 `POST /api/library/scan/unmatched/search` requires authentication, CSRF for cookie
 sessions, and the IGDB rate limiter. Body: `{ rootFolderId, folderName, query }`
 (trimmed strings, limits 200/1000/200 respectively). Returns an array of
@@ -177,6 +202,18 @@ curl -X POST http://localhost:5000/api/imports/naming/preview \
   -d '{"pattern":"{Title} ({Year})"}'
 ```
 
+## RomM Settings
+
+Mounted under `/api/settings/romm` (JWT). See [LIBRARY_IMPORT.md](LIBRARY_IMPORT.md#romm-integration)
+for what each setting does.
+
+| Method | Path                      | Auth Required                    | Request Body                                                                                                                                                                                              | Response                                                                                                                                  |
+| ------ | ------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/settings/romm`      | JWT                              | —                                                                                                                                                                                                         | `{ enabled, url, apiToken, platformFolders, syncEnabled, scanAfterImport, lastSync }`; `apiToken` is `"********"` when set                |
+| POST   | `/api/settings/romm`      | JWT                              | Partial `{ enabled?, url? (http/https or empty), apiToken? (≤512), platformFolders?, syncEnabled?, scanAfterImport? }` (strict). A `"********"` token keeps the saved one; an empty token clears it       | `{ success: true }`; 400 if a saved token exists and the URL changes without a new token                                                  |
+| POST   | `/api/settings/romm/test` | JWT + `sensitiveEndpointLimiter` | `{ url?, apiToken? }` (strict). Never saved. An omitted, empty or `"********"` token tests with the saved token (sent only to the saved URL), so a blank token cannot be used to test without credentials | `{ success: true, platforms }`; 400 if the URL differs from the saved one without a token; 502 if RomM is unreachable                     |
+| POST   | `/api/settings/romm/sync` | JWT + `sensitiveEndpointLimiter` | —                                                                                                                                                                                                         | `{ success: true, summary }` (`totalRoms` fetched from RomM, matched, marked owned, already owned, not in library); 502 if the sync fails |
+
 ## Indexers
 
 | Method | Path                              | Auth Required                                                                                                                                                                | Request Body                                                                                                                                                                                                                                                                          | Response                                                                                                     |
@@ -212,23 +249,23 @@ curl -X POST http://localhost:5000/api/imports/naming/preview \
 
 ## Settings
 
-| Method | Path                         | Auth Required                                               | Request Body                                                                                                                                                | Response                                                                                       |
-| ------ | ---------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| GET    | `/api/settings/ssl`          | `authenticateToken` (pre-gate)                              | —                                                                                                                                                           | SSL config plus optional `certInfo` (subject, issuer, validity, selfSigned)                    |
-| PATCH  | `/api/settings/ssl`          | `authenticateToken` + `sensitiveEndpointLimiter` (pre-gate) | `{ enabled: boolean, port: number, certPath?, keyPath?, redirectHttp? }` — manual checks; cert/key paths path-traversal checked against `FILE_BROWSER_ROOT` | `{ success, message }`; 400/403 on invalid config or disallowed path                           |
-| POST   | `/api/settings/ssl/generate` | `authenticateToken` + `sensitiveEndpointLimiter` (pre-gate) | —                                                                                                                                                           | `{ success, message, certPath, keyPath }` (self-signed cert)                                   |
-| POST   | `/api/settings/ssl/upload`   | `authenticateToken` + `sensitiveEndpointLimiter` (pre-gate) | Multipart form: `cert` file + `key` file (5 MB limit, memory storage); validated as PEM                                                                     | `{ success, message, certPath, keyPath }`; 400 if missing/invalid PEM                          |
-| GET    | `/api/system/filesystem`     | `authenticateToken` + `sensitiveEndpointLimiter` (pre-gate) | Query: `path?` (relative; absolute paths/NUL bytes rejected; confined to `FILE_BROWSER_ROOT`)                                                               | `{ path, parent, files: {name, path, isDirectory, size}[] }`; 403 on traversal, 404 if missing |
-| GET    | `/api/config`                | `sensitiveEndpointLimiter` only, no JWT (pre-gate, public)  | —                                                                                                                                                           | `{ igdb: { configured, source }, xrel: { apiBase } }`                                          |
-| GET    | `/api/settings/igdb`         | JWT + `sensitiveEndpointLimiter`                            | —                                                                                                                                                           | `{ configured, source, clientId }`                                                             |
-| POST   | `/api/settings/igdb`         | JWT + `sensitiveEndpointLimiter`                            | `{ clientId: string (required), clientSecret?: string }` — manual checks; redacted-placeholder secret = keep existing                                       | `{ success: true }`; 400 if client secret required but missing                                 |
-| GET    | `/api/settings/discord`      | JWT + `sensitiveEndpointLimiter`                            | —                                                                                                                                                           | `{ configured: boolean, webhookUrl?: "********" }`                                             |
-| POST   | `/api/settings/discord`      | JWT + `sensitiveEndpointLimiter`                            | `{ webhookUrl?: string }` — must be a `discord.com`/`discordapp.com` webhook URL; redacted placeholder = keep unchanged                                     | `{ success: true }`; 400 on invalid webhook URL                                                |
-| GET    | `/api/settings`              | JWT                                                         | —                                                                                                                                                           | `UserSettings` (created with defaults if none exist)                                           |
-| PATCH  | `/api/settings`              | JWT                                                         | Validated via `updateUserSettingsSchema` (Zod)                                                                                                              | Updated `UserSettings`; 400 `{ error, details }` on Zod failure                                |
-| PATCH  | `/api/settings/xrel`         | JWT                                                         | `{ apiBase?: string (http/https, SSRF-checked, must match ALLOWED_XREL_DOMAINS), xrelSceneReleases?: boolean, xrelP2pReleases?: boolean }` — manual checks  | `{ success, xrel: { apiBase }, settings? }`; 400 on invalid/unsafe/unauthorized domain         |
-| GET    | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                            | —                                                                                                                                                           | `{ configured: boolean, source?: "env"\|"database" }`                                          |
-| POST   | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                            | `{ apiKey: string (required) }`                                                                                                                             | `{ success: true }`; 400 if missing                                                            |
+| Method | Path                         | Auth Required                                    | Request Body                                                                                                                                                | Response                                                                                       |
+| ------ | ---------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| GET    | `/api/settings/ssl`          | `authenticateToken`                              | —                                                                                                                                                           | SSL config plus optional `certInfo` (subject, issuer, validity, selfSigned)                    |
+| PATCH  | `/api/settings/ssl`          | `authenticateToken` + `sensitiveEndpointLimiter` | `{ enabled: boolean, port: number, certPath?, keyPath?, redirectHttp? }` — manual checks; cert/key paths path-traversal checked against `FILE_BROWSER_ROOT` | `{ success, message }`; 400/403 on invalid config or disallowed path                           |
+| POST   | `/api/settings/ssl/generate` | `authenticateToken` + `sensitiveEndpointLimiter` | —                                                                                                                                                           | `{ success, message, certPath, keyPath }` (self-signed cert)                                   |
+| POST   | `/api/settings/ssl/upload`   | `authenticateToken` + `sensitiveEndpointLimiter` | Multipart form: `cert` file + `key` file (5 MB limit, memory storage); validated as PEM                                                                     | `{ success, message, certPath, keyPath }`; 400 if missing/invalid PEM                          |
+| GET    | `/api/system/filesystem`     | `authenticateToken` + `sensitiveEndpointLimiter` | Query: `path?` (relative; absolute paths/NUL bytes rejected; confined to `FILE_BROWSER_ROOT`)                                                               | `{ path, parent, files: {name, path, isDirectory, size}[] }`; 403 on traversal, 404 if missing |
+| GET    | `/api/config`                | JWT + `sensitiveEndpointLimiter`                 | —                                                                                                                                                           | `{ igdb: { configured, source }, xrel: { apiBase } }`                                          |
+| GET    | `/api/settings/igdb`         | JWT + `sensitiveEndpointLimiter`                 | —                                                                                                                                                           | `{ configured, source, clientId }`                                                             |
+| POST   | `/api/settings/igdb`         | JWT + `sensitiveEndpointLimiter`                 | `{ clientId: string (required), clientSecret?: string }` — manual checks; redacted-placeholder secret = keep existing                                       | `{ success: true }`; 400 if client secret required but missing                                 |
+| GET    | `/api/settings/discord`      | JWT + `sensitiveEndpointLimiter`                 | —                                                                                                                                                           | `{ configured: boolean, webhookUrl?: "********" }`                                             |
+| POST   | `/api/settings/discord`      | JWT + `sensitiveEndpointLimiter`                 | `{ webhookUrl?: string }` — must be a `discord.com`/`discordapp.com` webhook URL; redacted placeholder = keep unchanged                                     | `{ success: true }`; 400 on invalid webhook URL                                                |
+| GET    | `/api/settings`              | JWT                                              | —                                                                                                                                                           | `UserSettings` (created with defaults if none exist)                                           |
+| PATCH  | `/api/settings`              | JWT                                              | Validated via `updateUserSettingsSchema` (Zod)                                                                                                              | Updated `UserSettings`; 400 `{ error, details }` on Zod failure                                |
+| PATCH  | `/api/settings/xrel`         | JWT                                              | `{ apiBase?: string (http/https, SSRF-checked, must match ALLOWED_XREL_DOMAINS), xrelSceneReleases?: boolean, xrelP2pReleases?: boolean }` — manual checks  | `{ success, xrel: { apiBase }, settings? }`; 400 on invalid/unsafe/unauthorized domain         |
+| GET    | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                 | —                                                                                                                                                           | `{ configured: boolean, source?: "env"\|"database" }`                                          |
+| POST   | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                 | `{ apiKey: string (required) }`                                                                                                                             | `{ success: true }`; 400 if missing                                                            |
 
 ### Apprise settings
 
@@ -335,11 +372,11 @@ documented under [Settings](#settings).
 
 ## Health / Ready / Config
 
-| Method | Path          | Auth Required                                                                                       | Request Body | Response                                                                               |
-| ------ | ------------- | --------------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------- |
-| GET    | `/api/health` | None (public, pre-gate)                                                                             | —            | `{ status: "ok" }` (liveness probe only, no dependency checks)                         |
-| GET    | `/api/ready`  | JWT (registered after the global auth gate, so a token is required despite being a readiness probe) | —            | `{ status: "ok" }` (200) if DB + IGDB checks succeed, else `{ status: "error" }` (503) |
-| GET    | `/api/config` | `sensitiveEndpointLimiter` only, no JWT (public, pre-gate)                                          | —            | `{ igdb: { configured, source }, xrel: { apiBase } }`                                  |
+| Method | Path          | Auth Required                                | Request Body | Response                                                                                                                                                                                                                                     |
+| ------ | ------------- | -------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/health` | None (public, listed in `PUBLIC_API_ROUTES`) | —            | `{ status: "ok" }` (liveness probe only, no dependency checks)                                                                                                                                                                               |
+| GET    | `/api/ready`  | None (public, listed in `PUBLIC_API_ROUTES`) | —            | `{ status, checks: { database, igdb } }` — each check is `"ok"` or `"error"`. 200 with `status: "ok"` when both pass, else 503 with `status: "error"`; read `checks` to tell a local database failure (roll back) from an IGDB outage (wait) |
+| GET    | `/api/config` | JWT + `sensitiveEndpointLimiter`             | —            | `{ igdb: { configured, source }, xrel: { apiBase } }`                                                                                                                                                                                        |
 
 ## Dashboard Status
 
@@ -361,6 +398,34 @@ documented under [Settings](#settings).
 
 Per-game blacklist management (`POST`/`GET`/`DELETE /api/games/:gameId/blacklist*`)
 is documented under [Games](#games).
+
+## Activity and System Tasks
+
+Mounted under `/api/activity` and `/api/system` (JWT). Activity only sees the requester's own downloads and games.
+
+| Method | Path                          | Request                                                                                                                                                                      | Response                                                                                                                                                                                                                                              |
+| ------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/activity/history`       | Query: `eventType?` (`grabbed`, `completed`, `imported`, `failed`, `needs_review`, `removed`, `blocklisted`), `search?` (≤200), `limit?` (1–200, default 50), `offset?` (≥0) | `{ events, total }`, newest first; 400 on invalid query                                                                                                                                                                                               |
+| DELETE | `/api/activity/blocklist`     | —                                                                                                                                                                            | `{ removed }`: unblocks every release of the user's games                                                                                                                                                                                             |
+| GET    | `/api/system/tasks`           | —                                                                                                                                                                            | `{ tasks }`: each task has `name`, `title`, `description`, `intervalMs`, `running`, `lastStartedAt`, `lastFinishedAt`, `lastDurationMs`, `lastResult` (`success`\|`error`), `lastError`, `lastTrigger` (`schedule`\|`manual`\|`startup`), `nextRunAt` |
+| POST   | `/api/system/tasks/:name/run` | —                                                                                                                                                                            | 202 `{ task }` and the job runs in the background (progress over Socket.io: `task:started`, `task:finished`); 404 unknown task; 409 if already running                                                                                                |
+
+## Release Scoring
+
+Authenticated endpoints behind the **Settings → Discovery & Downloads → Release Scoring** card. Each user has one release profile and any number of custom formats; both are created with defaults (and the old preferred release groups converted) the first time they are read.
+
+| Method | Path                                   | Request body                                                                                                                                                                                                                            | Response                                                                                  |
+| ------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| GET    | `/api/release-scoring`                 | —                                                                                                                                                                                                                                       | `{ profile, formats, builtInRules: [{ id, label, points, locked, rejects }] }`            |
+| PUT    | `/api/release-profile`                 | `{ minScore, protocolPreference: "torrent" or "usenet" or "either", requiredTerms[], ignoredTerms[], minSeeders, maxSizeBytes (or null), builtInOverrides: { <ruleId>: { points?, enabled? } }, formatScores: { <formatId>: number } }` | The saved profile; 400 for an invalid body or an unknown built-in rule id                 |
+| POST   | `/api/custom-formats`                  | `{ name (1–100 chars), specs[] (1–20), score (−10000 to 10000), hardReject?, enabled? }`                                                                                                                                                | 201 with the format; 400 when a spec is invalid (for example a regex RE2 cannot compile)  |
+| PATCH  | `/api/custom-formats/:id`              | Any of the fields above; fields that are not sent keep their value                                                                                                                                                                      | The updated format; 404 if it does not exist                                              |
+| DELETE | `/api/custom-formats/:id`              | —                                                                                                                                                                                                                                       | 204, and any per-profile score for that format is removed; 404 if it does not exist       |
+| POST   | `/api/custom-formats/install-defaults` | —                                                                                                                                                                                                                                       | 201 `{ added: [...] }`: the recommended formats that were not there yet (matched by name) |
+
+A spec is `{ field: "title" or "group" or "uploader" or "category" or "protocol" or "indexer", mode: "contains" or "exact" or "regex", value (1–200 chars), negate?, required? }`. Specs on the same field are alternatives unless marked `required`; every field used must be satisfied. Regexes run on RE2 (no lookarounds) and are case-insensitive. Required and ignored terms are case-insensitive words, or a regex written `/pattern/`.
+
+Locked built-in rules (a title that is a sequel of, or not, the wanted game, and an executable or disguised file) always apply and always reject, so `enabled: false` is ignored for them; the others can be re-weighted or disabled in `builtInOverrides`. Search results from `GET /api/search` carry an `evaluation` (score, score lines, rejections, matched formats and, when xREL is enabled, an `xrel` verdict of `verified`, `nuked`, `not_found` or `unavailable`, the last meaning the lookup failed or timed out, so it does not show the release is absent). Rejected releases stay in the manual results so the UI can say why. Manual results also carry a `trust` verdict, `{ level: "trusted" or "unverified" or "risky", reasons: [{ code, tone, label, detail? }] }`, derived from the rejections, the xREL result and size, the preferred release group and the blacklist rather than from the score. The `sortBy` auto-download rule also accepts `score`.
 
 ## Steam
 
@@ -447,9 +512,10 @@ gets 403 `{ error, code: "API_KEY_SCOPE_DENIED" }`; an expired key gets 401
 | `/seerrng/v1/*` (see [SeerrNG provider](SEERRNG.md)) |        —        |   —    |     ✓      |   ✓   |
 
 Authentication is handled by `authenticateApiKeyOrToken` in `server/auth.ts`,
-selected by `requireAuthenticationForApi` for paths under `/integration` only.
-Everywhere else on `/api` — key management included — stays JWT-only, so a
-leaked key cannot escalate into minting or revoking other keys.
+selected by `requireAuthenticationForApi` for paths under `/integration` and for
+the `admin`-scope allowlist below. Every other protected route on `/api` — key
+management included — stays JWT-only, so a leaked key cannot escalate into minting or
+revoking other keys.
 
 | Method | Path                             | Auth Required  | Request Body                                                                                                                 | Response                                                                                                                                                                                                                |
 | ------ | -------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -486,11 +552,11 @@ Keys are stored as a SHA-256 hash plus a short display prefix; the raw key is
 returned exactly once, in the 201 response that creates it, and is not
 recoverable afterwards. A user may hold at most 25 keys. `last_used_at` is written at most once per minute per key.
 
-| Method | Path                | Auth Required                    | Request Body                                                                                                                                               | Response                                                                                                                            |
-| ------ | ------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/api-keys`     | JWT                              | —                                                                                                                                                          | `Array<{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt }>` — never includes the hash                            |
-| POST   | `/api/api-keys`     | JWT + `sensitiveEndpointLimiter` | `{ name: string (1–100 chars), scope?: "all" \| "library:write" \| "read" \| "requests" (default "all"), expiresInDays?: 1–365 \| null (default: never) }` | 201 `{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt, key }` — `key` is shown only here; 409 once 25 keys exist |
-| DELETE | `/api/api-keys/:id` | JWT + `sensitiveEndpointLimiter` | —                                                                                                                                                          | 204; 404 if the key does not exist or belongs to another user                                                                       |
+| Method | Path                | Auth Required                    | Request Body                                                                                                                                                          | Response                                                                                                                            |
+| ------ | ------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/api-keys`     | JWT                              | —                                                                                                                                                                     | `Array<{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt }>` — never includes the hash                            |
+| POST   | `/api/api-keys`     | JWT + `sensitiveEndpointLimiter` | `{ name: string (1–100 chars), scope?: "all" \| "library:write" \| "read" \| "requests" \| "admin" (default "all"), expiresInDays?: 1–365 \| null (default: never) }` | 201 `{ id, userId, name, prefix, createdAt, lastUsedAt, scope, expiresAt, key }` — `key` is shown only here; 409 once 25 keys exist |
+| DELETE | `/api/api-keys/:id` | JWT + `sensitiveEndpointLimiter` | —                                                                                                                                                                     | 204; 404 if the key does not exist or belongs to another user                                                                       |
 
 ## Error Format
 
@@ -548,7 +614,7 @@ for the full actor/data-flow explanation. Summary:
 | Event            | Emitted from                                                                                     | Payload               | Consumed by                                    |
 | ---------------- | ------------------------------------------------------------------------------------------------ | --------------------- | ---------------------------------------------- |
 | `notification`   | `cron.ts` (game updates, download completion, auto-search results, xREL matches) and `routes.ts` | `Notification` object | `client/src/components/NotificationCenter.tsx` |
-| `downloadUpdate` | `cron.ts::checkDownloadStatus`                                                                   | `gameId: string`      | `client/src/components/GameDetailsModal.tsx`   |
+| `downloadUpdate` | `cron.ts::checkDownloadStatus`                                                                   | `gameId: string`      | `client/src/components/GameDetails.tsx`        |
 
 Every authenticated socket joins a per-user room, `user:<id>`, during the
 handshake. Delivery depends on whether the event has an owner:
@@ -570,3 +636,25 @@ const socket = io({ withCredentials: true });
 socket.on("notification", (n) => console.log("for me:", n));
 socket.on("downloadUpdate", (gameId) => console.log("download changed:", gameId));
 ```
+
+### Configuration API for automation (`admin` scope)
+
+A key with the `admin` scope can also call a fixed allowlist of configuration
+routes, so deployment tooling can set Questarr up without an interactive login.
+`all` does **not** imply `admin`, and an `admin` key is refused on the
+integration routes it was not granted. Any other key gets 403
+`API_KEY_SCOPE_DENIED` here. The integration routes above are the only other
+place a key is accepted; every other protected route stays JWT-only —
+`/api/api-keys` in particular, so a key can never mint or revoke another key.
+Send the key in `X-Api-Key` or `Authorization: Bearer`. Treat an `admin` key like
+an administrator login: it can change download clients, indexers, notification
+delivery, settings and import paths.
+
+| Area        | Routes                                                                                                                                                           |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Downloaders | `GET`/`POST /api/downloaders`, `PATCH`/`DELETE /api/downloaders/:id`, `POST /api/downloaders/:id/test`                                                           |
+| Indexers    | `GET /api/indexers`, `POST /api/indexers/:id/test`, `GET /api/indexers/prowlarr/settings`, `POST /api/indexers/prowlarr/sync`                                    |
+| Settings    | `GET`/`PATCH /api/settings`, `GET`/`POST /api/settings/apprise`, `POST /api/settings/apprise/test`                                                               |
+| Imports     | `GET`/`PATCH /api/imports/config`, `GET`/`POST /api/imports/mappings/paths`, `PATCH`/`DELETE /api/imports/mappings/paths/:id`, `GET /api/imports/hardlink/check` |
+
+The allowlist lives in `server/admin-api-routes.ts`.

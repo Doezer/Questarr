@@ -1652,7 +1652,10 @@ export type DownloaderDebugLoggingResponse = z.infer<typeof downloaderDebugLoggi
 // credential; the raw key is shown to the user once, at creation.
 // What a key may call. One scope per key; stored as plain text (no CHECK) and
 // validated here, so adding a scope never needs a migration.
-export const API_KEY_SCOPES = ["all", "library:write", "read", "requests"] as const;
+// `admin` unlocks the configuration surface (downloaders, indexers, Apprise,
+// settings, import config) for deployment automation. It is deliberately NOT
+// implied by `all`, which only covers the integration API.
+export const API_KEY_SCOPES = ["all", "library:write", "read", "requests", "admin"] as const;
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 export const DEFAULT_API_KEY_SCOPE: ApiKeyScope = "all";
 

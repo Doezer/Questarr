@@ -17,6 +17,7 @@ interface JobResponse {
 const JOB_KEY = ["/api/steam/library/import/jobs/current"];
 const PAGE_SIZE = 50;
 const count = (value: number) => value.toLocaleString("en-US");
+/** Queued and running jobs still own their account’s import reservation. */
 const active = (job?: SteamLibraryJobView | null) =>
   job?.state === "queued" || job?.state === "running";
 const RESULT_LABELS = {
@@ -25,12 +26,14 @@ const RESULT_LABELS = {
   not_found: "No eligible IGDB match — skipped",
   failed: "Import failed — retry this game",
 };
+/** Show sanitized API messages while keeping transport errors out of the interface. */
 function errorText(error: Error): string {
   return error instanceof ApiError
     ? error.message
     : "Could not complete the Steam library request. Try again.";
 }
 
+/** Preview a paginated library and follow a persistent server job without losing selection. */
 export function SteamLibraryImport() {
   const queryClient = useQueryClient();
   const [games, setGames] = useState<PreviewGame[] | null>(null);
@@ -70,6 +73,7 @@ export function SteamLibraryImport() {
       setPage(0);
     },
   });
+  /** Switch from preview selection to the accepted job and refetch its current checkpoint. */
   function followJob(data: JobResponse) {
     setPreviewedJobId(null);
     queryClient.setQueryData(JOB_KEY, data);
@@ -102,6 +106,9 @@ export function SteamLibraryImport() {
       ]),
     [games, job?.id, job?.completedAppIds, previewedJobId]
   );
+  let jobStatus = "Import complete";
+  if (active(job)) jobStatus = "Import in progress";
+  else if (job?.state === "failed") jobStatus = "Import needs attention";
   const selectedIds = [...selected].filter((id) => !tracked.has(id));
   const visible =
     games?.filter((game) => game.title.toLowerCase().includes(search.toLowerCase())) ?? [];
@@ -140,31 +147,23 @@ export function SteamLibraryImport() {
         </p>
       )}
       {job && (
-        <div
-          className="rounded-md border bg-muted/30 p-4 space-y-3"
-          role="status"
-          aria-label="Steam import status"
-        >
-          <p className="font-medium">
-            {active(job)
-              ? "Import in progress"
-              : job.state === "failed"
-                ? "Import needs attention"
-                : "Import complete"}
-          </p>
-          <progress
-            aria-label="Steam import progress"
-            className="w-full h-2 accent-primary"
-            value={job.processed}
-            max={job.total}
-          />
-          <p className="text-sm">
-            Processed {count(job.processed)} of {count(job.total)} games
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Added {count(job.added)} · Already tracked {count(job.duplicates)} · Skipped{" "}
-            {count(job.skipped)} · Failed {count(job.failed)}
-          </p>
+        <div className="rounded-md border bg-muted/30 p-4 space-y-3">
+          <output className="block space-y-3" aria-label="Steam import status">
+            <span className="block font-medium">{jobStatus}</span>
+            <progress
+              aria-label="Steam import progress"
+              className="w-full h-2 accent-primary"
+              value={job.processed}
+              max={job.total}
+            />
+            <span className="block text-sm">
+              Processed {count(job.processed)} of {count(job.total)} games
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Added {count(job.added)} · Already tracked {count(job.duplicates)} · Skipped{" "}
+              {count(job.skipped)} · Failed {count(job.failed)}
+            </span>
+          </output>
           {active(job) && (
             <p className="text-xs text-muted-foreground">
               You can leave this page. Progress is saved and unfinished imports resume after a

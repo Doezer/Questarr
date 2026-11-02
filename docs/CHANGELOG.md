@@ -2,6 +2,82 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+## [1.6.0] - 2026-10-31
+
+### Added
+
+- **Collections**: group games into manual collections or smart collections whose games are computed from rules (status, platform, genre, rating, release year, title), from the new **Collections** page under Library (#1199).
+- **Activity, History and Blocklist**: the Activity section gains **History**, a searchable log of what happened to each download (grabbed, completed, imported, failed, needs review, removed, blocklisted), and **Blocklist**, a list of every release you blocked (previously in settings) (#1195).
+- **System Tasks**: Similar to what exists in Sonarr/Radarr, this new page under Activity lists the scheduled background jobs (game updates, download status, auto search, xREL, Steam and RomM sync, RSS feeds, history cleanup...) with their last and next run, and a **Run now** button for each (#1195).
+- **Leftover archive warning**: after an import, Questarr raises a warning notification when a finished download still holds archives that are still unpacked, with a hint to turn on Auto-unpack or extract them by hand (#1195).
+- **Naming templates**: the import rename pattern now accepts the tokens `{Title}`, `{TitleThe}`, `{Year}`, `{Platform}`, `{Version}`, `{Group}`, `{Source}`, `{IgdbId}`, `{SteamAppId}` and `{Region}` (#1197). See [Library import](LIBRARY_IMPORT.md).
+- **RomM integration**: If enabled, it places imports in RomM's platform folders (`snes`, `ps2`, `win`...). You can ask RomM to rescan after an import, and mark wishlist games that RomM already has as owned, from **Settings → Import** (#1202). See [Library import](LIBRARY_IMPORT.md#romm-integration).
+- **Game videos**: IGDB trailers and gameplay clips are shown in a carousel on the Media tab of the game details page. They play in a privacy-enhanced YouTube embed that loads only on click (#1194).
+- **Release scoring**: every search result now gets a score built from a title match, indexer category, platform and quality rules, a per-user **release profile** (minimum score, preferred protocol, required and ignored terms, minimum seeders, maximum size) and your own **custom formats** (conditions on the title, group, uploader, category, protocol or indexer, each adding or removing points, or rejecting the release outright).
+  - The manual search shows the score, its breakdown and why a release was rejected
+  - The auto-search only considers accepted releases, keeps the best-scored copy of a duplicate and orders the rest by score, then preferred protocol, then your sort order.
+  - Releases the xREL PreDB lists as nuked are rejected, and the search shows an xREL badge.
+  - Configure it under **Settings → Discovery & Downloads → Release Scoring**,
+  - Preferred Release Groups card: existing preferred groups become a "Preferred release group" format worth +50 (#1196).
+  - In the manual download dialog, rejected releases are hidden by default with a badge showing how many: untick **Hide rejected releases** to see them, or set the default under **Auto-download rules** (#1231).
+- **Release trust badge**: each search result also shows one verdict, **Trusted**, **Unverified** or **Risky**, with the reasons behind it. The verdict comes from the rejection reasons and facts, not from the score, so changing a rule weight cannot turn a nuked release into a trusted one (#1250). Trust levels:
+  - Risky means a hard signal: nuked on xREL, an executable or script payload, a video, music or book, or a blacklisted release.
+  - Trusted needs an accepted release with a clear title match and evidence that is hard to fake: listed on xREL with a size within 25 % of yours, or a preferred release group.
+  - A name alone on xREL, or an xREL lookup that could not run, stays Unverified.
+- **Recommended custom formats**: an **Install recommended formats** button adds a starting set that pushes down crack-only, demo and pre-installed releases, rejects trainers, keygens and activators outright, and favors releases that include updates and DLC and a few trusted repackers. Formats you already have are not duplicated (#1224).
+- **Scoped API keys**: API keys now have an access level (all, library write, read, game requests or admin) and an optional expiry of 1 to 365 days, chosen in **Settings → Integrations → API Keys**. The **admin** access lets deployment tooling configure Questarr (download clients, indexers, notifications, settings, import paths) from a script without an interactive login; treat such a key like an administrator login (#1289).
+- **SeerrNG/Gameyfin Integration**: In API keys, the new **Game requests (SeerrNG)** access lets SeerrNG request PC games from Questarr through a provider API that follows the QuestarrNG contract. Integration routes are limited to 300 requests per minute per key (#1198). See [SeerrNG](SEERRNG.md), [Gameyfin](GAMEYFIN.md) and [API](API.md#api-keys-management).
+- **Release classification**:
+  - Smart release filtering through machine learning, built in and free. Questarr recognizes patches, DLC, full games and non-game files (software, movies, soundtracks) right on your server, before anything is downloaded. No account, no API key, nothing leaves your network.
+  - Unsure cases can optionally be double-checked by a cloud model, and anything classified as a patch, DLC or non-game file is held for your review instead of being downloaded blindly (you can also hold releases the classifier cannot decide on).
+  - In detail, Questarr works out whether a release is the full game, a patch, DLC, an expansion, or something to avoid such as a crack only, demo or soundtrack. A release classified as a patch, DLC, crack only, demo or soundtrack is held for your review instead of being downloaded unattended.
+  - It applies to automatic downloads and to the manual search results alike, so a release gets one type everywhere.
+  - Questarr tries fast built-in rules first, then a small local model that ships with Questarr, including the Docker image, and runs offline (trained on 964 labeled releases, #1291), and only asks the optional TypeSafe cloud provider when those cannot decide.
+  - Pick the mode (`hybrid` by default, `local` to never leave your server, `cloud` for the previous cloud-only check), the confidence threshold and whether unclassified releases are held under **Settings → Discovery & Downloads → Release classification**, with no restart needed (#1258, #1263, #1265, #1266, #1267).
+- **Review the classification**: Releases the classifier was unsure about can be kept for you to label under **Settings → Discovery & Downloads → Release classification review**, which flags a disagreement between the cloud and local models and notifies you each time 25 more releases wait for review (#1261, #1262, #1270). You can also share your verified labels with the maintainer to help improve the public model: tick **Share my verified labels automatically** (off by default), and only the release name, game title, label and model version are sent, never anything about your library, with **See what will be sent** showing the exact rows (#1271). See [Release classification](RELEASE_CLASSIFICATION.md) (#1264).
+- **Update available badge and filter**: library games with newer update releases on your indexers show an **Update available** badge on their card and on the game page, and a new **Update Available** filter in the Library lists only those games. The plain search-results badge shows only when no update release is waiting (#1240).
+- **Backlog roulette game length**: choose a short adventure (up to 5 hours), a weekend quest (up to 15 hours) or a longer journey (up to 40 hours) from the IGDB completion estimate; games without a known estimate stay out of length-filtered draws. See [Backlog roulette](BACKLOG_ROULETTE.md) (#1272).
+- **Ignored folders in Library Import**: **Ignore** on a Needs Review folder removes it for good, so later scans skip it before listing its files, for example a Proton build next to your games. An **Ignored Folders** list under Needs Review restores a folder, which queues a rescan of its root folder, see [Library Import](LIBRARY_IMPORT.md) (#1239).
+- **Notification links**: set `APP_URL` and Apprise alerts include a link to the page they are about, such as the game, the Downloads page or the right settings tab. See [Notifications](NOTIFICATIONS.md#context-links).
+
+### Changed
+
+- **Docker image**: development dependencies are pruned in their own build stage and the final layers are no longer recursively re-owned, so the image ships without them (#1260). As a result, the image is significantly smaller.
+- **Game details page**: a game now opens on its own page instead of a pop-up. You can bookmark or share its address, open it in a new tab from the card title or with a middle-click on a card.
+- **RSS feed errors**: the error detail on a failing feed is now an accessible tooltip instead of the browser's native one (#1230).
+- **Weekly pre-releases**: a weekly workflow publishes a `vX.Y.Z-dev.YYYYMMDD` pre-release and the Docker tags `weekly` and `dev`, never `latest` (#1192). Their notes end with a list of contributors, bots excluded (#1222), counted by commit (#1269). See [Operations](OPERATIONS.md).
+
+### Fixed
+
+- **Download search while typing**: the manual download dialog waits a little longer after you stop typing before searching, and a search that a newer one replaces is cancelled instead of piling up requests on your indexers (#1293).
+- **Library import**: platform names, folders and Game Gear are now handled correctly (#1212).
+- **Auto-search paging**: for a wanted game with many update releases, auto-search keeps paging through indexer results until a main release would survive final selection, instead of stopping on a first page made only of updates (#1214).
+- **Usenet downloads**: a download marked failed is restored and imported once NZBGet or SABnzbd no longer reports a failure, for example after you fix a wrong archive password and post-process the item again. Questarr checks failed downloads from the last 14 days every 10 minutes. NZBGet failures now say why (wrong password, unpack, par2 repair, missing articles, malformed NZB, disk space) instead of a bare error, including the `SCAN` and `SPACE` statuses (#1235).
+- **Archive password over HTTP**: an NZBGet downloader with **Allow insecure LAN** turned on can send an archive password over plain HTTP again; without that option, the error now suggests it. A request carrying a password or credentials over plain HTTP is no longer sent to another host if the server redirects it, apart from a same-host upgrade to HTTPS (#1235).
+- **Home Assistant add-on**: the add-on starts the server with `node` directly instead of through npm (#1208).
+- **Recently Released sort**: the Library sort lists games already out first, newest first, then unreleased games soonest first, and games without a date last, instead of putting future releases at the top (#1243).
+- **Nintendo Switch dumps**: the Library scan reads the title id in file and folder names (for example `Hades [0100535012974000][v0].nsp`), matches flat files as well as folders, attaches an update or DLC to its base game, strips tags such as `[UPD]`, `[NSZ]` and region codes from the title, and retries IGDB without its platform filter when the filtered search is weak (#1241).
+- **Library rescans**: folders already linked to a game are skipped instead of reappearing in Needs Review, and new files in them are still attached (#1234).
+- **Manual import Auto-Unpack**: the Unpack Archive switch in the manual import dialog follows your saved Auto-unpack default and picks up a changed default, instead of always starting off; a password-protected retry still turns it on (#1278).
+- **IGDB platform and genre lists**: an empty list from IGDB (unconfigured or unreachable) is no longer cached, by the server or by the browser, so the filters recover once IGDB answers again, and platforms are filtered on the current `platform_type` field instead of the deprecated one (#1223).
+- **Download-search platform filter**: selecting several consoles, for example Wii and PS3, no longer hides the releases of all but one of them; every platform a release name can express is now understood by the filter (#1281).
+- **VirusTotal test button**: the test now uses the complete EICAR file hash, so a valid API key is confirmed instead of failing on a malformed hash (#1279).
+- **Legacy session token migration**: a pre-1.5.0 token left in `localStorage` is now carried over as an in-memory bearer token for the current tab and removed from `localStorage`, in a post-commit effect instead of during React render. The app waits for it before calling `/api/auth/me`, which also makes it safe under StrictMode. It is not stored as a cookie, so the next reload asks you to sign in again (#1193).
+
+### Dependencies
+
+- Routine updates to production and dev dependencies, GitHub Actions, and `framer-motion` 14, and `follow-redirects` pinned to 1.16.2 and `body-parser` to 2.4.0, with `multer` 2.5.0, for high advisories (#1188, #1189, #1190, #1191, #1205, #1206, #1218, #1219, #1220, #1228, #1229, #1236, #1244, #1245, #1246, #1247, #1249, #1252, #1259, #1288, #1290).
+
+### Contributors
+
+Thanks to everyone who contributed to this release:
+
+- @UnderwaterOverground
+- @denial3x
+- @JEFF7712
+
 ## [1.5.0] - 2026-10-12
 
 ### Before you upgrade

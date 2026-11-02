@@ -11,6 +11,7 @@ import {
   rankCandidates,
   resetCollectionMemory,
 } from "./classification/active-learning.js";
+import { buildShareBatch, sendShareBatch, ShareError, SHARE_URL } from "./classification/share.js";
 
 /**
  * Review workflow for the releases active learning collected (docs/RELEASE_CLASSIFICATION.md).
@@ -48,6 +49,7 @@ async function overview(status?: string) {
     collecting: config.classification.activeLearning.collect,
     cloudSuggest: config.classification.activeLearning.cloudSuggest,
     cloudAvailable: await typesafeClient.isConfigured(),
+    shareLabels: config.classification.activeLearning.shareLabels,
     mode: config.classification.mode,
     labels: CANDIDATE_LABELS,
     counts,
@@ -82,6 +84,37 @@ router.get("/api/classification-candidates/export", async (_req: Request, res: R
   } catch (error) {
     routesLogger.error({ error }, "error exporting classification candidates");
     return res.status(500).json({ error: "Failed to export candidates" });
+  }
+});
+
+// What a send would carry, shown before anything leaves the server. Read-only and local.
+router.get("/api/classification-candidates/share/preview", async (_req: Request, res: Response) => {
+  try {
+    const batch = await buildShareBatch();
+    return res.json({
+      enabled: config.classification.activeLearning.shareLabels,
+      url: SHARE_URL,
+      ...batch,
+    });
+  } catch (error) {
+    routesLogger.error({ error }, "error previewing the labels to share");
+    return res.status(500).json({ error: "Failed to build the preview" });
+  }
+});
+
+// Manual, one request per press: there is no background sharing
+router.post("/api/classification-candidates/share", async (req: Request, res: Response) => {
+  const parsed = z
+    .object({ batchId: z.string().min(1).max(64) })
+    .strict()
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Name the previewed batch" });
+  try {
+    return res.json(await sendShareBatch(parsed.data.batchId));
+  } catch (error) {
+    if (error instanceof ShareError) return res.status(error.status).json({ error: error.message });
+    routesLogger.error({ error }, "error sharing verified labels");
+    return res.status(500).json({ error: "Failed to share the labels" });
   }
 });
 

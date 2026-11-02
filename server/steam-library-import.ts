@@ -2,7 +2,7 @@ import { storage } from "./storage.js";
 import { igdbClient } from "./igdb.js";
 import { getContentFilterFlags, isContentFiltered } from "./content-filter.js";
 import { normalizeInitialReleaseStatus } from "./game-status.js";
-import { insertGameSchema } from "../shared/schema.js";
+import { insertGameSchema, type Game } from "../shared/schema.js";
 import { notifyUser } from "./socket.js";
 import type { SteamOwnedGame } from "./steam.js";
 import type { SteamImportResult } from "../shared/steam-library.js";
@@ -10,7 +10,22 @@ import type { SteamImportResult } from "../shared/steam-library.js";
 // One import operation per account, shared by synchronous and background imports.
 export const steamLibraryImporting = new Set<string>();
 
-/** Process one bounded batch. Ownership must already have been verified by the caller. */
+/** Link a missing Steam ID without replacing another edition or changing saved game progress. */
+async function linkSteamAppIdIfMissing(
+  game: Game,
+  steamAppId: number
+): Promise<string | undefined> {
+  if (game.steamAppId != null) return undefined;
+  await storage.updateGame(game.id, { steamAppId });
+  game.steamAppId = steamAppId;
+  return game.id;
+}
+
+/**
+ * Process one bounded, ownership-verified batch with strict provider lookups. Writes are
+ * deliberately sequential: editions can share an IGDB ID, so each row must observe prior inserts
+ * and links before deciding whether it is a duplicate. Keep successful rows on partial failure.
+ */
 export async function importSteamLibraryBatch(
   userId: string,
   selected: SteamOwnedGame[]
@@ -50,11 +65,8 @@ export async function importSteamLibraryBatch(
       if (existing) {
         // Link an exact match once so later previews recognize it. Never replace
         // another edition's App ID or alter the existing game's status/progress.
-        if (existing.steamAppId == null) {
-          await storage.updateGame(existing.id, { steamAppId: id });
-          changedGameId ??= existing.id;
-          existing.steamAppId = id;
-        }
+        const linkedId = await linkSteamAppIdIfMissing(existing, id);
+        changedGameId ??= linkedId;
         results.push({ ...game, outcome: "duplicate" });
         continue;
       }

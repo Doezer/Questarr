@@ -67,6 +67,7 @@ export async function quickAddGameByTitle(
     platforms: match.platforms,
     genres: match.genres,
     themes: match.themes,
+    gameModes: match.gameModes,
     isAdultContent: match.isAdultContent,
     isAgeRestricted: match.isAgeRestricted,
     coverUrl: match.coverUrl,

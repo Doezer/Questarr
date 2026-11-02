@@ -808,7 +808,10 @@ describe("ImportStrategies", () => {
   // their own guard rather than trusting every future caller to check first.
   // ---------------------------------------------------------------------------
 
-  describe("sensitive-path guards", () => {
+  // The guard lists POSIX system directories (/etc, /proc, ...), which do not exist on
+  // Windows: there "/etc/passwd" resolves to "D:\\etc\\passwd", a legitimate user path
+  // (so is "D:\\dev"), and refusing it would block real folders.
+  describe.skipIf(process.platform === "win32")("sensitive-path guards", () => {
     it("executeImport refuses a source under a sensitive system path", async () => {
       const root = tempDir();
       const destination = path.join(root, "library", "PC", "My Game");

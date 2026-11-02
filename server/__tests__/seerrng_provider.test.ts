@@ -45,7 +45,8 @@ describe("SeerrNG provider API", () => {
     vi.clearAllMocks();
     vi.resetModules();
     keyScope = "requests";
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "seerrng-"));
+    // Canonical path: on Windows os.tmpdir() can be an 8.3 short name, which realpath expands.
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "seerrng-")));
     ledger = new Map();
     games = new Map();
 

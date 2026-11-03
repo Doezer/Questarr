@@ -2682,9 +2682,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(error.status).json({ error: error.message });
         }
         routesLogger.error({ error }, "error importing external game into the library");
-        return res.status(500).json({
-          error: error instanceof Error ? error.message : "Failed to import the game",
-        });
+        return res.status(500).json({ error: "Failed to import the game" });
       }
     }
   );

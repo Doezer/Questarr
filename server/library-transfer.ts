@@ -371,7 +371,6 @@ export async function transferExternalGame(
         await fs.remove(result.destDir).catch(() => undefined);
         throw new Error("Copy verification failed; the source was left untouched");
       }
-      await fs.remove(t.source);
     }
 
     await storage.updateGame(t.game.id, { libraryPath: result.destDir });
@@ -379,6 +378,8 @@ export async function transferExternalGame(
       await storage.updateGameStatus(t.game.id, { status: "owned" }, { preserveCurated: true });
     }
     const filesPlaced = await replaceGameFilesFromPath(t.game.id, result.destDir, t.source);
+    // The game already points at the verified copy: only now drop the source.
+    if (crossMove) await fs.remove(t.source);
 
     await storage.addImportTaskItem({
       taskId: task.id,

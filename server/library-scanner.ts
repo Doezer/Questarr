@@ -26,7 +26,7 @@ import { normalizeTitle, cleanReleaseName, parseSwitchTitleId } from "../shared/
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { igdbLogger, routesLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
-import type { InsertGame, InsertGameFile, GameFileCategory } from "../shared/schema.js";
+import type { InsertGame, InsertGameFile, GameFile, GameFileCategory } from "../shared/schema.js";
 import { isUserCuratedGameStatus } from "../shared/schema.js";
 
 // ---------- Types ----------
@@ -407,9 +407,12 @@ export async function replaceGameFilesFromPath(
   previousPath: string
 ): Promise<number> {
   const previous = path.resolve(previousPath);
+  // Categories the user set by hand are kept, matched by path relative to the old location.
+  const overrides = new Map<string, GameFile["category"]>();
   for (const file of await storage.getGameFiles(gameId)) {
     const filePath = path.resolve(file.filePath);
     if (filePath === previous || isStrictlyInside(previous, filePath)) {
+      if (file.categoryOverridden) overrides.set(path.relative(previous, filePath), file.category);
       await storage.removeGameFile(file.id);
     }
   }
@@ -417,7 +420,15 @@ export async function replaceGameFilesFromPath(
   const files = stat.isFile()
     ? [{ absolutePath, size: stat.size }]
     : await listFiles(absolutePath, Number.POSITIVE_INFINITY);
-  return assignFilesToGame(gameId, files);
+  const added = await assignFilesToGame(gameId, files);
+  if (overrides.size > 0) {
+    const destination = path.resolve(absolutePath);
+    for (const file of await storage.getGameFiles(gameId)) {
+      const category = overrides.get(path.relative(destination, path.resolve(file.filePath)));
+      if (category) await storage.updateGameFileCategory(file.id, category);
+    }
+  }
+  return added;
 }
 
 /** Force-assign an unmatched folder to a specific IGDB game (user override). */

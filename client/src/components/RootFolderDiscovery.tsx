@@ -439,11 +439,10 @@ export function RootFolderDiscovery() {
           <Info className="h-4 w-4" />
           <AlertDescription className="text-sm">
             Games found here are added as <strong>owned</strong> and linked to their folder on disk,
-            but that folder stays outside your library root — it is never moved, renamed, or deleted
-            by Questarr unless you turn on <strong>Allow Delete</strong> for that folder below. With
-            it off (the default), removing a game with its files skips anything discovered here. Use{" "}
-            <strong>Import into library</strong> on a game to copy or move it into your library
-            root.
+            but that folder stays outside your library root. With <strong>Allow Delete</strong> off
+            for that folder (the default), removing a game with its files skips anything discovered
+            here. Use <strong>Import into library</strong> on a game to copy or move it into your
+            library root; Move removes the original files once the copy is verified.
           </AlertDescription>
         </Alert>
 

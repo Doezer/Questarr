@@ -363,7 +363,7 @@ export function ExternalGamesImport() {
                   </AlertDescription>
                 </Alert>
               )}
-              {preview.needsSpace && (
+              {preview.needsSpace && (mode === "copy" || preview.crossFilesystem) && (
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription>Not enough free space in the library root.</AlertDescription>

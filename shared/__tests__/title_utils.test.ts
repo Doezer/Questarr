@@ -448,6 +448,11 @@ describe("buildQueryVariants", () => {
 });
 
 describe("strictMatchTitle", () => {
+  it("does not offer a one-word remainder as a query variant", () => {
+    expect(buildQueryVariants("Little King's Story")).not.toContain("Story");
+    expect(buildQueryVariants("Little King's Story")).toContain("Little Kings Story");
+  });
+
   it("keeps a possessive prefix when stripping it would leave a single word", () => {
     expect(strictMatchTitle("Little King's Story")).toBe("Little King's Story");
     expect(

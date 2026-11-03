@@ -203,9 +203,10 @@ your Library Root, choose **Import into library** on **Library Import**, pick
 **Copy**, **Move** or **Hardlink**, and confirm. Questarr names the folder with
 your [naming pattern](#naming-pattern), transfers the files, then points the game
 at the new location. **Copy** is the safest option and keeps the originals.
-**Move** deletes them once the copy is verified, and **Hardlink** copies when the
-source is on another disk. The preview warns when the destination lacks free
-space.
+**Move** renames the files on the same disk; across disks it copies them, checks
+the copy, then tries to remove the originals. A leftover original is reported as
+a warning and does not fail the import. **Hardlink** copies when the source is on
+another disk. The preview warns when the destination lacks free space.
 
 ### Automatic rescan
 

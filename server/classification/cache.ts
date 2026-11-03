@@ -95,7 +95,11 @@ export class TieredCache<T> {
       if (!row || this.now() - row.storedAt.getTime() >= PERSISTENT_TTL_MS) return null;
       const value = this.options.parse(JSON.parse(row.verdict));
       if (value === null) return null;
-      if (generation === this.generation_) this.remember(key, value);
+      if (generation === this.generation_) {
+        // A promoted row must not outlive its own expiry in the table
+        const expires = row.storedAt.getTime() + PERSISTENT_TTL_MS;
+        this.remember(key, value, Math.min(this.now(), expires - MEMORY_TTL_MS));
+      }
       return value;
     } catch (error) {
       cacheLogger.warn({ error }, "Could not read the persistent classification cache");
@@ -103,12 +107,12 @@ export class TieredCache<T> {
     }
   }
 
-  private remember(key: string, value: T): void {
+  private remember(key: string, value: T, at: number = this.now()): void {
     if (this.memory.size >= MEMORY_MAX_ENTRIES) {
       const oldest = this.memory.keys().next().value;
       if (oldest !== undefined) this.memory.delete(oldest);
     }
-    this.memory.set(key, { at: this.now(), value });
+    this.memory.set(key, { at, value });
   }
 
   settled(): Promise<void> {

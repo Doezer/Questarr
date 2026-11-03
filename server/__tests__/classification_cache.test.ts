@@ -89,6 +89,19 @@ describe("TieredCache", () => {
     expect(await restarted.get("k")).toBeNull();
   });
 
+  it("does not keep a promoted row in memory past its own expiry", async () => {
+    const { store, rows } = fakeStore();
+    let now = 1_000_000;
+    const options = { namespace: "analysis", parse: parseNumber, store, now: () => now };
+    await new TieredCache<number>(options).set("k", 3);
+    now += PERSISTENT_TTL_MS - 1_000;
+    const restarted = new TieredCache<number>(options);
+    expect(await restarted.get("k")).toBe(3);
+    rows.clear();
+    now += 2_000;
+    expect(await restarted.get("k")).toBeNull();
+  });
+
   it("treats a row with an unexpected shape as a miss", async () => {
     const { store, rows } = fakeStore();
     const cache = new TieredCache<number>({ namespace: "analysis", parse: parseNumber, store });

@@ -48,6 +48,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getSocket } from "@/lib/socket";
 import type { RootFolder, LibraryScanIgnored } from "@shared/schema";
 import { FileBrowser } from "./FileBrowser";
+import { ExternalGamesImport } from "./ExternalGamesImport";
 
 interface ScanProgress {
   rootFolderId: string;
@@ -169,7 +170,10 @@ export function RootFolderDiscovery() {
       return gainedMatch || justFinished;
     });
     previousGameProgress.current = new Map(scanProgress.map((p) => [p.rootFolderId, p]));
-    if (refreshGames) queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    if (refreshGames) {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/library/external-games"] });
+    }
   }, [scanProgress, queryClient]);
 
   const invalidateAll = () => {
@@ -177,6 +181,7 @@ export function RootFolderDiscovery() {
     queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] });
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/status"] });
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/library/external-games"] });
   };
 
   const addMutation = useMutation({
@@ -272,6 +277,7 @@ export function RootFolderDiscovery() {
       toast({ title: "Game Matched", description: "Added to your library." });
       queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/library/external-games"] });
     },
     onError: (error: Error) => {
       toast({ title: "Match Failed", description: error.message, variant: "destructive" });
@@ -433,9 +439,10 @@ export function RootFolderDiscovery() {
           <Info className="h-4 w-4" />
           <AlertDescription className="text-sm">
             Games found here are added as <strong>owned</strong> and linked to their folder on disk,
-            but that folder stays outside your library root — it is never moved, renamed, or deleted
-            by Questarr unless you turn on <strong>Allow Delete</strong> for that folder below. With
-            it off (the default), removing a game with its files skips anything discovered here.
+            but that folder stays outside your library root. With <strong>Allow Delete</strong> off
+            for that folder (the default), removing a game with its files skips anything discovered
+            here. Use <strong>Import into library</strong> on a game to copy or move it into your
+            library root; Move removes the original files once the copy is verified.
           </AlertDescription>
         </Alert>
 
@@ -620,6 +627,8 @@ export function RootFolderDiscovery() {
             ))}
           </div>
         )}
+
+        <ExternalGamesImport />
 
         {ignored.length > 0 && (
           <div className="space-y-3">

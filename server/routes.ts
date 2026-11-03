@@ -79,6 +79,7 @@ import {
   sanitizeRootFolderUpdateData,
   sanitizeRootFolderId,
   sanitizeLibraryScanData,
+  sanitizeExternalGameImportData,
   sanitizeUnmatchedMatchData,
   sanitizeUnmatchedIgnoreData,
   sanitizeIgnoredId,
@@ -343,6 +344,13 @@ import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { activityRouter } from "./routes/activity.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
+import {
+  listExternalGames,
+  previewLibraryTransfer,
+  transferExternalGame,
+  LibraryTransferError,
+  type LibraryTransferMode,
+} from "./library-transfer.js";
 import { probeRootFolder, isWithinDeletableRootFolder, isStrictlyInside } from "./root-folders.js";
 import {
   scanRootFolderById,
@@ -2624,6 +2632,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         routesLogger.error({ error }, "error searching IGDB for unmatched folder");
         const notFound = msg === "No matching unmatched entry for this root folder";
         res.status(notFound ? 404 : 500).json({ error: notFound ? msg : "IGDB search failed" });
+      }
+    }
+  );
+
+  // Games found in a root folder, with what an "Import into library" would do.
+  app.get("/api/library/external-games", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      res.json(await listExternalGames(req.user!.id));
+    } catch (error) {
+      routesLogger.error({ error }, "error listing external games");
+      res.status(500).json({ error: "Failed to list games in root folders" });
+    }
+  });
+
+  app.get(
+    "/api/library/external-games/:id/preview",
+    authenticateToken,
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params as { id: string };
+        return res.json(await previewLibraryTransfer(id, req.user!.id));
+      } catch (error) {
+        if (error instanceof LibraryTransferError) {
+          return res.status(error.status).json({ error: error.message });
+        }
+        routesLogger.error({ error }, "error previewing library transfer");
+        return res.status(500).json({ error: "Failed to preview the transfer" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/library/external-games/:id/import",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    sanitizeExternalGameImportData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params as { id: string };
+        const { mode } = (req.body ?? {}) as { mode?: LibraryTransferMode };
+        return res.json(await transferExternalGame(id, mode ?? "copy", req.user!.id));
+      } catch (error) {
+        if (error instanceof LibraryTransferError) {
+          return res.status(error.status).json({ error: error.message });
+        }
+        routesLogger.error({ error }, "error importing external game into the library");
+        return res.status(500).json({ error: "Failed to import the game" });
       }
     }
   );

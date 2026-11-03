@@ -184,16 +184,19 @@ class TypeSafeClient {
       params.sizeBytes ?? null,
       params.platform ?? null,
     ]);
-    const pending = this.analysisInFlight.get(cacheKey);
+    // Scoped to the cache generation, so a call made after a clear never joins a lookup that
+    // started before it and could still return the deleted verdict
+    const generation = this.analysisCache.generation;
+    const flightKey = `${generation}:${cacheKey}`;
+    const pending = this.analysisInFlight.get(flightKey);
     if (pending) return pending;
 
     // Registered before the first await, so a concurrent caller joins this lookup
     const request = (async () => {
-      const generation = this.analysisCache.generation;
       const cached = await this.analysisCache.get(cacheKey);
       return cached ?? this.requestAnalysis(cacheKey, params, generation, provider);
-    })().finally(() => this.analysisInFlight.delete(cacheKey));
-    this.analysisInFlight.set(cacheKey, request);
+    })().finally(() => this.analysisInFlight.delete(flightKey));
+    this.analysisInFlight.set(flightKey, request);
     return request;
   }
 

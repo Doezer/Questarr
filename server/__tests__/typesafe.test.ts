@@ -313,6 +313,35 @@ describe("TypeSafeClient", () => {
       expect(mockSafeFetch.mock.calls[0]?.[0]).toBe("https://old.example.com/v1/systemone");
     });
 
+    it("does not let a call made after a cache clear join a lookup that started before it", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      let finishLookup: (row: undefined) => void = () => {};
+      vi.mocked(storage.getClassificationCacheEntry)
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          })
+        )
+        .mockResolvedValue(undefined);
+      const { clearAllMemoryCaches } = await import("../classification/cache.js");
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+      const before = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      clearAllMemoryCaches();
+      const after = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      await after;
+      finishLookup(undefined);
+      await before;
+
+      // The second call ran its own lookup instead of joining the first
+      expect(storage.getClassificationCacheEntry).toHaveBeenCalledTimes(2);
+    });
+
     it("keeps a configure() made while the stored settings are still loading", async () => {
       let release: (value: string | undefined) => void = () => {};
       mockGetSystemConfig.mockReturnValue(

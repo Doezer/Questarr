@@ -337,7 +337,13 @@ function stripPunctuation(title: string): string {
  * "Hellraiser: Revival") found through the subtitle-less query is not taken for the wanted one.
  */
 export function strictMatchTitle(title: string): string {
-  return stripEditionWords(stripPossessivePrefix(title.trim()));
+  const trimmed = title.trim();
+  const withoutPrefix = stripPossessivePrefix(trimmed);
+  // A prefix cannot be told from the title's own words ("Little King's Story" is not "Story"),
+  // so a one-word remainder is not trusted: the full title stays the identity and a release that
+  // omits the prefix is simply not auto-matched.
+  const prefixIsSafe = withoutPrefix.split(/\s+/).length >= 2;
+  return stripEditionWords(prefixIsSafe ? withoutPrefix : trimmed);
 }
 
 /**

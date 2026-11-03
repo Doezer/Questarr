@@ -448,6 +448,13 @@ describe("buildQueryVariants", () => {
 });
 
 describe("strictMatchTitle", () => {
+  it("keeps a possessive prefix when stripping it would leave a single word", () => {
+    expect(strictMatchTitle("Little King's Story")).toBe("Little King's Story");
+    expect(
+      releaseMatchesGame("Little.Kings.Story-GOG", strictMatchTitle("Little King's Story"))
+    ).toBe(true);
+  });
+
   it("drops the possessive prefix and edition words but keeps the subtitle", () => {
     expect(strictMatchTitle("Clive Barker's Hellraiser: Revival")).toBe("Hellraiser: Revival");
     expect(strictMatchTitle("The Witcher 3: Wild Hunt - Game of the Year Edition")).toBe(

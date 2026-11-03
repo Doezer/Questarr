@@ -131,6 +131,8 @@ interface SearchResult {
   total: number;
   offset: number;
   blacklistedCount?: number;
+  /** The simpler query variant that produced the results, when the full title found nothing. */
+  queryUsed?: string;
   errors?: string[];
 }
 
@@ -152,7 +154,18 @@ function formatDate(dateString: string): string {
 
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useDebounce } from "@/hooks/use-debounce";
-import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
+import {
+  formatBytes,
+  formatAge,
+  isUsenetItem,
+  hasCompatibleDownloader,
+  countUnsupportedReleases,
+} from "@/lib/downloads-utils";
+import {
+  SearchFallbackNotice,
+  UnsupportedReleasesNotice,
+  UNSUPPORTED_RELEASE_TITLE,
+} from "@/components/SearchResultNotices";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const SEARCH_DEBOUNCE_MS = 1000;
@@ -446,10 +459,27 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     enabled: open,
   });
 
-  const { data: downloaders = [] } = useQuery<Downloader[]>({
+  const { data: downloaders = [], isSuccess: downloadersLoaded } = useQuery<Downloader[]>({
     queryKey: ["/api/downloaders/enabled"],
     enabled: open,
   });
+
+  // A release no configured downloader can take (a Usenet result with only torrent clients, or
+  // the opposite) is flagged and its download disabled, instead of failing at download time.
+  const isUnsupportedRelease = (download: DownloadItem) =>
+    downloadersLoaded && downloaders.length > 0 && !hasCompatibleDownloader(download, downloaders);
+  const downloadButtonState = (download: DownloadItem) => ({
+    disabled:
+      downloadingGuid === (download.guid || download.link) || isUnsupportedRelease(download),
+    title: isUnsupportedRelease(download) ? UNSUPPORTED_RELEASE_TITLE : undefined,
+  });
+  const unsupportedCounts = useMemo(
+    () =>
+      downloadersLoaded && downloaders.length > 0
+        ? countUnsupportedReleases(searchResults?.items ?? [], downloaders)
+        : { torrent: 0, usenet: 0 },
+    [downloadersLoaded, searchResults?.items, downloaders]
+  );
 
   // Maps indexer name -> configured priority (lower number = higher priority) so
   // results can be sorted to match the order set on Management > Indexers.
@@ -812,11 +842,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     },
   });
 
-  // blacklisted updates stay listed (marked risky) but are never ticked by default
+  // blacklisted updates stay listed (marked risky) but are never ticked by default; updates no
+  // configured downloader can take cannot be ticked at all
   const selectableUpdateIndices = () =>
     new Set(
       filteredCategorizedDownloads.update.flatMap((update, index) =>
-        update.blacklisted ? [] : [index]
+        update.blacklisted || isUnsupportedRelease(update) ? [] : [index]
       )
     );
 
@@ -853,7 +884,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     if (includeUpdates && selectedUpdateIndices.size > 0) {
       const selectedUpdates = Array.from(selectedUpdateIndices)
         .map((i) => filteredCategorizedDownloads.update[i])
-        .filter((d): d is DownloadItem => d !== undefined);
+        .filter((d): d is DownloadItem => d !== undefined && !isUnsupportedRelease(d));
       downloadMutation.mutate([selectedMainDownload, ...selectedUpdates]);
     } else {
       downloadMutation.mutate([selectedMainDownload]);
@@ -909,6 +940,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   };
 
   const toggleUpdateSelection = (index: number) => {
+    const update = filteredCategorizedDownloads.update[index];
+    if (update && isUnsupportedRelease(update)) return;
     setSelectedUpdateIndices((prev) => {
       const next = new Set(prev);
       if (next.has(index)) next.delete(index);
@@ -1177,6 +1210,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
           return (
             <div className="space-y-8">
+              <SearchFallbackNotice
+                queryUsed={searchResults.queryUsed}
+                originalQuery={debouncedSearchQuery}
+              />
+              <UnsupportedReleasesNotice counts={unsupportedCounts} />
+
               {platformFilterHidesAll && (
                 <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
                   <Info className="mt-0.5 h-4 w-4 shrink-0" />
@@ -1414,9 +1453,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                         variant="ghost"
                                         size="icon"
                                         onClick={() => handleDownload(download)}
-                                        disabled={
-                                          downloadingGuid === (download.guid || download.link)
-                                        }
+                                        {...downloadButtonState(download)}
                                         className="h-9 w-9 hover:bg-primary hover:text-primary-foreground transition-all"
                                         aria-label={`Download ${download.title.replace(/[._]/g, " ")}`}
                                       >
@@ -1623,7 +1660,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     variant="ghost"
                                     size="icon"
                                     onClick={() => handleDownload(download)}
-                                    disabled={downloadingGuid === (download.guid || download.link)}
+                                    {...downloadButtonState(download)}
                                     className="h-9 w-9 hover:bg-primary hover:text-primary-foreground transition-all"
                                     aria-label={`Download ${download.title.replace(/[._]/g, " ")}`}
                                   >
@@ -1714,6 +1751,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                       <Checkbox
                         id={`update-${index}`}
                         checked={selectedUpdateIndices.has(index)}
+                        disabled={isUnsupportedRelease(update)}
+                        title={isUnsupportedRelease(update) ? UNSUPPORTED_RELEASE_TITLE : undefined}
                         onCheckedChange={() => toggleUpdateSelection(index)}
                         className="mt-1"
                       />

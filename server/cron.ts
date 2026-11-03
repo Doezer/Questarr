@@ -62,6 +62,7 @@ import {
 } from "../shared/release-scoring.js";
 import {
   releaseMatchesGame,
+  strictMatchTitle,
   normalizeTitle,
   cleanReleaseName,
   parseJsonStringArray,
@@ -516,6 +517,11 @@ export async function searchAndCategorizeItemsForGame(
   }
 
   let matchedItems: SearchItem[] = [];
+  // The query of the pages after the first: the simpler variant that found them when the full
+  // title returned nothing. Releases are then matched against the strict form of the game's
+  // title, not the variant, which may have lost the subtitle and so fit another game.
+  let searchQuery = game.title;
+  let matchTitle = game.title;
   const globallyFiltered: SearchItem[] = [];
   const blacklisted = await storage.getReleaseBlacklistSet(game.id);
   let xrelLookedUp = false;
@@ -523,11 +529,16 @@ export async function searchAndCategorizeItemsForGame(
   let xrelUnavailable = false;
 
   for (let page = 0; page < AUTO_SEARCH_MAX_PAGES; page++) {
-    const { items, errors } = await searchAllIndexers({
-      query: game.title,
+    const { items, errors, queryUsed } = await searchAllIndexers({
+      query: searchQuery,
       limit: AUTO_SEARCH_PAGE_SIZE,
       offset: page * AUTO_SEARCH_PAGE_SIZE,
+      fallback: true,
     });
+    if (queryUsed) {
+      searchQuery = queryUsed;
+      matchTitle = strictMatchTitle(game.title);
+    }
 
     logAutoSearchErrors(game.title, errors);
 
@@ -565,12 +576,18 @@ export async function searchAndCategorizeItemsForGame(
       }
     }
     const evaluated = scoring
-      ? evaluateItemsForGame(items, game, scoring, xrelReleases, xrelUnavailable)
+      ? evaluateItemsForGame(
+          items,
+          { ...game, title: matchTitle },
+          scoring,
+          xrelReleases,
+          xrelUnavailable
+        )
       : null;
     matchedItems =
       evaluated && scoring
         ? keepEligibleEvaluations(evaluated, scoring)
-        : items.filter((item) => releaseMatchesGame(item.title, game.title));
+        : items.filter((item) => releaseMatchesGame(item.title, matchTitle));
     // A first page with no title match means the search is not about this game. Later pages
     // are only fetched because the blacklist hid a whole page, so an unrelated page there
     // should not stop the search.

@@ -19,13 +19,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { storage } from "./storage.js";
+import { isStrictlyInside } from "./root-folders.js";
 import { igdbClient, type IGDBGame } from "./igdb.js";
 import { toVideos } from "./igdb-videos.js";
 import { normalizeTitle, cleanReleaseName, parseSwitchTitleId } from "../shared/title-utils.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { igdbLogger, routesLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
-import type { InsertGame, InsertGameFile, GameFileCategory } from "../shared/schema.js";
+import type { InsertGame, InsertGameFile, GameFile, GameFileCategory } from "../shared/schema.js";
 import { isUserCuratedGameStatus } from "../shared/schema.js";
 
 // ---------- Types ----------
@@ -393,6 +394,62 @@ async function assignFilesToGame(
 }
 
 // ---------- Public API ----------
+
+/**
+ * Re-point a game's recorded files after its folder (or standalone file) was
+ * copied or moved from `previousPath` to `absolutePath`. Only records that
+ * belonged to `previousPath` are replaced: files tracked elsewhere (e.g. a
+ * Switch update next to the base file) stay as they are.
+ */
+export async function replaceGameFilesFromPath(
+  gameId: string,
+  absolutePath: string,
+  previousPath: string
+): Promise<number> {
+  const previous = path.resolve(previousPath);
+  // Categories the user set by hand are kept, matched by path relative to the old location.
+  const overrides = new Map<string, GameFile["category"]>();
+  const nameOverrides = new Map<string, GameFile["category"] | undefined>();
+  for (const file of await storage.getGameFiles(gameId)) {
+    const filePath = path.resolve(file.filePath);
+    if (filePath === previous || isStrictlyInside(previous, filePath)) {
+      if (file.categoryOverridden) {
+        overrides.set(path.relative(previous, filePath), file.category);
+        const name = path.basename(filePath);
+        // A name shared by several overridden files is ambiguous: drop it.
+        nameOverrides.set(name, nameOverrides.has(name) ? undefined : file.category);
+      }
+      await storage.removeGameFile(file.id);
+    }
+  }
+  const stat = await fs.promises.stat(absolutePath);
+  const files = stat.isFile()
+    ? [{ absolutePath, size: stat.size }]
+    : await listFiles(absolutePath, Number.POSITIVE_INFINITY);
+  const added = await assignFilesToGame(gameId, files);
+  if (overrides.size > 0) {
+    const destination = path.resolve(absolutePath);
+    const inside = (await storage.getGameFiles(gameId)).filter((file) => {
+      const filePath = path.resolve(file.filePath);
+      return filePath === destination || isStrictlyInside(destination, filePath);
+    });
+    const byName = new Map<string, number>();
+    for (const file of inside) {
+      const name = path.basename(file.filePath);
+      byName.set(name, (byName.get(name) ?? 0) + 1);
+    }
+    for (const file of inside) {
+      const relative = path.relative(destination, path.resolve(file.filePath));
+      const name = path.basename(file.filePath);
+      // Sort Extras may have moved the file to a category subfolder: fall back to its
+      // name, but only when that name identifies a single file on both sides.
+      const category =
+        overrides.get(relative) ?? (byName.get(name) === 1 ? nameOverrides.get(name) : undefined);
+      if (category) await storage.updateGameFileCategory(file.id, category);
+    }
+  }
+  return added;
+}
 
 /** Force-assign an unmatched folder to a specific IGDB game (user override). */
 /**

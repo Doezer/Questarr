@@ -693,6 +693,14 @@ export const sanitizeLibraryScanData = [
     .withMessage("rootFolderId must be a non-empty string"),
 ];
 
+// Sanitization rules for POST /api/library/external-games/:id/import
+export const sanitizeExternalGameImportData = [
+  body("mode")
+    .optional()
+    .isIn(["copy", "move", "hardlink"])
+    .withMessage("mode must be copy, move or hardlink"),
+];
+
 // Sanitization rules for POST /api/library/scan/unmatched/match
 export const sanitizeUnmatchedMatchData = [
   body("rootFolderId")

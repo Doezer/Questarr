@@ -16,6 +16,7 @@ const TASK_TYPE_LABELS: Record<string, string> = {
   steam_wishlist: "Steam Wishlist",
   file_import: "File Import",
   bulk_add: "Scan Unlinked",
+  library_transfer: "Library Transfer",
 };
 
 const RESULT_LABELS: Record<string, string> = {

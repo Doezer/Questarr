@@ -6,10 +6,32 @@ const game = {
   status: "downloaded",
   platforms: ["PC (Microsoft Windows)", "Xbox One"],
   genres: ["Shooter"],
+  gameModes: ["Single player", "Multiplayer"],
   rating: 8.8,
   userRating: 9,
   releaseDate: "2020-03-20T00:00:00Z",
 };
+
+describe("gameMatchesCollectionRules game modes", () => {
+  it("matches case-insensitively on any wanted mode", () => {
+    expect(gameMatchesCollectionRules(game, { gameModes: ["multiplayer", "Co-operative"] })).toBe(
+      true
+    );
+  });
+
+  it("does not match a game whose modes are null or empty", () => {
+    expect(
+      gameMatchesCollectionRules({ ...game, gameModes: null }, { gameModes: ["Multiplayer"] })
+    ).toBe(false);
+    expect(
+      gameMatchesCollectionRules({ ...game, gameModes: [] }, { gameModes: ["Multiplayer"] })
+    ).toBe(false);
+  });
+
+  it("counts gameModes as a non-empty rule", () => {
+    expect(isEmptyCollectionRules({ gameModes: ["Multiplayer"] })).toBe(false);
+  });
+});
 
 describe("gameMatchesCollectionRules", () => {
   it("matches when every set criterion holds", () => {
@@ -30,6 +52,7 @@ describe("gameMatchesCollectionRules", () => {
   it.each([
     ["status", { statuses: ["wanted"] }],
     ["genre", { genres: ["Puzzle"] }],
+    ["game mode", { gameModes: ["Co-operative"] }],
     ["platform", { platforms: ["Nintendo Switch"] }],
     ["rating", { minRating: 9 }],
     ["user rating", { minUserRating: 9.5 }],

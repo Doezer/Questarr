@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -306,6 +313,26 @@ export function RootFolderDiscovery() {
     },
   });
 
+  const { data: schedule } = useQuery<{ intervalMinutes: number }>({
+    queryKey: ["/api/library/scan/schedule"],
+  });
+  const scheduleMutation = useMutation({
+    mutationFn: async (intervalMinutes: number) => {
+      await apiRequest("PUT", "/api/library/scan/schedule", { intervalMinutes });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/library/scan/schedule"] });
+      toast({ title: "Rescan schedule saved" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not save schedule",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   if (isLoading) return <Loader2 className="h-6 w-6 animate-spin" />;
 
   return (
@@ -319,7 +346,24 @@ export function RootFolderDiscovery() {
               separate from the Library Root set in Import settings.
             </CardDescription>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={String(schedule?.intervalMinutes ?? 0)}
+              onValueChange={(v) => scheduleMutation.mutate(Number(v))}
+              disabled={scheduleMutation.isPending}
+            >
+              <SelectTrigger className="h-9 w-[190px]" aria-label="Automatic rescan interval">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">Auto rescan: off</SelectItem>
+                <SelectItem value="60">Every hour</SelectItem>
+                <SelectItem value="360">Every 6 hours</SelectItem>
+                <SelectItem value="720">Every 12 hours</SelectItem>
+                <SelectItem value="1440">Every day</SelectItem>
+                <SelectItem value="10080">Every week</SelectItem>
+              </SelectContent>
+            </Select>
             <Button
               variant="outline"
               size="sm"

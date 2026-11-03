@@ -2,7 +2,14 @@ import type { CollectionRules, Game } from "./schema.js";
 
 type MatchableGame = Pick<
   Game,
-  "title" | "status" | "platforms" | "genres" | "rating" | "userRating" | "releaseDate"
+  | "title"
+  | "status"
+  | "platforms"
+  | "genres"
+  | "gameModes"
+  | "rating"
+  | "userRating"
+  | "releaseDate"
 >;
 
 function hasAny(values: readonly string[] | null | undefined, wanted: readonly string[]): boolean {
@@ -27,6 +34,7 @@ export function isEmptyCollectionRules(rules: CollectionRules | null | undefined
     rules.statuses?.length ||
     rules.platforms?.length ||
     rules.genres?.length ||
+    rules.gameModes?.length ||
     rules.minRating !== undefined ||
     rules.minUserRating !== undefined ||
     rules.releaseYearFrom !== undefined ||
@@ -52,7 +60,8 @@ function matchesRatings(game: MatchableGame, rules: CollectionRules): boolean {
 function matchesLists(game: MatchableGame, rules: CollectionRules): boolean {
   if (rules.statuses?.length && !rules.statuses.includes(game.status)) return false;
   if (rules.platforms?.length && !hasAny(game.platforms, rules.platforms)) return false;
-  return !rules.genres?.length || hasAny(game.genres, rules.genres);
+  if (rules.genres?.length && !hasAny(game.genres, rules.genres)) return false;
+  return !rules.gameModes?.length || hasAny(game.gameModes, rules.gameModes);
 }
 
 function matchesTitle(game: MatchableGame, rules: CollectionRules): boolean {

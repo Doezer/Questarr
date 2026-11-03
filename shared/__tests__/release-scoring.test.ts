@@ -771,6 +771,17 @@ describe("xREL PreDB", () => {
     expect(plain.xrel).toBeUndefined();
   });
 
+  it("reports unavailable, not not_found, when xREL's list was full", () => {
+    const full = Object.assign([{ dirname: "Dishonored-FLT" }], { truncated: true });
+    const missing = evaluateRelease(torrent(title), ctx(full));
+    const found = evaluateRelease(
+      torrent(title),
+      ctx(Object.assign([{ dirname: title }], { truncated: true }))
+    );
+    expect(missing.xrel).toBe("unavailable");
+    expect(found.xrel).toBe("verified");
+  });
+
   it("rejects a nuked release and keeps the reason", () => {
     const nuked = evaluateRelease(
       torrent(title),

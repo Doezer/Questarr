@@ -9,12 +9,25 @@ const SCRIPT = path.resolve(__dirname, "../weekly-release-notes.mjs");
 
 let repoDir: string;
 let binDir: string;
+let emptyGitConfig: string;
+// A directory this test created (and so may delete), as opposed to git's own install directory.
+let ownBinDir: string | undefined;
 
 // No inherited GIT_* variables or global config, so git only ever sees the fixture repository.
 const isolatedEnv = (): NodeJS.ProcessEnv => {
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith("GIT_")) delete env[key];
-  return { ...env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: "1" };
+  return {
+    ...env,
+    GIT_CONFIG_GLOBAL: emptyGitConfig,
+    GIT_CONFIG_NOSYSTEM: "1",
+    // If a gh binary shares a directory with git (Scoop shims), it must still fail here: an
+    // unreachable host without credentials, so the script always takes its git fallback.
+    GH_HOST: "gh.invalid",
+    GH_REPO: "",
+    GH_TOKEN: "",
+    GH_ENTERPRISE_TOKEN: "",
+  };
 };
 
 const git = (...args: string[]) =>
@@ -41,9 +54,22 @@ const commit = (name: string, email: string, message: string) => {
 beforeAll(() => {
   repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "weekly-notes-"));
   // Only git and node on PATH, so the script falls back to git data instead of calling gh.
-  binDir = fs.mkdtempSync(path.join(os.tmpdir(), "weekly-notes-bin-"));
-  const gitPath = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
-  fs.symlinkSync(gitPath, path.join(binDir, "git"));
+  // git cannot read os.devNull as a config file on Windows ("\\.\nul"), so use an empty file.
+  emptyGitConfig = path.join(repoDir, "empty-gitconfig");
+  fs.writeFileSync(emptyGitConfig, "");
+  const isWindows = process.platform === "win32";
+  const gitPath = (
+    execFileSync(isWindows ? "where" : "which", ["git"], { encoding: "utf8" }).split(/\r?\n/)[0] ??
+    ""
+  ).trim();
+  if (isWindows) {
+    // git.exe needs its sibling files and symlinks need privileges on Windows, so put git's
+    // own directory (git.exe only, no gh) on PATH.
+    binDir = path.dirname(gitPath);
+  } else {
+    binDir = ownBinDir = fs.mkdtempSync(path.join(os.tmpdir(), "weekly-notes-bin-"));
+    fs.symlinkSync(gitPath, path.join(binDir, "git"));
+  }
 
   git("init", "-q", "-b", "main");
   commit("Owner", "1+owner@users.noreply.github.com", "Initial commit");
@@ -87,11 +113,13 @@ beforeAll(() => {
     "1+owner@users.noreply.github.com",
     "Tweak the README\n\nCo-authored-by: Erin <6+erin@users.noreply.github.com>"
   );
-});
+  // Fifteen git processes: well over the 10 s default hook timeout on a loaded Windows runner,
+  // where every process start is slow.
+}, 120_000);
 
 afterAll(() => {
   fs.rmSync(repoDir, { recursive: true, force: true });
-  fs.rmSync(binDir, { recursive: true, force: true });
+  if (ownBinDir) fs.rmSync(ownBinDir, { recursive: true, force: true });
 });
 
 describe("weekly-release-notes contributors", () => {

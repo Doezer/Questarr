@@ -355,6 +355,11 @@ import {
   ignoreUnmatchedFolder,
   searchUnmatchedFolder,
 } from "./library-scanner.js";
+import {
+  getLibraryRescanIntervalMinutes,
+  setLibraryRescanIntervalMinutes,
+  LIBRARY_RESCAN_INTERVALS_MINUTES,
+} from "./library-rescan.js";
 import { integrationRouter } from "./routes/integration.js";
 import { apiKeysRouter } from "./routes/api-keys.js";
 import { isAdminApiRoute } from "./admin-api-routes.js";
@@ -2231,6 +2236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   rating: updatedData.rating as number | null,
                   genres: updatedData.genres as string[],
                   themes: updatedData.themes as string[],
+                  gameModes: updatedData.gameModes as string[],
                   isAdultContent: updatedData.isAdultContent as boolean,
                   isAgeRestricted: updatedData.isAgeRestricted as boolean,
                   platforms: updatedData.platforms as string[],
@@ -2569,6 +2575,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   );
+
+  app.get("/api/library/scan/schedule", authenticateToken, async (_req: Request, res: Response) => {
+    try {
+      res.json({ intervalMinutes: await getLibraryRescanIntervalMinutes() });
+    } catch (error) {
+      routesLogger.error({ error }, "error reading library rescan schedule");
+      res.status(500).json({ error: "Failed to read rescan schedule" });
+    }
+  });
+
+  app.put("/api/library/scan/schedule", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const minutes = Number((req.body ?? {}).intervalMinutes);
+      if (!(LIBRARY_RESCAN_INTERVALS_MINUTES as readonly number[]).includes(minutes)) {
+        return res.status(400).json({ error: "Invalid rescan interval" });
+      }
+      await setLibraryRescanIntervalMinutes(minutes);
+      return res.json({ intervalMinutes: minutes });
+    } catch (error) {
+      routesLogger.error({ error }, "error saving library rescan schedule");
+      return res.status(500).json({ error: "Failed to save rescan schedule" });
+    }
+  });
 
   app.get("/api/library/scan/status", authenticateToken, async (_req: Request, res: Response) => {
     try {

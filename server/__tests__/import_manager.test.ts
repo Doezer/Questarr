@@ -452,8 +452,8 @@ describe("ImportManager", () => {
     // under the computed destination), then extracts it in place there — not in a
     // downloader-side "_extracted" directory.
     expect(archiveService.extract).toHaveBeenCalledWith(
-      "/data/PC/Archive Game/file.zip",
-      "/data/PC/Archive Game",
+      path.join("/data/PC/Archive Game", "file.zip"),
+      path.join("/data/PC/Archive Game"),
       undefined
     );
   });
@@ -594,8 +594,8 @@ describe("ImportManager", () => {
     await manager.processImport("dl-1", "/remote/path");
 
     expect(archiveService.extract).toHaveBeenCalledWith(
-      "/data/PC/Archive Game/file.zip",
-      "/data/PC/Archive Game",
+      path.join("/data/PC/Archive Game", "file.zip"),
+      path.join("/data/PC/Archive Game"),
       undefined
     );
     expect(storage.updateGameDownloadStatus).toHaveBeenCalled();
@@ -812,7 +812,7 @@ describe("ImportManager", () => {
     // move mode relocates the raw archive into the library first (game.zip's basename,
     // under the confirmed proposedPath), then extracts it in place there.
     expect(archiveService.extract).toHaveBeenCalledWith(
-      "/safe/root/PC/My Game/game.zip",
+      path.join("/safe/root/PC/My Game", "game.zip"),
       "/safe/root/PC/My Game",
       undefined
     );
@@ -979,8 +979,8 @@ describe("ImportManager", () => {
     await createManager().processImport("dl-1", "/remote/path", "hunter2");
 
     expect(archiveService.extract).toHaveBeenCalledWith(
-      "/data/PC/Archive Game/file.rar",
-      "/data/PC/Archive Game",
+      path.join("/data/PC/Archive Game", "file.rar"),
+      path.join("/data/PC/Archive Game"),
       "hunter2"
     );
   });
@@ -1000,7 +1000,7 @@ describe("ImportManager", () => {
     });
 
     expect(archiveService.extract).toHaveBeenCalledWith(
-      "/safe/root/PC/My Game/game.rar",
+      path.join("/safe/root/PC/My Game", "game.rar"),
       "/safe/root/PC/My Game",
       "hunter2"
     );

@@ -379,7 +379,17 @@ export async function transferExternalGame(
     }
     const filesPlaced = await replaceGameFilesFromPath(t.game.id, result.destDir, t.source);
     // The game already points at the verified copy: only now drop the source.
-    if (crossMove) await fs.remove(t.source);
+    if (crossMove) {
+      // The move itself succeeded: a leftover source is a warning, not a failed import.
+      await fs
+        .remove(t.source)
+        .catch((error) =>
+          routesLogger.warn(
+            { error, source: t.source },
+            "moved game but could not remove the source"
+          )
+        );
+    }
 
     await storage.addImportTaskItem({
       taskId: task.id,

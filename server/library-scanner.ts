@@ -412,7 +412,10 @@ export async function replaceGameFilesFromPath(
   for (const file of await storage.getGameFiles(gameId)) {
     const filePath = path.resolve(file.filePath);
     if (filePath === previous || isStrictlyInside(previous, filePath)) {
-      if (file.categoryOverridden) overrides.set(path.relative(previous, filePath), file.category);
+      if (file.categoryOverridden) {
+        overrides.set(path.relative(previous, filePath), file.category);
+        overrides.set(path.basename(filePath), file.category);
+      }
       await storage.removeGameFile(file.id);
     }
   }
@@ -424,7 +427,10 @@ export async function replaceGameFilesFromPath(
   if (overrides.size > 0) {
     const destination = path.resolve(absolutePath);
     for (const file of await storage.getGameFiles(gameId)) {
-      const category = overrides.get(path.relative(destination, path.resolve(file.filePath)));
+      // Sort Extras may have put the file in a category subfolder: fall back to its name.
+      const category =
+        overrides.get(path.relative(destination, path.resolve(file.filePath))) ??
+        overrides.get(path.basename(file.filePath));
       if (category) await storage.updateGameFileCategory(file.id, category);
     }
   }

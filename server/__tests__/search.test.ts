@@ -541,6 +541,21 @@ describe("Search Module - query fallback", () => {
     expect(torznabClient.searchMultipleIndexers).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the errors of fallback attempts when no variant finds anything", async () => {
+    vi.mocked(torznabClient.searchMultipleIndexers)
+      .mockResolvedValueOnce(makeTorznabResponse([]))
+      .mockResolvedValue(makeTorznabResponse([], ["Torznab Indexer: rate limited"]));
+
+    const result = await searchAllIndexers({
+      query: "Clive Barker's Hellraiser: Revival",
+      fallback: true,
+    });
+
+    expect(result.items).toHaveLength(0);
+    expect(result.errors).toEqual(["Torznab Indexer: rate limited"]);
+    expect(result.queryUsed).toBeUndefined();
+  });
+
   it("does not retry a title with nothing to simplify", async () => {
     vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(makeTorznabResponse([]));
 

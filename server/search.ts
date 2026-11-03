@@ -101,8 +101,11 @@ export async function searchAllIndexers(
       // failed for the variant too
       return { ...result, errors: [...new Set([...errors, ...result.errors])], queryUsed: variant };
     }
+    // keep the failures of an empty variant: the query that could find the game may never have
+    // been searched successfully
+    errors.push(...result.errors);
   }
-  return first;
+  return { ...first, errors: [...new Set(errors)] };
 }
 
 async function searchIndexersOnce(

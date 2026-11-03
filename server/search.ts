@@ -84,7 +84,9 @@ export async function searchAllIndexers(
     !!options.query &&
     (options.offset ?? 0) === 0 &&
     first.items.length === 0 &&
-    first.errors[0] !== "No indexers configured";
+    // a failing indexer would fail again for every variant: only an error-free empty search
+    // is worth retrying
+    first.errors.length === 0;
   if (!canFallback) return first;
 
   const errors = [...first.errors];

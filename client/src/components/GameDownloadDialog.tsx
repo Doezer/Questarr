@@ -842,11 +842,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     },
   });
 
-  // blacklisted updates stay listed (marked risky) but are never ticked by default
+  // blacklisted updates stay listed (marked risky) but are never ticked by default; updates no
+  // configured downloader can take cannot be ticked at all
   const selectableUpdateIndices = () =>
     new Set(
       filteredCategorizedDownloads.update.flatMap((update, index) =>
-        update.blacklisted ? [] : [index]
+        update.blacklisted || isUnsupportedRelease(update) ? [] : [index]
       )
     );
 
@@ -883,7 +884,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     if (includeUpdates && selectedUpdateIndices.size > 0) {
       const selectedUpdates = Array.from(selectedUpdateIndices)
         .map((i) => filteredCategorizedDownloads.update[i])
-        .filter((d): d is DownloadItem => d !== undefined);
+        .filter((d): d is DownloadItem => d !== undefined && !isUnsupportedRelease(d));
       downloadMutation.mutate([selectedMainDownload, ...selectedUpdates]);
     } else {
       downloadMutation.mutate([selectedMainDownload]);
@@ -939,6 +940,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   };
 
   const toggleUpdateSelection = (index: number) => {
+    const update = filteredCategorizedDownloads.update[index];
+    if (update && isUnsupportedRelease(update)) return;
     setSelectedUpdateIndices((prev) => {
       const next = new Set(prev);
       if (next.has(index)) next.delete(index);
@@ -1748,6 +1751,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                       <Checkbox
                         id={`update-${index}`}
                         checked={selectedUpdateIndices.has(index)}
+                        disabled={isUnsupportedRelease(update)}
+                        title={isUnsupportedRelease(update) ? UNSUPPORTED_RELEASE_TITLE : undefined}
                         onCheckedChange={() => toggleUpdateSelection(index)}
                         className="mt-1"
                       />

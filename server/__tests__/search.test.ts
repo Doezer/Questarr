@@ -527,6 +527,20 @@ describe("Search Module - query fallback", () => {
     expect(torznabClient.searchMultipleIndexers).toHaveBeenCalledTimes(1 + MAX_FALLBACK_QUERIES);
   });
 
+  it("does not retry when the first search failed", async () => {
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeTorznabResponse([], ["Torznab Indexer: timeout"])
+    );
+
+    const result = await searchAllIndexers({
+      query: "Clive Barker's Hellraiser: Revival",
+      fallback: true,
+    });
+
+    expect(result.errors).toEqual(["Torznab Indexer: timeout"]);
+    expect(torznabClient.searchMultipleIndexers).toHaveBeenCalledTimes(1);
+  });
+
   it("does not retry a title with nothing to simplify", async () => {
     vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(makeTorznabResponse([]));
 

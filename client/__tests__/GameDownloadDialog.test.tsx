@@ -1531,6 +1531,55 @@ describe("GameDownloadDialog", () => {
     });
   });
 
+  it("leaves an update no downloader can take out of the bundle selection", async () => {
+    mockIsMobile = true;
+    const base = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "bundle-main",
+          title: "Test Game ElAmigos",
+          link: "http://test.com/bundle-main",
+          pubDate: new Date().toISOString(),
+        }),
+        makeUsenetItem({
+          guid: "bundle-update",
+          title: "Test Game Update v1.1",
+          link: "http://test.com/bundle-update",
+          grabs: 12,
+        }),
+      ]),
+    });
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (getRequestUrl(url).includes("/api/downloaders/enabled")) {
+        return {
+          ok: true,
+          json: async () => [{ id: "1", name: "qBittorrent", enabled: true, type: "qbittorrent" }],
+        } as Response;
+      }
+      return base(url, init);
+    }) as typeof fetch;
+
+    renderComponent();
+
+    await waitFor(() =>
+      expect(screen.getAllByText("Test Game ElAmigos").length).toBeGreaterThan(0)
+    );
+    await screen.findByTestId("notice-unsupported-releases");
+    const mainButton = screen
+      .getAllByTestId("icon-download")
+      .map((icon) => icon.closest("button"))
+      .find((button) => button && !button.disabled);
+    expect(mainButton).toBeTruthy();
+    fireEvent.click(mainButton as HTMLElement);
+
+    await waitFor(() => {
+      expect(screen.getByText("Download with Updates?")).toBeInTheDocument();
+      expect(screen.getByText("0 of 1 updates selected")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("Select All"));
+    expect(screen.getByText("0 of 1 updates selected")).toBeInTheDocument();
+  });
+
   it("lets mobile users select bundle updates and download only the main game", async () => {
     mockIsMobile = true;
     globalThis.fetch = createFetchMock({

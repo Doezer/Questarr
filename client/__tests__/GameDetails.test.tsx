@@ -7,6 +7,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import GameDetails from "../src/components/GameDetails";
 import { Toaster } from "@/components/ui/toaster";
+import { getQueryFn } from "@/lib/queryClient";
 
 // Mocking external dependencies
 vi.mock("socket.io-client", () => ({
@@ -83,6 +84,8 @@ vi.mock("../src/components/GameJournalTab", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  ImagePlus: (props: Record<string, unknown>) => <div {...props} />,
+  Upload: (props: Record<string, unknown>) => <div {...props} />,
   Plus: (props: Record<string, unknown>) => <div data-testid="icon-plus" {...props} />,
   Calendar: (props: Record<string, unknown>) => <div data-testid="icon-calendar" {...props} />,
   Star: (props: Record<string, unknown>) => <div data-testid="icon-star" {...props} />,
@@ -184,7 +187,7 @@ const mockGame = {
 const createQueryClient = () =>
   new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
+      queries: { retry: false, queryFn: getQueryFn({ on401: "throw" }) },
       mutations: { retry: false },
     },
   });
@@ -214,7 +217,7 @@ function makeFetchMock(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const renderComponent = (game = mockGame) => {
+const renderComponent = (game: import("@shared/schema").Game = mockGame) => {
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <GameDetails game={game} onClose={() => {}} />
@@ -285,6 +288,21 @@ describe("GameDetails", () => {
     expect(screen.getByTestId("badge-platform-ps5")).toBeInTheDocument();
   });
 
+  it("renders game mode badges when the game has modes", () => {
+    renderComponent({ ...mockGame, gameModes: ["Single player", "Co-operative"] });
+    expect(screen.getByText("Game Modes")).toBeInTheDocument();
+    expect(screen.getByTestId("badge-gamemode-single-player")).toBeInTheDocument();
+    expect(screen.getByTestId("badge-gamemode-co-operative")).toBeInTheDocument();
+  });
+
+  it("hides the game modes section when modes are null or empty", () => {
+    const { unmount } = renderComponent({ ...mockGame, gameModes: null });
+    expect(screen.queryByText("Game Modes")).not.toBeInTheDocument();
+    unmount();
+    renderComponent({ ...mockGame, gameModes: [] });
+    expect(screen.queryByText("Game Modes")).not.toBeInTheDocument();
+  });
+
   it("updates and clears the automatic download target", async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
       makeFetchMock({
@@ -330,6 +348,71 @@ describe("GameDetails", () => {
     // Media tab uses forceMount so screenshots are always in the DOM (hidden until tab activated)
     expect(screen.getByTestId("screenshot-0")).toBeInTheDocument();
     expect(screen.getByTestId("screenshot-1")).toBeInTheDocument();
+  });
+
+  it("counts personal screenshots in Media alongside IGDB artwork", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({ "/screenshots": [{ id: "mine", url: "/api/screenshots/mine.png" }] })
+    );
+    renderComponent();
+    const gallery = await screen.findByRole("region", { name: "Your screenshots" });
+    expect(
+      await within(gallery).findByRole("button", { name: "View screenshot 1" })
+    ).toBeInTheDocument();
+    const navigation = screen.getByRole("navigation", { name: "Game sections" });
+    expect(within(navigation).getByRole("button", { name: /Media/ })).toHaveTextContent("3");
+  });
+
+  it("resolves personal screenshots to the saved game when opened through discovery", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({
+        "/api/games?includeHidden=true": [{ ...mockGame, igdbId: 123 }],
+        "/api/games/1/screenshots": [{ id: "mine", url: "/api/screenshots/mine.png" }],
+      })
+    );
+    renderComponent({ ...mockGame, id: "igdb-123", igdbId: 123 });
+    const gallery = await screen.findByRole("region", { name: "Your screenshots" });
+    expect(
+      await within(gallery).findByRole("button", { name: "View screenshot 1" })
+    ).toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      "/api/games/igdb-123/screenshots",
+      expect.anything()
+    );
+    const navigation = screen.getByRole("navigation", { name: "Game sections" });
+    expect(within(navigation).getByRole("button", { name: /Media/ })).toHaveTextContent("3");
+  });
+
+  it("recovers a failed saved-library lookup from the discovery Media section", async () => {
+    let failLookup = true;
+    const success = makeFetchMock({
+      "/api/games?includeHidden=true": [{ ...mockGame, igdbId: 123 }],
+      "/api/games/1/screenshots": [{ id: "mine", url: "/api/screenshots/mine.png" }],
+    });
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url === "/api/games?includeHidden=true" && failLookup) {
+        return Promise.resolve({ ok: false, status: 503, text: async () => "Unavailable" });
+      }
+      return success(url);
+    });
+    renderComponent({ ...mockGame, id: "igdb-123", igdbId: 123, screenshots: [] });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not check your saved game's screenshots."
+    );
+    expect(screen.queryByText("No screenshots or videos available.")).not.toBeInTheDocument();
+    failLookup = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry library lookup" }));
+    const gallery = await screen.findByRole("region", { name: "Your screenshots" });
+    expect(
+      await within(gallery).findByRole("button", { name: "View screenshot 1" })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry library lookup" })).not.toBeInTheDocument();
+  });
+
+  it("does not offer personal uploads on an unsaved discovery game", () => {
+    renderComponent({ ...mockGame, id: "igdb-123" });
+    expect(screen.queryByRole("region", { name: "Your screenshots" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Upload screenshot")).not.toBeInTheDocument();
   });
 
   it("renders the video carousel above the screenshots when the game has videos", () => {

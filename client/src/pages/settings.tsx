@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { SteamLibraryImport } from "@/components/SteamLibraryImport";
 import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -227,6 +228,7 @@ function tabFromSearch(search: string): string | null {
   return tab && SETTINGS_TABS.has(tab) ? tab : null;
 }
 
+/** Edit account integrations and preferences, including owned-library import progress. */
 export default function SettingsPage() {
   const search = useSearch();
   const [, navigate] = useLocation();
@@ -1854,7 +1856,7 @@ export default function SettingsPage() {
                   <Gamepad2 className="h-5 w-5 text-muted-foreground" />
                   <CardTitle className="text-lg">Steam Integration</CardTitle>
                 </div>
-                <CardDescription>Sync your Steam Wishlist with Questarr.</CardDescription>
+                <CardDescription>Sync your Steam wishlist and import owned games.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-col space-y-4">
@@ -1875,7 +1877,7 @@ export default function SettingsPage() {
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Enter your SteamID64 to sync your wishlist. You can find it on{" "}
+                      Enter your SteamID64 to sync your wishlist or import owned games. Find it on{" "}
                       <a
                         href="https://steamid.io"
                         target="_blank"
@@ -1949,6 +1951,8 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+
+            <SteamLibraryImport />
 
             {/* Nexus Mods Card */}
             <Card id="nexusmods-config">

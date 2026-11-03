@@ -8,6 +8,9 @@ vi.mock("../ssrf.js", () => createSafeFetchOnlyMock());
 vi.mock("../storage.js", () => ({
   storage: {
     getSystemConfig: vi.fn(),
+    getClassificationCacheEntry: vi.fn(),
+    putClassificationCacheEntry: vi.fn(),
+    pruneClassificationCache: vi.fn(),
   },
 }));
 
@@ -280,10 +283,90 @@ describe("TypeSafeClient", () => {
       client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
       await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
 
-      client.configure("https://api.typesafe.ai/v1/systemone", "other-key");
+      client.configure("https://proxy.example.com/v1/systemone", "other-key");
       await client.analyzeRelease({ releaseName: "Some.Game-GRP" });
 
       expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("asks the provider the key was built from when settings change during the cache lookup", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      let finishLookup: (row: undefined) => void = () => {};
+      vi.mocked(storage.getClassificationCacheEntry).mockReturnValue(
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        })
+      );
+      const client = await getClient();
+      client.configure("https://old.example.com/v1/systemone", "old-key");
+      const pending = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      // Let the call reach the (pending) cache lookup before the settings change
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      client.configure("https://new.example.com/v1/systemone", "new-key");
+      finishLookup(undefined);
+      await pending;
+
+      expect(mockSafeFetch.mock.calls[0]?.[0]).toBe("https://old.example.com/v1/systemone");
+    });
+
+    it("does not let a call made after a cache clear join a lookup that started before it", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      let finishLookup: (row: undefined) => void = () => {};
+      vi.mocked(storage.getClassificationCacheEntry)
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          })
+        )
+        .mockResolvedValue(undefined);
+      const { clearAllMemoryCaches } = await import("../classification/cache.js");
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "test-key");
+      const before = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      clearAllMemoryCaches();
+      const after = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      await after;
+      finishLookup(undefined);
+      await before;
+
+      // The second call ran its own lookup instead of joining the first
+      expect(storage.getClassificationCacheEntry).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not let a call with a rotated key join a lookup made with the old one", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      let finishLookup: (row: undefined) => void = () => {};
+      vi.mocked(storage.getClassificationCacheEntry)
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          })
+        )
+        .mockResolvedValue(undefined);
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "old-key");
+      const before = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      client.configure("https://api.typesafe.ai/v1/systemone", "new-key");
+      const after = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      await after;
+      finishLookup(undefined);
+      await before;
+
+      expect(storage.getClassificationCacheEntry).toHaveBeenCalledTimes(2);
     });
 
     it("keeps a configure() made while the stored settings are still loading", async () => {

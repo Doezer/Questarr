@@ -282,6 +282,107 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
   return gameWords.every((word) => normalizedRelease.includes(word));
 }
 
+// Trailing edition words an indexer rarely carries in the release name ("... Game of the Year
+// Edition", "... Remastered"). Only stripped at the end of the title.
+const EDITION_SUFFIX_REGEX = new RegExp(
+  // a separator is required, so "HeartGold" or "Superedition" keep their last word
+  String.raw`(?:\s+|\s*[:\-\u2013\u2014]\s*)(?:the\s+)?` +
+    // adjectives that can be part of a title ("Persona 5 Royal", "Pokemon Gold") only count
+    // as edition metadata when followed by "edition"
+    String.raw`(?:(?:game\s+of\s+the\s+year|goty)(?:\s+edition)?|` +
+    String.raw`(?:deluxe|definitive|complete|ultimate|gold|enhanced|special|collector'?s|` +
+    String.raw`anniversary|standard|digital|premium|legendary|royal)\s+edition|` +
+    String.raw`remastered|remaster|director'?s\s+cut|edition)\s*$`,
+  "i"
+);
+
+// "Clive Barker's Hellraiser", "Sid Meier's Civilization VI": a possessive publisher or author
+// prefix of two to four words in front of the actual title. A single possessive word is left
+// alone: "Baldur's Gate" and "Assassin's Creed" are the title itself.
+const POSSESSIVE_PREFIX_REGEX = /^(?:[\p{L}\p{N}.&]+\s+){1,3}[\p{L}\p{N}.&]+['\u2019]s\s+(?=\S)/u;
+
+function stripEditionWords(title: string): string {
+  let current = title.trim();
+  // "Foo: Deluxe Edition" -> "Foo"; repeated for "Foo Remastered Deluxe Edition"
+  for (let i = 0; i < 3; i++) {
+    const next = current.replace(EDITION_SUFFIX_REGEX, "").trim();
+    if (next === current || next.length < 3) break;
+    current = next;
+  }
+  return current;
+}
+
+function stripPossessivePrefix(title: string): string {
+  const stripped = title.replace(POSSESSIVE_PREFIX_REGEX, "").trim();
+  // A prefix cannot be told from the title's own words ("Little King's Story" is not "Story"),
+  // so a one-word remainder is not trusted: the full title stays the identity.
+  return stripped.length >= 3 && stripped.split(/\s+/).length >= 2 ? stripped : title;
+}
+
+function dropSubtitle(title: string): string {
+  const match = /^(.{3,}?)\s*(?::|\s[-\u2013\u2014]\s)/.exec(title);
+  return match?.[1]?.trim() ?? title;
+}
+
+function stripPunctuation(title: string): string {
+  return title
+    .replaceAll(/['\u2019]/g, "")
+    .replaceAll(/[^\p{L}\p{N}\s]/gu, " ")
+    .replaceAll(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * The title releases found through a fallback query are matched against: the full title minus
+ * only the parts indexers commonly leave out (a possessive publisher prefix, edition words).
+ * The subtitle stays, so a release of another game of the series ("Hellraiser.Inferno" for
+ * "Hellraiser: Revival") found through the subtitle-less query is not taken for the wanted one.
+ */
+export function strictMatchTitle(title: string): string {
+  return stripEditionWords(stripPossessivePrefix(title.trim()));
+}
+
+/**
+ * Fallback search queries for a game title whose full form returned nothing, from the least to
+ * the most lossy: without a possessive publisher prefix ("Clive Barker's Hellraiser: Revival" ->
+ * "Hellraiser: Revival"), without edition words, without punctuation, and finally without the
+ * subtitle after ":" or " - ". The original title is never part of the list and every variant
+ * is distinct and at least 4 characters long. Callers must still filter the results with
+ * releaseMatchesGame: a short variant ("Hellraiser") finds releases of a sequel as well.
+ */
+export function buildQueryVariants(title: string): string[] {
+  const original = title.trim();
+  if (!original) return [];
+
+  const noPossessive = stripPossessivePrefix(original);
+  const noEdition = stripEditionWords(original);
+  const noPossessiveNoEdition = stripEditionWords(noPossessive);
+  const bases = [noPossessive, noEdition, noPossessiveNoEdition];
+
+  const ordered: string[] = [
+    ...bases,
+    // only of the most simplified base: punctuation of the longer forms would use up the
+    // fallback budget before the subtitle variants
+    stripPunctuation(noPossessiveNoEdition),
+    ...[noPossessiveNoEdition, noPossessive, noEdition, original].map(dropSubtitle),
+    ...[noPossessiveNoEdition, noPossessive, noEdition, original].map((t) =>
+      stripPunctuation(dropSubtitle(t))
+    ),
+  ];
+
+  // compared as typed (case and spacing aside): a variant that only drops punctuation is wanted
+  const keyOf = (t: string) => t.toLowerCase().replaceAll(/\s+/g, " ").trim();
+  const seen = new Set<string>([keyOf(original)]);
+  const variants: string[] = [];
+  for (const candidate of ordered) {
+    const key = keyOf(candidate);
+    if (key.length < 4 || seen.has(key)) continue;
+    seen.add(key);
+    variants.push(candidate);
+  }
+  return variants;
+}
+
 export interface ReleaseMetadata {
   gameTitle: string;
   version?: string | undefined;

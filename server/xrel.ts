@@ -174,6 +174,19 @@ export async function searchReleases(
   query: string,
   options: { scene?: boolean; p2p?: boolean; limit?: number; baseUrl?: string | null } = {}
 ): Promise<XrelReleaseListItem[]> {
+  return (await searchReleasesWithMeta(query, options)).releases;
+}
+
+// xREL's search ignores `page` and never returns more than this many entries per list, whatever
+// `limit` asks for (checked against the live API), so a full list may hide older entries.
+const XREL_SCENE_LIST_CAP = 50;
+const XREL_P2P_LIST_CAP = 30;
+
+/** Same as searchReleases, plus whether xREL's list was full (so it may have cut entries off). */
+export async function searchReleasesWithMeta(
+  query: string,
+  options: { scene?: boolean; p2p?: boolean; limit?: number; baseUrl?: string | null } = {}
+): Promise<{ releases: XrelReleaseListItem[]; truncated: boolean }> {
   const scene = options.scene !== false;
   const p2p = options.p2p === true;
   const limit = Math.min(Math.max(1, options.limit ?? 25), 100);
@@ -208,15 +221,24 @@ export async function searchReleases(
     throw new Error(`xREL API error: ${res.status} ${res.statusText}`);
   }
 
-  const data = (await res.json()) as XrelSearchResponse;
-  // a reply with neither list is not "no releases": a changed format or a wrong base URL would
-  // otherwise mark every release as not on xREL
-  if (data.results === undefined && data.p2p_results === undefined) {
+  const data = (await res.json()) as XrelSearchResponse | null;
+  // a reply without a usable release list is not "no releases": a changed format, a null body
+  // or a wrong base URL would otherwise mark every release as not on xREL
+  const results = data?.results;
+  const p2pResults = data?.p2p_results;
+  const hasList = Array.isArray(results) || Array.isArray(p2pResults);
+  const badList =
+    (results !== undefined && !Array.isArray(results)) ||
+    (p2pResults !== undefined && !Array.isArray(p2pResults));
+  if (!hasList || badList) {
     throw new Error("xREL API returned an unexpected response (no release lists)");
   }
-  const results = data.results ?? [];
-  const p2pResults = data.p2p_results ?? [];
-  return mergeAndFilterGameReleases(results, p2pResults);
+  const scenes = Array.isArray(results) ? results : [];
+  const p2ps = Array.isArray(p2pResults) ? p2pResults : [];
+  const truncated =
+    scenes.length >= Math.min(limit, XREL_SCENE_LIST_CAP) ||
+    p2ps.length >= Math.min(limit, XREL_P2P_LIST_CAP);
+  return { releases: mergeAndFilterGameReleases(scenes, p2ps), truncated };
 }
 
 /**
@@ -338,6 +360,7 @@ export async function getLatestGames(
 
 export const xrelClient = {
   searchReleases,
+  searchReleasesWithMeta,
   getLatestReleases,
   getLatestGames,
   titleMatches,

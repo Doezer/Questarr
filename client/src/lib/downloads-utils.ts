@@ -1,3 +1,5 @@
+import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
+
 /**
  * Download status type for torrent and usenet clients
  */
@@ -285,4 +287,28 @@ export function isUsenetItem(item: {
     return item.downloadType === "usenet";
   }
   return (item.grabs !== undefined || item.age !== undefined) && item.seeders === undefined;
+}
+
+/** True when at least one of the downloaders can take a release of this kind. */
+export function hasCompatibleDownloader(
+  item: Parameters<typeof isUsenetItem>[0],
+  downloaders: { type: string }[]
+): boolean {
+  const usenet = isUsenetItem(item);
+  return downloaders.some((d) =>
+    usenet ? isUsenetDownloaderType(d.type) : isTorrentDownloaderType(d.type)
+  );
+}
+
+/** Counts the releases that no configured downloader can take, per protocol. */
+export function countUnsupportedReleases(
+  items: Parameters<typeof isUsenetItem>[0][],
+  downloaders: { type: string }[]
+): { torrent: number; usenet: number } {
+  const counts = { torrent: 0, usenet: 0 };
+  for (const item of items) {
+    if (hasCompatibleDownloader(item, downloaders)) continue;
+    counts[isUsenetItem(item) ? "usenet" : "torrent"]++;
+  }
+  return counts;
 }

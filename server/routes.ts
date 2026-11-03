@@ -79,6 +79,7 @@ import {
   sanitizeRootFolderUpdateData,
   sanitizeRootFolderId,
   sanitizeLibraryScanData,
+  sanitizeExternalGameImportData,
   sanitizeUnmatchedMatchData,
   sanitizeUnmatchedIgnoreData,
   sanitizeIgnoredId,
@@ -300,6 +301,7 @@ import {
   normalizeTitle,
   cleanReleaseName,
   releaseMatchesGame,
+  strictMatchTitle,
   parseReleaseMetadata,
   resolveGamePlatformPreference,
   matchesPlatformFilter,
@@ -311,6 +313,7 @@ import type { XrelGameStatus } from "../shared/xrel-types.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import { steamLibraryRoutes } from "./steam-library-routes.js";
 import { releaseScoringRoutes } from "./release-scoring-routes.js";
 import { classificationCandidatesRoutes } from "./classification-candidates-routes.js";
 import { classificationSettingsRoutes } from "./classification-settings-routes.js";
@@ -342,6 +345,13 @@ import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { activityRouter } from "./routes/activity.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
+import {
+  listExternalGames,
+  previewLibraryTransfer,
+  transferExternalGame,
+  LibraryTransferError,
+  type LibraryTransferMode,
+} from "./library-transfer.js";
 import { probeRootFolder, isWithinDeletableRootFolder, isStrictlyInside } from "./root-folders.js";
 import {
   scanRootFolderById,
@@ -353,6 +363,11 @@ import {
   ignoreUnmatchedFolder,
   searchUnmatchedFolder,
 } from "./library-scanner.js";
+import {
+  getLibraryRescanIntervalMinutes,
+  setLibraryRescanIntervalMinutes,
+  LIBRARY_RESCAN_INTERVALS_MINUTES,
+} from "./library-rescan.js";
 import { integrationRouter } from "./routes/integration.js";
 import { apiKeysRouter } from "./routes/api-keys.js";
 import { isAdminApiRoute } from "./admin-api-routes.js";
@@ -708,7 +723,10 @@ async function scoreManualSearchResults(
   query: string,
   preferredPlatform: string | null,
   xrelTypes: XrelPredbTypes,
-  blacklisted: Set<string> = new Set()
+  blacklisted: Set<string> = new Set(),
+  // the simpler query variant that produced the results: releases are named after it, so the
+  // title match is made against it instead of the game's full title
+  fallbackTitle?: string
 ): Promise<{ items: SearchItem[]; config?: ScoringConfig }> {
   if (!userId || items.length === 0) return { items };
   try {
@@ -716,7 +734,7 @@ async function scoreManualSearchResults(
     const platform = ownGame
       ? resolveGamePlatformPreference(ownGame, preferredPlatform)
       : preferredPlatform;
-    const gameTitle = ownGame?.title ?? query;
+    const gameTitle = fallbackTitle ?? ownGame?.title ?? query;
     // a slow xREL must not hold up the result list; the lookup finishes in the background
     let xrelUnavailable = false;
     const xrelReleases = await getXrelPredb(gameTitle, xrelTypes, {
@@ -776,11 +794,19 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       return res.status(400).json({ error: "Search query required" });
     }
 
-    const { items, total, errors } = await searchAllIndexers({
+    // Sent by the continuation pages of a search that fell back on a simpler query: the title
+    // that query was derived from, which the results are still scored against.
+    const requestedTitle =
+      typeof req.query.title === "string" && req.query.title.trim()
+        ? req.query.title.trim()
+        : undefined;
+
+    const { items, total, errors, queryUsed } = await searchAllIndexers({
       query: query.trim(),
       category: categories,
       limit,
       offset,
+      fallback: true,
     });
 
     // Global release-name blacklist (case-insensitive substring match) applies to every
@@ -814,7 +840,10 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       query.trim(),
       userSettings?.preferredPlatform ?? null,
       xrelTypesFor(userSettings),
-      gameBlacklist
+      gameBlacklist,
+      queryUsed || requestedTitle
+        ? strictMatchTitle(queryUsed ? (ownGame?.title ?? query.trim()) : (requestedTitle ?? ""))
+        : undefined
     );
     // releases the scoring failure path dropped count as blacklisted, like the global ones
     const blacklistedCount = items.length - scoredItems.length;
@@ -857,6 +886,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       items: enrichedItems,
       total,
       offset,
+      ...(queryUsed ? { queryUsed } : {}),
       ...(blacklistedCount > 0 ? { blacklistedCount } : {}),
       errors: errors.length > 0 ? errors : undefined,
     });
@@ -991,6 +1021,7 @@ function registerIgdbParamListRoute(
  * @param app - The Express application to configure
  * @returns The configured HTTP server
  */
+/** Mount authenticated API routers and initialize the services they share before listening. */
 export async function registerRoutes(app: Express): Promise<Server> {
   // Express 5 parses `req.query` simply by default and re-parses it on every access, so
   // express-validator sanitizers (toInt/toBoolean) would write to a throwaway object. Keep the
@@ -1085,6 +1116,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Use Steam Routes
   app.use(steamRoutes);
+  app.use(steamLibraryRoutes);
   app.use(releaseScoringRoutes);
   app.use(classificationCandidatesRoutes);
   app.use(classificationSettingsRoutes);
@@ -2212,6 +2244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   rating: updatedData.rating as number | null,
                   genres: updatedData.genres as string[],
                   themes: updatedData.themes as string[],
+                  gameModes: updatedData.gameModes as string[],
                   isAdultContent: updatedData.isAdultContent as boolean,
                   isAgeRestricted: updatedData.isAgeRestricted as boolean,
                   platforms: updatedData.platforms as string[],
@@ -2551,6 +2584,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  app.get("/api/library/scan/schedule", authenticateToken, async (_req: Request, res: Response) => {
+    try {
+      res.json({ intervalMinutes: await getLibraryRescanIntervalMinutes() });
+    } catch (error) {
+      routesLogger.error({ error }, "error reading library rescan schedule");
+      res.status(500).json({ error: "Failed to read rescan schedule" });
+    }
+  });
+
+  app.put("/api/library/scan/schedule", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const minutes = Number((req.body ?? {}).intervalMinutes);
+      if (!(LIBRARY_RESCAN_INTERVALS_MINUTES as readonly number[]).includes(minutes)) {
+        return res.status(400).json({ error: "Invalid rescan interval" });
+      }
+      await setLibraryRescanIntervalMinutes(minutes);
+      return res.json({ intervalMinutes: minutes });
+    } catch (error) {
+      routesLogger.error({ error }, "error saving library rescan schedule");
+      return res.status(500).json({ error: "Failed to save rescan schedule" });
+    }
+  });
+
   app.get("/api/library/scan/status", authenticateToken, async (_req: Request, res: Response) => {
     try {
       res.json(getAllScanProgress());
@@ -2592,6 +2648,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         routesLogger.error({ error }, "error searching IGDB for unmatched folder");
         const notFound = msg === "No matching unmatched entry for this root folder";
         res.status(notFound ? 404 : 500).json({ error: notFound ? msg : "IGDB search failed" });
+      }
+    }
+  );
+
+  // Games found in a root folder, with what an "Import into library" would do.
+  app.get("/api/library/external-games", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      res.json(await listExternalGames(req.user!.id));
+    } catch (error) {
+      routesLogger.error({ error }, "error listing external games");
+      res.status(500).json({ error: "Failed to list games in root folders" });
+    }
+  });
+
+  app.get(
+    "/api/library/external-games/:id/preview",
+    authenticateToken,
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params as { id: string };
+        return res.json(await previewLibraryTransfer(id, req.user!.id));
+      } catch (error) {
+        if (error instanceof LibraryTransferError) {
+          return res.status(error.status).json({ error: error.message });
+        }
+        routesLogger.error({ error }, "error previewing library transfer");
+        return res.status(500).json({ error: "Failed to preview the transfer" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/library/external-games/:id/import",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    sanitizeExternalGameImportData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params as { id: string };
+        const { mode } = (req.body ?? {}) as { mode?: LibraryTransferMode };
+        return res.json(await transferExternalGame(id, mode ?? "copy", req.user!.id));
+      } catch (error) {
+        if (error instanceof LibraryTransferError) {
+          return res.status(error.status).json({ error: error.message });
+        }
+        routesLogger.error({ error }, "error importing external game into the library");
+        return res.status(500).json({ error: "Failed to import the game" });
       }
     }
   );

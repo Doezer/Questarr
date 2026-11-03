@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -41,6 +48,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getSocket } from "@/lib/socket";
 import type { RootFolder, LibraryScanIgnored } from "@shared/schema";
 import { FileBrowser } from "./FileBrowser";
+import { ExternalGamesImport } from "./ExternalGamesImport";
 
 interface ScanProgress {
   rootFolderId: string;
@@ -162,7 +170,10 @@ export function RootFolderDiscovery() {
       return gainedMatch || justFinished;
     });
     previousGameProgress.current = new Map(scanProgress.map((p) => [p.rootFolderId, p]));
-    if (refreshGames) queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    if (refreshGames) {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/library/external-games"] });
+    }
   }, [scanProgress, queryClient]);
 
   const invalidateAll = () => {
@@ -170,6 +181,7 @@ export function RootFolderDiscovery() {
     queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] });
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/status"] });
     queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/library/external-games"] });
   };
 
   const addMutation = useMutation({
@@ -265,6 +277,7 @@ export function RootFolderDiscovery() {
       toast({ title: "Game Matched", description: "Added to your library." });
       queryClient.invalidateQueries({ queryKey: ["/api/library/scan/unmatched"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/library/external-games"] });
     },
     onError: (error: Error) => {
       toast({ title: "Match Failed", description: error.message, variant: "destructive" });
@@ -306,6 +319,26 @@ export function RootFolderDiscovery() {
     },
   });
 
+  const { data: schedule } = useQuery<{ intervalMinutes: number }>({
+    queryKey: ["/api/library/scan/schedule"],
+  });
+  const scheduleMutation = useMutation({
+    mutationFn: async (intervalMinutes: number) => {
+      await apiRequest("PUT", "/api/library/scan/schedule", { intervalMinutes });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/library/scan/schedule"] });
+      toast({ title: "Rescan schedule saved" });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not save schedule",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   if (isLoading) return <Loader2 className="h-6 w-6 animate-spin" />;
 
   return (
@@ -319,7 +352,24 @@ export function RootFolderDiscovery() {
               separate from the Library Root set in Import settings.
             </CardDescription>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={String(schedule?.intervalMinutes ?? 0)}
+              onValueChange={(v) => scheduleMutation.mutate(Number(v))}
+              disabled={scheduleMutation.isPending}
+            >
+              <SelectTrigger className="h-9 w-[190px]" aria-label="Automatic rescan interval">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">Auto rescan: off</SelectItem>
+                <SelectItem value="60">Every hour</SelectItem>
+                <SelectItem value="360">Every 6 hours</SelectItem>
+                <SelectItem value="720">Every 12 hours</SelectItem>
+                <SelectItem value="1440">Every day</SelectItem>
+                <SelectItem value="10080">Every week</SelectItem>
+              </SelectContent>
+            </Select>
             <Button
               variant="outline"
               size="sm"
@@ -389,9 +439,10 @@ export function RootFolderDiscovery() {
           <Info className="h-4 w-4" />
           <AlertDescription className="text-sm">
             Games found here are added as <strong>owned</strong> and linked to their folder on disk,
-            but that folder stays outside your library root — it is never moved, renamed, or deleted
-            by Questarr unless you turn on <strong>Allow Delete</strong> for that folder below. With
-            it off (the default), removing a game with its files skips anything discovered here.
+            but that folder stays outside your library root. With <strong>Allow Delete</strong> off
+            for that folder (the default), removing a game with its files skips anything discovered
+            here. Use <strong>Import into library</strong> on a game to copy or move it into your
+            library root; Move removes the original files once the copy is verified.
           </AlertDescription>
         </Alert>
 
@@ -576,6 +627,8 @@ export function RootFolderDiscovery() {
             ))}
           </div>
         )}
+
+        <ExternalGamesImport />
 
         {ignored.length > 0 && (
           <div className="space-y-3">

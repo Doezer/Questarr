@@ -21,6 +21,7 @@ import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { runScheduledRommSync } from "./romm-sync.js";
+import { runScheduledLibraryRescan, LIBRARY_RESCAN_TICK_MS } from "./library-rescan.js";
 import { appriseClient } from "./apprise.js";
 import { importManager } from "./services/index.js";
 import {
@@ -61,6 +62,7 @@ import {
 } from "../shared/release-scoring.js";
 import {
   releaseMatchesGame,
+  strictMatchTitle,
   normalizeTitle,
   cleanReleaseName,
   parseJsonStringArray,
@@ -433,6 +435,8 @@ export interface AutoSearchScoring {
   xrelTypes?: XrelPredbTypes;
   /** Skip the game while xREL cannot be checked: set only when an automatic grab could follow. */
   deferOnXrelUnavailable?: boolean;
+  /** Oldest completed xREL result a slow lookup may fall back on (the auto-search interval). */
+  xrelStaleMaxAgeMs?: number;
 }
 
 /**
@@ -513,6 +517,11 @@ export async function searchAndCategorizeItemsForGame(
   }
 
   let matchedItems: SearchItem[] = [];
+  // The query of the pages after the first: the simpler variant that found them when the full
+  // title returned nothing. Releases are then matched against the strict form of the game's
+  // title, not the variant, which may have lost the subtitle and so fit another game.
+  let searchQuery = game.title;
+  let matchTitle = game.title;
   const globallyFiltered: SearchItem[] = [];
   const blacklisted = await storage.getReleaseBlacklistSet(game.id);
   let xrelLookedUp = false;
@@ -520,11 +529,16 @@ export async function searchAndCategorizeItemsForGame(
   let xrelUnavailable = false;
 
   for (let page = 0; page < AUTO_SEARCH_MAX_PAGES; page++) {
-    const { items, errors } = await searchAllIndexers({
-      query: game.title,
+    const { items, errors, queryUsed } = await searchAllIndexers({
+      query: searchQuery,
       limit: AUTO_SEARCH_PAGE_SIZE,
       offset: page * AUTO_SEARCH_PAGE_SIZE,
+      fallback: true,
     });
+    if (queryUsed) {
+      searchQuery = queryUsed;
+      matchTitle = strictMatchTitle(game.title);
+    }
 
     logAutoSearchErrors(game.title, errors);
 
@@ -541,6 +555,9 @@ export async function searchAndCategorizeItemsForGame(
         timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
         // cycles are hours apart, so a slow or failed lookup falls back on the last completed one
         staleFallback: true,
+        ...(scoring.xrelStaleMaxAgeMs !== undefined
+          ? { staleMaxAgeMs: scoring.xrelStaleMaxAgeMs }
+          : {}),
         onUnavailable: () => {
           xrelUnavailable = true;
         },
@@ -559,12 +576,18 @@ export async function searchAndCategorizeItemsForGame(
       }
     }
     const evaluated = scoring
-      ? evaluateItemsForGame(items, game, scoring, xrelReleases, xrelUnavailable)
+      ? evaluateItemsForGame(
+          items,
+          { ...game, title: matchTitle },
+          scoring,
+          xrelReleases,
+          xrelUnavailable
+        )
       : null;
     matchedItems =
       evaluated && scoring
         ? keepEligibleEvaluations(evaluated, scoring)
-        : items.filter((item) => releaseMatchesGame(item.title, game.title));
+        : items.filter((item) => releaseMatchesGame(item.title, matchTitle));
     // A first page with no title match means the search is not about this game. Later pages
     // are only fetched because the blacklist hid a whole page, so an unrelated page there
     // should not stop the search.
@@ -676,6 +699,17 @@ function registerCronTasks(): void {
       intervalMs: ROMM_SYNC_INTERVAL_MS,
       runOnStartup: true,
       run: runScheduledRommSync,
+    },
+    {
+      name: "library-rescan",
+      title: "Library rescan",
+      description:
+        "Rescan the root folders for new games, at the interval set in Library Import (off by default).",
+      intervalMs: LIBRARY_RESCAN_TICK_MS,
+      runOnStartup: true,
+      run: async () => {
+        await runScheduledLibraryRescan();
+      },
     },
     {
       name: "client-versions",
@@ -1835,6 +1869,9 @@ export async function checkAutoSearch() {
             config: await loadScoringConfig(userId),
             preferredPlatform,
             ...(xrelEnabledFor(settings) ? { xrelTypes: xrelTypesFor(settings) } : {}),
+            // the previous cycle's result must stay usable, even with an interval above 24 h:
+            // interval + the hourly tick + the run time of a long cycle, and no older
+            xrelStaleMaxAgeMs: Math.max(24, settings.searchIntervalHours + 6) * 60 * 60 * 1000,
           };
         } catch (error) {
           igdbLogger.warn({ userId, error }, "Release scoring unavailable, using legacy filters");
@@ -2423,6 +2460,7 @@ async function addNewSteamWishlistGames(
       platforms: formatted.platforms as string[],
       genres: formatted.genres as string[],
       themes: formatted.themes as string[],
+      gameModes: formatted.gameModes as string[],
       isAdultContent: formatted.isAdultContent as boolean,
       isAgeRestricted: formatted.isAgeRestricted as boolean,
       developers: formatted.developers as string[],

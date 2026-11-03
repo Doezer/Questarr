@@ -204,8 +204,8 @@ const mockEnabledIndexers = [
 ];
 
 const mockDownloaders = [
-  { id: 1, name: "qBittorrent", enabled: true, type: "torrent" },
-  { id: 2, name: "SABnzbd", enabled: true, type: "usenet" },
+  { id: 1, name: "qBittorrent", enabled: true, type: "qbittorrent" },
+  { id: 2, name: "SABnzbd", enabled: true, type: "sabnzbd" },
 ];
 
 // Mock fetch
@@ -1419,6 +1419,44 @@ describe("GameDownloadDialog", () => {
     });
   });
 
+  it("tells which simpler query produced the results", async () => {
+    globalThis.fetch = createFetchMock({
+      search: { ...mockTorrents, queryUsed: "Test Game Simplified" },
+    });
+    renderComponent();
+
+    const notice = await screen.findByTestId("notice-search-fallback");
+    expect(notice).toHaveTextContent("Showing results for Test Game Simplified instead");
+  });
+
+  it("shows no fallback notice when the full title found the results", async () => {
+    globalThis.fetch = createFetchMock();
+    renderComponent();
+
+    await screen.findAllByText("Test Torrent 1");
+    expect(screen.queryByTestId("notice-search-fallback")).toBeNull();
+  });
+
+  it("disables releases that no configured downloader can take", async () => {
+    const base = createFetchMock();
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (getRequestUrl(url).includes("/api/downloaders/enabled")) {
+        return {
+          ok: true,
+          json: async () => [{ id: "3", name: "SABnzbd", enabled: true, type: "sabnzbd" }],
+        } as Response;
+      }
+      return base(url, init);
+    }) as typeof fetch;
+    renderComponent();
+
+    expect(await screen.findByTestId("notice-unsupported-releases")).toHaveTextContent(
+      "torrent release(s) need a torrent downloader"
+    );
+    const buttons = await screen.findAllByRole("button", { name: /^Download Test Torrent 1/ });
+    for (const button of buttons) expect(button).toBeDisabled();
+  });
+
   it("supports copying links and sending a release to a specific downloader", async () => {
     globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const target = getRequestUrl(url);
@@ -1491,6 +1529,55 @@ describe("GameDownloadDialog", () => {
         variant: "destructive",
       });
     });
+  });
+
+  it("leaves an update no downloader can take out of the bundle selection", async () => {
+    mockIsMobile = true;
+    const base = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "bundle-main",
+          title: "Test Game ElAmigos",
+          link: "http://test.com/bundle-main",
+          pubDate: new Date().toISOString(),
+        }),
+        makeUsenetItem({
+          guid: "bundle-update",
+          title: "Test Game Update v1.1",
+          link: "http://test.com/bundle-update",
+          grabs: 12,
+        }),
+      ]),
+    });
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (getRequestUrl(url).includes("/api/downloaders/enabled")) {
+        return {
+          ok: true,
+          json: async () => [{ id: "1", name: "qBittorrent", enabled: true, type: "qbittorrent" }],
+        } as Response;
+      }
+      return base(url, init);
+    }) as typeof fetch;
+
+    renderComponent();
+
+    await waitFor(() =>
+      expect(screen.getAllByText("Test Game ElAmigos").length).toBeGreaterThan(0)
+    );
+    await screen.findByTestId("notice-unsupported-releases");
+    const mainButton = screen
+      .getAllByTestId("icon-download")
+      .map((icon) => icon.closest("button"))
+      .find((button) => button && !button.disabled);
+    expect(mainButton).toBeTruthy();
+    fireEvent.click(mainButton as HTMLElement);
+
+    await waitFor(() => {
+      expect(screen.getByText("Download with Updates?")).toBeInTheDocument();
+      expect(screen.getByText("0 of 1 updates selected")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("Select All"));
+    expect(screen.getByText("0 of 1 updates selected")).toBeInTheDocument();
   });
 
   it("lets mobile users select bundle updates and download only the main game", async () => {

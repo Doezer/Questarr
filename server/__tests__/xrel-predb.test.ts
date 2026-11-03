@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const searchReleases = vi.fn();
+let truncated = false;
 vi.mock("../xrel.js", () => ({
-  xrelClient: { searchReleases: (...a: unknown[]) => searchReleases(...a) },
+  xrelClient: {
+    searchReleasesWithMeta: async (...a: unknown[]) => ({
+      releases: await searchReleases(...a),
+      truncated,
+    }),
+  },
 }));
 vi.mock("../storage.js", () => ({
   storage: { getSystemConfig: vi.fn().mockResolvedValue(null) },
@@ -17,6 +23,21 @@ describe("getXrelPredb", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearXrelPredbCache();
+    truncated = false;
+  });
+
+  it("marks the list as truncated when xREL's list was full", async () => {
+    truncated = true;
+    searchReleases.mockResolvedValue([{ dirname: "Game-CODEX" }]);
+    const list = await getXrelPredb("Game");
+    expect([...(list ?? [])]).toEqual([{ dirname: "Game-CODEX" }]);
+    expect((list as { truncated?: boolean }).truncated).toBe(true);
+  });
+
+  it("does not mark a complete list as truncated", async () => {
+    searchReleases.mockResolvedValue([{ dirname: "Game-CODEX" }]);
+    const list = await getXrelPredb("Game");
+    expect((list as { truncated?: boolean }).truncated).toBeUndefined();
   });
 
   it("maps releases to dirname and nuke reason", async () => {
@@ -102,6 +123,32 @@ describe("getXrelPredb", () => {
     }
   });
 
+  it("keeps results for a long interval and for more games than the lookup cache holds", async () => {
+    vi.useFakeTimers();
+    try {
+      searchReleases.mockImplementation(async (title: string) => [{ dirname: `${title}-CODEX` }]);
+      for (let i = 0; i < 300; i++) await getXrelPredb(`Game ${i}`, { scene: true, p2p: true });
+      await vi.advanceTimersByTimeAsync(48 * 60 * 60 * 1000);
+      searchReleases.mockReturnValue(new Promise(() => {}));
+      const onUnavailable = vi.fn();
+      const slow = getXrelPredb(
+        "Game 0",
+        { scene: true, p2p: true },
+        {
+          timeoutMs: 50,
+          staleFallback: true,
+          staleMaxAgeMs: 96 * 60 * 60 * 1000,
+          onUnavailable,
+        }
+      );
+      await vi.advanceTimersByTimeAsync(60);
+      expect(await slow).toEqual([{ dirname: "Game 0-CODEX" }]);
+      expect(onUnavailable).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reports a quick failure as unavailable, or falls back on the last result", async () => {
     vi.useFakeTimers();
     try {
@@ -169,6 +216,35 @@ describe("getXrelPredb", () => {
     expect(await getXrelPredb("Game")).toBeUndefined();
     searchReleases.mockResolvedValueOnce([{ dirname: "Game-CODEX" }]);
     expect(await getXrelPredb("Game")).toEqual([{ dirname: "Game-CODEX" }]);
+  });
+
+  it("reports a malformed response as unavailable and never caches or remembers it", async () => {
+    vi.useFakeTimers();
+    try {
+      const malformed = new Error("xREL API returned an unexpected response (no release lists)");
+      searchReleases.mockRejectedValueOnce(malformed);
+      const onUnavailable = vi.fn();
+      const types = { scene: true, p2p: true };
+      expect(
+        await getXrelPredb("Broken", types, { timeoutMs: 1000, onUnavailable, staleFallback: true })
+      ).toBeUndefined();
+      expect(onUnavailable).toHaveBeenCalledTimes(1);
+
+      // not cached: the next call asks xREL again, and no stale empty list is served
+      searchReleases.mockRejectedValueOnce(malformed);
+      const again = vi.fn();
+      expect(
+        await getXrelPredb("Broken", types, {
+          timeoutMs: 1000,
+          onUnavailable: again,
+          staleFallback: true,
+        })
+      ).toBeUndefined();
+      expect(again).toHaveBeenCalledTimes(1);
+      expect(searchReleases).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("is only used when an xREL feature is on", () => {

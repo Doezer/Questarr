@@ -23,6 +23,7 @@ export function makeGame(overrides: Partial<Game> = {}): Game {
     developers: null,
     screenshots: null,
     videos: null,
+    gameModes: null,
     hidden: false,
     isAdultContent: false,
     isAgeRestricted: false,

@@ -231,7 +231,7 @@ for what each setting does.
 | GET    | `/api/indexers/:id/search`        | JWT                                                                                                                                                                          | Query: `query` (required), `category?`/`cat?`, `limit?` (default 50), `offset?` (default 0)                                                                                                                                                                                           | Search results from that single indexer; 400 if query missing, 404 if not found                              |
 | GET    | `/api/indexers/prowlarr/settings` | JWT                                                                                                                                                                          | —                                                                                                                                                                                                                                                                                     | Last successful sync values `{ url, apiKey: "********", allowInsecureLan, priority, categories }`, or `null` |
 | POST   | `/api/indexers/prowlarr/sync`     | JWT + `sensitiveEndpointLimiter`                                                                                                                                             | `{ url: string, apiKey: string, allowInsecureLan?: boolean, priority?: 1–100, categories?: string[] }` — optional fields apply to every synced indexer; `apiKey: "********"` reuses the saved key for the saved URL only; values are remembered after a successful sync; SSRF-checked | `{ success, message, results }`                                                                              |
-| GET    | `/api/search`                     | JWT (same global-gate note as above; alias of `/api/indexers/search`) + `sanitizeIndexerSearchQuery`, `validateRequest`                                                      | Same as `/api/indexers/search`                                                                                                                                                                                                                                                        | Same as `/api/indexers/search`                                                                               |
+| GET    | `/api/search`                     | JWT (same global-gate note as above; alias of `/api/indexers/search`) + `sanitizeIndexerSearchQuery`, `validateRequest`                                                      | Same as `/api/indexers/search`, plus `title?` (≤200): the title `query` is a simpler variant of, so later pages keep scoring against it                                                                                                                                               | Same as `/api/indexers/search`, plus `queryUsed?`                                                            |
 
 ## IGDB
 
@@ -425,7 +425,7 @@ Authenticated endpoints behind the **Settings → Discovery & Downloads → Rele
 
 A spec is `{ field: "title" or "group" or "uploader" or "category" or "protocol" or "indexer", mode: "contains" or "exact" or "regex", value (1–200 chars), negate?, required? }`. Specs on the same field are alternatives unless marked `required`; every field used must be satisfied. Regexes run on RE2 (no lookarounds) and are case-insensitive. Required and ignored terms are case-insensitive words, or a regex written `/pattern/`.
 
-Locked built-in rules (a title that is a sequel of, or not, the wanted game, and an executable or disguised file) always apply and always reject, so `enabled: false` is ignored for them; the others can be re-weighted or disabled in `builtInOverrides`. Search results from `GET /api/search` carry an `evaluation` (score, score lines, rejections, matched formats and, when xREL is enabled, an `xrel` verdict of `verified`, `nuked`, `not_found` or `unavailable`, the last meaning the lookup failed or timed out, so it does not show the release is absent). Rejected releases stay in the manual results so the UI can say why. Manual results also carry a `trust` verdict, `{ level: "trusted" or "unverified" or "risky", reasons: [{ code, tone, label, detail? }] }`, derived from the rejections, the xREL result and size, the preferred release group and the blacklist rather than from the score. The `sortBy` auto-download rule also accepts `score`.
+Locked built-in rules (a title that is a sequel of, or not, the wanted game, and an executable or disguised file) always apply and always reject, so `enabled: false` is ignored for them; the others can be re-weighted or disabled in `builtInOverrides`. Search results from `GET /api/search` carry an `evaluation` (score, score lines, rejections, matched formats and, when xREL is enabled, an `xrel` verdict of `verified`, `nuked`, `not_found` or `unavailable`, the last meaning the lookup failed or timed out, so it does not show the release is absent). Rejected releases stay in the manual results so the UI can say why. Manual results also carry a `trust` verdict, `{ level: "trusted" or "unverified" or "risky", reasons: [{ code, tone, label, detail? }] }`, derived from the rejections, the xREL result and size, the preferred release group and the blacklist rather than from the score. The `sortBy` auto-download rule also accepts `score`. When the full query returns nothing on the first page, `GET /api/search` retries, only when no indexer errored, with up to three of its simpler variants, tried from the least to the most lossy (without a possessive publisher prefix, without edition words, without punctuation, without the subtitle; variants that do not apply to the title are skipped) and answers with the first variant that finds releases in `queryUsed`; the results are then scored against the game's title without its possessive prefix and edition words (the subtitle is kept, so a release of another game of the series is not taken for the wanted one). The field is absent when the query itself found them. The optional `title` parameter lets a later page of such a search (`offset` > 0, sent with the variant as `query`) keep scoring against the original title.
 
 ## Steam
 
@@ -436,6 +436,47 @@ router), both behind the global auth gate plus explicit `authenticateToken`.
 | ------ | -------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | PATCH  | `/api/user/steam-id`       | JWT           | `{ steamId: string }` — must be a 17-digit SteamID64 starting with `7656` (`steamService.validateSteamId`) | `{ success: true, steamId }`; 400 if missing/invalid format                                              |
 | POST   | `/api/steam/wishlist/sync` | JWT           | —                                                                                                          | `{ success, addedCount, games }` (via `syncUserSteamWishlist`); 400 if Steam ID not linked or sync fails |
+
+### Owned Steam library
+
+`server/steam-library-routes.ts` — preview and import endpoints.
+
+These endpoints require the normal authenticated session/token. Cookie mutations
+require the usual CSRF header. Responses use `Cache-Control: no-store`.
+
+- `GET /api/steam/library`: read the linked account's public Steam library.
+  Returns `{ games: [{ steamAppId, title, alreadyTracked }] }`; preview does not
+  write to the library. Missing server Steam key or linked ID returns 400;
+  Steam failure/private library returns 502 with an actionable generic error.
+- `POST /api/steam/library/import`: synchronous compatibility endpoint, body `{ appIds: [400, 620] }`, 1–50 positive
+  integer IDs. Ownership is checked again with Steam before any write. Returns
+  `{ results: [{ steamAppId, title, outcome }] }`, where outcome is `added`,
+  `duplicate`, `not_found` (unmapped or content-filtered), or `failed`. New games
+  are Owned/source `steam`; existing game states remain unchanged, with missing
+  Steam App IDs linked on exact IGDB matches. Invalid/stale
+  selections return 400, a concurrent import by the same account returns 409,
+  and an upstream batch failure returns 502. Partial row failures return 200
+  with per-row outcomes so callers can retry explicitly.
+
+- `POST /api/steam/library/import/jobs`: body `{ appIds: [...] }`, 1–20,000
+  positive integer IDs. Returns `202 { job }` after durably queuing the selection.
+  Duplicate IDs are collapsed. The worker rechecks ownership before game writes;
+  invalid/stale ownership is reported as a failed job. A concurrent import start
+  returns 409. A new start replaces the account's previous terminal job.
+- `GET /api/steam/library/import/jobs/current`: returns `{ job: null }` or the
+  account's latest job view. Available even if Steam configuration is removed.
+  View fields: `id`, `state` (`queued`, `running`, `completed`, `failed`), `total`,
+  `processed`, `added`, `duplicates`, `skipped`, `failed`, `canRetry`,
+  `completedAppIds`, `recentResults` (last ten), and optional `message`. It does
+  not return the saved Steam ID or pending selection. The browser polls every two
+  seconds while active. A completed job may still contain skipped/failed rows.
+- `POST /api/steam/library/import/jobs/retry`: no body required. Queues failed
+  and unprocessed IDs from the latest job; returns `202 { job }`, 400 if
+  nothing remains, or 409 if another import is running. The new job carries the
+  earlier outcomes, so `total` and the counters continue; successful earlier writes
+  are preserved. Retry revalidates current Steam ownership.
+
+See [Steam library import](STEAM_LIBRARY.md) for prerequisites and limits.
 
 ## PCGamingWiki
 
@@ -528,9 +569,7 @@ Across handlers, error responses follow one of these consistent shapes:
   ```json
   {
     "error": "Validation failed",
-    "details": [
-      /* express-validator error objects: { type, msg, path, location, value } */
-    ]
+    "details": [/* express-validator error objects: { type, msg, path, location, value } */]
   }
   ```
 - **Validation failures (Zod schemas)**: handlers that call
@@ -539,9 +578,7 @@ Across handlers, error responses follow one of these consistent shapes:
   ```json
   {
     "error": "Invalid <thing> data",
-    "details": [
-      /* ZodError.errors array */
-    ]
+    "details": [/* ZodError.errors array */]
   }
   ```
   (message text varies per handler, e.g. "Invalid game data", "Invalid

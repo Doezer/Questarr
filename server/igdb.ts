@@ -17,7 +17,7 @@ export const IGDB_EARLY_ACCESS_STATUS = 4;
 
 // Shared field list for all IGDB game queries
 const IGDB_GAME_FIELDS =
-  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, videos.name, videos.video_id, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type, expansions.url";
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, videos.name, videos.video_id, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type, expansions.url, game_modes.name";
 
 // IGDB theme name flagged as adult content (Erotic)
 const ADULT_THEME_NAMES = new Set(["Erotic"]);
@@ -83,6 +83,10 @@ export interface IGDBGame {
   screenshots?: Array<{
     id: number;
     url: string;
+  }>;
+  game_modes?: Array<{
+    id: number;
+    name: string;
   }>;
   videos?: Array<{
     name?: string;
@@ -1002,8 +1006,14 @@ class IGDBClient {
     }
   }
 
-  async getGameIdsBySteamAppIds(steamAppIds: number[]): Promise<Map<number, number>> {
-    if (!(await this.ensureConfigured()) || steamAppIds.length === 0) {
+  /** Map exact Steam IDs in bounded batches; strict mode propagates outages instead of misses. */
+  async getGameIdsBySteamAppIds(
+    steamAppIds: number[],
+    options: { strict?: boolean } = {}
+  ): Promise<Map<number, number>> {
+    if (steamAppIds.length === 0) return new Map();
+    if (!(await this.ensureConfigured())) {
+      if (options.strict) throw new Error("IGDB is not configured");
       return new Map();
     }
 
@@ -1029,6 +1039,8 @@ class IGDBClient {
           idMap.set(parseInt(result.uid, 10), result.game);
         }
       } catch (error) {
+        // Imports must distinguish an unavailable provider from a genuine missing mapping.
+        if (options.strict) throw new Error("IGDB Steam mapping lookup failed", { cause: error });
         igdbLogger.warn(
           { steamAppIds: chunk, error },
           "Failed to lookup a chunk of IGDB IDs from Steam App IDs"
@@ -1079,9 +1091,13 @@ class IGDBClient {
     return result;
   }
 
-  async getGamesByIds(ids: number[]): Promise<IGDBGame[]> {
-    if (!(await this.ensureConfigured())) return [];
+  /** Fetch paced metadata batches; strict callers must distinguish provider failure from no match. */
+  async getGamesByIds(ids: number[], options: { strict?: boolean } = {}): Promise<IGDBGame[]> {
     if (ids.length === 0) return [];
+    if (!(await this.ensureConfigured())) {
+      if (options.strict) throw new Error("IGDB is not configured");
+      return [];
+    }
 
     // Get rate limit from settings
     let rateLimit = 3;
@@ -1543,6 +1559,7 @@ class IGDBClient {
       screenshots:
         igdbGame.screenshots?.map((s) => `https:${s.url.replace("t_thumb", "t_screenshot_big")}`) ||
         [],
+      gameModes: igdbGame.game_modes?.map((m) => m.name) || [],
       videos: toVideos(igdbGame.videos),
       igdbWebsites: igdbWebsiteSchema
         .array()

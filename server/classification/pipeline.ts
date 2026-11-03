@@ -1,5 +1,6 @@
-import type { Classification } from "../../shared/release-classification.js";
+import { RELEASE_CLASSES, type Classification } from "../../shared/release-classification.js";
 import { logger } from "../logger.js";
+import { TieredCache, type PersistentCacheStore } from "./cache.js";
 import type { CloudInput, ReleaseClassifier } from "./types.js";
 
 const pipelineLogger = logger.child({ module: "classification" });
@@ -10,8 +11,6 @@ export type ClassificationMode = (typeof CLASSIFICATION_MODES)[number];
 /** Bump when the pipeline's own rules change, so older cached results are not reused. */
 export const PIPELINE_VERSION = 1;
 
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const CACHE_MAX_ENTRIES = 2000;
 const DEFAULT_LAYER_TIMEOUT_MS = 10_000;
 
 export interface PipelineConfig {
@@ -19,6 +18,13 @@ export interface PipelineConfig {
   /** Version tags that belong in cache keys: the local model and the cloud model. */
   localVersion: string | null;
   cloudVersion: string | null;
+  /** The local model's confidence bar; it changes verdicts, so it belongs in cache keys. */
+  localThreshold?: number | null;
+  /**
+   * Identifies the cloud provider across restarts (endpoint and model). `cloudVersion` may carry
+   * a counter that restarts at zero, so the persisted key uses this one when it is given.
+   */
+  cloudFingerprint?: string | null;
 }
 
 export interface PipelineLayers {
@@ -39,6 +45,24 @@ export type PipelineResult = Classification & {
 
 /** Flags that say what the release is. `repack` only says how it is packaged, so it decides nothing. */
 const RESOLVING_FLAGS = new Set(["crack_only", "demo", "soundtrack", "other_artifact"]);
+
+const SOURCES = new Set(["rules", "local", "cloud"]);
+
+/** A stored verdict is reused only when it still has the shape of a pipeline result. */
+function parseStoredResult(raw: unknown): PipelineResult | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const value = raw as Record<string, unknown>;
+  const path = value.path;
+  const valid =
+    (RELEASE_CLASSES as readonly unknown[]).includes(value.class) &&
+    typeof value.source === "string" &&
+    SOURCES.has(value.source) &&
+    (value.confidence === null || typeof value.confidence === "number") &&
+    Array.isArray(path) &&
+    path.every((layer) => typeof layer === "string" && SOURCES.has(layer));
+  // A degraded answer comes from a failed layer and is never kept
+  return valid && value.degraded !== true ? (raw as PipelineResult) : null;
+}
 
 const FAILURE_IDS = new Set([
   "local.error",
@@ -93,22 +117,33 @@ async function guarded(
  * classify is `unknown`; this class only classifies and never decides whether to download.
  */
 export class ClassificationPipeline {
-  private readonly cache = new Map<string, { at: number; result: PipelineResult }>();
-  /** Bumped by clearCache(), so a call that started before it cannot write a stale result back. */
-  private generation = 0;
+  /** Memory first, then the `classification_cache` table when a store is given. */
+  private readonly cache: TieredCache<PipelineResult>;
 
   constructor(
     private readonly getConfig: () => Promise<PipelineConfig> | PipelineConfig,
     private readonly layers: () => Promise<PipelineLayers> | PipelineLayers,
-    private readonly options: { layerTimeoutMs?: number; now?: () => number } = {}
-  ) {}
+    private readonly options: {
+      layerTimeoutMs?: number;
+      now?: () => number;
+      store?: PersistentCacheStore;
+    } = {}
+  ) {
+    this.cache = new TieredCache<PipelineResult>({
+      namespace: "pipeline",
+      parse: parseStoredResult,
+      store: options.store,
+      now: options.now,
+    });
+  }
 
   private key(input: CloudInput, config: PipelineConfig): string {
     return JSON.stringify([
       PIPELINE_VERSION,
       config.mode,
       config.localVersion,
-      config.cloudVersion,
+      config.localThreshold ?? null,
+      config.cloudFingerprint ?? config.cloudVersion,
       input.title,
       input.gameTitle ?? null,
       input.alternativeTitles ?? null,
@@ -117,18 +152,17 @@ export class ClassificationPipeline {
     ]);
   }
 
+  /** Forgets the memory level; the table is keyed by versions and is cleared on request only. */
   clearCache(): void {
-    this.generation++;
-    this.cache.clear();
+    this.cache.clearMemory();
   }
 
   async classify(input: CloudInput): Promise<PipelineResult> {
-    const now = this.options.now ?? Date.now;
     const config = await this.getConfig();
     const key = this.key(input, config);
-    const generation = this.generation;
-    const hit = this.cache.get(key);
-    if (hit && now() - hit.at < CACHE_TTL_MS) return hit.result;
+    const generation = this.cache.generation;
+    const hit = await this.cache.get(key);
+    if (hit) return hit;
 
     const started = performance.now();
     const layers = await this.layers();
@@ -182,12 +216,10 @@ export class ClassificationPipeline {
     // that a later layer made up for leaves a real verdict
     if (failed(result)) result = { ...result, degraded: true };
 
-    if (!uncacheable && generation === this.generation) {
-      if (this.cache.size >= CACHE_MAX_ENTRIES) {
-        const oldest = this.cache.keys().next().value;
-        if (oldest !== undefined) this.cache.delete(oldest);
-      }
-      this.cache.set(key, { at: now(), result });
+    // `degraded` is a failed layer's answer; neither it nor a result with a failed layer is kept
+    // A provider or model change while the layers ran would file this answer under the old key
+    if (!uncacheable && !result.degraded && this.key(input, await this.getConfig()) === key) {
+      await this.cache.set(key, result, generation);
     }
     return result;
   }

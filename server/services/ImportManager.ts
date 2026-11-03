@@ -187,6 +187,14 @@ export class ImportManager {
     return this.resolvePlatformFolderName(downloadTitle, game, allowed);
   }
 
+  /** Platform folder a game lands in under the library root (same rule as a download import). */
+  async resolveLibraryPlatformFolder(
+    game: { platforms?: unknown; targetPlatformId?: number | null },
+    allowedPlatformIds: number[]
+  ): Promise<string> {
+    return this.resolvePlatformFolder("", game, allowedPlatformIds);
+  }
+
   private resolvePlatformFolderName(
     downloadTitle: string,
     game: { platforms?: unknown },
@@ -226,7 +234,7 @@ export class ImportManager {
     sourcePath: string,
     options?: { includeDiscImages?: boolean }
   ): Promise<ArchiveResolution | null> {
-    if (isSensitivePath(sourcePath)) {
+    if (await isSensitivePath(sourcePath)) {
       throw new Error("Refusing to process a sensitive system path");
     }
 
@@ -496,7 +504,7 @@ export class ImportManager {
     options: { checkRoots?: boolean; extractionAttempted?: boolean } = {}
   ): Promise<void> {
     try {
-      if (isSensitivePath(dir)) return;
+      if (await isSensitivePath(dir)) return;
       if (options.checkRoots) {
         await assertWithinRoots(dir, await this.pathService.getConfiguredRoots(), "outside roots");
       }
@@ -547,7 +555,7 @@ export class ImportManager {
     totalCount: number;
   }> {
     const empty = { files: [], hasArchive: false, totalCount: 0 };
-    if (isSensitivePath(sourcePath)) return empty;
+    if (await isSensitivePath(sourcePath)) return empty;
     try {
       // Rejecting here (rather than only inside planImport/executeImport later) stops
       // an out-of-root path from having its directory contents disclosed through this

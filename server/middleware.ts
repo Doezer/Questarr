@@ -585,6 +585,11 @@ export const sanitizeIndexerSearchQuery = [
     .trim()
     .isLength({ min: 1, max: 200 })
     .withMessage("Search query must be between 1 and 200 characters"),
+  query("title")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Title must be at most 200 characters"),
   query("category")
     .optional()
     .trim()
@@ -691,6 +696,14 @@ export const sanitizeLibraryScanData = [
     .trim()
     .isLength({ min: 1, max: 200 })
     .withMessage("rootFolderId must be a non-empty string"),
+];
+
+// Sanitization rules for POST /api/library/external-games/:id/import
+export const sanitizeExternalGameImportData = [
+  body("mode")
+    .optional()
+    .isIn(["copy", "move", "hardlink"])
+    .withMessage("mode must be copy, move or hardlink"),
 ];
 
 // Sanitization rules for POST /api/library/scan/unmatched/match

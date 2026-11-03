@@ -65,6 +65,7 @@ import {
   type LibraryScanIgnored,
   type ClassificationCandidate,
   type InsertClassificationCandidate,
+  type ClassificationCacheRow,
   type InsertRootFolder,
   type UpdateRootFolder,
   type Collection,
@@ -106,6 +107,7 @@ import {
   gameJournalEntries,
   gameMilestones,
   gameScreenshots,
+  classificationCache,
   classificationCandidates,
 } from "./db/tables.js";
 import { randomUUID } from "crypto";
@@ -128,6 +130,7 @@ import {
   isNotNull,
   gte,
   lt,
+  lte,
 } from "drizzle-orm";
 import { containsCI, distinctJoin, affectedRows } from "./sql-compat.js";
 import { transactionalOps } from "./db/transactional-ops.js";
@@ -564,6 +567,15 @@ export interface IStorage {
   /** Deletes every candidate, or only those with the given status. Returns how many. */
   deleteClassificationCandidates(status?: string): Promise<number>;
 
+  // Persistent classification cache (second level behind the in-memory caches; never ground truth)
+  getClassificationCacheEntry(id: string): Promise<ClassificationCacheRow | undefined>;
+  putClassificationCacheEntry(row: ClassificationCacheRow): Promise<void>;
+  /** Drops rows stored before `olderThan`, then the oldest ones beyond `maxRows`. Returns how many. */
+  pruneClassificationCache(olderThan: Date, maxRows: number): Promise<number>;
+  countClassificationCache(): Promise<number>;
+  /** Empties the cache and returns how many rows it held. */
+  clearClassificationCache(): Promise<number>;
+
   // Integration API key methods
   getApiKeys(userId: string): Promise<ApiKeyPublic[]>;
   /** Throws "API key limit reached" (as a plain Error) if the user already has maxKeys. */
@@ -624,6 +636,7 @@ export class MemStorage implements IStorage {
   private rootFolders: Map<string, RootFolder>;
   private ignoredScanFolders: Map<string, LibraryScanIgnored>;
   private classificationCandidates: Map<string, ClassificationCandidate>;
+  private classificationCacheRows: Map<string, ClassificationCacheRow>;
   private apiKeys: Map<string, ApiKey>;
   private integrationRequests: Map<string, IntegrationRequest>;
   private collections: Map<string, Collection>;
@@ -655,6 +668,7 @@ export class MemStorage implements IStorage {
     this.rootFolders = new Map();
     this.ignoredScanFolders = new Map();
     this.classificationCandidates = new Map();
+    this.classificationCacheRows = new Map();
     this.apiKeys = new Map();
     this.integrationRequests = new Map();
     this.collections = new Map();
@@ -804,6 +818,7 @@ export class MemStorage implements IStorage {
       publishers: insertGame.publishers || null,
       developers: insertGame.developers || null,
       screenshots: insertGame.screenshots || null,
+      gameModes: insertGame.gameModes || null,
       videos: insertGame.videos || null,
       igdbId: insertGame.igdbId || null,
       steamAppId: insertGame.steamAppId || null,
@@ -2449,6 +2464,42 @@ export class MemStorage implements IStorage {
     return removed;
   }
 
+  async getClassificationCacheEntry(id: string): Promise<ClassificationCacheRow | undefined> {
+    return this.classificationCacheRows.get(id);
+  }
+
+  async putClassificationCacheEntry(row: ClassificationCacheRow): Promise<void> {
+    this.classificationCacheRows.set(row.id, row);
+  }
+
+  async pruneClassificationCache(olderThan: Date, maxRows: number): Promise<number> {
+    let removed = 0;
+    for (const [id, row] of this.classificationCacheRows) {
+      if (row.storedAt.getTime() < olderThan.getTime()) {
+        this.classificationCacheRows.delete(id);
+        removed++;
+      }
+    }
+    const newestFirst = Array.from(this.classificationCacheRows.values()).sort(
+      (a, b) => b.storedAt.getTime() - a.storedAt.getTime() || (a.id < b.id ? 1 : -1)
+    );
+    for (const row of newestFirst.slice(maxRows)) {
+      this.classificationCacheRows.delete(row.id);
+      removed++;
+    }
+    return removed;
+  }
+
+  async countClassificationCache(): Promise<number> {
+    return this.classificationCacheRows.size;
+  }
+
+  async clearClassificationCache(): Promise<number> {
+    const removed = this.classificationCacheRows.size;
+    this.classificationCacheRows.clear();
+    return removed;
+  }
+
   // Integration API key methods
   async getApiKeys(userId: string): Promise<ApiKeyPublic[]> {
     return Array.from(this.apiKeys.values())
@@ -2844,6 +2895,7 @@ export class DatabaseStorage implements IStorage {
       publishers: insertGame.publishers ?? null,
       developers: insertGame.developers ?? null,
       screenshots: insertGame.screenshots ?? null,
+      gameModes: insertGame.gameModes ?? null,
       videos: insertGame.videos ?? null,
       steamAppId: insertGame.steamAppId ?? null,
       source: insertGame.source ?? null,
@@ -4682,6 +4734,61 @@ export class DatabaseStorage implements IStorage {
       .delete(classificationCandidates)
       .where(status === undefined ? undefined : eq(classificationCandidates.status, status));
     return affectedRows(result);
+  }
+
+  async getClassificationCacheEntry(id: string): Promise<ClassificationCacheRow | undefined> {
+    const [row] = await db
+      .select()
+      .from(classificationCache)
+      .where(eq(classificationCache.id, id))
+      .limit(1);
+    return row;
+  }
+
+  async putClassificationCacheEntry(row: ClassificationCacheRow): Promise<void> {
+    await db
+      .insert(classificationCache)
+      .values(row)
+      .onConflictDoUpdate({
+        target: classificationCache.id,
+        set: { verdict: row.verdict, storedAt: row.storedAt },
+      });
+  }
+
+  async pruneClassificationCache(olderThan: Date, maxRows: number): Promise<number> {
+    const expired = await db
+      .delete(classificationCache)
+      .where(lt(classificationCache.storedAt, olderThan));
+    let removed = affectedRows(expired);
+    // The row just past the limit marks the cut: it and every row after it in (storedAt, id)
+    // order go, so rows sharing the cut's millisecond but inside the limit stay
+    const [cut] = await db
+      .select({ id: classificationCache.id, storedAt: classificationCache.storedAt })
+      .from(classificationCache)
+      .orderBy(desc(classificationCache.storedAt), desc(classificationCache.id))
+      .limit(1)
+      .offset(maxRows);
+    if (cut) {
+      const surplus = await db
+        .delete(classificationCache)
+        .where(
+          or(
+            lt(classificationCache.storedAt, cut.storedAt),
+            and(eq(classificationCache.storedAt, cut.storedAt), lte(classificationCache.id, cut.id))
+          )
+        );
+      removed += affectedRows(surplus);
+    }
+    return removed;
+  }
+
+  async countClassificationCache(): Promise<number> {
+    const [row] = await db.select({ value: count() }).from(classificationCache);
+    return Number(row?.value ?? 0);
+  }
+
+  async clearClassificationCache(): Promise<number> {
+    return affectedRows(await db.delete(classificationCache));
   }
 
   // Integration API key methods

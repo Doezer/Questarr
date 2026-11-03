@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
 
 const { fsMock, rommMock } = vi.hoisted(() => ({
   fsMock: {
@@ -60,33 +61,35 @@ describe("RomM platform folders", () => {
 
   it("uses the RomM slug of the game's platform", async () => {
     expect((await planFor([{ id: 19, name: "Super Nintendo" }])).proposedPath).toBe(
-      "/roms/snes/Some Game"
+      path.normalize("/roms/snes/Some Game")
     );
-    expect((await planFor([8])).proposedPath).toBe("/roms/ps2/Some Game");
+    expect((await planFor([8])).proposedPath).toBe(path.normalize("/roms/ps2/Some Game"));
   });
 
   it("prefers the platform named in the release", async () => {
-    expect((await planFor([6], "Some.Game.NSW-GRP")).proposedPath).toBe("/roms/switch/Some Game");
+    expect((await planFor([6], "Some.Game.NSW-GRP")).proposedPath).toBe(
+      path.normalize("/roms/switch/Some Game")
+    );
   });
 
   it("uses the chosen target platform before defaulting to win", async () => {
     expect((await planFor(["Super Nintendo"], "Some.Game-GRP", 19)).proposedPath).toBe(
-      "/roms/snes/Some Game"
+      path.normalize("/roms/snes/Some Game")
     );
   });
 
   it("puts PC games in win", async () => {
-    expect((await planFor([])).proposedPath).toBe("/roms/win/Some Game");
-    expect((await planFor([6])).proposedPath).toBe("/roms/win/Some Game");
+    expect((await planFor([])).proposedPath).toBe(path.normalize("/roms/win/Some Game"));
+    expect((await planFor([6])).proposedPath).toBe(path.normalize("/roms/win/Some Game"));
   });
 
   it("keeps the readable folder for a platform RomM has no slug for", async () => {
-    expect((await planFor([9999])).proposedPath).toBe("/roms/PC/Some Game");
+    expect((await planFor([9999])).proposedPath).toBe(path.normalize("/roms/PC/Some Game"));
   });
 
   it("keeps readable folder names when the option is off", async () => {
     rommMock.isRommPlatformFoldersEnabled.mockResolvedValue(false);
-    expect((await planFor([19])).proposedPath).toBe("/roms/SNES/Some Game");
+    expect((await planFor([19])).proposedPath).toBe(path.normalize("/roms/SNES/Some Game"));
   });
 });
 
@@ -107,12 +110,14 @@ describe("RomM platform folders in the naming preview", () => {
 
     rommMock.isRommPlatformFoldersEnabled.mockResolvedValue(true);
     const withRomm = await manager.previewNaming("{Title}", "u1");
-    expect(withRomm[0]?.fullPath).toBe("/roms/snes/Some Game");
-    expect(withRomm.at(-1)?.fullPath).toBe("/roms/win/The Example Quest_ Remastered");
+    expect(withRomm[0]?.fullPath).toBe(path.normalize("/roms/snes/Some Game"));
+    expect(withRomm.at(-1)?.fullPath).toBe(
+      path.normalize("/roms/win/The Example Quest_ Remastered")
+    );
 
     rommMock.isRommPlatformFoldersEnabled.mockResolvedValue(false);
     const withoutRomm = await manager.previewNaming("{Title}", "u1");
-    expect(withoutRomm[0]?.fullPath).toBe("/roms/SNES/Some Game");
+    expect(withoutRomm[0]?.fullPath).toBe(path.normalize("/roms/SNES/Some Game"));
   });
 });
 

@@ -88,9 +88,20 @@ vi.mock("@/components/ui/form", async () => {
   };
 });
 
-function makeSearchResult(items: object[], total = items.length, errors?: string[]) {
+function makeSearchResult(
+  items: object[],
+  total = items.length,
+  errors?: string[],
+  queryUsed?: string
+) {
   return {
-    json: async () => ({ items, total, offset: 0, ...(errors ? { errors } : {}) }),
+    json: async () => ({
+      items,
+      total,
+      offset: 0,
+      ...(errors ? { errors } : {}),
+      ...(queryUsed ? { queryUsed } : {}),
+    }),
   };
 }
 
@@ -130,7 +141,9 @@ function setupApiRequest({
   errors,
   libraryGames = [],
   downloaders = [],
+  queryUsed,
 }: {
+  queryUsed?: string;
   items?: object[];
   total?: number;
   errors?: string[];
@@ -139,7 +152,7 @@ function setupApiRequest({
 } = {}) {
   mockApiRequest.mockImplementation((_method: string, url: string) => {
     if (url.startsWith("/api/search"))
-      return Promise.resolve(makeSearchResult(items, total, errors));
+      return Promise.resolve(makeSearchResult(items, total, errors, queryUsed));
     if (url.startsWith("/api/games/")) return Promise.resolve({ ok: true, json: async () => ({}) });
     if (url.startsWith("/api/games")) return Promise.resolve({ json: async () => libraryGames });
     if (url.startsWith("/api/downloaders/") && url.includes("/downloads"))
@@ -401,26 +414,51 @@ describe("SearchPage", () => {
       });
     });
 
-    it("shows toast when no compatible downloader for the item type", async () => {
-      // A usenet-only downloader is incompatible with torrent items.
-      // downloaders.length > 0 → button is NOT disabled; but clicking it
-      // shows "No compatible downloaders" because no torrent client is configured.
+    it("disables a release that no configured downloader can take and says why", async () => {
+      // A usenet-only downloader cannot take a torrent item.
       const usenetDl = { id: "dl-2", name: "SABnzbd", type: "sabnzbd", enabled: true };
       setupApiRequest({ items: [TORRENT_ITEM], total: 1, downloaders: [usenetDl] });
       renderSearch();
       typeSearch("game");
 
       await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
-      const btn = screen.getByTestId("button-download-0");
-      expect(btn).not.toBeDisabled();
+      await waitFor(() =>
+        expect(screen.getByTestId("notice-unsupported-releases")).toHaveTextContent(
+          "1 torrent release(s) need a torrent downloader"
+        )
+      );
+      expect(screen.getByTestId("button-download-0")).toBeDisabled();
+    });
 
-      fireEvent.click(btn);
+    it("keeps a release enabled when a compatible downloader exists", async () => {
+      const torrentDl = { id: "dl-1", name: "qBittorrent", type: "qbittorrent", enabled: true };
+      setupApiRequest({ items: [TORRENT_ITEM], total: 1, downloaders: [torrentDl] });
+      renderSearch();
+      typeSearch("game");
 
-      await waitFor(() => {
-        expect(toastSpy).toHaveBeenCalledWith(
-          expect.objectContaining({ title: "No compatible downloaders" })
-        );
-      });
+      await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
+      expect(screen.getByTestId("button-download-0")).not.toBeDisabled();
+      expect(screen.queryByTestId("notice-unsupported-releases")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("query fallback", () => {
+    it("tells which simpler query produced the results", async () => {
+      setupApiRequest({ items: [TORRENT_ITEM], total: 1, queryUsed: "Hellraiser: Revival" });
+      renderSearch();
+      typeSearch("Clive Barker's Hellraiser: Revival");
+
+      const notice = await screen.findByTestId("notice-search-fallback");
+      expect(notice).toHaveTextContent("Showing results for Hellraiser: Revival instead");
+    });
+
+    it("shows no notice when the query itself found the results", async () => {
+      setupApiRequest({ items: [TORRENT_ITEM], total: 1 });
+      renderSearch();
+      typeSearch("game");
+
+      await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
+      expect(screen.queryByTestId("notice-search-fallback")).not.toBeInTheDocument();
     });
   });
 
@@ -520,6 +558,36 @@ describe("SearchPage", () => {
       await waitFor(() => {
         // Initial search + games query + second page fetch
         expect(mockApiRequest).toHaveBeenCalledTimes(3);
+      });
+    });
+
+    it("requests the next page with the fallback query that found the first one", async () => {
+      const items = Array.from({ length: 50 }, (_, i) => ({
+        ...TORRENT_ITEM,
+        guid: `guid-${i}`,
+        title: `Game ${i}`,
+      }));
+      setupApiRequest({ items, total: 100, queryUsed: "Hellraiser: Revival" });
+      renderSearch();
+      typeSearch("Clive Barker's Hellraiser: Revival");
+
+      await waitFor(() => expect(capturedIntersectionCallback).not.toBeNull());
+      await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
+
+      void act(() => {
+        capturedIntersectionCallback?.([{ isIntersecting: true }], {});
+      });
+
+      await waitFor(() => {
+        const searchUrls = mockApiRequest.mock.calls
+          .map((c) => c[1] as string)
+          .filter((url) => url.startsWith("/api/search"));
+        expect(searchUrls).toHaveLength(2);
+        expect(searchUrls[1]).toContain(`query=${encodeURIComponent("Hellraiser: Revival")}`);
+        expect(searchUrls[1]).toContain("offset=50");
+        expect(searchUrls[1]).toContain(
+          `title=${encodeURIComponent("Clive Barker's Hellraiser: Revival")}`
+        );
       });
     });
 

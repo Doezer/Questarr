@@ -61,6 +61,13 @@ true:
 | A symbolic link or hard link                                                                  | `Archive contains a symbolic or hard link, which is not extracted.` |
 | An entry with a missing or invalid uncompressed size                                          | `Archive contains an entry with an invalid uncompressed size.`      |
 
+Listing output is parsed as a stream rather than buffered in full, so valid
+archives can produce more than 10 MiB of listing text. To bound metadata memory,
+Questarr refuses a listing record over 64 KiB or entry names totaling over
+32 MiB. These fixed metadata limits and the entry-count limit stop the listing
+process immediately and are not retried. Integrity tests and extraction also
+drain output as a stream, retaining only bounded diagnostic tails on failure.
+
 The path and link checks always apply. If a legitimate release is refused
 for size or entry count, raise the matching limit and restart the server:
 

@@ -3,7 +3,19 @@ import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { formatBytes, formatAge, isUsenetItem, getDownloadTypeColor } from "@/lib/downloads-utils";
+import {
+  formatBytes,
+  formatAge,
+  isUsenetItem,
+  getDownloadTypeColor,
+  hasCompatibleDownloader,
+  countUnsupportedReleases,
+} from "@/lib/downloads-utils";
+import {
+  SearchFallbackNotice,
+  UnsupportedReleasesNotice,
+  UNSUPPORTED_RELEASE_TITLE,
+} from "@/components/SearchResultNotices";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
 import { cleanReleaseName } from "@shared/title-utils";
 import {
@@ -75,7 +87,14 @@ interface SearchResult {
   items: DownloadItem[];
   total: number;
   offset: number;
+  queryUsed?: string;
   errors?: string[];
+}
+
+/** What a page of results is requested with: where it starts, and the fallback query if any. */
+interface SearchPageParam {
+  offset: number;
+  query?: string;
 }
 
 interface Downloader {
@@ -130,21 +149,30 @@ export default function SearchPage() {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useInfiniteQuery<SearchResult, Error, InfiniteData<SearchResult>, string[], number>({
+  } = useInfiniteQuery<SearchResult, Error, InfiniteData<SearchResult>, string[], SearchPageParam>({
     queryKey: ["/api/search", debouncedSearchQuery],
     queryFn: async ({ pageParam }): Promise<SearchResult> => {
       const r = await apiRequest(
         "GET",
-        `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&limit=${PAGE_SIZE}&offset=${pageParam}`
+        `/api/search?query=${encodeURIComponent(pageParam.query ?? debouncedSearchQuery)}${
+          pageParam.query ? `&title=${encodeURIComponent(debouncedSearchQuery)}` : ""
+        }&limit=${PAGE_SIZE}&offset=${pageParam.offset}`
       );
       return r.json();
     },
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, _allPages, lastPageParam) => {
+    initialPageParam: { offset: 0 },
+    getNextPageParam: (lastPage, allPages, lastPageParam) => {
       // Use "received a full page" as the continuation signal rather than comparing
       // against lastPage.total, which equals the current batch size for Torznab
       // indexers and would always terminate pagination after the first page.
-      return lastPage.items.length >= PAGE_SIZE ? lastPageParam + lastPage.items.length : undefined;
+      if (lastPage.items.length < PAGE_SIZE) return undefined;
+      // The server only retries simpler queries on the first page, so later pages keep the
+      // one that found it. Read from the first page itself, which survives a cached remount.
+      const query = allPages[0]?.queryUsed;
+      return {
+        offset: lastPageParam.offset + lastPage.items.length,
+        ...(query ? { query } : {}),
+      };
     },
     enabled: debouncedSearchQuery.trim().length > 0,
   });
@@ -263,9 +291,17 @@ export default function SearchPage() {
     }
   }, [data, isSearching, searchError, debouncedSearchQuery, toast]);
 
-  const { data: downloaders = [] } = useQuery<Downloader[]>({
+  const { data: downloaders = [], isSuccess: downloadersLoaded } = useQuery<Downloader[]>({
     queryKey: ["/api/downloaders/enabled"],
   });
+  // releases that no configured downloader can take: flagged, with their download disabled
+  const unsupportedCounts = useMemo(
+    () =>
+      downloadersLoaded && downloaders.length > 0
+        ? countUnsupportedReleases(allItems, downloaders)
+        : { torrent: 0, usenet: 0 },
+    [downloadersLoaded, downloaders, allItems]
+  );
 
   const downloadMutation = useMutation({
     mutationFn: async ({
@@ -492,6 +528,14 @@ export default function SearchPage() {
             )}
           </div>
 
+          <div className="mb-4 space-y-3 empty:hidden">
+            <SearchFallbackNotice
+              queryUsed={firstPage?.queryUsed}
+              originalQuery={debouncedSearchQuery}
+            />
+            <UnsupportedReleasesNotice counts={unsupportedCounts} />
+          </div>
+
           {!!indexerErrors && indexerErrors.length > 0 && (
             <Card className="mb-4" data-testid="card-indexer-errors">
               <CardHeader>
@@ -557,6 +601,8 @@ export default function SearchPage() {
               <>
                 {filteredAndSortedItems.map((download, index) => {
                   const isUsenet = isUsenetItem(download);
+                  const unsupported =
+                    downloaders.length > 0 && !hasCompatibleDownloader(download, downloaders);
                   const itemKey = download.guid ?? download.link;
                   return (
                     <div
@@ -657,13 +703,13 @@ export default function SearchPage() {
                           <TooltipTrigger asChild>
                             <div
                               className="inline-block"
-                              tabIndex={downloaders.length === 0 ? 0 : -1}
+                              tabIndex={downloaders.length === 0 || unsupported ? 0 : -1}
                             >
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleDownload(download)}
-                                disabled={downloaders.length === 0}
+                                disabled={downloaders.length === 0 || unsupported}
                                 className="h-8 w-8"
                                 data-testid={`button-download-${index}`}
                                 aria-label={`Start download for ${download.title}`}
@@ -676,7 +722,9 @@ export default function SearchPage() {
                             <p>
                               {downloaders.length === 0
                                 ? "Configure a downloader first"
-                                : "Start download"}
+                                : unsupported
+                                  ? UNSUPPORTED_RELEASE_TITLE
+                                  : "Start download"}
                             </p>
                           </TooltipContent>
                         </Tooltip>

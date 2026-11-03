@@ -1,4 +1,6 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -46,13 +48,7 @@ vi.mock("../logger.js", () => ({
   logger: loggerMocks,
 }));
 
-vi.mock("node:child_process", () => {
-  const execFileMock = vi.fn();
-  return {
-    execFile: execFileMock,
-    default: { execFile: execFileMock },
-  };
-});
+vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 
 import { ArchiveService } from "../services/ArchiveService.js";
 
@@ -68,20 +64,30 @@ function staging(outputDir: string): string {
 
 const NONEXISTENT_BINARY_PATH = "/definitely/does/not/exist/questarr-archive-tool-test";
 
-type ExecCallback = (error: Error | null, stdout: string, stderr: string) => void;
-
-function mockExecOnce(error: Error | null, stdout = "", stderr = ""): void {
-  vi.mocked(execFile).mockImplementationOnce((...args: unknown[]) => {
-    (args[3] as ExecCallback)(error, stdout, stderr);
-    return {} as never;
+function mockToolProcess(
+  error: Error | null,
+  stdout: string,
+  stderr: string
+): ReturnType<typeof spawn> {
+  const child = Object.assign(new EventEmitter(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(() => true),
   });
+  void Promise.resolve().then(() => {
+    child.stdout.end(stdout);
+    child.stderr.end(stderr);
+    child.emit("close", error ? 2 : 0, null);
+  });
+  return child as ReturnType<typeof spawn>;
 }
 
-function mockExecAlways(error: Error | null, stdout = "", stderr = ""): void {
-  vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
-    (args[3] as ExecCallback)(error, stdout, stderr);
-    return {} as never;
-  });
+function mockToolOnce(error: Error | null, stdout = "", stderr = ""): void {
+  vi.mocked(spawn).mockImplementationOnce(() => mockToolProcess(error, stdout, stderr));
+}
+
+function mockToolAlways(error: Error | null, stdout = "", stderr = ""): void {
+  vi.mocked(spawn).mockImplementation(() => mockToolProcess(error, stdout, stderr));
 }
 
 function makeSltOutput(
@@ -255,14 +261,14 @@ describe("ArchiveService", () => {
   describe("7-Zip support (.zip/.7z/.iso/.tar/.gz/.bz2)", () => {
     it("routes non-RAR archives to the native 7-Zip binary for test and extraction", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
+      mockToolAlways(null, "", "");
       readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
 
       const files = await service.extract("/downloads/game.zip", "/tmp/out"); // NOSONAR - mocked fs
 
       expect(files).toEqual([expect.stringMatching(/tmp[\\/]out[\\/]game\.rom$/)]);
 
-      const calls = vi.mocked(execFile).mock.calls;
+      const calls = vi.mocked(spawn).mock.calls;
       expect(calls).toHaveLength(3);
       expect(calls[0][0]).toBe(fakeSevenZipPath);
       expect(calls[0][1]).toEqual(["l", "-slt", "-p-", "--", "/downloads/game.zip"]);
@@ -283,7 +289,7 @@ describe("ArchiveService", () => {
 
     it("resolves with an empty array and warns when extraction produces no files", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
+      mockToolAlways(null, "", "");
       readdirMock.mockResolvedValueOnce([]);
 
       const files = await service.extract("/downloads/empty.zip", "/tmp/empty-out"); // NOSONAR - mocked fs
@@ -297,19 +303,19 @@ describe("ArchiveService", () => {
 
     it("rejects path traversal before extraction touches the destination", async () => {
       const service = await freshArchiveService();
-      mockExecOnce(null, makeSltOutput([{ name: "../outside.rom", size: 12 }]));
+      mockToolOnce(null, makeSltOutput([{ name: "../outside.rom", size: 12 }]));
 
       await expect(
         service.extract("/downloads/game.zip", "/tmp/out") // NOSONAR - mocked fs
       ).rejects.toThrow("unsafe file path");
 
-      expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
+      expect(vi.mocked(spawn).mock.calls).toHaveLength(1);
       expect(ensureDirMock).not.toHaveBeenCalled();
     });
 
     it("does not treat empty link fields on ordinary entries as links", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(
+      mockToolAlways(
         null,
         makeSltOutput([{ name: "game.rom", size: 12, extra: "Symbolic Link = \nHard Link = " }]),
         ""
@@ -323,7 +329,7 @@ describe("ArchiveService", () => {
 
     it("accepts an explicit root directory entry, as tar -cf archive.tar . produces", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(
+      mockToolAlways(
         null,
         makeSltOutput([
           { name: ".", size: 0, isDirectory: true },
@@ -340,7 +346,7 @@ describe("ArchiveService", () => {
 
     it("rejects symbolic and hard links before extraction touches the destination", async () => {
       const service = await freshArchiveService();
-      mockExecOnce(
+      mockToolOnce(
         null,
         makeSltOutput([{ name: "linked.rom", size: 1, extra: "Symbolic Link = ../outside.rom" }])
       );
@@ -349,7 +355,7 @@ describe("ArchiveService", () => {
         service.extract("/downloads/game.zip", "/tmp/out") // NOSONAR - mocked fs
       ).rejects.toThrow("symbolic or hard link");
 
-      expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
+      expect(vi.mocked(spawn).mock.calls).toHaveLength(1);
       expect(ensureDirMock).not.toHaveBeenCalled();
     });
 
@@ -361,7 +367,7 @@ describe("ArchiveService", () => {
 
       try {
         const service = await freshArchiveService();
-        mockExecOnce(
+        mockToolOnce(
           null,
           makeSltOutput([
             { name: "games", size: 0, isDirectory: true },
@@ -372,16 +378,16 @@ describe("ArchiveService", () => {
         await expect(
           service.extract("/downloads/game.zip", "/tmp/out") // NOSONAR - mocked fs
         ).rejects.toThrow("too many entries");
-        expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
+        expect(vi.mocked(spawn).mock.calls).toHaveLength(1);
         expect(ensureDirMock).not.toHaveBeenCalled();
 
         vi.clearAllMocks();
         const sizeLimitedService = await freshArchiveService();
-        mockExecOnce(null, makeSltOutput([{ name: "large.rom", size: 101 }]));
+        mockToolOnce(null, makeSltOutput([{ name: "large.rom", size: 101 }]));
         await expect(
           sizeLimitedService.extract("/downloads/large.zip", "/tmp/out") // NOSONAR - mocked fs
         ).rejects.toThrow("configured size limit");
-        expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
+        expect(vi.mocked(spawn).mock.calls).toHaveLength(1);
         expect(ensureDirMock).not.toHaveBeenCalled();
       } finally {
         if (previousCount === undefined) delete process.env.ARCHIVE_MAX_ENTRIES;
@@ -393,9 +399,9 @@ describe("ArchiveService", () => {
 
     it("retries a transient metadata listing failure before testing or extracting", async () => {
       const service = await freshArchiveService();
-      mockExecOnce(new Error("exit code 2"), "", "Unexpected end of archive");
-      mockExecOnce(null, makeSltOutput([{ name: "game.rom", size: 12 }]));
-      mockExecAlways(null, "", "");
+      mockToolOnce(new Error("exit code 2"), "", "Unexpected end of archive");
+      mockToolOnce(null, makeSltOutput([{ name: "game.rom", size: 12 }]));
+      mockToolAlways(null, "", "");
       readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
 
       vi.useFakeTimers();
@@ -405,7 +411,7 @@ describe("ArchiveService", () => {
       vi.useRealTimers();
 
       expect(files).toEqual([expect.stringMatching(/tmp[\\/]settling-out[\\/]game\.rom$/)]);
-      const calls = vi.mocked(execFile).mock.calls;
+      const calls = vi.mocked(spawn).mock.calls;
       expect(calls).toHaveLength(4);
       expect(calls[0][1]).toEqual(["l", "-slt", "-p-", "--", "/downloads/settling.zip"]);
       expect(calls[1][1]).toEqual(["l", "-slt", "-p-", "--", "/downloads/settling.zip"]);
@@ -424,9 +430,9 @@ describe("ArchiveService", () => {
     it("rejects with the tool's error message when extraction fails", async () => {
       const service = await freshArchiveService();
       // The pre-extraction test succeeds, then extraction itself fails.
-      mockExecOnce(null, "", "");
-      mockExecOnce(null, "", "");
-      mockExecOnce(new Error("exit code 2"), "", "Cannot open the file as archive");
+      mockToolOnce(null, "", "");
+      mockToolOnce(null, "", "");
+      mockToolOnce(new Error("exit code 2"), "", "Cannot open the file as archive");
 
       await expect(
         service.extract("/downloads/corrupt.zip", "/tmp/out") // NOSONAR - mocked fs, no real dir access
@@ -435,8 +441,8 @@ describe("ArchiveService", () => {
 
     it("does not empty the output directory when the integrity test fails on every attempt", async () => {
       const service = await freshArchiveService();
-      mockExecOnce(null, makeSltOutput([{ name: "game.rom", size: 12 }]));
-      mockExecAlways(new Error("exit code 2"), "", "Cannot open the file as archive");
+      mockToolOnce(null, makeSltOutput([{ name: "game.rom", size: 12 }]));
+      mockToolAlways(new Error("exit code 2"), "", "Cannot open the file as archive");
 
       vi.useFakeTimers();
       const resultPromise = service.extract("/downloads/corrupt.zip", "/tmp/out"); // NOSONAR - mocked fs, no real dir access
@@ -447,7 +453,7 @@ describe("ArchiveService", () => {
 
       expect(ensureDirMock).not.toHaveBeenCalled();
       // One metadata listing plus 3 test attempts; extraction never ran.
-      expect(vi.mocked(execFile).mock.calls).toHaveLength(4);
+      expect(vi.mocked(spawn).mock.calls).toHaveLength(4);
     });
 
     it("rejects with a clear error when no 7-Zip binary is available", async () => {
@@ -458,13 +464,13 @@ describe("ArchiveService", () => {
         service.extract("/downloads/game.zip", "/tmp/out") // NOSONAR - mocked fs
       ).rejects.toThrow("no binary was found");
 
-      expect(execFile).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
       expect(ensureDirMock).not.toHaveBeenCalled();
     });
 
     it("returns full nested paths for files inside subdirectories", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
+      mockToolAlways(null, "", "");
       readdirMock.mockImplementation(async (dir: string) => {
         if (dir === staging("/tmp/nested-out")) {
           return [
@@ -493,14 +499,14 @@ describe("ArchiveService", () => {
   describe("RAR support", () => {
     it("routes .rar files to unrar for test and extraction", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
+      mockToolAlways(null, "", "");
       readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
 
       const files = await service.extract("/downloads/game.rar", "/tmp/rar-out"); // NOSONAR - mocked fs
 
       expect(files).toEqual([expect.stringMatching(/tmp[\\/]rar-out[\\/]game\.rom$/)]);
 
-      const calls = vi.mocked(execFile).mock.calls;
+      const calls = vi.mocked(spawn).mock.calls;
       expect(calls).toHaveLength(3);
       expect(calls[0][0]).toBe(fakeUnrarPath);
       expect(calls[0][1]).toEqual(["lt", "-v", "-p-", "--", "/downloads/game.rar"]);
@@ -521,8 +527,8 @@ describe("ArchiveService", () => {
 
     it("does not create the output directory when the RAR integrity test fails on every attempt", async () => {
       const service = await freshArchiveService();
-      mockExecOnce(null, makeSltOutput([{ name: "game.rom", size: 12 }]));
-      mockExecAlways(new Error("exit code 1"), "", "Damaged RAR archive");
+      mockToolOnce(null, makeSltOutput([{ name: "game.rom", size: 12 }]));
+      mockToolAlways(new Error("exit code 1"), "", "Damaged RAR archive");
 
       vi.useFakeTimers();
       const resultPromise = service.extract("/downloads/broken.rar", "/tmp/broken-out"); // NOSONAR - mocked fs
@@ -533,13 +539,13 @@ describe("ArchiveService", () => {
 
       expect(ensureDirMock).not.toHaveBeenCalled();
       // One metadata listing plus 3 test attempts; extraction was never attempted.
-      expect(vi.mocked(execFile).mock.calls).toHaveLength(4);
+      expect(vi.mocked(spawn).mock.calls).toHaveLength(4);
     });
 
     it("appends a corruption hint once retries against a broken archive are exhausted", async () => {
       const service = await freshArchiveService();
-      mockExecOnce(null, makeSltOutput([{ name: "game.rom", size: 12 }]));
-      mockExecAlways(new Error("exit code 1"), "", "Unexpected end of archive");
+      mockToolOnce(null, makeSltOutput([{ name: "game.rom", size: 12 }]));
+      mockToolAlways(new Error("exit code 1"), "", "Unexpected end of archive");
 
       vi.useFakeTimers();
       const resultPromise = service.extract("/downloads/corrupt.rar", "/tmp/corrupt-out"); // NOSONAR - mocked fs, no real dir access
@@ -555,9 +561,9 @@ describe("ArchiveService", () => {
       // First attempt: the download client's completion event fired just before the file
       // finished syncing to disk, so unrar reads a truncated file — the same failure
       // signature a genuinely corrupt archive would produce.
-      mockExecOnce(null, makeSltOutput([{ name: "game.rom", size: 12 }]));
-      mockExecOnce(new Error("exit code 1"), "", "Unexpected end of archive");
-      mockExecAlways(null, "", "");
+      mockToolOnce(null, makeSltOutput([{ name: "game.rom", size: 12 }]));
+      mockToolOnce(new Error("exit code 1"), "", "Unexpected end of archive");
+      mockToolAlways(null, "", "");
       readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
 
       vi.useFakeTimers();
@@ -568,7 +574,7 @@ describe("ArchiveService", () => {
 
       expect(files).toEqual([expect.stringMatching(/tmp[\\/]settling-out[\\/]game\.rom$/)]);
       // List → attempt 1 (test, fails) → attempt 2 (test, succeeds) → extract.
-      expect(vi.mocked(execFile).mock.calls).toHaveLength(4);
+      expect(vi.mocked(spawn).mock.calls).toHaveLength(4);
       expect(loggerMocks.info).toHaveBeenCalledWith(
         expect.objectContaining({ attempt: 2 }),
         "Archive test succeeded after retry"
@@ -584,13 +590,13 @@ describe("ArchiveService", () => {
       ).rejects.toThrow("no unrar binary was found");
 
       // Listing a RAR already needs unrar, so nothing runs at all.
-      expect(execFile).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
       expect(ensureDirMock).not.toHaveBeenCalled();
     });
 
     it("logs a warning when RAR extraction succeeds but produces no files", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
+      mockToolAlways(null, "", "");
       readdirMock.mockResolvedValueOnce([]);
 
       const files = await service.extract("/downloads/empty.rar", "/tmp/empty-rar-out"); // NOSONAR - mocked fs
@@ -612,14 +618,14 @@ describe("ArchiveService", () => {
       async (_tool, filePath, outDir, stderr) => {
         const service = await freshArchiveService();
         const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
-        mockExecAlways(new Error("exit code 2"), "", stderr);
+        mockToolAlways(new Error("exit code 2"), "", stderr);
 
         await expect(
           service.extract(filePath, outDir) // NOSONAR - mocked fs
         ).rejects.toThrow(ArchivePasswordRequiredError);
 
         // No retries — a password failure is deterministic, so only the first test attempt runs.
-        expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
+        expect(vi.mocked(spawn).mock.calls).toHaveLength(1);
         expect(ensureDirMock).not.toHaveBeenCalled();
       }
     );
@@ -627,7 +633,7 @@ describe("ArchiveService", () => {
     it("does not misclassify a corrupt archive as password-protected just because its path contains the word 'password'", async () => {
       const service = await freshArchiveService();
       const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
-      mockExecAlways(
+      mockToolAlways(
         new Error("exit code 2"),
         "",
         "Cannot open the file MyPasswordVault.rar as archive: CRC failed"
@@ -642,7 +648,7 @@ describe("ArchiveService", () => {
 
       // Falls through to three metadata-listing attempts and the generic error,
       // exactly like any other non-password failure.
-      expect(vi.mocked(execFile).mock.calls).toHaveLength(3);
+      expect(vi.mocked(spawn).mock.calls).toHaveLength(3);
     });
 
     it.each([
@@ -681,12 +687,12 @@ describe("ArchiveService", () => {
       "passes a given password to %s via -p<password> on both test and extract",
       async (_tool, filePath, outDir, expectedTestArgs, expectedExtractArgs) => {
         const service = await freshArchiveService();
-        mockExecAlways(null, "", "");
+        mockToolAlways(null, "", "");
         readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
 
         await service.extract(filePath, outDir, "hunter2"); // NOSONAR - mocked fs
 
-        const calls = vi.mocked(execFile).mock.calls;
+        const calls = vi.mocked(spawn).mock.calls;
         expect(calls[0][1]).toEqual(
           filePath.endsWith(".rar")
             ? ["lt", "-v", "-phunter2", "--", filePath]
@@ -697,9 +703,60 @@ describe("ArchiveService", () => {
       }
     );
 
+    it.each(
+      ["zip", "rar"].flatMap((extension) =>
+        ["listing", "integrity"].flatMap((phase) =>
+          ["password", "pass", "word", "a"].map((password) => ({ extension, phase, password }))
+        )
+      )
+    )(
+      "keeps $extension $phase password failures non-retryable when the password is '$password'",
+      async ({ extension, phase, password }) => {
+        const service = await freshArchiveService();
+        const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
+        if (phase === "integrity") mockToolOnce(null, "");
+        mockToolAlways(new Error("exit code 2"), "", "Wrong password?");
+
+        const result = service.extract(
+          `/downloads/game.${extension}`,
+          "/tmp/password-out",
+          password
+        );
+        await expect(result).rejects.toBeInstanceOf(ArchivePasswordRequiredError);
+        await expect(result).rejects.toThrow("provided password was rejected");
+        expect(spawn).toHaveBeenCalledTimes(phase === "listing" ? 1 : 2);
+        expect(ensureDirMock).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(["zip", "rar"])(
+      "retries transient %s listing failures even when a listed filename contains a password diagnostic",
+      async (extension) => {
+        const service = await freshArchiveService();
+        const listing =
+          extension === "zip"
+            ? makeSltOutput([{ name: "password required.txt", size: 12 }])
+            : "Name: password required.txt\nType: File\nSize: 12\n\n";
+        mockToolOnce(new Error("exit code 2"), listing);
+        mockToolOnce(null, listing);
+        mockToolAlways(null);
+        readdirMock.mockResolvedValueOnce([
+          { name: "password required.txt", isDirectory: () => false },
+        ]);
+        vi.useFakeTimers();
+        const result = service.extract(`/downloads/game.${extension}`, "/tmp/password-name-out");
+        const assertion = expect(result).resolves.toEqual([
+          path.join("/tmp/password-name-out", "password required.txt"),
+        ]);
+        await vi.runAllTimersAsync();
+        await assertion;
+        expect(spawn).toHaveBeenCalledTimes(4);
+      }
+    );
+
     it("reports a rejected-password message distinct from the initial 'required' message on a wrong retry password", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(new Error("exit code 3"), "", "wrong password for the archive");
+      mockToolAlways(new Error("exit code 3"), "", "wrong password for the archive");
 
       await expect(
         service.extract("/downloads/game.rar", "/tmp/rar-out", "wrongpass") // NOSONAR - mocked fs
@@ -735,7 +792,7 @@ describe("ArchiveService", () => {
 
     it("parses -slt output into file and directory entries", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(null, SLT_OUTPUT, "");
+      mockToolAlways(null, SLT_OUTPUT, "");
 
       const entries = await service.listEntries("/downloads/test.zip"); // NOSONAR - mocked fs
 
@@ -744,18 +801,18 @@ describe("ArchiveService", () => {
         { name: "sub", size: 0, isDirectory: true },
         { name: "sub/deep.dat", size: 7 },
       ]);
-      const calls = vi.mocked(execFile).mock.calls;
+      const calls = vi.mocked(spawn).mock.calls;
       expect(calls[0][0]).toBe(fakeSevenZipPath);
       expect(calls[0][1]).toEqual(["l", "-slt", "-p-", "--", "/downloads/test.zip"]);
     });
 
     it("routes RAR listing through unrar, whose Alpine 7-Zip build lacks the RAR codec", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(null, UNRAR_LT_OUTPUT, "");
+      mockToolAlways(null, UNRAR_LT_OUTPUT, "");
 
       const entries = await service.listEntries("/downloads/game.part1.rar"); // NOSONAR - mocked fs
 
-      const call = vi.mocked(execFile).mock.calls[0];
+      const call = vi.mocked(spawn).mock.calls[0];
       expect(call[0]).toBe(fakeUnrarPath);
       expect(call[1]).toEqual(["lt", "-v", "-p-", "--", "/downloads/game.part1.rar"]);
       // The file split across both volumes is listed once; the link and directory keep
@@ -770,7 +827,7 @@ describe("ArchiveService", () => {
 
     it("keeps two same-named entries inside one volume, so neither escapes the size limit", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(
+      mockToolAlways(
         null,
         [
           "Archive: /downloads/dup.rar",
@@ -795,7 +852,7 @@ describe("ArchiveService", () => {
 
     it("keeps unsplit same-named entries that meet at a volume boundary", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(
+      mockToolAlways(
         null,
         [
           "Archive: /downloads/dup.part1.rar",
@@ -823,7 +880,7 @@ describe("ArchiveService", () => {
 
     it("reads 7z directories from their attributes, since 7z blocks carry no Folder field", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(
+      mockToolAlways(
         null,
         [
           "Path = /downloads/game.7z\nType = 7z\nPhysical Size = 900",
@@ -845,7 +902,7 @@ describe("ArchiveService", () => {
 
     it("rejects when 7-Zip fails to list the archive", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(new Error("exit code 2"), "", "Cannot open the file as archive");
+      mockToolAlways(new Error("exit code 2"), "", "Cannot open the file as archive");
 
       await expect(
         service.listEntries("/downloads/corrupt.zip") // NOSONAR - mocked fs
@@ -867,7 +924,7 @@ describe("ArchiveService", () => {
 
     it("returns true when every entry matches a loose file by name and size", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(null, SLT_OUTPUT, "");
+      mockToolAlways(null, SLT_OUTPUT, "");
       statMock.mockResolvedValue({ isDirectory: () => false, size: 12 });
 
       const result = await service.isAlreadyExtracted("/downloads/test.zip", "/downloads"); // NOSONAR - mocked fs
@@ -877,7 +934,7 @@ describe("ArchiveService", () => {
 
     it("returns false when a matching-name file has a different size (partial/incomplete extraction)", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(null, SLT_OUTPUT, "");
+      mockToolAlways(null, SLT_OUTPUT, "");
       statMock.mockResolvedValue({ isDirectory: () => false, size: 5 });
 
       const result = await service.isAlreadyExtracted("/downloads/test.zip", "/downloads"); // NOSONAR - mocked fs
@@ -887,7 +944,7 @@ describe("ArchiveService", () => {
 
     it("returns false when the candidate loose file doesn't exist", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(null, SLT_OUTPUT, "");
+      mockToolAlways(null, SLT_OUTPUT, "");
       statMock.mockRejectedValue(new Error("ENOENT"));
 
       const result = await service.isAlreadyExtracted("/downloads/test.zip", "/downloads"); // NOSONAR - mocked fs
@@ -897,7 +954,7 @@ describe("ArchiveService", () => {
 
     it("returns false when the archive has no entries at all", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(null, "", "");
+      mockToolAlways(null, "", "");
 
       const result = await service.isAlreadyExtracted("/downloads/empty.zip", "/downloads"); // NOSONAR - mocked fs
 
@@ -906,7 +963,7 @@ describe("ArchiveService", () => {
 
     it("returns false (never throws) when listing the archive fails", async () => {
       const service = await freshArchiveService();
-      mockExecAlways(new Error("exit code 2"), "", "Cannot open the file as archive");
+      mockToolAlways(new Error("exit code 2"), "", "Cannot open the file as archive");
 
       const result = await service.isAlreadyExtracted("/downloads/corrupt.zip", "/downloads"); // NOSONAR - mocked fs
 
@@ -918,7 +975,7 @@ describe("ArchiveService", () => {
       // content — a crafted "../../elsewhere/passwd"-style entry must not let an
       // unrelated file outside baseDir satisfy the already-extracted check.
       const service = await freshArchiveService();
-      mockExecAlways(
+      mockToolAlways(
         null,
         [
           "Path = test.zip",

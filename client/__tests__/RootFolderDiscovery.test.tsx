@@ -39,6 +39,7 @@ function mockFetch(
 ) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
     const u = getRequestUrl(url);
+    if (u.includes("/api/library/external-games")) return createJsonResponse([]);
     if (u.includes("/api/library/scan/status")) return createJsonResponse(scanStatus);
     if (u.includes("/api/library/scan/unmatched")) return createJsonResponse(unmatched);
     if (u.includes("/api/library/scan/ignored")) return createJsonResponse(ignored);

@@ -2,7 +2,7 @@ import { storage } from "./storage.js";
 import { xrelClient } from "./xrel.js";
 import { logger } from "./logger.js";
 import { normalizeTitle } from "../shared/title-utils.js";
-import type { XrelPredbEntry } from "../shared/release-scoring.js";
+import type { XrelPredbEntry, XrelPredbList } from "../shared/release-scoring.js";
 
 /**
  * xREL PreDB lookup for release scoring (Questarr-mgmt #17 and #2). Based on the xREL boost in
@@ -18,7 +18,12 @@ const LOOKUP_LIMIT = 100;
 const MAX_CACHE_ENTRIES = 200;
 // Last completed results, kept much longer than the cache so a slow lookup in a later scheduled
 // cycle can still fall back on them (auto-search runs hours apart, the cache lives 10 minutes).
-const STALE_RETENTION_MS = 24 * 60 * 60 * 1000;
+const STALE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+// default age a stale result may have when a caller falls back on it
+const DEFAULT_STALE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+// The stale store is separate from the 200-entry lookup cache and sized for a whole wanted list:
+// a slow lookup finishing for one game must not evict the entry the next game needs.
+const MAX_STALE_ENTRIES = 5000;
 
 // how long an interactive caller waits for xREL; the lookup keeps running and fills the cache
 export const INTERACTIVE_LOOKUP_TIMEOUT_MS = 3000;
@@ -49,20 +54,29 @@ async function fetchPredb(
   types: XrelPredbTypes
 ): Promise<XrelPredbEntry[] | undefined> {
   const baseUrl = (await storage.getSystemConfig("xrel_api_base"))?.trim() || null;
-  const releases = await xrelClient.searchReleases(gameTitle, {
+  const { releases, truncated } = await xrelClient.searchReleasesWithMeta(gameTitle, {
     scene: types.scene,
     p2p: types.p2p,
     limit: LOOKUP_LIMIT,
     baseUrl,
   });
-  return releases.map((release) => {
+  if (truncated) {
+    logger.warn(
+      { gameTitle },
+      "xREL list is full (xREL does not paginate), releases missing from it are reported as unknown"
+    );
+  }
+  const entries: XrelPredbList = releases.map((release) => {
     const sizeBytes = xrelSizeBytes(release);
     return {
       dirname: release.dirname,
       ...(release.nukeReason !== undefined ? { nukeReason: release.nukeReason } : {}),
       ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+      source: release.source,
     };
   });
+  if (truncated) entries.truncated = true;
+  return entries;
 }
 
 /**
@@ -73,7 +87,13 @@ async function fetchPredb(
 export async function getXrelPredb(
   gameTitle: string,
   types: XrelPredbTypes = { scene: true, p2p: true },
-  options: { timeoutMs?: number; onUnavailable?: () => void; staleFallback?: boolean } = {}
+  options: {
+    timeoutMs?: number;
+    onUnavailable?: () => void;
+    staleFallback?: boolean;
+    /** Oldest completed result a stale fallback accepts; scheduled cycles pass their interval. */
+    staleMaxAgeMs?: number;
+  } = {}
 ): Promise<XrelPredbEntry[] | undefined> {
   if (!types.scene && !types.p2p) return undefined;
   // normalizeTitle is ASCII-only and drops other scripts (英雄伝説 2 would become "2"), so a
@@ -104,7 +124,9 @@ export async function getXrelPredb(
   // slow or failed: callers that cannot proceed blind get the last completed result, or are
   // told the lookup is unavailable
   const stale = options.staleFallback ? staleResults.get(key) : undefined;
-  if (stale && Date.now() - stale.at < STALE_RETENTION_MS) return stale.value;
+  if (stale && Date.now() - stale.at < (options.staleMaxAgeMs ?? DEFAULT_STALE_MAX_AGE_MS)) {
+    return stale.value;
+  }
   options.onUnavailable?.();
   return undefined;
 }
@@ -115,7 +137,7 @@ function rememberResult(key: string, value: XrelPredbEntry[]): void {
   for (const [entryKey, entry] of staleResults) {
     if (now - entry.at >= STALE_RETENTION_MS) staleResults.delete(entryKey);
   }
-  while (staleResults.size >= MAX_CACHE_ENTRIES) {
+  while (staleResults.size >= MAX_STALE_ENTRIES) {
     const oldest = staleResults.keys().next().value;
     if (oldest === undefined) break;
     staleResults.delete(oldest);

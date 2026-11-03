@@ -4701,6 +4701,38 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  describe("library rescan schedule", () => {
+    it("GET reports the interval, 0 when unset", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue(undefined);
+      const off = await request(app).get("/api/library/scan/schedule");
+      expect(off.status).toBe(200);
+      expect(off.body).toEqual({ intervalMinutes: 0 });
+
+      vi.mocked(storage.getSystemConfig).mockResolvedValue("360");
+      const on = await request(app).get("/api/library/scan/schedule");
+      expect(on.body).toEqual({ intervalMinutes: 360 });
+    });
+
+    it("PUT saves an allowed interval", async () => {
+      const response = await request(app)
+        .put("/api/library/scan/schedule")
+        .send({ intervalMinutes: 1440 });
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ intervalMinutes: 1440 });
+      expect(storage.setSystemConfig).toHaveBeenCalledWith(
+        "library_rescan_interval_minutes",
+        "1440"
+      );
+    });
+
+    it("PUT rejects an interval that is not offered", async () => {
+      const response = await request(app)
+        .put("/api/library/scan/schedule")
+        .send({ intervalMinutes: 5 });
+      expect(response.status).toBe(400);
+    });
+  });
+
   describe("POST /api/library/scan/unmatched/search", () => {
     const validBody = { rootFolderId: "rf-1", folderName: "Some Game", query: "Real Name" };
 

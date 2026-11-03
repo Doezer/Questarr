@@ -59,6 +59,7 @@ interface ServerState {
   milestones: Milestone[];
   screenshots: Screenshot[];
   failPostJournal: boolean;
+  failGetScreenshots: boolean;
 }
 
 interface RecordedRequest {
@@ -150,6 +151,7 @@ function installFetch() {
     }
 
     if (url === `${BASE}/screenshots`) {
+      if (method === "GET" && state.failGetScreenshots) return json({ error: "unavailable" }, 500);
       if (method === "POST") {
         const shot: Screenshot = {
           id: `s${nextId++}`,
@@ -197,17 +199,28 @@ beforeEach(() => {
     milestones: [],
     screenshots: [],
     failPostJournal: false,
+    failGetScreenshots: false,
   };
   installFetch();
 });
 
 describe("GameJournalTab", () => {
+  it("shows screenshot fetch failures and recovers with Retry", async () => {
+    state.failGetScreenshots = true;
+    renderTab();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load your screenshots.");
+    expect(screen.queryByText("No screenshots yet.")).not.toBeInTheDocument();
+    state.failGetScreenshots = false;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("No screenshots yet.")).toBeInTheDocument();
+  });
+
   it("shows empty states and skips achievements when Steam is not configured", async () => {
     renderTab(620);
 
     expect(await screen.findByText("No milestones yet.")).toBeInTheDocument();
     expect(screen.getByText("No journal entries yet.")).toBeInTheDocument();
-    expect(screen.getByText("No screenshots yet.")).toBeInTheDocument();
+    expect(await screen.findByText("No screenshots yet.")).toBeInTheDocument();
 
     await waitFor(() => expect(requestsTo("GET", /\/api\/settings\/steam$/)).toHaveLength(1));
     expect(requestsTo("GET", /\/achievements$/)).toHaveLength(0);
@@ -360,7 +373,7 @@ describe("GameJournalTab", () => {
     const file = new File(["png-bytes"], "shot.png", { type: "image/png" });
     fireEvent.change(fileInput, { target: { files: [file] } });
 
-    const thumbnail = await screen.findByRole("button", { name: "View screenshot" });
+    const thumbnail = await screen.findByRole("button", { name: "View screenshot 1" });
     const upload = requestsTo("POST", /\/screenshots$/)[0];
     expect(upload?.body).toBeInstanceOf(FormData);
     expect((upload?.body as FormData).get("file")).toBe(file);

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
 
 const { fsMock, downloadersMock } = vi.hoisted(() => ({
   fsMock: {
@@ -866,7 +867,7 @@ describe("ImportManager - processImport archive cleanup", () => {
     // copy mode relocates the raw archive into the library first (Game.zip's basename,
     // under the planned destination), extracts it in place there, then removes that
     // now-redundant copy — not a downloader-side "_extracted" directory.
-    expect(fsMock.remove).toHaveBeenCalledWith("/games/PC/Archive Game/Game.zip");
+    expect(fsMock.remove).toHaveBeenCalledWith(path.join("/games/PC/Archive Game", "Game.zip"));
 
     planSpy.mockRestore();
     execSpy.mockRestore();
@@ -1012,11 +1013,11 @@ describe("ImportManager - confirmImport path resolution failures", () => {
     // failure below is extract()'s, not the relocation's.
     expect(fsMock.copy).toHaveBeenCalledWith(
       "/downloads/game.zip",
-      "/safe/root/PC/My Game/game.zip",
+      path.join("/safe/root/PC/My Game", "game.zip"),
       { overwrite: true }
     );
     expect(fsMock.remove).toHaveBeenCalledWith("/downloads/game.zip");
-    expect(fsMock.remove).not.toHaveBeenCalledWith("/safe/root/PC/My Game/game.zip");
+    expect(fsMock.remove).not.toHaveBeenCalledWith(path.join("/safe/root/PC/My Game", "game.zip"));
     expect(storage.addNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "error",

@@ -5,6 +5,7 @@ import { typesafeClient } from "../typesafe.js";
 import { cloudClassifier } from "./cloud.js";
 import { LocalTfidfClassifier, loadLocalModel } from "./local.js";
 import { ClassificationPipeline, type PipelineLayers } from "./pipeline.js";
+import { classificationCacheStore } from "./persistent-store.js";
 import { rulesClassifier } from "./types.js";
 
 export { type PipelineResult } from "./pipeline.js";
@@ -93,15 +94,24 @@ async function layers(): Promise<PipelineLayers> {
 }
 
 /** The server's classification pipeline; its mode comes from `CLASSIFICATION_MODE`. */
-export const releasePipeline = new ClassificationPipeline(async () => {
-  const { mode } = config.classification;
-  return {
-    mode,
-    localVersion: mode === "cloud" ? null : (localLayer()?.modelVersion ?? null),
-    // Without a provider the cloud layer is absent, so a later configuration must not hit a stale entry
-    cloudVersion:
-      mode !== "local" && (await typesafeClient.isConfigured())
-        ? `${typesafeClient.modelId}#${typesafeClient.configRevision}`
-        : null,
-  };
-}, layers);
+export const releasePipeline = new ClassificationPipeline(
+  async () => {
+    const { mode } = config.classification;
+    return {
+      mode,
+      localVersion: mode === "cloud" ? null : (localLayer()?.modelVersion ?? null),
+      localThreshold: mode === "cloud" ? null : config.classification.localThreshold,
+      // Without a provider the cloud layer is absent, so a later configuration must not hit a stale entry
+      cloudVersion:
+        mode !== "local" && (await typesafeClient.isConfigured())
+          ? `${typesafeClient.modelId}#${typesafeClient.configRevision}`
+          : null,
+      cloudFingerprint:
+        mode !== "local" && (await typesafeClient.isConfigured())
+          ? typesafeClient.providerFingerprint
+          : null,
+    };
+  },
+  layers,
+  { store: classificationCacheStore }
+);

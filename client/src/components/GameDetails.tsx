@@ -84,6 +84,7 @@ import {
 } from "react-icons/si";
 import { NexusModsIcon } from "./NexusModsIcon";
 import GameJournalTab from "./GameJournalTab";
+import GameScreenshotGallery, { useGameScreenshots } from "./GameScreenshotGallery";
 import FileCategorySelect from "./FileCategorySelect";
 import InstalledVersionField from "./InstalledVersionField";
 import { coverSrc } from "@/lib/cover";
@@ -535,6 +536,10 @@ function StarRatingInput({
   );
 }
 
+/**
+ * Show catalog details alongside account-owned progress and media. Discovery routes resolve the
+ * saved row before accessing personal screenshots; failed lookups remain explicitly retryable.
+ */
 export default function GameDetails({ game, onClose }: GameDetailsProps) {
   const isMobile = useIsMobile();
   const [selectedScreenshotIndex, setSelectedScreenshotIndex] = useState<number | null>(null);
@@ -752,7 +757,13 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
   // game endpoints reject. Look up the library row for the same IGDB game so
   // Hide, Remove and the rating act on it instead.
   const isDiscoveryGame = isDiscoveryId(game.id);
-  const { data: libraryGames } = useQuery<Game[]>({
+  const {
+    data: libraryGames,
+    isError: libraryLookupError,
+    isPending: libraryLookupPending,
+    isFetching: libraryLookupFetching,
+    refetch: refetchLibraryGames,
+  } = useQuery<Game[]>({
     queryKey: ["/api/games", "", true],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/games?includeHidden=true");
@@ -940,6 +951,12 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
   const SUMMARY_LIMIT = 280;
   const isSummaryLong = game.summary && game.summary.length > SUMMARY_LIMIT;
   const isLibraryGame = !isDiscoveryId(game.id);
+  const personalScreenshotGameId = libraryGame?.id ?? game.id;
+  const canShowPersonalScreenshots = isLibraryGame || !!libraryGame;
+  const { data: personalScreenshots = [] } = useGameScreenshots(
+    personalScreenshotGameId,
+    canShowPersonalScreenshots
+  );
 
   // Include Steam link derived from steamAppId if IGDB didn't provide one (category 13)
   const rawWebsites = (game.igdbWebsites ?? []) as Array<{ category: number; url: string }>;
@@ -986,7 +1003,11 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
       ? [{ id: "downloads", label: "Downloads", count: gameDownloads.length }]
       : []),
     ...(isLibraryGame ? [{ id: "journal", label: "Journal" }] : []),
-    { id: "media", label: "Media", count: screenshots.length + videos.length },
+    {
+      id: "media",
+      label: "Media",
+      count: screenshots.length + videos.length + personalScreenshots.length,
+    },
     ...(hasExpansions ? [{ id: "dlc", label: "DLC", count: game.expansions?.length ?? 0 }] : []),
     ...(nexusDomain ? [{ id: "mods", label: "Mods" }] : []),
     ...(isLibraryGame ? [{ id: "files", label: "Files" }] : []),
@@ -1371,6 +1392,20 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     />
                   </div>
                 )}
+                {game.gameModes && game.gameModes.length > 0 && (
+                  <div>
+                    <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <Users className="h-3.5 w-3.5" />
+                      Game Modes
+                    </h4>
+                    <TagList
+                      items={game.gameModes}
+                      variant="secondary"
+                      maxVisible={6}
+                      getTestId={(m) => `badge-gamemode-${m.toLowerCase().replace(/\s+/g, "-")}`}
+                    />
+                  </div>
+                )}
                 {game.platforms && game.platforms.length > 0 && (
                   <div>
                     <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -1620,7 +1655,11 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
             {/* ── Journal ── */}
             {isLibraryGame && (
               <Section id="journal" title="Journal" icon={<BookOpen className="h-5 w-5" />}>
-                <GameJournalTab gameId={game.id} steamAppId={game.steamAppId ?? null} />
+                <GameJournalTab
+                  gameId={game.id}
+                  steamAppId={game.steamAppId ?? null}
+                  showScreenshots={false}
+                />
               </Section>
             )}
 
@@ -1629,9 +1668,33 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
               id="media"
               title="Media"
               icon={<Image className="h-5 w-5" />}
-              count={screenshots.length + videos.length}
+              count={screenshots.length + videos.length + personalScreenshots.length}
             >
               <div className="space-y-6">
+                {canShowPersonalScreenshots && (
+                  <GameScreenshotGallery
+                    key={personalScreenshotGameId}
+                    gameId={personalScreenshotGameId}
+                  />
+                )}
+                {isDiscoveryGame && !libraryGame && libraryLookupPending && (
+                  <output className="block text-sm text-muted-foreground">
+                    Checking saved game screenshots…
+                  </output>
+                )}
+                {isDiscoveryGame && !libraryGame && libraryLookupError && (
+                  <div role="alert" className="text-sm space-y-2">
+                    <p>Could not check your saved game's screenshots.</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void refetchLibraryGames()}
+                      disabled={libraryLookupFetching}
+                    >
+                      Retry library lookup
+                    </Button>
+                  </div>
+                )}
                 {videos.length > 0 && <GameVideoCarousel videos={videos} />}
                 {screenshots.length > 0 && (
                   <section aria-label={videos.length > 0 ? "Screenshots" : undefined}>
@@ -1660,12 +1723,16 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     </div>
                   </section>
                 )}
-                {screenshots.length === 0 && videos.length === 0 && (
-                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
-                    <Monitor className="w-8 h-8 opacity-40" />
-                    <p className="text-sm">No screenshots or videos available.</p>
-                  </div>
-                )}
+                {!canShowPersonalScreenshots &&
+                  !libraryLookupPending &&
+                  !libraryLookupError &&
+                  screenshots.length === 0 &&
+                  videos.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                      <Monitor className="w-8 h-8 opacity-40" />
+                      <p className="text-sm">No screenshots or videos available.</p>
+                    </div>
+                  )}
               </div>
             </Section>
 

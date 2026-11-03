@@ -180,6 +180,7 @@ export type CollectionRules = {
   statuses?: string[] | undefined;
   platforms?: string[] | undefined;
   genres?: string[] | undefined;
+  gameModes?: string[] | undefined;
   /** Minimum IGDB rating (0-10, as stored on games). */
   minRating?: number | undefined;
   /** Minimum personal rating (0.5-10). */
@@ -225,6 +226,7 @@ export const games = sqliteTable("games", {
   themes: text("themes", { mode: "json" }).$type<string[]>(),
   publishers: text("publishers", { mode: "json" }).$type<string[]>(),
   developers: text("developers", { mode: "json" }).$type<string[]>(),
+  gameModes: text("game_modes", { mode: "json" }).$type<string[]>(),
   screenshots: text("screenshots", { mode: "json" }).$type<string[]>(),
   // IGDB trailers/gameplay clips: `videoId` is the YouTube video id
   videos: text("videos", { mode: "json" }).$type<Array<{ name: string; videoId: string }>>(),
@@ -589,6 +591,7 @@ export const insertGameSchema = createInsertSchema(games, {
       .array(z.object({ name: z.string(), videoId: z.string().regex(/^[\w-]{11}$/) }))
       .nullable()
       .optional(),
+  gameModes: () => z.array(z.string().trim().min(1).max(100)).max(50).nullable().optional(),
   status: (schema) =>
     schema
       .nullable()
@@ -724,6 +727,7 @@ export const collectionRulesSchema = z
     statuses: z.array(z.enum(GAME_STATUSES)).max(GAME_STATUSES.length).optional(),
     platforms: trimmedList.optional(),
     genres: trimmedList.optional(),
+    gameModes: trimmedList.optional(),
     minRating: z.number().min(0).max(10).optional(),
     minUserRating: z.number().min(0).max(10).optional(),
     releaseYearFrom: z.number().int().min(1950).max(2100).optional(),
@@ -1375,7 +1379,12 @@ export type RssFeedItem = typeof rssFeedItems.$inferSelect;
 export type InsertRssFeedItem = (typeof insertRssFeedItemSchema)["_output"];
 
 // Import task history
-export const IMPORT_TASK_TYPES = ["steam_wishlist", "file_import", "bulk_add"] as const;
+export const IMPORT_TASK_TYPES = [
+  "steam_wishlist",
+  "file_import",
+  "bulk_add",
+  "library_transfer",
+] as const;
 export type ImportTaskType = (typeof IMPORT_TASK_TYPES)[number];
 
 export const IMPORT_TASK_STATUSES = [
@@ -1617,6 +1626,23 @@ export const classificationCandidates = sqliteTable(
   },
   (t) => [uniqueIndex("classification_candidates_dedupe_idx").on(t.dedupeKey)]
 );
+
+// Persistent second level behind the in-memory classification caches (docs/RELEASE_CLASSIFICATION.md).
+// `id` is "<namespace>:<sha256 of the cache key>": the key carries the pipeline version, mode, model
+// versions and provider, so a changed version simply never matches and ages out. `verdict` is JSON.
+// Rows are pruned by age and by count; none of this is ground truth.
+export const classificationCache = sqliteTable(
+  "classification_cache",
+  {
+    id: text("id").primaryKey(),
+    namespace: text("namespace").notNull(),
+    verdict: text("verdict").notNull(),
+    storedAt: integer("stored_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("classification_cache_stored_at_idx").on(t.storedAt)]
+);
+
+export type ClassificationCacheRow = typeof classificationCache.$inferSelect;
 
 export type ClassificationCandidate = typeof classificationCandidates.$inferSelect;
 export type InsertClassificationCandidate = typeof classificationCandidates.$inferInsert;

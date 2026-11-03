@@ -163,6 +163,7 @@ export const games = pgTable("games", {
   publishers: jsonb("publishers").$type<string[]>(),
   developers: jsonb("developers").$type<string[]>(),
   screenshots: jsonb("screenshots").$type<string[]>(),
+  gameModes: jsonb("game_modes").$type<string[]>(),
   videos: jsonb("videos").$type<Array<{ name: string; videoId: string }>>(),
   source: text("source").default("manual"), // "manual" | "steam" | "api"
   igdbWebsites: jsonb("igdb_websites").$type<Array<{ category: number; url: string }>>(),
@@ -596,6 +597,17 @@ export const classificationCandidates = pgTable(
     createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
   },
   (t) => [uniqueIndex("classification_candidates_dedupe_idx").on(t.dedupeKey)]
+);
+
+export const classificationCache = pgTable(
+  "classification_cache",
+  {
+    id: text("id").primaryKey(),
+    namespace: text("namespace").notNull(),
+    verdict: text("verdict").notNull(),
+    storedAt: timestampMs("stored_at").notNull(),
+  },
+  (t) => [index("classification_cache_stored_at_idx").on(t.storedAt)]
 );
 
 export const apiKeys = pgTable(

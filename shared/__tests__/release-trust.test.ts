@@ -33,6 +33,26 @@ describe("deriveReleaseTrust", () => {
     expect(trust.reasons.map((r) => r.code)).toContain("xrel_verified");
   });
 
+  it("says a p2p listing cannot be checked for nukes, and keeps it out of risky", () => {
+    const trust = trustOf("Elden.Ring-RUNE", {
+      ...game,
+      xrelReleases: [{ dirname: "Elden.Ring-RUNE", sizeBytes: 5.2 * GB, source: "p2p" }],
+    });
+    const codes = trust.reasons.map((r) => r.code);
+    expect(codes).toContain("xrel_p2p_unchecked");
+    expect(codes).not.toContain("xrel_verified");
+    expect(trust.level).not.toBe("risky");
+    expect(trust.reasons.find((r) => r.code === "xrel_p2p_unchecked")?.detail).toMatch(/nukes/);
+  });
+
+  it("keeps the verified wording for a scene listing", () => {
+    const trust = trustOf("Elden.Ring-RUNE", {
+      ...game,
+      xrelReleases: [{ dirname: "Elden.Ring-RUNE", sizeBytes: 5.2 * GB, source: "scene" }],
+    });
+    expect(trust.reasons.map((r) => r.code)).toContain("xrel_verified");
+  });
+
   it("does not trust a name that is only on xREL (anyone can reuse a scene name)", () => {
     const trust = trustOf("Elden.Ring-RUNE", {
       ...game,

@@ -1,4 +1,6 @@
 import { logger } from "./logger.js";
+import { TieredCache } from "./classification/cache.js";
+import { classificationCacheStore } from "./classification/persistent-store.js";
 import { safeFetch } from "./ssrf.js";
 import { storage } from "./storage.js";
 import { RELEASE_TYPES, type ReleaseType } from "../shared/typesafe-types.js";
@@ -12,9 +14,6 @@ const DEFAULT_API_URL = "https://api.typesafe.ai/v1/systemone";
 // `typesafe/jev-1.13`) needs a different identifier here, so this is configurable too.
 const DEFAULT_MODEL = "jev-latest";
 const REQUEST_TIMEOUT_MS = 8000;
-// The same release name comes back on every search and cycle, and each call costs money
-const ANALYSIS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const ANALYSIS_CACHE_MAX_ENTRIES = 2000;
 
 export const TYPESAFE_URL_CONFIG_KEY = "typesafe.apiUrl";
 export const TYPESAFE_KEY_CONFIG_KEY = "typesafe.apiKey";
@@ -24,6 +23,18 @@ export interface ReleaseAnalysis {
   releaseType: ReleaseType | null;
   releaseTypeConfidence: number | null;
   legitimacyScore: number | null; // 0-1 probability the file size looks plausible
+}
+
+/** Only an answer that carried a release type was cached, so a stored one must still have one. */
+function parseStoredAnalysis(raw: unknown): ReleaseAnalysis | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const value = raw as Record<string, unknown>;
+  const number = (field: unknown) => field === null || typeof field === "number";
+  return (RELEASE_TYPES as readonly unknown[]).includes(value.releaseType) &&
+    number(value.releaseTypeConfidence) &&
+    number(value.legitimacyScore)
+    ? (raw as ReleaseAnalysis)
+    : null;
 }
 
 interface SystemOneAnswer {
@@ -90,6 +101,15 @@ class TypeSafeClient {
     return this.revision;
   }
 
+  /**
+   * Names the endpoint and model, and stays the same across restarts (unlike the revision), so it
+   * can key persisted cache rows. The credentials are left out on purpose: the same endpoint and
+   * model give the same answers whichever key asked, and no secret reaches a cache key.
+   */
+  get providerFingerprint(): string {
+    return `${this.model}@${this.apiUrl ?? ""}`;
+  }
+
   /** The configured model identifier; part of classification cache keys and log lines. */
   get modelId(): string {
     return this.model;
@@ -130,27 +150,15 @@ class TypeSafeClient {
     return !!(this.apiUrl && this.apiKey);
   }
 
-  private readonly analysisCache = new Map<string, { at: number; analysis: ReleaseAnalysis }>();
+  // The same release name comes back on every search and cycle, and each call costs money:
+  // answers are kept in memory and in the classification_cache table, so a restart keeps them
+  private readonly analysisCache = new TieredCache<ReleaseAnalysis>({
+    namespace: "analysis",
+    store: classificationCacheStore,
+    parse: parseStoredAnalysis,
+  });
   /** Requests under way, so concurrent calls for the same release share one paid call. */
   private readonly analysisInFlight = new Map<string, Promise<ReleaseAnalysis | null>>();
-
-  private readCachedAnalysis(key: string): ReleaseAnalysis | null {
-    const cached = this.analysisCache.get(key);
-    if (!cached) return null;
-    if (Date.now() - cached.at < ANALYSIS_CACHE_TTL_MS) return cached.analysis;
-    // An expired entry is dropped so its refresh is stored as the newest, not in its old slot
-    this.analysisCache.delete(key);
-    return null;
-  }
-
-  /** Callers keep only usable answers, so a failed or typeless one is retried next time. */
-  private storeAnalysis(key: string, analysis: ReleaseAnalysis): void {
-    if (this.analysisCache.size >= ANALYSIS_CACHE_MAX_ENTRIES) {
-      const oldest = this.analysisCache.keys().next().value;
-      if (oldest !== undefined) this.analysisCache.delete(oldest);
-    }
-    this.analysisCache.set(key, { at: Date.now(), analysis });
-  }
 
   /**
    * Asks Jev to classify a release and judge whether its file size looks plausible.
@@ -164,35 +172,41 @@ class TypeSafeClient {
   }): Promise<ReleaseAnalysis | null> {
     await this.ensureLoaded();
     if (!this.apiUrl || !this.apiKey) return null;
+    // The request must use the provider the key was built from, even if the settings change
+    // while the cache lookup is awaiting the database
+    const provider = { apiUrl: this.apiUrl, apiKey: this.apiKey, model: this.model };
 
-    // Every assignment of the endpoint, key or model bumps the revision (configure, invalidate and
-    // ensureLoaded), so a replaced provider never reuses another provider's answer
+    // The fingerprint changes with the endpoint or model, so a replaced provider never
+    // reuses another provider's answer, and it survives a restart so stored answers are found
     const cacheKey = JSON.stringify([
-      this.revision,
-      this.apiUrl,
-      this.model,
+      this.providerFingerprint,
       params.releaseName,
       params.sizeBytes ?? null,
       params.platform ?? null,
     ]);
-    const cached = this.readCachedAnalysis(cacheKey);
-    if (cached) return cached;
-    const pending = this.analysisInFlight.get(cacheKey);
+    // Scoped to the cache generation and the settings revision (a rotated key included), so a
+    // call made after a clear or a settings change never joins a lookup that
+    // started before it and could still return the deleted verdict
+    const generation = this.analysisCache.generation;
+    const flightKey = `${generation}:${this.configRevision}:${cacheKey}`;
+    const pending = this.analysisInFlight.get(flightKey);
     if (pending) return pending;
 
-    const request = this.requestAnalysis(cacheKey, params).finally(() =>
-      this.analysisInFlight.delete(cacheKey)
-    );
-    this.analysisInFlight.set(cacheKey, request);
+    // Registered before the first await, so a concurrent caller joins this lookup
+    const request = (async () => {
+      const cached = await this.analysisCache.get(cacheKey);
+      return cached ?? this.requestAnalysis(cacheKey, params, generation, provider);
+    })().finally(() => this.analysisInFlight.delete(flightKey));
+    this.analysisInFlight.set(flightKey, request);
     return request;
   }
 
   private async requestAnalysis(
     cacheKey: string,
-    params: { releaseName: string; sizeBytes?: number | undefined; platform?: string | undefined }
+    params: { releaseName: string; sizeBytes?: number | undefined; platform?: string | undefined },
+    generation: number,
+    provider: { apiUrl: string; apiKey: string; model: string }
   ): Promise<ReleaseAnalysis | null> {
-    if (!this.apiUrl || !this.apiKey) return null;
-
     const stateLines = [`Release name: ${params.releaseName}`];
     if (params.sizeBytes !== undefined) {
       stateLines.push(`File size: ${formatBytes(params.sizeBytes)}`);
@@ -203,7 +217,7 @@ class TypeSafeClient {
 
     const body = {
       state: stateLines.join("\n"),
-      model: this.model,
+      model: provider.model,
       questions: {
         releaseType: {
           type: "choice",
@@ -233,10 +247,10 @@ class TypeSafeClient {
     };
 
     try {
-      const response = await safeFetch(this.apiUrl, {
+      const response = await safeFetch(provider.apiUrl, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${this.apiKey}`,
+          Authorization: `Bearer ${provider.apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
@@ -266,7 +280,7 @@ class TypeSafeClient {
         releaseTypeConfidence: toUnitInterval(releaseTypeAnswer?.confidence),
         legitimacyScore: toUnitInterval(legitimacyAnswer?.noul),
       };
-      if (releaseType !== null) this.storeAnalysis(cacheKey, analysis);
+      if (releaseType !== null) await this.analysisCache.set(cacheKey, analysis, generation);
       return analysis;
     } catch (error) {
       typesafeLogger.warn({ error }, "TypeSafe API call failed, skipping AI enrichment");

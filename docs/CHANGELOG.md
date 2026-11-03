@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Persistent classification cache**: release verdicts are now kept in the database as well as in memory (7 days, 20,000 rows, pruned hourly), for every classification mode and for the historical Jev check, so a restart or a Docker update no longer repeats paid cloud calls. A new model, provider endpoint or model, mode, confidence bar or pipeline version never reuses an older verdict, a failing layer's answer is never stored, and **Settings → Release classification → Clear classification cache** empties it (Questarr-mgmt#59).
+
 ## [1.6.0] - 2026-10-31
 
 ### Added

@@ -134,6 +134,13 @@
       "when": 1793133435964,
       "tag": "0018_game_modes",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793661129031,
+      "tag": "0019_classification_cache",
+      "breakpoints": true
     }
   ]
 }

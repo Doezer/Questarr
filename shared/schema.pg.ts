@@ -599,6 +599,17 @@ export const classificationCandidates = pgTable(
   (t) => [uniqueIndex("classification_candidates_dedupe_idx").on(t.dedupeKey)]
 );
 
+export const classificationCache = pgTable(
+  "classification_cache",
+  {
+    id: text("id").primaryKey(),
+    namespace: text("namespace").notNull(),
+    verdict: text("verdict").notNull(),
+    storedAt: timestampMs("stored_at").notNull(),
+  },
+  (t) => [index("classification_cache_stored_at_idx").on(t.storedAt)]
+);
+
 export const apiKeys = pgTable(
   "api_keys",
   {

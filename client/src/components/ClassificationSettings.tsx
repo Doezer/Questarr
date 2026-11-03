@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Save, Sparkles } from "lucide-react";
+import { Eraser, Save, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +36,8 @@ interface SettingsResponse {
   locked: Partial<Record<keyof Values, string>>;
   localModel: { installed: boolean; version: string | null; path: string };
   cloud: { configured: boolean; model: string };
+  /** null when the count could not be read */
+  cache?: { entries: number | null };
 }
 
 export const CLASSIFICATION_SETTINGS_KEY = ["/api/settings/classification"];
@@ -132,6 +134,26 @@ export default function ClassificationSettings() {
     },
     onError: (error: Error) =>
       toast({ title: "Could not save", description: error.message, variant: "destructive" }),
+  });
+
+  const clearCache = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("DELETE", "/api/settings/classification/cache");
+      return (await response.json()) as { cleared: number };
+    },
+    onSuccess: async ({ cleared }) => {
+      toast({
+        title: "Classification cache cleared",
+        description: `${cleared} stored verdict${cleared === 1 ? "" : "s"} removed.`,
+      });
+      await queryClient.invalidateQueries({ queryKey: CLASSIFICATION_SETTINGS_KEY });
+    },
+    onError: (error: Error) =>
+      toast({
+        title: "Could not clear the cache",
+        description: error.message,
+        variant: "destructive",
+      }),
   });
 
   if (!data?.settings || !data.localModel || !data.cloud) return null;
@@ -322,6 +344,28 @@ export default function ClassificationSettings() {
             </div>
           </div>
         </fieldset>
+
+        <div className="flex flex-wrap items-start justify-between gap-4 rounded-md border p-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Classification cache</p>
+            <p className="text-xs text-muted-foreground">
+              Verdicts are kept for a week, so a restart does not repeat paid cloud calls. They are
+              dropped automatically when the model, provider or settings change; clear them to
+              classify every release again.
+              {typeof data.cache?.entries === "number" &&
+                ` ${data.cache.entries} stored verdict${data.cache.entries === 1 ? "" : "s"}.`}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            className="min-h-11"
+            disabled={clearCache.isPending}
+            onClick={() => clearCache.mutate()}
+          >
+            <Eraser className="mr-2 h-4 w-4" />
+            Clear classification cache
+          </Button>
+        </div>
 
         <Button className="min-h-11" disabled={!valid || !dirty || save.isPending} onClick={onSave}>
           <Save className="mr-2 h-4 w-4" />

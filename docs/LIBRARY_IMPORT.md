@@ -204,7 +204,7 @@ your Library Root, choose **Import into library** on **Library Import**, pick
 your [naming pattern](#naming-pattern), transfers the files, then points the game
 at the new location. **Copy** is the safest option and keeps the originals.
 **Move** renames the files on the same disk; across disks it copies them, checks
-the copy, then tries to remove the originals. A leftover original is reported as
+the copy, then tries to remove the originals. A leftover original is logged as
 a warning and does not fail the import. **Hardlink** copies when the source is on
 another disk. The preview warns when the destination lacks free space.
 

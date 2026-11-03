@@ -2481,7 +2481,7 @@ export class MemStorage implements IStorage {
       }
     }
     const newestFirst = Array.from(this.classificationCacheRows.values()).sort(
-      (a, b) => b.storedAt.getTime() - a.storedAt.getTime()
+      (a, b) => b.storedAt.getTime() - a.storedAt.getTime() || (a.id < b.id ? 1 : -1)
     );
     for (const row of newestFirst.slice(maxRows)) {
       this.classificationCacheRows.delete(row.id);
@@ -4760,17 +4760,23 @@ export class DatabaseStorage implements IStorage {
       .delete(classificationCache)
       .where(lt(classificationCache.storedAt, olderThan));
     let removed = affectedRows(expired);
-    // The row just past the limit marks the cut: it and every older one go
+    // The row just past the limit marks the cut: it and every row after it in (storedAt, id)
+    // order go, so rows sharing the cut's millisecond but inside the limit stay
     const [cut] = await db
-      .select({ storedAt: classificationCache.storedAt })
+      .select({ id: classificationCache.id, storedAt: classificationCache.storedAt })
       .from(classificationCache)
-      .orderBy(desc(classificationCache.storedAt))
+      .orderBy(desc(classificationCache.storedAt), desc(classificationCache.id))
       .limit(1)
       .offset(maxRows);
     if (cut) {
       const surplus = await db
         .delete(classificationCache)
-        .where(lte(classificationCache.storedAt, cut.storedAt));
+        .where(
+          or(
+            lt(classificationCache.storedAt, cut.storedAt),
+            and(eq(classificationCache.storedAt, cut.storedAt), lte(classificationCache.id, cut.id))
+          )
+        );
       removed += affectedRows(surplus);
     }
     return removed;

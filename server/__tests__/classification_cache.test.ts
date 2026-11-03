@@ -359,6 +359,24 @@ describe.each(activeTestDialects())("classification cache table on %s", (dialect
     expect(await storage.countClassificationCache()).toBe(3);
   });
 
+  it("keeps the rows inside the limit when several share the cut's timestamp", async () => {
+    const { storage } = ctx;
+    await storage.clearClassificationCache();
+    const same = new Date(Date.now() - 1000);
+    for (const id of ["pipeline:a", "pipeline:b", "pipeline:c", "pipeline:d"]) {
+      await storage.putClassificationCacheEntry({
+        id,
+        namespace: "pipeline",
+        verdict: "{}",
+        storedAt: same,
+      });
+    }
+    const removed = await storage.pruneClassificationCache(new Date(0), 3);
+    expect(removed).toBe(1);
+    expect(await storage.countClassificationCache()).toBe(3);
+    expect(await storage.getClassificationCacheEntry("pipeline:a")).toBeUndefined();
+  });
+
   it("reports and clears the cache from the settings routes", async () => {
     const { storage } = ctx;
     await storage.clearClassificationCache();

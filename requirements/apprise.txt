@@ -1,8 +1,8 @@
 # Hash-pinned; regenerate with:
 #   uv pip compile --universal --generate-hashes --only-binary :all: --python-version 3.10 requirements/apprise.in -o requirements/apprise.txt
-apprise==2.0.1 \
-    --hash=sha256:2a9b0f4fc906227f70998ea4462184dd605e796d3932e6e7ce0fe0f134048610 \
-    --hash=sha256:8cae8ae5877b9cfd1dddffc17ac1e50f780ab6bdf948f95215e2466ef7230565
+apprise==2.1.0 \
+    --hash=sha256:7eb453b31f37e6b24499b48320bf9d325038bbb1216e24ea7baaf73b062341c5 \
+    --hash=sha256:f743f4bc81dc5a68bddab53d420071b45541630dfea8c907a5e8b2b38555c681
     # via -r apprise.in
 certifi==2026.10.19 \
     --hash=sha256:035c1e85572b141bf1c3a3eff0e33a8eb74917522f2559075ff8d2fea780a1ae \

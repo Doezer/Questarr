@@ -184,10 +184,11 @@ class TypeSafeClient {
       params.sizeBytes ?? null,
       params.platform ?? null,
     ]);
-    // Scoped to the cache generation, so a call made after a clear never joins a lookup that
+    // Scoped to the cache generation and the settings revision (a rotated key included), so a
+    // call made after a clear or a settings change never joins a lookup that
     // started before it and could still return the deleted verdict
     const generation = this.analysisCache.generation;
-    const flightKey = `${generation}:${cacheKey}`;
+    const flightKey = `${generation}:${this.configRevision}:${cacheKey}`;
     const pending = this.analysisInFlight.get(flightKey);
     if (pending) return pending;
 

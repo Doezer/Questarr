@@ -342,6 +342,33 @@ describe("TypeSafeClient", () => {
       expect(storage.getClassificationCacheEntry).toHaveBeenCalledTimes(2);
     });
 
+    it("does not let a call with a rotated key join a lookup made with the old one", async () => {
+      mockSafeFetch.mockResolvedValue(
+        makeResponse({
+          answers: { releaseType: { type: "choice", choice: "dlc", confidence: 0.8 } },
+        }) as unknown as Response
+      );
+      let finishLookup: (row: undefined) => void = () => {};
+      vi.mocked(storage.getClassificationCacheEntry)
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          })
+        )
+        .mockResolvedValue(undefined);
+      const client = await getClient();
+      client.configure("https://api.typesafe.ai/v1/systemone", "old-key");
+      const before = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      client.configure("https://api.typesafe.ai/v1/systemone", "new-key");
+      const after = client.analyzeRelease({ releaseName: "Some.Game-GRP" });
+      await after;
+      finishLookup(undefined);
+      await before;
+
+      expect(storage.getClassificationCacheEntry).toHaveBeenCalledTimes(2);
+    });
+
     it("keeps a configure() made while the stored settings are still loading", async () => {
       let release: (value: string | undefined) => void = () => {};
       mockGetSystemConfig.mockReturnValue(

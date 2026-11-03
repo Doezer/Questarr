@@ -1379,7 +1379,12 @@ export type RssFeedItem = typeof rssFeedItems.$inferSelect;
 export type InsertRssFeedItem = (typeof insertRssFeedItemSchema)["_output"];
 
 // Import task history
-export const IMPORT_TASK_TYPES = ["steam_wishlist", "file_import", "bulk_add"] as const;
+export const IMPORT_TASK_TYPES = [
+  "steam_wishlist",
+  "file_import",
+  "bulk_add",
+  "library_transfer",
+] as const;
 export type ImportTaskType = (typeof IMPORT_TASK_TYPES)[number];
 
 export const IMPORT_TASK_STATUSES = [

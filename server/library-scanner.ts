@@ -409,12 +409,15 @@ export async function replaceGameFilesFromPath(
   const previous = path.resolve(previousPath);
   // Categories the user set by hand are kept, matched by path relative to the old location.
   const overrides = new Map<string, GameFile["category"]>();
+  const nameOverrides = new Map<string, GameFile["category"] | undefined>();
   for (const file of await storage.getGameFiles(gameId)) {
     const filePath = path.resolve(file.filePath);
     if (filePath === previous || isStrictlyInside(previous, filePath)) {
       if (file.categoryOverridden) {
         overrides.set(path.relative(previous, filePath), file.category);
-        overrides.set(path.basename(filePath), file.category);
+        const name = path.basename(filePath);
+        // A name shared by several overridden files is ambiguous: drop it.
+        nameOverrides.set(name, nameOverrides.has(name) ? undefined : file.category);
       }
       await storage.removeGameFile(file.id);
     }
@@ -426,11 +429,22 @@ export async function replaceGameFilesFromPath(
   const added = await assignFilesToGame(gameId, files);
   if (overrides.size > 0) {
     const destination = path.resolve(absolutePath);
-    for (const file of await storage.getGameFiles(gameId)) {
-      // Sort Extras may have put the file in a category subfolder: fall back to its name.
+    const inside = (await storage.getGameFiles(gameId)).filter((file) => {
+      const filePath = path.resolve(file.filePath);
+      return filePath === destination || isStrictlyInside(destination, filePath);
+    });
+    const byName = new Map<string, number>();
+    for (const file of inside) {
+      const name = path.basename(file.filePath);
+      byName.set(name, (byName.get(name) ?? 0) + 1);
+    }
+    for (const file of inside) {
+      const relative = path.relative(destination, path.resolve(file.filePath));
+      const name = path.basename(file.filePath);
+      // Sort Extras may have moved the file to a category subfolder: fall back to its
+      // name, but only when that name identifies a single file on both sides.
       const category =
-        overrides.get(path.relative(destination, path.resolve(file.filePath))) ??
-        overrides.get(path.basename(file.filePath));
+        overrides.get(relative) ?? (byName.get(name) === 1 ? nameOverrides.get(name) : undefined);
       if (category) await storage.updateGameFileCategory(file.id, category);
     }
   }

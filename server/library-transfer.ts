@@ -243,6 +243,16 @@ export async function previewLibraryTransfer(
   };
 }
 
+async function containsSymlink(target: string): Promise<boolean> {
+  const stat = await fs.lstat(target);
+  if (stat.isSymbolicLink()) return true;
+  if (!stat.isDirectory()) return false;
+  for (const entry of await fs.readdir(target)) {
+    if (await containsSymlink(path.join(target, entry))) return true;
+  }
+  return false;
+}
+
 /**
  * The destination holds as many files and bytes as the source. Layout-agnostic
  * on purpose: with Sort Extras the import places files in category subfolders.
@@ -331,6 +341,13 @@ export async function transferExternalGame(
     // A move across filesystems is copy + verify + delete: never remove the
     // source until the destination is confirmed complete.
     const crossMove = mode === "move" && crossFilesystem;
+    // Copied links keep pointing at the source, which a move then deletes.
+    if (crossMove && (await containsSymlink(t.source))) {
+      throw new LibraryTransferError(
+        "This game contains symbolic links, so it cannot be moved across filesystems. Use copy instead.",
+        409
+      );
+    }
     // The destination did not exist (checked above) and is reserved, so a
     // half-written copy can be removed safely. A same-disk move is a rename
     // that already took files out of the source: never delete those.

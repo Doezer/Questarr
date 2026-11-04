@@ -5338,13 +5338,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (apiUrl?.trim()) {
+        const trimmedUrl = apiUrl.trim();
         try {
-          const parsed = new URL(apiUrl.trim());
+          const parsed = new URL(trimmedUrl);
           if (!["http:", "https:"].includes(parsed.protocol)) {
             return res.status(400).json({ error: "API URL must use http:// or https://" });
           }
         } catch {
           return res.status(400).json({ error: "API URL is not a valid URL" });
+        }
+        if (!(await isSafeUrl(trimmedUrl))) {
+          return res.status(400).json({ error: "Invalid or unsafe API URL" });
         }
       }
       await storage.setSystemConfig("apprise.mode", mode);

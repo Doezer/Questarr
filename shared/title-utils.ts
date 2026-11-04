@@ -83,6 +83,33 @@ export function parseSwitchTitleId(name: string): SwitchTitleInfo | null {
   };
 }
 
+/** `{igdb-1234}` / `[steam-620]` style id tags a person can put in a folder name. */
+const ID_TAG_REGEX = /[{[(]\s*(igdb|steam)[-:= ]?(\d{1,10})\s*[}\])]/gi;
+const BRACKETED_YEAR_REGEX = /[([]\s*((?:19|20)\d{2})\s*[)\]]/;
+
+export interface FolderHints {
+  /** Release year written as `(2018)` or `[2018]`, a tie-breaker between same-named games. */
+  year?: number;
+  /** IGDB id written as `{igdb-1234}`: an exact match. */
+  igdbId?: number;
+  /** Steam app id written as `{steam-620}`: resolved to an IGDB game. */
+  steamAppId?: number;
+}
+
+/** Reads the year and the id tags a person put in a folder or file name. */
+export function parseFolderHints(name: string): FolderHints {
+  const hints: FolderHints = {};
+  for (const m of name.matchAll(ID_TAG_REGEX)) {
+    const id = Number(m[2]);
+    if (!Number.isSafeInteger(id) || id <= 0) continue;
+    if (m[1]?.toLowerCase() === "igdb") hints.igdbId ??= id;
+    else hints.steamAppId ??= id;
+  }
+  const year = BRACKETED_YEAR_REGEX.exec(name.replace(ID_TAG_REGEX, " "))?.[1];
+  if (year && Number(year) >= 1975 && Number(year) <= 2040) hints.year = Number(year);
+  return hints;
+}
+
 /**
  * Cleans a release name (e.g. from a torrent or NZB) to attempt to extract the base game title.
  */
@@ -90,7 +117,7 @@ export function cleanReleaseName(releaseName: string): string {
   // 1. Convert underscores and dots (but not dashes) to spaces early to help regex word boundaries
   // We keep dashes for now to detect -GROUP suffixes. Switch title ids ([0100F2C0115B6000]) are
   // hex, so the bracket cleanup below would keep them in the title.
-  let cleaned = releaseName.replace(/[._]/g, " ");
+  let cleaned = releaseName.replace(ID_TAG_REGEX, " ").replace(/[._]/g, " ");
   // `upd` and `nsz`/`xcz` are only release tags on Switch dumps ("NSZ Edition" can be a title),
   // so they go only when a title id or a compressed-dump extension identifies one.
   const switchDump = parseSwitchTitleId(releaseName) !== null || /\.(nsz|xcz)$/i.test(releaseName);

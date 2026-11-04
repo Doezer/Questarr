@@ -187,6 +187,15 @@ configuration does not delete the directory itself.
 - Nintendo Switch dumps are recognised by the title id in the file or folder name
   (for example `Hades [0100535012974000][v0].nsp`). Flat files match like folders do, and an
   update or DLC joins its base game.
+- Folder names can help the match. A release year in brackets, such as
+  `Celeste (2018)` or `Portal [2007]`, is left out of the IGDB query and used to pick
+  between games of the same name. An id tag is an exact match: `{igdb-1234}` names the
+  IGDB game, `{steam-620}` a Steam app that Questarr resolves to its IGDB game
+  (round or square brackets work too). An id IGDB does not know falls back to the
+  title search.
+- The scan asks IGDB for ten candidates per folder, since a short name such as "Portal" is
+  crowded with sequels and mods. **Needs Review** lists up to ten, likeliest first, each
+  with its release year.
 - Under **Needs Review**, choose a suggested IGDB game or enter a different
   name in **Not listed? Search IGDB by name**. Search alone does not import the
   game; clicking a candidate confirms it and adds it to your library.

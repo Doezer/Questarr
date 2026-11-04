@@ -56,6 +56,7 @@ vi.mock("../igdb.js", () => ({
   igdbClient: {
     searchGames: vi.fn().mockResolvedValue([]),
     getGameById: vi.fn().mockResolvedValue(null),
+    getGameIdBySteamAppId: vi.fn().mockResolvedValue(null),
   },
 }));
 
@@ -318,7 +319,7 @@ describe("scanRootFolderById full scan", () => {
     expect(unmatched[0].candidates).toEqual([]);
 
     // The IGDB-less ignored folder was never queried.
-    expect(igdbClient.searchGames).not.toHaveBeenCalledWith("IgnoredOnly", 5);
+    expect(igdbClient.searchGames).not.toHaveBeenCalledWith("IgnoredOnly", 10);
 
     // Clients refresh their games list once the scan has added games.
     const { notifyUser } = await import("../socket.js");
@@ -340,7 +341,7 @@ describe("scanRootFolderById full scan", () => {
     expect(getScanProgress("rf-1")?.matched).toBe(3);
     const { notifyUser } = await import("../socket.js");
     expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "rf-1");
-    expect(igdbClient.searchGames).not.toHaveBeenCalledWith("Mystery Game", 5);
+    expect(igdbClient.searchGames).not.toHaveBeenCalledWith("Mystery Game", 10);
     expect(storage.addGameFile).toHaveBeenCalledWith(
       expect.objectContaining({ gameId: "manual-game", originalName: "Mystery Game.iso" })
     );
@@ -359,7 +360,7 @@ describe("scanRootFolderById full scan", () => {
     expect(storage.getIgnoredScanFolders).toHaveBeenCalledWith("rf-1");
     expect(getAllUnmatched()).toHaveLength(0);
     expect(getScanProgress("rf-1")?.unmatched).toBe(0);
-    expect(igdbClient.searchGames).not.toHaveBeenCalledWith("Mystery Game", 5);
+    expect(igdbClient.searchGames).not.toHaveBeenCalledWith("Mystery Game", 10);
   });
 
   it("ignoreUnmatchedFolder persists the name and drops the entry from review", async () => {
@@ -671,7 +672,7 @@ describe("matchUnmatchedFolder with release-style folder names", () => {
 
     const candidates = await searchUnmatchedFolder("rf-release-search", folderName, "Absolum");
 
-    expect(igdbClient.searchGames).toHaveBeenLastCalledWith("Absolum", 5);
+    expect(igdbClient.searchGames).toHaveBeenLastCalledWith("Absolum", 10);
     expect(candidates).toEqual([{ igdbId: 777, name: "Absolum", releaseYear: 2025 }]);
     // The searched result replaces the scan's guesses, so it can now be matched.
     const result = await matchUnmatchedFolder("rf-release-search", folderName, 777, "user-1");
@@ -738,7 +739,7 @@ describe("scanRootFolderById Nintendo Switch dumps", () => {
     await scanRootFolderById("rf-switch", "user-1");
 
     // The title id is not part of the query, and the Switch platform is tried first.
-    expect(igdbClient.searchGames).toHaveBeenCalledWith("Hades", 5, { platformId: 130 });
+    expect(igdbClient.searchGames).toHaveBeenCalledWith("Hades", 10, { platformId: 130 });
     expect(getAllUnmatched().filter((e) => e.rootFolderId === "rf-switch")).toEqual([]);
     expect(storage.addGame).toHaveBeenCalledTimes(1);
     const added = vi
@@ -820,5 +821,138 @@ describe("scanRootFolderById Nintendo Switch dumps", () => {
     expect(igdbClient.searchGames).toHaveBeenCalledTimes(2);
     expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 1 });
     await fs.promises.rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe("scanRootFolderById IGDB matching hints", () => {
+  const unix = (y: number) => Math.floor(Date.UTC(y, 5, 1) / 1000);
+
+  async function scanFolder(folder: string) {
+    const { storage } = await import("../storage.js");
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-hints-"));
+    await fs.promises.mkdir(path.join(dir, folder));
+    await fs.promises.writeFile(path.join(dir, folder, "setup.exe"), "x");
+    vi.mocked(storage.getRootFolder).mockReset();
+    vi.mocked(storage.getRootFolder).mockResolvedValue({
+      ...mockRootFolder,
+      id: "rf-hints",
+      path: dir,
+    });
+    vi.mocked(storage.getAllGames).mockResolvedValue([]);
+    vi.mocked(storage.getIgnoredScanFolders).mockResolvedValue([]);
+    vi.mocked(storage.getGameByIgdbId).mockResolvedValue(undefined);
+    vi.mocked(storage.getGameFiles).mockResolvedValue([]);
+    vi.mocked(storage.addGame).mockClear();
+    vi.mocked(storage.addGame).mockImplementation(
+      async (g) => ({ id: `game-${g.igdbId}`, ...g }) as unknown as Game
+    );
+    clearUnmatched("rf-hints");
+    await scanRootFolderById("rf-hints", "user-1");
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  }
+
+  it("asks IGDB for ten candidates and drops the year from the query", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 5, name: "Celeste", first_release_date: unix(2018) } as never,
+    ]);
+
+    await scanFolder("Celeste (2018)");
+
+    expect(igdbClient.searchGames).toHaveBeenCalledWith("Celeste", 10);
+    const { storage } = await import("../storage.js");
+    expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 5 });
+  });
+
+  it("finds the game even when IGDB lists it behind its sequels", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 11, name: "Portal 2", first_release_date: unix(2011) },
+      { id: 12, name: "Portal Stories: Mel", first_release_date: unix(2015) },
+      { id: 13, name: "Portal: Still Alive", first_release_date: unix(2008) },
+      { id: 14, name: "Portal Reloaded", first_release_date: unix(2022) },
+      { id: 15, name: "Portal Knights", first_release_date: unix(2017) },
+      { id: 16, name: "Portal", first_release_date: unix(2007) },
+    ] as never);
+
+    await scanFolder("Portal (2007)");
+
+    const { storage } = await import("../storage.js");
+    expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 16 });
+  });
+
+  it("uses the year to choose between games of the same name", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 21, name: "Prey", first_release_date: unix(2017) },
+      { id: 22, name: "Prey", first_release_date: unix(2006) },
+    ] as never);
+
+    await scanFolder("Prey (2006)");
+
+    const { storage } = await import("../storage.js");
+    expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 22 });
+  });
+
+  it("matches a folder that carries an IGDB id without searching", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.getGameById).mockResolvedValueOnce({
+      id: 1234,
+      name: "Totally Different Name",
+    } as never);
+
+    await scanFolder("Whatever Folder {igdb-1234}");
+
+    expect(igdbClient.getGameById).toHaveBeenCalledWith(1234);
+    expect(igdbClient.searchGames).not.toHaveBeenCalled();
+    const { storage } = await import("../storage.js");
+    expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 1234 });
+  });
+
+  it("resolves a Steam app id tag to its IGDB game", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.getGameIdBySteamAppId).mockResolvedValueOnce(77);
+    vi.mocked(igdbClient.getGameById).mockResolvedValueOnce({
+      id: 77,
+      name: "Half-Life 2",
+    } as never);
+
+    await scanFolder("hl2 [steam-220]");
+
+    expect(igdbClient.getGameIdBySteamAppId).toHaveBeenCalledWith(220);
+    const { storage } = await import("../storage.js");
+    expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 77 });
+  });
+
+  it("falls back to the title search when the tagged id is unknown to IGDB", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([{ id: 31, name: "Hades" }] as never);
+    vi.mocked(igdbClient.getGameById).mockResolvedValueOnce(null);
+
+    await scanFolder("Hades {igdb-999999}");
+
+    expect(igdbClient.searchGames).toHaveBeenCalledWith("Hades", 10);
+    const { storage } = await import("../storage.js");
+    expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 31 });
+  });
+
+  it("lists the likeliest candidates first for review", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 41, name: "Totally Other Thing" },
+      { id: 42, name: "Obscure Quest Remake" },
+    ] as never);
+
+    await scanFolder("Obscure Quest");
+
+    const entry = getAllUnmatched().find((e) => e.rootFolderId === "rf-hints");
+    expect(entry?.candidates.map((c) => c.igdbId)).toEqual([42, 41]);
   });
 });

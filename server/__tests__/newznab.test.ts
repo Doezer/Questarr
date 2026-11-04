@@ -406,7 +406,7 @@ describe("NewznabClient", () => {
       });
 
       const res = await newznabClient.searchMultipleIndexers(
-        [mockIndexer, { ...mockIndexer, name: "Indexer2" }],
+        [mockIndexer, { ...mockIndexer, id: "indexer-2", name: "Indexer2" }],
         { query: "test" }
       );
       expect(res.results.items.length).toBe(1);

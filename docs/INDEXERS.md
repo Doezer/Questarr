@@ -61,3 +61,17 @@ not delete game files or remove downloads from the client. A personal rating
 uses the existing library record, or adds an untracked game as **Wanted** first.
 Discover refreshes after these actions, including the **Hide owned** and
 **Hide wanted** filters.
+
+## Protect shared indexers
+
+Indexers shared with Sonarr, Radarr or Prowlarr can be pushed into backoff (HTTP 429
+"Indexer is disabled till ...") by a burst of searches. Questarr limits its own load:
+
+- A search the browser no longer waits for (you typed another letter or closed the dialog)
+  stops its indexer requests, and a search still waiting in line is never sent.
+- Identical searches in flight at the same time share one request to each indexer.
+- Each indexer serves 2 searches at once; the others wait in line. Auto-search has its own
+  line, so interactive searches do not starve it.
+- `SEARCH_MAX_CONCURRENT_PER_INDEXER` (1 to 10, default 2) changes the limit.
+- `SEARCH_INDEXER_TIMEOUT_MS` (1000 to 300000, default 30000) changes the timeout of one
+  indexer request. Raise it for FlareSolverr-backed indexers.

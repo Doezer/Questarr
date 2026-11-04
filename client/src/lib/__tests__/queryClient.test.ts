@@ -67,6 +67,17 @@ describe("queryClient utilities", () => {
     expect(headers.has("Authorization")).toBe(false);
   });
 
+  it("apiRequest forwards an abort signal to fetch", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("{}", { status: 200 }));
+    const controller = new AbortController();
+
+    await apiRequest("GET", "/api/test", undefined, controller.signal);
+
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+  });
+
   it("apiFetch clones Headers inputs before adding authorization", async () => {
     setBearerToken("jwt-token");
 

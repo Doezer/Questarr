@@ -801,13 +801,24 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
         ? req.query.title.trim()
         : undefined;
 
+    // A browser that goes away (new keystroke, closed dialog) stops its indexer requests
+    const searchAbort = new AbortController();
+    res.on("close", () => {
+      if (!res.writableEnded) searchAbort.abort();
+    });
+
     const { items, total, errors, queryUsed } = await searchAllIndexers({
       query: query.trim(),
       category: categories,
       limit,
       offset,
       fallback: true,
+      signal: searchAbort.signal,
     });
+
+    // Nobody waits for the answer and the results are incomplete: do not score them or
+    // update the game's search-results flag from an aborted search.
+    if (searchAbort.signal.aborted) return;
 
     // Global release-name blacklist (case-insensitive substring match) applies to every
     // search regardless of gameId, so it's resolved and applied up front.

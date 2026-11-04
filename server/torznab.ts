@@ -8,6 +8,11 @@ import {
 } from "./indexer-caps.js";
 import { torznabLogger } from "./logger.js";
 import { isPrivateNetworkAddress, isSafeUrl, safeFetch } from "./ssrf.js";
+import {
+  getIndexerTimeoutMs,
+  guardedIndexerSearch,
+  type SearchGuardOptions,
+} from "./search-guard.js";
 import { XMLParser } from "fast-xml-parser";
 import { normalizeReleaseTitle } from "../shared/title-utils.js";
 
@@ -106,7 +111,11 @@ export class TorznabClient {
   /**
    * Search for games using a Torznab indexer
    */
-  async searchGames(indexer: Indexer, params: TorznabSearchParams): Promise<TorznabResponse> {
+  async searchGames(
+    indexer: Indexer,
+    params: TorznabSearchParams,
+    signal?: AbortSignal
+  ): Promise<TorznabResponse> {
     if (!indexer.enabled) {
       throw new Error(`Indexer ${indexer.name} is disabled`);
     }
@@ -127,7 +136,8 @@ export class TorznabClient {
         headers: {
           "User-Agent": "Questarr/1.0",
         },
-        signal: AbortSignal.timeout(30000),
+        timeoutMs: getIndexerTimeoutMs(),
+        ...(signal ? { signal } : {}),
         requireHttps,
       });
 
@@ -193,7 +203,8 @@ export class TorznabClient {
    */
   async searchMultipleIndexers(
     indexers: Indexer[],
-    params: TorznabSearchParams
+    params: TorznabSearchParams,
+    guard: SearchGuardOptions = {}
   ): Promise<{ results: TorznabResponse; errors: string[] }> {
     const enabledIndexers = indexers.filter((indexer) => indexer.enabled);
 
@@ -203,7 +214,12 @@ export class TorznabClient {
 
     const promises = enabledIndexers.map(async (indexer) => {
       try {
-        const result = await this.searchGames(indexer, params);
+        const result = await guardedIndexerSearch(
+          indexer.id,
+          JSON.stringify([params.query, params.category, params.limit, params.offset]),
+          guard,
+          (signal) => this.searchGames(indexer, params, signal)
+        );
         return { indexer: indexer.name, result, error: null };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";

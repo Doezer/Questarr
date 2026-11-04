@@ -363,7 +363,9 @@ async function bestIgdbMatch(
     best: ranked[0]?.game ?? null,
     candidates: ranked.map((r) => r.game),
     cleaned,
-    score: ranked[0]?.score ?? 0,
+    // The auto-match check sees the title score only: the year bonus ranks candidates, it
+    // never lifts a moderate title match (e.g. a "Gold" edition) over the threshold.
+    score: ranked[0]?.titleScore ?? 0,
   };
 }
 

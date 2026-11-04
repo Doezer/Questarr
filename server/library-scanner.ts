@@ -336,7 +336,8 @@ async function bestIgdbMatch(
       best: ranked[0]?.game ?? null,
       score: ranked[0]?.score ?? 0,
       // before the year bonus: the bonus ranks candidates, it never vouches for a title
-      titleScore: Math.max(0, ...ranked.map((r) => r.titleScore)),
+      // the ranked winner's own title score, the one the auto-match check will see
+      titleScore: ranked[0]?.titleScore ?? 0,
     };
   };
   let candidates: IGDBGame[];

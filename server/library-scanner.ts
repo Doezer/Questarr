@@ -282,9 +282,6 @@ const SWITCH_IGDB_PLATFORM_ID = 130;
  */
 const SCAN_CANDIDATE_LIMIT = 10;
 
-/** A same-year release is a tie-breaker, and lifts a near match, never a poor one. */
-const YEAR_MATCH_BONUS = 0.1;
-
 function releaseYearOf(game: IGDBGame): number | null {
   return game.first_release_date ? new Date(game.first_release_date * 1000).getUTCFullYear() : null;
 }
@@ -325,19 +322,17 @@ async function bestIgdbMatch(
       .map((game, order) => {
         const base = scoreMatch(cleaned, game.name);
         const yearMatches = year !== undefined && releaseYearOf(game) === year;
-        const score = yearMatches && base >= 0.5 ? Math.min(1, base + YEAR_MATCH_BONUS) : base;
-        return { game, score, titleScore: base, yearMatches, order };
+        return { game, score: base, yearMatches, order };
       })
-      // best score first, then a matching year, then IGDB's own order
+      // The year only breaks ties between equally good titles: it never changes a score, so
+      // it cannot lift a poor title over the auto-match threshold or hide a better one.
+      // Order: best title score, then a matching year, then IGDB's own order.
       .sort((a, b) => b.score - a.score || +b.yearMatches - +a.yearMatches || a.order - b.order);
   const pick = (list: IGDBGame[]) => {
     const ranked = rank(list);
     return {
       best: ranked[0]?.game ?? null,
       score: ranked[0]?.score ?? 0,
-      // before the year bonus: the bonus ranks candidates, it never vouches for a title
-      // the ranked winner's own title score, the one the auto-match check will see
-      titleScore: ranked[0]?.titleScore ?? 0,
     };
   };
   let candidates: IGDBGame[];
@@ -348,10 +343,9 @@ async function bestIgdbMatch(
     candidates = platformId
       ? await igdbClient.searchGames(cleaned, SCAN_CANDIDATE_LIMIT, { platformId })
       : [];
-    if (pick(candidates).titleScore < AUTO_MATCH_THRESHOLD) {
+    if (pick(candidates).score < AUTO_MATCH_THRESHOLD) {
       const unfiltered = await igdbClient.searchGames(cleaned, SCAN_CANDIDATE_LIMIT);
-      // Compare on title score: the year bonus must not let a weaker filtered title win.
-      if (candidates.length === 0 || pick(unfiltered).titleScore > pick(candidates).titleScore) {
+      if (candidates.length === 0 || pick(unfiltered).score > pick(candidates).score) {
         candidates = unfiltered;
       }
     }
@@ -365,9 +359,7 @@ async function bestIgdbMatch(
     best: ranked[0]?.game ?? null,
     candidates: ranked.map((r) => r.game),
     cleaned,
-    // The auto-match check sees the title score only: the year bonus ranks candidates, it
-    // never lifts a moderate title match (e.g. a "Gold" edition) over the threshold.
-    score: ranked[0]?.titleScore ?? 0,
+    score: ranked[0]?.score ?? 0,
   };
 }
 

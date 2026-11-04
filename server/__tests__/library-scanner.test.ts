@@ -942,13 +942,13 @@ describe("scanRootFolderById IGDB matching hints", () => {
     expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 31 });
   });
 
-  it("does not let the year bonus skip the unfiltered search after a weak platform match", async () => {
+  it("does not skip the unfiltered search after a weak platform match", async () => {
     const { igdbClient } = await import("../igdb.js");
     vi.mocked(igdbClient.searchGames).mockReset();
     vi.mocked(igdbClient.searchGames).mockImplementation(async (_q, _l, options) =>
       options?.platformId
         ? ([
-            // title score ~0.77 (word overlap + prefix), ~0.87 with the matching year
+            // title score ~0.77 (word overlap + prefix)
             { id: 51, name: "Super Hades Gold", first_release_date: unix(2020) },
           ] as never)
         : ([{ id: 52, name: "Super Hades", first_release_date: unix(2020) }] as never)
@@ -964,7 +964,7 @@ describe("scanRootFolderById IGDB matching hints", () => {
   it("sends a moderate title match to review even when the year agrees", async () => {
     const { igdbClient } = await import("../igdb.js");
     vi.mocked(igdbClient.searchGames).mockReset();
-    // title score ~0.77, ~0.87 with the matching year: the year must not auto-link it
+    // title score ~0.77: the matching year must not auto-link it
     vi.mocked(igdbClient.searchGames).mockResolvedValue([
       { id: 61, name: "Super Hades Gold", first_release_date: unix(2020) },
     ] as never);
@@ -978,7 +978,7 @@ describe("scanRootFolderById IGDB matching hints", () => {
     expect(entry?.candidates.map((c) => c.igdbId)).toEqual([61]);
   });
 
-  it("prefers the unfiltered title match over a year-boosted weaker filtered one", async () => {
+  it("prefers the better unfiltered title over a weaker filtered one with the right year", async () => {
     const { igdbClient } = await import("../igdb.js");
     vi.mocked(igdbClient.searchGames).mockReset();
     vi.mocked(igdbClient.searchGames).mockImplementation(async (_q, _l, options) =>
@@ -989,31 +989,27 @@ describe("scanRootFolderById IGDB matching hints", () => {
         : ([{ id: 72, name: "Alpha Beta Gamma", first_release_date: unix(2019) }] as never)
     );
 
-    // filtered: title ~0.77, ~0.87 with the year; unfiltered: title 0.85, no year bonus
+    // filtered: title ~0.77; unfiltered: title 0.85, other year
     await scanFolder("Alpha Beta Gamma Delta (2020) [0100535012974000][v0].nsp");
 
     const { storage } = await import("../storage.js");
     expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 72 });
   });
 
-  it("gates the unfiltered search on the ranked winner's title score", async () => {
+  it("never lets a matching year outrank a better title", async () => {
     const { igdbClient } = await import("../igdb.js");
     vi.mocked(igdbClient.searchGames).mockReset();
-    vi.mocked(igdbClient.searchGames).mockImplementation(async (_q, _l, options) =>
-      options?.platformId
-        ? ([
-            // title 0.8, 0.9 with the year: ranks first but cannot auto-match
-            { id: 81, name: "X Alpha Beta Gamma Delta", first_release_date: unix(2020) },
-            // title 0.85 without the year: a stronger title, ranked behind
-            { id: 82, name: "Alpha Beta Gamma", first_release_date: unix(2019) },
-          ] as never)
-        : ([{ id: 83, name: "Alpha Beta Gamma Delta", first_release_date: unix(2019) }] as never)
-    );
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      // title 0.9, same year as the folder
+      { id: 81, name: "Alpha Beta Gamma Delta X", first_release_date: unix(2020) },
+      // exact title, other year
+      { id: 82, name: "Alpha Beta Gamma Delta", first_release_date: unix(2019) },
+    ] as never);
 
-    await scanFolder("Alpha Beta Gamma Delta (2020) [0100535012974000][v0].nsp");
+    await scanFolder("Alpha Beta Gamma Delta (2020)");
 
     const { storage } = await import("../storage.js");
-    expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 83 });
+    expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 82 });
   });
 
   it("lists the likeliest candidates first for review", async () => {

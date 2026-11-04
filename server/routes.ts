@@ -816,6 +816,10 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       signal: searchAbort.signal,
     });
 
+    // Nobody waits for the answer and the results are incomplete: do not score them or
+    // update the game's search-results flag from an aborted search.
+    if (searchAbort.signal.aborted) return;
+
     // Global release-name blacklist (case-insensitive substring match) applies to every
     // search regardless of gameId, so it's resolved and applied up front.
     const gameId = req.query.gameId as string | undefined;

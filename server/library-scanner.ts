@@ -326,13 +326,18 @@ async function bestIgdbMatch(
         const base = scoreMatch(cleaned, game.name);
         const yearMatches = year !== undefined && releaseYearOf(game) === year;
         const score = yearMatches && base >= 0.5 ? Math.min(1, base + YEAR_MATCH_BONUS) : base;
-        return { game, score, yearMatches, order };
+        return { game, score, titleScore: base, yearMatches, order };
       })
       // best score first, then a matching year, then IGDB's own order
       .sort((a, b) => b.score - a.score || +b.yearMatches - +a.yearMatches || a.order - b.order);
   const pick = (list: IGDBGame[]) => {
-    const top = rank(list)[0];
-    return { best: top?.game ?? null, score: top?.score ?? 0 };
+    const ranked = rank(list);
+    return {
+      best: ranked[0]?.game ?? null,
+      score: ranked[0]?.score ?? 0,
+      // before the year bonus: the bonus ranks candidates, it never vouches for a title
+      titleScore: Math.max(0, ...ranked.map((r) => r.titleScore)),
+    };
   };
   let candidates: IGDBGame[];
   try {
@@ -342,7 +347,7 @@ async function bestIgdbMatch(
     candidates = platformId
       ? await igdbClient.searchGames(cleaned, SCAN_CANDIDATE_LIMIT, { platformId })
       : [];
-    if (pick(candidates).score < AUTO_MATCH_THRESHOLD) {
+    if (pick(candidates).titleScore < AUTO_MATCH_THRESHOLD) {
       const unfiltered = await igdbClient.searchGames(cleaned, SCAN_CANDIDATE_LIMIT);
       if (candidates.length === 0 || pick(unfiltered).score > pick(candidates).score) {
         candidates = unfiltered;

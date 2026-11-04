@@ -942,6 +942,25 @@ describe("scanRootFolderById IGDB matching hints", () => {
     expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 31 });
   });
 
+  it("does not let the year bonus skip the unfiltered search after a weak platform match", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockImplementation(async (_q, _l, options) =>
+      options?.platformId
+        ? ([
+            // title score ~0.77 (word overlap + prefix), ~0.87 with the matching year
+            { id: 51, name: "Super Hades Gold", first_release_date: unix(2020) },
+          ] as never)
+        : ([{ id: 52, name: "Super Hades", first_release_date: unix(2020) }] as never)
+    );
+
+    await scanFolder("Super Hades (2020) [0100535012974000][v0].nsp");
+
+    expect(igdbClient.searchGames).toHaveBeenCalledWith("Super Hades", 10);
+    const { storage } = await import("../storage.js");
+    expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 52 });
+  });
+
   it("lists the likeliest candidates first for review", async () => {
     const { igdbClient } = await import("../igdb.js");
     vi.mocked(igdbClient.searchGames).mockReset();

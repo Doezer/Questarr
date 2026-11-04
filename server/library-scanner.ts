@@ -349,7 +349,8 @@ async function bestIgdbMatch(
       : [];
     if (pick(candidates).titleScore < AUTO_MATCH_THRESHOLD) {
       const unfiltered = await igdbClient.searchGames(cleaned, SCAN_CANDIDATE_LIMIT);
-      if (candidates.length === 0 || pick(unfiltered).score > pick(candidates).score) {
+      // Compare on title score: the year bonus must not let a weaker filtered title win.
+      if (candidates.length === 0 || pick(unfiltered).titleScore > pick(candidates).titleScore) {
         candidates = unfiltered;
       }
     }

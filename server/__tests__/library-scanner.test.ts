@@ -978,6 +978,24 @@ describe("scanRootFolderById IGDB matching hints", () => {
     expect(entry?.candidates.map((c) => c.igdbId)).toEqual([61]);
   });
 
+  it("prefers the unfiltered title match over a year-boosted weaker filtered one", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockImplementation(async (_q, _l, options) =>
+      options?.platformId
+        ? ([
+            { id: 71, name: "Alpha Beta Gamma Delta X Y", first_release_date: unix(2020) },
+          ] as never)
+        : ([{ id: 72, name: "Alpha Beta Gamma", first_release_date: unix(2019) }] as never)
+    );
+
+    // filtered: title ~0.77, ~0.87 with the year; unfiltered: title 0.85, no year bonus
+    await scanFolder("Alpha Beta Gamma Delta (2020) [0100535012974000][v0].nsp");
+
+    const { storage } = await import("../storage.js");
+    expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 72 });
+  });
+
   it("lists the likeliest candidates first for review", async () => {
     const { igdbClient } = await import("../igdb.js");
     vi.mocked(igdbClient.searchGames).mockReset();

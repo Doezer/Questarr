@@ -307,7 +307,8 @@ describe("Search Module - searchAllIndexers", () => {
       expect.objectContaining({
         limit: 25,
         offset: 10,
-      })
+      }),
+      expect.any(Object)
     );
   });
 
@@ -323,7 +324,8 @@ describe("Search Module - searchAllIndexers", () => {
       expect.objectContaining({
         limit: 50,
         offset: 0,
-      })
+      }),
+      expect.any(Object)
     );
   });
   it("should extract release group from title for torznab items", async () => {
@@ -606,7 +608,8 @@ describe("Search Module - g4u.to indexers", () => {
 
     expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
       [g4uIndexer],
-      expect.objectContaining({ query: "The.Witcher.3" })
+      expect.objectContaining({ query: "The.Witcher.3" }),
+      expect.any(Object)
     );
   });
 
@@ -619,7 +622,8 @@ describe("Search Module - g4u.to indexers", () => {
 
     expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
       [newznabIndexer],
-      expect.objectContaining({ query: "The Witcher 3" })
+      expect.objectContaining({ query: "The Witcher 3" }),
+      expect.any(Object)
     );
   });
 
@@ -649,17 +653,20 @@ describe("Search Module - g4u.to indexers", () => {
 
     expect(torznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
       [torznabIndexer],
+      expect.any(Object),
       expect.any(Object)
     );
     // newznab and g4u each make a separate call
     expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledTimes(2);
     expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
       [newznabIndexer],
-      expect.objectContaining({ query: "some game" })
+      expect.objectContaining({ query: "some game" }),
+      expect.any(Object)
     );
     expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
       [g4uIndexer],
-      expect.objectContaining({ query: "some.game" })
+      expect.objectContaining({ query: "some.game" }),
+      expect.any(Object)
     );
   });
 
@@ -699,7 +706,8 @@ describe("Search Module - g4u.to indexers", () => {
 
     expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
       [g4uIndexer],
-      expect.objectContaining({ query: undefined })
+      expect.objectContaining({ query: undefined }),
+      expect.any(Object)
     );
   });
 

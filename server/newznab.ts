@@ -10,6 +10,11 @@ import {
 import { normalizeReleaseTitle } from "../shared/title-utils.js";
 import { routesLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
+import {
+  getIndexerTimeoutMs,
+  guardedIndexerSearch,
+  type SearchGuardOptions,
+} from "./search-guard.js";
 
 export { DEFAULT_GAME_CATEGORY_IDS } from "./indexer-caps.js";
 
@@ -111,7 +116,11 @@ class NewznabClient {
    *
    * @throws When URL validation, the request, or response parsing fails.
    */
-  async search(indexer: Indexer, params: NewznabSearchParams): Promise<NewznabResult[]> {
+  async search(
+    indexer: Indexer,
+    params: NewznabSearchParams,
+    signal?: AbortSignal
+  ): Promise<NewznabResult[]> {
     try {
       // Validate URL before making request
       if (!(await isSafeUrl(indexer.url))) {
@@ -166,7 +175,8 @@ class NewznabClient {
         headers: {
           "User-Agent": "Questarr/1.0",
         },
-        signal: AbortSignal.timeout(30000), // 30 second timeout
+        timeoutMs: getIndexerTimeoutMs(),
+        ...(signal ? { signal } : {}),
         requireHttps,
       });
 
@@ -322,10 +332,16 @@ class NewznabClient {
    */
   async searchMultipleIndexers(
     indexers: Indexer[],
-    params: NewznabSearchParams
+    params: NewznabSearchParams,
+    guard: SearchGuardOptions = {}
   ): Promise<{ results: NewznabSearchResults; errors: Array<{ indexer: string; error: string }> }> {
     const promises = indexers.map((indexer) =>
-      this.search(indexer, params)
+      guardedIndexerSearch(
+        indexer.id,
+        JSON.stringify([params.query, params.category, params.limit, params.offset]),
+        guard,
+        (signal) => this.search(indexer, params, signal)
+      )
         .then((results) => ({ indexer: indexer.name, results, error: null }))
         .catch((error) => ({ indexer: indexer.name, results: [], error: error.message }))
     );

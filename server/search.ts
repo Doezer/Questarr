@@ -7,6 +7,7 @@ import type { ReleaseTrust } from "../shared/release-trust.js";
 import type { ReleaseEvaluation } from "../shared/release-scoring.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { config } from "./config.js";
+import type { SearchPriority } from "./search-guard.js";
 import { classifyRelease, legacyType, PROVIDER_MAX_ITEMS } from "./classification/hold.js";
 
 // Cap how many top results get AI-enriched per search so an optional, user-supplied
@@ -61,6 +62,10 @@ export interface AggregatedSearchOptions {
    * has to filter the results against the title they were found with (`queryUsed`).
    */
   fallback?: boolean;
+  /** Aborted when nobody waits for the answer any more: stops the indexer requests. */
+  signal?: AbortSignal | undefined;
+  /** "background" (auto-search) has its own line per indexer, apart from the interactive ones. */
+  priority?: SearchPriority | undefined;
 }
 
 export interface AggregatedSearchResults {
@@ -91,6 +96,7 @@ export async function searchAllIndexers(
 
   const errors = [...first.errors];
   for (const variant of buildQueryVariants(options.query).slice(0, MAX_FALLBACK_QUERIES)) {
+    if (options.signal?.aborted) break;
     const result = await searchIndexersOnce({ ...options, query: variant });
     if (result.items.length > 0) {
       searchLogger.info(
@@ -137,12 +143,13 @@ async function searchIndexersOnce(
     query: options.query ? options.query.replace(/ /g, ".") : options.query,
   };
 
+  const guard = { signal: options.signal, priority: options.priority };
   const promises = [];
 
   if (torznabIndexers.length > 0) {
     promises.push(
       torznabClient
-        .searchMultipleIndexers(torznabIndexers, searchParams)
+        .searchMultipleIndexers(torznabIndexers, searchParams, guard)
         .then((res) => ({ type: "torznab" as const, ...res }))
         .catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
@@ -162,7 +169,7 @@ async function searchIndexersOnce(
     label: string
   ) =>
     newznabClient
-      .searchMultipleIndexers(indexers, params)
+      .searchMultipleIndexers(indexers, params, guard)
       .then((res) => ({ type: "newznab" as const, ...res }))
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);

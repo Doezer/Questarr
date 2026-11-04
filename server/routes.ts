@@ -801,12 +801,19 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
         ? req.query.title.trim()
         : undefined;
 
+    // A browser that goes away (new keystroke, closed dialog) stops its indexer requests
+    const searchAbort = new AbortController();
+    res.on("close", () => {
+      if (!res.writableEnded) searchAbort.abort();
+    });
+
     const { items, total, errors, queryUsed } = await searchAllIndexers({
       query: query.trim(),
       category: categories,
       limit,
       offset,
       fallback: true,
+      signal: searchAbort.signal,
     });
 
     // Global release-name blacklist (case-insensitive substring match) applies to every

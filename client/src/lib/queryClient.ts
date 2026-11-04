@@ -113,7 +113,8 @@ export function apiFetch(url: string, init: RequestInit = {}): Promise<Response>
 export async function apiRequest(
   method: string,
   url: string,
-  data?: unknown | undefined
+  data?: unknown | undefined,
+  signal?: AbortSignal
 ): Promise<Response> {
   const hasBody = data !== undefined;
   const headers: Record<string, string> = hasBody ? { "Content-Type": "application/json" } : {};
@@ -122,6 +123,7 @@ export async function apiRequest(
     method,
     headers,
     ...(hasBody ? { body: JSON.stringify(data) } : {}),
+    ...(signal ? { signal } : {}),
   });
 
   await throwIfResNotOk(res);

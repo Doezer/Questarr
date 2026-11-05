@@ -148,18 +148,19 @@ export function computePlayStats(
 
   for (const session of sessions) {
     if (!session.endedAt) continue;
+    // Every finished session counts, even one that rounds to zero minutes...
+    sessionCount++;
     const minutes = sessionMinutes(session.startedAt, session.endedAt);
+    const entry = perGame.get(session.gameId) ?? { minutes: 0, sessions: 0 };
+    entry.sessions++;
+    perGame.set(session.gameId, entry);
+    // ...but only real time feeds the time-based statistics.
     if (minutes <= 0) continue;
     const local = toLocal(session.startedAt, tzOffsetMinutes);
 
     totalMinutes += minutes;
-    sessionCount++;
     if (!longest || minutes > longest.minutes) longest = { gameId: session.gameId, minutes };
-
-    const entry = perGame.get(session.gameId) ?? { minutes: 0, sessions: 0 };
     entry.minutes += minutes;
-    entry.sessions++;
-    perGame.set(session.gameId, entry);
 
     const game = gameById.get(session.gameId);
     for (const genre of game?.genres ?? []) {

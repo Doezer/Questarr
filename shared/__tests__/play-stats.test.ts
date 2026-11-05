@@ -51,6 +51,18 @@ describe("computePlayStats", () => {
     expect(stats.longestSession).toEqual({ gameId: "a", title: "Alpha", minutes: 90 });
   });
 
+  it("counts a session that rounds to zero minutes without adding time", () => {
+    const stats = computePlayStats(
+      [session("a", "2026-11-04T20:00:00Z", 0), session("a", "2026-11-04T21:00:00Z", 30)],
+      games,
+      NOW
+    );
+    expect(stats.sessionCount).toBe(2);
+    expect(stats.totalMinutes).toBe(30);
+    expect(stats.topGames[0]).toMatchObject({ gameId: "a", minutes: 30, sessions: 2 });
+    expect(stats.longestSession?.minutes).toBe(30);
+  });
+
   it("leaves a running timer out of the totals", () => {
     const stats = computePlayStats(
       [{ gameId: "a", startedAt: at("2026-11-05T10:00:00Z"), endedAt: null }],

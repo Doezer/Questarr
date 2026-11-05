@@ -195,7 +195,7 @@ configuration does not delete the directory itself.
   title search.
 - The scan asks IGDB for ten candidates per folder, since a short name such as "Portal" is
   crowded with sequels and mods. **Needs Review** lists up to ten, likeliest first, each
-  with its release year.
+  with its cover and release year.
 - Under **Needs Review**, choose a suggested IGDB game or enter a different
   name in **Not listed? Search IGDB by name**. Search alone does not import the
   game; clicking a candidate confirms it and adds it to your library.

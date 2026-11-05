@@ -70,7 +70,12 @@ interface UnmatchedEntry {
   rootFolderPath: string;
   folderName: string;
   absolutePath: string;
-  candidates: Array<{ igdbId: number; name: string; releaseYear: number | null }>;
+  candidates: Array<{
+    igdbId: number;
+    name: string;
+    releaseYear: number | null;
+    coverUrl?: string | null;
+  }>;
 }
 
 function formatBytes(bytes: number | null): string {
@@ -751,12 +756,29 @@ function UnmatchedEntryCard({
             <Button
               key={c.igdbId}
               variant="outline"
-              size="sm"
+              className="h-auto min-h-11 max-w-full justify-start gap-2 py-1 pl-1 text-left whitespace-normal"
               disabled={matchPending || ignorePending}
               onClick={() => onMatch(c.igdbId)}
             >
-              {c.name}
-              {c.releaseYear ? ` (${c.releaseYear})` : ""}
+              {c.coverUrl ? (
+                <img
+                  src={c.coverUrl}
+                  alt=""
+                  loading="lazy"
+                  className="h-10 w-7 shrink-0 rounded-sm object-cover"
+                />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  className="flex h-10 w-7 shrink-0 items-center justify-center rounded-sm bg-muted text-xs text-muted-foreground"
+                >
+                  ?
+                </span>
+              )}
+              <span className="min-w-0">
+                {c.name}
+                {c.releaseYear ? ` (${c.releaseYear})` : ""}
+              </span>
             </Button>
           ))}
         </div>

@@ -673,7 +673,9 @@ describe("matchUnmatchedFolder with release-style folder names", () => {
     const candidates = await searchUnmatchedFolder("rf-release-search", folderName, "Absolum");
 
     expect(igdbClient.searchGames).toHaveBeenLastCalledWith("Absolum", 10);
-    expect(candidates).toEqual([{ igdbId: 777, name: "Absolum", releaseYear: 2025 }]);
+    expect(candidates).toEqual([
+      { igdbId: 777, name: "Absolum", releaseYear: 2025, coverUrl: null },
+    ]);
     // The searched result replaces the scan's guesses, so it can now be matched.
     const result = await matchUnmatchedFolder("rf-release-search", folderName, 777, "user-1");
     expect(result.gameId).toBe("game-777");
@@ -1010,6 +1012,30 @@ describe("scanRootFolderById IGDB matching hints", () => {
 
     const { storage } = await import("../storage.js");
     expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 82 });
+  });
+
+  it("gives each review candidate its small IGDB cover", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      {
+        id: 91,
+        name: "Cover Quest Remake",
+        cover: { url: "//images.igdb.com/igdb/image/upload/t_thumb/co1abc.jpg" },
+      },
+      { id: 92, name: "Cover Quest Sequel" },
+      // not an IGDB image host: never handed to the browser
+      { id: 93, name: "Cover Quest Odd", cover: { url: "//evil.example/t_thumb/x.jpg" } },
+    ] as never);
+
+    await scanFolder("Cover Quest");
+
+    const entry = getAllUnmatched().find((e) => e.rootFolderId === "rf-hints");
+    expect(entry?.candidates.map((c) => [c.igdbId, c.coverUrl])).toEqual([
+      [91, "https://images.igdb.com/igdb/image/upload/t_cover_small/co1abc.jpg"],
+      [92, null],
+      [93, null],
+    ]);
   });
 
   it("lists the likeliest candidates first for review", async () => {

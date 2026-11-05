@@ -22,7 +22,12 @@ import { storage } from "./storage.js";
 import { isStrictlyInside } from "./root-folders.js";
 import { igdbClient, type IGDBGame } from "./igdb.js";
 import { toVideos } from "./igdb-videos.js";
-import { normalizeTitle, cleanReleaseName, parseSwitchTitleId } from "../shared/title-utils.js";
+import {
+  normalizeTitle,
+  cleanReleaseName,
+  parseFolderHints,
+  parseSwitchTitleId,
+} from "../shared/title-utils.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { igdbLogger, routesLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
@@ -52,7 +57,13 @@ export interface UnmatchedEntry {
   rootFolderPath: string;
   folderName: string; // relative to the root folder (the leaf)
   absolutePath: string;
-  candidates: Array<{ igdbId: number; name: string; releaseYear: number | null }>;
+  candidates: Array<{
+    igdbId: number;
+    name: string;
+    releaseYear: number | null;
+    /** Small IGDB cover for the review list, or null when IGDB has none. */
+    coverUrl: string | null;
+  }>;
 }
 
 interface FolderCandidate {
@@ -271,6 +282,31 @@ function scoreMatch(folderClean: string, igdbName: string): number {
 
 const SWITCH_IGDB_PLATFORM_ID = 130;
 
+/**
+ * IGDB candidates asked for per folder. Short names ("Portal") are dominated by sequels, mods
+ * and DLC, so the right game can sit beyond the first five results.
+ */
+const SCAN_CANDIDATE_LIMIT = 10;
+
+function releaseYearOf(game: IGDBGame): number | null {
+  return game.first_release_date ? new Date(game.first_release_date * 1000).getUTCFullYear() : null;
+}
+
+/** Looks up the game a folder names by id (`{igdb-1234}` or `{steam-620}`), if it does. */
+async function matchByIdTag(folderName: string): Promise<IGDBGame | null> {
+  const { igdbId, steamAppId } = parseFolderHints(folderName);
+  try {
+    let id = igdbId ?? null;
+    if (id === null && steamAppId !== undefined) {
+      id = await igdbClient.getGameIdBySteamAppId(steamAppId);
+    }
+    return id === null ? null : await igdbClient.getGameById(id);
+  } catch (err) {
+    igdbLogger.warn({ err, folderName }, "IGDB id lookup failed during library scan");
+    return null;
+  }
+}
+
 async function bestIgdbMatch(
   folderName: string,
   platformId?: number
@@ -281,27 +317,46 @@ async function bestIgdbMatch(
   score: number;
 }> {
   const cleaned = cleanReleaseName(folderName) || folderName;
+
+  // An id the person wrote in the folder name is an exact match.
+  const byId = await matchByIdTag(folderName);
+  if (byId) return { best: byId, candidates: [byId], cleaned, score: 1 };
+
+  const { year } = parseFolderHints(folderName);
+  const rank = (list: IGDBGame[]) =>
+    list
+      .map((game, order) => {
+        const base = scoreMatch(cleaned, game.name);
+        const yearMatches = year !== undefined && releaseYearOf(game) === year;
+        return { game, score: base, yearMatches, order };
+      })
+      // The year only breaks ties between equally good titles: it never changes a score, so
+      // it cannot lift a poor title over the auto-match threshold or hide a better one.
+      // Order: best title score, then a matching year, then IGDB's own order.
+      .sort((a, b) => b.score - a.score || +b.yearMatches - +a.yearMatches || a.order - b.order);
   const pick = (list: IGDBGame[]) => {
-    let best: IGDBGame | null = null;
-    let score = 0;
-    for (const candidate of list) {
-      const s = scoreMatch(cleaned, candidate.name);
-      if (!best || s > score) {
-        best = candidate;
-        score = s;
-      }
-    }
-    return { best, score };
+    const ranked = rank(list);
+    return {
+      best: ranked[0]?.game ?? null,
+      score: ranked[0]?.score ?? 0,
+      yearMatches: ranked[0]?.yearMatches ?? false,
+    };
   };
+  // True when the first list's winner is strictly better: a higher title score, or the same
+  // score with the folder's year matching only the first.
+  const beats = (a: ReturnType<typeof pick>, b: ReturnType<typeof pick>) =>
+    a.score > b.score || (a.score === b.score && a.yearMatches && !b.yearMatches);
   let candidates: IGDBGame[];
   try {
     // A platform hint (Switch title id in the name) narrows the search, but never replaces
     // it: IGDB's platform list can lag, so a weak filtered result also tries an unfiltered
     // search, and the better of the two wins.
-    candidates = platformId ? await igdbClient.searchGames(cleaned, 5, { platformId }) : [];
+    candidates = platformId
+      ? await igdbClient.searchGames(cleaned, SCAN_CANDIDATE_LIMIT, { platformId })
+      : [];
     if (pick(candidates).score < AUTO_MATCH_THRESHOLD) {
-      const unfiltered = await igdbClient.searchGames(cleaned, 5);
-      if (candidates.length === 0 || pick(unfiltered).score > pick(candidates).score) {
+      const unfiltered = await igdbClient.searchGames(cleaned, SCAN_CANDIDATE_LIMIT);
+      if (candidates.length === 0 || beats(pick(unfiltered), pick(candidates))) {
         candidates = unfiltered;
       }
     }
@@ -309,8 +364,14 @@ async function bestIgdbMatch(
     igdbLogger.warn({ err, query: cleaned }, "IGDB search failed during library scan");
     return { best: null, candidates: [], cleaned, score: 0 };
   }
-  const { best, score } = pick(candidates);
-  return { best, candidates, cleaned, score };
+  // Best first, so the review list shows the likeliest games at the top.
+  const ranked = rank(candidates);
+  return {
+    best: ranked[0]?.game ?? null,
+    candidates: ranked.map((r) => r.game),
+    cleaned,
+    score: ranked[0]?.score ?? 0,
+  };
 }
 
 // ---------- Ingestion ----------
@@ -465,7 +526,7 @@ export async function searchUnmatchedFolder(
 ): Promise<UnmatchedEntry["candidates"]> {
   const entry = getUnmatchedEntry(rootFolderId, folderName);
   if (!entry) throw new Error("No matching unmatched entry for this root folder");
-  const results = await igdbClient.searchGames(query, 5);
+  const results = await igdbClient.searchGames(query, SCAN_CANDIDATE_LIMIT);
   // A rescan may have rebuilt the review list while IGDB answered; candidates
   // stored on the old entry would never be offered for matching.
   if (getUnmatchedEntry(rootFolderId, folderName) !== entry) {
@@ -647,13 +708,21 @@ function offeredIds(entry: UnmatchedEntry): Set<number> {
   return ids;
 }
 
+/** IGDB serves covers as protocol-relative `t_thumb` URLs; the review list wants the small cover. */
+function smallCoverUrl(game: IGDBGame): string | null {
+  const url = game.cover?.url;
+  if (!url?.startsWith("//images.igdb.com/")) return null;
+  return `https:${url.replace("t_thumb", "t_cover_small")}`;
+}
+
 function toUnmatchedCandidates(igdbCandidates: IGDBGame[]): UnmatchedEntry["candidates"] {
-  return igdbCandidates.slice(0, 5).map((c) => ({
+  return igdbCandidates.slice(0, SCAN_CANDIDATE_LIMIT).map((c) => ({
     igdbId: c.id,
     name: c.name,
     releaseYear: c.first_release_date
       ? new Date(c.first_release_date * 1000).getUTCFullYear()
       : null,
+    coverUrl: smallCoverUrl(c),
   }));
 }
 

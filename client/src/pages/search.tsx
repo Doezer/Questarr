@@ -151,12 +151,15 @@ export default function SearchPage() {
     fetchNextPage,
   } = useInfiniteQuery<SearchResult, Error, InfiniteData<SearchResult>, string[], SearchPageParam>({
     queryKey: ["/api/search", debouncedSearchQuery],
-    queryFn: async ({ pageParam }): Promise<SearchResult> => {
+    queryFn: async ({ pageParam, signal }): Promise<SearchResult> => {
       const r = await apiRequest(
         "GET",
         `/api/search?query=${encodeURIComponent(pageParam.query ?? debouncedSearchQuery)}${
           pageParam.query ? `&title=${encodeURIComponent(debouncedSearchQuery)}` : ""
-        }&limit=${PAGE_SIZE}&offset=${pageParam.offset}`
+        }&limit=${PAGE_SIZE}&offset=${pageParam.offset}`,
+        undefined,
+        // a superseded query cancels its request, which stops its indexer searches
+        signal
       );
       return r.json();
     },

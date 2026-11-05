@@ -534,6 +534,7 @@ export async function searchAndCategorizeItemsForGame(
       limit: AUTO_SEARCH_PAGE_SIZE,
       offset: page * AUTO_SEARCH_PAGE_SIZE,
       fallback: true,
+      priority: "background",
     });
     if (queryUsed) {
       searchQuery = queryUsed;

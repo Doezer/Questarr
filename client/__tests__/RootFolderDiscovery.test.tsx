@@ -324,6 +324,38 @@ describe("RootFolderDiscovery", () => {
     expect(withoutCover.querySelector("img")).toBeNull();
   });
 
+  it("falls back to the placeholder tile when a cover fails to load", async () => {
+    mockFetch(
+      [folder],
+      [],
+      [
+        {
+          rootFolderId: "rf-1",
+          rootFolderPath: "/mnt/old-library",
+          folderName: "Portal",
+          absolutePath: "/mnt/old-library/Portal",
+          candidates: [
+            {
+              igdbId: 16,
+              name: "Portal",
+              releaseYear: 2007,
+              coverUrl: "https://images.igdb.com/igdb/image/upload/t_cover_small/gone.jpg",
+            },
+          ],
+        },
+      ]
+    );
+    renderComponent();
+
+    const button = await screen.findByRole("button", { name: "Portal (2007)" });
+    const img = button.querySelector("img");
+    expect(img).not.toBeNull();
+    fireEvent.error(img as HTMLImageElement);
+
+    await waitFor(() => expect(button.querySelector("img")).toBeNull());
+    expect(button).toHaveTextContent("?");
+  });
+
   it("ignores a folder from Needs Review", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     mockFetch(

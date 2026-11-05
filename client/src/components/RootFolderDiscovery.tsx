@@ -697,6 +697,8 @@ function UnmatchedEntryCard({
   const queryClient = useQueryClient();
   const searchId = useId();
   const [query, setQuery] = useState("");
+  // Cover URLs that failed to load: keyed by URL, so a new URL for a candidate loads normally.
+  const [failedCovers, setFailedCovers] = useState<ReadonlySet<string>>(new Set());
 
   const searchMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -760,11 +762,15 @@ function UnmatchedEntryCard({
               disabled={matchPending || ignorePending}
               onClick={() => onMatch(c.igdbId)}
             >
-              {c.coverUrl ? (
+              {c.coverUrl && !failedCovers.has(c.coverUrl) ? (
                 <img
                   src={c.coverUrl}
                   alt=""
                   loading="lazy"
+                  onError={() => {
+                    const failed = c.coverUrl;
+                    if (failed) setFailedCovers((prev) => new Set(prev).add(failed));
+                  }}
                   className="h-10 w-7 shrink-0 rounded-sm object-cover"
                 />
               ) : (

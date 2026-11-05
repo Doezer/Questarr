@@ -4,9 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.0] - Unreleased
+
 ### Added
 
-- **Persistent classification cache**: release verdicts are now kept in the database as well as in memory (7 days, 20,000 rows, pruned hourly), for every classification mode and for the historical Jev check, so a restart or a Docker update no longer repeats paid cloud calls. A new model, provider endpoint or model, mode, confidence bar or pipeline version never reuses an older verdict, a failing layer's answer is never stored, and **Settings → Release classification → Clear classification cache** empties it (Questarr-mgmt#59).
+- **Owned Steam library import**: from **Settings → Integrations**, preview your public Steam library and import the games you select (all untracked games are selected by default, thousands at a time) as **Owned**. The import runs on the server with saved progress, survives restarts and can be retried for the games that failed. Existing games keep their status, ratings and files. See [Steam library import](STEAM_LIBRARY.md) (#1273).
+- **Personal screenshots**: upload your own JPEG, PNG or WebP images (up to 8 MB) to a saved game from **Media → Your screenshots**, next to the trailers and IGDB artwork. Existing journal images appear there too. See [Personal screenshots](PERSONAL_SCREENSHOTS.md) (#1296, requested in #1287).
+- **Game modes**: IGDB game modes (single player, multiplayer, co-op...) are stored, shown on the game details and available as a **Game mode** rule for smart collections (#1295).
+- **Import into library**: a game found in an external root folder can be copied, moved or hardlinked into your library root with the configured naming pattern from **Library → Library Import**. Questarr then points the game at its new files (#1310, Questarr-mgmt#49). See [Library import](LIBRARY_IMPORT.md#discover-games-already-on-disk).
+- **Automatic root folder rescan**: a new **Auto rescan** setting in **Library Import** rescans your root folders every hour, 6 hours, 12 hours, day or week (off by default). A rescan only looks up new or unresolved folders on IGDB. It is listed as **Library rescan** under **System Tasks** (#1308).
+- **Search fallback**: when the full game title finds nothing, the search retries with simpler titles (without a possessive publisher prefix, edition words, punctuation or subtitle) and tells you which one it used. Sequels are still refused. Releases whose protocol none of your download clients supports (Usenet with only torrent clients, or the opposite) are flagged and cannot be downloaded (#1312).
+- **Persistent classification cache**: release verdicts are now kept in the database as well as in memory (7 days, 20,000 rows, pruned hourly), for every classification mode and for the historical Jev check, so a restart or a Docker update no longer repeats paid cloud calls. A new model, provider endpoint or model, mode, confidence bar or pipeline version never reuses an older verdict, a failing layer's answer is never stored, and **Settings → Release classification → Clear classification cache** empties it (Questarr-mgmt#59, #1311).
+- **Indexer protection**: searches no longer hammer indexers shared with Sonarr, Radarr or Prowlarr. A search the browser abandoned stops its indexer requests, identical simultaneous searches share one request, and each indexer serves 2 searches at once (`SEARCH_MAX_CONCURRENT_PER_INDEXER`), with a separate line for auto-search. `SEARCH_INDEXER_TIMEOUT_MS` sets the timeout of one indexer request. See [Indexers](INDEXERS.md#protect-shared-indexers) (#1315, Questarr-mgmt#61).
+
+### Fixed
+
+- **xREL checks**: a malformed xREL response is treated as unavailable, never as an empty result (#1305). A release missing from a full, truncated xREL list is reported as unknown instead of not found (#1309). xREL results are kept across long auto-search intervals and large wanted lists (#1307). The trust badge says that p2p releases cannot be checked for nukes (#1306).
+- **Large archive imports**: archive listings are streamed, so valid archives with a long file list no longer fail on a size limit (#1300, thanks @JEFF7712).
+- **Path checks**: the sensitive-path guard also rejects Windows system paths, the `ADMIN$` share and the macOS `/private/etc` alias, and SeerrNG assets are validated against your real library roots (#1304).
+
+### Dependencies
+
+- Dependency updates: #1297, #1298, #1299, #1313.
 
 ## [1.6.0] - 2026-10-31
 

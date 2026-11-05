@@ -996,6 +996,25 @@ describe("scanRootFolderById IGDB matching hints", () => {
     expect(vi.mocked(storage.addGame).mock.calls.at(-1)?.[0]).toMatchObject({ igdbId: 72 });
   });
 
+  it("keeps the unfiltered result when titles tie and only its year matches", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockReset();
+    vi.mocked(igdbClient.searchGames).mockImplementation(async (_q, _l, options) =>
+      options?.platformId
+        ? ([{ id: 91, name: "Super Hades Gold", first_release_date: unix(2019) }] as never)
+        : ([{ id: 92, name: "Super Hades Gold", first_release_date: unix(2020) }] as never)
+    );
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.addGame).mockClear();
+
+    // both titles score ~0.77 (below auto-match): the year-matching one must be offered
+    await scanFolder("Super Hades (2020) [0100535012974000][v0].nsp");
+
+    expect(storage.addGame).not.toHaveBeenCalled();
+    const entry = getAllUnmatched().find((e) => e.rootFolderId === "rf-hints");
+    expect(entry?.candidates.map((c) => c.igdbId)).toEqual([92]);
+  });
+
   it("never lets a matching year outrank a better title", async () => {
     const { igdbClient } = await import("../igdb.js");
     vi.mocked(igdbClient.searchGames).mockReset();

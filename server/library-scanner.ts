@@ -339,8 +339,13 @@ async function bestIgdbMatch(
     return {
       best: ranked[0]?.game ?? null,
       score: ranked[0]?.score ?? 0,
+      yearMatches: ranked[0]?.yearMatches ?? false,
     };
   };
+  // True when the first list's winner is strictly better: a higher title score, or the same
+  // score with the folder's year matching only the first.
+  const beats = (a: ReturnType<typeof pick>, b: ReturnType<typeof pick>) =>
+    a.score > b.score || (a.score === b.score && a.yearMatches && !b.yearMatches);
   let candidates: IGDBGame[];
   try {
     // A platform hint (Switch title id in the name) narrows the search, but never replaces
@@ -351,7 +356,7 @@ async function bestIgdbMatch(
       : [];
     if (pick(candidates).score < AUTO_MATCH_THRESHOLD) {
       const unfiltered = await igdbClient.searchGames(cleaned, SCAN_CANDIDATE_LIMIT);
-      if (candidates.length === 0 || pick(unfiltered).score > pick(candidates).score) {
+      if (candidates.length === 0 || beats(pick(unfiltered), pick(candidates))) {
         candidates = unfiltered;
       }
     }

@@ -11,4 +11,5 @@ CREATE TABLE `game_play_sessions` (
 );
 --> statement-breakpoint
 CREATE INDEX `game_play_sessions_game_user_idx` ON `game_play_sessions` (`game_id`,`user_id`);--> statement-breakpoint
-CREATE INDEX `game_play_sessions_user_started_idx` ON `game_play_sessions` (`user_id`,`started_at`);
+CREATE INDEX `game_play_sessions_user_started_idx` ON `game_play_sessions` (`user_id`,`started_at`);--> statement-breakpoint
+CREATE UNIQUE INDEX `game_play_sessions_one_running_idx` ON `game_play_sessions` (`user_id`) WHERE "game_play_sessions"."ended_at" is null;

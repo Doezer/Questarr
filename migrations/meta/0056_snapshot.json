@@ -1325,6 +1325,12 @@
           "name": "game_play_sessions_user_started_idx",
           "columns": ["user_id", "started_at"],
           "isUnique": false
+        },
+        "game_play_sessions_one_running_idx": {
+          "name": "game_play_sessions_one_running_idx",
+          "columns": ["user_id"],
+          "isUnique": true,
+          "where": "\"game_play_sessions\".\"ended_at\" is null"
         }
       },
       "foreignKeys": {

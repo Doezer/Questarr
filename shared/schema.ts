@@ -488,6 +488,10 @@ export const gamePlaySessions = sqliteTable(
   (t) => [
     index("game_play_sessions_game_user_idx").on(t.gameId, t.userId),
     index("game_play_sessions_user_started_idx").on(t.userId, t.startedAt),
+    // A user has at most one running timer; the start route races without this.
+    uniqueIndex("game_play_sessions_one_running_idx")
+      .on(t.userId)
+      .where(sql`${t.endedAt} is null`),
   ]
 );
 

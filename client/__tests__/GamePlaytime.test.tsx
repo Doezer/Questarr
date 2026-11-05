@@ -109,6 +109,26 @@ describe("GamePlaytime", () => {
     expect(new Date(body.startedAt).getTime()).toBe(new Date("2026-01-02T12:00:00").getTime());
   });
 
+  it("moves a long session from yesterday earlier so it does not end in the future", async () => {
+    mockSessions([]);
+    renderPlaytime();
+    const yesterday = new Date(Date.now() - 24 * 3_600_000);
+    const date = [
+      yesterday.getFullYear(),
+      String(yesterday.getMonth() + 1).padStart(2, "0"),
+      String(yesterday.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    fireEvent.change(await screen.findByLabelText("Played on"), { target: { value: date } });
+    fireEvent.change(screen.getByLabelText("Hours"), { target: { value: "23" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add session" }));
+
+    await waitFor(() => expect(apiRequest).toHaveBeenCalled());
+    const body = apiRequest.mock.calls[0]?.[2] as { startedAt: string; durationMinutes: number };
+    expect(body.durationMinutes).toBe(23 * 60);
+    expect(new Date(body.startedAt).getTime() + 23 * 3_600_000).toBeLessThanOrEqual(Date.now());
+  });
+
   it("keeps Add session disabled until a duration is entered", async () => {
     mockSessions([]);
     renderPlaytime();

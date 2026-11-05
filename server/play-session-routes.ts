@@ -21,6 +21,20 @@ export const MAX_SESSION_MINUTES = 24 * 60;
 /** Small allowance for a clock that runs slightly ahead of the server's. */
 const FUTURE_SLACK_MS = 5 * MINUTE_MS;
 
+/** True for a unique-index violation from SQLite or Postgres (Drizzle may wrap the driver error). */
+function isUniqueViolation(error: unknown): boolean {
+  const code =
+    (error as { code?: string } | null)?.code ??
+    (error as { cause?: { code?: string } } | null)?.cause?.code;
+  return (
+    code === "23505" ||
+    code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    (error instanceof Error &&
+      (/UNIQUE constraint failed/i.test(error.message) ||
+        /duplicate key value violates unique constraint/i.test(error.message)))
+  );
+}
+
 /** Verifies the game exists and belongs to the requesting user; returns 404 otherwise. */
 async function requireOwnedGame(req: Request, res: Response): Promise<string | null> {
   const { id } = req.params as { id: string };
@@ -118,6 +132,12 @@ router.post(
       });
       return res.status(201).json(session);
     } catch (error) {
+      // A concurrent start (double tap, two tabs) lost the race to the one-running-timer index.
+      if (isUniqueViolation(error)) {
+        const user = req.user as User;
+        const running = await storage.getRunningPlaySession(user.id).catch(() => undefined);
+        return res.status(409).json({ error: "A play timer is already running", session: running });
+      }
       routesLogger.error({ error }, "Error starting play timer");
       return res.status(500).json({ error: "Failed to start the play timer" });
     }

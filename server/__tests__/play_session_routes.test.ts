@@ -186,6 +186,18 @@ describe("Play session routes", () => {
       expect(storage.addGamePlaySession).not.toHaveBeenCalled();
     });
 
+    it("answers 409 when a concurrent start loses the one-running-timer index", async () => {
+      vi.mocked(storage.getRunningPlaySession)
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(makeSession());
+      vi.mocked(storage.addGamePlaySession).mockRejectedValueOnce(
+        new Error("UNIQUE constraint failed: game_play_sessions.user_id")
+      );
+      const response = await request(app).post(`/api/games/${gameId}/play-sessions/start`);
+      expect(response.status).toBe(409);
+      expect(response.body.session.id).toBe(sessionId);
+    });
+
     it("returns 404 for someone else's game", async () => {
       vi.mocked(storage.getGame).mockResolvedValue(undefined);
       const response = await request(app).post(`/api/games/${gameId}/play-sessions/start`);

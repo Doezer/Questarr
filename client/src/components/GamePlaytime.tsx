@@ -28,10 +28,15 @@ function localToday(): string {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
-/** The start of a session played on `date` (local): noon, so it lands on the right day. */
-function startOfPlayedDay(date: string): string | undefined {
+/**
+ * The start of a session played on `date` (local): noon, so it lands on the right day, moved
+ * earlier when a long session from noon would end in the future (the server rejects that).
+ */
+function startOfPlayedDay(date: string, durationMinutes: number): string | undefined {
   if (date === localToday()) return undefined; // today: the server ends it just now
-  return new Date(`${date}T12:00:00`).toISOString();
+  const noon = new Date(`${date}T12:00:00`).getTime();
+  const latestStart = Date.now() - durationMinutes * 60_000;
+  return new Date(Math.min(noon, latestStart)).toISOString();
 }
 
 function formatWhen(value: string | Date): string {
@@ -97,7 +102,7 @@ export default function GamePlaytime({
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!canAdd) return;
-    addSession.mutate({ startedAt: startOfPlayedDay(date), durationMinutes: duration });
+    addSession.mutate({ startedAt: startOfPlayedDay(date, duration), durationMinutes: duration });
   };
 
   const visible = showAll ? finished : finished.slice(0, SESSIONS_SHOWN);

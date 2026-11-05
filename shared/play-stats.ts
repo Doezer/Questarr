@@ -190,6 +190,7 @@ export function computePlayStats(
   }
 
   const topGames: PlayTimeByGame[] = [...perGame.entries()]
+    .filter(([, value]) => value.minutes > 0)
     .map(([gameId, value]) => {
       const game = gameById.get(gameId);
       return {

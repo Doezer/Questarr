@@ -60,6 +60,10 @@ describe("computePlayStats", () => {
     expect(stats.sessionCount).toBe(2);
     expect(stats.totalMinutes).toBe(30);
     expect(stats.topGames[0]).toMatchObject({ gameId: "a", minutes: 30, sessions: 2 });
+    // A game with only zero-minute sessions stays out of "Most played".
+    const onlyZero = computePlayStats([session("b", "2026-11-04T20:00:00Z", 0)], games, NOW);
+    expect(onlyZero.sessionCount).toBe(1);
+    expect(onlyZero.topGames).toEqual([]);
     expect(stats.longestSession?.minutes).toBe(30);
   });
 

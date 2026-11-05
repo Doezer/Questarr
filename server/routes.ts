@@ -5347,7 +5347,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch {
           return res.status(400).json({ error: "API URL is not a valid URL" });
         }
-        if (!(await isSafeUrl(trimmedUrl))) {
+        if (!(await isSafeUrl(trimmedUrl, { allowPrivate: true }))) {
           return res.status(400).json({ error: "Invalid or unsafe API URL" });
         }
       }

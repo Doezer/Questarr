@@ -57,7 +57,13 @@ export interface UnmatchedEntry {
   rootFolderPath: string;
   folderName: string; // relative to the root folder (the leaf)
   absolutePath: string;
-  candidates: Array<{ igdbId: number; name: string; releaseYear: number | null }>;
+  candidates: Array<{
+    igdbId: number;
+    name: string;
+    releaseYear: number | null;
+    /** Small IGDB cover for the review list, or null when IGDB has none. */
+    coverUrl: string | null;
+  }>;
 }
 
 interface FolderCandidate {
@@ -702,6 +708,13 @@ function offeredIds(entry: UnmatchedEntry): Set<number> {
   return ids;
 }
 
+/** IGDB serves covers as protocol-relative `t_thumb` URLs; the review list wants the small cover. */
+function smallCoverUrl(game: IGDBGame): string | null {
+  const url = game.cover?.url;
+  if (!url?.startsWith("//images.igdb.com/")) return null;
+  return `https:${url.replace("t_thumb", "t_cover_small")}`;
+}
+
 function toUnmatchedCandidates(igdbCandidates: IGDBGame[]): UnmatchedEntry["candidates"] {
   return igdbCandidates.slice(0, SCAN_CANDIDATE_LIMIT).map((c) => ({
     igdbId: c.id,
@@ -709,6 +722,7 @@ function toUnmatchedCandidates(igdbCandidates: IGDBGame[]): UnmatchedEntry["cand
     releaseYear: c.first_release_date
       ? new Date(c.first_release_date * 1000).getUTCFullYear()
       : null,
+    coverUrl: smallCoverUrl(c),
   }));
 }
 

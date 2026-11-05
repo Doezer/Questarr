@@ -33,6 +33,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import ShareDiscordDialog from "@/components/ShareDiscordDialog";
 import DiscordWebhookSettings from "@/components/DiscordWebhookSettings";
+import PlayTimeStats from "@/components/PlayTimeStats";
 
 export default function StatsPage() {
   const [shareOpen, setShareOpen] = useState(false);
@@ -250,6 +251,8 @@ export default function StatsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <PlayTimeStats />
     </div>
   );
 }

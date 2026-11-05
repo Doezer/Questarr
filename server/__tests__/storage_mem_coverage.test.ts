@@ -306,6 +306,41 @@ describe("MemStorage - Game update methods", () => {
     expect(await storage.getGameJournalEntries(gameId, "u1")).toHaveLength(1);
   });
 
+  it("play sessions: manual entry, one running timer, stop and delete", async () => {
+    const start = new Date("2026-11-05T10:00:00Z");
+    const manual = await storage.addGamePlaySession({
+      gameId,
+      userId: "u1",
+      startedAt: start,
+      endedAt: new Date(start.getTime() + 3_600_000),
+      source: "manual",
+    });
+    expect(await storage.getRunningPlaySession("u1")).toBeUndefined();
+
+    const timer = await storage.addGamePlaySession({
+      gameId: otherGameId,
+      userId: "u1",
+      startedAt: new Date("2026-11-05T12:00:00Z"),
+      endedAt: null,
+      source: "timer",
+    });
+    expect((await storage.getRunningPlaySession("u1"))?.id).toBe(timer.id);
+    expect(await storage.getGamePlaySessions(gameId, "u1")).toHaveLength(1);
+    expect((await storage.getUserPlaySessions("u1")).map((x) => x.id)).toEqual([
+      timer.id,
+      manual.id,
+    ]);
+
+    expect(await storage.stopGamePlaySession(timer.id, "someone-else", new Date())).toBeUndefined();
+    const stopped = await storage.stopGamePlaySession(timer.id, "u1", new Date());
+    expect(stopped?.endedAt).toBeInstanceOf(Date);
+    expect(await storage.stopGamePlaySession(timer.id, "u1", new Date())).toBeUndefined();
+
+    expect(await storage.deleteGamePlaySession(manual.id, otherGameId, "u1")).toBe(false);
+    expect(await storage.deleteGamePlaySession(manual.id, gameId, "someone-else")).toBe(false);
+    expect(await storage.deleteGamePlaySession(manual.id, gameId, "u1")).toBe(true);
+  });
+
   it("addGameMilestone and updateGameMilestone toggle completion", async () => {
     const milestone = await storage.addGameMilestone({ gameId, userId: "u1", label: "Beat boss" });
     expect(milestone.completedAt).toBeNull();

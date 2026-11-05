@@ -64,6 +64,7 @@ const TABLE_ORDER = [
   "collectionGames",
   "gameJournalEntries",
   "gameMilestones",
+  "gamePlaySessions",
   "gameScreenshots",
   // References games and gameDownloads, so it goes last.
   "gameFiles",

@@ -72,6 +72,7 @@ import {
   ShieldCheck,
   BookOpen,
   ArrowUpCircle,
+  Timer,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -84,6 +85,7 @@ import {
 } from "react-icons/si";
 import { NexusModsIcon } from "./NexusModsIcon";
 import GameJournalTab from "./GameJournalTab";
+import GamePlaytime from "./GamePlaytime";
 import GameScreenshotGallery, { useGameScreenshots } from "./GameScreenshotGallery";
 import FileCategorySelect from "./FileCategorySelect";
 import InstalledVersionField from "./InstalledVersionField";
@@ -1002,6 +1004,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
     ...(isLibraryGame
       ? [{ id: "downloads", label: "Downloads", count: gameDownloads.length }]
       : []),
+    ...(isLibraryGame ? [{ id: "playtime", label: "Playtime" }] : []),
     ...(isLibraryGame ? [{ id: "journal", label: "Journal" }] : []),
     {
       id: "media",
@@ -1651,6 +1654,17 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                 </div>
               </SideBlock>
             </aside>
+
+            {/* ── Playtime ── */}
+            {isLibraryGame && (
+              <Section id="playtime" title="Playtime" icon={<Timer className="h-5 w-5" />}>
+                <GamePlaytime
+                  gameId={game.id}
+                  gameTitle={game.title}
+                  timeToBeatHours={game.timeToBeatNormally ?? null}
+                />
+              </Section>
+            )}
 
             {/* ── Journal ── */}
             {isLibraryGame && (

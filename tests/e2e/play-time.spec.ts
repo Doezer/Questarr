@@ -32,10 +32,14 @@ test.describe("Play time journey", () => {
     ).toBeVisible();
 
     // Stop it and open the game: the Playtime section lists the session.
+    const stopped = page.waitForResponse(
+      (res) => /\/api\/play-sessions\/[^/]+\/stop$/.test(res.url()) && res.ok()
+    );
     await page
       .getByTestId(`card-game-${game.id}`)
       .getByRole("button", { name: `Stop timer for ${title}` })
       .click();
+    await stopped;
     await page.goto(`/games/${game.id}`);
     const playtime = page.getByTestId("section-playtime");
     await expect(playtime.getByText("1 session")).toBeVisible();

@@ -64,7 +64,9 @@ export default function PlayTimeStats() {
     const buckets = range === "week" ? data?.perWeek : data?.perMonth;
     return (buckets ?? []).map((b) => ({
       label: bucketLabel(b.start, range),
-      hours: Math.round((b.minutes / 60) * 10) / 10,
+      // Two decimals so a bucket of a few minutes still draws a bar (not 0 h).
+      hours: Math.round((b.minutes / 60) * 100) / 100,
+      minutes: b.minutes,
     }));
   }, [data, range]);
 
@@ -134,7 +136,10 @@ export default function PlayTimeStats() {
                     <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={12} />
                     <Tooltip
                       cursor={{ fill: "hsl(var(--muted))", opacity: 0.4 }}
-                      formatter={(value) => [`${value} h`, "Played"]}
+                      formatter={(_value, _name, item) => [
+                        formatMinutes((item.payload as { minutes: number }).minutes),
+                        "Played",
+                      ]}
                       contentStyle={{
                         backgroundColor: "hsl(var(--card))",
                         borderColor: "hsl(var(--border))",

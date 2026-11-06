@@ -45,6 +45,7 @@ vi.mock("lucide-react", () => ({
   ChevronLeft: () => <div data-testid="icon-chevron-left" />,
   ChevronRight: () => <div data-testid="icon-chevron-right" />,
   Archive: () => <div data-testid="icon-archive" />,
+  Square: () => <div data-testid="icon-square" />,
 }));
 
 const mockGame = {
@@ -105,6 +106,14 @@ describe("GameCard", () => {
     expect(screen.getByTestId("text-title-1")).toHaveTextContent("Test Game");
     expect(screen.getByTestId("text-rating-1")).toHaveTextContent("8.5/10");
     expect(screen.getByTestId("text-release-1")).toHaveTextContent("2024");
+  });
+
+  it("offers a play timer only for games being played", () => {
+    renderComponent();
+    expect(screen.queryByRole("button", { name: /Start timer/ })).not.toBeInTheDocument();
+
+    renderComponent({ game: { ...mockGame, id: "2", status: "playing" } });
+    expect(screen.getByRole("button", { name: "Start timer for Test Game" })).toBeInTheDocument();
   });
 
   it("displays a rating of 0 as 'N/A' since 0 is unrated", () => {

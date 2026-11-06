@@ -212,6 +212,10 @@ export const sanitizeJournalEntryId = [
   param("entryId").trim().matches(UUID_PATTERN).withMessage("Invalid journal entry ID format"),
 ];
 
+export const sanitizePlaySessionId = [
+  param("sessionId").trim().matches(UUID_PATTERN).withMessage("Invalid play session ID format"),
+];
+
 export const sanitizeMilestoneId = [
   param("milestoneId").trim().matches(UUID_PATTERN).withMessage("Invalid milestone ID format"),
 ];

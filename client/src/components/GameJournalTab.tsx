@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, CheckCircle2, Circle, Plus, Trophy, Trash2 } from "lucide-react";
+import { BookOpen, CheckCircle2, Circle, Plus, Timer, Trophy, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import GameScreenshotGallery from "./GameScreenshotGallery";
-import type { GameJournalEntry, GameMilestone } from "@shared/schema";
+import { formatMinutes, sessionLengthMinutes } from "@/lib/play-time";
+import type { GameJournalEntry, GameMilestone, GamePlaySession } from "@shared/schema";
 
 interface GameJournalTabProps {
   gameId: string;
@@ -102,6 +103,37 @@ export default function GameJournalTab({
     queryKey: [`/api/games/${gameId}/milestones`],
   });
 
+  // Finished play sessions show in the notes timeline next to the written notes.
+  const { data: playSessions = [] } = useQuery<GamePlaySession[]>({
+    queryKey: [`/api/games/${gameId}/play-sessions`],
+  });
+
+  type TimelineItem =
+    | { kind: "note"; id: string; at: number; entry: GameJournalEntry }
+    | { kind: "session"; id: string; at: number; session: GamePlaySession };
+
+  const timeline = useMemo<TimelineItem[]>(() => {
+    const items: TimelineItem[] = [];
+    for (const entry of journalEntries) {
+      items.push({
+        kind: "note",
+        id: entry.id,
+        at: new Date(entry.createdAt ?? 0).getTime(),
+        entry,
+      });
+    }
+    for (const session of playSessions) {
+      if (!session.endedAt) continue;
+      items.push({
+        kind: "session",
+        id: session.id,
+        at: new Date(session.startedAt).getTime(),
+        session,
+      });
+    }
+    return items.sort((a, b) => b.at - a.at);
+  }, [journalEntries, playSessions]);
+
   // ─── Journal notes ───────────────────────────────────────────────────────
   const [noteDraft, setNoteDraft] = useState("");
 
@@ -120,6 +152,17 @@ export default function GameJournalTab({
       await apiRequest("DELETE", `/api/games/${gameId}/journal/${entryId}`);
     },
     ...invalidateOnSuccess(`/api/games/${gameId}/journal`, "Failed to delete journal entry"),
+  });
+
+  const deleteSessionMutation = useMutation({
+    mutationFn: async (sessionId: string) => {
+      await apiRequest("DELETE", `/api/games/${gameId}/play-sessions/${sessionId}`);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [`/api/games/${gameId}/play-sessions`] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/stats/play-time"] });
+    },
+    onError: () => toast({ description: "Failed to delete the session", variant: "destructive" }),
   });
 
   // ─── Milestones ──────────────────────────────────────────────────────────
@@ -302,26 +345,60 @@ export default function GameJournalTab({
             </Button>
           </div>
           <div className="space-y-2">
-            {journalEntries.map((entry) => (
-              <div key={entry.id} className="rounded-md border border-border px-3 py-2">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm whitespace-pre-wrap break-words flex-1 min-w-0">
-                    {entry.note}
-                  </p>
+            {timeline.map((item) =>
+              item.kind === "session" ? (
+                <div
+                  key={`session-${item.id}`}
+                  className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
+                  data-testid="journal-session"
+                >
+                  <Timer className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm">
+                      Played{" "}
+                      {formatMinutes(
+                        sessionLengthMinutes(item.session.startedAt, item.session.endedAt)
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatDate(item.session.startedAt)}
+                    </p>
+                  </div>
                   <Button
                     variant="ghost"
                     size="icon"
                     className="h-6 w-6 shrink-0"
-                    aria-label="Delete journal entry"
-                    onClick={() => deleteEntryMutation.mutate(entry.id)}
+                    aria-label={`Delete the ${formatMinutes(
+                      sessionLengthMinutes(item.session.startedAt, item.session.endedAt)
+                    )} play session of ${formatDate(item.session.startedAt)}`}
+                    onClick={() => deleteSessionMutation.mutate(item.id)}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">{formatDate(entry.createdAt)}</p>
-              </div>
-            ))}
-            {journalEntries.length === 0 && (
+              ) : (
+                <div key={item.id} className="rounded-md border border-border px-3 py-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm whitespace-pre-wrap break-words flex-1 min-w-0">
+                      {item.entry.note}
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      aria-label="Delete journal entry"
+                      onClick={() => deleteEntryMutation.mutate(item.id)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatDate(item.entry.createdAt)}
+                  </p>
+                </div>
+              )
+            )}
+            {timeline.length === 0 && (
               <p className="text-sm text-muted-foreground">No journal entries yet.</p>
             )}
           </div>

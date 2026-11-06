@@ -215,6 +215,18 @@ export type _InsertGameJournalEntries = Expect<
     typeof pgSchema.gameJournalEntries.$inferInsert
   >
 >;
+export type _SelectGamePlaySessions = Expect<
+  Equal<
+    typeof sqliteSchema.gamePlaySessions.$inferSelect,
+    typeof pgSchema.gamePlaySessions.$inferSelect
+  >
+>;
+export type _InsertGamePlaySessions = Expect<
+  Equal<
+    typeof sqliteSchema.gamePlaySessions.$inferInsert,
+    typeof pgSchema.gamePlaySessions.$inferInsert
+  >
+>;
 export type _SelectGameMilestones = Expect<
   Equal<
     typeof sqliteSchema.gameMilestones.$inferSelect,

@@ -12,6 +12,7 @@ import { type Game, type DownloadSummary } from "@shared/schema";
 import DownloadIndicator from "./DownloadIndicator";
 import SearchResultsBadge from "./SearchResultsBadge";
 import UpdateAvailableBadge from "./UpdateAvailableBadge";
+import PlayTimerButton from "./PlayTimerButton";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mapGameToInsertGame, isDiscoveryId, parseReleaseDate } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
@@ -362,14 +363,19 @@ const GameCard = ({
               )}
             </Button>
           ) : (
-            <StatusPicker
-              currentStatus={game.status as GameStatus}
-              onStatusChange={(newStatus) => onStatusChange?.(game.id, newStatus)}
-              gameTitle={game.title}
-              data-testid={`button-status-${game.id}`}
-              compact={isMobile}
-              triggerClassName="w-full"
-            />
+            <div className="space-y-2">
+              {game.status === "playing" && (
+                <PlayTimerButton gameId={game.id} gameTitle={game.title} variant="full" />
+              )}
+              <StatusPicker
+                currentStatus={game.status as GameStatus}
+                onStatusChange={(newStatus) => onStatusChange?.(game.id, newStatus)}
+                gameTitle={game.title}
+                data-testid={`button-status-${game.id}`}
+                compact={isMobile}
+                triggerClassName="w-full"
+              />
+            </div>
           )}
         </div>
       </CardContent>

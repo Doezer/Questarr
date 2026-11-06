@@ -32,6 +32,7 @@ const EXPECTED_TABLES = [
   "gameFiles",
   "gameJournalEntries",
   "gameMilestones",
+  "gamePlaySessions",
   "gameScreenshots",
   "games",
   "importTaskItems",

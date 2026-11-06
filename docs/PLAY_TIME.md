@@ -32,14 +32,24 @@ The **Statistics** page has a **Play time** section with:
 - your **most played** games, each against its IGDB estimate
 - time by **genre** and **platform**
 
-Days, weeks (starting Monday) and months follow your browser's time zone. A session counts on the
-day it started. A timer that is still running is not counted until you stop it.
+Days, weeks (starting Monday) and months follow your browser's time zone (its IANA name, such as
+`Europe/Paris`, so daylight saving time is applied to each session on its own date). A session counts
+on the day it started. A timer that is still running is not counted until you stop it.
+
+## Playnite
+
+The [Playnite extension](../extensions/playnite-questarr/README.md) can send each finished session
+(`POST /api/integration/play-sessions`, source `playnite`). It is off
+by default and needs the **Playnite extension** API key access. A session that starts at the same
+instant as a stored one for that game is ignored, so a retry never counts twice. The end is the
+moment the game closed and the start is derived from the duration Playnite reports (whole seconds),
+so these times are estimates and a session near midnight can land on the neighbouring day.
 
 ## What is stored
 
 Each session records the game, when it started, when it ended (empty while the timer runs) and its
-source: `timer` or `manual`. A third source, `steam`, is reserved for importing Steam playtime
-later. Sessions are deleted with their game. They are included when you move from SQLite to
+source: `timer`, `manual` or `playnite`. A further source, `steam`, is reserved for importing
+Steam playtime later. Sessions are deleted with their game. They are included when you move from SQLite to
 Postgres (`scripts/sqlite-to-pg.ts`).
 
 Not included yet: importing playtime from Steam or a Playnite extension, and per-game goals. See

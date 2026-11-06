@@ -40,12 +40,13 @@ function renderStats(data: Data) {
 describe("PlayTimeStats", () => {
   afterEach(() => apiRequest.mockReset());
 
-  it("sends the browser's time zone offset", async () => {
+  it("sends the browser's time zone name and offset", async () => {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     renderStats(empty);
     await waitFor(() =>
       expect(apiRequest).toHaveBeenCalledWith(
         "GET",
-        `/api/stats/play-time?tz=${new Date().getTimezoneOffset()}`
+        `/api/stats/play-time?tz=${new Date().getTimezoneOffset()}&timeZone=${encodeURIComponent(zone)}`
       )
     );
   });

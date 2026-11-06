@@ -24,6 +24,10 @@ const { version: APP_VERSION } = JSON.parse(
  */
 export const INTEGRATION_API_VERSION = 1;
 
+/** Same limits as a session entered by hand (see play-session-routes.ts). */
+const MAX_PLAY_SESSION_MS = 24 * 60 * 60_000;
+const PLAY_SESSION_FUTURE_SLACK_MS = 5 * 60_000;
+
 /** Upper bound on a single library sync payload, to keep one request bounded. */
 const MAX_SYNC_GAMES = 5000;
 
@@ -287,6 +291,109 @@ integrationRouter.post(
       }
       logger.error({ error }, "Integration game request failed");
       return res.status(500).json({ error: "Failed to request game" });
+    }
+  }
+);
+
+// ── Play sessions from the couch PC ──────────────────────────────────────────
+// Playnite knows exactly when a game started and stopped, so the extension sends
+// the finished session instead of asking the user to run a timer by hand.
+const playSessionSchema = z
+  .object({
+    // A game is matched by Questarr id, then Steam App ID, then normalized
+    // title (same rules as the library sync). Nothing is created for a miss.
+    gameId: z.string().trim().min(1).max(100).optional(),
+    steamAppId: z.number().int().positive().optional(),
+    title: z.string().trim().min(1).max(500).optional(),
+    startedAt: z.coerce.date(),
+    endedAt: z.coerce.date(),
+  })
+  .refine((v) => v.gameId || v.steamAppId || v.title, {
+    message: "One of gameId, steamAppId or title is required",
+  });
+
+/** Why a session's times are refused, or null when they are acceptable. */
+function playSessionTimeError(startedAt: Date, endedAt: Date): string | null {
+  const durationMs = endedAt.getTime() - startedAt.getTime();
+  if (durationMs < 0) return "A play session cannot end before it starts";
+  if (durationMs > MAX_PLAY_SESSION_MS) return "A play session cannot last longer than 24 hours";
+  if (endedAt.getTime() > Date.now() + PLAY_SESSION_FUTURE_SLACK_MS) {
+    return "A play session cannot end in the future";
+  }
+  return null;
+}
+
+/** The caller's game for a session: by Questarr id, then Steam App ID, then normalized title. */
+async function resolvePlaySessionGame(
+  userId: string,
+  ref: { gameId?: string | undefined; steamAppId?: number | undefined; title?: string | undefined }
+): Promise<Game | undefined> {
+  if (ref.gameId) {
+    const byId = await storage.getGame(ref.gameId);
+    if (byId && byId.userId === userId) return byId;
+  }
+  if (!ref.steamAppId && !ref.title) return undefined;
+  const library = await storage.getUserGames(userId, true);
+  const bySteam = ref.steamAppId ? library.find((g) => g.steamAppId === ref.steamAppId) : undefined;
+  if (bySteam || !ref.title) return bySteam;
+  const key = normalizeTitle(ref.title);
+  return library.find((g) => normalizeTitle(g.title) === key);
+}
+
+integrationRouter.post(
+  "/play-sessions",
+  requireScope("library:write"),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = playSessionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "Invalid play session payload", issues: parsed.error.issues });
+      }
+      const { startedAt, endedAt } = parsed.data;
+      const userId = req.user!.id;
+
+      const timeError = playSessionTimeError(startedAt, endedAt);
+      if (timeError) return res.status(400).json({ error: timeError });
+
+      // The caller owns every row it can reach, so a hidden or filtered title leaks nothing here.
+      const game = await resolvePlaySessionGame(userId, parsed.data);
+      if (!game) {
+        return res.status(404).json({
+          error: "No game in the library matches this session",
+          // Lets a client tell this apart from a server that has no such route (also a 404).
+          code: "GAME_NOT_FOUND",
+        });
+      }
+
+      // A retry after a network error must not count the session twice.
+      const existing = (await storage.getGamePlaySessions(game.id, userId)).find(
+        (s) => s.startedAt.getTime() === startedAt.getTime()
+      );
+      if (existing) {
+        return res.status(200).json({ session: existing, duplicate: true });
+      }
+
+      const session = await storage.addGamePlaySession({
+        gameId: game.id,
+        userId,
+        startedAt,
+        endedAt,
+        source: "playnite",
+      });
+      logger.info(
+        {
+          userId,
+          gameId: game.id,
+          minutes: Math.round((endedAt.getTime() - startedAt.getTime()) / 60_000),
+        },
+        "Play session received through the integration API"
+      );
+      return res.status(201).json({ session, duplicate: false });
+    } catch (error) {
+      logger.error({ error }, "Integration play session failed");
+      return res.status(500).json({ error: "Failed to record the play session" });
     }
   }
 );

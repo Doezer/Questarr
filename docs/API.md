@@ -520,12 +520,12 @@ gets 403 `{ error, code: "API_KEY_SCOPE_DENIED" }`; an expired key gets 401
 `{ error: "API key expired", code: "API_KEY_EXPIRED" }`. Requests are limited to
 300/min per key (`integrationRateLimiter`).
 
-| Route                                                | `library:write` | `read` | `requests` | `all` |
-| ---------------------------------------------------- | :-------------: | :----: | :--------: | :---: |
-| `GET /ping`                                          |        ✓        |   ✓    |     ✓      |   ✓   |
-| `GET /library`                                       |        ✓        |   ✓    |     —      |   ✓   |
-| `POST /library/sync`, `POST /games/request`          |        ✓        |   —    |     —      |   ✓   |
-| `/seerrng/v1/*` (see [SeerrNG provider](SEERRNG.md)) |        —        |   —    |     ✓      |   ✓   |
+| Route                                                              | `library:write` | `read` | `requests` | `all` |
+| ------------------------------------------------------------------ | :-------------: | :----: | :--------: | :---: |
+| `GET /ping`                                                        |        ✓        |   ✓    |     ✓      |   ✓   |
+| `GET /library`                                                     |        ✓        |   ✓    |     —      |   ✓   |
+| `POST /library/sync`, `POST /games/request`, `POST /play-sessions` |        ✓        |   —    |     —      |   ✓   |
+| `/seerrng/v1/*` (see [SeerrNG provider](SEERRNG.md))               |        —        |   —    |     ✓      |   ✓   |
 
 Authentication is handled by `authenticateApiKeyOrToken` in `server/auth.ts`,
 selected by `requireAuthenticationForApi` for paths under `/integration` and for

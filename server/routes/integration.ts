@@ -312,6 +312,34 @@ const playSessionSchema = z
     message: "One of gameId, steamAppId or title is required",
   });
 
+/** Why a session's times are refused, or null when they are acceptable. */
+function playSessionTimeError(startedAt: Date, endedAt: Date): string | null {
+  const durationMs = endedAt.getTime() - startedAt.getTime();
+  if (durationMs < 0) return "A play session cannot end before it starts";
+  if (durationMs > MAX_PLAY_SESSION_MS) return "A play session cannot last longer than 24 hours";
+  if (endedAt.getTime() > Date.now() + PLAY_SESSION_FUTURE_SLACK_MS) {
+    return "A play session cannot end in the future";
+  }
+  return null;
+}
+
+/** The caller's game for a session: by Questarr id, then Steam App ID, then normalized title. */
+async function resolvePlaySessionGame(
+  userId: string,
+  ref: { gameId?: string | undefined; steamAppId?: number | undefined; title?: string | undefined }
+): Promise<Game | undefined> {
+  if (ref.gameId) {
+    const byId = await storage.getGame(ref.gameId);
+    if (byId && byId.userId === userId) return byId;
+  }
+  if (!ref.steamAppId && !ref.title) return undefined;
+  const library = await storage.getUserGames(userId, true);
+  const bySteam = ref.steamAppId ? library.find((g) => g.steamAppId === ref.steamAppId) : undefined;
+  if (bySteam || !ref.title) return bySteam;
+  const key = normalizeTitle(ref.title);
+  return library.find((g) => normalizeTitle(g.title) === key);
+}
+
 integrationRouter.post(
   "/play-sessions",
   requireScope("library:write"),
@@ -323,35 +351,14 @@ integrationRouter.post(
           .status(400)
           .json({ error: "Invalid play session payload", issues: parsed.error.issues });
       }
-      const { gameId, steamAppId, title, startedAt, endedAt } = parsed.data;
+      const { startedAt, endedAt } = parsed.data;
       const userId = req.user!.id;
 
-      const durationMs = endedAt.getTime() - startedAt.getTime();
-      if (durationMs < 0) {
-        return res.status(400).json({ error: "A play session cannot end before it starts" });
-      }
-      if (durationMs > MAX_PLAY_SESSION_MS) {
-        return res.status(400).json({ error: "A play session cannot last longer than 24 hours" });
-      }
-      if (endedAt.getTime() > Date.now() + PLAY_SESSION_FUTURE_SLACK_MS) {
-        return res.status(400).json({ error: "A play session cannot end in the future" });
-      }
+      const timeError = playSessionTimeError(startedAt, endedAt);
+      if (timeError) return res.status(400).json({ error: timeError });
 
-      let game: Game | undefined;
-      if (gameId) {
-        const byId = await storage.getGame(gameId);
-        if (byId && byId.userId === userId) game = byId;
-      }
-      if (!game && (steamAppId || title)) {
-        const library = await storage.getUserGames(userId, true);
-        if (steamAppId) game = library.find((g) => g.steamAppId === steamAppId);
-        if (!game && title) {
-          const key = normalizeTitle(title);
-          game = library.find((g) => normalizeTitle(g.title) === key);
-        }
-      }
-      // Hidden or filtered titles are not special here: the caller already owns
-      // the row, so nothing leaks by answering for it.
+      // The caller owns every row it can reach, so a hidden or filtered title leaks nothing here.
+      const game = await resolvePlaySessionGame(userId, parsed.data);
       if (!game) {
         return res.status(404).json({
           error: "No game in the library matches this session",
@@ -376,7 +383,11 @@ integrationRouter.post(
         source: "playnite",
       });
       logger.info(
-        { userId, gameId: game.id, minutes: Math.round(durationMs / 60_000) },
+        {
+          userId,
+          gameId: game.id,
+          minutes: Math.round((endedAt.getTime() - startedAt.getTime()) / 60_000),
+        },
         "Play session received through the integration API"
       );
       return res.status(201).json({ session, duplicate: false });

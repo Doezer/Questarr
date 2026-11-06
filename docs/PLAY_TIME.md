@@ -39,9 +39,11 @@ on the day it started. A timer that is still running is not counted until you st
 ## Playnite
 
 The [Playnite extension](../extensions/playnite-questarr/README.md) can send each finished session
-with its exact start and end (`POST /api/integration/play-sessions`, source `playnite`). It is off
+(`POST /api/integration/play-sessions`, source `playnite`). It is off
 by default and needs the **Playnite extension** API key access. A session that starts at the same
-instant as a stored one for that game is ignored, so a retry never counts twice.
+instant as a stored one for that game is ignored, so a retry never counts twice. The end is the
+moment the game closed and the start is derived from the duration Playnite reports (whole seconds),
+so these times are estimates and a session near midnight can land on the neighbouring day.
 
 ## What is stored
 

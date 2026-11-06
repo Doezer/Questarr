@@ -4238,6 +4238,7 @@ describe("API Routes - Extended Coverage", () => {
       });
       vi.mocked(appriseClient.configure).mockClear();
       vi.mocked(appriseClient.test).mockResolvedValue({ success: true });
+      vi.spyOn(ssrfModule, "isSafeUrl").mockResolvedValue(true);
     });
 
     afterEach(() => {
@@ -4245,6 +4246,7 @@ describe("API Routes - Extended Coverage", () => {
       vi.mocked(storage.setSystemConfig).mockReset();
       vi.mocked(appriseClient.configure).mockReset();
       vi.mocked(appriseClient.test).mockReset();
+      vi.restoreAllMocks();
     });
 
     it("should return the saved mode and settings", async () => {

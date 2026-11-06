@@ -33,6 +33,7 @@
 **Vulnerability:** Downloader API communication (e.g. qBittorrent, Transmission, NZBGet, Deluge, rTorrent) was using the native `fetch()` to call external URLs (e.g. downloaders running locally or remotely), making the application vulnerable to Server-Side Request Forgery (SSRF) and DNS Rebinding via metadata or local networks.
 **Learning:** Even internal API connections must be shielded from interacting with sensitive hostnames or local/cloud metadata networks (169.254.169.254, etc.) via DNS rebinding. Replacing native `fetch` with a secure wrapper ensures strict host-level validation of all connections.
 **Prevention:** Always use the local `safeFetch` implementation from `server/ssrf.ts` instead of the global `fetch()` when making external network requests to any user-provided URL or API configuration to prevent SSRF vulnerabilities.
+
 ## 2025-05-24 - [Unverified User-Configurable URLs (Apprise SSRF)]
 
 **Vulnerability:** The Apprise configuration endpoint (`POST /api/settings/apprise`) lacked `isSafeUrl` validation on the user-provided `apiUrl` parameter. This omission could allow an authenticated attacker to configure the Apprise client to dispatch notifications to internal or restricted network addresses (like `169.254.169.254`), leading to a Server-Side Request Forgery (SSRF) when a notification is triggered.

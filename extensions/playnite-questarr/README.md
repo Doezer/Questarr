@@ -13,6 +13,11 @@ game from the couch without opening a browser.
   Questarr library. Requested games land as _wanted_, which is what hands them
   to Questarr's existing auto-search: it searches your indexers on schedule and
   sends the best release to your download client.
+- **Play time** — optionally sends every finished play session (exact start
+  and end, as reported by Playnite) to Questarr, where it shows up in the
+  game's Playtime section, its journal and the Statistics page. Off by default:
+  switch it on with **Extensions → Questarr → Toggle sending play time to
+  Questarr**.
 - **Automatic sync** — optionally re-syncs whenever Playnite finishes updating
   its library, so installing a game on the couch PC shows up in Questarr on its
   own.
@@ -21,7 +26,8 @@ game from the couch without opening a browser.
 
 - Playnite 10 or newer (script extensions run on Windows PowerShell 5.1).
 - A Questarr server reachable from the Playnite machine, new enough to expose
-  the `/api/integration` endpoints.
+  the `/api/integration` endpoints (play time needs `POST
+/api/integration/play-sessions`, available from Questarr 1.7).
 
 ## Install
 
@@ -85,6 +91,24 @@ from Playnite's Steam library), then by a normalized title comparison —
 lowercased, punctuation flattened. Anything it cannot place comes back in the
 `unmatched` list rather than being added automatically, so a sync never invents
 library entries on its own. Use **Request on Questarr** for those.
+
+## Play time
+
+With play time enabled, closing a game sends one session to Questarr: the game,
+when it started and when it ended. Playnite measures the duration itself, so no
+timer has to be started by hand.
+
+- The game is matched like in a library sync: Steam App ID first, then the
+  normalized title. A game Questarr does not know is skipped (a line in
+  `extensions.log`), never created.
+- Launches shorter than a minute are ignored, and so is anything longer than 24
+  hours (a game left open overnight), as Questarr does not accept such a
+  session.
+- If Questarr cannot be reached, the session waits in `play-sessions-queue.json`
+  next to `config.json` (at most 200 entries) and is retried when the next game
+  closes and when Playnite starts. A session is never counted twice: Questarr
+  ignores one that starts at the same instant as a stored session of that game.
+- It needs the **Playnite extension** access, like the library sync.
 
 ## Troubleshooting
 

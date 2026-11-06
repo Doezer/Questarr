@@ -466,8 +466,8 @@ export const gameJournalEntries = sqliteTable(
 );
 
 // Play sessions: time the user spent in a game. A session with no `endedAt` is a running
-// timer (at most one per user). Sources: "manual" (entered by hand), "timer" (start/stop)
-// and "steam" (reserved for playtime deltas between syncs).
+// timer (at most one per user). Sources: "manual" (entered by hand), "timer" (start/stop),
+// "steam" (reserved for playtime deltas between syncs) and "playnite" (Playnite extension).
 export const gamePlaySessions = sqliteTable(
   "game_play_sessions",
   {
@@ -480,7 +480,7 @@ export const gamePlaySessions = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
     endedAt: integer("ended_at", { mode: "timestamp_ms" }),
-    source: text("source").notNull().default("manual"), // "manual" | "timer" | "steam"
+    source: text("source").notNull().default("manual"), // "manual" | "timer" | "steam" | "playnite"
     createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
       sql`(strftime('%s', 'now') * 1000)`
     ),

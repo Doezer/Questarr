@@ -632,6 +632,133 @@ describe("integration API", () => {
     });
   });
 
+  describe("POST /api/integration/play-sessions", () => {
+    const game = { id: "game-1", userId: USER.id, title: "Hades", steamAppId: 1145360 };
+    const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+
+    beforeEach(() => {
+      (storage.getGame as Mock).mockResolvedValue(undefined);
+      (storage.getUserGames as Mock).mockResolvedValue([game]);
+      (storage.getGamePlaySessions as Mock).mockResolvedValue([]);
+      (storage.addGamePlaySession as Mock).mockImplementation(
+        async (s: Record<string, unknown>) => ({
+          id: "session-1",
+          ...s,
+        })
+      );
+    });
+
+    it("stores a finished session from Playnite, matched by title", async () => {
+      const res = await withKey(request(app).post("/api/integration/play-sessions")).send({
+        title: "hades",
+        startedAt: minutesAgo(90),
+        endedAt: minutesAgo(30),
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.duplicate).toBe(false);
+      expect(storage.addGamePlaySession).toHaveBeenCalledWith(
+        expect.objectContaining({ gameId: "game-1", userId: USER.id, source: "playnite" })
+      );
+    });
+
+    it("matches by Steam App ID and by Questarr game id", async () => {
+      const steam = await withKey(request(app).post("/api/integration/play-sessions")).send({
+        steamAppId: 1145360,
+        startedAt: minutesAgo(60),
+        endedAt: minutesAgo(10),
+      });
+      expect(steam.status).toBe(201);
+
+      (storage.getGame as Mock).mockResolvedValue(game);
+      const byId = await withKey(request(app).post("/api/integration/play-sessions")).send({
+        gameId: "game-1",
+        startedAt: minutesAgo(120),
+        endedAt: minutesAgo(70),
+      });
+      expect(byId.status).toBe(201);
+    });
+
+    it("ignores another user's game id", async () => {
+      (storage.getGame as Mock).mockResolvedValue({ ...game, userId: "someone-else" });
+      (storage.getUserGames as Mock).mockResolvedValue([]);
+      const res = await withKey(request(app).post("/api/integration/play-sessions")).send({
+        gameId: "game-1",
+        startedAt: minutesAgo(60),
+        endedAt: minutesAgo(10),
+      });
+      expect(res.status).toBe(404);
+      expect(storage.addGamePlaySession).not.toHaveBeenCalled();
+    });
+
+    it("answers 404 and creates nothing for an unknown game", async () => {
+      const res = await withKey(request(app).post("/api/integration/play-sessions")).send({
+        title: "Unknown Quest",
+        startedAt: minutesAgo(60),
+        endedAt: minutesAgo(10),
+      });
+      expect(res.status).toBe(404);
+      expect(storage.addGamePlaySession).not.toHaveBeenCalled();
+    });
+
+    it("does not count a retried session twice", async () => {
+      const startedAt = minutesAgo(60);
+      (storage.getGamePlaySessions as Mock).mockResolvedValue([
+        { id: "session-0", gameId: "game-1", startedAt: new Date(startedAt) },
+      ]);
+      const res = await withKey(request(app).post("/api/integration/play-sessions")).send({
+        title: "Hades",
+        startedAt,
+        endedAt: minutesAgo(10),
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.duplicate).toBe(true);
+      expect(storage.addGamePlaySession).not.toHaveBeenCalled();
+    });
+
+    it("applies the manual-entry limits", async () => {
+      const post = (body: Record<string, unknown>) =>
+        withKey(request(app).post("/api/integration/play-sessions")).send({
+          title: "Hades",
+          ...body,
+        });
+      expect((await post({ startedAt: minutesAgo(10), endedAt: minutesAgo(60) })).status).toBe(400);
+      expect((await post({ startedAt: minutesAgo(26 * 60), endedAt: minutesAgo(60) })).status).toBe(
+        400
+      );
+      const future = new Date(Date.now() + 3_600_000).toISOString();
+      expect((await post({ startedAt: minutesAgo(10), endedAt: future })).status).toBe(400);
+      expect((await post({ startedAt: "not a date", endedAt: future })).status).toBe(400);
+      expect(
+        (
+          await withKey(request(app).post("/api/integration/play-sessions")).send({
+            startedAt: minutesAgo(10),
+            endedAt: minutesAgo(5),
+          })
+        ).status
+      ).toBe(400);
+    });
+
+    it("needs the library:write scope", async () => {
+      keyOverrides = { scope: "read" };
+      const res = await withKey(request(app).post("/api/integration/play-sessions")).send({
+        title: "Hades",
+        startedAt: minutesAgo(60),
+        endedAt: minutesAgo(10),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("answers 500 when storage fails", async () => {
+      (storage.getUserGames as Mock).mockRejectedValue(new Error("db unavailable"));
+      const res = await withKey(request(app).post("/api/integration/play-sessions")).send({
+        title: "Hades",
+        startedAt: minutesAgo(60),
+        endedAt: minutesAgo(10),
+      });
+      expect(res.status).toBe(500);
+    });
+  });
+
   describe("API key management (JWT only)", () => {
     const authed = (req: request.Test) => req.set("Authorization", `Bearer ${tokenFor(USER.id)}`);
 

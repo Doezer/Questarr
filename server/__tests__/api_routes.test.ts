@@ -4347,6 +4347,16 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.status).toBe(400);
     });
 
+    it("should reject an unsafe apiUrl", async () => {
+      vi.mocked(ssrfModule.isSafeUrl).mockResolvedValueOnce(false);
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "api", apiUrl: "http://unsafe.com", key: "config-key" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid or unsafe API URL");
+    });
+
     it("should reject non-string payload fields instead of crashing", async () => {
       const response = await request(app)
         .post("/api/settings/apprise")

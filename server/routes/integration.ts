@@ -353,7 +353,11 @@ integrationRouter.post(
       // Hidden or filtered titles are not special here: the caller already owns
       // the row, so nothing leaks by answering for it.
       if (!game) {
-        return res.status(404).json({ error: "No game in the library matches this session" });
+        return res.status(404).json({
+          error: "No game in the library matches this session",
+          // Lets a client tell this apart from a server that has no such route (also a 404).
+          code: "GAME_NOT_FOUND",
+        });
       }
 
       // A retry after a network error must not count the session twice.

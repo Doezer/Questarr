@@ -697,6 +697,7 @@ describe("integration API", () => {
         endedAt: minutesAgo(10),
       });
       expect(res.status).toBe(404);
+      expect(res.body.code).toBe("GAME_NOT_FOUND");
       expect(storage.addGamePlaySession).not.toHaveBeenCalled();
     });
 

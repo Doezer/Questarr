@@ -818,8 +818,20 @@ function Send-QuestarrPlaySession {
         $status = if ($null -ne $response) { [int]$response.StatusCode } else { 0 }
 
         if ($status -eq 404) {
-            $__logger.Info("Questarr: '$($Entry.title)' is not in the Questarr library, play session skipped")
-            return "skipped"
+            # A 404 is also what a server without this route answers, which must
+            # keep the session queued; only the server's own "unknown game" code skips it.
+            $text = ""
+            try {
+                $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+                try { $text = $reader.ReadToEnd() } finally { $reader.Close() }
+            }
+            catch { }
+            if ($text -match '"code"\s*:\s*"GAME_NOT_FOUND"') {
+                $__logger.Info("Questarr: '$($Entry.title)' is not in the Questarr library, play session skipped")
+                return "skipped"
+            }
+            $__logger.Warn("Questarr: play session route not available on this server (needs Questarr 1.7), will retry")
+            return "retry"
         }
         if ($status -ge 400 -and $status -lt 500 -and $status -notin 401, 403, 408, 429) {
             $__logger.Warn("Questarr: play session for '$($Entry.title)' rejected: $(Get-QuestarrErrorMessage $_)")

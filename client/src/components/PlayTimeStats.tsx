@@ -63,15 +63,15 @@ export default function PlayTimeStats() {
     }
   }, []);
 
+  const search = useMemo(() => {
+    const params = new URLSearchParams({ tz: String(tz) });
+    if (timeZone) params.set("timeZone", timeZone);
+    return params.toString();
+  }, [tz, timeZone]);
+
   const { data } = useQuery<PlayTimeStatsData>({
     queryKey: ["/api/stats/play-time", tz, timeZone],
-    queryFn: async () =>
-      (
-        await apiRequest(
-          "GET",
-          `/api/stats/play-time?tz=${tz}${timeZone ? `&timeZone=${encodeURIComponent(timeZone)}` : ""}`
-        )
-      ).json(),
+    queryFn: async () => (await apiRequest("GET", `/api/stats/play-time?${search}`)).json(),
   });
 
   const chartData = useMemo(() => {

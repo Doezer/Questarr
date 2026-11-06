@@ -11,7 +11,7 @@ import {
   validateRequest,
 } from "./middleware.js";
 import { insertManualPlaySessionSchema, type User } from "../shared/schema.js";
-import { computePlayStats } from "../shared/play-stats.js";
+import { computePlayStats, isValidTimeZone } from "../shared/play-stats.js";
 
 const router = Router();
 
@@ -212,21 +212,31 @@ router.post(
   }
 );
 
-/** Play-time analytics. `tz` is the browser's `getTimezoneOffset()`, so days follow its clock. */
+/**
+ * Play-time analytics. Days follow the viewer's clock: `timeZone` (IANA name, DST-aware) wins over
+ * `tz` (the browser's `getTimezoneOffset()`, kept for older clients).
+ */
 router.get(
   "/api/stats/play-time",
   authenticateToken,
   query("tz").optional().isInt({ min: -840, max: 840 }).withMessage("Invalid time zone offset"),
+  query("timeZone")
+    .optional()
+    .isString()
+    .isLength({ max: 64 })
+    .custom((value: string) => isValidTimeZone(value))
+    .withMessage("Invalid time zone"),
   validateRequest,
   async (req: Request, res: Response) => {
     try {
       const user = req.user as User;
-      const tz = typeof req.query.tz === "string" ? Number.parseInt(req.query.tz, 10) : 0;
+      const offset = typeof req.query.tz === "string" ? Number.parseInt(req.query.tz, 10) : 0;
+      const zone = typeof req.query.timeZone === "string" ? req.query.timeZone : offset;
       const [sessions, games] = await Promise.all([
         storage.getUserPlaySessions(user.id),
         storage.getUserGames(user.id, true),
       ]);
-      return res.json(computePlayStats(sessions, games, new Date(), tz));
+      return res.json(computePlayStats(sessions, games, new Date(), zone));
     } catch (error) {
       routesLogger.error({ error }, "Error computing play-time stats");
       return res.status(500).json({ error: "Failed to compute play-time stats" });

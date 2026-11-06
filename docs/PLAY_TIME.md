@@ -32,8 +32,9 @@ The **Statistics** page has a **Play time** section with:
 - your **most played** games, each against its IGDB estimate
 - time by **genre** and **platform**
 
-Days, weeks (starting Monday) and months follow your browser's time zone. A session counts on the
-day it started. A timer that is still running is not counted until you stop it.
+Days, weeks (starting Monday) and months follow your browser's time zone (its IANA name, such as
+`Europe/Paris`, so daylight saving time is applied to each session on its own date). A session counts
+on the day it started. A timer that is still running is not counted until you stop it.
 
 ## What is stored
 

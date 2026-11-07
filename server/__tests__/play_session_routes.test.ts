@@ -318,6 +318,15 @@ describe("Play session routes", () => {
       expect(bad.status).toBe(400);
     });
 
+    it("falls back to the offset when the zone is unknown but tz is valid", async () => {
+      vi.mocked(storage.getUserPlaySessions).mockResolvedValue([]);
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      const response = await request(app).get("/api/stats/play-time?timeZone=Not%2FAZone&tz=-60");
+      expect(response.status).toBe(200);
+      const both = await request(app).get("/api/stats/play-time?timeZone=Not%2FAZone&tz=abc");
+      expect(both.status).toBe(400);
+    });
+
     it("rejects an invalid time zone offset", async () => {
       const response = await request(app).get("/api/stats/play-time?tz=abc");
       expect(response.status).toBe(400);

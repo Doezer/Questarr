@@ -212,6 +212,13 @@ router.post(
   }
 );
 
+/** True when `value` is a usable `getTimezoneOffset()` query value. */
+function hasValidOffset(value: unknown): boolean {
+  if (typeof value !== "string" || !/^-?\d+$/.test(value)) return false;
+  const minutes = Number.parseInt(value, 10);
+  return minutes >= -840 && minutes <= 840;
+}
+
 /**
  * Play-time analytics. Days follow the viewer's clock: `timeZone` (IANA name, DST-aware) wins over
  * `tz` (the browser's `getTimezoneOffset()`, kept for older clients).
@@ -224,14 +231,16 @@ router.get(
     .optional()
     .isString()
     .isLength({ max: 64 })
-    .custom((value: string) => isValidTimeZone(value))
+    // A zone this runtime does not know is tolerated when a valid `tz` offset comes along.
+    .custom((value: string, { req }) => isValidTimeZone(value) || hasValidOffset(req.query?.tz))
     .withMessage("Invalid time zone"),
   validateRequest,
   async (req: Request, res: Response) => {
     try {
       const user = req.user as User;
       const offset = typeof req.query.tz === "string" ? Number.parseInt(req.query.tz, 10) : 0;
-      const zone = typeof req.query.timeZone === "string" ? req.query.timeZone : offset;
+      const named = req.query.timeZone;
+      const zone = typeof named === "string" && isValidTimeZone(named) ? named : offset;
       const [sessions, games] = await Promise.all([
         storage.getUserPlaySessions(user.id),
         storage.getUserGames(user.id, true),

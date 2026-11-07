@@ -4380,6 +4380,20 @@ describe("API Routes - Extended Coverage", () => {
       expect(storage.setSystemConfig).not.toHaveBeenCalled();
     });
 
+    it("should reject TLS webhook aliases and self-hosted schemes with unsafe hosts", async () => {
+      vi.mocked(ssrfModule.isSafeUrl).mockResolvedValueOnce(false);
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "cli", urls: "jsons://169.254.169.254/notify\ngotify://169.254.169.254/t" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid or unsafe notification URL");
+      expect(vi.mocked(ssrfModule.isSafeUrl).mock.calls[0]?.[0]).toBe(
+        "https://169.254.169.254/notify"
+      );
+      expect(storage.setSystemConfig).not.toHaveBeenCalled();
+    });
+
     it("should validate network-scheme CLI notification URLs and skip the rest", async () => {
       const response = await request(app)
         .post("/api/settings/apprise")

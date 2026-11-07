@@ -1015,7 +1015,16 @@ function registerIgdbParamListRoute(
   });
 }
 
-const APPRISE_NETWORK_SCHEMES = new Set(["http:", "https:", "json:", "xml:", "form:"]);
+const APPRISE_FIXED_ENDPOINT_SCHEMES = new Set([
+  "discord:",
+  "slack:",
+  "tgram:",
+  "telegram:",
+  "pover:",
+  "pushbullet:",
+  "ifttt:",
+  "join:",
+]);
 
 async function isSafeAppriseDestination(entry: string): Promise<boolean> {
   let parsed: URL;
@@ -1024,7 +1033,7 @@ async function isSafeAppriseDestination(entry: string): Promise<boolean> {
   } catch {
     return false;
   }
-  if (!APPRISE_NETWORK_SCHEMES.has(parsed.protocol)) {
+  if (APPRISE_FIXED_ENDPOINT_SCHEMES.has(parsed.protocol) || !parsed.host) {
     return true;
   }
   const probe = new URL(`https://${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`);

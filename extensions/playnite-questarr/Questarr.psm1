@@ -761,7 +761,15 @@ function Read-QuestarrPlayQueue {
     catch {
         # Keep the damaged file for recovery instead of letting the next write erase it.
         $__logger.Error("Questarr: unreadable play session queue, moved aside: $($_.Exception.Message)")
-        try { Move-Item -Path $path -Destination "$path.bad" -Force } catch { }
+        try {
+            Move-Item -Path $path -Destination "$path.bad" -Force -ErrorAction Stop
+        }
+        catch {
+            # Without a recovery copy, stop here: returning an empty queue would let the
+            # next write replace the only file left.
+            $__logger.Error("Questarr: could not set the unreadable queue aside, it stays in place: $($_.Exception.Message)")
+            throw
+        }
         return @()
     }
 
@@ -787,7 +795,13 @@ function Write-QuestarrPlayQueue {
     $path = Get-QuestarrPlayQueuePath
     $temp = "$path.tmp"
     ConvertTo-Json -InputObject $list -Depth 4 | Set-Content -Path $temp -Encoding UTF8
-    Move-Item -Path $temp -Destination $path -Force
+    if (Test-Path $path) {
+        # Replace keeps the old file until the new one is in place (Move-Item -Force deletes first).
+        [System.IO.File]::Replace($temp, $path, $null)
+    }
+    else {
+        Move-Item -Path $temp -Destination $path
+    }
 }
 
 function Format-QuestarrUtc {
@@ -952,7 +966,13 @@ function OnGameStopped {
                 endedAt    = Format-QuestarrUtc $endedAt
             }
             # Queue first, then flush: a crash or a dead server never loses the session.
-            Write-QuestarrPlayQueue -Items (@(Read-QuestarrPlayQueue) + $entry)
+            try {
+                Write-QuestarrPlayQueue -Items (@(Read-QuestarrPlayQueue) + $entry)
+            }
+            catch {
+                $__logger.Error("Questarr: could not queue the play session: $($_.Exception.Message)")
+                return
+            }
         }
     }
 

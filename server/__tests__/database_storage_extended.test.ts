@@ -203,6 +203,64 @@ describe("DatabaseStorage Extended Coverage", () => {
       expect(await storage.getGame(game.id)).toBeUndefined();
     });
 
+    it("play sessions are scoped to their game and owner and allow one running timer", async () => {
+      const userId = await createUser();
+      const game = await storage.addGame({
+        title: "Timed",
+        status: "playing",
+        userId,
+        hidden: false,
+      });
+      const otherGame = await storage.addGame({
+        title: "Other",
+        status: "playing",
+        userId,
+        hidden: false,
+      });
+      const start = new Date("2026-11-05T10:00:00Z");
+      const end = new Date("2026-11-05T11:30:00Z");
+
+      const manual = await storage.addGamePlaySession({
+        gameId: game.id,
+        userId,
+        startedAt: start,
+        endedAt: end,
+        source: "manual",
+      });
+      expect(manual.endedAt?.getTime()).toBe(end.getTime());
+      expect(await storage.getRunningPlaySession(userId)).toBeUndefined();
+
+      const timer = await storage.addGamePlaySession({
+        gameId: otherGame.id,
+        userId,
+        startedAt: new Date("2026-11-05T12:00:00Z"),
+        endedAt: null,
+        source: "timer",
+      });
+      expect((await storage.getRunningPlaySession(userId))?.id).toBe(timer.id);
+      expect(await storage.getRunningPlaySession("someone-else")).toBeUndefined();
+
+      expect(await storage.getGamePlaySessions(game.id, userId)).toHaveLength(1);
+      expect(await storage.getGamePlaySessions(game.id, "someone-else")).toHaveLength(0);
+      expect((await storage.getUserPlaySessions(userId)).map((x) => x.id)).toEqual([
+        timer.id,
+        manual.id,
+      ]);
+
+      const stopAt = new Date("2026-11-05T13:00:00Z");
+      expect(await storage.stopGamePlaySession(timer.id, "someone-else", stopAt)).toBeUndefined();
+      const stopped = await storage.stopGamePlaySession(timer.id, userId, stopAt);
+      expect(stopped?.endedAt?.getTime()).toBe(stopAt.getTime());
+      // Already ended: a second stop changes nothing.
+      expect(await storage.stopGamePlaySession(timer.id, userId, new Date())).toBeUndefined();
+      expect(await storage.getRunningPlaySession(userId)).toBeUndefined();
+
+      expect(await storage.deleteGamePlaySession(manual.id, otherGame.id, userId)).toBe(false);
+      expect(await storage.deleteGamePlaySession(manual.id, game.id, "someone-else")).toBe(false);
+      expect(await storage.deleteGamePlaySession(manual.id, game.id, userId)).toBe(true);
+      expect(await storage.getGamePlaySessions(game.id, userId)).toHaveLength(0);
+    });
+
     it("journal entries, milestones, and screenshots are scoped to their game and owner", async () => {
       const userId = await createUser();
       const game = await storage.addGame({

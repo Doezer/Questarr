@@ -370,6 +370,21 @@ documented under [Settings](#settings).
 | ------ | -------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | POST   | `/api/stats/discord-share` | JWT           | `{ image: string (data URI, png/jpeg/gif/webp base64), message?: string }` — manual checks; webhook URL must match Discord's domain pattern | `{ success: true }`; 400 on missing/invalid config or image; 502 if Discord request fails |
 
+## Play time
+
+All routes need a JWT; game routes also check that the game belongs to the caller (404 otherwise).
+Details in [Play time](PLAY_TIME.md).
+
+| Method | Path                                      | Request Body                                                                    | Response                                                                                                                               |
+| ------ | ----------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/games/:id/play-sessions`            | —                                                                               | Sessions of the game, newest first                                                                                                     |
+| POST   | `/api/games/:id/play-sessions`            | `{ durationMinutes: 1–1440, startedAt?: ISO date }` — a session entered by hand | 201 with the session; it ends at `startedAt + duration` (default: ends now). 400 if it would end in the future                         |
+| POST   | `/api/games/:id/play-sessions/start`      | —                                                                               | 201 with the running session. 409 `{ error, session }` when a timer is already running                                                 |
+| DELETE | `/api/games/:id/play-sessions/:sessionId` | —                                                                               | 204; 404 if not found                                                                                                                  |
+| GET    | `/api/play-sessions/active`               | —                                                                               | `{ session }` — the running timer, or `null`                                                                                           |
+| POST   | `/api/play-sessions/:sessionId/stop`      | —                                                                               | `{ session, capped }`; `capped` is true when the timer was cut off at 24 hours. 404 if that session is not the running one             |
+| GET    | `/api/stats/play-time?tz=<minutes>`       | —                                                                               | Totals, longest session, streaks, top games/genres/platforms, last 12 weeks and months. `tz` is `Date#getTimezoneOffset()` (default 0) |
+
 ## Health / Ready / Config
 
 | Method | Path          | Auth Required                                | Request Body | Response                                                                                                                                                                                                                                     |

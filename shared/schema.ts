@@ -465,6 +465,36 @@ export const gameJournalEntries = sqliteTable(
   (t) => [index("game_journal_entries_game_user_idx").on(t.gameId, t.userId)]
 );
 
+// Play sessions: time the user spent in a game. A session with no `endedAt` is a running
+// timer (at most one per user). Sources: "manual" (entered by hand), "timer" (start/stop)
+// and "steam" (reserved for playtime deltas between syncs).
+export const gamePlaySessions = sqliteTable(
+  "game_play_sessions",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
+    endedAt: integer("ended_at", { mode: "timestamp_ms" }),
+    source: text("source").notNull().default("manual"), // "manual" | "timer" | "steam"
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [
+    index("game_play_sessions_game_user_idx").on(t.gameId, t.userId),
+    index("game_play_sessions_user_started_idx").on(t.userId, t.startedAt),
+    // A user has at most one running timer; the start route races without this.
+    uniqueIndex("game_play_sessions_one_running_idx")
+      .on(t.userId)
+      .where(sql`${t.endedAt} is null`),
+  ]
+);
+
 // User-defined "successes" checklist per game. Kept separate from any
 // Steam-sourced achievements, which are fetched live rather than stored here.
 export const gameMilestones = sqliteTable(
@@ -796,6 +826,16 @@ export const insertGameJournalEntrySchema = createInsertSchema(gameJournalEntrie
   createdAt: true,
 });
 
+/** A session entered by hand: when it started and how long it lasted. */
+export const insertManualPlaySessionSchema = z.object({
+  startedAt: z.coerce.date().optional(),
+  durationMinutes: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 60),
+});
+
 export const insertGameMilestoneSchema = createInsertSchema(gameMilestones, {
   label: (schema) => schema.trim().min(1, "Label is required").max(200),
 }).omit({
@@ -1123,6 +1163,8 @@ export type InsertCollection = {
   rules: CollectionRules | null;
 };
 export type CollectionGame = typeof collectionGames.$inferSelect;
+export type GamePlaySession = typeof gamePlaySessions.$inferSelect;
+export type InsertGamePlaySession = typeof gamePlaySessions.$inferInsert;
 export type GameJournalEntry = typeof gameJournalEntries.$inferSelect;
 export type InsertGameJournalEntry = (typeof insertGameJournalEntrySchema)["_output"];
 

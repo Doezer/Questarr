@@ -3,6 +3,7 @@ import {
   normalizeTitle,
   normalizeReleaseTitle,
   cleanReleaseName,
+  parseFolderHints,
   parseSwitchTitleId,
   titleMatches,
   buildQueryVariants,
@@ -472,5 +473,32 @@ describe("strictMatchTitle", () => {
     const strict = strictMatchTitle("Clive Barker's Hellraiser: Revival");
     expect(releaseMatchesGame("Hellraiser.Revival-GRP", strict)).toBe(true);
     expect(releaseMatchesGame("Hellraiser.Inferno-GRP", strict)).toBe(false);
+  });
+});
+
+describe("parseFolderHints", () => {
+  it("reads a bracketed release year", () => {
+    expect(parseFolderHints("Celeste (2018)")).toEqual({ year: 2018 });
+    expect(parseFolderHints("Just Cause 2 [2010]")).toEqual({ year: 2010 });
+  });
+
+  it("ignores a bare year and a year outside the game era", () => {
+    expect(parseFolderHints("Game.Name.2023.1080p")).toEqual({});
+    expect(parseFolderHints("Game (1850)")).toEqual({});
+  });
+
+  it("reads IGDB and Steam id tags", () => {
+    expect(parseFolderHints("Portal {igdb-71}")).toEqual({ igdbId: 71 });
+    expect(parseFolderHints("Portal [steam-400] (2007)")).toEqual({ steamAppId: 400, year: 2007 });
+    expect(parseFolderHints("Portal (IGDB=71)")).toEqual({ igdbId: 71 });
+  });
+
+  it("does not mistake an id tag number for a year", () => {
+    expect(parseFolderHints("Game {igdb-2018}")).toEqual({ igdbId: 2018 });
+  });
+
+  it("keeps id tags out of the cleaned title", () => {
+    expect(cleanReleaseName("Portal 2 {igdb-72} (2011)")).toBe("Portal 2");
+    expect(cleanReleaseName("hl2 [steam-220]")).toBe("hl2");
   });
 });

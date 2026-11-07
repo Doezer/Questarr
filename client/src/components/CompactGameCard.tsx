@@ -10,6 +10,7 @@ import { type Game, type DownloadSummary } from "@shared/schema";
 import DownloadIndicator from "./DownloadIndicator";
 import SearchResultsBadge from "./SearchResultsBadge";
 import UpdateAvailableBadge from "./UpdateAvailableBadge";
+import PlayTimerButton from "./PlayTimerButton";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mapGameToInsertGame, isDiscoveryId, cn, parseReleaseDate } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
@@ -263,6 +264,15 @@ const CompactGameCard = ({
                 currentStatus={game.status as GameStatus}
                 onStatusChange={(newStatus) => onStatusChange?.(game.id, newStatus)}
                 gameTitle={game.title}
+              />
+            )}
+
+            {!isDiscovery && game.status === "playing" && (
+              <PlayTimerButton
+                gameId={game.id}
+                gameTitle={game.title}
+                variant="full"
+                className="h-10 w-auto px-3 sm:h-10"
               />
             )}
 
@@ -606,6 +616,15 @@ const CompactGameCard = ({
                 })()}
               </Button>
             </StatusPicker>
+          )}
+
+          {!isDiscovery && game.status === "playing" && (
+            <PlayTimerButton
+              gameId={game.id}
+              gameTitle={game.title}
+              variant="icon"
+              className={density === "comfortable" ? "h-7 w-7" : "h-6 w-6"}
+            />
           )}
 
           <Tooltip>

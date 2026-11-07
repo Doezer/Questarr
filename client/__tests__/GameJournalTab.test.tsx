@@ -60,6 +60,7 @@ interface ServerState {
   screenshots: Screenshot[];
   failPostJournal: boolean;
   failGetScreenshots: boolean;
+  sessions: { id: string; startedAt: string; endedAt: string | null }[];
 }
 
 interface RecordedRequest {
@@ -95,6 +96,12 @@ function installFetch() {
 
     if (url === "/api/settings/steam") {
       return json({ apiKeyConfigured: state.steamApiKeyConfigured });
+    }
+    if (url === `${BASE}/play-sessions`) return json(state.sessions);
+    const sessionItem = url.match(/\/play-sessions\/(.+)$/);
+    if (sessionItem && method === "DELETE") {
+      state.sessions = state.sessions.filter((s) => s.id !== sessionItem[1]);
+      return json({}, 200);
     }
     if (url === `${BASE}/achievements`) {
       return json({ achievements: state.achievements });
@@ -200,11 +207,38 @@ beforeEach(() => {
     screenshots: [],
     failPostJournal: false,
     failGetScreenshots: false,
+    sessions: [],
   };
   installFetch();
 });
 
 describe("GameJournalTab", () => {
+  it("lists finished play sessions with the notes, newest first, and deletes one", async () => {
+    state.entries = [
+      { id: "e1", gameId: GAME_ID, note: "Beat the boss", createdAt: "2026-09-02T10:00:00.000Z" },
+    ];
+    state.sessions = [
+      { id: "s1", startedAt: "2026-09-03T18:00:00.000Z", endedAt: "2026-09-03T19:30:00.000Z" },
+      { id: "s2", startedAt: "2026-09-01T18:00:00.000Z", endedAt: null }, // still running
+    ];
+    renderTab();
+
+    const rows = await screen.findAllByTestId("journal-session");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent("Played 1h 30m");
+    expect(screen.getByText("Beat the boss")).toBeInTheDocument();
+    // The session (Sep 3) comes before the note (Sep 2).
+    expect(
+      rows[0]!.compareDocumentPosition(screen.getByText("Beat the boss")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    fireEvent.click(
+      within(rows[0]!).getByRole("button", { name: /Delete the 1h 30m play session/ })
+    );
+    await waitFor(() => expect(requestsTo("DELETE", /play-sessions\/s1$/)).toHaveLength(1));
+  });
+
   it("shows screenshot fetch failures and recovers with Retry", async () => {
     state.failGetScreenshots = true;
     renderTab();

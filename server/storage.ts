@@ -71,6 +71,8 @@ import {
   type Collection,
   type InsertCollection,
   type GameJournalEntry,
+  type GamePlaySession,
+  type InsertGamePlaySession,
   type InsertGameJournalEntry,
   type GameMilestone,
   type InsertGameMilestone,
@@ -106,6 +108,7 @@ import {
   collections,
   gameJournalEntries,
   gameMilestones,
+  gamePlaySessions,
   gameScreenshots,
   classificationCache,
   classificationCandidates,
@@ -322,6 +325,22 @@ export interface IStorage {
   getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]>;
   addGameJournalEntry(entry: InsertGameJournalEntry): Promise<GameJournalEntry>;
   deleteGameJournalEntry(id: string, gameId: string, userId: string): Promise<boolean>;
+
+  // Play session methods (time spent per game: manual entries and a start/stop timer)
+  getGamePlaySessions(gameId: string, userId: string): Promise<GamePlaySession[]>;
+  getUserPlaySessions(userId: string): Promise<GamePlaySession[]>;
+  /** The user's running timer (a session with no end), if any. */
+  getRunningPlaySession(userId: string): Promise<GamePlaySession | undefined>;
+  addGamePlaySession(
+    session: Omit<InsertGamePlaySession, "id" | "createdAt">
+  ): Promise<GamePlaySession>;
+  /** Ends a running session; resolves to `undefined` if it is missing or already ended. */
+  stopGamePlaySession(
+    id: string,
+    userId: string,
+    endedAt: Date
+  ): Promise<GamePlaySession | undefined>;
+  deleteGamePlaySession(id: string, gameId: string, userId: string): Promise<boolean>;
 
   // Game milestone methods (manual "successes" checklist)
   getGameMilestones(gameId: string, userId: string): Promise<GameMilestone[]>;
@@ -643,6 +662,7 @@ export class MemStorage implements IStorage {
   private collectionGames: Map<string, { id: string; collectionId: string; gameId: string }>;
   private gameJournalEntries: Map<string, GameJournalEntry>;
   private gameMilestones: Map<string, GameMilestone>;
+  private gamePlaySessions: Map<string, GamePlaySession>;
   private gameScreenshots: Map<string, GameScreenshot>;
 
   constructor() {
@@ -675,6 +695,7 @@ export class MemStorage implements IStorage {
     this.collectionGames = new Map();
     this.gameJournalEntries = new Map();
     this.gameMilestones = new Map();
+    this.gamePlaySessions = new Map();
     this.gameScreenshots = new Map();
   }
 
@@ -1021,6 +1042,58 @@ export class MemStorage implements IStorage {
     const entry = this.gameJournalEntries.get(id);
     if (entry?.gameId !== gameId || entry.userId !== userId) return false;
     return this.gameJournalEntries.delete(id);
+  }
+
+  async getGamePlaySessions(gameId: string, userId: string): Promise<GamePlaySession[]> {
+    return Array.from(this.gamePlaySessions.values())
+      .filter((s) => s.gameId === gameId && s.userId === userId)
+      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+  }
+
+  async getUserPlaySessions(userId: string): Promise<GamePlaySession[]> {
+    return Array.from(this.gamePlaySessions.values())
+      .filter((s) => s.userId === userId)
+      .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+  }
+
+  async getRunningPlaySession(userId: string): Promise<GamePlaySession | undefined> {
+    return Array.from(this.gamePlaySessions.values()).find(
+      (s) => s.userId === userId && s.endedAt === null
+    );
+  }
+
+  async addGamePlaySession(
+    session: Omit<InsertGamePlaySession, "id" | "createdAt">
+  ): Promise<GamePlaySession> {
+    const created: GamePlaySession = {
+      id: randomUUID(),
+      gameId: session.gameId,
+      userId: session.userId,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt ?? null,
+      source: session.source ?? "manual",
+      createdAt: new Date(),
+    };
+    this.gamePlaySessions.set(created.id, created);
+    return created;
+  }
+
+  async stopGamePlaySession(
+    id: string,
+    userId: string,
+    endedAt: Date
+  ): Promise<GamePlaySession | undefined> {
+    const session = this.gamePlaySessions.get(id);
+    if (session?.userId !== userId || session.endedAt !== null) return undefined;
+    const stopped = { ...session, endedAt };
+    this.gamePlaySessions.set(id, stopped);
+    return stopped;
+  }
+
+  async deleteGamePlaySession(id: string, gameId: string, userId: string): Promise<boolean> {
+    const session = this.gamePlaySessions.get(id);
+    if (session?.gameId !== gameId || session.userId !== userId) return false;
+    return this.gamePlaySessions.delete(id);
   }
 
   async getGameMilestones(gameId: string, userId: string): Promise<GameMilestone[]> {
@@ -3116,6 +3189,74 @@ export class DatabaseStorage implements IStorage {
           eq(gameJournalEntries.id, id),
           eq(gameJournalEntries.gameId, gameId),
           eq(gameJournalEntries.userId, userId)
+        )
+      )
+      .returning();
+    return result.length > 0;
+  }
+
+  async getGamePlaySessions(gameId: string, userId: string): Promise<GamePlaySession[]> {
+    return db
+      .select()
+      .from(gamePlaySessions)
+      .where(and(eq(gamePlaySessions.gameId, gameId), eq(gamePlaySessions.userId, userId)))
+      .orderBy(desc(gamePlaySessions.startedAt));
+  }
+
+  async getUserPlaySessions(userId: string): Promise<GamePlaySession[]> {
+    return db
+      .select()
+      .from(gamePlaySessions)
+      .where(eq(gamePlaySessions.userId, userId))
+      .orderBy(desc(gamePlaySessions.startedAt));
+  }
+
+  async getRunningPlaySession(userId: string): Promise<GamePlaySession | undefined> {
+    const rows = await db
+      .select()
+      .from(gamePlaySessions)
+      .where(and(eq(gamePlaySessions.userId, userId), isNull(gamePlaySessions.endedAt)))
+      .limit(1);
+    return rows[0];
+  }
+
+  async addGamePlaySession(
+    session: Omit<InsertGamePlaySession, "id" | "createdAt">
+  ): Promise<GamePlaySession> {
+    const rows = await db
+      .insert(gamePlaySessions)
+      .values({ id: randomUUID(), ...session })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async stopGamePlaySession(
+    id: string,
+    userId: string,
+    endedAt: Date
+  ): Promise<GamePlaySession | undefined> {
+    const rows = await db
+      .update(gamePlaySessions)
+      .set({ endedAt })
+      .where(
+        and(
+          eq(gamePlaySessions.id, id),
+          eq(gamePlaySessions.userId, userId),
+          isNull(gamePlaySessions.endedAt)
+        )
+      )
+      .returning();
+    return rows[0];
+  }
+
+  async deleteGamePlaySession(id: string, gameId: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(gamePlaySessions)
+      .where(
+        and(
+          eq(gamePlaySessions.id, id),
+          eq(gamePlaySessions.gameId, gameId),
+          eq(gamePlaySessions.userId, userId)
         )
       )
       .returning();

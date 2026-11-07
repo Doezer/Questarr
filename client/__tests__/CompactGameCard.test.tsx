@@ -91,6 +91,21 @@ describe("CompactGameCard", () => {
     expect(screen.getByText("Adventure")).toBeInTheDocument();
   });
 
+  it.each([
+    ["row", {}],
+    ["mobile card", { mobileLayout: true }],
+  ])("offers a play timer in the %s layout only while playing", (_name, props) => {
+    const unrated = { ...mockGame, userRating: null } as Game;
+    const { unmount } = renderWithProviders(<CompactGameCard game={unrated} {...props} />);
+    expect(screen.queryByRole("button", { name: /Start timer/ })).not.toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(
+      <CompactGameCard game={{ ...unrated, status: "playing" } as Game} {...props} />
+    );
+    expect(screen.getByRole("button", { name: "Start timer for Test Game" })).toBeInTheDocument();
+  });
+
   it("renders no genre pills when genres is empty", () => {
     const gameWithoutGenres = { ...mockGame, genres: [] };
     renderWithProviders(<CompactGameCard game={gameWithoutGenres} />);

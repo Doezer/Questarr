@@ -84,6 +84,8 @@ vi.mock("../src/components/GameJournalTab", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  Timer: (props: Record<string, unknown>) => <div data-testid="icon-timer" {...props} />,
+  Square: (props: Record<string, unknown>) => <div data-testid="icon-square" {...props} />,
   ImagePlus: (props: Record<string, unknown>) => <div {...props} />,
   Upload: (props: Record<string, unknown>) => <div {...props} />,
   Plus: (props: Record<string, unknown>) => <div data-testid="icon-plus" {...props} />,

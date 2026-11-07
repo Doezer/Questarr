@@ -413,6 +413,31 @@ export const gameJournalEntries = pgTable(
   (t) => [index("game_journal_entries_game_user_idx").on(t.gameId, t.userId)]
 );
 
+export const gamePlaySessions = pgTable(
+  "game_play_sessions",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    startedAt: timestampMs("started_at").notNull(),
+    endedAt: timestampMs("ended_at"),
+    source: text("source").notNull().default("manual"),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [
+    index("game_play_sessions_game_user_idx").on(t.gameId, t.userId),
+    index("game_play_sessions_user_started_idx").on(t.userId, t.startedAt),
+    // A user has at most one running timer; the start route races without this.
+    uniqueIndex("game_play_sessions_one_running_idx")
+      .on(t.userId)
+      .where(sql`${t.endedAt} is null`),
+  ]
+);
+
 export const gameMilestones = pgTable(
   "game_milestones",
   {

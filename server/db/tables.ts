@@ -32,6 +32,7 @@ export const {
   games,
   gameJournalEntries,
   gameMilestones,
+  gamePlaySessions,
   gameScreenshots,
   importTaskItems,
   importTasks,

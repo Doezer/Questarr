@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
 - **Search fallback**: when the full game title finds nothing, the search retries with simpler titles (without a possessive publisher prefix, edition words, punctuation or subtitle) and tells you which one it used. Sequels are still refused. Releases whose protocol none of your download clients supports (Usenet with only torrent clients, or the opposite) are flagged and cannot be downloaded (#1312).
 - **Persistent classification cache**: release verdicts are now kept in the database as well as in memory (7 days, 20,000 rows, pruned hourly), for every classification mode and for the historical Jev check, so a restart or a Docker update no longer repeats paid cloud calls. A new model, provider endpoint or model, mode, confidence bar or pipeline version never reuses an older verdict, a failing layer's answer is never stored, and **Settings → Release classification → Clear classification cache** empties it (Questarr-mgmt#59, #1311).
 - **Indexer protection**: searches no longer hammer indexers shared with Sonarr, Radarr or Prowlarr. A search the browser abandoned stops its indexer requests, identical simultaneous searches share one request, and each indexer serves 2 searches at once (`SEARCH_MAX_CONCURRENT_PER_INDEXER`), with a separate line for auto-search. `SEARCH_INDEXER_TIMEOUT_MS` sets the timeout of one indexer request. See [Indexers](INDEXERS.md#protect-shared-indexers) (#1315, Questarr-mgmt#61).
+- **Play time tracking**: start and stop a timer on any game with the **Playing** status, or add a session by hand from the game page (up to 24 hours, on today or a past day). Finished sessions show in the game journal. The **Statistics** page gets a **Play time** section: totals, longest session, play streaks, hours per week and month, most played games against their IGDB Time to Beat, and time by genre and platform. Sessions stay on your server. See [Play time](PLAY_TIME.md) (#1318, Questarr-mgmt#71).
+- **Needs Review covers and folder tags**: each Needs Review candidate shows its IGDB cover and release year, and the scan asks IGDB for ten candidates per folder. A year in the folder name (`Celeste (2018)`) now only breaks ties, and `{igdb-1234}` or `{steam-620}` in a folder name selects the game exactly. See [Library import](LIBRARY_IMPORT.md) (#1317).
 
 ### Fixed
 
@@ -25,7 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### Dependencies
 
-- Dependency updates: #1297, #1298, #1299, #1313.
+- Dependency updates: #1297, #1298, #1299, #1313, #1319.
 
 ## [1.6.0] - 2026-10-31
 

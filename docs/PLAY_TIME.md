@@ -41,7 +41,8 @@ on the day it started. A timer that is still running is not counted until you st
 The [Playnite extension](../extensions/playnite-questarr/README.md) can send each finished session
 (`POST /api/integration/play-sessions`, source `playnite`). It is off
 by default and needs the **Playnite extension** API key access. A session that starts at the same
-instant as a stored one for that game is ignored, so a retry never counts twice. The end is the
+instant as a stored `playnite` session for that game is ignored, so a retry never counts twice (a
+manual or timer session is not compared: do not also record the same play by hand). The end is the
 moment the game closed and the start is derived from the duration Playnite reports (whole seconds),
 so these times are estimates and a session near midnight can land on the neighbouring day.
 
@@ -52,5 +53,5 @@ source: `timer`, `manual` or `playnite`. A further source, `steam`, is reserved 
 Steam playtime later. Sessions are deleted with their game. They are included when you move from SQLite to
 Postgres (`scripts/sqlite-to-pg.ts`).
 
-Not included yet: importing playtime from Steam or a Playnite extension, and per-game goals. See
+Not included yet: importing historical playtime from Steam or Playnite (the Playnite extension only reports new sessions), and per-game goals. See
 [Questarr-mgmt#71](https://github.com/Doezer/Questarr-mgmt/issues/71).

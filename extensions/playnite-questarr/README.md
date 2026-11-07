@@ -110,8 +110,9 @@ timer has to be started by hand.
   next to `config.json` (at most 200 entries, the oldest is dropped beyond that)
   and is retried when the next game closes and when Playnite starts. A session
   Questarr rejects (unknown game, invalid times, a clock more than five minutes
-  ahead) is dropped. A session is never counted twice: Questarr
-  ignores one that starts at the same instant as a stored session of that game.
+  ahead) is dropped. A retry is never counted twice: Questarr
+  ignores a session that starts at the same instant as a stored Playnite session of that game.
+  Manual and timer sessions are not compared, so do not also record the same play by hand.
 - It needs the **Playnite extension** access, like the library sync.
 
 ## Troubleshooting

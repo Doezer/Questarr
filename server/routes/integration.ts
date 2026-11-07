@@ -330,14 +330,38 @@ async function resolvePlaySessionGame(
 ): Promise<Game | undefined> {
   if (ref.gameId) {
     const byId = await storage.getGame(ref.gameId);
-    if (byId && byId.userId === userId) return byId;
+    if (byId?.userId === userId) return byId;
   }
   if (!ref.steamAppId && !ref.title) return undefined;
   const library = await storage.getUserGames(userId, true);
   const bySteam = ref.steamAppId ? library.find((g) => g.steamAppId === ref.steamAppId) : undefined;
   if (bySteam || !ref.title) return bySteam;
   const key = normalizeTitle(ref.title);
+  // A title with no letters or digits (e.g. Japanese) normalizes to "", which would match
+  // every other such title, so it can only match through an id.
+  if (!key) return undefined;
   return library.find((g) => normalizeTitle(g.title) === key);
+}
+
+/** Tails of the in-flight session writes, one chain per user and game. */
+const playSessionLocks = new Map<string, Promise<unknown>>();
+
+/**
+ * Runs `task` after every earlier task for the same key has finished, so two retries of one
+ * session cannot both pass the duplicate check before either inserts. Per process, which is
+ * enough: a single Questarr instance owns its database.
+ */
+async function withPlaySessionLock<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const previous = playSessionLocks.get(key) ?? Promise.resolve();
+  const run = previous.then(task, task);
+  const tail = run.catch(() => undefined);
+  playSessionLocks.set(key, tail);
+  try {
+    return await run;
+  } finally {
+    // Drop the entry once nothing queued behind this task, so the map does not grow.
+    if (playSessionLocks.get(key) === tail) playSessionLocks.delete(key);
+  }
 }
 
 integrationRouter.post(
@@ -367,21 +391,24 @@ integrationRouter.post(
         });
       }
 
-      // A retry after a network error must not count the session twice.
-      const existing = (await storage.getGamePlaySessions(game.id, userId)).find(
-        (s) => s.startedAt.getTime() === startedAt.getTime()
-      );
-      if (existing) {
-        return res.status(200).json({ session: existing, duplicate: true });
-      }
-
-      const session = await storage.addGamePlaySession({
-        gameId: game.id,
-        userId,
-        startedAt,
-        endedAt,
-        source: "playnite",
+      // A retry after a network error must not count the session twice. Only sessions that came
+      // through this API count as the same one: a manual session may share the start time.
+      const { session, duplicate } = await withPlaySessionLock(`${userId}:${game.id}`, async () => {
+        const existing = (await storage.getGamePlaySessions(game.id, userId)).find(
+          (s) => s.source === "playnite" && s.startedAt.getTime() === startedAt.getTime()
+        );
+        if (existing) return { session: existing, duplicate: true };
+        const created = await storage.addGamePlaySession({
+          gameId: game.id,
+          userId,
+          startedAt,
+          endedAt,
+          source: "playnite",
+        });
+        return { session: created, duplicate: false };
       });
+      if (duplicate) return res.status(200).json({ session, duplicate: true });
+
       logger.info(
         {
           userId,

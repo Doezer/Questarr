@@ -704,7 +704,7 @@ describe("integration API", () => {
     it("does not count a retried session twice", async () => {
       const startedAt = minutesAgo(60);
       (storage.getGamePlaySessions as Mock).mockResolvedValue([
-        { id: "session-0", gameId: "game-1", startedAt: new Date(startedAt) },
+        { id: "session-0", gameId: "game-1", source: "playnite", startedAt: new Date(startedAt) },
       ]);
       const res = await withKey(request(app).post("/api/integration/play-sessions")).send({
         title: "Hades",
@@ -713,6 +713,54 @@ describe("integration API", () => {
       });
       expect(res.status).toBe(200);
       expect(res.body.duplicate).toBe(true);
+      expect(storage.addGamePlaySession).not.toHaveBeenCalled();
+    });
+
+    it("does not treat a manual session with the same start as a duplicate", async () => {
+      const startedAt = minutesAgo(60);
+      (storage.getGamePlaySessions as Mock).mockResolvedValue([
+        { id: "session-0", gameId: "game-1", source: "manual", startedAt: new Date(startedAt) },
+      ]);
+      const res = await withKey(request(app).post("/api/integration/play-sessions")).send({
+        title: "Hades",
+        startedAt,
+        endedAt: minutesAgo(10),
+      });
+      expect(res.status).toBe(201);
+      expect(storage.addGamePlaySession).toHaveBeenCalledTimes(1);
+    });
+
+    it("stores one session when the same request is retried concurrently", async () => {
+      const stored: Array<Record<string, unknown>> = [];
+      (storage.getGamePlaySessions as Mock).mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return stored.map((s) => ({ ...s }));
+      });
+      (storage.addGamePlaySession as Mock).mockImplementation(
+        async (s: Record<string, unknown>) => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          const row = { id: `session-${stored.length}`, ...s };
+          stored.push(row);
+          return row;
+        }
+      );
+      const body = { title: "Hades", startedAt: minutesAgo(60), endedAt: minutesAgo(10) };
+      const send = () => withKey(request(app).post("/api/integration/play-sessions")).send(body);
+      const [a, b, c] = await Promise.all([send(), send(), send()]);
+      expect([a.status, b.status, c.status].sort()).toEqual([200, 200, 201]);
+      expect(stored).toHaveLength(1);
+    });
+
+    it("never matches a title that normalizes to nothing", async () => {
+      (storage.getUserGames as Mock).mockResolvedValue([
+        { id: "game-2", userId: USER.id, title: "ゲーム", steamAppId: null },
+      ]);
+      const res = await withKey(request(app).post("/api/integration/play-sessions")).send({
+        title: "別のゲーム",
+        startedAt: minutesAgo(60),
+        endedAt: minutesAgo(10),
+      });
+      expect(res.status).toBe(404);
       expect(storage.addGamePlaySession).not.toHaveBeenCalled();
     });
 

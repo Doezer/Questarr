@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { logger } from "./logger.js";
-import { isSafeUrl, resolveSafeAddress, safeFetch } from "./ssrf.js";
+import { isSafeUrl, safeFetch } from "./ssrf.js";
 import type { Notification } from "../shared/schema.js";
 import { config } from "./config.js";
 import { notificationUrl } from "./notification-links.js";
@@ -145,30 +145,33 @@ function parseAppriseProbe(entry: string): URL | "fixed" | null {
   }
 }
 
+async function areNestedParamUrlsSafe(probe: URL): Promise<boolean> {
+  for (const value of probe.searchParams.values()) {
+    const trimmed = value.trim();
+    if (!/^https?:\/\//i.test(trimmed)) continue;
+    let nested: URL;
+    try {
+      nested = new URL(trimmed);
+    } catch {
+      return false;
+    }
+    if (!(await isSafeUrl(nested.href, { allowPrivate: true }))) return false;
+  }
+  return true;
+}
+
 export async function isSafeAppriseDestination(entry: string): Promise<boolean> {
   const probe = parseAppriseProbe(entry);
   if (probe === null) return false;
   if (probe === "fixed") return true;
-  return isSafeUrl(probe.href, { allowPrivate: true });
-}
-
-async function isSafeAppriseDestinationNow(entry: string): Promise<boolean> {
-  const probe = parseAppriseProbe(entry);
-  if (probe === null) return false;
-  if (probe === "fixed") return true;
   if (!(await isSafeUrl(probe.href, { allowPrivate: true }))) return false;
-  try {
-    await resolveSafeAddress(probe.hostname, true);
-    return true;
-  } catch {
-    return false;
-  }
+  return areNestedParamUrlsSafe(probe);
 }
 
 async function filterSafeAppriseUrls(urls: string[]): Promise<string[]> {
   const safe: string[] = [];
   for (const url of urls) {
-    if (await isSafeAppriseDestinationNow(url)) {
+    if (await isSafeAppriseDestination(url)) {
       safe.push(url);
     } else {
       appriseLogger.warn("Skipping unsafe Apprise notification URL");

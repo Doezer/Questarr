@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { appriseClient } from "../apprise.js";
-import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
+import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { Notification } from "../../shared/schema.js";
 import { config } from "../config.js";
 
@@ -26,7 +26,6 @@ vi.mock("../ssrf.js", async (importOriginal) => {
     ...actual,
     safeFetch: vi.fn(),
     isSafeUrl: vi.fn(),
-    resolveSafeAddress: vi.fn(),
   };
 });
 
@@ -64,7 +63,6 @@ describe("Apprise client", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(isSafeUrl).mockResolvedValue(true);
-    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "93.184.216.34", family: 4 });
     appriseClient.configure({ mode: "api", apiUrl: null, key: null, urls: null });
   });
 
@@ -280,8 +278,8 @@ describe("Apprise client", () => {
     expect(capturedConfigContent).toBe("discord://webhook\n");
   });
 
-  it("skips persisted CLI URLs whose host fails re-resolution at dispatch time", async () => {
-    vi.mocked(resolveSafeAddress).mockRejectedValue(new Error("Failed to resolve hostname"));
+  it("skips persisted CLI URLs with an unsafe URL-valued plugin parameter", async () => {
+    vi.mocked(isSafeUrl).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
       const callback = args[3] as (error: Error | null, stdout: string, stderr: string) => void;
       callback(null, "ok", "");
@@ -292,13 +290,12 @@ describe("Apprise client", () => {
       mode: "cli",
       apiUrl: null,
       key: null,
-      urls: "json://unresolvable.invalid/notify",
+      urls: "mailto://user@example.com?pgp=encrypt&pgppub=http://169.254.169.254/latest/",
     });
 
     await expect(appriseClient.send(notification)).resolves.toBeUndefined();
-    await expect(appriseClient.test()).resolves.toEqual({
-      success: false,
-      error: "No notification URLs provided",
+    expect(vi.mocked(isSafeUrl)).toHaveBeenNthCalledWith(2, "http://169.254.169.254/latest/", {
+      allowPrivate: true,
     });
     expect(execFile).not.toHaveBeenCalled();
   });

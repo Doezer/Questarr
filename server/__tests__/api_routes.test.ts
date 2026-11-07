@@ -4394,6 +4394,23 @@ describe("API Routes - Extended Coverage", () => {
       expect(storage.setSystemConfig).not.toHaveBeenCalled();
     });
 
+    it("should reject a CLI notification URL with an unsafe URL-valued plugin parameter", async () => {
+      vi.mocked(ssrfModule.isSafeUrl).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+      const response = await request(app).post("/api/settings/apprise").send({
+        mode: "cli",
+        urls: "mailto://user@example.com?pgppub=http://169.254.169.254/latest/",
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid or unsafe notification URL");
+      expect(vi.mocked(ssrfModule.isSafeUrl)).toHaveBeenNthCalledWith(
+        2,
+        "http://169.254.169.254/latest/",
+        { allowPrivate: true }
+      );
+      expect(storage.setSystemConfig).not.toHaveBeenCalled();
+    });
+
     it("should validate network-scheme CLI notification URLs and skip the rest", async () => {
       const response = await request(app)
         .post("/api/settings/apprise")

@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { logger } from "./logger.js";
-import { isSafeUrl, safeFetch } from "./ssrf.js";
+import { isSafeUrl, resolveSafeAddress, safeFetch } from "./ssrf.js";
 import type { Notification } from "../shared/schema.js";
 import { config } from "./config.js";
 import { notificationUrl } from "./notification-links.js";
@@ -128,24 +128,47 @@ const APPRISE_FIXED_ENDPOINT_SCHEMES = new Set([
   "join:",
 ]);
 
-export async function isSafeAppriseDestination(entry: string): Promise<boolean> {
+function parseAppriseProbe(entry: string): URL | "fixed" | null {
   let parsed: URL;
   try {
     parsed = new URL(entry);
   } catch {
-    return false;
+    return null;
   }
   if (APPRISE_FIXED_ENDPOINT_SCHEMES.has(parsed.protocol) || !parsed.host) {
-    return true;
+    return "fixed";
   }
-  const probe = new URL(`https://${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`);
+  try {
+    return new URL(`https://${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`);
+  } catch {
+    return null;
+  }
+}
+
+export async function isSafeAppriseDestination(entry: string): Promise<boolean> {
+  const probe = parseAppriseProbe(entry);
+  if (probe === null) return false;
+  if (probe === "fixed") return true;
   return isSafeUrl(probe.href, { allowPrivate: true });
+}
+
+async function isSafeAppriseDestinationNow(entry: string): Promise<boolean> {
+  const probe = parseAppriseProbe(entry);
+  if (probe === null) return false;
+  if (probe === "fixed") return true;
+  if (!(await isSafeUrl(probe.href, { allowPrivate: true }))) return false;
+  try {
+    await resolveSafeAddress(probe.hostname, true);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function filterSafeAppriseUrls(urls: string[]): Promise<string[]> {
   const safe: string[] = [];
   for (const url of urls) {
-    if (await isSafeAppriseDestination(url)) {
+    if (await isSafeAppriseDestinationNow(url)) {
       safe.push(url);
     } else {
       appriseLogger.warn("Skipping unsafe Apprise notification URL");

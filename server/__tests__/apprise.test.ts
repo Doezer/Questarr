@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { appriseClient } from "../apprise.js";
-import { isSafeUrl, safeFetch } from "../ssrf.js";
+import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { Notification } from "../../shared/schema.js";
 import { config } from "../config.js";
 
@@ -20,10 +20,15 @@ vi.mock("../logger.js", () => ({
   },
 }));
 
-vi.mock("../ssrf.js", () => ({
-  safeFetch: vi.fn(),
-  isSafeUrl: vi.fn(),
-}));
+vi.mock("../ssrf.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../ssrf.js")>();
+  return {
+    ...actual,
+    safeFetch: vi.fn(),
+    isSafeUrl: vi.fn(),
+    resolveSafeAddress: vi.fn(),
+  };
+});
 
 vi.mock("child_process", () => {
   const execFileMock = vi.fn();
@@ -59,6 +64,7 @@ describe("Apprise client", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(isSafeUrl).mockResolvedValue(true);
+    vi.mocked(resolveSafeAddress).mockResolvedValue({ address: "93.184.216.34", family: 4 });
     appriseClient.configure({ mode: "api", apiUrl: null, key: null, urls: null });
   });
 
@@ -272,6 +278,29 @@ describe("Apprise client", () => {
       allowPrivate: true,
     });
     expect(capturedConfigContent).toBe("discord://webhook\n");
+  });
+
+  it("skips persisted CLI URLs whose host fails re-resolution at dispatch time", async () => {
+    vi.mocked(resolveSafeAddress).mockRejectedValue(new Error("Failed to resolve hostname"));
+    vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+      const callback = args[3] as (error: Error | null, stdout: string, stderr: string) => void;
+      callback(null, "ok", "");
+      return {} as never;
+    });
+
+    appriseClient.configure({
+      mode: "cli",
+      apiUrl: null,
+      key: null,
+      urls: "json://unresolvable.invalid/notify",
+    });
+
+    await expect(appriseClient.send(notification)).resolves.toBeUndefined();
+    await expect(appriseClient.test()).resolves.toEqual({
+      success: false,
+      error: "No notification URLs provided",
+    });
+    expect(execFile).not.toHaveBeenCalled();
   });
 
   it("sends nothing when every persisted CLI URL is unsafe", async () => {

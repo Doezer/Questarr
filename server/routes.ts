@@ -116,6 +116,7 @@ import { encryptCredential } from "./credential-crypto.js";
 import {
   appriseClient,
   isAppriseConfigured,
+  isSafeAppriseDestination,
   normalizeAppriseMode,
   readAppriseSettings,
 } from "./apprise.js";
@@ -1013,31 +1014,6 @@ function registerIgdbParamListRoute(
       return res.status(500).json({ error: `Failed to fetch games by ${errorLabel}` });
     }
   });
-}
-
-const APPRISE_FIXED_ENDPOINT_SCHEMES = new Set([
-  "discord:",
-  "slack:",
-  "tgram:",
-  "telegram:",
-  "pover:",
-  "pushbullet:",
-  "ifttt:",
-  "join:",
-]);
-
-async function isSafeAppriseDestination(entry: string): Promise<boolean> {
-  let parsed: URL;
-  try {
-    parsed = new URL(entry);
-  } catch {
-    return false;
-  }
-  if (APPRISE_FIXED_ENDPOINT_SCHEMES.has(parsed.protocol) || !parsed.host) {
-    return true;
-  }
-  const probe = new URL(`https://${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`);
-  return isSafeUrl(probe.href, { allowPrivate: true });
 }
 
 /**

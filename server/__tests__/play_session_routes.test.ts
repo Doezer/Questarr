@@ -323,6 +323,8 @@ describe("Play session routes", () => {
       vi.mocked(storage.getUserGames).mockResolvedValue([]);
       const response = await request(app).get("/api/stats/play-time?timeZone=Not%2FAZone&tz=-60");
       expect(response.status).toBe(200);
+      const plus = await request(app).get("/api/stats/play-time?timeZone=Not%2FAZone&tz=%2B60");
+      expect(plus.status).toBe(200);
       const both = await request(app).get("/api/stats/play-time?timeZone=Not%2FAZone&tz=abc");
       expect(both.status).toBe(400);
     });

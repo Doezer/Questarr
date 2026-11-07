@@ -759,7 +759,9 @@ function Read-QuestarrPlayQueue {
         $raw = Get-Content -Path $path -Raw -Encoding UTF8 | ConvertFrom-Json
     }
     catch {
-        $__logger.Error("Questarr: unreadable play session queue, starting over: $($_.Exception.Message)")
+        # Keep the damaged file for recovery instead of letting the next write erase it.
+        $__logger.Error("Questarr: unreadable play session queue, moved aside: $($_.Exception.Message)")
+        try { Move-Item -Path $path -Destination "$path.bad" -Force } catch { }
         return @()
     }
 
@@ -780,9 +782,12 @@ function Write-QuestarrPlayQueue {
         $list = @($list | Select-Object -Last $script:PlayQueueMax)
     }
 
+    # Write a temporary file first so a crash mid-write cannot truncate the only copy.
     # -InputObject keeps a single entry a JSON array (the pipeline would unwrap it).
-    ConvertTo-Json -InputObject $list -Depth 4 |
-        Set-Content -Path (Get-QuestarrPlayQueuePath) -Encoding UTF8
+    $path = Get-QuestarrPlayQueuePath
+    $temp = "$path.tmp"
+    ConvertTo-Json -InputObject $list -Depth 4 | Set-Content -Path $temp -Encoding UTF8
+    Move-Item -Path $temp -Destination $path -Force
 }
 
 function Format-QuestarrUtc {

@@ -214,7 +214,7 @@ router.post(
 
 /** True when `value` is a usable `getTimezoneOffset()` query value. */
 function hasValidOffset(value: unknown): boolean {
-  if (typeof value !== "string" || !/^-?\d+$/.test(value)) return false;
+  if (typeof value !== "string" || !/^[+-]?\d+$/.test(value)) return false;
   const minutes = Number.parseInt(value, 10);
   return minutes >= -840 && minutes <= 840;
 }

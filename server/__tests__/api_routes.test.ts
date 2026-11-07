@@ -4355,6 +4355,46 @@ describe("API Routes - Extended Coverage", () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe("Invalid or unsafe API URL");
+      expect(storage.setSystemConfig).not.toHaveBeenCalled();
+    });
+
+    it("should pass the canonicalized apiUrl to the safety check", async () => {
+      vi.mocked(ssrfModule.isSafeUrl).mockResolvedValueOnce(false);
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "api", apiUrl: "HTTP://Unsafe.COM:8000/", key: "config-key" });
+
+      expect(response.status).toBe(400);
+      expect(vi.mocked(ssrfModule.isSafeUrl).mock.calls[0]?.[0]).toBe("http://unsafe.com:8000/");
+      expect(storage.setSystemConfig).not.toHaveBeenCalled();
+    });
+
+    it("should reject a CLI notification URL with an unsafe host", async () => {
+      vi.mocked(ssrfModule.isSafeUrl).mockResolvedValueOnce(false);
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "cli", urls: "json://169.254.169.254/notify" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid or unsafe notification URL");
+      expect(storage.setSystemConfig).not.toHaveBeenCalled();
+    });
+
+    it("should validate network-scheme CLI notification URLs and skip the rest", async () => {
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "cli", urls: "json://gotify.example.com/notify\ndiscord://webhook" });
+
+      expect(response.status).toBe(200);
+      expect(vi.mocked(ssrfModule.isSafeUrl)).toHaveBeenCalledWith(
+        "https://gotify.example.com/notify",
+        { allowPrivate: true }
+      );
+      expect(vi.mocked(ssrfModule.isSafeUrl)).toHaveBeenCalledTimes(1);
+      expect(storage.setSystemConfig).toHaveBeenCalledWith(
+        "apprise.urls",
+        "json://gotify.example.com/notify\ndiscord://webhook"
+      );
     });
 
     it("should reject non-string payload fields instead of crashing", async () => {

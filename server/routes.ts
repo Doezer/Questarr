@@ -1015,6 +1015,22 @@ function registerIgdbParamListRoute(
   });
 }
 
+const APPRISE_NETWORK_SCHEMES = new Set(["http:", "https:", "json:", "xml:", "form:"]);
+
+async function isSafeAppriseDestination(entry: string): Promise<boolean> {
+  let parsed: URL;
+  try {
+    parsed = new URL(entry);
+  } catch {
+    return false;
+  }
+  if (!APPRISE_NETWORK_SCHEMES.has(parsed.protocol)) {
+    return true;
+  }
+  const probe = new URL(`https://${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`);
+  return isSafeUrl(probe.href, { allowPrivate: true });
+}
+
 /**
  * Registers application middleware and API routes, then creates the HTTP server.
  *
@@ -5339,16 +5355,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (apiUrl?.trim()) {
         const trimmedUrl = apiUrl.trim();
+        let parsed: URL;
         try {
-          const parsed = new URL(trimmedUrl);
-          if (!["http:", "https:"].includes(parsed.protocol)) {
-            return res.status(400).json({ error: "API URL must use http:// or https://" });
-          }
+          parsed = new URL(trimmedUrl);
         } catch {
           return res.status(400).json({ error: "API URL is not a valid URL" });
         }
-        if (!(await isSafeUrl(trimmedUrl, { allowPrivate: true }))) {
+        if (!["http:", "https:"].includes(parsed.protocol)) {
+          return res.status(400).json({ error: "API URL must use http:// or https://" });
+        }
+        if (!(await isSafeUrl(parsed.href, { allowPrivate: true }))) {
           return res.status(400).json({ error: "Invalid or unsafe API URL" });
+        }
+      }
+      if (urls?.trim()) {
+        for (const line of urls.split(/\r?\n/)) {
+          const entry = line.trim();
+          if (!entry || entry.startsWith("#")) continue;
+          if (!(await isSafeAppriseDestination(entry))) {
+            return res.status(400).json({ error: "Invalid or unsafe notification URL" });
+          }
         }
       }
       await storage.setSystemConfig("apprise.mode", mode);

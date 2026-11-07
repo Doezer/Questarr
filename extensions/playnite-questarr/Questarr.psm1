@@ -34,6 +34,8 @@ $script:PlayQueueFileName = "play-sessions-queue.json"
 $script:PlayQueueMax = 200
 # Shorter than a sync: this runs when a game closes and must not stall Playnite.
 $script:PlaySessionTimeoutSec = 10
+# A flush on game stop or startup gives up after this long; the rest stays queued.
+$script:PlayFlushBudgetSec = 30
 # Quickly closed launches are noise, and the server caps a session at 24 hours.
 $script:PlayMinSeconds = 60
 $script:PlayMaxSeconds = 24 * 60 * 60
@@ -178,6 +180,8 @@ function Invoke-QuestarrHttpRequest {
     $request.Accept = "application/json"
     $request.Headers.Add("X-Api-Key", $ApiKey)
     $request.Timeout = $TimeoutSec * 1000
+    # Timeout only covers getting the response headers; bound reading the body too.
+    if ($request -is [System.Net.HttpWebRequest]) { $request.ReadWriteTimeout = $TimeoutSec * 1000 }
     $request.AllowAutoRedirect = $false
 
     if ($null -ne $Body) {
@@ -845,8 +849,8 @@ function Send-QuestarrPlaySession {
 
 <#
     Sends what is waiting in the queue, oldest first. Stops at the first entry
-    that must be retried (the server is probably unreachable) and keeps it and
-    everything after it.
+    that must be retried (the server is probably unreachable) or once the flush
+    budget is spent, and keeps that entry and everything after it.
 #>
 function Invoke-QuestarrFlushPlayQueue {
     param([Parameter(Mandatory)] $Config)
@@ -856,7 +860,9 @@ function Invoke-QuestarrFlushPlayQueue {
 
     $remaining = New-Object System.Collections.ArrayList
     $stopped = $false
+    $deadline = [DateTime]::UtcNow.AddSeconds($script:PlayFlushBudgetSec)
     foreach ($entry in $queue) {
+        if (-not $stopped -and [DateTime]::UtcNow -ge $deadline) { $stopped = $true }
         if ($stopped) {
             [void]$remaining.Add($entry)
             continue

@@ -3403,7 +3403,14 @@ describe("API Routes - Extended Coverage", () => {
   });
 
   // ─── POST /api/downloads/claim-batch ───
+  const importConfigWith = (enablePostProcessing: boolean) =>
+    ({ enablePostProcessing }) as Awaited<ReturnType<typeof storage.getImportConfig>>;
+
   describe("POST /api/downloads/claim", () => {
+    beforeEach(() => {
+      vi.mocked(storage.getImportConfig).mockResolvedValue(importConfigWith(false));
+    });
+
     it("returns 400 when the request body fails schema validation", async () => {
       const res = await request(app).post("/api/downloads/claim").send({
         downloaderId: "",
@@ -3433,6 +3440,27 @@ describe("API Routes - Extended Coverage", () => {
       expect(res.status).toBe(200);
       expect(storage.addGameDownload).toHaveBeenCalledWith(
         expect.objectContaining({ downloadHash: USENET_MIXED_CASE_ID })
+      );
+    });
+
+    it("keeps a finished download tracked as downloading when post-processing is on", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+      vi.mocked(storage.getImportConfig).mockResolvedValue(importConfigWith(true));
+      mockSabnzbdClaimTarget();
+      vi.mocked(storage.addGameDownload).mockResolvedValue(undefined as any);
+
+      const res = await request(app).post("/api/downloads/claim").send({
+        downloaderId: "dl-1",
+        downloadHash: USENET_MIXED_CASE_ID,
+        downloadTitle: "My Game",
+        currentStatus: "completed",
+        category: "main",
+        gameId: "game-1",
+      });
+
+      expect(res.status).toBe(200);
+      expect(storage.addGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "downloading" })
       );
     });
 
@@ -3514,6 +3542,7 @@ describe("API Routes - Extended Coverage", () => {
         type: "qbittorrent",
       } as any);
       vi.mocked(storage.addGameDownload).mockResolvedValue(undefined);
+      vi.mocked(storage.getImportConfig).mockResolvedValue(importConfigWith(false));
     });
 
     it("returns 400 when items is missing", async () => {
@@ -3575,6 +3604,44 @@ describe("API Routes - Extended Coverage", () => {
       expect(res.body.skippedCount).toBe(1);
       expect(res.body.addedCount).toBe(0);
       expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
+
+    it("keeps a finished download tracked as downloading when post-processing is on so it gets imported", async () => {
+      vi.mocked(storage.getImportConfig).mockResolvedValue(importConfigWith(true));
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: "game-1",
+        userId: "user-1",
+        status: "wanted",
+      } as any);
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [validItem] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.addedCount).toBe(1);
+      expect(storage.addGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "downloading" })
+      );
+      expect(storage.updateGameStatus).toHaveBeenCalledWith("game-1", { status: "downloading" });
+    });
+
+    it("stores a finished download as completed when post-processing is off", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: "game-1",
+        userId: "user-1",
+        status: "wanted",
+      } as any);
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [validItem] });
+
+      expect(res.status).toBe(200);
+      expect(storage.addGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "completed" })
+      );
+      expect(storage.updateGameStatus).toHaveBeenCalledWith("game-1", { status: "owned" });
     });
 
     it("marks item failed when gameId game is not found", async () => {

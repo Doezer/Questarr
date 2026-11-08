@@ -208,10 +208,6 @@ export const sanitizeCollectionId = [
   param("collectionId").trim().matches(UUID_PATTERN).withMessage("Invalid collection ID format"),
 ];
 
-export const sanitizeTagId = [
-  param("tagId").trim().matches(UUID_PATTERN).withMessage("Invalid tag ID format"),
-];
-
 export const sanitizeJournalEntryId = [
   param("entryId").trim().matches(UUID_PATTERN).withMessage("Invalid journal entry ID format"),
 ];

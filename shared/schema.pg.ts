@@ -397,36 +397,6 @@ export const collectionGames = pgTable(
   (t) => [uniqueIndex("collection_games_collection_game_idx").on(t.collectionId, t.gameId)]
 );
 
-export const tags = pgTable(
-  "tags",
-  {
-    id: text("id").primaryKey(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    color: text("color"),
-    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
-    updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
-  },
-  (t) => [index("tags_user_idx").on(t.userId)]
-);
-
-export const gameTags = pgTable(
-  "game_tags",
-  {
-    id: text("id").primaryKey(),
-    gameId: text("game_id")
-      .notNull()
-      .references(() => games.id, { onDelete: "cascade" }),
-    tagId: text("tag_id")
-      .notNull()
-      .references(() => tags.id, { onDelete: "cascade" }),
-    addedAt: timestampMs("added_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
-  },
-  (t) => [uniqueIndex("game_tags_game_tag_idx").on(t.gameId, t.tagId)]
-);
-
 export const gameJournalEntries = pgTable(
   "game_journal_entries",
   {

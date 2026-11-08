@@ -220,7 +220,12 @@ export async function syncSteamPlaytime(
       if (net <= 0) continue;
 
       // The sync was turned on or off since this run began: its result is stale, so write nothing.
-      if ((await readState(userId)).epoch !== state.epoch) {
+      // The linked Steam account changed meanwhile: this delta belongs to the old account.
+      const [current, currentUser] = await Promise.all([
+        readState(userId),
+        storage.getUser(userId),
+      ]);
+      if (current.epoch !== state.epoch || currentUser?.steamId64 !== user.steamId64) {
         return { sessionsAdded, minutesAdded, baselined };
       }
       await storage.addGamePlaySession({

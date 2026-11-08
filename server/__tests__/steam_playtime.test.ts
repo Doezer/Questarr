@@ -294,6 +294,21 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
     }
   });
 
+  it("drops a run whose Steam account was replaced while it was in flight", async () => {
+    owned(600);
+    await sync.syncSteamPlaytime(userId, { now: T0 });
+    fixtures.playtimes.mockImplementationOnce(async () => {
+      await ctx.storage.updateUserSteamId(userId, "76561198000000001");
+      return new Map([[1145360, 700]]);
+    });
+    try {
+      await sync.syncSteamPlaytime(userId, { now: hours(2) });
+      expect(await steamSessions()).toHaveLength(0);
+    } finally {
+      await ctx.storage.updateUserSteamId(userId, "76561198000000000");
+    }
+  });
+
   it("remembers a Steam failure without leaking its message", async () => {
     fixtures.playtimes.mockRejectedValueOnce(new Error("https://x/?key=secret"));
     await expect(sync.syncSteamPlaytime(userId, { now: T0 })).rejects.toThrow(/Steam play time/);

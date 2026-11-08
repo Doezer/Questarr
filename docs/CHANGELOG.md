@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+<<<<<<< HEAD
 - **Owned Steam library import**: from **Settings → Integrations**, preview your public Steam library and import the games you select (all untracked games are selected by default, thousands at a time) as **Owned**. The import runs on the server with saved progress, survives restarts and can be retried for the games that failed. Existing games keep their status, ratings and files. See [Steam library import](STEAM_LIBRARY.md) (#1273).
 - **Personal screenshots**: upload your own JPEG, PNG or WebP images (up to 8 MB) to a saved game from **Media → Your screenshots**, next to the trailers and IGDB artwork. Existing journal images appear there too. See [Personal screenshots](PERSONAL_SCREENSHOTS.md) (#1296, requested in #1287).
 - **Game modes**: IGDB game modes (single player, multiplayer, co-op...) are stored, shown on the game details and available as a **Game mode** rule for smart collections (#1295).
@@ -16,7 +17,7 @@ All notable changes to this project will be documented in this file.
 - **Search fallback**: when the full game title finds nothing, the search retries with simpler titles (without a possessive publisher prefix, edition words, punctuation or subtitle) and tells you which one it used. Sequels are still refused. Releases whose protocol none of your download clients supports (Usenet with only torrent clients, or the opposite) are flagged and cannot be downloaded (#1312).
 - **Persistent classification cache**: release verdicts are now kept in the database as well as in memory (7 days, 20,000 rows, pruned hourly), for every classification mode and for the historical Jev check, so a restart or a Docker update no longer repeats paid cloud calls. A new model, provider endpoint or model, mode, confidence bar or pipeline version never reuses an older verdict, a failing layer's answer is never stored, and **Settings → Release classification → Clear classification cache** empties it (Questarr-mgmt#59, #1311).
 - **Indexer protection**: searches no longer hammer indexers shared with Sonarr, Radarr or Prowlarr. A search the browser abandoned stops its indexer requests, identical simultaneous searches share one request, and each indexer serves 2 searches at once per line (`SEARCH_MAX_CONCURRENT_PER_INDEXER`); interactive searches and auto-search have separate lines, so an indexer can receive up to 2 of each at the same time. `SEARCH_INDEXER_TIMEOUT_MS` sets the timeout of one indexer request. See [Indexers](INDEXERS.md#protect-shared-indexers) (#1315, Questarr-mgmt#61).
-- **Play time tracking**: start and stop a timer on any game with the **Playing** status, or add a session by hand from the game page (up to 24 hours, on today or a past day). Finished sessions show in the game journal. The **Statistics** page gets a **Play time** section: totals, longest session, play streaks, hours per week and month, most played games against their IGDB Time to Beat, and time by genre and platform. Sessions stay on your server. See [Play time](PLAY_TIME.md) (#1318, Questarr-mgmt#71).
+- **Play time tracking**: start and stop a timer on any game with the **Playing** status, or add a session by hand from the game page (up to 24 hours, on today or a past day). Finished sessions show in the game journal. The **Statistics** page gets a **Play time** section: totals, longest session, play streaks, hours per week and month, most played games against their IGDB Time to Beat, and time by genre and platform. Sessions stay on your server. The Playnite extension can also send each finished session (off by default, needs the **Playnite extension** API key access). See [Play time](PLAY_TIME.md) (#1318, #1320, Questarr-mgmt#71).
 - **Needs Review covers and folder tags**: each Needs Review candidate shows its IGDB cover and release year, and the scan asks IGDB for ten candidates per folder. A year in the folder name (`Celeste (2018)`) now only breaks ties, and `{igdb-1234}` or `{steam-620}` in a folder name selects the game exactly. See [Library import](LIBRARY_IMPORT.md) (#1317).
 
 ### Fixed
@@ -24,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - **xREL checks**: a malformed xREL response is treated as unavailable, never as an empty result (#1305). A release missing from a full, truncated xREL list is reported as unknown instead of not found (#1309). xREL results are kept across long auto-search intervals and large wanted lists (#1307). The trust badge says that p2p releases cannot be checked for nukes (#1306).
 - **Large archive imports**: archive listings are streamed, so valid archives with a long file list no longer fail on a size limit (#1300, thanks @JEFF7712).
 - **Path checks**: the sensitive-path guard also rejects Windows system paths, the `ADMIN$` share and the macOS `/private/etc` alias, and SeerrNG assets are validated against your real library roots (#1304).
+- **Linked finished downloads**: linking an already finished download (**Downloads → Scan unlinked**, or a single claim) now starts the import when post-processing is on, instead of leaving it completed with nothing in the library folder (#1324).
 - **Apprise destinations**: the Apprise API URL and each notification URL are checked before they are saved and again before each send. Local network addresses still work; cloud metadata and other blocked addresses are refused with an "Invalid or unsafe" error, and an unsafe notification URL already saved is skipped with a warning (#1314).
 
 ### Vulnerabilities Addressed
@@ -35,6 +37,11 @@ Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.d
 ### Dependencies
 
 - Dependency updates: #1297, #1298, #1299, #1313, #1319, #1321.
+=======
+- **Play time**: start and stop a timer on a playing game or add a session by hand; sessions appear in the game's Playtime section and journal, and the Statistics page shows hours per week and month, most played games, genres, platforms and streaks. Days follow your time zone with daylight saving time applied per session (#1318, #1320, Questarr-mgmt#71, Questarr-mgmt#84). See [Play time](PLAY_TIME.md).
+- **Playnite play time**: the Playnite extension (1.1.0) can send each finished session to the new `POST /api/integration/play-sessions` route. The end is the moment the game closed and the start is derived from the duration Playnite reports, so a session near midnight can land on the neighbouring day. Off by default; sessions that fail for a retryable reason (server unreachable, rate limit, server error) wait in a bounded local queue of 200 entries, and rejected ones are dropped (Questarr-mgmt#83).
+- **Persistent classification cache**: release verdicts are now kept in the database as well as in memory (7 days, 20,000 rows, pruned hourly), for every classification mode and for the historical Jev check, so a restart or a Docker update no longer repeats paid cloud calls. A new model, provider endpoint or model, mode, confidence bar or pipeline version never reuses an older verdict, a failing layer's answer is never stored, and **Settings → Release classification → Clear classification cache** empties it (Questarr-mgmt#59).
+>>>>>>> origin/main
 
 ## [1.6.0] - 2026-10-31
 

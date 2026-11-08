@@ -4475,6 +4475,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Status a freshly linked download is stored with. A finished download claimed while
+  // post-processing is on must stay "downloading": the status tracker only polls that status,
+  // and its completion path is what runs the import. Storing "completed" here would leave the
+  // files in the client's folder with no import ever started (no game_files, nothing in the
+  // library folder).
+  const resolveClaimedDownloadStatus = (
+    currentStatus: string | undefined,
+    enablePostProcessing: boolean
+  ): "completed" | "downloading" | "paused" => {
+    if (currentStatus === "completed" || currentStatus === "seeding") {
+      return enablePostProcessing ? "downloading" : "completed";
+    }
+    return currentStatus === "paused" ? "paused" : "downloading";
+  };
+
   // Claim (link) a download client entry to a game in the library
   app.post("/api/downloads/claim", authenticateToken, async (req, res) => {
     try {
@@ -4507,14 +4522,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Determine download status for gameDownloads record
-      const downloadStatus =
-        currentStatus === "completed" || currentStatus === "seeding"
-          ? "completed"
-          : currentStatus === "downloading"
-            ? "downloading"
-            : currentStatus === "paused"
-              ? "paused"
-              : "downloading";
+      const importConfig = await storage.getImportConfig(userId);
+      const downloadStatus = resolveClaimedDownloadStatus(
+        currentStatus,
+        importConfig.enablePostProcessing
+      );
 
       let resolvedGameId: string | undefined = undefined;
 
@@ -4639,6 +4651,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let failedCount = 0;
     const taskItemsToInsert: InsertImportTaskItem[] = [];
     const igdbIdToGameId = new Map<number, string>();
+    const importConfig = await storage.getImportConfig(userId);
 
     for (const item of parsedItems) {
       const key = `${item.downloaderId}:${normalizeDownloadHash(item.downloadHash)}`;
@@ -4652,14 +4665,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         continue;
       }
       try {
-        const downloadStatus =
-          item.currentStatus === "completed" || item.currentStatus === "seeding"
-            ? "completed"
-            : item.currentStatus === "downloading"
-              ? "downloading"
-              : item.currentStatus === "paused"
-                ? "paused"
-                : "downloading";
+        const downloadStatus = resolveClaimedDownloadStatus(
+          item.currentStatus,
+          importConfig.enablePostProcessing
+        );
 
         let resolvedGameId: string | undefined;
 

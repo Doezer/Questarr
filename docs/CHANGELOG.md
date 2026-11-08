@@ -26,6 +26,12 @@ All notable changes to this project will be documented in this file.
 - **Path checks**: the sensitive-path guard also rejects Windows system paths, the `ADMIN$` share and the macOS `/private/etc` alias, and SeerrNG assets are validated against your real library roots (#1304).
 - **Apprise destinations**: the Apprise API URL and each notification URL are checked before they are saved and again before each send. Local network addresses still work; cloud metadata and other blocked addresses are refused with an "Invalid or unsafe" error, and an unsafe notification URL already saved is skipped with a warning (#1314).
 
+### Vulnerabilities Addressed
+
+Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.dev (`v1.6.0` → `main`): none of the 56 bumped packages matched a patched advisory, so no dependency CVE or CWE is fixed in this release so far. First-party fixes:
+
+- **Apprise destinations (CWE-918, server-side request forgery; no CVE assigned)**: the Apprise API URL and the notification URLs are validated before they are saved and before each send, so a crafted URL can no longer make Questarr call cloud metadata or other blocked addresses (#1314).
+
 ### Dependencies
 
 - Dependency updates: #1297, #1298, #1299, #1313, #1319, #1321.

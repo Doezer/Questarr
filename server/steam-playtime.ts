@@ -216,15 +216,19 @@ export async function syncSteamPlaytime(
         continue;
       }
       const delta = total - previous;
+      // A timer is running on this game: its minutes are not recorded yet, and Steam may not have
+      // reported them yet either. Keep the window open (even with no growth) and try again next time.
+      const timerRunning = runningTimer?.gameId === game.id;
+      if (timerRunning || (delta <= 0 && state.deferred[appKey] !== undefined)) {
+        deferred[appKey] = state.deferred[appKey] ?? sinceMs;
+      }
       if (delta <= 0) {
         // Unchanged, or Steam corrected the total downwards: follow it without a session.
         baselines[appKey] = total;
         continue;
       }
-      // A timer is running on this game: its minutes are not recorded yet. Try again next time.
-      if (runningTimer?.gameId === game.id) {
+      if (timerRunning) {
         baselines[appKey] = previous;
-        deferred[appKey] = state.deferred[appKey] ?? sinceMs;
         continue;
       }
 

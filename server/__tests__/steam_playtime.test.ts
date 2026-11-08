@@ -159,6 +159,26 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
     });
   });
 
+  it("keeps the window open when a timer runs before Steam reports its minutes", async () => {
+    owned(600);
+    await sync.syncSteamPlaytime(userId, { now: T0 });
+    const timer = await ctx.storage.addGamePlaySession({
+      gameId,
+      userId,
+      startedAt: minutesLater(30),
+      endedAt: null,
+      source: "timer",
+    });
+    // Steam has not caught up yet: no growth while the timer runs.
+    await sync.syncSteamPlaytime(userId, { now: hours(1) });
+    await ctx.storage.stopGamePlaySession(timer.id, userId, hours(1));
+    // Steam now reports the 30 minutes played; the timer already covers them.
+    owned(630);
+    expect(await sync.syncSteamPlaytime(userId, { now: hours(2) })).toMatchObject({
+      sessionsAdded: 0,
+    });
+  });
+
   it("follows a total that Steam lowers without creating a session", async () => {
     owned(600);
     await sync.syncSteamPlaytime(userId, { now: T0 });

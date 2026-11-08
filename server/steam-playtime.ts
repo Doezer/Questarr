@@ -22,6 +22,9 @@ import { sessionMinutes } from "../shared/play-stats.js";
 /** Never sync one account more often than this, whatever triggers the run. */
 export const STEAM_PLAYTIME_MIN_GAP_MS = 30 * 60 * 1000;
 
+/** How long a deferred window may stay open while Steam reports no growth for the game. */
+const STEAM_DEFER_MAX_MS = 24 * 60 * 60 * 1000;
+
 const stateSchema = z.object({
   enabled: z.boolean().default(false),
   /**
@@ -219,9 +222,12 @@ export async function syncSteamPlaytime(
       // A timer is running on this game: its minutes are not recorded yet, and Steam may not have
       // reported them yet either. Keep the window open (even with no growth) and try again next time.
       const timerRunning = runningTimer?.gameId === game.id;
-      if (timerRunning || (delta <= 0 && state.deferred[appKey] !== undefined)) {
-        deferred[appKey] = state.deferred[appKey] ?? sinceMs;
-      }
+      const openedAt = state.deferred[appKey];
+      // Without growth the window only stays open for a day: if Steam never reports the minutes
+      // (a copy it does not track), later Steam play time must not lose them.
+      const stillOpen =
+        openedAt !== undefined && delta <= 0 && now.getTime() - openedAt < STEAM_DEFER_MAX_MS;
+      if (timerRunning || stillOpen) deferred[appKey] = openedAt ?? sinceMs;
       if (delta <= 0) {
         // Unchanged, or Steam corrected the total downwards: follow it without a session.
         baselines[appKey] = total;

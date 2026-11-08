@@ -179,6 +179,27 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
     });
   });
 
+  it("closes the window after a day when Steam never reports the timer's minutes", async () => {
+    owned(600);
+    await sync.syncSteamPlaytime(userId, { now: T0 });
+    const timer = await ctx.storage.addGamePlaySession({
+      gameId,
+      userId,
+      startedAt: minutesLater(30),
+      endedAt: null,
+      source: "timer",
+    });
+    await sync.syncSteamPlaytime(userId, { now: hours(1) });
+    await ctx.storage.stopGamePlaySession(timer.id, userId, hours(1));
+    // Days pass with no Steam growth (a copy Steam does not track), then real Steam play.
+    await sync.syncSteamPlaytime(userId, { now: hours(60) });
+    owned(660);
+    expect(await sync.syncSteamPlaytime(userId, { now: hours(70) })).toMatchObject({
+      sessionsAdded: 1,
+      minutesAdded: 60,
+    });
+  });
+
   it("follows a total that Steam lowers without creating a session", async () => {
     owned(600);
     await sync.syncSteamPlaytime(userId, { now: T0 });

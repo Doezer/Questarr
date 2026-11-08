@@ -547,6 +547,7 @@ export interface IStorage {
   getGameFilesByDownload(downloadId: string): Promise<GameFile[]>;
   addGameFile(file: InsertGameFile): Promise<GameFile>;
   addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]>;
+  updateGameFilePath(id: string, filePath: string): Promise<GameFile | undefined>;
   /** Sets a user-chosen category and marks it so later scans keep it. */
   updateGameFileCategory(id: string, category: GameFileCategory): Promise<GameFile | undefined>;
   removeGameFile(id: string): Promise<boolean>;
@@ -2295,6 +2296,14 @@ export class MemStorage implements IStorage {
       result.push(await this.addGameFile(file));
     }
     return result;
+  }
+
+  async updateGameFilePath(id: string, filePath: string): Promise<GameFile | undefined> {
+    const existing = this.gameFiles.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, filePath };
+    this.gameFiles.set(id, updated);
+    return updated;
   }
 
   async updateGameFileCategory(
@@ -4573,6 +4582,15 @@ export class DatabaseStorage implements IStorage {
       category: file.category as "main" | "dlc" | "update" | "extra",
     }));
     return db.insert(gameFiles).values(values).returning();
+  }
+
+  async updateGameFilePath(id: string, filePath: string): Promise<GameFile | undefined> {
+    const [updated] = await db
+      .update(gameFiles)
+      .set({ filePath })
+      .where(eq(gameFiles.id, id))
+      .returning();
+    return updated;
   }
 
   async updateGameFileCategory(

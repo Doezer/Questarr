@@ -265,6 +265,14 @@ export async function syncSteamPlaytime(
           return end.getTime() > start.getTime() ? sum + sessionMinutes(start, end) : sum;
         }, 0);
       const net = delta - recorded;
+      if (net < 0 && now.getTime() - from < STEAM_DEFER_MAX_MS) {
+        // Recorded time exceeds what Steam has reported so far: Steam may report the rest later.
+        // Keep the old baseline and the window so the later growth is matched against the same
+        // recorded time instead of being imported again (bounded to a day, like the other windows).
+        baselines[appKey] = previous;
+        deferred[appKey] = from;
+        continue;
+      }
       baselines[appKey] = total;
       if (net <= 0) continue;
 

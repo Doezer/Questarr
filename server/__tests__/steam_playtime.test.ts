@@ -218,6 +218,27 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
     });
   });
 
+  it("keeps the window open when recorded time exceeds the first Steam growth", async () => {
+    owned(600);
+    await sync.syncSteamPlaytime(userId, { now: T0 });
+    await ctx.storage.addGamePlaySession({
+      gameId,
+      userId,
+      startedAt: minutesLater(10),
+      endedAt: minutesLater(70),
+      source: "manual",
+    });
+    // Steam reports 30 of the 60 recorded minutes, then the other 30 at the next sync.
+    owned(630);
+    expect(await sync.syncSteamPlaytime(userId, { now: hours(2) })).toMatchObject({
+      sessionsAdded: 0,
+    });
+    owned(660);
+    expect(await sync.syncSteamPlaytime(userId, { now: hours(4) })).toMatchObject({
+      sessionsAdded: 0,
+    });
+  });
+
   it("follows a total that Steam lowers without creating a session", async () => {
     owned(600);
     await sync.syncSteamPlaytime(userId, { now: T0 });

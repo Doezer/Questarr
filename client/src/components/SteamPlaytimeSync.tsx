@@ -39,6 +39,17 @@ export function SteamPlaytimeSync() {
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: STATUS_KEY });
     void queryClient.invalidateQueries({ queryKey: ["/api/stats/play-time"] });
+    // Per-game panels keep their sessions cached; the sync may have added one to any game.
+    void queryClient.invalidateQueries({
+      predicate: (query) => {
+        const first = query.queryKey[0];
+        return (
+          typeof first === "string" &&
+          first.startsWith("/api/games/") &&
+          first.endsWith("/play-sessions")
+        );
+      },
+    });
   };
 
   const toggle = useMutation({

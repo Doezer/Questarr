@@ -200,6 +200,24 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
     });
   });
 
+  it("keeps the window open for a finished session Steam has not reported yet", async () => {
+    owned(600);
+    await sync.syncSteamPlaytime(userId, { now: T0 });
+    await ctx.storage.addGamePlaySession({
+      gameId,
+      userId,
+      startedAt: minutesLater(10),
+      endedAt: minutesLater(40),
+      source: "manual",
+    });
+    // Steam has not caught up at this sync, then reports the 30 minutes at the next one.
+    await sync.syncSteamPlaytime(userId, { now: hours(1) });
+    owned(630);
+    expect(await sync.syncSteamPlaytime(userId, { now: hours(2) })).toMatchObject({
+      sessionsAdded: 0,
+    });
+  });
+
   it("follows a total that Steam lowers without creating a session", async () => {
     owned(600);
     await sync.syncSteamPlaytime(userId, { now: T0 });

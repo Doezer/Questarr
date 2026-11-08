@@ -194,11 +194,13 @@ export async function syncSteamPlaytime(
       storage.getUserGames(userId, true),
       storage.getRunningPlaySession(userId),
     ]);
-    /** A finished session that is not Steam's own ended after `since`. */
-    const hasRecordedSince = async (gameId: string, since: number) =>
-      (await storage.getGamePlaySessions(gameId, userId)).some(
-        (s) => s.source !== "steam" && s.endedAt && s.endedAt.getTime() > since
-      );
+    // Games with a finished session that is not Steam's own, ended after the last sync. Loaded
+    // once: a per-game query for every unchanged game would cost one query per library entry.
+    const recordedSince = new Set(
+      (await storage.getUserPlaySessions(userId))
+        .filter((s) => s.source !== "steam" && s.endedAt && s.endedAt.getTime() > sinceMs)
+        .map((s) => s.gameId)
+    );
 
     const baselines: Record<string, number> = {};
     const deferred: Record<string, number> = {};
@@ -238,7 +240,7 @@ export async function syncSteamPlaytime(
         baselines[appKey] = total;
         // Time recorded since the last sync that Steam has not reported yet: keep its window open
         // so the next growth is not added on top of it.
-        if (deferred[appKey] === undefined && (await hasRecordedSince(game.id, sinceMs))) {
+        if (deferred[appKey] === undefined && recordedSince.has(game.id)) {
           deferred[appKey] = sinceMs;
         }
         continue;

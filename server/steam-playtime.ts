@@ -234,11 +234,13 @@ export async function syncSteamPlaytime(
       const recorded = (await storage.getGamePlaySessions(game.id, userId))
         .filter((s) => s.endedAt && s.endedAt.getTime() > from)
         .reduce((sum, s) => {
-          // A session that began before the window only counts for its part inside it. Steam's own
-          // sessions are estimates ending at a sync time, so they always count in full.
-          const start =
-            s.source === "steam" || s.startedAt.getTime() >= from ? s.startedAt : new Date(from);
-          return sum + sessionMinutes(start, s.endedAt!);
+          // A session only counts for its part inside the window [from, now]; the rest belongs to
+          // the previous or the next window. Steam's own sessions are estimates ending at a sync
+          // time, so they always count in full.
+          if (s.source === "steam") return sum + sessionMinutes(s.startedAt, s.endedAt!);
+          const start = s.startedAt.getTime() >= from ? s.startedAt : new Date(from);
+          const end = s.endedAt!.getTime() <= now.getTime() ? s.endedAt! : now;
+          return end.getTime() > start.getTime() ? sum + sessionMinutes(start, end) : sum;
         }, 0);
       const net = delta - recorded;
       baselines[appKey] = total;

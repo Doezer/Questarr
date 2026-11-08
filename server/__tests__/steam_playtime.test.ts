@@ -312,6 +312,24 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
     });
   });
 
+  it("does not subtract the part of a session that ends after the sync time", async () => {
+    owned(600);
+    await sync.syncSteamPlaytime(userId, { now: T0 });
+    // Ends 20 minutes after the next sync: only its first 40 minutes belong to this window.
+    await ctx.storage.addGamePlaySession({
+      gameId,
+      userId,
+      startedAt: minutesLater(80),
+      endedAt: minutesLater(140),
+      source: "manual",
+    });
+    owned(660);
+    expect(await sync.syncSteamPlaytime(userId, { now: minutesLater(120) })).toMatchObject({
+      sessionsAdded: 1,
+      minutesAdded: 20,
+    });
+  });
+
   it("drops a run whose Steam account was replaced while it was in flight", async () => {
     owned(600);
     await sync.syncSteamPlaytime(userId, { now: T0 });

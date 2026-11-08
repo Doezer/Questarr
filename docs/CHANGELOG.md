@@ -24,10 +24,11 @@ All notable changes to this project will be documented in this file.
 - **xREL checks**: a malformed xREL response is treated as unavailable, never as an empty result (#1305). A release missing from a full, truncated xREL list is reported as unknown instead of not found (#1309). xREL results are kept across long auto-search intervals and large wanted lists (#1307). The trust badge says that p2p releases cannot be checked for nukes (#1306).
 - **Large archive imports**: archive listings are streamed, so valid archives with a long file list no longer fail on a size limit (#1300, thanks @JEFF7712).
 - **Path checks**: the sensitive-path guard also rejects Windows system paths, the `ADMIN$` share and the macOS `/private/etc` alias, and SeerrNG assets are validated against your real library roots (#1304).
+- **Apprise destinations**: the Apprise API URL and each notification URL are checked before they are saved and again before each send. Local network addresses still work; cloud metadata and other blocked addresses are refused with an "Invalid or unsafe" error, and an unsafe notification URL already saved is skipped with a warning (#1314).
 
 ### Dependencies
 
-- Dependency updates: #1297, #1298, #1299, #1313, #1319.
+- Dependency updates: #1297, #1298, #1299, #1313, #1319, #1321.
 
 ## [1.6.0] - 2026-10-31
 

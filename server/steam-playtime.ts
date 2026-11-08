@@ -210,13 +210,19 @@ export async function syncSteamPlaytime(
       }
 
       const from = state.deferred[appKey] ?? sinceMs;
+      // Every session since the last saved sync counts, Steam's own too: a run that inserted one
+      // and then failed before saving its baseline must not insert the same minutes again.
       const recorded = (await storage.getGamePlaySessions(game.id, userId))
-        .filter((s) => s.source !== "steam" && s.endedAt && s.endedAt.getTime() > from)
+        .filter((s) => s.endedAt && s.endedAt.getTime() > from)
         .reduce((sum, s) => sum + sessionMinutes(s.startedAt, s.endedAt!), 0);
       const net = delta - recorded;
       baselines[appKey] = total;
       if (net <= 0) continue;
 
+      // The sync was turned on or off since this run began: its result is stale, so write nothing.
+      if ((await readState(userId)).epoch !== state.epoch) {
+        return { sessionsAdded, minutesAdded, baselined };
+      }
       await storage.addGamePlaySession({
         gameId: game.id,
         userId,

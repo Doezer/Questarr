@@ -225,6 +225,8 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
       return new Map([[1145360, 700]]);
     });
     await sync.syncSteamPlaytime(userId, { now: hours(2) });
+    // Nothing is recorded for a run the user switched off.
+    expect(await steamSessions()).toHaveLength(0);
     const status = await sync.getSteamPlaytimeStatus(userId);
     expect(status.enabled).toBe(false);
     expect(status.lastSyncAt).toBeNull();
@@ -234,6 +236,29 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
     expect(await sync.syncSteamPlaytime(userId, { now: hours(4) })).toMatchObject({
       sessionsAdded: 0,
       baselined: 1,
+    });
+  });
+
+  it("does not insert the same minutes twice when saving the state failed", async () => {
+    owned(600);
+    await sync.syncSteamPlaytime(userId, { now: T0 });
+    owned(690);
+    const save = vi
+      .spyOn(ctx.storage, "setSystemConfig")
+      .mockRejectedValueOnce(new Error("disk full"));
+    try {
+      await expect(sync.syncSteamPlaytime(userId, { now: hours(2) })).rejects.toThrow("disk full");
+    } finally {
+      save.mockRestore();
+    }
+    expect(await steamSessions()).toHaveLength(1);
+    // The retry finds the first run's session and adds nothing on top of it.
+    await sync.syncSteamPlaytime(userId, { now: hours(3) });
+    expect(await steamSessions()).toHaveLength(1);
+    owned(720);
+    expect(await sync.syncSteamPlaytime(userId, { now: hours(4) })).toMatchObject({
+      sessionsAdded: 1,
+      minutesAdded: 30,
     });
   });
 

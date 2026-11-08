@@ -233,7 +233,13 @@ export async function syncSteamPlaytime(
       // and then failed before saving its baseline must not insert the same minutes again.
       const recorded = (await storage.getGamePlaySessions(game.id, userId))
         .filter((s) => s.endedAt && s.endedAt.getTime() > from)
-        .reduce((sum, s) => sum + sessionMinutes(s.startedAt, s.endedAt!), 0);
+        .reduce((sum, s) => {
+          // A session that began before the window only counts for its part inside it. Steam's own
+          // sessions are estimates ending at a sync time, so they always count in full.
+          const start =
+            s.source === "steam" || s.startedAt.getTime() >= from ? s.startedAt : new Date(from);
+          return sum + sessionMinutes(start, s.endedAt!);
+        }, 0);
       const net = delta - recorded;
       baselines[appKey] = total;
       if (net <= 0) continue;

@@ -429,5 +429,18 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
       expect(failed.status).toBe(502);
       expect(failed.body.status.lastError).toBeTruthy();
     });
+
+    it("answers 500 with a fixed message for a non-Steam failure", async () => {
+      const read = vi
+        .spyOn(ctx.storage, "getUserGames")
+        .mockRejectedValueOnce(new Error("db path"));
+      try {
+        const failed = await request(app).post("/api/steam/playtime/sync");
+        expect(failed.status).toBe(500);
+        expect(JSON.stringify(failed.body)).not.toContain("db path");
+      } finally {
+        read.mockRestore();
+      }
+    });
   });
 });

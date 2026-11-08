@@ -63,7 +63,9 @@ estimated"). It needs a saved Steam ID, `STEAM_API_KEY` on the server and public
 - A total that Steam lowers is followed without creating a session.
 - Estimated sessions count in the totals, the weekly and monthly charts and the per-game and per-genre
   figures, but **not** in the longest session or the streaks, because they say nothing about when or how
-  long one sitting lasted. A long gap between syncs shows up as one long session on the day it started.
+  long one sitting lasted. A sync that finds 90 new minutes adds one 90-minute session ending at the sync
+  time, whatever the gap since the previous sync. Charts place it on its inferred start date, which can
+  differ from the day you actually played, so read weekly and monthly totals with that in mind.
 - Other launchers (GOG, Epic, EA app, Ubisoft Connect) are not read directly. Play them through Playnite
   to get sessions from its extension.
 

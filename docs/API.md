@@ -457,11 +457,11 @@ router), both behind the global auth gate plus explicit `authenticateToken`.
 `server/steam-playtime-routes.ts` — turns the Steam play-time sync on or off and runs it. See
 [Play time](PLAY_TIME.md#steam-play-time). All routes require a JWT; responses are not cached.
 
-| Method | Path                       | Body                   | Response                                                                                                                                                                              |
-| ------ | -------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/steam/playtime`      | —                      | `{ available, enabled, lastSyncAt, lastSessionsAdded, lastMinutesAdded, lastError }`; `available` is false without `STEAM_API_KEY` or a saved Steam ID                                |
-| PUT    | `/api/steam/playtime`      | `{ enabled: boolean }` | The same status. Turning the sync on starts from fresh baselines; 400 on another body                                                                                                 |
-| POST   | `/api/steam/playtime/sync` | —                      | `{ result: { sessionsAdded, minutesAdded, baselined }, status }`; 400 if the sync is off or Steam is not set up; 409 if a sync is running; 502 `{ error, status }` on a Steam failure |
+| Method | Path                       | Body                   | Response                                                                                                                                                                                                                              |
+| ------ | -------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/steam/playtime`      | —                      | `{ available, enabled, lastSyncAt, lastSessionsAdded, lastMinutesAdded, lastError }`; `available` is false without `STEAM_API_KEY` or a saved Steam ID                                                                                |
+| PUT    | `/api/steam/playtime`      | `{ enabled: boolean }` | The same status. Turning the sync on starts from fresh baselines; 400 on another body                                                                                                                                                 |
+| POST   | `/api/steam/playtime/sync` | —                      | `{ result: { sessionsAdded, minutesAdded, baselined }, status }`; 400 if the sync is off or Steam is not set up; 409 if a sync is running; 502 `{ error, status }` on a Steam failure, 500 with a fixed message for any other failure |
 
 ### Owned Steam library
 

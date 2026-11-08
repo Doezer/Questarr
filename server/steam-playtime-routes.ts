@@ -8,6 +8,7 @@ import {
   syncSteamPlaytime,
   SteamPlaytimeBusyError,
   SteamPlaytimeUnavailableError,
+  SteamPlaytimeUpstreamError,
 } from "./steam-playtime.js";
 import type { User } from "../shared/schema.js";
 
@@ -63,8 +64,9 @@ steamPlaytimeRoutes.post(
       if (error instanceof SteamPlaytimeBusyError) {
         return res.status(409).json({ error: "A Steam play-time sync is already running." });
       }
-      return res.status(502).json({
-        error: error instanceof Error ? error.message : "Could not sync your Steam play time.",
+      const upstream = error instanceof SteamPlaytimeUpstreamError;
+      return res.status(upstream ? 502 : 500).json({
+        error: upstream ? error.message : "Could not sync your Steam play time.",
         status: await getSteamPlaytimeStatus(userId).catch(() => null),
       });
     }

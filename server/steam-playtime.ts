@@ -64,6 +64,8 @@ export interface SteamPlaytimeResult {
 
 export class SteamPlaytimeUnavailableError extends Error {}
 export class SteamPlaytimeBusyError extends Error {}
+/** Steam could not be read; the message is sanitized and safe to show. */
+export class SteamPlaytimeUpstreamError extends Error {}
 
 const key = (userId: string) => `steam.playtime.${userId}`;
 const running = new Set<string>();
@@ -88,10 +90,25 @@ async function writeState(userId: string, state: State): Promise<void> {
  * run read it (its result is then stale and the user's choice wins). Returns whether it saved.
  */
 async function persistRun(userId: string, epoch: number, patch: Partial<State>): Promise<boolean> {
-  const latest = await readState(userId);
-  if (latest.epoch !== epoch) return false;
-  await writeState(userId, { ...latest, ...patch });
-  return true;
+  return withStateLock(userId, async () => {
+    const latest = await readState(userId);
+    if (latest.epoch !== epoch) return false;
+    await writeState(userId, { ...latest, ...patch });
+    return true;
+  });
+}
+
+const stateQueues = new Map<string, Promise<unknown>>();
+
+/** Run read-modify-write steps on one user's state one after another (single process). */
+function withStateLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const run = (stateQueues.get(userId) ?? Promise.resolve()).then(fn);
+  const tail = run.catch(() => undefined);
+  stateQueues.set(userId, tail);
+  void tail.then(() => {
+    if (stateQueues.get(userId) === tail) stateQueues.delete(userId);
+  });
+  return run;
 }
 
 export async function getSteamPlaytimeStatus(userId: string): Promise<SteamPlaytimeStatus> {
@@ -111,18 +128,20 @@ export async function getSteamPlaytimeStatus(userId: string): Promise<SteamPlayt
  * period it was off is never imported as one large session.
  */
 export async function setSteamPlaytimeEnabled(userId: string, enabled: boolean): Promise<void> {
-  const state = await readState(userId);
-  if (state.enabled === enabled) return;
-  await writeState(userId, {
-    ...state,
-    enabled,
-    epoch: state.epoch + 1,
-    baselines: {},
-    deferred: {},
-    lastSyncAt: null,
-    lastSessionsAdded: 0,
-    lastMinutesAdded: 0,
-    lastError: null,
+  await withStateLock(userId, async () => {
+    const state = await readState(userId);
+    if (state.enabled === enabled) return;
+    await writeState(userId, {
+      ...state,
+      enabled,
+      epoch: state.epoch + 1,
+      baselines: {},
+      deferred: {},
+      lastSyncAt: null,
+      lastSessionsAdded: 0,
+      lastMinutesAdded: 0,
+      lastError: null,
+    });
   });
 }
 
@@ -164,7 +183,7 @@ export async function syncSteamPlaytime(
           ? error.message
           : "Could not read your Steam play time. Check the API key and make Game details public.";
       await persistRun(userId, state.epoch, { lastError: message });
-      throw new Error(message, { cause: error });
+      throw new SteamPlaytimeUpstreamError(message, { cause: error });
     }
 
     const sinceMs = state.lastSyncAt ?? 0;

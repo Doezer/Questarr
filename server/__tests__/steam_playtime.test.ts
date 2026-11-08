@@ -217,6 +217,38 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
     });
   });
 
+  it("drops a run's result when the sync is turned off while it runs", async () => {
+    owned(600);
+    await sync.syncSteamPlaytime(userId, { now: T0 });
+    fixtures.playtimes.mockImplementationOnce(async () => {
+      await sync.setSteamPlaytimeEnabled(userId, false);
+      return new Map([[1145360, 700]]);
+    });
+    await sync.syncSteamPlaytime(userId, { now: hours(2) });
+    const status = await sync.getSteamPlaytimeStatus(userId);
+    expect(status.enabled).toBe(false);
+    expect(status.lastSyncAt).toBeNull();
+    // Turning it back on starts from fresh baselines, not the stale ones of the dropped run.
+    await sync.setSteamPlaytimeEnabled(userId, true);
+    owned(900);
+    expect(await sync.syncSteamPlaytime(userId, { now: hours(4) })).toMatchObject({
+      sessionsAdded: 0,
+      baselined: 1,
+    });
+  });
+
+  it("keeps a toggle made while a failing run is in flight", async () => {
+    fixtures.playtimes.mockImplementationOnce(async () => {
+      await sync.setSteamPlaytimeEnabled(userId, false);
+      throw new Error("boom");
+    });
+    await expect(sync.syncSteamPlaytime(userId, { now: T0 })).rejects.toThrow();
+    expect(await sync.getSteamPlaytimeStatus(userId)).toMatchObject({
+      enabled: false,
+      lastError: null,
+    });
+  });
+
   it("remembers a Steam failure without leaking its message", async () => {
     fixtures.playtimes.mockRejectedValueOnce(new Error("https://x/?key=secret"));
     await expect(sync.syncSteamPlaytime(userId, { now: T0 })).rejects.toThrow(/Steam play time/);

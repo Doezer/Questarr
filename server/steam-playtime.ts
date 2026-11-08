@@ -24,6 +24,11 @@ export const STEAM_PLAYTIME_MIN_GAP_MS = 30 * 60 * 1000;
 
 const stateSchema = z.object({
   enabled: z.boolean().default(false),
+  /**
+   * Bumped whenever the sync is turned on or off. A run that started under an older value must
+   * not write its result back: that would undo the user's toggle or restore stale baselines.
+   */
+  epoch: z.number().int().nonnegative().default(0),
   /** `steamAppId` → cumulative minutes at the last sync. */
   baselines: z.record(z.string(), z.number().int().nonnegative()).default({}),
   /**
@@ -76,6 +81,17 @@ async function writeState(userId: string, state: State): Promise<void> {
   await storage.setSystemConfig(key(userId), JSON.stringify(state));
 }
 
+/**
+ * Save a run's outcome on top of the newest state, unless the sync was turned on or off since the
+ * run read it (its result is then stale and the user's choice wins). Returns whether it saved.
+ */
+async function persistRun(userId: string, epoch: number, patch: Partial<State>): Promise<boolean> {
+  const latest = await readState(userId);
+  if (latest.epoch !== epoch) return false;
+  await writeState(userId, { ...latest, ...patch });
+  return true;
+}
+
 export async function getSteamPlaytimeStatus(userId: string): Promise<SteamPlaytimeStatus> {
   const [state, user] = await Promise.all([readState(userId), storage.getUser(userId)]);
   return {
@@ -98,6 +114,7 @@ export async function setSteamPlaytimeEnabled(userId: string, enabled: boolean):
   await writeState(userId, {
     ...state,
     enabled,
+    epoch: state.epoch + 1,
     baselines: {},
     deferred: {},
     lastSyncAt: null,
@@ -139,7 +156,7 @@ export async function syncSteamPlaytime(
         error instanceof Error && error.message.startsWith("Steam library unavailable")
           ? error.message
           : "Could not read your Steam play time. Check the API key and make Game details public.";
-      await writeState(userId, { ...state, lastError: message });
+      await persistRun(userId, state.epoch, { lastError: message });
       throw new Error(message, { cause: error });
     }
 
@@ -204,8 +221,7 @@ export async function syncSteamPlaytime(
       minutesAdded += net;
     }
 
-    await writeState(userId, {
-      ...state,
+    await persistRun(userId, state.epoch, {
       baselines,
       deferred,
       lastSyncAt: now.getTime(),

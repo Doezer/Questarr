@@ -11,7 +11,7 @@ import {
   validateRequest,
 } from "./middleware.js";
 import { insertManualPlaySessionSchema, type User } from "../shared/schema.js";
-import { computePlayStats } from "../shared/play-stats.js";
+import { computePlayStats, isValidTimeZone } from "../shared/play-stats.js";
 
 const router = Router();
 
@@ -212,21 +212,40 @@ router.post(
   }
 );
 
-/** Play-time analytics. `tz` is the browser's `getTimezoneOffset()`, so days follow its clock. */
+/** True when `value` is a usable `getTimezoneOffset()` query value. */
+function hasValidOffset(value: unknown): boolean {
+  if (typeof value !== "string" || !/^[+-]?\d+$/.test(value)) return false;
+  const minutes = Number.parseInt(value, 10);
+  return minutes >= -840 && minutes <= 840;
+}
+
+/**
+ * Play-time analytics. Days follow the viewer's clock: `timeZone` (IANA name, DST-aware) wins over
+ * `tz` (the browser's `getTimezoneOffset()`, kept for older clients).
+ */
 router.get(
   "/api/stats/play-time",
   authenticateToken,
   query("tz").optional().isInt({ min: -840, max: 840 }).withMessage("Invalid time zone offset"),
+  query("timeZone")
+    .optional()
+    .isString()
+    .isLength({ max: 64 })
+    // A zone this runtime does not know is tolerated when a valid `tz` offset comes along.
+    .custom((value: string, { req }) => isValidTimeZone(value) || hasValidOffset(req.query?.tz))
+    .withMessage("Invalid time zone"),
   validateRequest,
   async (req: Request, res: Response) => {
     try {
       const user = req.user as User;
-      const tz = typeof req.query.tz === "string" ? Number.parseInt(req.query.tz, 10) : 0;
+      const offset = typeof req.query.tz === "string" ? Number.parseInt(req.query.tz, 10) : 0;
+      const named = req.query.timeZone;
+      const zone = typeof named === "string" && isValidTimeZone(named) ? named : offset;
       const [sessions, games] = await Promise.all([
         storage.getUserPlaySessions(user.id),
         storage.getUserGames(user.id, true),
       ]);
-      return res.json(computePlayStats(sessions, games, new Date(), tz));
+      return res.json(computePlayStats(sessions, games, new Date(), zone));
     } catch (error) {
       routesLogger.error({ error }, "Error computing play-time stats");
       return res.status(500).json({ error: "Failed to compute play-time stats" });

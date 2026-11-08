@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Play time**: start and stop a timer on a playing game or add a session by hand; sessions appear in the game's Playtime section and journal, and the Statistics page shows hours per week and month, most played games, genres, platforms and streaks. Days follow your time zone with daylight saving time applied per session (#1318, #1320, Questarr-mgmt#71, Questarr-mgmt#84). See [Play time](PLAY_TIME.md).
+- **Playnite play time**: the Playnite extension (1.1.0) can send each finished session to the new `POST /api/integration/play-sessions` route. The end is the moment the game closed and the start is derived from the duration Playnite reports, so a session near midnight can land on the neighbouring day. Off by default; sessions that fail for a retryable reason (server unreachable, rate limit, server error) wait in a bounded local queue of 200 entries, and rejected ones are dropped (Questarr-mgmt#83).
 - **Persistent classification cache**: release verdicts are now kept in the database as well as in memory (7 days, 20,000 rows, pruned hourly), for every classification mode and for the historical Jev check, so a restart or a Docker update no longer repeats paid cloud calls. A new model, provider endpoint or model, mode, confidence bar or pipeline version never reuses an older verdict, a failing layer's answer is never stored, and **Settings → Release classification → Clear classification cache** empties it (Questarr-mgmt#59).
 
 ## [1.6.0] - 2026-10-31

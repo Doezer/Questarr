@@ -29,6 +29,8 @@ const stateSchema = z.object({
    * not write its result back: that would undo the user's toggle or restore stale baselines.
    */
   epoch: z.number().int().nonnegative().default(0),
+  /** The Steam ID the baselines belong to; another account's totals are never compared with them. */
+  steamId: z.string().nullable().default(null),
   /** `steamAppId` → cumulative minutes at the last sync. */
   baselines: z.record(z.string(), z.number().int().nonnegative()).default({}),
   /**
@@ -138,7 +140,12 @@ export async function syncSteamPlaytime(
     const user = await storage.getUser(userId);
     if (!config.steam.isConfigured || !user?.steamId64) throw new SteamPlaytimeUnavailableError();
 
-    const state = await readState(userId);
+    const stored = await readState(userId);
+    // The user linked another Steam account: its totals must not be compared with the old one's.
+    const state: State =
+      stored.steamId === user.steamId64
+        ? stored
+        : { ...stored, steamId: user.steamId64, baselines: {}, deferred: {}, lastSyncAt: null };
     if (
       !force &&
       state.lastSyncAt &&
@@ -222,6 +229,7 @@ export async function syncSteamPlaytime(
     }
 
     await persistRun(userId, state.epoch, {
+      steamId: user.steamId64,
       baselines,
       deferred,
       lastSyncAt: now.getTime(),

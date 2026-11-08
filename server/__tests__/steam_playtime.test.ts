@@ -249,6 +249,26 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
     });
   });
 
+  it("starts from fresh baselines when another Steam account is linked", async () => {
+    owned(600);
+    await sync.syncSteamPlaytime(userId, { now: T0 });
+    await ctx.storage.updateUserSteamId(userId, "76561198000000001");
+    try {
+      owned(5000);
+      expect(await sync.syncSteamPlaytime(userId, { now: hours(2) })).toMatchObject({
+        sessionsAdded: 0,
+        baselined: 1,
+      });
+      owned(5060);
+      expect(await sync.syncSteamPlaytime(userId, { now: hours(4) })).toMatchObject({
+        sessionsAdded: 1,
+        minutesAdded: 60,
+      });
+    } finally {
+      await ctx.storage.updateUserSteamId(userId, "76561198000000000");
+    }
+  });
+
   it("remembers a Steam failure without leaking its message", async () => {
     fixtures.playtimes.mockRejectedValueOnce(new Error("https://x/?key=secret"));
     await expect(sync.syncSteamPlaytime(userId, { now: T0 })).rejects.toThrow(/Steam play time/);

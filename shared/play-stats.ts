@@ -11,6 +11,12 @@ export interface PlaySessionInput {
   startedAt: Date;
   /** `null` while the timer is still running; such sessions are left out of the totals. */
   endedAt: Date | null;
+  /**
+   * Where the session came from. `steam` sessions are estimates built from playtime deltas:
+   * their minutes count in the totals, but they say nothing about when or how long one sitting
+   * lasted, so they stay out of the longest session and the streaks.
+   */
+  source?: string | null;
 }
 
 export interface PlayGameInput {
@@ -204,9 +210,12 @@ export function computePlayStats(
     // ...but only real time feeds the time-based statistics.
     if (minutes <= 0) continue;
     const local = toLocal(session.startedAt);
+    const estimated = session.source === "steam";
 
     totalMinutes += minutes;
-    if (!longest || minutes > longest.minutes) longest = { gameId: session.gameId, minutes };
+    if (!estimated && (!longest || minutes > longest.minutes)) {
+      longest = { gameId: session.gameId, minutes };
+    }
     entry.minutes += minutes;
 
     const game = gameById.get(session.gameId);
@@ -219,7 +228,7 @@ export function computePlayStats(
 
     addToDays(weekMinutes, new Date(weekStart(local) * DAY_MS), minutes);
     addToDays(monthMinutes, new Date(monthStart(local) * DAY_MS), minutes);
-    activeDays.add(dayNumber(local));
+    if (!estimated) activeDays.add(dayNumber(local));
   }
 
   const localNow = toLocal(now);

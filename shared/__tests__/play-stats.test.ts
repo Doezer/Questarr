@@ -173,3 +173,29 @@ describe("computePlayStats", () => {
     expect(lapsed.currentStreakDays).toBe(0);
   });
 });
+
+describe("computePlayStats with estimated Steam sessions", () => {
+  it("counts their minutes but keeps them out of the longest session and the streaks", () => {
+    const estimated = { ...session("a", "2026-11-04T08:00:00Z", 600), source: "steam" };
+    const real = { ...session("b", "2026-11-02T20:00:00Z", 45), source: "manual" };
+    const stats = computePlayStats([estimated, real], games, NOW);
+    expect(stats.totalMinutes).toBe(645);
+    expect(stats.longestSession).toMatchObject({ gameId: "b", minutes: 45 });
+    // Only the manual day counts: Nov 2 is neither today nor yesterday, so the run is over.
+    expect(stats.currentStreakDays).toBe(0);
+    expect(stats.longestStreakDays).toBe(1);
+    expect(stats.topGames[0]).toMatchObject({ gameId: "a", minutes: 600 });
+    expect(stats.perWeek.at(-1)?.minutes).toBe(645);
+  });
+
+  it("has no longest session when every session is estimated", () => {
+    const stats = computePlayStats(
+      [{ ...session("a", "2026-11-04T08:00:00Z", 90), source: "steam" }],
+      games,
+      NOW
+    );
+    expect(stats.totalMinutes).toBe(90);
+    expect(stats.longestSession).toBeNull();
+    expect(stats.longestStreakDays).toBe(0);
+  });
+});

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { SteamLibraryImport } from "@/components/SteamLibraryImport";
+import { SteamPlaytimeSync } from "@/components/SteamPlaytimeSync";
 import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -1953,6 +1954,8 @@ export default function SettingsPage() {
             </Card>
 
             <SteamLibraryImport />
+
+            <SteamPlaytimeSync />
 
             {/* Nexus Mods Card */}
             <Card id="nexusmods-config">

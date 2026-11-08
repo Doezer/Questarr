@@ -452,6 +452,17 @@ router), both behind the global auth gate plus explicit `authenticateToken`.
 | PATCH  | `/api/user/steam-id`       | JWT           | `{ steamId: string }` — must be a 17-digit SteamID64 starting with `7656` (`steamService.validateSteamId`) | `{ success: true, steamId }`; 400 if missing/invalid format                                              |
 | POST   | `/api/steam/wishlist/sync` | JWT           | —                                                                                                          | `{ success, addedCount, games }` (via `syncUserSteamWishlist`); 400 if Steam ID not linked or sync fails |
 
+### Steam play time
+
+`server/steam-playtime-routes.ts` — turns the Steam play-time sync on or off and runs it. See
+[Play time](PLAY_TIME.md#steam-play-time). All routes require a JWT; responses are not cached.
+
+| Method | Path                       | Body                   | Response                                                                                                                                                                              |
+| ------ | -------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/steam/playtime`      | —                      | `{ available, enabled, lastSyncAt, lastSessionsAdded, lastMinutesAdded, lastError }`; `available` is false without `STEAM_API_KEY` or a saved Steam ID                                |
+| PUT    | `/api/steam/playtime`      | `{ enabled: boolean }` | The same status. Turning the sync on starts from fresh baselines; 400 on another body                                                                                                 |
+| POST   | `/api/steam/playtime/sync` | —                      | `{ result: { sessionsAdded, minutesAdded, baselined }, status }`; 400 if the sync is off or Steam is not set up; 409 if a sync is running; 502 `{ error, status }` on a Steam failure |
+
 ### Owned Steam library
 
 `server/steam-library-routes.ts` — preview and import endpoints.

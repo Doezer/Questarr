@@ -315,6 +315,7 @@ import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { steamLibraryRoutes } from "./steam-library-routes.js";
+import { steamPlaytimeRoutes } from "./steam-playtime-routes.js";
 import { releaseScoringRoutes } from "./release-scoring-routes.js";
 import { classificationCandidatesRoutes } from "./classification-candidates-routes.js";
 import { classificationSettingsRoutes } from "./classification-settings-routes.js";
@@ -1130,6 +1131,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Use Steam Routes
   app.use(steamRoutes);
   app.use(steamLibraryRoutes);
+  app.use(steamPlaytimeRoutes);
   app.use(releaseScoringRoutes);
   app.use(classificationCandidatesRoutes);
   app.use(classificationSettingsRoutes);

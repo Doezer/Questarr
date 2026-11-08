@@ -4238,6 +4238,7 @@ describe("API Routes - Extended Coverage", () => {
       });
       vi.mocked(appriseClient.configure).mockClear();
       vi.mocked(appriseClient.test).mockResolvedValue({ success: true });
+      vi.spyOn(ssrfModule, "isSafeUrl").mockResolvedValue(true);
     });
 
     afterEach(() => {
@@ -4245,6 +4246,7 @@ describe("API Routes - Extended Coverage", () => {
       vi.mocked(storage.setSystemConfig).mockReset();
       vi.mocked(appriseClient.configure).mockReset();
       vi.mocked(appriseClient.test).mockReset();
+      vi.restoreAllMocks();
     });
 
     it("should return the saved mode and settings", async () => {
@@ -4343,6 +4345,87 @@ describe("API Routes - Extended Coverage", () => {
         .send({ mode: "invalid", apiUrl: "http://apprise:8000" });
 
       expect(response.status).toBe(400);
+    });
+
+    it("should reject an unsafe apiUrl", async () => {
+      vi.mocked(ssrfModule.isSafeUrl).mockResolvedValueOnce(false);
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "api", apiUrl: "http://unsafe.com", key: "config-key" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid or unsafe API URL");
+      expect(storage.setSystemConfig).not.toHaveBeenCalled();
+    });
+
+    it("should pass the canonicalized apiUrl to the safety check", async () => {
+      vi.mocked(ssrfModule.isSafeUrl).mockResolvedValueOnce(false);
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "api", apiUrl: "HTTP://Unsafe.COM:8000/", key: "config-key" });
+
+      expect(response.status).toBe(400);
+      expect(vi.mocked(ssrfModule.isSafeUrl).mock.calls[0]?.[0]).toBe("http://unsafe.com:8000/");
+      expect(storage.setSystemConfig).not.toHaveBeenCalled();
+    });
+
+    it("should reject a CLI notification URL with an unsafe host", async () => {
+      vi.mocked(ssrfModule.isSafeUrl).mockResolvedValueOnce(false);
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "cli", urls: "json://169.254.169.254/notify" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid or unsafe notification URL");
+      expect(storage.setSystemConfig).not.toHaveBeenCalled();
+    });
+
+    it("should reject TLS webhook aliases and self-hosted schemes with unsafe hosts", async () => {
+      vi.mocked(ssrfModule.isSafeUrl).mockResolvedValueOnce(false);
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "cli", urls: "jsons://169.254.169.254/notify\ngotify://169.254.169.254/t" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid or unsafe notification URL");
+      expect(vi.mocked(ssrfModule.isSafeUrl).mock.calls[0]?.[0]).toBe(
+        "https://169.254.169.254/notify"
+      );
+      expect(storage.setSystemConfig).not.toHaveBeenCalled();
+    });
+
+    it("should reject a CLI notification URL with an unsafe URL-valued plugin parameter", async () => {
+      vi.mocked(ssrfModule.isSafeUrl).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+      const response = await request(app).post("/api/settings/apprise").send({
+        mode: "cli",
+        urls: "mailto://user@example.com?pgppub=http://169.254.169.254/latest/",
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid or unsafe notification URL");
+      expect(vi.mocked(ssrfModule.isSafeUrl)).toHaveBeenNthCalledWith(
+        2,
+        "http://169.254.169.254/latest/",
+        { allowPrivate: true }
+      );
+      expect(storage.setSystemConfig).not.toHaveBeenCalled();
+    });
+
+    it("should validate network-scheme CLI notification URLs and skip the rest", async () => {
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "cli", urls: "json://gotify.example.com/notify\ndiscord://webhook" });
+
+      expect(response.status).toBe(200);
+      expect(vi.mocked(ssrfModule.isSafeUrl)).toHaveBeenCalledWith(
+        "https://gotify.example.com/notify",
+        { allowPrivate: true }
+      );
+      expect(vi.mocked(ssrfModule.isSafeUrl)).toHaveBeenCalledTimes(1);
+      expect(storage.setSystemConfig).toHaveBeenCalledWith(
+        "apprise.urls",
+        "json://gotify.example.com/notify\ndiscord://webhook"
+      );
     });
 
     it("should reject non-string payload fields instead of crashing", async () => {

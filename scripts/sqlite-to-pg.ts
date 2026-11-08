@@ -62,6 +62,8 @@ const TABLE_ORDER = [
   "importTaskItems",
   "collections",
   "collectionGames",
+  "tags",
+  "gameTags",
   "gameJournalEntries",
   "gameMilestones",
   "gamePlaySessions",

@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { appriseClient } from "../apprise.js";
-import { safeFetch } from "../ssrf.js";
+import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { Notification } from "../../shared/schema.js";
 import { config } from "../config.js";
 
@@ -20,9 +20,14 @@ vi.mock("../logger.js", () => ({
   },
 }));
 
-vi.mock("../ssrf.js", () => ({
-  safeFetch: vi.fn(),
-}));
+vi.mock("../ssrf.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../ssrf.js")>();
+  return {
+    ...actual,
+    safeFetch: vi.fn(),
+    isSafeUrl: vi.fn(),
+  };
+});
 
 vi.mock("child_process", () => {
   const execFileMock = vi.fn();
@@ -57,6 +62,7 @@ describe("Apprise client", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(isSafeUrl).mockResolvedValue(true);
     appriseClient.configure({ mode: "api", apiUrl: null, key: null, urls: null });
   });
 
@@ -243,6 +249,78 @@ describe("Apprise client", () => {
     // Credentialed URLs are written to a private temp config file, not argv.
     expect(capturedArgs.join(" ")).not.toContain("discord://webhook");
     expect(capturedConfigContent).toBe("discord://webhook\npushover://token@user\n");
+  });
+
+  it("does not dispatch persisted CLI URLs that fail validation", async () => {
+    let capturedConfigContent = "";
+    vi.mocked(isSafeUrl).mockResolvedValueOnce(false);
+    vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+      const callArgs = args[1] as string[];
+      const configIndex = callArgs.indexOf("-c");
+      capturedConfigContent = readFileSync(callArgs[configIndex + 1], "utf8");
+      const callback = args[3] as (error: Error | null, stdout: string, stderr: string) => void;
+      callback(null, "ok", "");
+      return {} as never;
+    });
+
+    appriseClient.configure({
+      mode: "cli",
+      apiUrl: null,
+      key: null,
+      urls: "jsons://169.254.169.254/notify\ndiscord://webhook",
+    });
+
+    await expect(appriseClient.send(notification)).resolves.toBeUndefined();
+
+    expect(vi.mocked(isSafeUrl)).toHaveBeenCalledWith("https://169.254.169.254/notify", {
+      allowPrivate: true,
+    });
+    expect(capturedConfigContent).toBe("discord://webhook\n");
+  });
+
+  it("skips persisted CLI URLs with an unsafe URL-valued plugin parameter", async () => {
+    vi.mocked(isSafeUrl).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+      const callback = args[3] as (error: Error | null, stdout: string, stderr: string) => void;
+      callback(null, "ok", "");
+      return {} as never;
+    });
+
+    appriseClient.configure({
+      mode: "cli",
+      apiUrl: null,
+      key: null,
+      urls: "mailto://user@example.com?pgp=encrypt&pgppub=http://169.254.169.254/latest/",
+    });
+
+    await expect(appriseClient.send(notification)).resolves.toBeUndefined();
+    expect(vi.mocked(isSafeUrl)).toHaveBeenNthCalledWith(2, "http://169.254.169.254/latest/", {
+      allowPrivate: true,
+    });
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing when every persisted CLI URL is unsafe", async () => {
+    vi.mocked(isSafeUrl).mockResolvedValue(false);
+    vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+      const callback = args[3] as (error: Error | null, stdout: string, stderr: string) => void;
+      callback(null, "ok", "");
+      return {} as never;
+    });
+
+    appriseClient.configure({
+      mode: "cli",
+      apiUrl: null,
+      key: null,
+      urls: "json://169.254.169.254/notify",
+    });
+
+    await expect(appriseClient.send(notification)).resolves.toBeUndefined();
+    await expect(appriseClient.test()).resolves.toEqual({
+      success: false,
+      error: "No notification URLs provided",
+    });
+    expect(execFile).not.toHaveBeenCalled();
   });
 
   it("passes the mapped notification type for non-info notifications", async () => {

@@ -116,6 +116,7 @@ import { encryptCredential } from "./credential-crypto.js";
 import {
   appriseClient,
   isAppriseConfigured,
+  isSafeAppriseDestination,
   normalizeAppriseMode,
   readAppriseSettings,
 } from "./apprise.js";
@@ -333,6 +334,7 @@ import { evaluateReleases } from "../shared/release-scoring.js";
 import { collectionRoutes } from "./collection-routes.js";
 import { gameJournalRoutes, screenshotDirForGame } from "./game-journal-routes.js";
 import { playSessionRoutes } from "./play-session-routes.js";
+import { default as tagRoutes } from "./tag-routes.js";
 import {
   getContentFilterFlags,
   isContentFiltered,
@@ -1135,6 +1137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(gameJournalRoutes);
   app.use(playSessionRoutes);
   app.use(collectionRoutes);
+  app.use(tagRoutes);
   // Use PCGamingWiki Routes
   app.use(pcgamingwikiRouter);
 
@@ -5351,13 +5354,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (apiUrl?.trim()) {
+        const trimmedUrl = apiUrl.trim();
+        let parsed: URL;
         try {
-          const parsed = new URL(apiUrl.trim());
-          if (!["http:", "https:"].includes(parsed.protocol)) {
-            return res.status(400).json({ error: "API URL must use http:// or https://" });
-          }
+          parsed = new URL(trimmedUrl);
         } catch {
           return res.status(400).json({ error: "API URL is not a valid URL" });
+        }
+        if (!["http:", "https:"].includes(parsed.protocol)) {
+          return res.status(400).json({ error: "API URL must use http:// or https://" });
+        }
+        if (!(await isSafeUrl(parsed.href, { allowPrivate: true }))) {
+          return res.status(400).json({ error: "Invalid or unsafe API URL" });
+        }
+      }
+      if (urls?.trim()) {
+        for (const line of urls.split(/\r?\n/)) {
+          const entry = line.trim();
+          if (!entry || entry.startsWith("#")) continue;
+          if (!(await isSafeAppriseDestination(entry))) {
+            return res.status(400).json({ error: "Invalid or unsafe notification URL" });
+          }
         }
       }
       await storage.setSystemConfig("apprise.mode", mode);

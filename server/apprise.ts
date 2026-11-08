@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { logger } from "./logger.js";
-import { safeFetch } from "./ssrf.js";
+import { isSafeUrl, safeFetch } from "./ssrf.js";
 import type { Notification } from "../shared/schema.js";
 import { config } from "./config.js";
 import { notificationUrl } from "./notification-links.js";
@@ -115,6 +115,69 @@ function parseAppriseUrls(urls: string | null): string[] {
     }
   }
   return result;
+}
+
+const APPRISE_FIXED_ENDPOINT_SCHEMES = new Set([
+  "discord:",
+  "slack:",
+  "tgram:",
+  "telegram:",
+  "pover:",
+  "pushbullet:",
+  "ifttt:",
+  "join:",
+]);
+
+function parseAppriseProbe(entry: string): URL | "fixed" | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(entry);
+  } catch {
+    return null;
+  }
+  if (APPRISE_FIXED_ENDPOINT_SCHEMES.has(parsed.protocol) || !parsed.host) {
+    return "fixed";
+  }
+  try {
+    return new URL(`https://${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`);
+  } catch {
+    return null;
+  }
+}
+
+async function areNestedParamUrlsSafe(probe: URL): Promise<boolean> {
+  for (const value of probe.searchParams.values()) {
+    const trimmed = value.trim();
+    if (!/^https?:\/\//i.test(trimmed)) continue;
+    let nested: URL;
+    try {
+      nested = new URL(trimmed);
+    } catch {
+      return false;
+    }
+    if (!(await isSafeUrl(nested.href, { allowPrivate: true }))) return false;
+  }
+  return true;
+}
+
+export async function isSafeAppriseDestination(entry: string): Promise<boolean> {
+  const probe = parseAppriseProbe(entry);
+  if (probe === null) return false;
+  if (probe === "fixed") return true;
+  if (!(await isSafeUrl(probe.href, { allowPrivate: true }))) return false;
+  return areNestedParamUrlsSafe(probe);
+}
+
+async function filterSafeAppriseUrls(urls: string[]): Promise<string[]> {
+  const safe: string[] = [];
+  for (const url of urls) {
+    if (await isSafeAppriseDestination(url)) {
+      safe.push(url);
+    } else {
+      appriseLogger.warn("Skipping unsafe Apprise notification URL");
+    }
+  }
+  return safe;
 }
 
 export function normalizeAppriseMode(value: string | null | undefined): AppriseMode {
@@ -343,7 +406,7 @@ class AppriseClient {
   }
 
   private async sendViaCli(notification: Notification): Promise<void> {
-    const urls = parseAppriseUrls(this.settings.urls);
+    const urls = await filterSafeAppriseUrls(parseAppriseUrls(this.settings.urls));
     if (urls.length === 0) {
       appriseLogger.warn("Apprise CLI is configured without notification URLs");
       return;
@@ -386,7 +449,7 @@ class AppriseClient {
     }
 
     if (this.settings.mode === "cli") {
-      const urls = parseAppriseUrls(this.settings.urls);
+      const urls = await filterSafeAppriseUrls(parseAppriseUrls(this.settings.urls));
       if (urls.length === 0) {
         return { success: false, error: "No notification URLs provided" };
       }

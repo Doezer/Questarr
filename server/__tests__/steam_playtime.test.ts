@@ -277,6 +277,55 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
     expect(JSON.stringify(status)).not.toContain("secret");
   });
 
+  describe("scheduled run", () => {
+    it("syncs users who turned it on, skips the others and survives a failure", async () => {
+      owned(600);
+      await sync.runScheduledSteamPlaytimeSync();
+      expect((await sync.getSteamPlaytimeStatus(userId)).lastSyncAt).not.toBeNull();
+      expect(fixtures.playtimes).toHaveBeenCalledTimes(1);
+
+      await sync.setSteamPlaytimeEnabled(userId, false);
+      await sync.runScheduledSteamPlaytimeSync();
+      expect(fixtures.playtimes).toHaveBeenCalledTimes(1);
+
+      await sync.setSteamPlaytimeEnabled(userId, true);
+      fixtures.playtimes.mockRejectedValueOnce(new Error("boom"));
+      await expect(sync.runScheduledSteamPlaytimeSync()).resolves.toBeUndefined();
+      expect((await sync.getSteamPlaytimeStatus(userId)).lastError).toBeTruthy();
+    });
+
+    it("does nothing without a Steam API key", async () => {
+      fixtures.steam.isConfigured = false;
+      await sync.runScheduledSteamPlaytimeSync();
+      expect(fixtures.playtimes).not.toHaveBeenCalled();
+    });
+  });
+
+  it("starts again from fresh baselines when the stored state is damaged", async () => {
+    await ctx.storage.setSystemConfig(`steam.playtime.${userId}`, "{not json");
+    expect((await sync.getSteamPlaytimeStatus(userId)).enabled).toBe(false);
+    await sync.setSteamPlaytimeEnabled(userId, true);
+    owned(600);
+    expect(await sync.syncSteamPlaytime(userId, { now: T0 })).toMatchObject({ baselined: 1 });
+  });
+
+  it("refuses a second sync while one is running", async () => {
+    let release: () => void = () => undefined;
+    fixtures.playtimes.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(new Map([[1145360, 600]]));
+        })
+    );
+    const first = sync.syncSteamPlaytime(userId, { now: T0 });
+    await vi.waitFor(() => expect(fixtures.playtimes).toHaveBeenCalled());
+    await expect(sync.syncSteamPlaytime(userId, { now: T0 })).rejects.toBeInstanceOf(
+      sync.SteamPlaytimeBusyError
+    );
+    release();
+    await first;
+  });
+
   describe("routes", () => {
     it("requires authentication", async () => {
       fixtures.user.id = "";
@@ -301,6 +350,33 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
       expect(done.body.status.lastSyncAt).not.toBeNull();
       await request(app).put("/api/steam/playtime").send({ enabled: false });
       expect((await request(app).post("/api/steam/playtime/sync")).status).toBe(400);
+    });
+
+    it("answers 409 while a sync is running and 500 when the state cannot be read", async () => {
+      let release: () => void = () => undefined;
+      fixtures.playtimes.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve(new Map([[1145360, 600]]));
+          })
+      );
+      const first = request(app)
+        .post("/api/steam/playtime/sync")
+        .then((response) => response);
+      await vi.waitFor(() => expect(fixtures.playtimes).toHaveBeenCalled());
+      expect((await request(app).post("/api/steam/playtime/sync")).status).toBe(409);
+      release();
+      expect((await first).status).toBe(200);
+
+      const read = vi.spyOn(ctx.storage, "getSystemConfig").mockRejectedValue(new Error("db"));
+      try {
+        expect((await request(app).get("/api/steam/playtime")).status).toBe(500);
+        expect((await request(app).put("/api/steam/playtime").send({ enabled: true })).status).toBe(
+          500
+        );
+      } finally {
+        read.mockRestore();
+      }
     });
 
     it("answers 400 without a Steam key or ID and 502 on a Steam failure", async () => {

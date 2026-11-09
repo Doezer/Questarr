@@ -13,7 +13,7 @@ import {
 } from "../shared/schema.js";
 
 const router = Router();
-const logger = routesLogger.child({ module: "tag-routes" });
+const logger = routesLogger;
 
 // Validation middleware
 const sanitizeTagIdParam = [
@@ -25,9 +25,24 @@ const sanitizeTagIdParam = [
 
 const validateTagBody = [
   body("name")
+    .optional()
     .trim()
     .isLength({ min: 1, max: 100 })
     .withMessage("Tag name must be between 1 and 100 characters"),
+  body("color")
+    .optional()
+    .trim()
+    .isLength({ max: 20 })
+    .withMessage("Color must be 20 characters or less"),
+];
+
+// For POST, both name and color validation
+const validateCreateTagBody = [
+  body("name")
+    .trim()
+    .notEmpty()
+    .isLength({ min: 1, max: 100 })
+    .withMessage("Tag name is required and must be between 1 and 100 characters"),
   body("color")
     .optional()
     .trim()
@@ -78,7 +93,7 @@ router.get(
 router.post(
   "/api/tags",
   authenticateToken,
-  ...validateTagBody,
+  ...validateCreateTagBody,
   validateRequest,
   async (req: Request, res: Response) => {
     try {
@@ -110,10 +125,14 @@ router.patch(
   ...validateTagBody,
   validateRequest,
   async (req: Request, res: Response) => {
+    // For PATCH, at least one field (name or color) must be provided
+    const { name, color } = req.body as { name?: string; color?: string };
+    if (!name && !color) {
+      return res.status(400).json({ error: "At least one field (name or color) must be provided" });
+    }
     try {
       const user = req.user as User;
       const { tagId } = req.params as { tagId: string };
-      const { name, color } = req.body as { name?: string; color?: string };
 
       // Validate using Zod schema
       const validated = updateTagSchema.parse({ name, color });
@@ -173,7 +192,15 @@ router.get(
   validateRequest,
   async (req: Request, res: Response) => {
     try {
+      const user = req.user as User;
       const { gameId } = req.params as { gameId: string };
+
+      // Verify the game exists and belongs to the user
+      const game = await storage.getGame(gameId);
+      if (game?.userId !== user.id) {
+        return res.status(404).json({ error: "Game not found" });
+      }
+
       const gameTags = await storage.getGameTags(gameId);
 
       // Get full tag details for each tag ID
@@ -188,7 +215,7 @@ router.get(
         tag: tagsMap.get(gt.tagId),
       }));
 
-      logger.info(`Fetched ${result.length} tags for game ${gameId}`);
+      logger.info(`User ${user.id} fetched ${result.length} tags for game ${gameId}`);
       return res.json(result);
     } catch (error) {
       logger.error({ error }, "Failed to get game tags");
@@ -212,6 +239,12 @@ router.post(
       const user = req.user as User;
       const { gameId } = req.params as { gameId: string };
       const { tagId } = req.body as { tagId: string };
+
+      // Verify the game exists and belongs to the user
+      const game = await storage.getGame(gameId);
+      if (game?.userId !== user.id) {
+        return res.status(404).json({ error: "Game not found" });
+      }
 
       // Verify the tag exists and belongs to the user
       const tag = await storage.getTag(tagId, user.id);

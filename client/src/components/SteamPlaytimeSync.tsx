@@ -82,7 +82,7 @@ export function SteamPlaytimeSync() {
       <p className="text-xs text-muted-foreground">
         Estimated sessions count in your totals but not in the longest session or the streaks. Time
         you already entered by hand, with the timer or from Playnite is not counted twice. Requires
-        a saved Steam ID, STEAM_API_KEY on the server, and public Steam Game details.
+        a saved Steam ID, a Steam Web API key, and public Steam Game details.
       </p>
 
       <div className="flex items-center justify-between gap-4">
@@ -99,7 +99,7 @@ export function SteamPlaytimeSync() {
 
       {status && !status.available && (
         <p className="text-sm text-muted-foreground">
-          Save your Steam ID above and set STEAM_API_KEY on the server to use this.
+          Save your Steam ID above and add a Steam Web API key in the Steam card to use this.
         </p>
       )}
 

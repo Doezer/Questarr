@@ -51,7 +51,7 @@ so these times are estimates and a session near midnight can land on the neighbo
 **Settings → Steam → Steam play time** records the time you play on Steam. Steam only reports a
 running total per game (`playtime_forever`), so Questarr remembers the last total it saw and, on each
 sync, adds the growth as **one session** that ends at the sync (source `steam`, shown as "Steam ·
-estimated"). It needs a saved Steam ID, `STEAM_API_KEY` on the server and public Steam "Game details".
+estimated"). It needs a saved Steam ID, a Steam Web API key (saved in **Settings → Steam** or set as `STEAM_API_KEY`) and public Steam "Game details".
 
 - It is **off by default**. Turning it on starts from your current totals: the first sync only notes
   them, and a game added to your library later is noted the same way, so no history is invented.

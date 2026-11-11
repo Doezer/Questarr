@@ -106,6 +106,7 @@ import {
 } from "./auth.js";
 import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
+import { getSteamApiKeySource, saveSteamApiKey } from "./steam-api-key.js";
 import {
   typesafeClient,
   TYPESAFE_URL_CONFIG_KEY,
@@ -5263,11 +5264,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Exposes only whether a Steam Web API key is configured server-side, so the
-  // client can conditionally show the achievements section in the game details
-  // Journal tab without ever seeing the key itself.
+  // Exposes only whether a Steam Web API key is configured server-side (and where it comes
+  // from), so the client can conditionally show the achievements section in the game details
+  // Journal tab and the Steam settings without ever seeing the key itself.
   app.get("/api/settings/steam", sensitiveEndpointLimiter, async (_req, res) => {
-    res.json({ apiKeyConfigured: appConfig.steam.isConfigured });
+    try {
+      res.json({
+        apiKeyConfigured: appConfig.steam.isConfigured,
+        source: await getSteamApiKeySource(),
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch Steam settings");
+      res.status(500).json({ error: "Failed to fetch Steam settings" });
+    }
+  });
+
+  // Save the Steam Web API key in Settings (it overrides STEAM_API_KEY); an empty value removes it.
+  app.post("/api/settings/steam", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { apiKey } = req.body as { apiKey?: unknown };
+      if (typeof apiKey !== "string") {
+        return res.status(400).json({ error: "apiKey must be a string" });
+      }
+      const trimmed = apiKey.trim();
+      if (trimmed && !/^[A-Za-z0-9]{16,128}$/.test(trimmed)) {
+        return res.status(400).json({
+          error: "That does not look like a Steam Web API key (letters and digits only).",
+        });
+      }
+      await saveSteamApiKey(trimmed || null);
+      routesLogger.info("Steam API key updated via settings");
+      return res.json({
+        apiKeyConfigured: appConfig.steam.isConfigured,
+        source: await getSteamApiKeySource(),
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update Steam settings");
+      return res.status(500).json({ error: "Failed to update Steam settings" });
+    }
   });
 
   app.post("/api/settings/discord", sensitiveEndpointLimiter, async (req, res) => {

@@ -412,6 +412,8 @@ export default function SettingsPage() {
   const [xrelApiBase, setXrelApiBase] = useState("");
   const [nexusApiKey, setNexusApiKey] = useState("");
   const [showNexusApiKey, setShowNexusApiKey] = useState(false);
+  const [steamApiKey, setSteamApiKey] = useState("");
+  const [showSteamApiKey, setShowSteamApiKey] = useState(false);
   const [typesafeApiUrl, setTypesafeApiUrl] = useState("");
   const [typesafeApiKey, setTypesafeApiKey] = useState("");
   const [typesafeModel, setTypesafeModel] = useState("");
@@ -627,6 +629,30 @@ export default function SettingsPage() {
       });
     }, 500);
   };
+
+  const { data: steamKeySettings } = useQuery<{
+    apiKeyConfigured: boolean;
+    source?: "env" | "database" | null;
+  }>({
+    queryKey: ["/api/settings/steam"],
+    queryFn: () => apiRequest("GET", "/api/settings/steam").then((r) => r.json()),
+  });
+
+  const updateSteamKeyMutation = useMutation({
+    mutationFn: async (apiKey: string) => {
+      const res = await apiRequest("POST", "/api/settings/steam", { apiKey });
+      return res.json();
+    },
+    onSuccess: (_data, apiKey) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/steam"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/steam/playtime"] });
+      setSteamApiKey("");
+      toast({ title: apiKey ? "Steam API key saved" : "Steam API key removed" });
+    },
+    onError: () => {
+      toast({ title: "Failed to save the Steam API key", variant: "destructive" });
+    },
+  });
 
   const updateNexusMutation = useMutation({
     mutationFn: async (apiKey: string) => {
@@ -1861,6 +1887,92 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-col space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="steam-api-key">Steam Web API key</Label>
+                      {steamKeySettings?.apiKeyConfigured ? (
+                        <Badge
+                          variant={steamKeySettings.source === "database" ? "default" : "secondary"}
+                        >
+                          {steamKeySettings.source === "database"
+                            ? "Saved here"
+                            : "Environment variable"}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">Not configured</Badge>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Input
+                          id="steam-api-key"
+                          type={showSteamApiKey ? "text" : "password"}
+                          autoComplete="off"
+                          placeholder={
+                            steamKeySettings?.apiKeyConfigured
+                              ? "Enter a new key to replace the current one"
+                              : "Enter your Steam Web API key"
+                          }
+                          value={steamApiKey}
+                          onChange={(e) => setSteamApiKey(e.target.value)}
+                          className="pr-10"
+                        />
+                        {steamApiKey && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                            onClick={() => setShowSteamApiKey(!showSteamApiKey)}
+                            aria-label={showSteamApiKey ? "Hide API key" : "Show API key"}
+                          >
+                            {showSteamApiKey ? (
+                              <EyeOff className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <Eye className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                      <Button
+                        onClick={() => updateSteamKeyMutation.mutate(steamApiKey.trim())}
+                        disabled={updateSteamKeyMutation.isPending || !steamApiKey.trim()}
+                      >
+                        {updateSteamKeyMutation.isPending ? "Saving..." : "Save key"}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Needed to import your library, sync play time and show achievements. Get a key
+                      on the{" "}
+                      <a
+                        href="https://steamcommunity.com/dev/apikey"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline"
+                      >
+                        Steam Web API page
+                      </a>
+                      . It is stored encrypted and never shown again.
+                      {steamKeySettings?.source === "env" && (
+                        <span className="block mt-1">
+                          A key is set through the <code>STEAM_API_KEY</code> environment variable.
+                          Saving one here overrides it.
+                        </span>
+                      )}
+                    </p>
+                    {steamKeySettings?.source === "database" && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => updateSteamKeyMutation.mutate("")}
+                        disabled={updateSteamKeyMutation.isPending}
+                      >
+                        Remove the saved key
+                      </Button>
+                    )}
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="steam-id">Steam ID (64-bit)</Label>
                     <div className="flex gap-2">

@@ -59,7 +59,7 @@ steamPlaytimeRoutes.post(
       if (error instanceof SteamPlaytimeUnavailableError) {
         return res
           .status(400)
-          .json({ error: "Configure STEAM_API_KEY on the server and save your Steam ID first." });
+          .json({ error: "Add a Steam Web API key in Settings and save your Steam ID first." });
       }
       if (error instanceof SteamPlaytimeBusyError) {
         return res.status(409).json({ error: "A Steam play-time sync is already running." });

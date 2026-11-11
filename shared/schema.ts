@@ -594,33 +594,41 @@ export const collectionGames = sqliteTable(
   (t) => [uniqueIndex("collection_games_collection_game_idx").on(t.collectionId, t.gameId)]
 );
 
-export const tags = sqliteTable("tags", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  color: text("color"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
-    sql`(strftime('%s', 'now') * 1000)`
-  ),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
-    sql`(strftime('%s', 'now') * 1000)`
-  ),
-}, (t) => [index("tags_user_idx").on(t.userId)]);
+export const tags = sqliteTable(
+  "tags",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("tags_user_idx").on(t.userId)]
+);
 
-export const gameTags = sqliteTable("game_tags", {
-  id: text("id").primaryKey(),
-  gameId: text("game_id")
-    .notNull()
-    .references(() => games.id, { onDelete: "cascade" }),
-  tagId: text("tag_id")
-    .notNull()
-    .references(() => tags.id, { onDelete: "cascade" }),
-  addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
-    sql`(strftime('%s', 'now') * 1000)`
-  ),
-}, (t) => [uniqueIndex("game_tags_game_tag_idx").on(t.gameId, t.tagId)]);
+export const gameTags = sqliteTable(
+  "game_tags",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    tagId: text("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [uniqueIndex("game_tags_game_tag_idx").on(t.gameId, t.tagId)]
+);
 
 export const notifications = sqliteTable("notifications", {
   id: text("id").primaryKey(),
@@ -849,7 +857,7 @@ export const addCollectionGameSchema = z.object({
 
 export const insertTagSchema = createInsertSchema(tags, {
   name: (schema) => schema.trim().min(1, "Tag name cannot be empty").max(100),
-  color: (schema) => schema.trim().max(20),
+  color: (schema) => schema.trim().max(20).nullable(),
 }).omit({
   id: true,
   userId: true,

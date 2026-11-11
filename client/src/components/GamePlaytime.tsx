@@ -195,8 +195,16 @@ export default function GamePlaytime({
                   {formatWhen(session.startedAt)}
                 </p>
               </div>
-              <Badge variant="outline" className="shrink-0 text-[10px] capitalize">
-                {session.source}
+              <Badge
+                variant="outline"
+                className="shrink-0 text-[10px] capitalize"
+                title={
+                  session.source === "steam"
+                    ? "Estimated from the growth of your Steam play time between two syncs"
+                    : undefined
+                }
+              >
+                {session.source === "steam" ? "Steam · estimated" : session.source}
               </Badge>
               <Button
                 type="button"

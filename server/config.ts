@@ -176,10 +176,11 @@ export const config = {
   nexusmods: {
     apiKey: env.NEXUSMODS_API_KEY,
   },
+  // Mutable: a key saved in Settings replaces the environment one at runtime (steam-api-key.ts).
   steam: {
     apiKey: env.STEAM_API_KEY,
     isConfigured: !!env.STEAM_API_KEY,
-  },
+  } as { apiKey: string | undefined; isConfigured: boolean },
   classification: {
     mode: env.CLASSIFICATION_MODE,
     modelPath: env.CLASSIFIER_MODEL_PATH,

@@ -451,8 +451,8 @@ const CompactGameCard = ({
                   onClick={(e) => e.stopPropagation()}
                   aria-label={
                     game.userRating == null
-                      ? "Rate this game"
-                      : `My rating: ${game.userRating}/10. Click to change.`
+                      ? `Rate ${game.title}`
+                      : `My rating for ${game.title}: ${game.userRating}/10. Click to change.`
                   }
                 >
                   <Star className="w-3 h-3 fill-primary text-primary flex-shrink-0" />
@@ -480,7 +480,7 @@ const CompactGameCard = ({
                     val !== undefined &&
                     userRatingMutation.mutate({ gameId: game.id, userRating: val })
                   }
-                  aria-label="My rating"
+                  aria-label={`My rating for ${game.title}`}
                 />
                 {game.userRating != null && (
                   <Button

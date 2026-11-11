@@ -127,8 +127,8 @@ export function SteamLibraryImport() {
         statuses and files stay unchanged. This action does not start downloads.
       </p>
       <p className="text-xs text-muted-foreground">
-        Requires a saved Steam ID, STEAM_API_KEY on the server, configured IGDB, and public Steam
-        Game details. Only exact Steam-to-IGDB matches are imported. Separate from wishlist sync.
+        Requires a saved Steam ID, a Steam Web API key, configured IGDB, and public Steam Game
+        details. Only exact Steam-to-IGDB matches are imported. Separate from wishlist sync.
       </p>
       <Button
         variant="outline"

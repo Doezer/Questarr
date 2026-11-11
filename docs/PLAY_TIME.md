@@ -46,12 +46,35 @@ manual or timer session is not compared: do not also record the same play by han
 moment the game closed and the start is derived from the duration Playnite reports (whole seconds),
 so these times are estimates and a session near midnight can land on the neighbouring day.
 
+## Steam play time
+
+**Settings → Steam → Steam play time** records the time you play on Steam. Steam only reports a
+running total per game (`playtime_forever`), so Questarr remembers the last total it saw and, on each
+sync, adds the growth as **one session** that ends at the sync (source `steam`, shown as "Steam ·
+estimated"). It needs a saved Steam ID, a Steam Web API key (saved in **Settings → Steam** or set as `STEAM_API_KEY`) and public Steam "Game details".
+
+- It is **off by default**. Turning it on starts from your current totals: the first sync only notes
+  them, and a game added to your library later is noted the same way, so no history is invented.
+  Turning it off and on again starts over.
+- It runs every 6 hours (**Activity → System Tasks → Steam play-time sync**) and with **Sync now**; two
+  runs less than 30 minutes apart are merged unless you press **Sync now**.
+- **No double counting**: the minutes of timer, manual and Playnite sessions recorded for that game since
+  the previous sync are subtracted from the growth. A game with a running timer waits for the next sync.
+- A total that Steam lowers is followed without creating a session.
+- Estimated sessions count in the totals, the weekly and monthly charts and the per-game and per-genre
+  figures, but **not** in the longest session or the streaks, because they say nothing about when or how
+  long one sitting lasted. A sync that finds 90 new minutes adds one 90-minute session ending at the sync
+  time, whatever the gap since the previous sync. Charts place it on its inferred start date, which can
+  differ from the day you actually played, so read weekly and monthly totals with that in mind.
+- Other launchers (GOG, Epic, EA app, Ubisoft Connect) are not read directly. Play them through Playnite
+  to get sessions from its extension.
+
 ## What is stored
 
 Each session records the game, when it started, when it ended (empty while the timer runs) and its
-source: `timer`, `manual` or `playnite`. A further source, `steam`, is reserved for importing
-Steam playtime later. Sessions are deleted with their game. They are included when you move from SQLite to
+source: `timer`, `manual`, `playnite` or `steam` (estimated, see above). The Steam sync keeps its
+last totals per game in a small per-user document in the system configuration, so it needs no table. Sessions are deleted with their game. They are included when you move from SQLite to
 Postgres (`scripts/sqlite-to-pg.ts`).
 
-Not included yet: importing historical playtime from Steam or Playnite (the Playnite extension only reports new sessions), and per-game goals. See
+Not included yet: importing historical playtime from Steam (the first sync only notes your totals) or Playnite (the extension only reports new sessions), and per-game goals. See
 [Questarr-mgmt#71](https://github.com/Doezer/Questarr-mgmt/issues/71).

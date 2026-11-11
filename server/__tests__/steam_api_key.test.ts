@@ -70,4 +70,18 @@ describe("steam API key settings", () => {
     expect(config.steam.apiKey).toBe("env-key");
     expect(await keys.getSteamApiKeySource()).toBe("env");
   });
+
+  it("does not mistake a saved key for the environment one when it is removed after a restart", async () => {
+    vi.resetModules();
+    config.steam.apiKey = undefined;
+    config.steam.isConfigured = false;
+    store.set("steam.apiKey", "enc:saved-key-0123456789");
+    const fresh = await import("../steam-api-key.js");
+    await fresh.loadSteamApiKey();
+    expect(config.steam.apiKey).toBe("saved-key-0123456789");
+    await fresh.saveSteamApiKey(null);
+    expect(config.steam.apiKey).toBeUndefined();
+    expect(config.steam.isConfigured).toBe(false);
+    expect(await fresh.getSteamApiKeySource()).toBeNull();
+  });
 });

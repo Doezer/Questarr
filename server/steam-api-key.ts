@@ -21,8 +21,10 @@ function envApiKey(): string | undefined {
 
 /** Make `config.steam` follow the given key (the environment one when the key is empty). */
 export function applySteamApiKey(key: string | null | undefined): void {
+  // Read the environment key first: it must be captured before this function changes `config.steam`.
+  const env = envApiKey();
   const trimmed = key?.trim();
-  const effective = trimmed || envApiKey();
+  const effective = trimmed || env;
   config.steam.apiKey = effective;
   config.steam.isConfigured = Boolean(effective);
 }
@@ -46,8 +48,9 @@ export async function loadSteamApiKey(): Promise<void> {
 
 /** Where the key in use comes from, for the Settings badge. */
 export async function getSteamApiKeySource(): Promise<SteamApiKeySource> {
+  const env = envApiKey();
   if (await readStoredKey()) return "database";
-  return envApiKey() ? "env" : null;
+  return env ? "env" : null;
 }
 
 /** Save a key from Settings, or remove it (empty) so the environment one applies again. */

@@ -19,19 +19,6 @@ const sanitizeTagIdParam = [
     .withMessage("Invalid tag ID format"),
 ];
 
-const validateTagBody = [
-  body("name")
-    .optional()
-    .trim()
-    .isLength({ min: 1, max: 100 })
-    .withMessage("Tag name must be between 1 and 100 characters"),
-  body("color")
-    .optional()
-    .trim()
-    .isLength({ max: 20 })
-    .withMessage("Color must be 20 characters or less"),
-];
-
 // For POST, both name and color validation
 const validateCreateTagBody = [
   body("name")
@@ -44,6 +31,16 @@ const validateCreateTagBody = [
     .trim()
     .isLength({ max: 20 })
     .withMessage("Color must be 20 characters or less"),
+];
+
+// For PATCH, allow null values for color - use minimal validation
+const validateUpdateTagBody = [
+  body("name")
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 100 })
+    .withMessage("Tag name must be between 1 and 100 characters"),
+  body("color").optional().isLength({ max: 20 }).withMessage("Color must be 20 characters or less"),
 ];
 
 // GET /api/tags - Get all tags for the current user
@@ -118,11 +115,11 @@ router.patch(
   "/api/tags/:tagId",
   authenticateToken,
   ...sanitizeTagIdParam,
-  ...validateTagBody,
+  ...validateUpdateTagBody,
   validateRequest,
   async (req: Request, res: Response) => {
     // For PATCH, at least one field (name or color) must be provided
-    const { name, color } = req.body as { name?: string; color?: string };
+    const { name, color } = req.body as { name?: string | null; color?: string | null };
     if (!name && !color) {
       return res.status(400).json({ error: "At least one field (name or color) must be provided" });
     }

@@ -5,12 +5,8 @@ import { z } from "zod";
 import { storage } from "./storage.js";
 import { authenticateToken } from "./auth.js";
 import { routesLogger } from "./logger.js";
-import { validateRequest, sanitizeGameId } from "./middleware.js";
-import {
-  insertTagSchema,
-  updateTagSchema,
-  type User,
-} from "../shared/schema.js";
+import { validateRequest, sanitizeGameIdParam } from "./middleware.js";
+import { insertTagSchema, updateTagSchema, type User } from "../shared/schema.js";
 
 const router = Router();
 const logger = routesLogger;
@@ -188,7 +184,7 @@ router.delete(
 router.get(
   "/api/games/:gameId/tags",
   authenticateToken,
-  ...sanitizeGameId,
+  ...sanitizeGameIdParam,
   validateRequest,
   async (req: Request, res: Response) => {
     try {
@@ -205,9 +201,7 @@ router.get(
 
       // Get full tag details for each tag ID
       const tagIds = gameTags.map((gt) => gt.tagId);
-      const tags = tagIds.length > 0
-        ? await storage.getTagsByIds(tagIds)
-        : [];
+      const tags = tagIds.length > 0 ? await storage.getTagsByIds(tagIds) : [];
 
       const tagsMap = new Map(tags.map((tag) => [tag.id, tag]));
       const result = gameTags.map((gt) => ({
@@ -228,7 +222,7 @@ router.get(
 router.post(
   "/api/games/:gameId/tags",
   authenticateToken,
-  ...sanitizeGameId,
+  ...sanitizeGameIdParam,
   body("tagId")
     .trim()
     .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
@@ -274,7 +268,7 @@ router.post(
 router.delete(
   "/api/games/:gameId/tags/:tagId",
   authenticateToken,
-  ...sanitizeGameId,
+  ...sanitizeGameIdParam,
   ...sanitizeTagIdParam,
   validateRequest,
   async (req: Request, res: Response) => {
@@ -285,14 +279,18 @@ router.delete(
       // Verify the tag belongs to the user
       const tag = await storage.getTag(tagId, user.id);
       if (!tag) {
-        logger.warn(`User ${user.id} tried to remove non-existent tag ${tagId} from game ${gameId}`);
+        logger.warn(
+          `User ${user.id} tried to remove non-existent tag ${tagId} from game ${gameId}`
+        );
         return res.status(404).json({ error: "Tag not found" });
       }
 
       const removed = await storage.removeTagFromGame(gameId, tagId);
 
       if (!removed) {
-        logger.warn(`User ${user.id} tried to remove non-existent tag ${tagId} from game ${gameId}`);
+        logger.warn(
+          `User ${user.id} tried to remove non-existent tag ${tagId} from game ${gameId}`
+        );
         return res.status(404).json({ error: "Tag not found on this game" });
       }
 
@@ -326,9 +324,7 @@ router.get(
       const gameIds = await storage.getGamesByTag(tagId, user.id);
 
       // Get full game details
-      const games = gameIds.length > 0
-        ? await storage.getGamesByIds(gameIds)
-        : [];
+      const games = gameIds.length > 0 ? await storage.getGamesByIds(gameIds) : [];
 
       logger.info(`User ${user.id} fetched ${games.length} games for tag ${tagId}`);
       return res.json(games);

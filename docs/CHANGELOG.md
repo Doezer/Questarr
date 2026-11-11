@@ -36,7 +36,7 @@ Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.d
 
 ### Dependencies
 
-- Dependency updates: #1297, #1298, #1299, #1313, #1319, #1321.
+- Dependency updates: #1297, #1298, #1299, #1313, #1319, #1321, #1328, #1329, #1330.
 
 ## [1.6.0] - 2026-10-31
 

@@ -20,6 +20,7 @@ import { autoShareVerifiedLabels } from "./classification/share.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
+import { runScheduledSteamPlaytimeSync } from "./steam-playtime.js";
 import { runScheduledRommSync } from "./romm-sync.js";
 import { runScheduledLibraryRescan, LIBRARY_RESCAN_TICK_MS } from "./library-rescan.js";
 import { appriseClient } from "./apprise.js";
@@ -134,6 +135,7 @@ export function resetDownloadStatusTracking(): void {
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const ROMM_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interval gates actual sync)
+const STEAM_PLAYTIME_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 const CLIENT_VERSION_LOG_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const RSS_REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -692,6 +694,15 @@ function registerCronTasks(): void {
       intervalMs: STEAM_SYNC_CHECK_INTERVAL_MS,
       runOnStartup: true,
       run: checkSteamWishlist,
+    },
+    {
+      name: "steam-playtime",
+      title: "Steam play-time sync",
+      description:
+        "Record new Steam play time as estimated sessions for users who turned the sync on.",
+      intervalMs: STEAM_PLAYTIME_SYNC_INTERVAL_MS,
+      runOnStartup: false,
+      run: runScheduledSteamPlaytimeSync,
     },
     {
       name: "romm-sync",

@@ -106,6 +106,7 @@ import {
 } from "./auth.js";
 import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
+import { getSteamApiKeySource, saveSteamApiKey } from "./steam-api-key.js";
 import {
   typesafeClient,
   TYPESAFE_URL_CONFIG_KEY,
@@ -315,6 +316,7 @@ import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { steamLibraryRoutes } from "./steam-library-routes.js";
+import { steamPlaytimeRoutes } from "./steam-playtime-routes.js";
 import { releaseScoringRoutes } from "./release-scoring-routes.js";
 import { classificationCandidatesRoutes } from "./classification-candidates-routes.js";
 import { classificationSettingsRoutes } from "./classification-settings-routes.js";
@@ -1131,6 +1133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Use Steam Routes
   app.use(steamRoutes);
   app.use(steamLibraryRoutes);
+  app.use(steamPlaytimeRoutes);
   app.use(releaseScoringRoutes);
   app.use(classificationCandidatesRoutes);
   app.use(classificationSettingsRoutes);
@@ -4475,6 +4478,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Status a freshly linked download is stored with. A finished download claimed while
+  // post-processing is on must stay "downloading": the status tracker only polls that status,
+  // and its completion path is what runs the import. Storing "completed" here would leave the
+  // files in the client's folder with no import ever started (no game_files, nothing in the
+  // library folder).
+  const resolveClaimedDownloadStatus = (
+    currentStatus: string | undefined,
+    enablePostProcessing: boolean
+  ): "completed" | "downloading" | "paused" => {
+    if (currentStatus === "completed" || currentStatus === "seeding") {
+      return enablePostProcessing ? "downloading" : "completed";
+    }
+    return currentStatus === "paused" ? "paused" : "downloading";
+  };
+
   // Claim (link) a download client entry to a game in the library
   app.post("/api/downloads/claim", authenticateToken, async (req, res) => {
     try {
@@ -4507,14 +4525,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Determine download status for gameDownloads record
-      const downloadStatus =
-        currentStatus === "completed" || currentStatus === "seeding"
-          ? "completed"
-          : currentStatus === "downloading"
-            ? "downloading"
-            : currentStatus === "paused"
-              ? "paused"
-              : "downloading";
+      const importConfig = await storage.getImportConfig(userId);
+      const downloadStatus = resolveClaimedDownloadStatus(
+        currentStatus,
+        importConfig.enablePostProcessing
+      );
 
       let resolvedGameId: string | undefined = undefined;
 
@@ -4639,6 +4654,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let failedCount = 0;
     const taskItemsToInsert: InsertImportTaskItem[] = [];
     const igdbIdToGameId = new Map<number, string>();
+    const importConfig = await storage.getImportConfig(userId);
 
     for (const item of parsedItems) {
       const key = `${item.downloaderId}:${normalizeDownloadHash(item.downloadHash)}`;
@@ -4652,14 +4668,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         continue;
       }
       try {
-        const downloadStatus =
-          item.currentStatus === "completed" || item.currentStatus === "seeding"
-            ? "completed"
-            : item.currentStatus === "downloading"
-              ? "downloading"
-              : item.currentStatus === "paused"
-                ? "paused"
-                : "downloading";
+        const downloadStatus = resolveClaimedDownloadStatus(
+          item.currentStatus,
+          importConfig.enablePostProcessing
+        );
 
         let resolvedGameId: string | undefined;
 
@@ -5254,11 +5266,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Exposes only whether a Steam Web API key is configured server-side, so the
-  // client can conditionally show the achievements section in the game details
-  // Journal tab without ever seeing the key itself.
+  // Exposes only whether a Steam Web API key is configured server-side (and where it comes
+  // from), so the client can conditionally show the achievements section in the game details
+  // Journal tab and the Steam settings without ever seeing the key itself.
   app.get("/api/settings/steam", sensitiveEndpointLimiter, async (_req, res) => {
-    res.json({ apiKeyConfigured: appConfig.steam.isConfigured });
+    try {
+      res.json({
+        apiKeyConfigured: appConfig.steam.isConfigured,
+        source: await getSteamApiKeySource(),
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch Steam settings");
+      res.status(500).json({ error: "Failed to fetch Steam settings" });
+    }
+  });
+
+  // Save the Steam Web API key in Settings (it overrides STEAM_API_KEY); an empty value removes it.
+  app.post("/api/settings/steam", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { apiKey } = req.body as { apiKey?: unknown };
+      if (typeof apiKey !== "string") {
+        return res.status(400).json({ error: "apiKey must be a string" });
+      }
+      const trimmed = apiKey.trim();
+      if (trimmed && !/^[A-Za-z0-9]{16,128}$/.test(trimmed)) {
+        return res.status(400).json({
+          error: "That does not look like a Steam Web API key (letters and digits only).",
+        });
+      }
+      await saveSteamApiKey(trimmed || null);
+      routesLogger.info("Steam API key updated via settings");
+      return res.json({
+        apiKeyConfigured: appConfig.steam.isConfigured,
+        source: await getSteamApiKeySource(),
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update Steam settings");
+      return res.status(500).json({ error: "Failed to update Steam settings" });
+    }
   });
 
   app.post("/api/settings/discord", sensitiveEndpointLimiter, async (req, res) => {

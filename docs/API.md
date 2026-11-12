@@ -266,6 +266,8 @@ for what each setting does.
 | PATCH  | `/api/settings/xrel`         | JWT                                              | `{ apiBase?: string (http/https, SSRF-checked, must match ALLOWED_XREL_DOMAINS), xrelSceneReleases?: boolean, xrelP2pReleases?: boolean }` — manual checks  | `{ success, xrel: { apiBase }, settings? }`; 400 on invalid/unsafe/unauthorized domain         |
 | GET    | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                 | —                                                                                                                                                           | `{ configured: boolean, source?: "env"\|"database" }`                                          |
 | POST   | `/api/settings/nexusmods`    | JWT + `sensitiveEndpointLimiter`                 | `{ apiKey: string (required) }`                                                                                                                             | `{ success: true }`; 400 if missing                                                            |
+| GET    | `/api/settings/steam`        | JWT + `sensitiveEndpointLimiter`                 | —                                                                                                                                                           | `{ apiKeyConfigured: boolean, source: "env"\|"database"\|null }`; never the key                |
+| POST   | `/api/settings/steam`        | JWT + `sensitiveEndpointLimiter`                 | `{ apiKey: string }`; an empty string removes the saved key (the `STEAM_API_KEY` environment variable applies again)                                        | Same as GET; 400 if the key is not a string or not letters and digits (16-128)                 |
 
 ### Apprise settings
 
@@ -375,15 +377,15 @@ documented under [Settings](#settings).
 All routes need a JWT; game routes also check that the game belongs to the caller (404 otherwise).
 Details in [Play time](PLAY_TIME.md).
 
-| Method | Path                                      | Request Body                                                                    | Response                                                                                                                               |
-| ------ | ----------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/games/:id/play-sessions`            | —                                                                               | Sessions of the game, newest first                                                                                                     |
-| POST   | `/api/games/:id/play-sessions`            | `{ durationMinutes: 1–1440, startedAt?: ISO date }` — a session entered by hand | 201 with the session; it ends at `startedAt + duration` (default: ends now). 400 if it would end in the future                         |
-| POST   | `/api/games/:id/play-sessions/start`      | —                                                                               | 201 with the running session. 409 `{ error, session }` when a timer is already running                                                 |
-| DELETE | `/api/games/:id/play-sessions/:sessionId` | —                                                                               | 204; 404 if not found                                                                                                                  |
-| GET    | `/api/play-sessions/active`               | —                                                                               | `{ session }` — the running timer, or `null`                                                                                           |
-| POST   | `/api/play-sessions/:sessionId/stop`      | —                                                                               | `{ session, capped }`; `capped` is true when the timer was cut off at 24 hours. 404 if that session is not the running one             |
-| GET    | `/api/stats/play-time?tz=<minutes>`       | —                                                                               | Totals, longest session, streaks, top games/genres/platforms, last 12 weeks and months. `tz` is `Date#getTimezoneOffset()` (default 0) |
+| Method | Path                                                | Request Body                                                                    | Response                                                                                                                                                                                                                       |
+| ------ | --------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/api/games/:id/play-sessions`                      | —                                                                               | Sessions of the game, newest first                                                                                                                                                                                             |
+| POST   | `/api/games/:id/play-sessions`                      | `{ durationMinutes: 1–1440, startedAt?: ISO date }` — a session entered by hand | 201 with the session; it ends at `startedAt + duration` (default: ends now). 400 if it would end in the future                                                                                                                 |
+| POST   | `/api/games/:id/play-sessions/start`                | —                                                                               | 201 with the running session. 409 `{ error, session }` when a timer is already running                                                                                                                                         |
+| DELETE | `/api/games/:id/play-sessions/:sessionId`           | —                                                                               | 204; 404 if not found                                                                                                                                                                                                          |
+| GET    | `/api/play-sessions/active`                         | —                                                                               | `{ session }` — the running timer, or `null`                                                                                                                                                                                   |
+| POST   | `/api/play-sessions/:sessionId/stop`                | —                                                                               | `{ session, capped }`; `capped` is true when the timer was cut off at 24 hours. 404 if that session is not the running one                                                                                                     |
+| GET    | `/api/stats/play-time?timeZone=<iana>&tz=<minutes>` | —                                                                               | Totals, longest session, streaks, top games/genres/platforms, last 12 weeks and months. `timeZone` is an IANA name (e.g. `Europe/Paris`, DST-aware, wins when valid); `tz` is `Date#getTimezoneOffset()` (fallback, default 0) |
 
 ## Health / Ready / Config
 
@@ -452,6 +454,17 @@ router), both behind the global auth gate plus explicit `authenticateToken`.
 | PATCH  | `/api/user/steam-id`       | JWT           | `{ steamId: string }` — must be a 17-digit SteamID64 starting with `7656` (`steamService.validateSteamId`) | `{ success: true, steamId }`; 400 if missing/invalid format                                              |
 | POST   | `/api/steam/wishlist/sync` | JWT           | —                                                                                                          | `{ success, addedCount, games }` (via `syncUserSteamWishlist`); 400 if Steam ID not linked or sync fails |
 
+### Steam play time
+
+`server/steam-playtime-routes.ts` — turns the Steam play-time sync on or off and runs it. See
+[Play time](PLAY_TIME.md#steam-play-time). All routes require a JWT; responses are not cached.
+
+| Method | Path                       | Body                   | Response                                                                                                                                                                                                                              |
+| ------ | -------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/steam/playtime`      | —                      | `{ available, enabled, lastSyncAt, lastSessionsAdded, lastMinutesAdded, lastError }`; `available` is false without `STEAM_API_KEY` or a saved Steam ID                                                                                |
+| PUT    | `/api/steam/playtime`      | `{ enabled: boolean }` | The same status. Turning the sync on starts from fresh baselines; 400 on another body                                                                                                                                                 |
+| POST   | `/api/steam/playtime/sync` | —                      | `{ result: { sessionsAdded, minutesAdded, baselined }, status }`; 400 if the sync is off or Steam is not set up; 409 if a sync is running; 502 `{ error, status }` on a Steam failure, 500 with a fixed message for any other failure |
+
 ### Owned Steam library
 
 `server/steam-library-routes.ts` — preview and import endpoints.
@@ -503,7 +516,7 @@ See [Steam library import](STEAM_LIBRARY.md) for prerequisites and limits.
 
 ## Integration API (external clients)
 
-`server/routes/integration.ts` — 4 routes, mounted at `/api/integration`, plus the SeerrNG provider routes under `/api/integration/seerrng/v1` (`server/routes/seerrng.ts`, documented in [SEERRNG.md](SEERRNG.md)).
+`server/routes/integration.ts` — 5 routes, mounted at `/api/integration`, plus the SeerrNG provider routes under `/api/integration/seerrng/v1` (`server/routes/seerrng.ts`, documented in [SEERRNG.md](SEERRNG.md)).
 
 This is the one part of the API that accepts a long-lived **integration API
 key** in addition to a JWT, for machine clients that cannot run the interactive
@@ -520,12 +533,12 @@ gets 403 `{ error, code: "API_KEY_SCOPE_DENIED" }`; an expired key gets 401
 `{ error: "API key expired", code: "API_KEY_EXPIRED" }`. Requests are limited to
 300/min per key (`integrationRateLimiter`).
 
-| Route                                                | `library:write` | `read` | `requests` | `all` |
-| ---------------------------------------------------- | :-------------: | :----: | :--------: | :---: |
-| `GET /ping`                                          |        ✓        |   ✓    |     ✓      |   ✓   |
-| `GET /library`                                       |        ✓        |   ✓    |     —      |   ✓   |
-| `POST /library/sync`, `POST /games/request`          |        ✓        |   —    |     —      |   ✓   |
-| `/seerrng/v1/*` (see [SeerrNG provider](SEERRNG.md)) |        —        |   —    |     ✓      |   ✓   |
+| Route                                                              | `library:write` | `read` | `requests` | `all` |
+| ------------------------------------------------------------------ | :-------------: | :----: | :--------: | :---: |
+| `GET /ping`                                                        |        ✓        |   ✓    |     ✓      |   ✓   |
+| `GET /library`                                                     |        ✓        |   ✓    |     —      |   ✓   |
+| `POST /library/sync`, `POST /games/request`, `POST /play-sessions` |        ✓        |   —    |     —      |   ✓   |
+| `/seerrng/v1/*` (see [SeerrNG provider](SEERRNG.md))               |        —        |   —    |     ✓      |   ✓   |
 
 Authentication is handled by `authenticateApiKeyOrToken` in `server/auth.ts`,
 selected by `requireAuthenticationForApi` for paths under `/integration` and for
@@ -533,12 +546,13 @@ the `admin`-scope allowlist below. Every other protected route on `/api` — key
 management included — stays JWT-only, so a leaked key cannot escalate into minting or
 revoking other keys.
 
-| Method | Path                             | Auth Required  | Request Body                                                                                                                 | Response                                                                                                                                                                                                                |
-| ------ | -------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/integration/ping`          | JWT or API key | —                                                                                                                            | `{ service: "questarr", version, apiVersion, authenticatedAs: { id, username }, usingApiKey, scope, expiresAt }` (`scope`/`expiresAt` are `null` for a JWT session; `expiresAt` is `null` for a key that never expires) |
-| GET    | `/api/integration/library`       | JWT or API key | Query: `status` (optional, comma-separated), `includeHidden` (optional, `"true"`/`"false"`)                                  | `{ games: IntegrationGame[], count }`; 400 on invalid query                                                                                                                                                             |
-| POST   | `/api/integration/library/sync`  | JWT or API key | `{ games: Array<{ title, externalId?, installed?, steamAppId? }> (1–5000), markInstalledAsOwned?: boolean }` — Zod-validated | `{ received, matched, unmatched, promotedToOwned }`; 400 on invalid payload                                                                                                                                             |
-| POST   | `/api/integration/games/request` | JWT or API key | `{ title: string, status?: "wanted" \| "owned" }` — Zod-validated                                                            | 201 `{ game }`; 404 if IGDB has no match or the match is content-filtered; 409 if already in library                                                                                                                    |
+| Method | Path                             | Auth Required                    | Request Body                                                                                                                                                                                                              | Response                                                                                                                                                                                                                                                                                           |
+| ------ | -------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/integration/ping`          | JWT or API key                   | —                                                                                                                                                                                                                         | `{ service: "questarr", version, apiVersion, authenticatedAs: { id, username }, usingApiKey, scope, expiresAt }` (`scope`/`expiresAt` are `null` for a JWT session; `expiresAt` is `null` for a key that never expires)                                                                            |
+| GET    | `/api/integration/library`       | JWT or API key                   | Query: `status` (optional, comma-separated), `includeHidden` (optional, `"true"`/`"false"`)                                                                                                                               | `{ games: IntegrationGame[], count }`; 400 on invalid query                                                                                                                                                                                                                                        |
+| POST   | `/api/integration/library/sync`  | JWT or API key                   | `{ games: Array<{ title, externalId?, installed?, steamAppId? }> (1–5000), markInstalledAsOwned?: boolean }` — Zod-validated                                                                                              | `{ received, matched, unmatched, promotedToOwned }`; 400 on invalid payload                                                                                                                                                                                                                        |
+| POST   | `/api/integration/games/request` | JWT or API key                   | `{ title: string, status?: "wanted" \| "owned" }` — Zod-validated                                                                                                                                                         | 201 `{ game }`; 404 if IGDB has no match or the match is content-filtered; 409 if already in library                                                                                                                                                                                               |
+| POST   | `/api/integration/play-sessions` | JWT or API key (`library:write`) | `{ gameId?, steamAppId?, title?, startedAt, endedAt }` — at least one of `gameId`, `steamAppId`, `title`; matched in that order, never creates a game. Max 24 h, not in the future (5 min slack), `endedAt` ≥ `startedAt` | 201 `{ session, duplicate: false }` (source `playnite`); 200 `{ session, duplicate: true }` when the game already has a `playnite` session starting at that instant (manual and timer sessions are not compared); 404 `{ code: "GAME_NOT_FOUND" }` if no library game matches; 400 on invalid data |
 
 `IntegrationGame` is a deliberately narrow projection of a library game —
 `id`, `title`, `igdbId`, `steamAppId`, `status`, `releaseStatus`, `releaseDate`,

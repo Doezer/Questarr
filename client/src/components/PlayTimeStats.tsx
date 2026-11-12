@@ -53,11 +53,25 @@ function TagList({
 export default function PlayTimeStats() {
   const [range, setRange] = useState<Range>("week");
   // Days follow the browser's clock, so the server needs its offset from UTC.
+  // The IANA zone makes the server apply daylight saving time per session; the offset is the fallback.
   const tz = useMemo(() => new Date().getTimezoneOffset(), []);
+  const timeZone = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    } catch {
+      return "";
+    }
+  }, []);
+
+  const search = useMemo(() => {
+    const params = new URLSearchParams({ tz: String(tz) });
+    if (timeZone) params.set("timeZone", timeZone);
+    return params.toString();
+  }, [tz, timeZone]);
 
   const { data } = useQuery<PlayTimeStatsData>({
-    queryKey: ["/api/stats/play-time", tz],
-    queryFn: async () => (await apiRequest("GET", `/api/stats/play-time?tz=${tz}`)).json(),
+    queryKey: ["/api/stats/play-time", tz, timeZone],
+    queryFn: async () => (await apiRequest("GET", `/api/stats/play-time?${search}`)).json(),
   });
 
   const chartData = useMemo(() => {

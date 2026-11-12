@@ -11,6 +11,12 @@ export interface PlaySessionInput {
   startedAt: Date;
   /** `null` while the timer is still running; such sessions are left out of the totals. */
   endedAt: Date | null;
+  /**
+   * Where the session came from. `steam` sessions are estimates built from playtime deltas:
+   * their minutes count in the totals, but they say nothing about when or how long one sitting
+   * lasted, so they stay out of the longest session and the streaks.
+   */
+  source?: string | null;
 }
 
 export interface PlayGameInput {
@@ -66,9 +72,55 @@ export function sessionMinutes(startedAt: Date, endedAt: Date): number {
   return Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / MINUTE_MS));
 }
 
-/** Shifts an instant so its UTC fields read as the viewer's local time. */
-function toLocal(date: Date, tzOffsetMinutes: number): Date {
-  return new Date(date.getTime() - tzOffsetMinutes * MINUTE_MS);
+/** True when `zone` is an IANA time zone name this runtime understands (e.g. `Europe/Paris`). */
+export function isValidTimeZone(zone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The viewer's time zone: an IANA name (DST-aware per instant) or a fixed `getTimezoneOffset()`. */
+export type PlayStatsZone = string | number;
+
+/**
+ * Builds a function that shifts an instant so its UTC fields read as the viewer's local time.
+ * An IANA name applies the zone's offset at that very instant, so daylight saving time is right
+ * for every session; a number is a fixed `getTimezoneOffset()` kept for older clients.
+ */
+function localizer(zone: PlayStatsZone): (date: Date) => Date {
+  if (typeof zone === "string" && isValidTimeZone(zone)) {
+    const format = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+    });
+    return (date) => {
+      const parts: Record<string, number> = {};
+      for (const part of format.formatToParts(date)) {
+        if (part.type !== "literal") parts[part.type] = Number(part.value);
+      }
+      return new Date(
+        Date.UTC(
+          parts.year ?? 1970,
+          (parts.month ?? 1) - 1,
+          parts.day ?? 1,
+          parts.hour ?? 0,
+          parts.minute ?? 0,
+          parts.second ?? 0
+        )
+      );
+    };
+  }
+  const offset = typeof zone === "number" ? zone : 0;
+  return (date) => new Date(date.getTime() - offset * MINUTE_MS);
 }
 
 function isoDate(date: Date): string {
@@ -133,8 +185,9 @@ export function computePlayStats(
   sessions: readonly PlaySessionInput[],
   games: readonly PlayGameInput[],
   now: Date,
-  tzOffsetMinutes = 0
+  zone: PlayStatsZone = 0
 ): PlayTimeStats {
+  const toLocal = localizer(zone);
   const gameById = new Map(games.map((g) => [g.id, g]));
   const perGame = new Map<string, { minutes: number; sessions: number }>();
   const perGenre = new Map<string, number>();
@@ -156,10 +209,13 @@ export function computePlayStats(
     perGame.set(session.gameId, entry);
     // ...but only real time feeds the time-based statistics.
     if (minutes <= 0) continue;
-    const local = toLocal(session.startedAt, tzOffsetMinutes);
+    const local = toLocal(session.startedAt);
+    const estimated = session.source === "steam";
 
     totalMinutes += minutes;
-    if (!longest || minutes > longest.minutes) longest = { gameId: session.gameId, minutes };
+    if (!estimated && (!longest || minutes > longest.minutes)) {
+      longest = { gameId: session.gameId, minutes };
+    }
     entry.minutes += minutes;
 
     const game = gameById.get(session.gameId);
@@ -172,10 +228,10 @@ export function computePlayStats(
 
     addToDays(weekMinutes, new Date(weekStart(local) * DAY_MS), minutes);
     addToDays(monthMinutes, new Date(monthStart(local) * DAY_MS), minutes);
-    activeDays.add(dayNumber(local));
+    if (!estimated) activeDays.add(dayNumber(local));
   }
 
-  const localNow = toLocal(now, tzOffsetMinutes);
+  const localNow = toLocal(now);
   const thisWeek = weekStart(localNow);
   const perWeek: PlayTimeBucket[] = [];
   for (let i = WEEKS_SHOWN - 1; i >= 0; i--) {

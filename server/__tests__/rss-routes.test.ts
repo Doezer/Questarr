@@ -74,6 +74,7 @@ vi.mock("../middleware.js", () => ({
   validateRequest: (req: any, res: any, next: any) => next(),
   sanitizeSearchQuery: [],
   sanitizeGameId: [],
+  sanitizeGameIdParam: [],
   sanitizeIgdbId: [],
   sanitizeDownloadId: [],
   sanitizeGameStatus: [],

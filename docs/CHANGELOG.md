@@ -28,11 +28,23 @@ All notable changes to this project will be documented in this file.
 - **Large archive imports**: archive listings are streamed, so valid archives with a long file list no longer fail on a size limit (#1300, thanks @JEFF7712).
 - **Path checks**: the sensitive-path guard also rejects Windows system paths, the `ADMIN$` share and the macOS `/private/etc` alias, and SeerrNG assets are validated against your real library roots (#1304).
 - **Linked finished downloads**: linking an already finished download (**Downloads → Scan unlinked**, or a single claim) now starts the import when post-processing is on, instead of leaving it completed with nothing in the library folder (#1324).
+- **Screen reader labels on game cards**: the rating and release date controls on game cards now name the game they belong to, for example "My rating for Hades: 6.5/10" (#1331).
 - **Apprise destinations**: the Apprise API URL and each notification URL are checked before they are saved and again before each send. Local network addresses still work; cloud metadata and other blocked addresses are refused with an "Invalid or unsafe" error, and an unsafe notification URL already saved is skipped with a warning (#1314).
 
 ### Vulnerabilities Addressed
 
-Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.dev (`v1.6.0` → `main`): none of the 56 bumped packages matched a patched advisory, so no dependency CVE or CWE is fixed in this release so far. First-party fixes:
+Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.dev (`v1.6.0` → `main`). The other 119 bumped packages matched no patched advisory.
+
+#### Production dependencies
+
+- **node-forge** 1.4.1 → 1.4.3 — fixes 4 advisories:
+  - **CVE-2026-125333** (MODERATE, CWE-1333) — ReDoS in `forge.http` response header and cookie trimming
+  - **CVE-2026-125334** (MODERATE, CWE-476) — TLS client crash on a handshake record received without a session
+  - **CVE-2026-125332** (MODERATE, CWE-20 and CWE-248) — TLS client crash on an unsupported ServerHello compression method
+  - **CVE-2026-125335** (LOW, CWE-347) — Ed25519 signature verification accepts small-order public keys
+- **fast-xml-parser** 5.11.2 → 5.12.0 — fixes **CVE-2026-126066** (LOW, CWE-407): quadratic CPU consumption scanning unterminated stop-node tags
+
+#### First-party fixes
 
 - **Apprise destinations (CWE-918, server-side request forgery; no CVE assigned)**: the Apprise API URL and the notification URLs are validated before they are saved and before each send, so a crafted URL can no longer make Questarr call cloud metadata or other blocked addresses (#1314).
 

@@ -314,6 +314,8 @@ router.get(
     try {
       const user = req.user as User;
       const { tagId } = req.params as { tagId: string };
+      const { includeHidden } = req.query;
+      const showHidden = includeHidden === "true";
 
       // Verify the tag exists and belongs to the user
       const tag = await storage.getTag(tagId, user.id);
@@ -325,7 +327,12 @@ router.get(
       const gameIds = await storage.getGamesByTag(tagId, user.id);
 
       // Get full game details
-      const games = gameIds.length > 0 ? await storage.getGamesByIds(gameIds) : [];
+      let games = gameIds.length > 0 ? await storage.getGamesByIds(gameIds) : [];
+
+      // Filter out hidden games unless explicitly requested
+      if (!showHidden) {
+        games = games.filter((game) => !game.hidden);
+      }
 
       logger.info(`User ${user.id} fetched ${games.length} games for tag ${tagId}`);
       return res.json(games);

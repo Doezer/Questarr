@@ -46,6 +46,8 @@ export const userSettings = sqliteTable("user_settings", {
   autoSearchUnreleased: integer("auto_search_unreleased", { mode: "boolean" })
     .notNull()
     .default(false),
+  // Account-wide default for what to do when a newer version of an owned game turns up.
+  upgradePolicy: text("upgrade_policy").notNull().default("notify"), // UPGRADE_POLICIES
   steamSyncFailures: integer("steam_sync_failures").notNull().default(0),
   steamSyncEnabled: integer("steam_sync_enabled", { mode: "boolean" }).notNull().default(false),
   steamSyncIntervalHours: integer("steam_sync_interval_hours").notNull().default(24),
@@ -249,6 +251,8 @@ export const games = sqliteTable("games", {
   userRating: real("user_rating"),
   libraryPath: text("library_path"),
   installedVersion: text("installed_version"),
+  // Per-game override of the account default upgrade policy; null = use the default.
+  upgradePolicy: text("upgrade_policy"), // UPGRADE_POLICIES
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
@@ -740,6 +744,23 @@ export const updateGameUserRatingSchema = z.object({
     .nullable(),
 });
 
+// What to do when a newer version of an owned game turns up. Later steps of the upgrade loop add
+// "auto" (grab it); for now: "off" ignores updates, "notify" flags them and tells the user.
+export const UPGRADE_POLICIES = ["off", "notify"] as const;
+export type UpgradePolicy = (typeof UPGRADE_POLICIES)[number];
+export const DEFAULT_UPGRADE_POLICY: UpgradePolicy = "notify";
+
+/** Policy that applies to a game: its own override, else the account default. */
+export function resolveUpgradePolicy(
+  gamePolicy: string | null | undefined,
+  defaultPolicy: string | null | undefined
+): UpgradePolicy {
+  for (const candidate of [gamePolicy, defaultPolicy]) {
+    if (UPGRADE_POLICIES.includes(candidate as UpgradePolicy)) return candidate as UpgradePolicy;
+  }
+  return DEFAULT_UPGRADE_POLICY;
+}
+
 export const updateGameInstalledVersionSchema = z.object({
   // Free text ("v1.2.3", "Build 12345", "1.05 hotfix"...); blank clears it.
   installedVersion: z
@@ -748,6 +769,11 @@ export const updateGameInstalledVersionSchema = z.object({
     .max(64, "installedVersion must be at most 64 characters")
     .nullable()
     .transform((v) => v || null),
+});
+
+export const updateGameUpgradePolicySchema = z.object({
+  // null clears the override so the game follows the account default.
+  upgradePolicy: z.enum(UPGRADE_POLICIES).nullable(),
 });
 
 const trimmedList = z.array(z.string().trim().min(1).max(100)).max(50);
@@ -963,6 +989,17 @@ function validateUserSettingsEnums(
       code: z.ZodIssueCode.custom,
       path: ["transferMode"],
       message: "Invalid transfer mode",
+    });
+  }
+
+  if (
+    value.upgradePolicy !== undefined &&
+    !UPGRADE_POLICIES.includes(value.upgradePolicy as UpgradePolicy)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["upgradePolicy"],
+      message: "Invalid upgrade policy",
     });
   }
 

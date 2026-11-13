@@ -35,6 +35,7 @@ import {
   type InsertImportTaskItem,
   type ScannedGameFile,
   type GameFileCategory,
+  updateGameUpgradePolicySchema,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { parseJsonObject } from "../shared/json-object-utils.js";
@@ -2173,6 +2174,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         invalid: "Invalid installed version data",
         log: "error updating game installed version",
         failure: "Failed to update installed version",
+      }
+    )
+  );
+
+  // Set how this game reacts to newer versions (off / notify), or null to follow the account default.
+  app.patch(
+    "/api/games/:id/upgrade-policy",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    patchOwnGameField(
+      updateGameUpgradePolicySchema,
+      async (id, userId, { upgradePolicy }) => {
+        const game = await storage.updateGameUpgradePolicy(id, userId, upgradePolicy);
+        if (game) (await import("./socket.js")).notifyUser("gameUpdated", game.id);
+        return game;
+      },
+      {
+        invalid: "Invalid upgrade policy data",
+        log: "error updating game upgrade policy",
+        failure: "Failed to update upgrade policy",
       }
     )
   );

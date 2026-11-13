@@ -36,6 +36,7 @@ import {
   type InsertNotification,
   type NotificationEvent,
   type NotificationPreferences,
+  resolveUpgradePolicy,
 } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isReleasePossiblyNewer } from "../shared/version-utils.js";
@@ -2126,6 +2127,18 @@ export async function checkAutoSearch() {
           try {
             // Skip unreleased games if configured to do so
             if (!settings.autoSearchUnreleased && game.releaseStatus !== "released") {
+              continue;
+            }
+
+            // "off": the user doesn't want update/pack tracking for this game, so don't search
+            // and clear any badge left from before the policy changed.
+            if (resolveUpgradePolicy(game.upgradePolicy, settings.upgradePolicy) === "off") {
+              if (game.updateSearchResultsAvailable || game.packsSearchResultsAvailable) {
+                await storage.updateGameSearchResultsByCategory(game.id, {
+                  updates: false,
+                  packs: false,
+                });
+              }
               continue;
             }
 

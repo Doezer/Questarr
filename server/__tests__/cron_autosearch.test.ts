@@ -396,6 +396,59 @@ describe("Cron - checkAutoSearch", () => {
   });
 
   it.each([
+    ["the game policy is off", { upgradePolicy: "off" }, {}],
+    ["the account default is off", {}, { upgradePolicy: "off" }],
+  ])(
+    "skips the update search for owned games when %s",
+    async (_label, gameExtra, settingsExtra) => {
+      const game = {
+        ...baseGame,
+        status: "owned" as const,
+        releaseStatus: "released" as const,
+        updateSearchResultsAvailable: true,
+        ...gameExtra,
+      };
+      const settings = { ...baseSettings, notifyUpdates: true, ...settingsExtra };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      mockGetUserGames.mockResolvedValue([game]);
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({ items: [UPDATE_ITEM], errors: [], total: 1 });
+
+      await checkAutoSearch();
+
+      expect(mockSearchAllIndexers).not.toHaveBeenCalled();
+      expect(mockAddNotification).not.toHaveBeenCalled();
+      // A badge left from before the policy changed is cleared.
+      expect(mockUpdateGameSearchResultsByCategory).toHaveBeenCalledWith(game.id, {
+        updates: false,
+        packs: false,
+      });
+    }
+  );
+
+  it("lets a game policy of notify override an account default of off", async () => {
+    const game = {
+      ...baseGame,
+      status: "owned" as const,
+      releaseStatus: "released" as const,
+      upgradePolicy: "notify",
+    };
+    const settings = { ...baseSettings, notifyUpdates: true, upgradePolicy: "off" };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+    mockGetUserGames.mockResolvedValue([game]);
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({ items: [UPDATE_ITEM], errors: [], total: 1 });
+
+    await checkAutoSearch();
+
+    expect(mockAddNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Game Updates Available" })
+    );
+  });
+
+  it.each([
     ["shelved", { includeShelved: false }, false],
     ["completed", { includeCompleted: false }, false],
     ["shelved", { includeCompleted: false }, true],

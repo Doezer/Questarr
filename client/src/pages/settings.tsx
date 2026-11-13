@@ -77,6 +77,9 @@ import {
   type NotificationPreferences,
   type NotificationEvent,
   type DownloaderDebugLoggingResponse,
+  type UpgradePolicy,
+  DEFAULT_UPGRADE_POLICY,
+  resolveUpgradePolicy,
 } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
 import PlatformsSettings from "@/components/PlatformsSettings";
@@ -375,6 +378,7 @@ export default function SettingsPage() {
   // Local state for form
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
   const [autoSearchUnreleased, setAutoSearchUnreleased] = useState(false);
+  const [upgradePolicy, setUpgradePolicy] = useState<UpgradePolicy>(DEFAULT_UPGRADE_POLICY);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState(false);
   const [searchIntervalHours, setSearchIntervalHours] = useState(6);
   const [igdbRateLimitPerSecond, setIgdbRateLimitPerSecond] = useState(3);
@@ -426,6 +430,7 @@ export default function SettingsPage() {
     if (userSettings && !settingsLoadedRef.current) {
       setAutoSearchEnabled(userSettings.autoSearchEnabled);
       setAutoSearchUnreleased(userSettings.autoSearchUnreleased ?? false);
+      setUpgradePolicy(resolveUpgradePolicy(undefined, userSettings.upgradePolicy));
       setAutoDownloadEnabled(userSettings.autoDownloadEnabled);
       setSearchIntervalHours(userSettings.searchIntervalHours);
       const rateLimit = userSettings.igdbRateLimitPerSecond;
@@ -1028,6 +1033,7 @@ export default function SettingsPage() {
       updates: {
         autoSearchEnabled,
         autoSearchUnreleased,
+        upgradePolicy,
         autoDownloadEnabled,
         searchIntervalHours,
         preferredPlatform: preferredPlatform || null,
@@ -1470,6 +1476,32 @@ export default function SettingsPage() {
                         checked={autoSearchUnreleased}
                         onCheckedChange={setAutoSearchUnreleased}
                       />
+                    </div>
+                  )}
+
+                  {/* Default policy for newer versions of owned games */}
+                  {autoSearchEnabled && (
+                    <div className="flex items-center justify-between gap-4 pl-4 border-l-2">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="upgrade-policy-default" className="text-sm font-medium">
+                          Updates for Owned Games
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Default for newer versions and repacks. Each game can override it.
+                        </p>
+                      </div>
+                      <Select
+                        value={upgradePolicy}
+                        onValueChange={(value) => setUpgradePolicy(value as UpgradePolicy)}
+                      >
+                        <SelectTrigger id="upgrade-policy-default" className="w-36">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="notify">Notify me</SelectItem>
+                          <SelectItem value="off">Off</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   )}
 

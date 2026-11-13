@@ -89,12 +89,20 @@ import GamePlaytime from "./GamePlaytime";
 import GameScreenshotGallery, { useGameScreenshots } from "./GameScreenshotGallery";
 import FileCategorySelect from "./FileCategorySelect";
 import InstalledVersionField from "./InstalledVersionField";
+import UpgradePolicyField from "./UpgradePolicyField";
 import { coverSrc } from "@/lib/cover";
 import { getSocket } from "@/lib/socket";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { type Game, type GameDownload, type ScannedGameFile } from "@shared/schema";
+import {
+  type Game,
+  type GameDownload,
+  type ScannedGameFile,
+  type UserSettings,
+  resolveUpgradePolicy,
+  type UpgradePolicy,
+} from "@shared/schema";
 import { resolveTargetPlatform } from "@shared/title-utils";
 import { type XrelGameStatus } from "@shared/xrel-types";
 import StatusBadge from "./StatusBadge";
@@ -662,6 +670,12 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
       socket.off("downloadUpdate", handler);
     };
   }, [open, game.id, queryClient]);
+
+  const { data: accountSettings } = useQuery<UserSettings>({
+    queryKey: ["/api/settings"],
+    enabled: open && !isDiscoveryId(game.id),
+  });
+  const accountUpgradePolicy = resolveUpgradePolicy(undefined, accountSettings?.upgradePolicy);
 
   const { data: targetPlatformOptions = [] } = useQuery<IgdbPlatformOption[]>({
     queryKey: ["/api/igdb/platforms"],
@@ -1470,6 +1484,14 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     gameId={game.id}
                     installedVersion={game.installedVersion ?? null}
                     releaseNames={downloadReleaseNames}
+                  />
+                )}
+                {isLibraryGame && (
+                  <UpgradePolicyField
+                    key={`upgrade-${game.id}`}
+                    gameId={game.id}
+                    upgradePolicy={(game.upgradePolicy as UpgradePolicy | null) ?? null}
+                    defaultPolicy={accountUpgradePolicy}
                   />
                 )}
               </SideBlock>

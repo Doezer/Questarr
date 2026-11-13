@@ -22,6 +22,7 @@ const sanitizeTagIdParam = [
 // For POST, both name and color validation
 const validateCreateTagBody = [
   body("name")
+    .exists({ values: "falsy" })
     .trim()
     .notEmpty()
     .isLength({ min: 1, max: 100 })
@@ -120,7 +121,10 @@ router.patch(
   async (req: Request, res: Response) => {
     // For PATCH, at least one field (name or color) must be provided
     const { name, color } = req.body as { name?: string | null; color?: string | null };
-    if (!name && !color) {
+    // Check if at least one field is present (including null which means explicitly clearing)
+    const hasName = "name" in req.body;
+    const hasColor = "color" in req.body;
+    if (!hasName && !hasColor) {
       return res.status(400).json({ error: "At least one field (name or color) must be provided" });
     }
     try {

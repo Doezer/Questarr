@@ -142,11 +142,13 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-export function backupFileName(kind: BackupKind, at = new Date()): string {
+export function backupFileName(kind: BackupKind, at = new Date(), unique = false): string {
   const stamp =
     `${at.getFullYear()}.${pad(at.getMonth() + 1)}.${pad(at.getDate())}_` +
     `${pad(at.getHours())}.${pad(at.getMinutes())}.${pad(at.getSeconds())}`;
-  return `questarr_backup_v${APP_VERSION}_${stamp}_${kind}.zip`;
+  // Two backups finishing in the same second get a random suffix instead of overwriting.
+  const suffix = unique ? `-${crypto.randomBytes(3).toString("hex")}` : "";
+  return `questarr_backup_v${APP_VERSION}_${stamp}${suffix}_${kind}.zip`;
 }
 
 /** Resolve a client-supplied backup name to a file inside the backup directory, or null. */
@@ -185,6 +187,8 @@ export async function createBackup(kind: BackupKind): Promise<CreatedBackup> {
   state.lastError = null;
   const backupDir = getBackupDir();
   const work = path.join(backupDir, `.work-${crypto.randomBytes(6).toString("hex")}`);
+  // Only this call's own partial archive is cleaned up, never another call's.
+  let partial: string | null = null;
   try {
     await fs.promises.mkdir(work, { recursive: true, mode: 0o700 });
     const settings = await getBackupSettings();
@@ -223,24 +227,40 @@ export async function createBackup(kind: BackupKind): Promise<CreatedBackup> {
       files.push({ entry: SQLITE_DB_ENTRY, source: copy });
     }
 
+    // Config and screenshots are copied into the work dir first, then hashed and archived
+    // from those copies, so a file changing mid-backup cannot break its own checksum.
     const configFile = getConfigFilePath();
     const includesConfig = fs.existsSync(configFile);
-    if (includesConfig) files.push({ entry: CONFIG_ENTRY, source: configFile });
+    if (includesConfig) {
+      const copy = path.join(work, "config.yaml");
+      await fs.promises.copyFile(configFile, copy);
+      files.push({ entry: CONFIG_ENTRY, source: copy });
+    }
 
     let includesScreenshots = false;
     if (settings.includeScreenshots) {
       const root = getScreenshotsDir();
+      let index = 0;
       for (const rel of await listFilesRecursive(root)) {
-        files.push({ entry: SCREENSHOTS_PREFIX + rel, source: path.join(root, rel) });
+        const copy = path.join(work, "screenshots", String(index++));
+        await fs.promises.mkdir(path.dirname(copy), { recursive: true });
+        try {
+          await fs.promises.copyFile(path.join(root, rel), copy);
+        } catch {
+          continue; // removed since the listing
+        }
+        files.push({ entry: SCREENSHOTS_PREFIX + rel, source: copy });
         includesScreenshots = true;
       }
     }
 
-    const manifestFiles: BackupManifestFile[] = [];
-    for (const f of files) {
-      const stat = await fs.promises.stat(f.source);
-      manifestFiles.push({ path: f.entry, size: stat.size, sha256: await sha256(f.source) });
-    }
+    const manifestFiles: BackupManifestFile[] = await Promise.all(
+      files.map(async (f) => ({
+        path: f.entry,
+        size: (await fs.promises.stat(f.source)).size,
+        sha256: await sha256(f.source),
+      }))
+    );
 
     const manifest: BackupManifest = {
       formatVersion: BACKUP_FORMAT_VERSION,
@@ -256,11 +276,13 @@ export async function createBackup(kind: BackupKind): Promise<CreatedBackup> {
       files: manifestFiles,
     };
 
-    const name = backupFileName(kind);
+    let name = backupFileName(kind);
+    if (fs.existsSync(path.join(backupDir, name))) name = backupFileName(kind, new Date(), true);
     const finalPath = path.join(backupDir, name);
-    const partial = `${finalPath}.partial`;
+    const partialPath = `${finalPath}.partial`;
+    partial = partialPath;
     await new Promise<void>((resolve, reject) => {
-      const output = fs.createWriteStream(partial, { mode: 0o600 });
+      const output = fs.createWriteStream(partialPath, { mode: 0o600 });
       const archive = new ZipArchive({ zlib: { level: 6 } });
       output.on("close", () => resolve());
       output.on("error", reject);
@@ -270,7 +292,7 @@ export async function createBackup(kind: BackupKind): Promise<CreatedBackup> {
       for (const f of files) archive.file(f.source, { name: f.entry });
       void archive.finalize();
     });
-    await fs.promises.rename(partial, finalPath);
+    await fs.promises.rename(partialPath, finalPath);
     const { size } = await fs.promises.stat(finalPath);
     logger.info({ name, kind, size }, "Backup created");
     return { name, size, manifest };
@@ -278,11 +300,13 @@ export async function createBackup(kind: BackupKind): Promise<CreatedBackup> {
     state.lastError = err instanceof Error ? err.message : String(err);
     throw err;
   } finally {
-    state.running = false;
-    await fs.promises.rm(work, { recursive: true, force: true }).catch(() => {});
-    // A failed run can leave a half-written archive behind.
-    for (const f of await fs.promises.readdir(backupDir).catch(() => [] as string[])) {
-      if (f.endsWith(".partial")) await fs.promises.rm(path.join(backupDir, f), { force: true });
+    // The guard is released only after cleanup, so a new run cannot start mid-cleanup.
+    try {
+      await fs.promises.rm(work, { recursive: true, force: true }).catch(() => {});
+      // A failed run can leave its half-written archive behind (gone after a rename).
+      if (partial) await fs.promises.rm(partial, { force: true }).catch(() => {});
+    } finally {
+      state.running = false;
     }
   }
 }

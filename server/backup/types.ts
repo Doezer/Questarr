@@ -57,7 +57,7 @@ export interface BackupSummary {
 }
 
 export const BACKUP_NAME_RE =
-  /^questarr_backup_v[0-9A-Za-z.+-]+_\d{4}\.\d{2}\.\d{2}_\d{2}\.\d{2}\.\d{2}_(manual|scheduled|pre-restore)\.zip$/;
+  /^questarr_backup_v[0-9A-Za-z.+-]+_\d{4}\.\d{2}\.\d{2}_\d{2}\.\d{2}\.\d{2}(?:-[0-9a-f]{6})?_(manual|scheduled|pre-restore)\.zip$/;
 
 export function kindFromName(name: string): BackupKind | null {
   const match = BACKUP_NAME_RE.exec(name);

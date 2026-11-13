@@ -136,6 +136,21 @@ describe.each(activeTestDialects())("backup and restore on %s", (name) => {
     expect(leftovers).toEqual([]);
   });
 
+  it("never overwrites a backup finished in the same second", async () => {
+    const svc = await import("../backup/backup-service.js");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-13T10:00:00Z"));
+      const a = await svc.createBackup("manual");
+      const b = await svc.createBackup("manual");
+      expect(b.name).not.toBe(a.name);
+      expect(svc.resolveBackupPath(b.name)).not.toBeNull();
+      expect(await svc.listBackups()).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("prunes old scheduled backups but keeps manual ones and the newest scheduled", async () => {
     const svc = await import("../backup/backup-service.js");
     const dir = process.env.BACKUP_DIR!;

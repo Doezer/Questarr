@@ -21,7 +21,7 @@ import {
   writeRestoreResult,
   writePendingRestore,
 } from "./restore-boot.js";
-import { importTables, isNdjsonEntry } from "./table-io.js";
+import { importTables, isNdjsonEntry, ndjsonFileName } from "./table-io.js";
 import { BACKUP_FORMAT_VERSION, type BackupManifest } from "./types.js";
 import { extractZip, listZipEntries, readZipText } from "./zip-utils.js";
 import { createHash } from "node:crypto";
@@ -73,6 +73,17 @@ function parseManifest(raw: string): BackupManifest {
       throw new RestoreError(`Unexpected file in the backup: ${f.path}`);
     }
   }
+  // A missing table file would be read as an empty table and wipe the current one.
+  const listed = new Set(manifest.files.map((f) => f.path));
+  if (dialect === "postgres") {
+    for (const table of TABLE_ORDER) {
+      if (!listed.has(ndjsonFileName(table))) {
+        throw new RestoreError(`The backup is incomplete: ${ndjsonFileName(table)} is missing`);
+      }
+    }
+  } else if (!listed.has(SQLITE_DB_ENTRY)) {
+    throw new RestoreError("The backup is incomplete: the database file is missing");
+  }
   return manifest;
 }
 
@@ -113,7 +124,16 @@ export async function inspectBackup(zipPath: string): Promise<BackupManifest> {
  * Nothing live is touched: the swap happens at boot (SQLite) or right after migrations
  * (Postgres).
  */
-export async function stageRestore(zipPath: string, source: string): Promise<BackupManifest> {
+export function stageRestore(zipPath: string, source: string): Promise<BackupManifest> {
+  // One at a time: each run clears the shared staging directory before it extracts.
+  const run = stagingQueue.then(() => stageRestoreLocked(zipPath, source));
+  stagingQueue = run.catch(() => undefined);
+  return run;
+}
+
+let stagingQueue: Promise<unknown> = Promise.resolve();
+
+async function stageRestoreLocked(zipPath: string, source: string): Promise<BackupManifest> {
   const manifest = await inspectBackup(zipPath);
   const staging = getRestoreDir();
   await fs.promises.rm(staging, { recursive: true, force: true });
@@ -183,9 +203,12 @@ export async function stageRestore(zipPath: string, source: string): Promise<Bac
 export async function applyPendingPostgresRestore(): Promise<boolean> {
   const pending = readPendingRestore();
   if (!pending || pending.dialect !== "postgres" || dialect !== "postgres") return false;
+  let undoAuxiliary: (() => void) | null = null;
   try {
+    // Files first: if they fail nothing in the database has changed, and if the import
+    // fails afterwards the previous config.yaml is put back.
+    undoAuxiliary = applyAuxiliaryFiles();
     const counts = await importTables(getRestoreDir());
-    applyAuxiliaryFiles();
     logger.info(
       {
         source: pending.source,
@@ -197,7 +220,8 @@ export async function applyPendingPostgresRestore(): Promise<boolean> {
     writeRestoreResult({ ok: true, at: new Date().toISOString(), source: pending.source });
     return true;
   } catch (err) {
-    logger.error({ err }, "Restore failed; the transaction was rolled back");
+    undoAuxiliary?.();
+    logger.error({ err }, "Restore failed; the database was left unchanged");
     writeRestoreResult({
       ok: false,
       at: new Date().toISOString(),

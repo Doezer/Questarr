@@ -1,6 +1,6 @@
 import express from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../backup/backup-service.js", () => ({
   createBackup: vi.fn().mockResolvedValue({ name: "n" }),
@@ -48,7 +48,12 @@ function makeApp(authenticated = true) {
 }
 
 describe("backups routes", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Never let the restore route schedule a real process.exit.
+    vi.stubEnv("QUESTARR_RESTORE_RESTART", "false");
+  });
+  afterEach(() => vi.unstubAllEnvs());
 
   it("requires authentication", async () => {
     await request(makeApp(false)).get("/api/system/backups").expect(401);

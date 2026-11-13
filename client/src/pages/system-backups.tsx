@@ -113,6 +113,7 @@ export default function SystemBackupsPage() {
   const [retention, setRetention] = useState("28");
   const [screenshots, setScreenshots] = useState(false);
   const savedSettings = data?.settings;
+  const settingsLoaded = savedSettings !== undefined;
   useEffect(() => {
     if (!savedSettings) return;
     setIntervalDays(String(savedSettings.intervalDays));
@@ -414,7 +415,7 @@ export default function SystemBackupsPage() {
         </div>
         <Button
           className="mt-4 h-11 w-full sm:h-9 sm:w-auto"
-          disabled={!settingsValid || saveSettings.isPending}
+          disabled={!settingsLoaded || !settingsValid || saveSettings.isPending}
           onClick={() =>
             saveSettings.mutate({
               intervalDays: intervalNum,
@@ -491,7 +492,10 @@ export default function SystemBackupsPage() {
         </ul>
       )}
 
-      <AlertDialog open={restoreTarget !== null} onOpenChange={(o) => !o && setRestoreTarget(null)}>
+      <AlertDialog
+        open={restoreTarget !== null}
+        onOpenChange={(o) => !o && !restore.isPending && setRestoreTarget(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Restore this backup?</AlertDialogTitle>
@@ -503,7 +507,7 @@ export default function SystemBackupsPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={restore.isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               disabled={restore.isPending}
               onClick={(e) => {

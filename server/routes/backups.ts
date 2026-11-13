@@ -1,4 +1,5 @@
 import { Router } from "express";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
@@ -28,7 +29,7 @@ const MAX_UPLOAD_BYTES =
   1024 *
   1024;
 
-const UPLOAD_NAME_RE = /^upload-\d+-\d+\.zip$/;
+const UPLOAD_NAME_RE = /^upload-\d+-\d+-[0-9a-f]{12}\.zip$/;
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -38,7 +39,8 @@ const upload = multer({
       cb(null, dir);
     },
     // Never the client's file name.
-    filename: (_req, _file, cb) => cb(null, `upload-${Date.now()}-${process.pid}.zip`),
+    filename: (_req, _file, cb) =>
+      cb(null, `upload-${Date.now()}-${process.pid}-${crypto.randomBytes(6).toString("hex")}.zip`),
   }),
   limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import { configLoader } from "../config-loader.js";
 import { resolveSqliteDbPath } from "../db/sqlite-path.js";
 import { logger } from "../logger.js";
 import { getBackupDir, getConfigFilePath, getRestoreDir, getScreenshotsDir } from "./paths.js";
@@ -90,20 +91,49 @@ export function clearPendingRestore(): void {
   fs.rmSync(getRestoreDir(), { recursive: true, force: true });
 }
 
-/** Config file and screenshots, shared by both dialects. */
-export function applyAuxiliaryFiles(): void {
+/**
+ * Config file and screenshots, shared by both dialects. Returns an `undo` that puts the
+ * previous config.yaml back, for a caller whose database step fails afterwards. A failure
+ * inside this function undoes itself before throwing.
+ */
+export function applyAuxiliaryFiles(): () => void {
   const dir = getRestoreDir();
-  const stagedConfig = path.join(dir, STAGED_CONFIG);
-  if (fs.existsSync(stagedConfig)) {
-    const target = getConfigFilePath();
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    if (fs.existsSync(target)) fs.copyFileSync(target, `${target}.pre-restore`);
-    fs.copyFileSync(stagedConfig, target);
+  const target = getConfigFilePath();
+  const previous = `${target}.pre-restore`;
+  let touchedConfig = false;
+  let hadConfig = false;
+
+  const undo = (): void => {
+    if (!touchedConfig) return;
+    try {
+      if (hadConfig) fs.copyFileSync(previous, target);
+      else fs.rmSync(target, { force: true });
+      configLoader.reload();
+    } catch (err) {
+      logger.error({ err }, "Could not put the previous config.yaml back");
+    }
+  };
+
+  try {
+    const stagedConfig = path.join(dir, STAGED_CONFIG);
+    if (fs.existsSync(stagedConfig)) {
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      hadConfig = fs.existsSync(target);
+      if (hadConfig) fs.copyFileSync(target, previous);
+      touchedConfig = true;
+      fs.copyFileSync(stagedConfig, target);
+      // The loader read the old file when it was created; the SSL settings come from here.
+      configLoader.reload();
+    }
+    const stagedShots = path.join(dir, STAGED_SCREENSHOTS);
+    if (fs.existsSync(stagedShots)) {
+      fs.cpSync(stagedShots, getScreenshotsDir(), { recursive: true, force: true });
+    }
+  } catch (err) {
+    undo();
+    throw err;
   }
-  const stagedShots = path.join(dir, STAGED_SCREENSHOTS);
-  if (fs.existsSync(stagedShots)) {
-    fs.cpSync(stagedShots, getScreenshotsDir(), { recursive: true, force: true });
-  }
+  return undo;
 }
 
 /**
@@ -124,6 +154,8 @@ export function applyPendingSqliteRestore(): boolean {
   if (pending.dialect !== "sqlite") return false; // Postgres: applied after migrations
 
   const staged = path.join(getRestoreDir(), STAGED_SQLITE);
+  const dbPath = resolveSqliteDbPath();
+  let movedOriginal = false;
   try {
     const probe = new Database(staged, { readonly: true });
     try {
@@ -133,7 +165,6 @@ export function applyPendingSqliteRestore(): boolean {
       probe.close();
     }
 
-    const dbPath = resolveSqliteDbPath();
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     if (fs.existsSync(dbPath)) {
       // The old process may have exited with writes still in the -wal file: fold them
@@ -149,6 +180,7 @@ export function applyPendingSqliteRestore(): boolean {
         logger.warn({ err }, "Could not checkpoint the old database before the restore");
       }
       fs.renameSync(dbPath, `${dbPath}.pre-restore`);
+      movedOriginal = true;
     }
     for (const suffix of ["-wal", "-shm"]) fs.rmSync(dbPath + suffix, { force: true });
     fs.copyFileSync(staged, dbPath);
@@ -166,10 +198,15 @@ export function applyPendingSqliteRestore(): boolean {
       source: pending.source,
       error: (err as Error).message.slice(0, 300),
     });
-    // Put the old file back if the swap got as far as moving it away.
-    const dbPath = resolveSqliteDbPath();
-    if (!fs.existsSync(dbPath) && fs.existsSync(`${dbPath}.pre-restore`)) {
-      fs.renameSync(`${dbPath}.pre-restore`, dbPath);
+    // Put the old file back if the swap got as far as moving it away, even when the new
+    // file was already copied in (a later step, such as the config, failed).
+    if (movedOriginal) {
+      try {
+        for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(dbPath + suffix, { force: true });
+        fs.renameSync(`${dbPath}.pre-restore`, dbPath);
+      } catch (rollbackErr) {
+        logger.error({ err: rollbackErr }, "Could not put the previous database back");
+      }
     }
     return false;
   } finally {

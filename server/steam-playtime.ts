@@ -3,6 +3,7 @@ import { storage } from "./storage.js";
 import { config } from "./config.js";
 import { steamService } from "./steam.js";
 import { routesLogger } from "./logger.js";
+import { notifyUser } from "./socket.js";
 import { sessionMinutes } from "../shared/play-stats.js";
 
 /**
@@ -305,6 +306,8 @@ export async function syncSteamPlaytime(
       lastMinutesAdded: minutesAdded,
       lastError: null,
     });
+    // Open pages (stats, journal, sync card) refresh themselves instead of waiting for a reload.
+    notifyUser("playSessionsUpdated", { source: "steam" }, userId);
     return { sessionsAdded, minutesAdded, baselined };
   } finally {
     running.delete(userId);

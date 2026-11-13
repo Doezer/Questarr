@@ -10,6 +10,7 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 import { getPageTitle } from "@/components/navigation-items";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
 import { useGameUpdatedSocket } from "@/hooks/use-game-updated-socket";
+import { usePlaySessionsSocket } from "@/hooks/use-play-sessions-socket";
 import { AuthProvider } from "@/lib/auth";
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef } from "react";
 import LoadingFallback from "@/components/LoadingFallback";
@@ -160,6 +161,7 @@ function AppContent() {
   // Enable background notifications for downloads
   useBackgroundNotifications();
   useGameUpdatedSocket();
+  usePlaySessionsSocket();
 
   return <Router />;
 }

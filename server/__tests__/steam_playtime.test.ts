@@ -5,6 +5,7 @@ import { activeTestDialects, setupTestDb, type TestDb } from "./helpers/db-harne
 
 const fixtures = vi.hoisted(() => ({
   playtimes: vi.fn(),
+  notify: vi.fn(),
   steam: { isConfigured: true, apiKey: "test-key" as string | undefined },
   user: { id: "", steamId64: "76561198000000000" as string | null },
 }));
@@ -19,6 +20,7 @@ vi.mock("../middleware.js", () => ({
   sensitiveEndpointLimiter: (_req: Request, _res: Response, next: NextFunction) => next(),
 }));
 vi.mock("../config.js", () => ({ config: { steam: fixtures.steam } }));
+vi.mock("../socket.js", () => ({ notifyUser: fixtures.notify }));
 vi.mock("../steam.js", () => ({ steamService: { getOwnedPlaytimes: fixtures.playtimes } }));
 
 const T0 = new Date("2026-11-08T10:00:00Z");
@@ -94,6 +96,12 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
       sessionsAdded: 0,
     });
     expect(await steamSessions()).toHaveLength(1);
+    // Each finished sync tells the user's open pages to refresh.
+    expect(fixtures.notify).toHaveBeenCalledWith(
+      "playSessionsUpdated",
+      { source: "steam" },
+      userId
+    );
   });
 
   it("subtracts manual, timer and Playnite minutes recorded since the last sync", async () => {

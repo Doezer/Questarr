@@ -8,6 +8,7 @@ import { seerrngRouter } from "./seerrng.js";
 import { routesLogger as logger } from "../logger.js";
 import { normalizeTitle } from "../../shared/title-utils.js";
 import { quickAddGameByTitle } from "../game-quick-add.js";
+import { notifyUser } from "../socket.js";
 // Relative path, not the "@shared" alias — see the comment in
 // game-quick-add.ts.
 import { GAME_STATUSES, type Game } from "../../shared/schema.js";
@@ -417,6 +418,7 @@ integrationRouter.post(
         },
         "Play session received through the integration API"
       );
+      notifyUser("playSessionsUpdated", { source: "playnite", gameId: game.id }, userId);
       return res.status(201).json({ session, duplicate: false });
     } catch (error) {
       logger.error({ error }, "Integration play session failed");

@@ -21,6 +21,7 @@ import {
   createConfigLoaderMock,
   createSocketMock,
 } from "./fixtures/common-route-mocks.js";
+import { notifyUser } from "../socket.js";
 
 // Like the auth-boundary suite, this one deliberately does NOT mock ../auth.js:
 // the whole point is to prove that a real API key authenticates against the
@@ -658,6 +659,12 @@ describe("integration API", () => {
       expect(res.body.duplicate).toBe(false);
       expect(storage.addGamePlaySession).toHaveBeenCalledWith(
         expect.objectContaining({ gameId: "game-1", userId: USER.id, source: "playnite" })
+      );
+      // Open pages are told to refresh, for this user only.
+      expect(notifyUser).toHaveBeenCalledWith(
+        "playSessionsUpdated",
+        { source: "playnite", gameId: "game-1" },
+        USER.id
       );
     });
 

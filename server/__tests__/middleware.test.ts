@@ -8,6 +8,7 @@ import {
   sanitizeGameStatus,
   sanitizeGameData,
   sanitizeIndexerData,
+  sanitizeIndexerUpdateData,
   sanitizeDownloaderData,
   sanitizeDownloaderUpdateData,
   sanitizeDownloaderDownloadData,
@@ -290,6 +291,41 @@ describe("Middleware - Input Sanitization", () => {
       validateRequest(req as Request, res as Response, next);
 
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe("indexer timeoutSeconds validation", () => {
+    const run = async (validators: typeof sanitizeIndexerData, body: Record<string, unknown>) => {
+      const req = createMockRequest({ body });
+      const res = createMockResponse();
+      const next = createMockNext();
+      for (const validator of validators) {
+        await validator(req as Request, res as Response, next);
+      }
+      validateRequest(req as Request, res as Response, next);
+      return { req, res };
+    };
+    const base = { name: "T", url: "https://example.com", apiKey: "k" };
+
+    it.each([
+      ["create", sanitizeIndexerData],
+      ["update", sanitizeIndexerUpdateData],
+    ])("rejects out-of-range or non-integer values on %s", async (_label, validators) => {
+      for (const bad of [0, -5, 99999, 1.5, "abc"]) {
+        const { res } = await run(validators, { ...base, timeoutSeconds: bad });
+        expect(res.status).toHaveBeenCalledWith(400);
+      }
+    });
+
+    it.each([
+      ["create", sanitizeIndexerData],
+      ["update", sanitizeIndexerUpdateData],
+    ])("accepts a valid value (as an integer) and null on %s", async (_label, validators) => {
+      const ok = await run(validators, { ...base, timeoutSeconds: "45" });
+      expect(ok.res.status).not.toHaveBeenCalled();
+      expect(ok.req.body.timeoutSeconds).toBe(45);
+      const cleared = await run(validators, { ...base, timeoutSeconds: null });
+      expect(cleared.res.status).not.toHaveBeenCalled();
     });
   });
 

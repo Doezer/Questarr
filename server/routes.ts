@@ -2053,7 +2053,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const userId = req.user!.id;
         const gameData = insertGameSchema.parse({ ...req.body, userId });
 
-        const userGames = await storage.getUserGames(userId, true, Array.from(OWNED_GAME_STATUSES)); // Check against all games including hidden
+        const userGames = await storage.getUserGames(userId, true); // Check against all games including hidden
         const existingGame = userGames.find((g) =>
           gameData.igdbId != null
             ? g.igdbId === gameData.igdbId
@@ -2267,7 +2267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/games/refresh-metadata", igdbRateLimiter, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const userGames = await storage.getUserGames(userId, true, Array.from(OWNED_GAME_STATUSES));
+      const userGames = await storage.getUserGames(userId, true);
 
       routesLogger.info({ userId, gameCount: userGames.length }, "starting metadata refresh");
 
@@ -2363,7 +2363,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/games/library-health-check", sensitiveEndpointLimiter, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const userGames = await storage.getUserGames(userId, true, Array.from(OWNED_GAME_STATUSES));
+      const userGames = await storage.getUserGames(userId, true);
       const config = await storage.getImportConfig(userId);
       const resolvedRoot = path.resolve(config.libraryRoot);
 
@@ -3448,7 +3448,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user!.id;
 
       // Get user's current games for recommendations
-      const userGames = await storage.getUserGames(userId, true, Array.from(OWNED_GAME_STATUSES));
+      const userGames = await storage.getUserGames(userId, true);
       const recommendationSeeds = userGames.map((g) => ({
         genres: g.genres || undefined,
         platforms: g.platforms || undefined,

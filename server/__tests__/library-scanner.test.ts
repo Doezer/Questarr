@@ -711,6 +711,18 @@ describe("matchUnmatchedFolder with release-style folder names", () => {
     expect(found.map((c) => c.igdbId)).toEqual([2, 1]);
   });
 
+  it("keeps a typed standalone year as part of the title", async () => {
+    const igdbClient = await scanReleaseFolder("rf-release-f1");
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "F1" },
+      { id: 2, name: "F1 2020" },
+    ] as never);
+
+    const found = await searchUnmatchedFolder("rf-release-f1", folderName, "F1 2020");
+
+    expect(found.map((c) => c.igdbId)).toEqual([2, 1]);
+  });
+
   it("still accepts a candidate offered before a later name search", async () => {
     // Another tab still shows the scan's list after this one searched a name.
     const igdbClient = await scanReleaseFolder("rf-release-two-tabs");

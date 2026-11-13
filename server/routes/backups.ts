@@ -29,24 +29,28 @@ const MAX_UPLOAD_BYTES =
   1024 *
   1024;
 
-const UPLOAD_NAME_RE = /^upload-\d+-\d+-[0-9a-f]{12}\.zip$/;
-
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      const dir = path.join(getBackupDir(), ".uploads");
-      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      cb(null, dir);
+/** One uploader per request, so the stored name is generated here and never read back from the request. */
+function uploaderFor(name: string) {
+  return multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => {
+        const dir = path.join(getBackupDir(), ".uploads");
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        cb(null, dir);
+      },
+      // Never the client's file name.
+      filename: (_req, _file, cb) => cb(null, name),
+    }),
+    limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+    fileFilter: (_req, file, cb) => {
+      cb(null, file.originalname.toLowerCase().endsWith(".zip"));
     },
-    // Never the client's file name.
-    filename: (_req, _file, cb) =>
-      cb(null, `upload-${Date.now()}-${process.pid}-${crypto.randomBytes(6).toString("hex")}.zip`),
-  }),
-  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
-  fileFilter: (_req, file, cb) => {
-    cb(null, file.originalname.toLowerCase().endsWith(".zip"));
-  },
-});
+  });
+}
+
+function newUploadName(): string {
+  return `upload-${Date.now()}-${process.pid}-${crypto.randomBytes(6).toString("hex")}.zip`;
+}
 
 const settingsSchema = z.object({
   intervalDays: z.number().int().min(0).max(365),
@@ -140,7 +144,8 @@ backupsRouter.post("/", sensitiveEndpointLimiter, (_req, res) => {
 
 // POST /api/system/backups/restore - restore from an uploaded archive
 backupsRouter.post("/restore", sensitiveEndpointLimiter, (req, res) => {
-  upload.single("file")(req, res, async (uploadErr) => {
+  const uploadName = newUploadName();
+  uploaderFor(uploadName).single("file")(req, res, async (uploadErr) => {
     if (uploadErr) {
       const tooBig = (uploadErr as { code?: string }).code === "LIMIT_FILE_SIZE";
       return res
@@ -149,11 +154,8 @@ backupsRouter.post("/restore", sensitiveEndpointLimiter, (req, res) => {
     }
     const uploaded = req.file;
     if (!uploaded) return res.status(400).json({ error: "Upload a .zip backup file" });
-    // Rebuild the path from the server-chosen name instead of trusting the request object.
-    if (!UPLOAD_NAME_RE.test(uploaded.filename)) {
-      return res.status(400).json({ error: "Upload failed" });
-    }
-    const file = { path: path.join(getBackupDir(), ".uploads", uploaded.filename) };
+    // The path comes from the name generated above, not from the request object.
+    const file = { path: path.join(getBackupDir(), ".uploads", uploadName) };
     try {
       const manifest = await stageRestore(file.path, "upload");
       return res.status(202).json({

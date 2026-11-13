@@ -36,6 +36,7 @@ import {
   type ScannedGameFile,
   type GameFileCategory,
   updateGameUpgradePolicySchema,
+  resolveUpgradePolicy,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { parseJsonObject } from "../shared/json-object-utils.js";
@@ -2187,8 +2188,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     patchOwnGameField(
       updateGameUpgradePolicySchema,
       async (id, userId, { upgradePolicy }) => {
-        const game = await storage.updateGameUpgradePolicy(id, userId, upgradePolicy);
-        if (game) (await import("./socket.js")).notifyUser("gameUpdated", game.id);
+        let game = await storage.updateGameUpgradePolicy(id, userId, upgradePolicy);
+        if (game) {
+          // Auto-search's own cleanup only runs while it is enabled, so drop stale badges now.
+          const settings = await storage.getUserSettings(userId);
+          if (
+            resolveUpgradePolicy(game.upgradePolicy, settings?.upgradePolicy) === "off" &&
+            (game.updateSearchResultsAvailable || game.packsSearchResultsAvailable)
+          ) {
+            await storage.updateGameSearchResultsByCategory(game.id, {
+              updates: false,
+              packs: false,
+            });
+            game = {
+              ...game,
+              updateSearchResultsAvailable: false,
+              packsSearchResultsAvailable: false,
+            };
+          }
+          (await import("./socket.js")).notifyUser("gameUpdated", game.id);
+        }
         return game;
       },
       {

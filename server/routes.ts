@@ -1,3 +1,4 @@
+import { guardedIndexerSearch } from "./search-guard.js";
 import { isSameProwlarrUrl } from "../shared/prowlarr-url.js";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { body, param } from "express-validator";
@@ -39,7 +40,7 @@ import {
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { parseJsonObject } from "../shared/json-object-utils.js";
 import { torznabClient } from "./torznab.js";
-import { newznabClient } from "./newznab.js";
+import { newznabClient, type NewznabResult } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
 import {
@@ -4024,12 +4025,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           offset: parseInt(offset as string) || 0,
         };
 
-        let results;
-        if (isUsenetProtocol(indexer.protocol)) {
-          results = await newznabClient.search(indexer, searchParams);
-        } else {
-          results = await torznabClient.searchGames(indexer, searchParams);
-        }
+        // Through the guard so a 429 from this endpoint starts (and respects) the indexer's cooldown.
+        const results = await guardedIndexerSearch<
+          NewznabResult[] | Awaited<ReturnType<typeof torznabClient.searchGames>>
+        >(
+          indexer.id,
+          JSON.stringify([
+            searchParams.query,
+            searchParams.category,
+            searchParams.limit,
+            searchParams.offset,
+          ]),
+          {},
+          (signal) =>
+            isUsenetProtocol(indexer.protocol)
+              ? newznabClient.search(indexer, searchParams, signal)
+              : torznabClient.searchGames(indexer, searchParams, signal)
+        );
         return res.json(results);
       } catch (error) {
         routesLogger.error({ error }, "error searching specific indexer");

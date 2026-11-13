@@ -66,11 +66,18 @@ export const BACKOFF_MAX_MS = 15 * 60_000;
 export const RETRY_AFTER_MAX_MS = 60 * 60_000;
 
 interface Cooldown {
+  /** Order in which the 429 was registered, relative to request starts (see `tick`). */
+  seq: number;
   until: number;
   failures: number;
 }
 
 const cooldowns = new Map<string, Cooldown>();
+let sequence = 0;
+/** A monotonic counter: orders request starts and 429s even within the same millisecond. */
+function tick(): number {
+  return ++sequence;
+}
 
 /** Milliseconds left before the indexer may be queried again (0 = free). */
 export function getIndexerCooldownMs(indexerId: string, now = Date.now()): number {
@@ -94,13 +101,17 @@ export function noteIndexerRateLimited(
     retryAfterMs !== null
       ? Math.min(RETRY_AFTER_MAX_MS, Math.max(retryAfterMs, 1_000))
       : exponential;
-  cooldowns.set(indexerId, { until: now + delay, failures });
+  cooldowns.set(indexerId, { seq: tick(), until: now + delay, failures });
   return delay;
 }
 
-/** A successful answer ends the backoff. */
-export function noteIndexerSuccess(indexerId: string): void {
-  cooldowns.delete(indexerId);
+/**
+ * A successful answer ends the backoff, unless a 429 was registered after that request started
+ * (a concurrent search): its wait must run its course.
+ */
+export function noteIndexerSuccess(indexerId: string, startedAt: number = tick()): void {
+  const cooldown = cooldowns.get(indexerId);
+  if (cooldown && cooldown.seq < startedAt) cooldowns.delete(indexerId);
 }
 
 /** Thrown without sending anything while an indexer is backing off after a 429. */
@@ -211,8 +222,9 @@ export function guardedIndexerSearch<T>(
           try {
             const remaining = getIndexerCooldownMs(indexerId);
             if (remaining > 0) throw new IndexerCoolingDownError(remaining);
+            const startedAt = tick();
             const value = await run(controller.signal);
-            noteIndexerSuccess(indexerId);
+            noteIndexerSuccess(indexerId, startedAt);
             return value;
           } catch (error) {
             const limited = findRateLimited(error);

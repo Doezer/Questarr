@@ -203,6 +203,20 @@ describe("429 backoff", () => {
     expect(calls).toBe(1);
   });
 
+  it("keeps a cooldown set by a 429 that arrived while another search was in flight", async () => {
+    const gate = deferred<string>();
+    const slow = guardedIndexerSearch("idx", "slow", {}, () => gate.promise);
+    await Promise.resolve();
+    await expect(
+      guardedIndexerSearch("idx", "limited", {}, () =>
+        Promise.reject(new IndexerRateLimitedError("429", 60_000))
+      )
+    ).rejects.toThrow("429");
+    gate.resolve("ok");
+    await slow;
+    expect(getIndexerCooldownMs("idx")).toBeGreaterThan(0);
+  });
+
   it("sees a 429 wrapped as the cause of another error", async () => {
     const wrapped = () =>
       Promise.reject(

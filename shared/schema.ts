@@ -282,6 +282,9 @@ export const indexers = sqliteTable("indexers", {
   // does not support TLS). When this flag is false and the indexer URL uses
   // HTTP, API keys are omitted from every outbound request.
   allowInsecureLan: integer("allow_insecure_lan", { mode: "boolean" }).notNull().default(false),
+  // Per-indexer request timeout in seconds. Null = use the global default
+  // (SEARCH_INDEXER_TIMEOUT_MS, 30 s).
+  timeoutSeconds: integer("timeout_seconds"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -860,6 +863,7 @@ export const insertIndexerSchema = createInsertSchema(indexers, {
   name: (schema) => schema.trim().min(1, "Name is required"),
   url: (schema) => schema.trim().min(1, "URL is required"),
   apiKey: (schema) => schema.trim().min(1, "API key is required"),
+  timeoutSeconds: (schema) => schema.int().min(1).max(300),
 }).omit({
   id: true,
   createdAt: true,

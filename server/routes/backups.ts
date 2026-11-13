@@ -27,6 +27,8 @@ const MAX_UPLOAD_BYTES =
   1024 *
   1024;
 
+const UPLOAD_NAME_RE = /^upload-\d+-\d+\.zip$/;
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => {
@@ -135,8 +137,13 @@ backupsRouter.post("/restore", sensitiveEndpointLimiter, (req, res) => {
         .status(tooBig ? 413 : 400)
         .json({ error: tooBig ? "The backup file is too large" : "Upload failed" });
     }
-    const file = req.file;
-    if (!file) return res.status(400).json({ error: "Upload a .zip backup file" });
+    const uploaded = req.file;
+    if (!uploaded) return res.status(400).json({ error: "Upload a .zip backup file" });
+    // Rebuild the path from the server-chosen name instead of trusting the request object.
+    if (!UPLOAD_NAME_RE.test(uploaded.filename)) {
+      return res.status(400).json({ error: "Upload failed" });
+    }
+    const file = { path: path.join(getBackupDir(), ".uploads", uploaded.filename) };
     try {
       const manifest = await stageRestore(file.path, "upload");
       return res.status(202).json({

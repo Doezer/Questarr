@@ -77,6 +77,11 @@ import {
   type GameMilestone,
   type InsertGameMilestone,
   type GameScreenshot,
+  type Tag,
+  type InsertTag,
+  type UpdateTag,
+  type GameTag,
+  type InsertGameTag,
 } from "../shared/schema.js";
 import {
   users,
@@ -112,6 +117,8 @@ import {
   gameScreenshots,
   classificationCache,
   classificationCandidates,
+  tags,
+  gameTags,
 } from "./db/tables.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
@@ -134,6 +141,7 @@ import {
   gte,
   lt,
   lte,
+  exists,
 } from "drizzle-orm";
 import { containsCI, distinctJoin, affectedRows } from "./sql-compat.js";
 import { transactionalOps } from "./db/transactional-ops.js";
@@ -320,6 +328,19 @@ export interface IStorage {
   getCollectionLinks(userId: string): Promise<{ collectionId: string; gameId: string }[]>;
   addGameToCollection(collectionId: string, gameId: string): Promise<boolean>;
   removeGameFromCollection(collectionId: string, gameId: string): Promise<boolean>;
+
+  // Tag methods (user-defined labels for games)
+  getTags(userId: string): Promise<Tag[]>;
+  getTag(id: string, userId: string): Promise<Tag | undefined>;
+  createTag(tag: InsertTag & { userId: string }): Promise<Tag>;
+  updateTag(id: string, userId: string, patch: UpdateTag): Promise<Tag | undefined>;
+  deleteTag(id: string, userId: string): Promise<boolean>;
+  getGameTags(gameId: string): Promise<GameTag[]>;
+  getGamesByTag(tagId: string, userId: string): Promise<string[]>;
+  getTagsByIds(tagIds: string[]): Promise<Tag[]>;
+  getGamesByIds(gameIds: string[]): Promise<Game[]>;
+  addTagToGame(gameTag: InsertGameTag): Promise<GameTag>;
+  removeTagFromGame(gameId: string, tagId: string): Promise<boolean>;
 
   // Game journal methods (local-only notes while playing)
   getGameJournalEntries(gameId: string, userId: string): Promise<GameJournalEntry[]>;
@@ -660,6 +681,8 @@ export class MemStorage implements IStorage {
   private integrationRequests: Map<string, IntegrationRequest>;
   private collections: Map<string, Collection>;
   private collectionGames: Map<string, { id: string; collectionId: string; gameId: string }>;
+  private tags: Map<string, Tag>;
+  private gameTags: Map<string, GameTag>;
   private gameJournalEntries: Map<string, GameJournalEntry>;
   private gameMilestones: Map<string, GameMilestone>;
   private gamePlaySessions: Map<string, GamePlaySession>;
@@ -693,6 +716,8 @@ export class MemStorage implements IStorage {
     this.integrationRequests = new Map();
     this.collections = new Map();
     this.collectionGames = new Map();
+    this.tags = new Map();
+    this.gameTags = new Map();
     this.gameJournalEntries = new Map();
     this.gameMilestones = new Map();
     this.gamePlaySessions = new Map();
@@ -1015,6 +1040,106 @@ export class MemStorage implements IStorage {
     for (const [id, link] of this.collectionGames) {
       if (link.collectionId === collectionId && link.gameId === gameId) {
         return this.collectionGames.delete(id);
+      }
+    }
+    return false;
+  }
+
+  // Tag methods (SQLite implementation)
+  async getTags(userId: string): Promise<Tag[]> {
+    return Array.from(this.tags.values())
+      .filter((tag) => tag.userId === userId)
+      .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+  }
+
+  async getTag(id: string, userId: string): Promise<Tag | undefined> {
+    const tag = this.tags.get(id);
+    return tag?.userId === userId ? tag : undefined;
+  }
+
+  async createTag(tag: InsertTag & { userId: string }): Promise<Tag> {
+    const id = randomUUID();
+    const now = new Date();
+    const newTag: Tag = {
+      id,
+      userId: tag.userId,
+      name: tag.name,
+      color: tag.color,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.tags.set(id, newTag);
+    return newTag;
+  }
+
+  async updateTag(id: string, userId: string, patch: UpdateTag): Promise<Tag | undefined> {
+    const existing = this.tags.get(id);
+    if (!existing || existing.userId !== userId) return undefined;
+    const updated: Tag = {
+      ...existing,
+      ...patch,
+      id,
+      name: patch.name ?? existing.name,
+      color: patch.color ?? existing.color,
+      updatedAt: new Date()
+    };
+    this.tags.set(id, updated);
+    return updated;
+  }
+
+  async deleteTag(id: string, userId: string): Promise<boolean> {
+    const tag = this.tags.get(id);
+    if (!tag || tag.userId !== userId) return false;
+    // Remove all game_tags that reference this tag
+    for (const [gtId, gt] of this.gameTags) {
+      if (gt.tagId === id) {
+        this.gameTags.delete(gtId);
+      }
+    }
+    return this.tags.delete(id);
+  }
+
+  async getGameTags(gameId: string): Promise<GameTag[]> {
+    return Array.from(this.gameTags.values())
+      .filter((gt) => gt.gameId === gameId)
+      .map(({ id, gameId, tagId, addedAt }) => ({ id, gameId, tagId, addedAt }));
+  }
+
+  async getGamesByTag(tagId: string, userId: string): Promise<string[]> {
+    const tag = this.tags.get(tagId);
+    if (!tag || tag.userId !== userId) return [];
+    return Array.from(this.gameTags.values())
+      .filter((gt) => gt.tagId === tagId)
+      .map((gt) => gt.gameId);
+  }
+
+  async getTagsByIds(tagIds: string[]): Promise<Tag[]> {
+    return Array.from(this.tags.values())
+      .filter((tag) => tagIds.includes(tag.id));
+  }
+
+  async getGamesByIds(gameIds: string[]): Promise<Game[]> {
+    return Array.from(this.games.values())
+      .filter((game) => gameIds.includes(game.id));
+  }
+
+  async addTagToGame(gameTag: InsertGameTag): Promise<GameTag> {
+    const id = randomUUID();
+    const now = new Date();
+    const newGameTag: GameTag = {
+      id,
+      gameId: gameTag.gameId,
+      tagId: gameTag.tagId,
+      addedAt: now,
+    };
+    this.gameTags.set(id, newGameTag);
+    return newGameTag;
+  }
+
+  async removeTagFromGame(gameId: string, tagId: string): Promise<boolean> {
+    for (const [id, gt] of this.gameTags) {
+      if (gt.gameId === gameId && gt.tagId === tagId) {
+        return this.gameTags.delete(id);
       }
     }
     return false;
@@ -3161,6 +3286,119 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(eq(collectionGames.collectionId, collectionId), eq(collectionGames.gameId, gameId))
       )
+      .returning();
+    return result.length > 0;
+  }
+
+  // Tag methods (DatabaseStorage implementation)
+  async getTags(userId: string): Promise<Tag[]> {
+    return db
+      .select()
+      .from(tags)
+      .where(eq(tags.userId, userId))
+      .orderBy(asc(tags.name));
+  }
+
+  async getTag(id: string, userId: string): Promise<Tag | undefined> {
+    const result = await db
+      .select()
+      .from(tags)
+      .where(and(eq(tags.id, id), eq(tags.userId, userId)))
+      .limit(1);
+    return result[0];
+  }
+
+  async createTag(tag: InsertTag & { userId: string }): Promise<Tag> {
+    const now = new Date();
+    const rows = await db
+      .insert(tags)
+      .values({
+        id: randomUUID(),
+        userId: tag.userId,
+        name: tag.name,
+        color: tag.color,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async updateTag(id: string, userId: string, patch: UpdateTag): Promise<Tag | undefined> {
+    const result = await db
+      .update(tags)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(tags.id, id), eq(tags.userId, userId)))
+      .returning();
+    return result[0];
+  }
+
+  async deleteTag(id: string, userId: string): Promise<boolean> {
+    // First, delete all game_tags that reference this tag
+    await db
+      .delete(gameTags)
+      .where(and(eq(gameTags.tagId, id), exists(
+        db.select().from(tags).where(and(eq(tags.id, id), eq(tags.userId, userId)))
+      )));
+
+    const result = await db
+      .delete(tags)
+      .where(and(eq(tags.id, id), eq(tags.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getGameTags(gameId: string): Promise<GameTag[]> {
+    return db
+      .select()
+      .from(gameTags)
+      .where(eq(gameTags.gameId, gameId));
+  }
+
+  async getGamesByTag(tagId: string, userId: string): Promise<string[]> {
+    const result = await db
+      .select({ gameId: gameTags.gameId })
+      .from(gameTags)
+      .where(and(
+        eq(gameTags.tagId, tagId),
+        exists(
+          db.select().from(tags).where(and(eq(tags.id, tagId), eq(tags.userId, userId)))
+        )
+      ));
+    return result.map((row) => row.gameId);
+  }
+
+  async getTagsByIds(tagIds: string[]): Promise<Tag[]> {
+    return db
+      .select()
+      .from(tags)
+      .where(inArray(tags.id, tagIds));
+  }
+
+  async getGamesByIds(gameIds: string[]): Promise<Game[]> {
+    return db
+      .select()
+      .from(games)
+      .where(inArray(games.id, gameIds));
+  }
+
+  async addTagToGame(gameTag: InsertGameTag): Promise<GameTag> {
+    const rows = await db
+      .insert(gameTags)
+      .values({
+        id: randomUUID(),
+        gameId: gameTag.gameId,
+        tagId: gameTag.tagId,
+        addedAt: new Date(),
+      })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async removeTagFromGame(gameId: string, tagId: string): Promise<boolean> {
+    const result = await db
+      .delete(gameTags)
+      .where(and(eq(gameTags.gameId, gameId), eq(gameTags.tagId, tagId)))
       .returning();
     return result.length > 0;
   }

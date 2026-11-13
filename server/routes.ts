@@ -336,6 +336,7 @@ import { evaluateReleases } from "../shared/release-scoring.js";
 import { collectionRoutes } from "./collection-routes.js";
 import { gameJournalRoutes, screenshotDirForGame } from "./game-journal-routes.js";
 import { playSessionRoutes } from "./play-session-routes.js";
+import { default as tagRoutes } from "./tag-routes.js";
 import {
   getContentFilterFlags,
   isContentFiltered,
@@ -1139,6 +1140,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(gameJournalRoutes);
   app.use(playSessionRoutes);
   app.use(collectionRoutes);
+  app.use(tagRoutes);
   // Use PCGamingWiki Routes
   app.use(pcgamingwikiRouter);
 

@@ -3909,6 +3909,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         rssEnabled,
         autoSearchEnabled,
         allowInsecureLan,
+        timeoutSeconds,
       } = req.body;
 
       if (!url || !apiKey) {
@@ -3936,7 +3937,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Mirror the form's opt-in, or testing a plain-HTTP LAN indexer always
         // fails with 401 because the key is withheld.
         allowInsecureLan: allowInsecureLan === true,
-        timeoutSeconds: null,
+        timeoutSeconds:
+          Number.isInteger(timeoutSeconds) && timeoutSeconds >= 1 && timeoutSeconds <= 300
+            ? timeoutSeconds
+            : null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };

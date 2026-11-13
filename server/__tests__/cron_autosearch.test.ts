@@ -25,6 +25,11 @@ vi.mock("../logger.js", () => ({
 const mockGetWantedGamesGroupedByUser = vi.fn();
 const mockGetUserGames = vi.fn();
 const mockGetUserSettings = vi.fn();
+// Mirrors the games the test seeds through getUserGames, as the cron re-reads a game before publishing.
+const mockGetGame = vi.fn(async (id: string) => {
+  const games = (await mockGetUserGames()) as Array<{ id: string }> | undefined;
+  return games?.find((g) => g.id === id);
+});
 const mockUpdateUserSettings = vi.fn();
 const mockAddNotification = vi.fn();
 const mockUpdateGameSearchResultsAvailable = vi.fn();
@@ -44,6 +49,7 @@ vi.mock("../storage.js", () => ({
   storage: {
     getWantedGamesGroupedByUser: mockGetWantedGamesGroupedByUser,
     getUserGames: mockGetUserGames,
+    getGame: mockGetGame,
     getUserSettings: mockGetUserSettings,
     updateUserSettings: mockUpdateUserSettings,
     addNotification: mockAddNotification,

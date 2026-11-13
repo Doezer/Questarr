@@ -2195,6 +2195,19 @@ export async function checkAutoSearch() {
                 );
             const packsItems = deduplicateByTitle(groupFilteredPacks, indexerPriorityMap);
 
+            // The search can take a while: re-read the policy so an opt-out saved meanwhile
+            // is not undone by this (now stale) result.
+            const [freshGame, freshSettings] = await Promise.all([
+              storage.getGame(game.id),
+              storage.getUserSettings(userId),
+            ]);
+            if (
+              freshGame &&
+              resolveUpgradePolicy(freshGame.upgradePolicy, freshSettings?.upgradePolicy) === "off"
+            ) {
+              continue;
+            }
+
             await storage.updateGameSearchResultsByCategory(game.id, {
               updates: updateItems.length > 0,
               packs: packsItems.length > 0,

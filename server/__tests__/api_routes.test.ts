@@ -34,6 +34,7 @@ import { searchAllIndexers } from "../search.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
 import {
   type Game,
+  type UserSettings,
   type User,
   type Indexer,
   type Downloader,
@@ -2701,11 +2702,11 @@ describe("API Routes - Extended Coverage", () => {
       });
 
       it("clears update badges of games following an account default of off", async () => {
-        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as any);
+        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as UserSettings);
         vi.mocked(storage.updateUserSettings).mockResolvedValue({
           id: "s-1",
           upgradePolicy: "off",
-        } as any);
+        } as UserSettings);
         vi.mocked(storage.getUserGames).mockResolvedValueOnce([
           {
             id: "g-follow",
@@ -2725,7 +2726,7 @@ describe("API Routes - Extended Coverage", () => {
             upgradePolicy: null,
             updateSearchResultsAvailable: false,
           },
-        ] as any);
+        ] as unknown as Game[]);
         vi.mocked(storage.updateGameSearchResultsByCategory).mockClear();
 
         const response = await request(app).patch("/api/settings").send({ upgradePolicy: "off" });

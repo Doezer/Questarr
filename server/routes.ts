@@ -5638,6 +5638,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Settings not found" });
       }
 
+      // Auto-search's own cleanup only runs while it is enabled, so drop the update/pack badges
+      // of games that now follow an account default of "off" right away.
+      if (updates.upgradePolicy === "off") {
+        const userGames = await storage.getUserGames(userId, true);
+        for (const game of userGames) {
+          if (
+            (game.updateSearchResultsAvailable || game.packsSearchResultsAvailable) &&
+            resolveUpgradePolicy(game.upgradePolicy, settings.upgradePolicy) === "off"
+          ) {
+            await storage.updateGameSearchResultsByCategory(game.id, {
+              updates: false,
+              packs: false,
+            });
+          }
+        }
+      }
+
       return res.json(settings);
     } catch (error) {
       if (error instanceof z.ZodError) {

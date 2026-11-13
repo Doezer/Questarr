@@ -2656,6 +2656,28 @@ describe("API Routes - Extended Coverage", () => {
         expect(response.status).toBe(200);
       });
 
+      it("clears update badges of games following an account default of off", async () => {
+        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as any);
+        vi.mocked(storage.updateUserSettings).mockResolvedValue({
+          id: "s-1",
+          upgradePolicy: "off",
+        } as any);
+        vi.mocked(storage.getUserGames).mockResolvedValueOnce([
+          { id: "g-follow", upgradePolicy: null, updateSearchResultsAvailable: true },
+          { id: "g-notify", upgradePolicy: "notify", updateSearchResultsAvailable: true },
+          { id: "g-clean", upgradePolicy: null, updateSearchResultsAvailable: false },
+        ] as any);
+        vi.mocked(storage.updateGameSearchResultsByCategory).mockClear();
+
+        const response = await request(app).patch("/api/settings").send({ upgradePolicy: "off" });
+        expect(response.status).toBe(200);
+        expect(vi.mocked(storage.updateGameSearchResultsByCategory)).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(storage.updateGameSearchResultsByCategory)).toHaveBeenCalledWith(
+          "g-follow",
+          { updates: false, packs: false }
+        );
+      });
+
       it("should return 400 for an invalid transferMode", async () => {
         const response = await request(app)
           .patch("/api/settings")

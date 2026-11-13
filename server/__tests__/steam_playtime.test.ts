@@ -127,11 +127,26 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
   });
 
   it("still notifies when the run is cut short after a session was inserted", async () => {
-    owned(600);
+    await ctx.storage.addGame({
+      userId,
+      igdbId: Math.floor(Math.random() * 1e9),
+      title: "Celeste",
+      status: "playing",
+      steamAppId: 504230,
+    });
+    const both = (hades: number, celeste: number) =>
+      fixtures.playtimes.mockResolvedValue(
+        new Map([
+          [1145360, hades],
+          [504230, celeste],
+        ])
+      );
+    both(600, 100);
     await sync.syncSteamPlaytime(userId, { now: T0 });
     fixtures.notify.mockClear();
-    owned(690);
-    // The sync is turned off mid-run: its result is stale, but the session already exists.
+    both(690, 160);
+    // The sync is turned off and on mid-run (after the first insert): the second game then sees a
+    // stale run and the sync leaves early, with one session already stored.
     const realAdd = ctx.storage.addGamePlaySession.bind(ctx.storage);
     const spy = vi.spyOn(ctx.storage, "addGamePlaySession").mockImplementationOnce(async (s) => {
       const created = await realAdd(s);
@@ -139,8 +154,10 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
       await sync.setSteamPlaytimeEnabled(userId, true);
       return created;
     });
-    await sync.syncSteamPlaytime(userId, { now: hours(2) });
+    const result = await sync.syncSteamPlaytime(userId, { now: hours(2) });
     spy.mockRestore();
+    expect(result.sessionsAdded).toBe(1);
+    expect(fixtures.notify).toHaveBeenCalledTimes(1);
     expect(fixtures.notify).toHaveBeenCalledWith(
       "playSessionsUpdated",
       { source: "steam" },

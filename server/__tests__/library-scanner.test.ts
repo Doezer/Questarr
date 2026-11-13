@@ -681,6 +681,48 @@ describe("matchUnmatchedFolder with release-style folder names", () => {
     expect(result.gameId).toBe("game-777");
   });
 
+  it("ranks name-search results by title score, then by the year typed", async () => {
+    const igdbClient = await scanReleaseFolder("rf-release-rank");
+    const at = (year: number) => Date.UTC(year, 5, 1) / 1000;
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "Portal 2", first_release_date: at(2011) },
+      { id: 2, name: "Portal: Prelude", first_release_date: at(2008) },
+      { id: 3, name: "Portal", first_release_date: at(2007) },
+      { id: 4, name: "Portal", first_release_date: at(2022) },
+    ] as never);
+
+    const plain = await searchUnmatchedFolder("rf-release-rank", folderName, "Portal");
+    expect(plain.map((c) => c.igdbId)).toEqual([3, 4, 1, 2]);
+
+    // A year in the typed name breaks the tie between two games with the same title.
+    const withYear = await searchUnmatchedFolder("rf-release-rank", folderName, "Portal (2022)");
+    expect(withYear.map((c) => c.igdbId)).toEqual([4, 3, 1, 2]);
+  });
+
+  it("scores a hyphenated typed title whole, not as a release group suffix", async () => {
+    const igdbClient = await scanReleaseFolder("rf-release-hyphen");
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "X" },
+      { id: 2, name: "X-Men" },
+    ] as never);
+
+    const found = await searchUnmatchedFolder("rf-release-hyphen", folderName, "X-Men (2000)");
+
+    expect(found.map((c) => c.igdbId)).toEqual([2, 1]);
+  });
+
+  it("keeps a typed standalone year as part of the title", async () => {
+    const igdbClient = await scanReleaseFolder("rf-release-f1");
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "F1" },
+      { id: 2, name: "F1 2020" },
+    ] as never);
+
+    const found = await searchUnmatchedFolder("rf-release-f1", folderName, "F1 2020");
+
+    expect(found.map((c) => c.igdbId)).toEqual([2, 1]);
+  });
+
   it("still accepts a candidate offered before a later name search", async () => {
     // Another tab still shows the scan's list after this one searched a name.
     const igdbClient = await scanReleaseFolder("rf-release-two-tabs");

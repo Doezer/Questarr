@@ -197,7 +197,8 @@ configuration does not delete the directory itself.
   crowded with sequels and mods. **Needs Review** lists up to ten, likeliest first, each
   with its cover and release year.
 - Under **Needs Review**, choose a suggested IGDB game or enter a different
-  name in **Not listed? Search IGDB by name**. Search alone does not import the
+  name in **Not listed? Search IGDB by name**. Search results are ordered by how well the
+  title matches what you typed. Search alone does not import the
   game; clicking a candidate confirms it and adds it to your library.
 - **Ignore** removes a folder from Needs Review for good, for example a Proton build
   next to your games. Later scans skip it before listing its files, unless it is

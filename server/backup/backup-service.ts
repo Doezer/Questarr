@@ -246,8 +246,11 @@ export async function createBackup(kind: BackupKind): Promise<CreatedBackup> {
         await fs.promises.mkdir(path.dirname(copy), { recursive: true });
         try {
           await fs.promises.copyFile(path.join(root, rel), copy);
-        } catch {
-          continue; // removed since the listing
+        } catch (err) {
+          // Only a file deleted since the listing may be skipped; anything else (such as
+          // a permission error) must not yield a backup that silently lacks screenshots.
+          if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+          throw err;
         }
         files.push({ entry: SCREENSHOTS_PREFIX + rel, source: copy });
         includesScreenshots = true;

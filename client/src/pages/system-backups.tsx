@@ -56,7 +56,7 @@ interface BackupsResponse {
   backups: BackupSummary[];
   settings: BackupSettings;
   state: { running: boolean; lastError: string | null };
-  lastRestore: { ok: boolean; at: string; source: string; error?: string } | null;
+  lastRestore: { ok: boolean; at: string; source: string; error?: string; warning?: string } | null;
   environment: {
     dialect: "sqlite" | "postgres";
     encryptionKeySource: "env" | "db";
@@ -318,7 +318,7 @@ export default function SystemBackupsPage() {
             {new Date(data.lastRestore.at).toLocaleString()}
             {data.lastRestore.error
               ? `: ${data.lastRestore.error}`
-              : ". Sign in again if asked."}{" "}
+              : `. Sign in again if asked.${data.lastRestore.warning ? ` ${data.lastRestore.warning}` : ""}`}{" "}
             <button
               type="button"
               className="underline"

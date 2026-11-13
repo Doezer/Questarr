@@ -60,6 +60,8 @@ export interface RestoreResult {
   at: string;
   source: string;
   error?: string;
+  /** The restore worked, but a non-essential part (screenshots) was skipped. */
+  warning?: string | undefined;
 }
 
 /** Outcome of the last restore, kept so the Backups page can show what happened at boot. */
@@ -125,15 +127,28 @@ export function applyAuxiliaryFiles(): () => void {
       // The loader read the old file when it was created; the SSL settings come from here.
       configLoader.reload();
     }
-    const stagedShots = path.join(dir, STAGED_SCREENSHOTS);
-    if (fs.existsSync(stagedShots)) {
-      fs.cpSync(stagedShots, getScreenshotsDir(), { recursive: true, force: true });
-    }
   } catch (err) {
     undo();
     throw err;
   }
   return undo;
+}
+
+/**
+ * Merge the staged screenshots into the live folder. Called last, after the database is
+ * in place: it only adds or overwrites cover images, so a failure is reported as a warning
+ * rather than undoing a restore that otherwise succeeded. Returns the warning, if any.
+ */
+export function applyScreenshots(): string | undefined {
+  const stagedShots = path.join(getRestoreDir(), STAGED_SCREENSHOTS);
+  if (!fs.existsSync(stagedShots)) return undefined;
+  try {
+    fs.cpSync(stagedShots, getScreenshotsDir(), { recursive: true, force: true });
+    return undefined;
+  } catch (err) {
+    logger.warn({ err }, "Could not copy the screenshots from the backup");
+    return "The screenshots could not be copied from the backup.";
+  }
 }
 
 /**
@@ -185,9 +200,10 @@ export function applyPendingSqliteRestore(): boolean {
     for (const suffix of ["-wal", "-shm"]) fs.rmSync(dbPath + suffix, { force: true });
     fs.copyFileSync(staged, dbPath);
     applyAuxiliaryFiles();
+    const warning = applyScreenshots();
     logger.info({ source: pending.source }, "Restored the database from a backup");
     clearPendingRestore();
-    writeRestoreResult({ ok: true, at: new Date().toISOString(), source: pending.source });
+    writeRestoreResult({ ok: true, at: new Date().toISOString(), source: pending.source, warning });
     return true;
   } catch (err) {
     logger.error({ err }, "Restore failed; keeping the current database");

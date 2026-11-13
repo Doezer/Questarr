@@ -246,6 +246,9 @@ describe.each(activeTestDialects())("backup and restore on %s", (name) => {
     // Nothing was staged by any of the failures, and the good archive still stages.
     expect(fs.existsSync(path.join(process.env.BACKUP_DIR!, ".restore-pending"))).toBe(false);
     await restore.stageRestore(good, "t");
+    // A second staging must not wipe the accepted one.
+    await expect(restore.stageRestore(good, "t2")).rejects.toThrow(/already waiting/);
+    expect(fs.existsSync(path.join(process.env.BACKUP_DIR!, ".restore-pending"))).toBe(true);
   });
 
   it("refuses a Postgres backup from an older migration level, but not a SQLite one", async () => {

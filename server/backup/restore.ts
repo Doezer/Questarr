@@ -16,6 +16,7 @@ import {
 import { getRestoreDir } from "./paths.js";
 import {
   applyAuxiliaryFiles,
+  applyScreenshots,
   clearPendingRestore,
   readPendingRestore,
   writeRestoreResult,
@@ -134,6 +135,12 @@ export function stageRestore(zipPath: string, source: string): Promise<BackupMan
 let stagingQueue: Promise<unknown> = Promise.resolve();
 
 async function stageRestoreLocked(zipPath: string, source: string): Promise<BackupManifest> {
+  // An accepted restore must survive: staging another would wipe its files first.
+  if (readPendingRestore()) {
+    throw new RestoreError(
+      "A restore is already waiting for the next start. Restart Questarr to apply it first."
+    );
+  }
   const manifest = await inspectBackup(zipPath);
   const staging = getRestoreDir();
   await fs.promises.rm(staging, { recursive: true, force: true });
@@ -217,7 +224,8 @@ export async function applyPendingPostgresRestore(): Promise<boolean> {
       },
       "Restored the database from a backup"
     );
-    writeRestoreResult({ ok: true, at: new Date().toISOString(), source: pending.source });
+    const warning = applyScreenshots();
+    writeRestoreResult({ ok: true, at: new Date().toISOString(), source: pending.source, warning });
     return true;
   } catch (err) {
     undoAuxiliary?.();

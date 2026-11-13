@@ -1085,6 +1085,7 @@ describe("API Routes - Extended Coverage", () => {
       vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue({
         id: gameId,
         upgradePolicy: "off",
+        searchResultsAvailable: true,
         updateSearchResultsAvailable: true,
         packsSearchResultsAvailable: false,
       } as unknown as Game);
@@ -1098,6 +1099,7 @@ describe("API Routes - Extended Coverage", () => {
         packs: false,
       });
       expect(response.body.updateSearchResultsAvailable).toBe(false);
+      expect(response.body.searchResultsAvailable).toBe(false);
     });
 
     it("clears the badges when the override is removed and the account default is off", async () => {

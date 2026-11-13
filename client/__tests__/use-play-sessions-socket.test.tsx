@@ -31,6 +31,10 @@ it("invalidates play-time queries on playSessionsUpdated and removes its listene
     .predicate as (q: { queryKey: unknown[] }) => boolean;
   expect(predicate({ queryKey: ["/api/games/abc/play-sessions"] })).toBe(true);
   expect(predicate({ queryKey: ["/api/games/abc/journal"] })).toBe(false);
+  // Reconnecting reconciles what was missed while offline.
+  const connect = state.on.mock.calls.find(([event]) => event === "connect")?.[1];
+  expect(connect).toBe(handler);
   unmount();
   expect(state.off).toHaveBeenCalledWith("playSessionsUpdated", handler);
+  expect(state.off).toHaveBeenCalledWith("connect", handler);
 });

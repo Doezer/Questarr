@@ -29,8 +29,11 @@ export function usePlaySessionsSocket(): void {
       });
     };
     socket.on("playSessionsUpdated", handler);
+    // Reconcile sessions added while the socket was offline.
+    socket.on("connect", handler);
     return () => {
       socket.off("playSessionsUpdated", handler);
+      socket.off("connect", handler);
     };
   }, [queryClient]);
 }

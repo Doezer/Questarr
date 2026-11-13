@@ -213,7 +213,10 @@ export const config = {
     basePath: normalizeBasePath(env.QUESTARR_BASE_PATH),
     trustProxy: env.TRUST_PROXY,
   },
-  ssl: configLoader.getSslConfig(),
+  // A getter, so a config.yaml replaced by a restore is seen without a second restart.
+  get ssl() {
+    return configLoader.getSslConfig();
+  },
 } as const;
 
 export type AppConfig = typeof config;

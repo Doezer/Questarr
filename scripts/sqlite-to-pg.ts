@@ -29,54 +29,7 @@ import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
 import * as sqliteSchema from "../shared/schema.js";
 import * as pgSchema from "../shared/schema.pg.js";
-
-/**
- * Tables in foreign-key-safe order: a table never appears before something it
- * references. Hard-coded rather than derived so the order is reviewable.
- */
-const TABLE_ORDER = [
-  // No foreign keys.
-  "users",
-  "pathMappings",
-  "platformMappings",
-  "systemConfig",
-  "rootFolders",
-  "indexers",
-  "downloaders",
-  "rssFeeds",
-  // Reference the above.
-  "userSettings",
-  "games",
-  "notifications",
-  "apiKeys",
-  "importTasks",
-  "rssFeedItems",
-  "releaseProfiles",
-  "customFormats",
-  // Reference games / downloaders / importTasks.
-  "gameDownloads",
-  "xrelNotifiedReleases",
-  "releaseBlacklist",
-  "downloadEvents",
-  "aiAutoDownloadHolds",
-  "importTaskItems",
-  "collections",
-  "collectionGames",
-  "gameJournalEntries",
-  "gameMilestones",
-  "gamePlaySessions",
-  "gameScreenshots",
-  // References games and gameDownloads, so it goes last.
-  "gameFiles",
-  // References rootFolders; nothing references it.
-  "libraryScanIgnored",
-  // Nothing references it.
-  "classificationCandidates",
-  // Nothing references it.
-  "classificationCache",
-  // References users and games; nothing references it.
-  "integrationRequests",
-] as const;
+import { TABLE_ORDER } from "../server/db/table-order.js";
 
 type TableName = (typeof TABLE_ORDER)[number];
 

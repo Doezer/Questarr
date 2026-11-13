@@ -1,5 +1,6 @@
 import {
   Calendar,
+  DatabaseBackup,
   ClipboardList,
   Ban,
   History,
@@ -74,6 +75,7 @@ export const activityNavigation: AppNavItem[] = [
   { title: "Blocklist", url: "/activity/blocklist", icon: Ban },
   { title: "Import History", url: "/activity/imports", icon: ClipboardList },
   { title: "System Tasks", url: "/system/tasks", icon: Timer },
+  { title: "Backups", url: "/system/backups", icon: DatabaseBackup },
 ];
 
 export const mobileBottomNavigation: AppNavItem[] = [

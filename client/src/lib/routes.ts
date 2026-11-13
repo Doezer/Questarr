@@ -22,6 +22,7 @@ export const routePaths = {
   activityHistory: "/activity/history",
   activityBlocklist: "/activity/blocklist",
   systemTasks: "/system/tasks",
+  systemBackups: "/system/backups",
 } as const;
 
 /** Wouter pattern for the per-game details page. */
@@ -61,4 +62,5 @@ export const appRoutePaths = [
   routePaths.activityHistory,
   routePaths.activityBlocklist,
   routePaths.systemTasks,
+  routePaths.systemBackups,
 ] as const;

@@ -434,7 +434,8 @@ class NewznabClient {
       url.searchParams.set("t", "caps");
 
       const response = await safeFetch(url.toString(), {
-        signal: AbortSignal.timeout(10000),
+        // Keep the short 10 s default for a quick test unless the indexer sets its own timeout.
+        timeoutMs: indexer.timeoutSeconds ? getIndexerTimeoutMs(indexer) : 10_000,
         requireHttps: sendsApiKey && url.protocol === "https:",
       });
 

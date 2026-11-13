@@ -87,7 +87,7 @@ export function getIndexerCooldownMs(indexerId: string, now = Date.now()): numbe
 }
 
 /**
- * Registers a 429: the indexer is left alone for `Retry-After` when it gave one, otherwise for an
+ * Registers a 429 (never shortening a cooldown already running): the indexer is left alone for `Retry-After` when it gave one, otherwise for an
  * exponential delay (30 s, 1 min, 2 min ... capped at 15 min). Returns the delay applied.
  */
 export function noteIndexerRateLimited(
@@ -101,7 +101,9 @@ export function noteIndexerRateLimited(
     retryAfterMs !== null
       ? Math.min(RETRY_AFTER_MAX_MS, Math.max(retryAfterMs, 1_000))
       : exponential;
-  cooldowns.set(indexerId, { seq: tick(), until: now + delay, failures });
+  // A shorter 429 arriving later (concurrent search) must not shorten a longer active cooldown.
+  const until = Math.max(cooldowns.get(indexerId)?.until ?? 0, now + delay);
+  cooldowns.set(indexerId, { seq: tick(), until, failures });
   return delay;
 }
 

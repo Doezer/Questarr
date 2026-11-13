@@ -189,6 +189,12 @@ describe("429 backoff", () => {
     expect(noteIndexerRateLimited("b", null, 0)).toBe(15 * 60_000);
   });
 
+  it("does not shorten a longer active cooldown when a shorter 429 follows", () => {
+    noteIndexerRateLimited("idx", 3_600_000, 0);
+    noteIndexerRateLimited("idx", 30_000, 1_000);
+    expect(getIndexerCooldownMs("idx", 2_000)).toBe(3_600_000 - 2_000);
+  });
+
   it("rejects without calling the indexer while cooling down, and recovers after a success", async () => {
     let calls = 0;
     const limited = () => {

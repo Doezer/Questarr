@@ -307,6 +307,27 @@ async function matchByIdTag(folderName: string): Promise<IGDBGame | null> {
   }
 }
 
+/**
+ * Orders IGDB results by how well their title matches `title`, best first. The year only breaks
+ * ties between equally good titles: it never changes a score, so it cannot lift a poor title over
+ * the auto-match threshold or hide a better one. Order: best title score, then a matching year,
+ * then IGDB's own order.
+ */
+function rankByTitle(
+  list: IGDBGame[],
+  title: string,
+  year?: number
+): Array<{ game: IGDBGame; score: number; yearMatches: boolean; order: number }> {
+  return list
+    .map((game, order) => ({
+      game,
+      score: scoreMatch(title, game.name),
+      yearMatches: year !== undefined && releaseYearOf(game) === year,
+      order,
+    }))
+    .sort((a, b) => b.score - a.score || +b.yearMatches - +a.yearMatches || a.order - b.order);
+}
+
 async function bestIgdbMatch(
   folderName: string,
   platformId?: number
@@ -323,17 +344,7 @@ async function bestIgdbMatch(
   if (byId) return { best: byId, candidates: [byId], cleaned, score: 1 };
 
   const { year } = parseFolderHints(folderName);
-  const rank = (list: IGDBGame[]) =>
-    list
-      .map((game, order) => {
-        const base = scoreMatch(cleaned, game.name);
-        const yearMatches = year !== undefined && releaseYearOf(game) === year;
-        return { game, score: base, yearMatches, order };
-      })
-      // The year only breaks ties between equally good titles: it never changes a score, so
-      // it cannot lift a poor title over the auto-match threshold or hide a better one.
-      // Order: best title score, then a matching year, then IGDB's own order.
-      .sort((a, b) => b.score - a.score || +b.yearMatches - +a.yearMatches || a.order - b.order);
+  const rank = (list: IGDBGame[]) => rankByTitle(list, cleaned, year);
   const pick = (list: IGDBGame[]) => {
     const ranked = rank(list);
     return {
@@ -526,7 +537,13 @@ export async function searchUnmatchedFolder(
 ): Promise<UnmatchedEntry["candidates"]> {
   const entry = getUnmatchedEntry(rootFolderId, folderName);
   if (!entry) throw new Error("No matching unmatched entry for this root folder");
-  const results = await igdbClient.searchGames(query, SCAN_CANDIDATE_LIMIT);
+  const found = await igdbClient.searchGames(query, SCAN_CANDIDATE_LIMIT);
+  // Best match first, like the scan's own candidates; a "(2018)" in the typed name breaks ties.
+  const results = rankByTitle(
+    found,
+    cleanReleaseName(query) || query,
+    parseFolderHints(query).year
+  ).map((r) => r.game);
   // A rescan may have rebuilt the review list while IGDB answered; candidates
   // stored on the old entry would never be offered for matching.
   if (getUnmatchedEntry(rootFolderId, folderName) !== entry) {

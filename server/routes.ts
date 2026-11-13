@@ -3936,6 +3936,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Mirror the form's opt-in, or testing a plain-HTTP LAN indexer always
         // fails with 401 because the key is withheld.
         allowInsecureLan: allowInsecureLan === true,
+        timeoutSeconds: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };

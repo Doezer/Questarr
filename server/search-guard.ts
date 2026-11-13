@@ -28,9 +28,97 @@ function readIntEnv(name: string, fallback: number, min: number, max: number): n
   return Math.min(max, Math.max(min, parsed));
 }
 
-/** Timeout of one indexer request (`SEARCH_INDEXER_TIMEOUT_MS`, 1 s to 5 min, default 30 s). */
-export function getIndexerTimeoutMs(): number {
+/**
+ * Timeout of one indexer request: the indexer's own `timeoutSeconds` when set (1 s to 5 min),
+ * otherwise `SEARCH_INDEXER_TIMEOUT_MS` (1 s to 5 min, default 30 s).
+ */
+export function getIndexerTimeoutMs(indexer?: { timeoutSeconds?: number | null }): number {
+  const own = indexer?.timeoutSeconds;
+  if (typeof own === "number" && Number.isFinite(own) && own > 0) {
+    return Math.min(300_000, Math.max(1_000, Math.round(own * 1000)));
+  }
   return readIntEnv("SEARCH_INDEXER_TIMEOUT_MS", DEFAULT_INDEXER_TIMEOUT_MS, 1_000, 300_000);
+}
+
+/** Thrown by the HTTP clients when an indexer answers 429 Too Many Requests. */
+export class IndexerRateLimitedError extends Error {
+  readonly retryAfterMs: number | null;
+  constructor(message: string, retryAfterMs: number | null) {
+    super(message);
+    this.name = "IndexerRateLimitedError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/** Parses a `Retry-After` header (delay in seconds or an HTTP date) into milliseconds. */
+export function parseRetryAfter(value: string | null | undefined, now = Date.now()): number | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10) * 1000;
+  const date = Date.parse(trimmed);
+  if (Number.isNaN(date)) return null;
+  return Math.max(0, date - now);
+}
+
+export const BACKOFF_BASE_MS = 30_000;
+export const BACKOFF_MAX_MS = 15 * 60_000;
+/** A `Retry-After` is honoured up to this long; beyond it the indexer is retried anyway. */
+export const RETRY_AFTER_MAX_MS = 60 * 60_000;
+
+interface Cooldown {
+  until: number;
+  failures: number;
+}
+
+const cooldowns = new Map<string, Cooldown>();
+
+/** Milliseconds left before the indexer may be queried again (0 = free). */
+export function getIndexerCooldownMs(indexerId: string, now = Date.now()): number {
+  const cooldown = cooldowns.get(indexerId);
+  if (!cooldown) return 0;
+  return Math.max(0, cooldown.until - now);
+}
+
+/**
+ * Registers a 429: the indexer is left alone for `Retry-After` when it gave one, otherwise for an
+ * exponential delay (30 s, 1 min, 2 min ... capped at 15 min). Returns the delay applied.
+ */
+export function noteIndexerRateLimited(
+  indexerId: string,
+  retryAfterMs: number | null,
+  now = Date.now()
+): number {
+  const failures = (cooldowns.get(indexerId)?.failures ?? 0) + 1;
+  const exponential = Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** (failures - 1));
+  const delay =
+    retryAfterMs !== null
+      ? Math.min(RETRY_AFTER_MAX_MS, Math.max(retryAfterMs, 1_000))
+      : exponential;
+  cooldowns.set(indexerId, { until: now + delay, failures });
+  return delay;
+}
+
+/** A successful answer ends the backoff. */
+export function noteIndexerSuccess(indexerId: string): void {
+  cooldowns.delete(indexerId);
+}
+
+/** Thrown without sending anything while an indexer is backing off after a 429. */
+export class IndexerCoolingDownError extends Error {
+  readonly remainingMs: number;
+  constructor(remainingMs: number) {
+    super(
+      `Indexer is rate limited (429); not queried for another ${Math.ceil(remainingMs / 1000)} s`
+    );
+    this.name = "IndexerCoolingDownError";
+    this.remainingMs = remainingMs;
+  }
+}
+
+function findRateLimited(error: unknown): IndexerRateLimitedError | null {
+  if (error instanceof IndexerRateLimitedError) return error;
+  const cause = error instanceof Error ? error.cause : undefined;
+  return cause instanceof IndexerRateLimitedError ? cause : null;
 }
 
 /** Searches one indexer serves at once (`SEARCH_MAX_CONCURRENT_PER_INDEXER`, 1 to 10, default 2). */
@@ -121,7 +209,15 @@ export function guardedIndexerSearch<T>(
       promise: acquireSlot(`${priority}\u0000${indexerId}`, controller.signal).then(
         async (release) => {
           try {
-            return await run(controller.signal);
+            const remaining = getIndexerCooldownMs(indexerId);
+            if (remaining > 0) throw new IndexerCoolingDownError(remaining);
+            const value = await run(controller.signal);
+            noteIndexerSuccess(indexerId);
+            return value;
+          } catch (error) {
+            const limited = findRateLimited(error);
+            if (limited) noteIndexerRateLimited(indexerId, limited.retryAfterMs);
+            throw error;
           } finally {
             release();
           }
@@ -168,4 +264,5 @@ export function guardedIndexerSearch<T>(
 export function resetSearchGuard(): void {
   lines.clear();
   inFlight.clear();
+  cooldowns.clear();
 }

@@ -207,6 +207,7 @@ export const indexers = pgTable("indexers", {
   // does not support TLS). When this flag is false and the indexer URL uses
   // HTTP, API keys are omitted from every outbound request.
   allowInsecureLan: boolean("allow_insecure_lan").notNull().default(false),
+  timeoutSeconds: integer("timeout_seconds"),
   createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
   updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
 });

@@ -12,6 +12,8 @@ import { routesLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 import {
   getIndexerTimeoutMs,
+  IndexerRateLimitedError,
+  parseRetryAfter,
   guardedIndexerSearch,
   type SearchGuardOptions,
 } from "./search-guard.js";
@@ -175,10 +177,17 @@ class NewznabClient {
         headers: {
           "User-Agent": "Questarr/1.0",
         },
-        timeoutMs: getIndexerTimeoutMs(),
+        timeoutMs: getIndexerTimeoutMs(indexer),
         ...(signal ? { signal } : {}),
         requireHttps,
       });
+
+      if (response.status === 429) {
+        throw new IndexerRateLimitedError(
+          "HTTP 429: Too Many Requests",
+          parseRetryAfter(response.headers.get("Retry-After"))
+        );
+      }
 
       if (!response.ok) {
         throw new Error(

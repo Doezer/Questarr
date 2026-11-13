@@ -1,0 +1,1 @@
+ALTER TABLE `indexers` ADD `timeout_seconds` integer;

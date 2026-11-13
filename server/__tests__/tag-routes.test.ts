@@ -107,6 +107,7 @@ vi.mock("../logger.js", () => ({
   },
   logger: { info: vi.fn(), error: vi.fn(), child: vi.fn().mockReturnThis() },
   downloadersLogger: { info: vi.fn(), error: vi.fn(), child: vi.fn().mockReturnThis() },
+  expressLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn().mockReturnThis() },
 }));
 
 // Mock igdb
@@ -241,6 +242,8 @@ describe("Tag Routes", () => {
     vi.clearAllMocks();
 
     const { storage } = await import("../storage.js");
+    // clearAllMocks keeps unconsumed mockResolvedValueOnce values, which leak into the next test.
+    for (const fn of Object.values(storage)) vi.mocked(fn as () => unknown).mockReset();
     // Reset mocks
     vi.mocked(storage.getTags).mockResolvedValue([]);
     vi.mocked(storage.getTag).mockResolvedValue(null);
@@ -358,7 +361,8 @@ describe("Tag Routes", () => {
     it("should return 400 for missing name", async () => {
       const response = await request(app).post("/api/tags").send({ color: "#FF0000" }).expect(400);
 
-      expect(response.body.error).toContain("name");
+      expect(response.body.error).toBe("Validation failed");
+      expect(response.body.details.some((d: { path: string }) => d.path === "name")).toBe(true);
     });
 
     it("should return 500 on storage error", async () => {
@@ -545,9 +549,11 @@ describe("Tag Routes", () => {
 
     it("should return 500 on storage error", async () => {
       const { storage } = await import("../storage.js");
+      const game = createTestGame();
+      vi.mocked(storage.getGame).mockResolvedValueOnce(game);
       vi.mocked(storage.getGameTags).mockRejectedValueOnce(new Error("Storage error"));
 
-      const response = await request(app).get(`/api/games/${randomUUID()}/tags`).expect(500);
+      const response = await request(app).get(`/api/games/${game.id}/tags`).expect(500);
 
       expect(response.body.error).toBe("Failed to get game tags");
     });
@@ -632,11 +638,15 @@ describe("Tag Routes", () => {
 
     it("should return 500 on storage error", async () => {
       const { storage } = await import("../storage.js");
+      const game = createTestGame();
+      const tag = createTestTag();
+      vi.mocked(storage.getGame).mockResolvedValueOnce(game);
+      vi.mocked(storage.getTag).mockResolvedValueOnce(tag);
       vi.mocked(storage.addTagToGame).mockRejectedValueOnce(new Error("Storage error"));
 
       const response = await request(app)
-        .post(`/api/games/${randomUUID()}/tags`)
-        .send({ tagId: randomUUID() })
+        .post(`/api/games/${game.id}/tags`)
+        .send({ tagId: tag.id })
         .expect(500);
 
       expect(response.body.error).toBe("Failed to add tag to game");
@@ -687,10 +697,12 @@ describe("Tag Routes", () => {
 
     it("should return 500 on storage error", async () => {
       const { storage } = await import("../storage.js");
+      const tag = createTestTag();
+      vi.mocked(storage.getTag).mockResolvedValueOnce(tag);
       vi.mocked(storage.removeTagFromGame).mockRejectedValueOnce(new Error("Storage error"));
 
       const response = await request(app)
-        .delete(`/api/games/${randomUUID()}/tags/${randomUUID()}`)
+        .delete(`/api/games/${randomUUID()}/tags/${tag.id}`)
         .expect(500);
 
       expect(response.body.error).toBe("Failed to remove tag from game");
@@ -728,9 +740,11 @@ describe("Tag Routes", () => {
 
     it("should return 500 on storage error", async () => {
       const { storage } = await import("../storage.js");
+      const tag = createTestTag();
+      vi.mocked(storage.getTag).mockResolvedValueOnce(tag);
       vi.mocked(storage.getGamesByTag).mockRejectedValueOnce(new Error("Storage error"));
 
-      const response = await request(app).get(`/api/tags/${randomUUID()}/games`).expect(500);
+      const response = await request(app).get(`/api/tags/${tag.id}/games`).expect(500);
 
       expect(response.body.error).toBe("Failed to get games by tag");
     });

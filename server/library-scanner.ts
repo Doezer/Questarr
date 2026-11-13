@@ -308,6 +308,19 @@ async function matchByIdTag(folderName: string): Promise<IGDBGame | null> {
 }
 
 /**
+ * A typed search is a title, not a release name: only id tags and a bracketed year go, so a
+ * trailing "-Men" or "-Life" is not mistaken for a release group.
+ */
+function typedTitle(query: string): string {
+  const stripped = query
+    .replace(/[{[(]\s*(?:igdb|steam)[-:= ]?\d{1,10}\s*[}\])]/gi, " ")
+    .replace(/[([]\s*(?:19|20)\d{2}\s*[)\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return stripped || query;
+}
+
+/**
  * Orders IGDB results by how well their title matches `title`, best first. The year only breaks
  * ties between equally good titles: it never changes a score, so it cannot lift a poor title over
  * the auto-match threshold or hide a better one. Order: best title score, then a matching year,
@@ -539,11 +552,9 @@ export async function searchUnmatchedFolder(
   if (!entry) throw new Error("No matching unmatched entry for this root folder");
   const found = await igdbClient.searchGames(query, SCAN_CANDIDATE_LIMIT);
   // Best match first, like the scan's own candidates; a "(2018)" in the typed name breaks ties.
-  const results = rankByTitle(
-    found,
-    cleanReleaseName(query) || query,
-    parseFolderHints(query).year
-  ).map((r) => r.game);
+  const results = rankByTitle(found, typedTitle(query), parseFolderHints(query).year).map(
+    (r) => r.game
+  );
   // A rescan may have rebuilt the review list while IGDB answered; candidates
   // stored on the old entry would never be offered for matching.
   if (getUnmatchedEntry(rootFolderId, folderName) !== entry) {

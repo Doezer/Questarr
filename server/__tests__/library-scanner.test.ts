@@ -699,6 +699,18 @@ describe("matchUnmatchedFolder with release-style folder names", () => {
     expect(withYear.map((c) => c.igdbId)).toEqual([4, 3, 1, 2]);
   });
 
+  it("scores a hyphenated typed title whole, not as a release group suffix", async () => {
+    const igdbClient = await scanReleaseFolder("rf-release-hyphen");
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([
+      { id: 1, name: "X" },
+      { id: 2, name: "X-Men" },
+    ] as never);
+
+    const found = await searchUnmatchedFolder("rf-release-hyphen", folderName, "X-Men (2000)");
+
+    expect(found.map((c) => c.igdbId)).toEqual([2, 1]);
+  });
+
   it("still accepts a candidate offered before a later name search", async () => {
     // Another tab still shows the scan's list after this one searched a name.
     const igdbClient = await scanReleaseFolder("rf-release-two-tabs");

@@ -15,6 +15,7 @@ import {
 } from "../backup/backup-service.js";
 import { getBackupDir } from "../backup/paths.js";
 import { RestoreError, stageRestore } from "../backup/restore.js";
+import { clearRestoreResult, readRestoreResult } from "../backup/restore-boot.js";
 import { dialect } from "../db.js";
 import { routesLogger as logger } from "../logger.js";
 import { sensitiveEndpointLimiter } from "../middleware.js";
@@ -89,6 +90,7 @@ backupsRouter.get("/", async (_req, res) => {
       backups: await listBackups(),
       settings: await getBackupSettings(),
       state: getBackupState(),
+      lastRestore: readRestoreResult(),
       environment: {
         dialect,
         ...getKeySources(),
@@ -99,6 +101,12 @@ backupsRouter.get("/", async (_req, res) => {
     logger.error({ err }, "Failed to list backups");
     res.status(500).json({ error: "Failed to list backups" });
   }
+});
+
+// DELETE /api/system/backups/last-restore - dismiss the restore result banner
+backupsRouter.delete("/last-restore", (_req, res) => {
+  clearRestoreResult();
+  res.status(204).end();
 });
 
 // PUT /api/system/backups/settings

@@ -9,6 +9,7 @@ import {
   SCREENSHOTS_PREFIX,
   SQLITE_DB_ENTRY,
   createBackup,
+  getBackupState,
   getBundledMigrationCount,
   readSqliteMigrations,
 } from "./backup-service.js";
@@ -17,6 +18,7 @@ import {
   applyAuxiliaryFiles,
   clearPendingRestore,
   readPendingRestore,
+  writeRestoreResult,
   writePendingRestore,
 } from "./restore-boot.js";
 import { importTables, isNdjsonEntry } from "./table-io.js";
@@ -52,9 +54,18 @@ function parseManifest(raw: string): BackupManifest {
         "Restoring across database engines is not supported."
     );
   }
-  if (manifest.migrations?.applied > getBundledMigrationCount()) {
+  const bundled = getBundledMigrationCount();
+  if (manifest.migrations?.applied > bundled) {
     throw new RestoreError(
       `This backup comes from a newer Questarr (${manifest.appVersion}). Update Questarr first.`
+    );
+  }
+  // A SQLite file is migrated forward on start. A Postgres export is inserted into the
+  // already-migrated schema, so data-moving migrations would never run on it.
+  if (dialect === "postgres" && manifest.migrations?.applied !== bundled) {
+    throw new RestoreError(
+      `This Postgres backup was made by Questarr ${manifest.appVersion}, a different version. ` +
+        "Restore it with that version, then update."
     );
   }
   for (const f of manifest.files) {
@@ -144,7 +155,14 @@ export async function stageRestore(zipPath: string, source: string): Promise<Bac
     }
 
     // Safety net before anything can be overwritten: if this fails, the restore stops here.
-    await createBackup("pre-restore");
+    try {
+      await createBackup("pre-restore");
+    } catch (err) {
+      if (getBackupState().running) {
+        throw new RestoreError("A backup is running. Try again when it finishes.");
+      }
+      throw err;
+    }
 
     writePendingRestore({
       formatVersion: 1,
@@ -176,9 +194,16 @@ export async function applyPendingPostgresRestore(): Promise<boolean> {
       },
       "Restored the database from a backup"
     );
+    writeRestoreResult({ ok: true, at: new Date().toISOString(), source: pending.source });
     return true;
   } catch (err) {
     logger.error({ err }, "Restore failed; the transaction was rolled back");
+    writeRestoreResult({
+      ok: false,
+      at: new Date().toISOString(),
+      source: pending.source,
+      error: (err as Error).message.slice(0, 300),
+    });
     return false;
   } finally {
     clearPendingRestore();

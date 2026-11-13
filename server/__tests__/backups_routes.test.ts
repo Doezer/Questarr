@@ -14,6 +14,10 @@ vi.mock("../backup/backup-service.js", () => ({
   resolveBackupPath: vi.fn(),
   saveBackupSettings: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("../backup/restore-boot.js", () => ({
+  readRestoreResult: () => null,
+  clearRestoreResult: vi.fn(),
+}));
 vi.mock("../backup/restore.js", () => {
   class RestoreError extends Error {}
   return { RestoreError, stageRestore: vi.fn() };

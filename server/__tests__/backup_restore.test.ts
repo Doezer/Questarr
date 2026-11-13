@@ -232,4 +232,20 @@ describe.each(activeTestDialects())("backup and restore on %s", (name) => {
     expect(fs.existsSync(path.join(process.env.BACKUP_DIR!, ".restore-pending"))).toBe(false);
     await restore.stageRestore(good, "t");
   });
+
+  it("refuses a Postgres backup from an older migration level, but not a SQLite one", async () => {
+    if (name !== "pglite") return;
+    await seed();
+    const svc = await import("../backup/backup-service.js");
+    const restore = await import("../backup/restore.js");
+    const created = await svc.createBackup("manual");
+    const older = path.join(tmp, "older.zip");
+    await zipOf(older, {
+      "manifest.json": JSON.stringify({
+        ...created.manifest,
+        migrations: { applied: created.manifest.migrations.applied - 1, latest: null },
+      }),
+    });
+    await expect(restore.stageRestore(older, "t")).rejects.toThrow(/different version/);
+  });
 });

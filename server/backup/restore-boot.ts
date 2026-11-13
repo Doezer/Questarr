@@ -3,7 +3,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { resolveSqliteDbPath } from "../db/sqlite-path.js";
 import { logger } from "../logger.js";
-import { getConfigFilePath, getRestoreDir, getScreenshotsDir } from "./paths.js";
+import { getBackupDir, getConfigFilePath, getRestoreDir, getScreenshotsDir } from "./paths.js";
 import type { BackupDialect, BackupManifest } from "./types.js";
 
 /**
@@ -52,6 +52,38 @@ export function writePendingRestore(marker: PendingRestore): void {
   const tmp = path.join(dir, `${MARKER}.tmp`);
   fs.writeFileSync(tmp, JSON.stringify(marker, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, path.join(dir, MARKER));
+}
+
+export interface RestoreResult {
+  ok: boolean;
+  at: string;
+  source: string;
+  error?: string;
+}
+
+/** Outcome of the last restore, kept so the Backups page can show what happened at boot. */
+export function writeRestoreResult(result: RestoreResult): void {
+  try {
+    const dir = getBackupDir();
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "last-restore.json"), JSON.stringify(result), { mode: 0o600 });
+  } catch (err) {
+    logger.warn({ err }, "Could not record the restore result");
+  }
+}
+
+export function readRestoreResult(): RestoreResult | null {
+  try {
+    return JSON.parse(
+      fs.readFileSync(path.join(getBackupDir(), "last-restore.json"), "utf-8")
+    ) as RestoreResult;
+  } catch {
+    return null;
+  }
+}
+
+export function clearRestoreResult(): void {
+  fs.rmSync(path.join(getBackupDir(), "last-restore.json"), { force: true });
 }
 
 export function clearPendingRestore(): void {
@@ -103,14 +135,37 @@ export function applyPendingSqliteRestore(): boolean {
 
     const dbPath = resolveSqliteDbPath();
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    if (fs.existsSync(dbPath)) {
+      // The old process may have exited with writes still in the -wal file: fold them
+      // into the main file so the kept copy is complete.
+      try {
+        const old = new Database(dbPath);
+        try {
+          old.pragma("wal_checkpoint(TRUNCATE)");
+        } finally {
+          old.close();
+        }
+      } catch (err) {
+        logger.warn({ err }, "Could not checkpoint the old database before the restore");
+      }
+      fs.renameSync(dbPath, `${dbPath}.pre-restore`);
+    }
     for (const suffix of ["-wal", "-shm"]) fs.rmSync(dbPath + suffix, { force: true });
-    if (fs.existsSync(dbPath)) fs.renameSync(dbPath, `${dbPath}.pre-restore`);
     fs.copyFileSync(staged, dbPath);
     applyAuxiliaryFiles();
     logger.info({ source: pending.source }, "Restored the database from a backup");
+    clearPendingRestore();
+    writeRestoreResult({ ok: true, at: new Date().toISOString(), source: pending.source });
     return true;
   } catch (err) {
     logger.error({ err }, "Restore failed; keeping the current database");
+    clearPendingRestore();
+    writeRestoreResult({
+      ok: false,
+      at: new Date().toISOString(),
+      source: pending.source,
+      error: (err as Error).message.slice(0, 300),
+    });
     // Put the old file back if the swap got as far as moving it away.
     const dbPath = resolveSqliteDbPath();
     if (!fs.existsSync(dbPath) && fs.existsSync(`${dbPath}.pre-restore`)) {

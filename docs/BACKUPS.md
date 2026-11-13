@@ -34,10 +34,10 @@ The credential encryption key (`CREDENTIALS_ENCRYPTION_KEY`) and `JWT_SECRET` ar
 
 Use **Restore** on a saved backup, or **Restore from file** to upload one (up to 1 GB, `BACKUP_UPLOAD_MAX_MB` changes the limit).
 
-1. Questarr checks the archive: no unsafe paths or links, checksums match, the format and database engine match, the database passes an integrity check, and the backup is **not newer** than this version of Questarr. A backup from an older version is accepted and migrated on start.
+1. Questarr checks the archive: no unsafe paths or links, checksums match, the format and database engine match, the database passes an integrity check, and the backup is **not newer** than this version of Questarr. A SQLite backup from an older version is accepted and migrated on start. A Postgres backup must come from the same Questarr version (restore it with that version, then update), because the export is inserted into the current schema.
 2. It saves a **Before restore** backup of the current state.
 3. The backup is staged, and Questarr exits to apply it on the next start. In Docker it exits and your restart policy brings it back; elsewhere you restart it yourself (`QUESTARR_RESTORE_RESTART=true` or `false` overrides the detection).
-4. On start, before the database opens, the staged file replaces the database. The previous file stays as `sqlite.db.pre-restore` next to it. On Postgres the tables are replaced in one transaction after migrations; if it fails, nothing changes.
+4. On start, before the database opens, the staged file replaces the database. The previous file stays as `sqlite.db.pre-restore` next to it. On Postgres the tables are replaced in one transaction after migrations; if it fails, nothing changes and the Backups page shows the error.
 
 Restoring from SQLite to Postgres (or back) is not supported; use the [migration script](DATABASE.md) for that.
 

@@ -56,6 +56,7 @@ interface BackupsResponse {
   backups: BackupSummary[];
   settings: BackupSettings;
   state: { running: boolean; lastError: string | null };
+  lastRestore: { ok: boolean; at: string; source: string; error?: string } | null;
   environment: {
     dialect: "sqlite" | "postgres";
     encryptionKeySource: "env" | "db";
@@ -299,6 +300,34 @@ export default function SystemBackupsPage() {
             {restoreDone.restarting
               ? "Questarr is restarting to apply the backup. If it does not come back in a minute, start it again."
               : "Restart Questarr to apply the backup. Nothing changes until you do."}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {data?.lastRestore && (
+        <Alert
+          variant={data.lastRestore.ok ? "default" : "destructive"}
+          className="mb-4"
+          role="status"
+        >
+          <AlertTitle>
+            {data.lastRestore.ok ? "Backup restored" : "The last restore failed"}
+          </AlertTitle>
+          <AlertDescription className="break-words">
+            {new Date(data.lastRestore.at).toLocaleString()}
+            {data.lastRestore.error
+              ? `: ${data.lastRestore.error}`
+              : ". Sign in again if asked."}{" "}
+            <button
+              type="button"
+              className="underline"
+              onClick={async () => {
+                await apiRequest("DELETE", "/api/system/backups/last-restore");
+                await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+              }}
+            >
+              Dismiss
+            </button>
           </AlertDescription>
         </Alert>
       )}

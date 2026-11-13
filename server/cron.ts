@@ -2125,11 +2125,6 @@ export async function checkAutoSearch() {
         // Search owned games for update packs only.
         for (const game of ownedGames) {
           try {
-            // Skip unreleased games if configured to do so
-            if (!settings.autoSearchUnreleased && game.releaseStatus !== "released") {
-              continue;
-            }
-
             // "off": the user doesn't want update/pack tracking for this game, so don't search
             // and clear any badge left from before the policy changed.
             if (resolveUpgradePolicy(game.upgradePolicy, settings.upgradePolicy) === "off") {
@@ -2139,6 +2134,11 @@ export async function checkAutoSearch() {
                   packs: false,
                 });
               }
+              continue;
+            }
+
+            // Skip unreleased games if configured to do so
+            if (!settings.autoSearchUnreleased && game.releaseStatus !== "released") {
               continue;
             }
 

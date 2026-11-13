@@ -427,6 +427,28 @@ describe("Cron - checkAutoSearch", () => {
     }
   );
 
+  it("clears the badge of an unreleased owned game whose policy is off", async () => {
+    const game = {
+      ...baseGame,
+      status: "owned" as const,
+      releaseStatus: "upcoming" as const,
+      updateSearchResultsAvailable: true,
+      upgradePolicy: "off",
+    };
+    const settings = { ...baseSettings, autoSearchUnreleased: false };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+    mockGetUserGames.mockResolvedValue([game]);
+    mockGetUserSettings.mockResolvedValue(settings);
+
+    await checkAutoSearch();
+
+    expect(mockUpdateGameSearchResultsByCategory).toHaveBeenCalledWith(game.id, {
+      updates: false,
+      packs: false,
+    });
+  });
+
   it("lets a game policy of notify override an account default of off", async () => {
     const game = {
       ...baseGame,

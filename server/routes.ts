@@ -2194,7 +2194,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const settings = await storage.getUserSettings(userId);
           if (
             resolveUpgradePolicy(game.upgradePolicy, settings?.upgradePolicy) === "off" &&
-            (game.updateSearchResultsAvailable || game.packsSearchResultsAvailable)
+            (game.searchResultsAvailable ||
+              game.updateSearchResultsAvailable ||
+              game.packsSearchResultsAvailable)
           ) {
             await storage.updateGameSearchResultsByCategory(game.id, {
               updates: false,
@@ -5644,7 +5646,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const userGames = await storage.getUserGames(userId, true);
         for (const game of userGames) {
           if (
-            (game.updateSearchResultsAvailable || game.packsSearchResultsAvailable) &&
+            (game.searchResultsAvailable ||
+              game.updateSearchResultsAvailable ||
+              game.packsSearchResultsAvailable) &&
             resolveUpgradePolicy(game.upgradePolicy, settings.upgradePolicy) === "off"
           ) {
             await storage.updateGameSearchResultsByCategory(game.id, {

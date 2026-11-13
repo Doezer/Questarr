@@ -1060,6 +1060,27 @@ describe("API Routes - Extended Coverage", () => {
   });
 
   describe("PATCH /api/games/:id/upgrade-policy", () => {
+    it("also clears an aggregate-only searchResultsAvailable badge when off", async () => {
+      const id = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue({
+        id,
+        upgradePolicy: "off",
+        searchResultsAvailable: true,
+        updateSearchResultsAvailable: false,
+        packsSearchResultsAvailable: false,
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${id}/upgrade-policy`)
+        .send({ upgradePolicy: "off" });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameSearchResultsByCategory)).toHaveBeenCalledWith(id, {
+        updates: false,
+        packs: false,
+      });
+      expect(response.body.searchResultsAvailable).toBe(false);
+    });
+
     const gameId = "123e4567-e89b-12d3-a456-426614174000";
 
     it("sets the policy scoped to the authenticated user", async () => {

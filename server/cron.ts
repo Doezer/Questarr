@@ -2128,7 +2128,11 @@ export async function checkAutoSearch() {
             // "off": the user doesn't want update/pack tracking for this game, so don't search
             // and clear any badge left from before the policy changed.
             if (resolveUpgradePolicy(game.upgradePolicy, settings.upgradePolicy) === "off") {
-              if (game.updateSearchResultsAvailable || game.packsSearchResultsAvailable) {
+              if (
+                game.searchResultsAvailable ||
+                game.updateSearchResultsAvailable ||
+                game.packsSearchResultsAvailable
+              ) {
                 await storage.updateGameSearchResultsByCategory(game.id, {
                   updates: false,
                   packs: false,

@@ -25,6 +25,11 @@ vi.mock("../logger.js", () => ({
 const mockGetWantedGamesGroupedByUser = vi.fn();
 const mockGetUserGames = vi.fn();
 const mockGetUserSettings = vi.fn();
+// Mirrors the games the test seeds through getUserGames, as the cron re-reads a game before publishing.
+const mockGetGame = vi.fn(async (id: string) => {
+  const games = (await mockGetUserGames()) as Array<{ id: string }> | undefined;
+  return games?.find((g) => g.id === id);
+});
 const mockUpdateUserSettings = vi.fn();
 const mockAddNotification = vi.fn();
 const mockUpdateGameSearchResultsAvailable = vi.fn();
@@ -44,6 +49,7 @@ vi.mock("../storage.js", () => ({
   storage: {
     getWantedGamesGroupedByUser: mockGetWantedGamesGroupedByUser,
     getUserGames: mockGetUserGames,
+    getGame: mockGetGame,
     getUserSettings: mockGetUserSettings,
     updateUserSettings: mockUpdateUserSettings,
     addNotification: mockAddNotification,
@@ -392,6 +398,81 @@ describe("Cron - checkAutoSearch", () => {
         title: "Game Updates Available",
         message: expect.stringContaining(game.title),
       })
+    );
+  });
+
+  it.each([
+    ["the game policy is off", { upgradePolicy: "off" }, {}],
+    ["the account default is off", {}, { upgradePolicy: "off" }],
+  ])(
+    "skips the update search for owned games when %s",
+    async (_label, gameExtra, settingsExtra) => {
+      const game = {
+        ...baseGame,
+        status: "owned" as const,
+        releaseStatus: "released" as const,
+        updateSearchResultsAvailable: true,
+        ...gameExtra,
+      };
+      const settings = { ...baseSettings, notifyUpdates: true, ...settingsExtra };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      mockGetUserGames.mockResolvedValue([game]);
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({ items: [UPDATE_ITEM], errors: [], total: 1 });
+
+      await checkAutoSearch();
+
+      expect(mockSearchAllIndexers).not.toHaveBeenCalled();
+      expect(mockAddNotification).not.toHaveBeenCalled();
+      // A badge left from before the policy changed is cleared.
+      expect(mockUpdateGameSearchResultsByCategory).toHaveBeenCalledWith(game.id, {
+        updates: false,
+        packs: false,
+      });
+    }
+  );
+
+  it("clears the badge of an unreleased owned game whose policy is off", async () => {
+    const game = {
+      ...baseGame,
+      status: "owned" as const,
+      releaseStatus: "upcoming" as const,
+      updateSearchResultsAvailable: true,
+      upgradePolicy: "off",
+    };
+    const settings = { ...baseSettings, autoSearchUnreleased: false };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+    mockGetUserGames.mockResolvedValue([game]);
+    mockGetUserSettings.mockResolvedValue(settings);
+
+    await checkAutoSearch();
+
+    expect(mockUpdateGameSearchResultsByCategory).toHaveBeenCalledWith(game.id, {
+      updates: false,
+      packs: false,
+    });
+  });
+
+  it("lets a game policy of notify override an account default of off", async () => {
+    const game = {
+      ...baseGame,
+      status: "owned" as const,
+      releaseStatus: "released" as const,
+      upgradePolicy: "notify",
+    };
+    const settings = { ...baseSettings, notifyUpdates: true, upgradePolicy: "off" };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+    mockGetUserGames.mockResolvedValue([game]);
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({ items: [UPDATE_ITEM], errors: [], total: 1 });
+
+    await checkAutoSearch();
+
+    expect(mockAddNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Game Updates Available" })
     );
   });
 

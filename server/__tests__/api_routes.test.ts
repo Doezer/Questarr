@@ -34,6 +34,7 @@ import { searchAllIndexers } from "../search.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
 import {
   type Game,
+  type UserSettings,
   type User,
   type Indexer,
   type Downloader,
@@ -1055,6 +1056,132 @@ describe("API Routes - Extended Coverage", () => {
       const response = await request(app)
         .patch(`/api/games/${gameId}/installed-version`)
         .send({ installedVersion: "v1" });
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe("PATCH /api/games/:id/upgrade-policy", () => {
+    it("also clears an aggregate-only searchResultsAvailable badge when off", async () => {
+      const id = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue({
+        id,
+        upgradePolicy: "off",
+        status: "owned",
+        searchResultsAvailable: true,
+        updateSearchResultsAvailable: false,
+        packsSearchResultsAvailable: false,
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${id}/upgrade-policy`)
+        .send({ upgradePolicy: "off" });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameSearchResultsByCategory)).toHaveBeenCalledWith(id, {
+        updates: false,
+        packs: false,
+      });
+      expect(response.body.searchResultsAvailable).toBe(false);
+    });
+
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("sets the policy scoped to the authenticated user", async () => {
+      vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue({
+        id: gameId,
+        upgradePolicy: "notify",
+        updateSearchResultsAvailable: true,
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/upgrade-policy`)
+        .send({ upgradePolicy: "notify" });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameUpgradePolicy)).toHaveBeenCalledWith(
+        gameId,
+        "user-1",
+        "notify"
+      );
+      expect(vi.mocked(storage.updateGameSearchResultsByCategory)).not.toHaveBeenCalled();
+    });
+
+    it("clears the update and pack badges when the game resolves to off", async () => {
+      vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue({
+        id: gameId,
+        upgradePolicy: "off",
+        status: "owned",
+        searchResultsAvailable: true,
+        updateSearchResultsAvailable: true,
+        packsSearchResultsAvailable: false,
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/upgrade-policy`)
+        .send({ upgradePolicy: "off" });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameSearchResultsByCategory)).toHaveBeenCalledWith(gameId, {
+        updates: false,
+        packs: false,
+      });
+      expect(response.body.updateSearchResultsAvailable).toBe(false);
+      expect(response.body.searchResultsAvailable).toBe(false);
+    });
+
+    it("clears the badges when the override is removed and the account default is off", async () => {
+      vi.mocked(storage.getUserSettings).mockResolvedValueOnce({
+        upgradePolicy: "off",
+        status: "owned",
+      } as never);
+      vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue({
+        id: gameId,
+        upgradePolicy: null,
+        status: "owned",
+        updateSearchResultsAvailable: false,
+        packsSearchResultsAvailable: true,
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/upgrade-policy`)
+        .send({ upgradePolicy: null });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameSearchResultsByCategory)).toHaveBeenCalledWith(gameId, {
+        updates: false,
+        packs: false,
+      });
+    });
+
+    it("leaves the main results badge of a wanted game alone when off", async () => {
+      vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue({
+        id: gameId,
+        upgradePolicy: "off",
+        status: "wanted",
+        searchResultsAvailable: true,
+        updateSearchResultsAvailable: false,
+        packsSearchResultsAvailable: false,
+      } as unknown as Game);
+      vi.mocked(storage.updateGameSearchResultsByCategory).mockClear();
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/upgrade-policy`)
+        .send({ upgradePolicy: "off" });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameSearchResultsByCategory)).not.toHaveBeenCalled();
+      expect(response.body.searchResultsAvailable).toBe(true);
+    });
+
+    it("rejects an unknown policy", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/upgrade-policy`)
+        .send({ upgradePolicy: "auto" });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid upgrade policy data");
+    });
+
+    it("returns 404 when the game is not the user's", async () => {
+      vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/upgrade-policy`)
+        .send({ upgradePolicy: "off" });
       expect(response.status).toBe(404);
     });
   });
@@ -2572,6 +2699,43 @@ describe("API Routes - Extended Coverage", () => {
 
         const response = await request(app).patch("/api/settings").send({});
         expect(response.status).toBe(200);
+      });
+
+      it("clears update badges of games following an account default of off", async () => {
+        vi.mocked(storage.getUserSettings).mockResolvedValue({ id: "s-1" } as UserSettings);
+        vi.mocked(storage.updateUserSettings).mockResolvedValue({
+          id: "s-1",
+          upgradePolicy: "off",
+        } as UserSettings);
+        vi.mocked(storage.getUserGames).mockResolvedValueOnce([
+          {
+            id: "g-follow",
+            status: "owned",
+            upgradePolicy: null,
+            updateSearchResultsAvailable: true,
+          },
+          {
+            id: "g-notify",
+            status: "owned",
+            upgradePolicy: "notify",
+            updateSearchResultsAvailable: true,
+          },
+          {
+            id: "g-clean",
+            status: "owned",
+            upgradePolicy: null,
+            updateSearchResultsAvailable: false,
+          },
+        ] as unknown as Game[]);
+        vi.mocked(storage.updateGameSearchResultsByCategory).mockClear();
+
+        const response = await request(app).patch("/api/settings").send({ upgradePolicy: "off" });
+        expect(response.status).toBe(200);
+        expect(vi.mocked(storage.updateGameSearchResultsByCategory)).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(storage.updateGameSearchResultsByCategory)).toHaveBeenCalledWith(
+          "g-follow",
+          { updates: false, packs: false }
+        );
       });
 
       it("should return 400 for an invalid transferMode", async () => {

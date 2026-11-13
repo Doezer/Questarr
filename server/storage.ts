@@ -77,6 +77,8 @@ import {
   type GameMilestone,
   type InsertGameMilestone,
   type GameScreenshot,
+  type UpgradePolicy,
+  DEFAULT_UPGRADE_POLICY,
 } from "../shared/schema.js";
 import {
   users,
@@ -296,6 +298,11 @@ export interface IStorage {
     expected: string | null,
     installedVersion: string
   ): Promise<boolean>;
+  updateGameUpgradePolicy(
+    id: string,
+    userId: string,
+    upgradePolicy: UpgradePolicy | null
+  ): Promise<Game | undefined>;
   updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void>;
   updateGameSearchResultsByCategory(
     gameId: string,
@@ -860,6 +867,7 @@ export class MemStorage implements IStorage {
       userRating: null,
       libraryPath: null,
       installedVersion: null,
+      upgradePolicy: null,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -919,6 +927,19 @@ export class MemStorage implements IStorage {
     const updatedGame: Game = { ...game, userRating };
     this.games.set(id, updatedGame);
     return updatedGame;
+  }
+
+  updateGameUpgradePolicy(
+    id: string,
+    userId: string,
+    upgradePolicy: UpgradePolicy | null
+  ): Promise<Game | undefined> {
+    const game = this.games.get(id);
+    if (game?.userId !== userId) return Promise.resolve(undefined);
+
+    const updatedGame: Game = { ...game, upgradePolicy };
+    this.games.set(id, updatedGame);
+    return Promise.resolve(updatedGame);
   }
 
   updateGameInstalledVersion(
@@ -1876,6 +1897,7 @@ export class MemStorage implements IStorage {
       xrelSceneReleases: insertSettings.xrelSceneReleases ?? true,
       xrelP2pReleases: insertSettings.xrelP2pReleases ?? false,
       autoSearchUnreleased: insertSettings.autoSearchUnreleased ?? false,
+      upgradePolicy: insertSettings.upgradePolicy ?? DEFAULT_UPGRADE_POLICY,
       steamSyncFailures: 0,
       steamSyncEnabled: insertSettings.steamSyncEnabled ?? false,
       steamSyncIntervalHours: insertSettings.steamSyncIntervalHours ?? 24,
@@ -3040,6 +3062,19 @@ export class DatabaseStorage implements IStorage {
     const [updatedGame] = await db
       .update(games)
       .set({ userRating })
+      .where(and(eq(games.id, id), eq(games.userId, userId)))
+      .returning();
+    return updatedGame || undefined;
+  }
+
+  async updateGameUpgradePolicy(
+    id: string,
+    userId: string,
+    upgradePolicy: UpgradePolicy | null
+  ): Promise<Game | undefined> {
+    const [updatedGame] = await db
+      .update(games)
+      .set({ upgradePolicy })
       .where(and(eq(games.id, id), eq(games.userId, userId)))
       .returning();
     return updatedGame || undefined;

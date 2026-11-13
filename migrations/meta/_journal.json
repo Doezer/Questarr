@@ -407,6 +407,13 @@
       "when": 1793909035358,
       "tag": "0056_game_play_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1794585821966,
+      "tag": "0057_upgrade_policy",
+      "breakpoints": true
     }
   ]
 }

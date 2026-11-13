@@ -28,7 +28,6 @@ import { importManager } from "./services/index.js";
 import {
   downloadRulesSchema,
   DEFAULT_NOTIFICATION_PREFERENCES,
-  ACQUIRED_GAME_STATUSES,
   isUserCuratedGameStatus,
   type DownloadStatus,
   type Game,
@@ -36,6 +35,8 @@ import {
   type InsertNotification,
   type NotificationEvent,
   type NotificationPreferences,
+  resolveUpgradePolicy,
+  OWNED_GAME_STATUSES,
 } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isReleasePossiblyNewer } from "../shared/version-utils.js";
@@ -141,7 +142,7 @@ const CLIENT_VERSION_LOG_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const RSS_REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 // Every status where the user already has the game, so update/pack searches
 // keep running while it's being played or shelved too.
-const OWNED_STATUSES = new Set<string>([...ACQUIRED_GAME_STATUSES, "downloading"]);
+const OWNED_STATUSES = OWNED_GAME_STATUSES;
 
 const GAME_UPDATE_TITLE_TO_EVENT: Record<string, NotificationEvent> = {
   "Game Released": "gameReleased",
@@ -2124,6 +2125,22 @@ export async function checkAutoSearch() {
         // Search owned games for update packs only.
         for (const game of ownedGames) {
           try {
+            // "off": the user doesn't want update/pack tracking for this game, so don't search
+            // and clear any badge left from before the policy changed.
+            if (resolveUpgradePolicy(game.upgradePolicy, settings.upgradePolicy) === "off") {
+              if (
+                game.searchResultsAvailable ||
+                game.updateSearchResultsAvailable ||
+                game.packsSearchResultsAvailable
+              ) {
+                await storage.updateGameSearchResultsByCategory(game.id, {
+                  updates: false,
+                  packs: false,
+                });
+              }
+              continue;
+            }
+
             // Skip unreleased games if configured to do so
             if (!settings.autoSearchUnreleased && game.releaseStatus !== "released") {
               continue;
@@ -2177,6 +2194,19 @@ export async function checkAutoSearch() {
                   settings.filterByPreferredGroups ?? false
                 );
             const packsItems = deduplicateByTitle(groupFilteredPacks, indexerPriorityMap);
+
+            // The search can take a while: re-read the policy so an opt-out saved meanwhile
+            // is not undone by this (now stale) result.
+            const [freshGame, freshSettings] = await Promise.all([
+              storage.getGame(game.id),
+              storage.getUserSettings(userId),
+            ]);
+            if (
+              freshGame &&
+              resolveUpgradePolicy(freshGame.upgradePolicy, freshSettings?.upgradePolicy) === "off"
+            ) {
+              continue;
+            }
 
             await storage.updateGameSearchResultsByCategory(game.id, {
               updates: updateItems.length > 0,

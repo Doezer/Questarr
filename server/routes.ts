@@ -35,6 +35,9 @@ import {
   type InsertImportTaskItem,
   type ScannedGameFile,
   type GameFileCategory,
+  updateGameUpgradePolicySchema,
+  resolveUpgradePolicy,
+  OWNED_GAME_STATUSES,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { parseJsonObject } from "../shared/json-object-utils.js";
@@ -2173,6 +2176,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         invalid: "Invalid installed version data",
         log: "error updating game installed version",
         failure: "Failed to update installed version",
+      }
+    )
+  );
+
+  // Set how this game reacts to newer versions (off / notify), or null to follow the account default.
+  app.patch(
+    "/api/games/:id/upgrade-policy",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    patchOwnGameField(
+      updateGameUpgradePolicySchema,
+      async (id, userId, { upgradePolicy }) => {
+        let game = await storage.updateGameUpgradePolicy(id, userId, upgradePolicy);
+        if (game) {
+          // Auto-search's own cleanup only runs while it is enabled, so drop stale badges now.
+          const settings = await storage.getUserSettings(userId);
+          if (
+            OWNED_GAME_STATUSES.has(game.status) &&
+            resolveUpgradePolicy(game.upgradePolicy, settings?.upgradePolicy) === "off" &&
+            (game.searchResultsAvailable ||
+              game.updateSearchResultsAvailable ||
+              game.packsSearchResultsAvailable)
+          ) {
+            await storage.updateGameSearchResultsByCategory(game.id, {
+              updates: false,
+              packs: false,
+            });
+            game = {
+              ...game,
+              searchResultsAvailable: false,
+              updateSearchResultsAvailable: false,
+              packsSearchResultsAvailable: false,
+            };
+          }
+          (await import("./socket.js")).notifyUser("gameUpdated", game.id);
+        }
+        return game;
+      },
+      {
+        invalid: "Invalid upgrade policy data",
+        log: "error updating game upgrade policy",
+        failure: "Failed to update upgrade policy",
       }
     )
   );
@@ -5594,6 +5640,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!settings) {
         return res.status(404).json({ error: "Settings not found" });
+      }
+
+      // Auto-search's own cleanup only runs while it is enabled, so drop the update/pack badges
+      // of games that now follow an account default of "off" right away.
+      if (updates.upgradePolicy === "off") {
+        const userGames = await storage.getUserGames(userId, true, Array.from(OWNED_GAME_STATUSES));
+        for (const game of userGames) {
+          if (
+            (game.searchResultsAvailable ||
+              game.updateSearchResultsAvailable ||
+              game.packsSearchResultsAvailable) &&
+            resolveUpgradePolicy(game.upgradePolicy, settings.upgradePolicy) === "off"
+          ) {
+            await storage.updateGameSearchResultsByCategory(game.id, {
+              updates: false,
+              packs: false,
+            });
+          }
+        }
       }
 
       return res.json(settings);

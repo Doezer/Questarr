@@ -37,6 +37,7 @@ import {
   type GameFileCategory,
   updateGameUpgradePolicySchema,
   resolveUpgradePolicy,
+  OWNED_GAME_STATUSES,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { parseJsonObject } from "../shared/json-object-utils.js";
@@ -2052,7 +2053,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const userId = req.user!.id;
         const gameData = insertGameSchema.parse({ ...req.body, userId });
 
-        const userGames = await storage.getUserGames(userId, true); // Check against all games including hidden
+        const userGames = await storage.getUserGames(userId, true, Array.from(OWNED_GAME_STATUSES)); // Check against all games including hidden
         const existingGame = userGames.find((g) =>
           gameData.igdbId != null
             ? g.igdbId === gameData.igdbId
@@ -2193,6 +2194,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Auto-search's own cleanup only runs while it is enabled, so drop stale badges now.
           const settings = await storage.getUserSettings(userId);
           if (
+            OWNED_GAME_STATUSES.has(game.status) &&
             resolveUpgradePolicy(game.upgradePolicy, settings?.upgradePolicy) === "off" &&
             (game.searchResultsAvailable ||
               game.updateSearchResultsAvailable ||
@@ -2265,7 +2267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/games/refresh-metadata", igdbRateLimiter, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const userGames = await storage.getUserGames(userId, true);
+      const userGames = await storage.getUserGames(userId, true, Array.from(OWNED_GAME_STATUSES));
 
       routesLogger.info({ userId, gameCount: userGames.length }, "starting metadata refresh");
 
@@ -2361,7 +2363,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/games/library-health-check", sensitiveEndpointLimiter, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const userGames = await storage.getUserGames(userId, true);
+      const userGames = await storage.getUserGames(userId, true, Array.from(OWNED_GAME_STATUSES));
       const config = await storage.getImportConfig(userId);
       const resolvedRoot = path.resolve(config.libraryRoot);
 
@@ -3446,7 +3448,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user!.id;
 
       // Get user's current games for recommendations
-      const userGames = await storage.getUserGames(userId, true);
+      const userGames = await storage.getUserGames(userId, true, Array.from(OWNED_GAME_STATUSES));
       const recommendationSeeds = userGames.map((g) => ({
         genres: g.genres || undefined,
         platforms: g.platforms || undefined,
@@ -5643,7 +5645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Auto-search's own cleanup only runs while it is enabled, so drop the update/pack badges
       // of games that now follow an account default of "off" right away.
       if (updates.upgradePolicy === "off") {
-        const userGames = await storage.getUserGames(userId, true);
+        const userGames = await storage.getUserGames(userId, true, Array.from(OWNED_GAME_STATUSES));
         for (const game of userGames) {
           if (
             (game.searchResultsAvailable ||

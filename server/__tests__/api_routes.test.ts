@@ -1065,6 +1065,7 @@ describe("API Routes - Extended Coverage", () => {
       vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue({
         id,
         upgradePolicy: "off",
+        status: "owned",
         searchResultsAvailable: true,
         updateSearchResultsAvailable: false,
         packsSearchResultsAvailable: false,
@@ -1106,6 +1107,7 @@ describe("API Routes - Extended Coverage", () => {
       vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue({
         id: gameId,
         upgradePolicy: "off",
+        status: "owned",
         searchResultsAvailable: true,
         updateSearchResultsAvailable: true,
         packsSearchResultsAvailable: false,
@@ -1126,10 +1128,12 @@ describe("API Routes - Extended Coverage", () => {
     it("clears the badges when the override is removed and the account default is off", async () => {
       vi.mocked(storage.getUserSettings).mockResolvedValueOnce({
         upgradePolicy: "off",
+        status: "owned",
       } as never);
       vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue({
         id: gameId,
         upgradePolicy: null,
+        status: "owned",
         updateSearchResultsAvailable: false,
         packsSearchResultsAvailable: true,
       } as unknown as Game);
@@ -1142,6 +1146,25 @@ describe("API Routes - Extended Coverage", () => {
         updates: false,
         packs: false,
       });
+    });
+
+    it("leaves the main results badge of a wanted game alone when off", async () => {
+      vi.mocked(storage.updateGameUpgradePolicy).mockResolvedValue({
+        id: gameId,
+        upgradePolicy: "off",
+        status: "wanted",
+        searchResultsAvailable: true,
+        updateSearchResultsAvailable: false,
+        packsSearchResultsAvailable: false,
+      } as unknown as Game);
+      vi.mocked(storage.updateGameSearchResultsByCategory).mockClear();
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/upgrade-policy`)
+        .send({ upgradePolicy: "off" });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameSearchResultsByCategory)).not.toHaveBeenCalled();
+      expect(response.body.searchResultsAvailable).toBe(true);
     });
 
     it("rejects an unknown policy", async () => {
@@ -2684,9 +2707,24 @@ describe("API Routes - Extended Coverage", () => {
           upgradePolicy: "off",
         } as any);
         vi.mocked(storage.getUserGames).mockResolvedValueOnce([
-          { id: "g-follow", upgradePolicy: null, updateSearchResultsAvailable: true },
-          { id: "g-notify", upgradePolicy: "notify", updateSearchResultsAvailable: true },
-          { id: "g-clean", upgradePolicy: null, updateSearchResultsAvailable: false },
+          {
+            id: "g-follow",
+            status: "owned",
+            upgradePolicy: null,
+            updateSearchResultsAvailable: true,
+          },
+          {
+            id: "g-notify",
+            status: "owned",
+            upgradePolicy: "notify",
+            updateSearchResultsAvailable: true,
+          },
+          {
+            id: "g-clean",
+            status: "owned",
+            upgradePolicy: null,
+            updateSearchResultsAvailable: false,
+          },
         ] as any);
         vi.mocked(storage.updateGameSearchResultsByCategory).mockClear();
 

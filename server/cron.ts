@@ -28,7 +28,6 @@ import { importManager } from "./services/index.js";
 import {
   downloadRulesSchema,
   DEFAULT_NOTIFICATION_PREFERENCES,
-  ACQUIRED_GAME_STATUSES,
   isUserCuratedGameStatus,
   type DownloadStatus,
   type Game,
@@ -37,6 +36,7 @@ import {
   type NotificationEvent,
   type NotificationPreferences,
   resolveUpgradePolicy,
+  OWNED_GAME_STATUSES,
 } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isReleasePossiblyNewer } from "../shared/version-utils.js";
@@ -142,7 +142,7 @@ const CLIENT_VERSION_LOG_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const RSS_REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 // Every status where the user already has the game, so update/pack searches
 // keep running while it's being played or shelved too.
-const OWNED_STATUSES = new Set<string>([...ACQUIRED_GAME_STATUSES, "downloading"]);
+const OWNED_STATUSES = OWNED_GAME_STATUSES;
 
 const GAME_UPDATE_TITLE_TO_EVENT: Record<string, NotificationEvent> = {
   "Game Released": "gameReleased",

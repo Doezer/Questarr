@@ -723,6 +723,12 @@ export function isUserCuratedGameStatus(status: string | null | undefined): bool
 
 /** Statuses meaning the user already has the game (as opposed to wanting it). */
 export const ACQUIRED_GAME_STATUSES = ["owned", ...USER_CURATED_GAME_STATUSES] as const;
+// Every status where the user already has the game (also while it is being downloaded), i.e. the
+// games whose update/pack availability is tracked.
+export const OWNED_GAME_STATUSES: ReadonlySet<string> = new Set<string>([
+  ...ACQUIRED_GAME_STATUSES,
+  "downloading",
+]);
 
 export const updateGameStatusSchema = z.object({
   status: z.enum(GAME_STATUSES),

@@ -159,6 +159,10 @@ export async function syncSteamPlaytime(
 ): Promise<SteamPlaytimeResult> {
   if (running.has(userId)) throw new SteamPlaytimeBusyError();
   running.add(userId);
+  // Sessions inserted so far: any exit after the first insert (stale run, error) still changes
+  // what open pages show, so the notification is sent from `finally`.
+  let inserted = 0;
+  let statusSaved = false;
   try {
     const user = await storage.getUser(userId);
     if (!config.steam.isConfigured || !user?.steamId64) throw new SteamPlaytimeUnavailableError();
@@ -186,7 +190,7 @@ export async function syncSteamPlaytime(
         error instanceof Error && error.message.startsWith("Steam library unavailable")
           ? error.message
           : "Could not read your Steam play time. Check the API key and make Game details public.";
-      await persistRun(userId, state.epoch, { lastError: message });
+      statusSaved = await persistRun(userId, state.epoch, { lastError: message });
       throw new SteamPlaytimeUpstreamError(message, { cause: error });
     }
 
@@ -294,10 +298,11 @@ export async function syncSteamPlaytime(
         source: "steam",
       });
       sessionsAdded++;
+      inserted++;
       minutesAdded += net;
     }
 
-    await persistRun(userId, state.epoch, {
+    statusSaved = await persistRun(userId, state.epoch, {
       steamId: user.steamId64,
       baselines,
       deferred,
@@ -306,11 +311,12 @@ export async function syncSteamPlaytime(
       lastMinutesAdded: minutesAdded,
       lastError: null,
     });
-    // Open pages (stats, journal, sync card) refresh themselves instead of waiting for a reload.
-    notifyUser("playSessionsUpdated", { source: "steam" }, userId);
     return { sessionsAdded, minutesAdded, baselined };
   } finally {
     running.delete(userId);
+    // Open pages (stats, journal, sync card) refresh themselves instead of waiting for a reload.
+    // Only when something changed for them: new sessions, or the saved run status.
+    if (inserted > 0 || statusSaved) notifyUser("playSessionsUpdated", { source: "steam" }, userId);
   }
 }
 

@@ -126,6 +126,28 @@ describe.each(activeTestDialects())("Steam play-time sync (%s)", (dialect) => {
     expect(result).toMatchObject({ sessionsAdded: 1, minutesAdded: 30 });
   });
 
+  it("still notifies when the run is cut short after a session was inserted", async () => {
+    owned(600);
+    await sync.syncSteamPlaytime(userId, { now: T0 });
+    fixtures.notify.mockClear();
+    owned(690);
+    // The sync is turned off mid-run: its result is stale, but the session already exists.
+    const realAdd = ctx.storage.addGamePlaySession.bind(ctx.storage);
+    const spy = vi.spyOn(ctx.storage, "addGamePlaySession").mockImplementationOnce(async (s) => {
+      const created = await realAdd(s);
+      await sync.setSteamPlaytimeEnabled(userId, false);
+      await sync.setSteamPlaytimeEnabled(userId, true);
+      return created;
+    });
+    await sync.syncSteamPlaytime(userId, { now: hours(2) });
+    spy.mockRestore();
+    expect(fixtures.notify).toHaveBeenCalledWith(
+      "playSessionsUpdated",
+      { source: "steam" },
+      userId
+    );
+  });
+
   it("adds nothing when the recorded sessions already cover the growth", async () => {
     owned(600);
     await sync.syncSteamPlaytime(userId, { now: T0 });

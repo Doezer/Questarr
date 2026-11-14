@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { gameDetailsPath } from "@/lib/routes";
 import { Dices, Gamepad2, Loader2 } from "lucide-react";
@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import StatusBadge from "./StatusBadge";
+import type { Tag } from "@/lib/tags";
 
 type Pool = "owned" | "playing" | "all";
 
@@ -38,6 +39,10 @@ export default function BacklogRoulette({
   loading,
   onStartPlaying,
   pools = ALL_POOLS,
+  tags,
+  tagId = "all",
+  onTagChange,
+  tagGameIds,
 }: {
   games: Game[];
   loading: boolean;
@@ -45,6 +50,13 @@ export default function BacklogRoulette({
   onStartPlaying?: (gameId: string) => Promise<void>;
   /** Pools offered in the "Pick from" select; the first one is the default draw. */
   pools?: Pool[];
+  /** The user's tags; with `onTagChange`, adds a "Tag" select to the draw. */
+  tags?: Pick<Tag, "id" | "name">[];
+  /** The tag the draw is limited to ("all" for no limit). */
+  tagId?: string;
+  onTagChange?: (tagId: string) => void;
+  /** Ids of the games carrying `tagId`; null or undefined while they load or failed. */
+  tagGameIds?: Set<string> | null;
 }) {
   const [open, setOpen] = useState(false);
   const [pool, setPool] = useState<Pool>(pools[0] ?? "all");
@@ -56,6 +68,8 @@ export default function BacklogRoulette({
     return games.filter(
       (game) =>
         !game.hidden &&
+        // While a tag's games are unavailable the draw is empty rather than unfiltered.
+        (tagId === "all" || tagGameIds?.has(game.id) === true) &&
         (nextPool === "all" || game.status === nextPool) &&
         (nextMaxHours === "any" ||
           (Number.isFinite(game.timeToBeatNormally) &&
@@ -64,6 +78,12 @@ export default function BacklogRoulette({
     );
   }
   const candidates = eligibleGames(pool, maxHours);
+
+  // The tag's games arrive after the choice is made, so draw again once they are known.
+  useEffect(() => {
+    if (open && (tagId === "all" || tagGameIds)) roll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tagId, tagGameIds]);
   const selected = candidates.find((game) => game.id === selectedId);
 
   /** Draw uniformly from the chosen pool, skipping the previous game when possible. */
@@ -156,6 +176,24 @@ export default function BacklogRoulette({
               Your current search and filters apply. Hidden games stay out of the draw.
             </p>
           </div>
+          {tags && tags.length > 0 && onTagChange && (
+            <div className="space-y-2">
+              <Label htmlFor="roulette-tag">Tag</Label>
+              <Select value={tagId} disabled={starting || loading} onValueChange={onTagChange}>
+                <SelectTrigger id="roulette-tag">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Any tag</SelectItem>
+                  {tags.map((tag) => (
+                    <SelectItem key={tag.id} value={tag.id}>
+                      {tag.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="roulette-length">Game length</Label>
             <Select

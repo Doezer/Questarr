@@ -35,6 +35,17 @@ test("creates a tag, puts it on a game and filters the library by it", async ({
   await expect(page.getByTestId(`card-game-${other.id}`)).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("tags-library.png") });
 
+  // 3b. The roulette can draw from one tag only.
+  await page.goto("/");
+  await page.getByRole("button", { name: "Pick a game" }).click();
+  await page.getByRole("combobox", { name: "Pick from" }).click();
+  await page.getByRole("option", { name: "All visible games", exact: true }).click();
+  await page.getByRole("combobox", { name: "Tag", exact: true }).click();
+  await page.getByRole("option", { name: tagName }).click();
+  await expect(page.getByTestId("roulette-title")).toHaveText(tagged.title);
+  await page.getByRole("dialog").screenshot({ path: testInfo.outputPath("tags-roulette.png") });
+  await page.keyboard.press("Escape");
+
   // 4. Deleting the tag removes it everywhere.
   await page.goto("/settings?tab=appearance");
   await page.getByRole("tab", { name: "Appearance", exact: true }).click();

@@ -21,6 +21,25 @@ day. A session can be up to 24 hours and cannot end in the future. **Delete** re
 The Playtime section also shows the game's total and how it compares with the IGDB
 [Time to Beat](https://www.igdb.com/) estimate when there is one.
 
+## Finish-by goals
+
+In a game's **Playtime** section, **Finish by** lets you pick a target day for the game. Questarr
+compares it with the IGDB Time to Beat (the "normally" estimate) and the time you have already
+played (timer, manual, Playnite and estimated Steam sessions all count):
+
+- **Time left to beat** is the Time to Beat minus your total, never below zero.
+- **Needed per day** spreads that time over the days from today to the target day, the target day
+  included.
+- **Your pace** is your average per day over the last 14 days on that game.
+- The badge reads **On track** when the pace you need is no higher than your pace, **Behind** when it
+  is higher, **Overdue** once the target day has passed, **Done** when the game is marked completed.
+  Without a Time to Beat estimate the goal only counts the days down.
+
+A game that has not been played in the last 14 days reads **Behind** as soon as it has time left to
+beat, since your recent pace is zero. **Clear goal** removes it. The **Statistics** page lists every
+unfinished game with a goal under **Finish-by goals**, soonest first. A goal is a date only: there is
+no weekly hours target and no notification when a goal is missed yet.
+
 ## Statistics
 
 The **Statistics** page has a **Play time** section with:
@@ -76,5 +95,7 @@ source: `timer`, `manual`, `playnite` or `steam` (estimated, see above). The Ste
 last totals per game in a small per-user document in the system configuration, so it needs no table. Sessions are deleted with their game. They are included when you move from SQLite to
 Postgres (`scripts/sqlite-to-pg.ts`).
 
-Not included yet: importing historical playtime from Steam (the first sync only notes your totals) or Playnite (the extension only reports new sessions), and per-game goals. See
+A goal is one date (`finish_by`, `YYYY-MM-DD`) on the game itself, with no table of its own.
+
+Not included yet: importing historical playtime from Steam (the first sync only notes your totals) or Playnite (the extension only reports new sessions), weekly-hours goals and missed-goal notifications. See
 [Questarr-mgmt#71](https://github.com/Doezer/Questarr-mgmt/issues/71).

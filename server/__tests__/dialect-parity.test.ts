@@ -226,6 +226,19 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect((await storage().getGame(game.id))?.installedVersion).toBe("v1.1");
     });
 
+    it("updateGameFinishBy stores and clears the target day, scoped to the user", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      expect(await storage().updateGameFinishBy(game.id, "someone-else", "2026-12-31")).toBe(
+        undefined
+      );
+      expect((await storage().updateGameFinishBy(game.id, user.id, "2026-12-31"))?.finishBy).toBe(
+        "2026-12-31"
+      );
+      expect((await storage().getGame(game.id))?.finishBy).toBe("2026-12-31");
+      expect((await storage().updateGameFinishBy(game.id, user.id, null))?.finishBy).toBeNull();
+    });
+
     it("a synced status never overwrites one set by hand, but replaces an earlier synced one", async () => {
       const [user] = await storage().getAllUsers();
       const [game] = await storage().getUserGames(user.id);

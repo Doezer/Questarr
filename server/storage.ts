@@ -299,6 +299,11 @@ export interface IStorage {
     userId: string,
     userRating: number | null
   ): Promise<Game | undefined>;
+  updateGameFinishBy(
+    id: string,
+    userId: string,
+    finishBy: string | null
+  ): Promise<Game | undefined>;
   updateGameInstalledVersion(
     id: string,
     userId: string,
@@ -901,6 +906,7 @@ export class MemStorage implements IStorage {
       libraryPath: null,
       installedVersion: null,
       upgradePolicy: null,
+      finishBy: null,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -964,6 +970,19 @@ export class MemStorage implements IStorage {
     if (!game || game.userId !== userId) return undefined;
 
     const updatedGame: Game = { ...game, userRating };
+    this.games.set(id, updatedGame);
+    return updatedGame;
+  }
+
+  async updateGameFinishBy(
+    id: string,
+    userId: string,
+    finishBy: string | null
+  ): Promise<Game | undefined> {
+    const game = this.games.get(id);
+    if (!game || game.userId !== userId) return undefined;
+
+    const updatedGame: Game = { ...game, finishBy };
     this.games.set(id, updatedGame);
     return updatedGame;
   }
@@ -3220,6 +3239,19 @@ export class DatabaseStorage implements IStorage {
     const [updatedGame] = await db
       .update(games)
       .set({ userRating })
+      .where(and(eq(games.id, id), eq(games.userId, userId)))
+      .returning();
+    return updatedGame || undefined;
+  }
+
+  async updateGameFinishBy(
+    id: string,
+    userId: string,
+    finishBy: string | null
+  ): Promise<Game | undefined> {
+    const [updatedGame] = await db
+      .update(games)
+      .set({ finishBy })
       .where(and(eq(games.id, id), eq(games.userId, userId)))
       .returning();
     return updatedGame || undefined;

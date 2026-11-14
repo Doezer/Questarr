@@ -15,6 +15,7 @@ import {
   updateGameStatusSchema,
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
+  updateGameFinishBySchema,
   updateGameInstalledVersionSchema,
   updateGameTargetPlatformSchema,
   insertIndexerSchema,
@@ -2158,6 +2159,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         invalid: "Invalid user rating data",
         log: "error updating game user rating",
         failure: "Failed to update user rating",
+      }
+    )
+  );
+
+  // Personal "finish by" target day (YYYY-MM-DD), or null to clear it.
+  app.patch(
+    "/api/games/:id/finish-by",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    patchOwnGameField(
+      updateGameFinishBySchema,
+      (id, userId, { finishBy }) => storage.updateGameFinishBy(id, userId, finishBy),
+      {
+        invalid: "Invalid finish-by date",
+        log: "error updating game finish-by date",
+        failure: "Failed to update the finish-by date",
       }
     )
   );

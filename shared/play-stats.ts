@@ -6,6 +6,8 @@
  * passes the browser's offset (`Date#getTimezoneOffset`, in minutes, UTC minus local).
  */
 
+import { computeGoalProgress, recentPlayMinutes, type PlayGoalProgress } from "./play-goal.js";
+
 export interface PlaySessionInput {
   gameId: string;
   startedAt: Date;
@@ -26,6 +28,17 @@ export interface PlayGameInput {
   platforms?: string[] | null;
   /** IGDB "normally" estimate, in hours. */
   timeToBeatNormally?: number | null;
+  /** Personal target day, `YYYY-MM-DD`. */
+  finishBy?: string | null;
+  status?: string | null;
+}
+
+export interface PlayGoalEntry extends PlayGoalProgress {
+  gameId: string;
+  title: string;
+  finishBy: string;
+  playedMinutes: number;
+  timeToBeatHours: number | null;
 }
 
 export interface PlayTimeBucket {
@@ -52,6 +65,8 @@ export interface PlayTimeStats {
   currentStreakDays: number;
   longestStreakDays: number;
   topGames: PlayTimeByGame[];
+  /** Games with a "finish by" goal that are not completed, soonest target first. */
+  goals: PlayGoalEntry[];
   topGenres: { name: string; minutes: number }[];
   topPlatforms: { name: string; minutes: number }[];
   /** Oldest first, one entry per week/month including empty ones. */
@@ -260,6 +275,30 @@ export function computePlayStats(
     .sort((a, b) => b.minutes - a.minutes || a.title.localeCompare(b.title))
     .slice(0, TOP_GAMES);
 
+  const todayLocal = isoDate(localNow);
+  const goals: PlayGoalEntry[] = [];
+  for (const game of games) {
+    if (!game.finishBy || game.status === "completed") continue;
+    const gameSessions = sessions.filter((s) => s.gameId === game.id);
+    const progress = computeGoalProgress({
+      finishBy: game.finishBy,
+      today: todayLocal,
+      gameStatus: game.status ?? "",
+      playedMinutes: perGame.get(game.id)?.minutes ?? 0,
+      recentMinutes: recentPlayMinutes(gameSessions, now),
+      timeToBeatHours: game.timeToBeatNormally,
+    });
+    goals.push({
+      ...progress,
+      gameId: game.id,
+      title: game.title,
+      finishBy: game.finishBy,
+      playedMinutes: perGame.get(game.id)?.minutes ?? 0,
+      timeToBeatHours: game.timeToBeatNormally ?? null,
+    });
+  }
+  goals.sort((a, b) => a.finishBy.localeCompare(b.finishBy) || a.title.localeCompare(b.title));
+
   const { current, longest: longestStreak } = streaks(activeDays, dayNumber(localNow));
 
   return {
@@ -275,6 +314,7 @@ export function computePlayStats(
     currentStreakDays: current,
     longestStreakDays: longestStreak,
     topGames,
+    goals,
     topGenres: topEntries(perGenre, TOP_TAGS),
     topPlatforms: topEntries(perPlatform, TOP_TAGS),
     perWeek,

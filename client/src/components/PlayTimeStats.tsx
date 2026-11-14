@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Clock, Flame, Hourglass, Timer } from "lucide-react";
+import { Clock, Flame, Hourglass, Target, Timer } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
-import { formatMinutes } from "@/lib/play-time";
+import { formatDaysLeft, formatMinutes, GOAL_STATUS_STYLE } from "@/lib/play-time";
 import StatsCard from "@/components/StatsCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import type { PlayTimeStats as PlayTimeStatsData } from "@shared/play-stats";
 
@@ -86,6 +87,50 @@ export default function PlayTimeStats() {
 
   if (!data) return null;
 
+  const goalsCard =
+    data.goals.length > 0 ? (
+      <Card data-testid="play-goals">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg font-medium">
+            <Target className="h-5 w-5 text-primary" aria-hidden="true" />
+            Finish-by goals
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="divide-y divide-border">
+            {data.goals.map((goal) => {
+              const style = GOAL_STATUS_STYLE[goal.status];
+              return (
+                <li
+                  key={goal.gameId}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm"
+                >
+                  <Link
+                    href={`/games/${goal.gameId}`}
+                    className="min-w-0 flex-1 truncate font-medium hover:underline"
+                  >
+                    {goal.title}
+                  </Link>
+                  <Badge variant="outline" className={style.className}>
+                    {style.label}
+                  </Badge>
+                  <span className="w-full text-xs text-muted-foreground sm:w-auto sm:text-sm">
+                    {formatDaysLeft(goal.daysLeft)}
+                    {goal.remainingMinutes !== null
+                      ? ` · ${formatMinutes(goal.remainingMinutes)} to beat`
+                      : ""}
+                    {goal.neededMinutesPerDay !== null
+                      ? ` · ${formatMinutes(goal.neededMinutesPerDay)}/day needed`
+                      : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent>
+      </Card>
+    ) : null;
+
   return (
     <section
       aria-labelledby="play-time-heading"
@@ -98,10 +143,13 @@ export default function PlayTimeStats() {
       </h2>
 
       {data.sessionCount === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No play sessions yet. Start a timer on a game you are playing, or add the time on its
-          page, and your hours show up here.
-        </p>
+        <>
+          <p className="text-sm text-muted-foreground">
+            No play sessions yet. Start a timer on a game you are playing, or add the time on its
+            page, and your hours show up here.
+          </p>
+          {goalsCard}
+        </>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
@@ -203,6 +251,8 @@ export default function PlayTimeStats() {
               </CardContent>
             </Card>
           </div>
+
+          {goalsCard}
 
           {(data.topGenres.length > 0 || data.topPlatforms.length > 0) && (
             <div className="grid gap-4 md:grid-cols-2">

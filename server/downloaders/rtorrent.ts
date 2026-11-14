@@ -13,11 +13,12 @@ import type { DownloadRequest, DownloaderClient, XMLValue } from "./types.js";
 import {
   assertCredentialsAllowed,
   buildBasicAuthHeader,
-  fetchWithMagnetDetection,
+  escapeXml,
   extractHashFromUrl,
+  fetchWithMagnetDetection,
+  findTorrentByTagNull,
   isHttpsUrl,
   logDownloaderDebugResponse,
-  findTorrentByTagNull,
 } from "./utils.js";
 import { XMLParser } from "fast-xml-parser";
 
@@ -712,17 +713,17 @@ export class RTorrentClient implements DownloaderClient {
         if (Buffer.isBuffer(param)) {
           return `<param><value><base64>${param.toString("base64")}</base64></value></param>`;
         } else if (typeof param === "string") {
-          return `<param><value><string>${this.escapeXml(param)}</string></value></param>`;
+          return `<param><value><string>${escapeXml(param)}</string></value></param>`;
         } else if (typeof param === "number") {
           return `<param><value><int>${param}</int></value></param>`;
         }
-        return `<param><value><string>${this.escapeXml(String(param))}</string></value></param>`;
+        return `<param><value><string>${escapeXml(String(param))}</string></value></param>`;
       })
       .join("");
 
     const xmlBody = `<?xml version="1.0"?>
 <methodCall>
-  <methodName>${this.escapeXml(method)}</methodName>
+  <methodName>${escapeXml(method)}</methodName>
   <params>
     ${xmlParams}
   </params>
@@ -928,14 +929,5 @@ export class RTorrentClient implements DownloaderClient {
     }
 
     return null;
-  }
-
-  private escapeXml(str: string): string {
-    return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;");
   }
 }

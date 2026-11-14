@@ -27,7 +27,11 @@ import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { notifyUser } from "../socket.js";
-import { recordVersionFromCompletedDownload } from "../game-version.js";
+import { carriesBaseGameVersion } from "../../shared/version-utils.js";
+import {
+  recordVersionFromCompletedDownload,
+  recordVersionFromInstallFolder,
+} from "../game-version.js";
 import { resolvePrefs } from "../notification-prefs.js";
 import { appriseClient } from "../apprise.js";
 import { isRommPlatformFoldersEnabled, requestRommScanAfterImport } from "../romm.js";
@@ -668,7 +672,7 @@ export class ImportManager {
   ): Promise<void> {
     await this.storage.updateGameDownloadStatus(downloadId, "imported");
     await this.storage.updateGame(game.id, { libraryPath });
-    await this.recordInstalledVersion(downloadId, game);
+    await this.recordInstalledVersion(downloadId, game, libraryPath);
     if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
       await this.storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
     }
@@ -678,7 +682,8 @@ export class ImportManager {
   /** Best-effort: a version that can't be recorded must not fail an import that succeeded. */
   private async recordInstalledVersion(
     downloadId: string,
-    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    libraryPath: string
   ): Promise<void> {
     try {
       const download = await this.storage.getGameDownload(downloadId);
@@ -689,6 +694,11 @@ export class ImportManager {
           download.downloadTitle,
           download.category
         );
+        // The files now in the library are the better source: they replace the release's
+        // version. A DLC or extras pack's version.txt says nothing about the base game.
+        if (carriesBaseGameVersion(download.downloadTitle, download.category)) {
+          await recordVersionFromInstallFolder(this.storage, game.id, libraryPath);
+        }
       }
     } catch (error) {
       logger.warn({ error, downloadId }, "[ImportManager] Could not record the installed version");

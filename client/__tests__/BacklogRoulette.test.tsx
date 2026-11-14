@@ -216,4 +216,25 @@ describe("Backlog roulette", () => {
     await chooseLength("Any length");
     expect(screen.getByText("Chosen from 5 matching games.")).toBeVisible();
   });
+
+  it("limits the draw to the chosen tag and stays empty while its games load", async () => {
+    const tags = [{ id: "t1", name: "Couch" }];
+    const props = { games: [game("a"), game("b")], loading: false, tags, onTagChange: vi.fn() };
+    const { rerender } = render(<BacklogRoulette {...props} tagId="all" tagGameIds={null} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.getByRole("combobox", { name: "Tag" })).toBeVisible();
+
+    rerender(<BacklogRoulette {...props} tagId="t1" tagGameIds={null} />);
+    expect(screen.getByText("No games in this draw")).toBeVisible();
+
+    rerender(<BacklogRoulette {...props} tagId="t1" tagGameIds={new Set(["b"])} />);
+    expect(await screen.findByTestId("roulette-title")).toHaveTextContent("Quest b");
+    expect(screen.getByText("Chosen from 1 matching game.")).toBeVisible();
+  });
+
+  it("offers no tag select without tags", () => {
+    render(<BacklogRoulette games={[game("a")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.queryByRole("combobox", { name: "Tag" })).toBeNull();
+  });
 });

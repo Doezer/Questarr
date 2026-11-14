@@ -61,22 +61,35 @@ function sessionTimesError(start: Date, end: Date): string | null {
   return null;
 }
 
-/** Looks up a session of this game and says why it cannot be changed, if it cannot. */
-async function findChangeableSession(
-  sessionId: string,
-  gameId: string,
-  userId: string
-): Promise<{ session?: GamePlaySession; status?: number; error?: string }> {
-  const sessions = await storage.getGamePlaySessions(gameId, userId);
-  const session = sessions.find((s) => s.id === sessionId);
-  if (!session) return { status: 404, error: "Play session not found" };
+/** Why a session cannot be edited, merged or split, or `undefined` when it can. */
+function unchangeableReason(
+  session: GamePlaySession
+): { status: number; error: string } | undefined {
   if (session.endedAt === null) {
     return { status: 409, error: "Stop the timer before changing this session" };
   }
   if (!isEditablePlaySession(session)) {
     return { status: 409, error: "Imported or estimated sessions cannot be changed" };
   }
-  return { session };
+  return undefined;
+}
+
+/** Answers a failed edit, merge or split: 400 for invalid input, else a logged 500. */
+function respondToFailure(res: Response, error: unknown, verb: string): Response {
+  if (error instanceof z.ZodError) {
+    return res.status(400).json({ error: "Invalid request", details: error.issues });
+  }
+  routesLogger.error({ error }, `Error trying to ${verb} play session`);
+  return res.status(500).json({ error: `Failed to ${verb} play session` });
+}
+
+/** The user's session `sessionId` of this game, if it exists. */
+async function findSession(
+  sessionId: string,
+  gameId: string,
+  userId: string
+): Promise<GamePlaySession | undefined> {
+  return (await storage.getGamePlaySessions(gameId, userId)).find((s) => s.id === sessionId);
 }
 
 /** Verifies the game exists and belongs to the requesting user; returns 404 otherwise. */
@@ -207,11 +220,10 @@ router.patch(
       const { sessionId } = req.params as { sessionId: string };
       const body = updatePlaySessionSchema.parse(req.body);
 
-      const found = await findChangeableSession(sessionId, gameId, user.id);
-      if (!found.session?.endedAt) {
-        return res.status(found.status ?? 404).json({ error: found.error });
-      }
-      const current = found.session;
+      const current = await findSession(sessionId, gameId, user.id);
+      if (!current) return res.status(404).json({ error: "Play session not found" });
+      const blocked = unchangeableReason(current);
+      if (blocked) return res.status(blocked.status).json({ error: blocked.error });
       const start = body.startedAt ?? current.startedAt;
       const length = current.endedAt!.getTime() - current.startedAt.getTime();
       let end: Date;
@@ -230,11 +242,7 @@ router.patch(
       if (!updated) return res.status(409).json({ error: "The play session changed, try again" });
       return res.json(updated);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid play session", details: error.issues });
-      }
-      routesLogger.error({ error }, "Error updating play session");
-      return res.status(500).json({ error: "Failed to update play session" });
+      return respondToFailure(res, error, "update");
     }
   }
 );
@@ -266,12 +274,8 @@ router.post(
       for (const id of ids) {
         const session = all.find((s) => s.id === id);
         if (!session) return res.status(404).json({ error: "Play session not found" });
-        if (session.endedAt === null) {
-          return res.status(409).json({ error: "Stop the timer before merging this session" });
-        }
-        if (!isEditablePlaySession(session)) {
-          return res.status(409).json({ error: "Imported or estimated sessions cannot be merged" });
-        }
+        const blocked = unchangeableReason(session);
+        if (blocked) return res.status(blocked.status).json({ error: blocked.error });
         chosen.push(session);
       }
 
@@ -298,11 +302,7 @@ router.post(
       if (!merged) return res.status(409).json({ error: "The play sessions changed, try again" });
       return res.status(201).json(merged[0]);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid request", details: error.issues });
-      }
-      routesLogger.error({ error }, "Error merging play sessions");
-      return res.status(500).json({ error: "Failed to merge play sessions" });
+      return respondToFailure(res, error, "merge");
     }
   }
 );
@@ -323,11 +323,12 @@ router.post(
       const { sessionId } = req.params as { sessionId: string };
       const { splitAt } = splitPlaySessionSchema.parse(req.body);
 
-      const found = await findChangeableSession(sessionId, gameId, user.id);
-      if (!found.session?.endedAt) {
-        return res.status(found.status ?? 404).json({ error: found.error });
-      }
-      const { startedAt, endedAt, source } = found.session;
+      const current = await findSession(sessionId, gameId, user.id);
+      if (!current) return res.status(404).json({ error: "Play session not found" });
+      const blocked = unchangeableReason(current);
+      if (blocked) return res.status(blocked.status).json({ error: blocked.error });
+      const { startedAt, source } = current;
+      const endedAt = current.endedAt!;
       if (
         splitAt.getTime() - startedAt.getTime() < MINUTE_MS ||
         endedAt.getTime() - splitAt.getTime() < MINUTE_MS
@@ -349,11 +350,7 @@ router.post(
       if (!parts) return res.status(409).json({ error: "The play session changed, try again" });
       return res.status(201).json(parts);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid request", details: error.issues });
-      }
-      routesLogger.error({ error }, "Error splitting play session");
-      return res.status(500).json({ error: "Failed to split play session" });
+      return respondToFailure(res, error, "split");
     }
   }
 );

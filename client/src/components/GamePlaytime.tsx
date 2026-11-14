@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Timer, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -72,7 +72,13 @@ export default function GamePlaytime({
     [finished]
   );
 
-  const recentMinutes = useMemo(() => recentPlayMinutes(sessions, new Date()), [sessions]);
+  // A clock that ticks every minute, so the 14-day pace drops old sessions while the page stays open.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const recentMinutes = useMemo(() => recentPlayMinutes(sessions, now), [sessions, now]);
 
   const [showAll, setShowAll] = useState(false);
   const [date, setDate] = useState(localToday);

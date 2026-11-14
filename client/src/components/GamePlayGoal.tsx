@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Target, X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -38,6 +38,11 @@ export default function GamePlayGoal({
   // The value just saved, shown until the game list refetches and `finishBy` catches up.
   const [saved, setSaved] = useState<string | null | undefined>(undefined);
   const current = saved === undefined ? finishBy : saved;
+  // Once the game list has caught up with what was saved, let later server values through
+  // (a change or a clear made from another tab).
+  useEffect(() => {
+    if (saved !== undefined && finishBy === saved) setSaved(undefined);
+  }, [finishBy, saved]);
   const [draft, setDraft] = useState("");
 
   const save = useMutation({

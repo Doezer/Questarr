@@ -349,12 +349,13 @@ async function bestIgdbMatch(
   candidates: IGDBGame[];
   cleaned: string;
   score: number;
+  searchFailed: boolean;
 }> {
   const cleaned = cleanReleaseName(folderName) || folderName;
 
   // An id the person wrote in the folder name is an exact match.
   const byId = await matchByIdTag(folderName);
-  if (byId) return { best: byId, candidates: [byId], cleaned, score: 1 };
+  if (byId) return { best: byId, candidates: [byId], cleaned, score: 1, searchFailed: false };
 
   const { year } = parseFolderHints(folderName);
   const rank = (list: IGDBGame[]) => rankByTitle(list, cleaned, year);
@@ -386,7 +387,7 @@ async function bestIgdbMatch(
     }
   } catch (err) {
     igdbLogger.warn({ err, query: cleaned }, "IGDB search failed during library scan");
-    return { best: null, candidates: [], cleaned, score: 0 };
+    return { best: null, candidates: [], cleaned, score: 0, searchFailed: true };
   }
   // Best first, so the review list shows the likeliest games at the top.
   const ranked = rank(candidates);
@@ -395,7 +396,31 @@ async function bestIgdbMatch(
     candidates: ranked.map((r) => r.game),
     cleaned,
     score: ranked[0]?.score ?? 0,
+    searchFailed: false,
   };
+}
+
+/**
+ * Why a folder was not auto-matched, for the scan log: the cleaned query IGDB saw, the number
+ * of candidates, and the best one with its score against the threshold.
+ */
+function describeMatchFailure(
+  folderName: string,
+  match: { best: IGDBGame | null; candidates: IGDBGame[]; cleaned: string; score: number }
+): { reason: string; details: Record<string, unknown> } {
+  const { year } = parseFolderHints(folderName);
+  const details: Record<string, unknown> = {
+    folderName,
+    query: match.cleaned,
+    folderYear: year ?? null,
+    candidates: match.candidates.length,
+    threshold: AUTO_MATCH_THRESHOLD,
+  };
+  if (!match.best) return { reason: "IGDB returned no candidates", details };
+  details.bestName = match.best.name;
+  details.bestYear = releaseYearOf(match.best);
+  details.bestScore = Number(match.score.toFixed(2));
+  return { reason: "best candidate scored below the auto-match threshold", details };
 }
 
 // ---------- Ingestion ----------
@@ -835,17 +860,22 @@ async function processCandidate(
     return;
   }
 
-  const {
-    best,
-    candidates: igdbCandidates,
-    score,
-  } = await bestIgdbMatch(cand.folderName, switchInfo ? SWITCH_IGDB_PLATFORM_ID : undefined);
+  const match = await bestIgdbMatch(
+    cand.folderName,
+    switchInfo ? SWITCH_IGDB_PLATFORM_ID : undefined
+  );
+  const { best, candidates: igdbCandidates, score } = match;
 
   if (best && score >= AUTO_MATCH_THRESHOLD) {
     const gameId = await recordMatchedCandidate(cand, best, userId, files, progress);
     registerSwitchFamilies(files, gameId, switchFamilies);
     progress.matched += 1;
   } else {
+    // The search error itself is already logged by bestIgdbMatch.
+    if (!match.searchFailed) {
+      const { reason, details } = describeMatchFailure(cand.folderName, match);
+      igdbLogger.info(details, `Library scan: folder left in Needs Review: ${reason}`);
+    }
     recordUnmatchedCandidate(rootFolder, cand, igdbCandidates);
     progress.unmatched += 1;
   }

@@ -223,6 +223,24 @@ describe.each(activeTestDialects())("outbound webhooks (%s)", (dialect) => {
       );
     });
 
+    it("never broadcasts an event with no known owner across users", async () => {
+      await createSub({ events: ["game.released"] });
+      currentUser = otherUserId;
+      await createSub({ name: "other", events: ["game.released"] });
+      currentUser = userId;
+      safeFetchMock.mockResolvedValue(okResponse());
+      webhooks.emitWebhookEvent("game.released", { gameTitle: "Z" }, null);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(safeFetchMock).not.toHaveBeenCalled();
+    });
+
+    it("delivers an ownerless event when all webhooks share one owner", async () => {
+      await createSub({ events: ["game.released"] });
+      safeFetchMock.mockResolvedValue(okResponse());
+      webhooks.emitWebhookEvent("game.released", { gameTitle: "Z" }, undefined);
+      await vi.waitFor(() => expect(safeFetchMock).toHaveBeenCalledTimes(1));
+    });
+
     it("trims each subscription's log to the newest attempts", async () => {
       const { body } = await createSub();
       for (let i = 0; i < 5; i++) {

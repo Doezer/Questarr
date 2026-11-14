@@ -226,9 +226,11 @@ export function emitWebhookEvent(
   userId?: string | null
 ): void {
   void (async () => {
-    const subs = (await storage.getEnabledWebhookSubscriptions()).filter(
-      (s) => s.events.includes(type) && (!userId || s.userId === userId)
-    );
+    const enabled = await storage.getEnabledWebhookSubscriptions();
+    // Owner unknown (a game row without a user): deliver only when every webhook belongs to the
+    // same user, as on a single-user install. With several owners, never broadcast across them.
+    if (!userId && new Set(enabled.map((s) => s.userId)).size > 1) return;
+    const subs = enabled.filter((s) => s.events.includes(type) && (!userId || s.userId === userId));
     await Promise.all(subs.map((sub) => deliverWebhook(sub, buildWebhookEnvelope(type, data))));
   })().catch((err) => {
     // Dispatch is best effort: even a failing logger must not become an unhandled rejection.

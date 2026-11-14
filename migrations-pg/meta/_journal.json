@@ -169,6 +169,13 @@
       "when": 1794661464666,
       "tag": "0023_tags_and_game_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794661465666,
+      "tag": "0024_status_sync_source",
+      "breakpoints": true
     }
   ]
 }

@@ -14,6 +14,7 @@ import {
   libraryTitlesAgree,
   mapPlayniteStatus,
   MIN_PLAYTIME_IMPORT_MINUTES,
+  normalizedTitlesAgree,
   recordedMinutes,
   toSyncSource,
 } from "../play-status-sync.js";
@@ -615,11 +616,15 @@ integrationRouter.post(
       const byId = new Map<string, Game>();
       const bySteamAppId = new Map<number, Game>();
       const byTitle = new Map<string, Game>();
+      // Normalized once per library game: the edition fallback below compares against all of them.
+      const normalizedLibrary: Array<{ game: Game; key: string }> = [];
       for (const g of library) {
         byId.set(g.id, g);
         if (g.steamAppId) bySteamAppId.set(g.steamAppId, g);
         const key = normalizeTitle(g.title);
-        if (key && !byTitle.has(key)) byTitle.set(key, g);
+        if (!key) continue;
+        normalizedLibrary.push({ game: g, key });
+        if (!byTitle.has(key)) byTitle.set(key, g);
       }
       /**
        * Id, Steam App ID, then normalized title. As a last resort, the one game whose title
@@ -631,13 +636,14 @@ integrationRouter.post(
         steamAppId?: number | undefined;
         title: string;
       }) => {
+        const key = normalizeTitle(entry.title);
         const exact =
           (entry.gameId ? byId.get(entry.gameId) : undefined) ??
           (entry.steamAppId ? bySteamAppId.get(entry.steamAppId) : undefined) ??
-          byTitle.get(normalizeTitle(entry.title));
-        if (exact || !normalizeTitle(entry.title)) return exact;
-        const near = library.filter((g) => libraryTitlesAgree(entry.title, g.title));
-        return near.length === 1 ? near[0] : undefined;
+          (key ? byTitle.get(key) : undefined);
+        if (exact || !key) return exact;
+        const near = normalizedLibrary.filter((x) => normalizedTitlesAgree(key, x.key));
+        return near.length === 1 ? near[0]?.game : undefined;
       };
 
       let imported = 0;

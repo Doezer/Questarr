@@ -86,8 +86,11 @@ const EDITION_WORDS: ReadonlySet<string> = new Set([
 const EDITION_GLUE: ReadonlySet<string> = new Set(["game", "of", "the", "year", "s"]);
 
 export function libraryTitlesAgree(requested: string, matched: string): boolean {
-  const a = normalizeTitle(requested);
-  const b = normalizeTitle(matched);
+  return normalizedTitlesAgree(normalizeTitle(requested), normalizeTitle(matched));
+}
+
+/** Same check on titles already passed through `normalizeTitle`, for scans over a library. */
+export function normalizedTitlesAgree(a: string, b: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
   const [short, long] = a.length <= b.length ? [a, b] : [b, a];

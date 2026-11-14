@@ -18,11 +18,20 @@ describe("install file parsers", () => {
     expect(parseVersionTxt("Game Version: 2.0.1")).toBe("v2.0.1");
     expect(parseVersionTxt("\n\n")).toBeNull();
     expect(parseVersionTxt("hello world")).toBeNull();
+    expect(parseVersionTxt("1.2.3-beta.1")).toBeNull();
+    expect(parseVersionTxt("Version: 1.2.3-beta.1")).toBeNull();
   });
 
   it("reads a version line from an .nfo", () => {
     expect(parseNfoVersion("Release : Game\nVersion ......: 1.3.0\nSize: 4GB")).toBe("v1.3.0");
     expect(parseNfoVersion("no version number here")).toBeNull();
+    // A qualified version is not the stable one.
+    expect(parseNfoVersion("Version: 1.2.3-beta.1")).toBeNull();
+    expect(parseNfoVersion("Version: 1.2.3+build5")).toBeNull();
+    // A long digit run is rejected in linear time.
+    const started = Date.now();
+    expect(parseNfoVersion(`Version: 1.${"9".repeat(60000)}x1`)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(500);
     // Only a line that starts with "Version": other mentions are not the game's version.
     expect(parseNfoVersion("Requires base game version 1.2\nInstall notes")).toBeNull();
   });

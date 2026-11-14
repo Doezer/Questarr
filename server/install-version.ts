@@ -14,7 +14,10 @@ import { extractVersionFromReleaseName, parseVersion } from "../shared/version-u
 
 const MAX_FILE_BYTES = 64 * 1024;
 const VERSION_FILE_NAMES = new Set(["version.txt", "version", "game_version.txt"]);
-const NFO_VERSION = /^[ \t]*version\b[\s:.=-]*v?\s?(\d+(?:\.\d+)+)(?![\w.]*\d)/im;
+// The capture sits in a lookahead plus a backreference so it is atomic: a long digit run can't
+// make the engine retry every shorter capture. A qualifier (-beta.1, +build) is not a stable
+// version, so those tokens are refused rather than cut down to their numeric prefix.
+const NFO_VERSION = /^[ \t]*version\b[\s:.=-]*v?\s?(?=(\d+(?:\.\d+)+))\1(?![\w.]*\d)(?![-+]\w)/im;
 
 async function readSmallText(file: string): Promise<string | null> {
   let handle: fs.promises.FileHandle | undefined;

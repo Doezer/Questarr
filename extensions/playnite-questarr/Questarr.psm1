@@ -39,6 +39,10 @@ $script:PlayFlushBudgetSec = 30
 # Quickly closed launches are noise, and the server caps a session at 24 hours.
 $script:PlayMinSeconds = 60
 $script:PlayMaxSeconds = 24 * 60 * 60
+# Playnite library plugin ids, used to tell Questarr which store a game comes from.
+$script:PluginIdSteam = [Guid]"cb91dfc9-b977-43bf-8e70-55f46e410fab"
+$script:PluginIdGog = [Guid]"aebe8b7c-6dc3-4a66-af31-e7375c6b5e9e"
+$script:PluginIdEpic = [Guid]"00000002-dbd1-46c6-b5d0-b1ba559d10e4"
 # Playnite game id -> UTC start time, filled by OnGameStarted.
 $script:PlayStarts = @{}
 
@@ -58,7 +62,8 @@ function Save-QuestarrConfig {
         [Parameter(Mandatory)] [string] $ApiKey,
         [bool] $SyncOnLibraryUpdate = $false,
         [bool] $MarkInstalledAsOwned = $false,
-        [bool] $TrackPlayTime = $false
+        [bool] $TrackPlayTime = $false,
+        [bool] $SyncPlayStatus = $false
     )
 
     if (-not (Test-Path $CurrentExtensionDataPath)) {
@@ -74,6 +79,7 @@ function Save-QuestarrConfig {
         SyncOnLibraryUpdate  = $SyncOnLibraryUpdate
         MarkInstalledAsOwned = $MarkInstalledAsOwned
         TrackPlayTime        = $TrackPlayTime
+        SyncPlayStatus       = $SyncPlayStatus
     }
 
     $config | ConvertTo-Json -Depth 4 | Set-Content -Path (Get-QuestarrConfigPath) -Encoding UTF8
@@ -120,6 +126,7 @@ function Get-QuestarrConfig {
         SyncOnLibraryUpdate  = [bool]$raw.SyncOnLibraryUpdate
         MarkInstalledAsOwned = [bool]$raw.MarkInstalledAsOwned
         TrackPlayTime        = [bool]$raw.TrackPlayTime
+        SyncPlayStatus       = [bool]$raw.SyncPlayStatus
     }
 }
 
@@ -320,6 +327,18 @@ function GetMainMenuItems {
     $track.MenuSection = "@Questarr"
     $items += $track
 
+    $status = New-Object Playnite.SDK.Plugins.ScriptMainMenuItem
+    $status.Description = "Sync play status to Questarr"
+    $status.FunctionName = "Invoke-QuestarrSyncPlayStatus"
+    $status.MenuSection = "@Questarr"
+    $items += $status
+
+    $toggleStatus = New-Object Playnite.SDK.Plugins.ScriptMainMenuItem
+    $toggleStatus.Description = "Toggle sending play status after each library update"
+    $toggleStatus.FunctionName = "Invoke-QuestarrToggleSyncPlayStatus"
+    $toggleStatus.MenuSection = "@Questarr"
+    $items += $toggleStatus
+
     return $items
 }
 
@@ -474,7 +493,8 @@ function Invoke-QuestarrConnect {
         -ApiKey $apiKey `
         -SyncOnLibraryUpdate $(if ($existing) { $existing.SyncOnLibraryUpdate } else { $false }) `
         -MarkInstalledAsOwned $(if ($existing) { $existing.MarkInstalledAsOwned } else { $false }) `
-        -TrackPlayTime $(if ($existing) { $existing.TrackPlayTime } else { $false })
+        -TrackPlayTime $(if ($existing) { $existing.TrackPlayTime } else { $false }) `
+        -SyncPlayStatus $(if ($existing) { $existing.SyncPlayStatus } else { $false })
 
     $PlayniteApi.Dialogs.ShowMessage(
         "Connected to Questarr $($ping.version) as $($ping.authenticatedAs.username).",
@@ -493,7 +513,8 @@ function Invoke-QuestarrToggleAutoSync {
         -ApiKey $config.ApiKey `
         -SyncOnLibraryUpdate $enabled `
         -MarkInstalledAsOwned $config.MarkInstalledAsOwned `
-        -TrackPlayTime $config.TrackPlayTime
+        -TrackPlayTime $config.TrackPlayTime `
+        -SyncPlayStatus $config.SyncPlayStatus
 
     $state = if ($enabled) { "enabled" } else { "disabled" }
     $PlayniteApi.Dialogs.ShowMessage("Automatic sync on library update is now $state.", "Questarr")
@@ -511,7 +532,8 @@ function Invoke-QuestarrToggleMarkInstalledAsOwned {
         -ApiKey $config.ApiKey `
         -SyncOnLibraryUpdate $config.SyncOnLibraryUpdate `
         -MarkInstalledAsOwned $enabled `
-        -TrackPlayTime $config.TrackPlayTime
+        -TrackPlayTime $config.TrackPlayTime `
+        -SyncPlayStatus $config.SyncPlayStatus
 
     $state = if ($enabled) { "enabled" } else { "disabled" }
     $PlayniteApi.Dialogs.ShowMessage(
@@ -530,11 +552,32 @@ function Invoke-QuestarrToggleTrackPlayTime {
         -ApiKey $config.ApiKey `
         -SyncOnLibraryUpdate $config.SyncOnLibraryUpdate `
         -MarkInstalledAsOwned $config.MarkInstalledAsOwned `
-        -TrackPlayTime $enabled
+        -TrackPlayTime $enabled `
+        -SyncPlayStatus $config.SyncPlayStatus
 
     $state = if ($enabled) { "enabled" } else { "disabled" }
     $PlayniteApi.Dialogs.ShowMessage(
         "Sending the time you play to Questarr is now $state.", "Questarr")
+}
+
+function Invoke-QuestarrToggleSyncPlayStatus {
+    param($scriptMainMenuItemActionArgs)
+
+    $config = Get-QuestarrConfigOrWarn
+    if ($null -eq $config) { return }
+
+    $enabled = -not $config.SyncPlayStatus
+    Save-QuestarrConfig `
+        -ServerUrl $config.ServerUrl `
+        -ApiKey $config.ApiKey `
+        -SyncOnLibraryUpdate $config.SyncOnLibraryUpdate `
+        -MarkInstalledAsOwned $config.MarkInstalledAsOwned `
+        -TrackPlayTime $config.TrackPlayTime `
+        -SyncPlayStatus $enabled
+
+    $state = if ($enabled) { "enabled" } else { "disabled" }
+    $PlayniteApi.Dialogs.ShowMessage(
+        "Sending the play status after each library update is now $state.", "Questarr")
 }
 
 <#
@@ -745,6 +788,177 @@ function Invoke-QuestarrRequestGame {
     $PlayniteApi.Dialogs.ShowMessage(($lines -join "`n`n"), "Questarr")
 }
 
+# ── Play status ──────────────────────────────────────────────────────────────
+
+# Most requests Questarr accepts per call; stay below its own limit like the library sync.
+$script:PlayStatusBatchSize = 500
+
+<#
+    The store a game comes from, as Questarr names it, or "" for anything else
+    (the server then records the status as coming from Playnite itself).
+#>
+function Get-QuestarrPlatformName {
+    param($Game)
+
+    if ($Game.PluginId -eq $script:PluginIdSteam) { return "steam" }
+    if ($Game.PluginId -eq $script:PluginIdGog) { return "gog" }
+    if ($Game.PluginId -eq $script:PluginIdEpic) { return "epic" }
+    return ""
+}
+
+<#
+    One entry per game that has a completion status in Playnite. Games with no
+    status are left out: there is nothing to tell Questarr about them.
+#>
+function Get-QuestarrPlayStatusPayload {
+    $entries = New-Object System.Collections.ArrayList
+
+    foreach ($game in $PlayniteApi.Database.Games) {
+        if ([string]::IsNullOrWhiteSpace($game.Name)) { continue }
+        if ($null -eq $game.CompletionStatus) { continue }
+        $statusName = [string]$game.CompletionStatus.Name
+        if ([string]::IsNullOrWhiteSpace($statusName)) { continue }
+        # Questarr rejects a whole batch if one entry is over these limits, so leave such games out.
+        if ($statusName.Length -gt 100 -or $game.Name.Length -gt 500) {
+            $__logger.Warn("Questarr: '$($game.Name)' skipped from the play status sync (title or status name too long)")
+            continue
+        }
+
+        $entry = @{
+            title      = $game.Name
+            externalId = $game.Id.ToString()
+            status     = $statusName
+        }
+
+        $platform = Get-QuestarrPlatformName $game
+        if ($platform) {
+            $entry.platform = $platform
+        }
+
+        $steamAppId = Get-QuestarrSteamAppId $game
+        if ($steamAppId -gt 0) {
+            $entry.steamAppId = $steamAppId
+        }
+
+        [void]$entries.Add($entry)
+    }
+
+    # Comma operator, as in Get-QuestarrSyncPayload: keep the ArrayList intact.
+    return , $entries
+}
+
+<#
+    Sends the statuses in batches and sums the per-entry outcomes. Throws on the
+    first failing batch so the caller reports one clear reason.
+#>
+function Invoke-QuestarrPlayStatusBatches {
+    param(
+        [Parameter(Mandatory)] $Config,
+        [Parameter(Mandatory)] $Entries,
+        $Progress = $null
+    )
+
+    $updated = 0
+    $unchanged = 0
+    $skipped = 0
+    $unmatched = 0
+
+    for ($offset = 0; $offset -lt $Entries.Count; $offset += $script:PlayStatusBatchSize) {
+        if ($null -ne $Progress -and $Progress.CancelToken.IsCancellationRequested) {
+            # $null (not a partial tally) tells the caller the user cut it short.
+            return $null
+        }
+
+        $take = [Math]::Min($script:PlayStatusBatchSize, $Entries.Count - $offset)
+        $batch = @($Entries.GetRange($offset, $take))
+
+        $response = Invoke-QuestarrApi -Config $Config -Path "/play-status" -Method "Post" -Body @{
+            games          = $batch
+            promoteWanted  = [bool]$Config.MarkInstalledAsOwned
+        }
+
+        $updated += [int]$response.updated
+        $unchanged += [int]$response.unchanged
+        $skipped += [int]$response.skipped
+        $unmatched += [int]$response.unmatched
+
+        if ($null -ne $Progress) {
+            $Progress.CurrentProgressValue = $offset + $take
+        }
+    }
+
+    return [PSCustomObject]@{
+        Updated   = $updated
+        Unchanged = $unchanged
+        Skipped   = $skipped
+        Unmatched = $unmatched
+    }
+}
+
+<#
+    Runs the status upload behind Playnite's progress dialog, like the library
+    sync, so a slow server never freezes the Playnite window. Results travel back
+    through script-scoped variables because the dialog runs on another thread.
+    Returns $null when it failed (already reported) or was cancelled.
+#>
+function Invoke-QuestarrPlayStatusWithProgress {
+    param(
+        [Parameter(Mandatory)] $Config,
+        [Parameter(Mandatory)] $Entries
+    )
+
+    $script:StatusConfig = $Config
+    $script:StatusEntries = $Entries
+    $script:StatusResult = $null
+    $script:StatusError = $null
+
+    $options = New-Object Playnite.SDK.GlobalProgressOptions("Sending play status to Questarr...", $true)
+    $options.IsIndeterminate = $false
+
+    $PlayniteApi.Dialogs.ActivateGlobalProgress({
+            param($progress)
+            $progress.ProgressMaxValue = $script:StatusEntries.Count
+            try {
+                $script:StatusResult = Invoke-QuestarrPlayStatusBatches `
+                    -Config $script:StatusConfig -Entries $script:StatusEntries -Progress $progress
+            }
+            catch {
+                $script:StatusError = Get-QuestarrErrorMessage $_
+            }
+        }, $options) | Out-Null
+
+    if ($null -ne $script:StatusError) {
+        $__logger.Error("Questarr: play status sync failed: $($script:StatusError)")
+        $PlayniteApi.Dialogs.ShowErrorMessage($script:StatusError, "Questarr")
+        return $null
+    }
+
+    return $script:StatusResult
+}
+
+function Invoke-QuestarrSyncPlayStatus {
+    param($scriptMainMenuItemActionArgs)
+
+    $config = Get-QuestarrConfigOrWarn
+    if ($null -eq $config) { return }
+
+    $entries = Get-QuestarrPlayStatusPayload
+    if ($entries.Count -eq 0) {
+        $PlayniteApi.Dialogs.ShowMessage(
+            "No game in this Playnite library has a completion status to send.", "Questarr")
+        return
+    }
+
+    $result = Invoke-QuestarrPlayStatusWithProgress -Config $config -Entries $entries
+    if ($null -eq $result) { return }
+
+    $PlayniteApi.Dialogs.ShowMessage(
+        (("Sent the status of {0} games to Questarr.`n`nUpdated: {1}`nAlready the same: {2}`n" +
+            "Left alone (set by hand in Questarr, wanted or downloading): {3}`nNot in Questarr: {4}") -f `
+            $entries.Count, $result.Updated, $result.Unchanged, $result.Skipped, $result.Unmatched),
+        "Questarr")
+}
+
 # ── Play time ────────────────────────────────────────────────────────────────
 
 function Get-QuestarrPlayQueuePath {
@@ -906,22 +1120,36 @@ function OnLibraryUpdated {
     param($eventArgs)
 
     $config = Get-QuestarrConfig
-    if ($null -eq $config -or -not $config.SyncOnLibraryUpdate) { return }
+    if ($null -eq $config) { return }
 
-    $entries = Get-QuestarrSyncPayload
-    if ($entries.Count -eq 0) { return }
-
-    try {
-        $result = Invoke-QuestarrSyncBatches -Config $config -Entries $entries
+    if ($config.SyncOnLibraryUpdate) {
+        $entries = Get-QuestarrSyncPayload
+        if ($entries.Count -gt 0) {
+            try {
+                $result = Invoke-QuestarrSyncBatches -Config $config -Entries $entries
+                $__logger.Info(
+                    "Questarr: auto-sync matched $($result.Matched), unmatched $($result.Unmatched), promoted $($result.Promoted)")
+            }
+            catch {
+                # A background sync must never interrupt Playnite with a dialog.
+                $__logger.Error("Questarr: auto-sync failed: $(Get-QuestarrErrorMessage $_)")
+            }
+        }
     }
-    catch {
-        # A background sync must never interrupt Playnite with a dialog.
-        $__logger.Error("Questarr: auto-sync failed: $(Get-QuestarrErrorMessage $_)")
-        return
-    }
 
-    $__logger.Info(
-        "Questarr: auto-sync matched $($result.Matched), unmatched $($result.Unmatched), promoted $($result.Promoted)")
+    if ($config.SyncPlayStatus) {
+        $statuses = Get-QuestarrPlayStatusPayload
+        if ($statuses.Count -gt 0) {
+            try {
+                $result = Invoke-QuestarrPlayStatusBatches -Config $config -Entries $statuses
+                $__logger.Info(
+                    "Questarr: play status updated $($result.Updated), unchanged $($result.Unchanged), skipped $($result.Skipped), unmatched $($result.Unmatched)")
+            }
+            catch {
+                $__logger.Error("Questarr: play status sync failed: $(Get-QuestarrErrorMessage $_)")
+            }
+        }
+    }
 }
 
 <#

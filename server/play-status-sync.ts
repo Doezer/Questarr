@@ -63,8 +63,27 @@ export function decidePlayStatus(
  * because a sequel is a different game, so only the shorter side may be the full title when the
  * rest is an edition suffix such as "Game of the Year Edition").
  */
-const EDITION_WORDS =
-  /\b(edition|remastered|remaster|definitive|complete|goty|game of the year|deluxe|enhanced|director s cut|gold|ultimate|special|anniversary|collection)\b/;
+const EDITION_WORDS: ReadonlySet<string> = new Set([
+  "edition",
+  "remastered",
+  "remaster",
+  "definitive",
+  "complete",
+  "goty",
+  "deluxe",
+  "enhanced",
+  "director",
+  "cut",
+  "gold",
+  "ultimate",
+  "special",
+  "anniversary",
+  "collection",
+  "hd",
+  "version",
+]);
+/** Words that may sit between edition markers ("Game of the Year", "Director's Cut"). */
+const EDITION_GLUE: ReadonlySet<string> = new Set(["game", "of", "the", "year", "s"]);
 
 export function libraryTitlesAgree(requested: string, matched: string): boolean {
   const a = normalizeTitle(requested);
@@ -73,8 +92,13 @@ export function libraryTitlesAgree(requested: string, matched: string): boolean 
   if (a === b) return true;
   const [short, long] = a.length <= b.length ? [a, b] : [b, a];
   if (!long.startsWith(`${short} `)) return false;
-  // The extra words must be edition markers, not a sequel number or subtitle.
-  return EDITION_WORDS.test(long.slice(short.length + 1));
+  // Every extra word must be an edition marker (or glue between them), and at least one must be
+  // a marker: "Hades II Deluxe Edition" is a sequel and "Hades Of The" is nothing.
+  const extra = long.slice(short.length + 1).split(" ");
+  return (
+    extra.every((w) => EDITION_WORDS.has(w) || EDITION_GLUE.has(w)) &&
+    extra.some((w) => EDITION_WORDS.has(w))
+  );
 }
 
 /** Whole minutes of play time recorded for a game, from its finished sessions. */

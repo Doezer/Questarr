@@ -19,6 +19,11 @@ game from the couch without opening a browser.
   game's Playtime section, its journal and the Statistics page. Off by default:
   switch it on with **Extensions → Questarr → Toggle sending play time to
   Questarr**.
+- **Play status** — sends the completion status you set in Playnite (Playing,
+  On Hold, Beaten...) to Questarr, so the game shows the same status there
+  whatever store it comes from (Steam, GOG, Epic...). Run **Extensions →
+  Questarr → Sync play status to Questarr** whenever you like, or switch on
+  **Toggle sending play status after each library update**. Off by default.
 - **Automatic sync** — optionally re-syncs whenever Playnite finishes updating
   its library, so installing a game on the couch PC shows up in Questarr on its
   own.
@@ -28,7 +33,8 @@ game from the couch without opening a browser.
 - Playnite 10 or newer (script extensions run on Windows PowerShell 5.1).
 - A Questarr server reachable from the Playnite machine, new enough to expose
   the `/api/integration` endpoints (play time needs `POST
-/api/integration/play-sessions`, available from Questarr 1.7).
+/api/integration/play-sessions`, available from Questarr 1.7; play status needs `POST
+/api/integration/play-status`, also from Questarr 1.7).
 
 ## Install
 
@@ -113,6 +119,27 @@ timer has to be started by hand.
   ahead) is dropped. A retry is never counted twice: Questarr
   ignores a session that starts at the same instant as a stored Playnite session of that game.
   Manual and timer sessions are not compared, so do not also record the same play by hand.
+- It needs the **Playnite extension** access, like the library sync.
+
+## Play status
+
+Each game's Playnite completion status is mapped onto Questarr's: _Not Played_,
+_Plan to Play_ and _Played_ become **owned**, _Playing_ becomes **playing**,
+_On Hold_ and _Abandoned_ become **shelved**, _Beaten_ and _Completed_ become
+**completed**. A custom status Questarr does not know is skipped. The game's
+store (Steam, GOG or Epic) is sent along and recorded as where the status came from.
+
+- A game is matched like in a library sync (Steam App ID, then normalized
+  title) and is never created.
+- A status you set yourself in Questarr (playing, shelved or completed) is never
+  overwritten; only a status that an earlier sync wrote can be replaced. Games
+  Questarr is still downloading are left alone too.
+- A game that is only _wanted_ in Questarr stays wanted, unless **promoting
+  installed games to owned** is switched on.
+- Games with no completion status in Playnite are not sent.
+- With the automatic option on, the status is sent after each library update;
+  a failure is only logged in `extensions.log`, never shown as a dialog. The
+  manual command shows a summary instead.
 - It needs the **Playnite extension** access, like the library sync.
 
 ## Troubleshooting

@@ -76,3 +76,8 @@ Indexers shared with Sonarr, Radarr or Prowlarr can be pushed into backoff (HTTP
 - `SEARCH_MAX_CONCURRENT_PER_INDEXER` (1 to 10, default 2) changes the limit of each line.
 - `SEARCH_INDEXER_TIMEOUT_MS` (1000 to 300000, default 30000) changes the timeout of one
   indexer request. Raise it for FlareSolverr-backed indexers.
+- An indexer's own **Request timeout** field (1 to 300 seconds, empty = the default above)
+  overrides that value for this indexer only.
+- An indexer that answers 429 Too Many Requests is not queried again until its `Retry-After`
+  delay has passed (up to 1 hour). Without that header the wait grows with each consecutive 429
+  (30 s, 1 min, 2 min... capped at 15 min). A successful answer ends the wait.

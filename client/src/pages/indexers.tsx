@@ -419,6 +419,7 @@ export default function IndexersPage() {
       rssEnabled: true,
       autoSearchEnabled: true,
       allowInsecureLan: false,
+      timeoutSeconds: null,
     },
   });
 
@@ -476,6 +477,7 @@ export default function IndexersPage() {
       rssEnabled: indexer.rssEnabled,
       autoSearchEnabled: indexer.autoSearchEnabled,
       allowInsecureLan: indexer.allowInsecureLan ?? false,
+      timeoutSeconds: indexer.timeoutSeconds ?? null,
     });
     setIsDialogOpen(true);
     // Fetch available categories from the indexer
@@ -495,6 +497,7 @@ export default function IndexersPage() {
       rssEnabled: true,
       autoSearchEnabled: true,
       allowInsecureLan: false,
+      timeoutSeconds: null,
     });
     setAvailableCategories([]);
     setIsDialogOpen(true);
@@ -834,6 +837,35 @@ export default function IndexersPage() {
                         data-testid="input-indexer-priority"
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="timeoutSeconds"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Request timeout (seconds)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="300"
+                        placeholder="Default (30)"
+                        value={field.value ?? ""}
+                        onChange={(e) => {
+                          const parsed = Number.parseInt(e.target.value, 10);
+                          field.onChange(Number.isFinite(parsed) ? parsed : null);
+                        }}
+                        data-testid="input-indexer-timeout"
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Leave empty to use the default. Raise it for a slow indexer, lower it so a
+                      stuck one does not hold up searches. After a 429 (Too Many Requests) the
+                      indexer is paused automatically, following its Retry-After.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

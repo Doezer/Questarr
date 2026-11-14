@@ -651,6 +651,7 @@ export function startCronJobs() {
 const IMPORT_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const DOWNLOAD_EVENT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const IMPORT_TASK_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const BACKUP_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const LABEL_SHARE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 function registerCronTasks(): void {
@@ -746,6 +747,15 @@ function registerCronTasks(): void {
         "Send newly verified release labels to the collection point, only if you allowed it in Settings.",
       intervalMs: LABEL_SHARE_INTERVAL_MS,
       run: autoShareVerifiedLabels,
+    },
+    {
+      name: "backup",
+      title: "Backup",
+      description:
+        "Create a scheduled backup when the interval in System > Backups has elapsed, and delete old ones.",
+      intervalMs: BACKUP_CHECK_INTERVAL_MS,
+      // Loaded on demand: the backup code pulls in the whole database layer.
+      run: async () => (await import("./backup/backup-service.js")).runScheduledBackup(),
     },
     {
       name: "import-task-cleanup",

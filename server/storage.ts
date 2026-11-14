@@ -1287,6 +1287,7 @@ export class MemStorage implements IStorage {
       rssEnabled: insertIndexer.rssEnabled ?? true,
       autoSearchEnabled: insertIndexer.autoSearchEnabled ?? true,
       allowInsecureLan: insertIndexer.allowInsecureLan ?? false,
+      timeoutSeconds: insertIndexer.timeoutSeconds ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -1364,6 +1365,7 @@ export class MemStorage implements IStorage {
             rssEnabled: idx.rssEnabled ?? true,
             autoSearchEnabled: idx.autoSearchEnabled ?? true,
             allowInsecureLan: idx.allowInsecureLan ?? false,
+            timeoutSeconds: idx.timeoutSeconds ?? null,
             createdAt: new Date(),
             updatedAt: new Date(),
           };

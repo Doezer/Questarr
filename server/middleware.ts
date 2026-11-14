@@ -317,6 +317,11 @@ export const sanitizeIndexerData = [
     .isIn(["torznab", "newznab", "g4u"])
     .withMessage("Invalid protocol"),
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
+  body("timeoutSeconds")
+    .optional({ values: "null" })
+    .isInt({ min: 1, max: 300 })
+    .withMessage("Timeout must be an integer between 1 and 300 seconds")
+    .toInt(),
 ];
 
 // Sanitization rules for partial indexer updates (PATCH)
@@ -345,6 +350,11 @@ export const sanitizeIndexerUpdateData = [
     .trim()
     .isLength({ max: 500 })
     .withMessage("API key must be at most 500 characters"),
+  body("timeoutSeconds")
+    .optional({ values: "null" })
+    .isInt({ min: 1, max: 300 })
+    .withMessage("Timeout must be an integer between 1 and 300 seconds")
+    .toInt(),
   body("protocol")
     .optional()
     .trim()

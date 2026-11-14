@@ -1774,7 +1774,8 @@ describe("API Routes - Extended Coverage", () => {
         expect(response.status).toBe(200);
         expect(newznabClient.search).toHaveBeenCalledWith(
           expect.any(Object),
-          expect.objectContaining({ query: "The.Witcher.3" })
+          expect.objectContaining({ query: "The.Witcher.3" }),
+          expect.anything()
         );
         expect(torznabClient.searchGames).not.toHaveBeenCalled();
       });
@@ -1789,7 +1790,8 @@ describe("API Routes - Extended Coverage", () => {
         expect(response.status).toBe(200);
         expect(newznabClient.search).toHaveBeenCalledWith(
           expect.any(Object),
-          expect.objectContaining({ query: "The Witcher 3" })
+          expect.objectContaining({ query: "The Witcher 3" }),
+          expect.anything()
         );
       });
     });

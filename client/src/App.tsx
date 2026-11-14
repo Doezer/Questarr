@@ -46,6 +46,7 @@ const ImportHistoryPage = lazy(() => import("@/pages/import-history"));
 const ActivityHistoryPage = lazy(() => import("@/pages/activity-history"));
 const ActivityBlocklistPage = lazy(() => import("@/pages/activity-blocklist"));
 const SystemTasksPage = lazy(() => import("@/pages/system-tasks"));
+const SystemBackupsPage = lazy(() => import("@/pages/system-backups"));
 const PlayPage = lazy(() => import("@/pages/play"));
 const GameDetailsPage = lazy(() => import("@/pages/game-details"));
 
@@ -151,6 +152,7 @@ function Router() {
         <Route path={routePaths.activityHistory} component={ActivityHistoryPage} />
         <Route path={routePaths.activityBlocklist} component={ActivityBlocklistPage} />
         <Route path={routePaths.systemTasks} component={SystemTasksPage} />
+        <Route path={routePaths.systemBackups} component={SystemBackupsPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

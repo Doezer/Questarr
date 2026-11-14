@@ -1,3 +1,4 @@
+import { guardedIndexerSearch } from "./search-guard.js";
 import { isSameProwlarrUrl } from "../shared/prowlarr-url.js";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { body, param } from "express-validator";
@@ -39,7 +40,7 @@ import {
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { parseJsonObject } from "../shared/json-object-utils.js";
 import { torznabClient } from "./torznab.js";
-import { newznabClient } from "./newznab.js";
+import { newznabClient, type NewznabResult } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
 import {
@@ -347,6 +348,7 @@ import { importRouter } from "./routes/import.js";
 import { rommRouter } from "./routes/romm.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
+import { backupsRouter } from "./routes/backups.js";
 import { activityRouter } from "./routes/activity.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 import {
@@ -1815,6 +1817,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/imports", importRouter);
   app.use("/api/settings/romm", rommRouter);
   app.use("/api/import-tasks", importTasksRouter);
+  app.use("/api/system/backups", backupsRouter);
   app.use("/api/system", systemRouter);
   app.use("/api/activity", activityRouter);
   // Authenticated by the /api gate above (JWT or integration API key); same
@@ -3909,6 +3912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         rssEnabled,
         autoSearchEnabled,
         allowInsecureLan,
+        timeoutSeconds,
       } = req.body;
 
       if (!url || !apiKey) {
@@ -3936,6 +3940,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Mirror the form's opt-in, or testing a plain-HTTP LAN indexer always
         // fails with 401 because the key is withheld.
         allowInsecureLan: allowInsecureLan === true,
+        timeoutSeconds:
+          Number.isInteger(timeoutSeconds) && timeoutSeconds >= 1 && timeoutSeconds <= 300
+            ? timeoutSeconds
+            : null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -4019,12 +4027,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           offset: parseInt(offset as string) || 0,
         };
 
-        let results;
-        if (isUsenetProtocol(indexer.protocol)) {
-          results = await newznabClient.search(indexer, searchParams);
-        } else {
-          results = await torznabClient.searchGames(indexer, searchParams);
-        }
+        // Through the guard so a 429 from this endpoint starts (and respects) the indexer's cooldown.
+        const results = await guardedIndexerSearch<
+          NewznabResult[] | Awaited<ReturnType<typeof torznabClient.searchGames>>
+        >(
+          indexer.id,
+          JSON.stringify([
+            searchParams.query,
+            searchParams.category,
+            searchParams.limit,
+            searchParams.offset,
+          ]),
+          {},
+          (signal) =>
+            isUsenetProtocol(indexer.protocol)
+              ? newznabClient.search(indexer, searchParams, signal)
+              : torznabClient.searchGames(indexer, searchParams, signal)
+        );
         return res.json(results);
       } catch (error) {
         routesLogger.error({ error }, "error searching specific indexer");

@@ -111,6 +111,36 @@ describe("title-utils", () => {
   });
 
   describe("releaseMatchesGame", () => {
+    it("matches the fallback's title words as whole words, not inside other words", () => {
+      // "1" sat inside "v1.2.0" and "switch" in the [Switch] tag
+      expect(
+        releaseMatchesGame("[Switch] Super Mario Galaxy 2 (v1.2.0) (EU) SuperXCI-MBC", "1-2-Switch")
+      ).toBe(false);
+      // "3" sat inside "039s" (an HTML-escaped apostrophe)
+      expect(
+        releaseMatchesGame(
+          "Luigi 039s-Mansion-2-HD-(v1-0-0-Ryujinx-Suyu-Switch-Emulator-MULTi10)-[FitGirl Repack]",
+          "Luigi's Mansion 3"
+        )
+      ).toBe(false);
+      expect(releaseMatchesGame("1-2-Switch [0100000000010000][v0].nsp", "1-2-Switch")).toBe(true);
+      expect(
+        releaseMatchesGame("[Switch NSP] Luigi's Mansion 3 + Update", "Luigi's Mansion 3")
+      ).toBe(true);
+    });
+
+    it("matches possessives with the apostrophe dropped or spaced", () => {
+      expect(releaseMatchesGame("Luigis.Mansion.3.NSW-VENOM", "Luigi's Mansion 3")).toBe(true);
+      expect(releaseMatchesGame("Luigi s Mansion 3 [NSP]", "Luigi's Mansion 3")).toBe(true);
+    });
+
+    it("matches accented titles against plain-ASCII release names", () => {
+      expect(releaseMatchesGame("[Switch] Pokemon Sword [D86E5AFC]", "Pokémon Sword")).toBe(true);
+      expect(
+        releaseMatchesGame("[Switch NSP] Pokémon: Let's Go, Eevee!", "Pokémon: Let's Go, Eevee!")
+      ).toBe(true);
+    });
+
     it("should match release name against game title", () => {
       expect(releaseMatchesGame("Game.Name.2023.1080p-GROUP", "Game Name")).toBe(true);
       expect(releaseMatchesGame("Stalker.2.Heart.of.Chornobyl-GROUP", "Stalker 2")).toBe(true);

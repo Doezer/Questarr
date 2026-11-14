@@ -232,7 +232,11 @@ export const games = sqliteTable("games", {
   screenshots: text("screenshots", { mode: "json" }).$type<string[]>(),
   // IGDB trailers/gameplay clips: `videoId` is the YouTube video id
   videos: text("videos", { mode: "json" }).$type<Array<{ name: string; videoId: string }>>(),
-  source: text("source").default("manual"), // "manual" | "steam" | "api"
+  source: text("source").default("manual"), // "manual" | "steam" | "api" | "gog" | "epic"
+  // Set only while the current status was written by a library sync (Playnite push), and holds
+  // the platform it came from. Null means the user (or the app itself) set it: such a status is
+  // never overwritten by a sync.
+  statusSyncSource: text("status_sync_source"),
   igdbWebsites: text("igdb_websites", { mode: "json" }).$type<
     Array<{ category: number; url: string }>
   >(),
@@ -603,6 +607,42 @@ export const collectionGames = sqliteTable(
   (t) => [uniqueIndex("collection_games_collection_game_idx").on(t.collectionId, t.gameId)]
 );
 
+export const tags = sqliteTable(
+  "tags",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("tags_user_idx").on(t.userId)]
+);
+
+export const gameTags = sqliteTable(
+  "game_tags",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    tagId: text("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [uniqueIndex("game_tags_game_tag_idx").on(t.gameId, t.tagId)]
+);
+
 export const notifications = sqliteTable("notifications", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
@@ -864,6 +904,26 @@ export const updateCollectionSchema = collectionBaseSchema
 
 export const addCollectionGameSchema = z.object({
   gameId: z.string().trim().min(1),
+});
+
+export const insertTagSchema = createInsertSchema(tags, {
+  name: (schema) => schema.trim().min(1, "Tag name cannot be empty").max(100),
+  color: (schema) => schema.trim().max(20).nullable(),
+}).omit({
+  id: true,
+  userId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const updateTagSchema = insertTagSchema.partial();
+
+export const insertGameTagSchema = createInsertSchema(gameTags, {
+  gameId: (schema) => schema.trim().min(1),
+  tagId: (schema) => schema.trim().min(1),
+}).omit({
+  id: true,
+  addedAt: true,
 });
 
 export const insertGameJournalEntrySchema = createInsertSchema(gameJournalEntries, {
@@ -1222,6 +1282,13 @@ export type InsertCollection = {
   rules: CollectionRules | null;
 };
 export type CollectionGame = typeof collectionGames.$inferSelect;
+
+export type Tag = typeof tags.$inferSelect;
+export type InsertTag = z.infer<typeof insertTagSchema>;
+export type UpdateTag = z.infer<typeof updateTagSchema>;
+
+export type GameTag = typeof gameTags.$inferSelect;
+export type InsertGameTag = z.infer<typeof insertGameTagSchema>;
 export type GamePlaySession = typeof gamePlaySessions.$inferSelect;
 export type InsertGamePlaySession = typeof gamePlaySessions.$inferInsert;
 export type GameJournalEntry = typeof gameJournalEntries.$inferSelect;

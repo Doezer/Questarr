@@ -166,7 +166,8 @@ export const games = pgTable("games", {
   screenshots: jsonb("screenshots").$type<string[]>(),
   gameModes: jsonb("game_modes").$type<string[]>(),
   videos: jsonb("videos").$type<Array<{ name: string; videoId: string }>>(),
-  source: text("source").default("manual"), // "manual" | "steam" | "api"
+  source: text("source").default("manual"), // "manual" | "steam" | "api" | "gog" | "epic"
+  statusSyncSource: text("status_sync_source"),
   igdbWebsites: jsonb("igdb_websites").$type<Array<{ category: number; url: string }>>(),
   expansions: jsonb("expansions").$type<GameExpansion[]>(),
   aggregatedRating: doublePrecision("aggregated_rating"),
@@ -399,6 +400,36 @@ export const collectionGames = pgTable(
     addedAt: timestampMs("added_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
   },
   (t) => [uniqueIndex("collection_games_collection_game_idx").on(t.collectionId, t.gameId)]
+);
+
+export const tags = pgTable(
+  "tags",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color"),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+    updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("tags_user_idx").on(t.userId)]
+);
+
+export const gameTags = pgTable(
+  "game_tags",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    tagId: text("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    addedAt: timestampMs("added_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [uniqueIndex("game_tags_game_tag_idx").on(t.gameId, t.tagId)]
 );
 
 export const gameJournalEntries = pgTable(

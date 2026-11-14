@@ -31,6 +31,7 @@ export function makeGame(overrides: Partial<Game> = {}): Game {
     installedVersion: null,
     installedVersionSource: null,
     upgradePolicy: null,
+    statusSyncSource: null,
     originalReleaseDate: null,
     releaseStatus: null,
     addedAt: null,

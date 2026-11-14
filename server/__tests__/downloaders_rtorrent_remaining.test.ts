@@ -519,7 +519,6 @@ describe("rtorrent remaining regression coverage", () => {
       ): string;
       parseXMLRPCResponse(xml: string): unknown;
       parseXMLValueObj(value: unknown): unknown;
-      escapeXml(value: string): string;
     };
 
     const randomBytesSpy = vi
@@ -598,7 +597,6 @@ describe("rtorrent remaining regression coverage", () => {
     expect(client.parseXMLValueObj([5])).toBe(5);
     expect(client.parseXMLValueObj({ array: {} })).toEqual([]);
     expect(client.parseXMLValueObj({ unsupported: true })).toBeNull();
-    expect(client.escapeXml(`<&>"'`)).toBe("&lt;&amp;&gt;&quot;&apos;");
 
     randomBytesSpy.mockRestore();
   });

@@ -197,13 +197,33 @@ configuration does not delete the directory itself.
   crowded with sequels and mods. **Needs Review** lists up to ten, likeliest first, each
   with its cover and release year.
 - Under **Needs Review**, choose a suggested IGDB game or enter a different
-  name in **Not listed? Search IGDB by name**. Search alone does not import the
+  name in **Not listed? Search IGDB by name**. Search results are ordered by how well the
+  title matches what you typed. Search alone does not import the
   game; clicking a candidate confirms it and adds it to your library.
 - **Ignore** removes a folder from Needs Review for good, for example a Proton build
   next to your games. Later scans skip it before listing its files, unless it is
   already linked to a game. Ignored folders are listed under **Ignored Folders**, where
   **Restore** brings one back and queues a rescan of its root folder. Ignore and
   candidate matching are disabled while the other is in progress.
+
+### Import a game into the library
+
+Games found in an external root folder stay where they are. To bring one into
+your Library Root, choose **Import into library** on **Library Import**, pick
+**Copy**, **Move** or **Hardlink**, and confirm. Questarr names the folder with
+your [naming pattern](#naming-pattern), transfers the files, then points the game
+at the new location. **Copy** is the safest option and keeps the originals.
+**Move** renames the files on the same disk; across disks it copies them, checks
+the copy, then tries to remove the originals. A leftover original is logged as
+a warning and does not fail the import. **Hardlink** copies when the source is on
+another disk. The preview warns when the destination lacks free space.
+
+### Automatic rescan
+
+**Auto rescan** on **Library Import** rescans all enabled root folders every
+hour, 6 hours, 12 hours, day or week. It is off by default. A rescan only looks up
+new or unresolved folders on IGDB. The task is listed as **Library rescan** under
+**Activity → System Tasks**, with its last and next run.
 
 If a folder is inaccessible, check the mount and the service user's permissions,
 then use its health-recheck button. If IGDB search fails, the folder stays in

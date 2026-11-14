@@ -4,14 +4,56 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.0] - Unreleased
+
 ### Added
 
+- **Owned Steam library import**: from **Settings → Integrations**, preview your public Steam library and import the games you select (all untracked games are selected by default, thousands at a time) as **Owned**. The import runs on the server with saved progress, survives restarts and can be retried for the games that failed. Existing games keep their status, ratings and files. See [Steam library import](STEAM_LIBRARY.md) (#1273).
+- **Personal screenshots**: upload your own JPEG, PNG or WebP images (up to 8 MB) to a saved game from **Media → Your screenshots**, next to the trailers and IGDB artwork. Existing journal images appear there too. See [Personal screenshots](PERSONAL_SCREENSHOTS.md) (#1296, requested in #1287).
+- **Game modes**: IGDB game modes (single player, multiplayer, co-op...) are stored, shown on the game details and available as a **Game mode** rule for smart collections (#1295).
+- **Import into library**: a game found in an external root folder can be copied, moved or hardlinked into your library root with the configured naming pattern from **Library → Library Import**. Questarr then points the game at its new files (#1310, Questarr-mgmt#49). See [Library import](LIBRARY_IMPORT.md#discover-games-already-on-disk).
+- **Automatic root folder rescan**: a new **Auto rescan** setting in **Library Import** rescans your root folders every hour, 6 hours, 12 hours, day or week (off by default). A rescan only looks up new or unresolved folders on IGDB. It is listed as **Library rescan** under **System Tasks** (#1308).
+- **Search fallback**: when the full game title finds nothing, the search retries with simpler titles (without a possessive publisher prefix, edition words, punctuation or subtitle) and tells you which one it used. Sequels are still refused. Releases whose protocol none of your download clients supports (Usenet with only torrent clients, or the opposite) are flagged and cannot be downloaded (#1312).
+- **Persistent classification cache**: release verdicts are now kept in the database as well as in memory (7 days, 20,000 rows, pruned hourly), for every classification mode and for the historical Jev check, so a restart or a Docker update no longer repeats paid cloud calls. A new model, provider endpoint or model, mode, confidence bar or pipeline version never reuses an older verdict, a failing layer's answer is never stored, and **Settings → Release classification → Clear classification cache** empties it (Questarr-mgmt#59, #1311).
+- **Indexer protection**: searches no longer hammer indexers shared with Sonarr, Radarr or Prowlarr. A search the browser abandoned stops its indexer requests, identical simultaneous searches share one request, and each indexer serves 2 searches at once per line (`SEARCH_MAX_CONCURRENT_PER_INDEXER`); interactive searches and auto-search have separate lines, so an indexer can receive up to 2 of each at the same time. `SEARCH_INDEXER_TIMEOUT_MS` sets the timeout of one indexer request, and each indexer can carry its own **Request timeout** (1 to 300 seconds) in its settings. An indexer that answers 429 is left alone for its `Retry-After`, or for a growing delay (30 s, 1 min, 2 min... up to 15 min) when it gives none, and its search errors say so instead of querying it again. See [Indexers](INDEXERS.md#protect-shared-indexers) (#1315, #1337, Questarr-mgmt#61).
 - **Backup and restore**: the new **Backups** page (under Activity) saves the database, `config.yaml` and optionally the journal screenshots to a checksummed `.zip` in `data/backups`, on SQLite and on Postgres. A scheduled backup runs every 7 days (kept 28 days; both settable), a manual one on demand; backups can be downloaded and restored from a saved backup or an uploaded file. A restore checks the archive, refuses a backup from a newer Questarr or the other database engine, saves a "Before restore" copy and applies at the next start. See [Backups](BACKUPS.md) (Questarr-mgmt#5).
 - **Play time**: start and stop a timer on a playing game or add a session by hand; sessions appear in the game's Playtime section and journal, and the Statistics page shows hours per week and month, most played games, genres, platforms and streaks. Days follow your time zone with daylight saving time applied per session (#1318, #1320, Questarr-mgmt#71, Questarr-mgmt#84). See [Play time](PLAY_TIME.md).
 - **Playnite play time**: the Playnite extension (1.1.0) can send each finished session to the new `POST /api/integration/play-sessions` route. The end is the moment the game closed and the start is derived from the duration Playnite reports, so a session near midnight can land on the neighbouring day. Off by default; sessions that fail for a retryable reason (server unreachable, rate limit, server error) wait in a bounded local queue of 200 entries, and rejected ones are dropped (Questarr-mgmt#83).
-- **Steam play time**: **Settings → Steam → Steam play time** records the time you play on Steam. Each sync (every 6 hours or **Sync now**) adds the growth of a game's Steam total as one estimated session, labelled "Steam · estimated". The first sync only notes your current totals, minutes already recorded by hand, with the timer or from Playnite are subtracted, and estimated sessions stay out of the longest session and the streaks. Off by default (Questarr-mgmt#82). See [Play time](PLAY_TIME.md#steam-play-time).
+- **Steam play time**: **Settings → Steam → Steam play time** records the time you play on Steam. Each sync (every 6 hours or **Sync now**) adds the growth of a game's Steam total as one estimated session, labelled "Steam · estimated". The first sync only notes your current totals, minutes already recorded by hand, with the timer or from Playnite are subtracted, and estimated sessions stay out of the longest session and the streaks. Off by default (#1325, Questarr-mgmt#82). See [Play time](PLAY_TIME.md#steam-play-time).
 - **Steam Web API key in Settings**: the key for the library import, the play-time sync and the achievements can now be saved in **Settings → Steam** instead of only through `STEAM_API_KEY`. It is stored encrypted, never shown again, and overrides the environment variable until you remove it.
-- **Persistent classification cache**: release verdicts are now kept in the database as well as in memory (7 days, 20,000 rows, pruned hourly), for every classification mode and for the historical Jev check, so a restart or a Docker update no longer repeats paid cloud calls. A new model, provider endpoint or model, mode, confidence bar or pipeline version never reuses an older verdict, a failing layer's answer is never stored, and **Settings → Release classification → Clear classification cache** empties it (Questarr-mgmt#59).
+- **Needs Review covers and folder tags**: each Needs Review candidate shows its IGDB cover and release year, and the scan asks IGDB for ten candidates per folder. A year in the folder name (`Celeste (2018)`) now only breaks ties, and `{igdb-1234}` or `{steam-620}` in a folder name selects the game exactly. See [Library import](LIBRARY_IMPORT.md) (#1317).
+
+### Fixed
+
+- **xREL checks**: a malformed xREL response is treated as unavailable, never as an empty result (#1305). A release missing from a full, truncated xREL list is reported as unknown instead of not found (#1309). xREL results are kept across long auto-search intervals and large wanted lists (#1307). The trust badge says that p2p releases cannot be checked for nukes (#1306).
+- **Large archive imports**: archive listings are streamed, so valid archives with a long file list no longer fail on a size limit (#1300, thanks @JEFF7712).
+- **Path checks**: the sensitive-path guard also rejects Windows system paths, the `ADMIN$` share and the macOS `/private/etc` alias, and SeerrNG assets are validated against your real library roots (#1304).
+- **Needs Review manual search**: the results of **Not listed? Search IGDB by name** are ordered by how well the title matches what you typed. A bracketed year or an id tag is ignored when scoring, and a trailing word such as "-Men" is no longer taken for a release group (#1335).
+- **Play time refresh**: open pages update after a scheduled Steam sync or a Playnite push, without a reload. The Statistics, the Steam sync status and the game's sessions refresh, including after the browser reconnects (#1336).
+- **Linked finished downloads**: linking an already finished download (**Downloads → Scan unlinked**, or a single claim) now starts the import when post-processing is on, instead of leaving it completed with nothing in the library folder (#1324).
+- **Screen reader labels on game cards**: the rating and release date controls on game cards now name the game they belong to, for example "My rating for Hades: 6.5/10" (#1331).
+- **Apprise destinations**: the Apprise API URL and each notification URL are checked before they are saved and again before each send. Local network addresses still work; cloud metadata and other blocked addresses are refused with an "Invalid or unsafe" error, and an unsafe notification URL already saved is skipped with a warning (#1314).
+
+### Vulnerabilities Addressed
+
+Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.dev (`v1.6.0` → `main`). The other 119 bumped packages matched no patched advisory.
+
+#### Production dependencies
+
+- **node-forge** 1.4.1 → 1.4.3 — fixes 4 advisories:
+  - **CVE-2026-125333** (MODERATE, CWE-1333) — ReDoS in `forge.http` response header and cookie trimming
+  - **CVE-2026-125334** (MODERATE, CWE-476) — TLS client crash on a handshake record received without a session
+  - **CVE-2026-125332** (MODERATE, CWE-20 and CWE-248) — TLS client crash on an unsupported ServerHello compression method
+  - **CVE-2026-125335** (LOW, CWE-347) — Ed25519 signature verification accepts small-order public keys
+- **fast-xml-parser** 5.11.2 → 5.12.0 — fixes **CVE-2026-126066** (LOW, CWE-407): quadratic CPU consumption scanning unterminated stop-node tags
+
+#### First-party fixes
+
+- **Apprise destinations (CWE-918, server-side request forgery; no CVE assigned)**: the Apprise API URL and the notification URLs are validated before they are saved and before each send, so a crafted URL can no longer make Questarr call cloud metadata or other blocked addresses (#1314).
+
+### Dependencies
+
+- Dependency updates: #1297, #1298, #1299, #1313, #1319, #1321, #1328, #1329, #1330, #1327, #1332, #1333, #1334.
 
 ## [1.6.0] - 2026-10-31
 

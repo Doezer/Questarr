@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { computePlayStats, sessionMinutes, type PlaySessionInput } from "../play-stats.js";
+import {
+  computePlayStats,
+  isValidTimeZone,
+  sessionMinutes,
+  type PlaySessionInput,
+} from "../play-stats.js";
 
 const at = (iso: string) => new Date(iso);
 const session = (gameId: string, start: string, minutes: number): PlaySessionInput => ({
@@ -100,6 +105,51 @@ describe("computePlayStats", () => {
     expect(stats.perWeek.at(-1)).toEqual({ start: "2026-11-02", minutes: 60 });
   });
 
+  it("applies daylight saving time per session with an IANA zone", () => {
+    // 00:30 in Paris on 20 July (UTC+2) and on 20 January (UTC+1), both near midnight.
+    const summer = session("a", "2026-07-19T22:30:00Z", 30);
+    const winter = session("a", "2026-01-19T23:30:00Z", 30);
+    const now = at("2026-07-25T12:00:00Z");
+    const paris = computePlayStats([summer, winter], games, now, "Europe/Paris");
+    // Both sessions started on the 20th local, so they fall in the weeks of Monday 20 Jul / 19 Jan.
+    expect(paris.perWeek.at(-1)).toEqual({ start: "2026-07-20", minutes: 30 });
+    expect(paris.perMonth.find((m) => m.start === "2026-01-01")?.minutes).toBe(30);
+    // A fixed winter offset (-60) would push the summer session back to the 19th.
+    const fixed = computePlayStats([summer], games, now, -60);
+    expect(fixed.perWeek.at(-1)).toEqual({ start: "2026-07-20", minutes: 0 });
+    expect(fixed.perWeek.at(-2)).toEqual({ start: "2026-07-13", minutes: 30 });
+    // Zones without DST keep a constant offset.
+    const tokyo = computePlayStats([summer], games, now, "Asia/Tokyo");
+    expect(tokyo.perWeek.at(-1)).toEqual({ start: "2026-07-20", minutes: 30 });
+  });
+
+  it("keeps a streak across the daylight saving change", () => {
+    // Paris moved to winter time on 25 October 2026: three evenings in a row around it.
+    const days = ["2026-10-24T21:30:00Z", "2026-10-25T21:30:00Z", "2026-10-26T21:30:00Z"];
+    const stats = computePlayStats(
+      days.map((d) => session("a", d, 30)),
+      games,
+      at("2026-10-27T10:00:00Z"),
+      "Europe/Paris"
+    );
+    expect(stats.longestStreakDays).toBe(3);
+    expect(stats.currentStreakDays).toBe(3);
+  });
+
+  it("falls back to the numeric offset when the zone name is unknown", () => {
+    const s = session("a", "2026-11-04T23:30:00Z", 30);
+    const byName = computePlayStats([s], games, NOW, "Not/AZone");
+    const byOffset = computePlayStats([s], games, NOW, 0);
+    expect(byName.perWeek).toEqual(byOffset.perWeek);
+  });
+
+  it("validates IANA zone names", () => {
+    expect(isValidTimeZone("Europe/Paris")).toBe(true);
+    expect(isValidTimeZone("America/New_York")).toBe(true);
+    expect(isValidTimeZone("Not/AZone")).toBe(false);
+    expect(isValidTimeZone("")).toBe(false);
+  });
+
   it("counts a streak ending today or yesterday, and the best streak", () => {
     const stats = computePlayStats(
       [
@@ -121,5 +171,31 @@ describe("computePlayStats", () => {
     expect(yesterday.currentStreakDays).toBe(1);
     const lapsed = computePlayStats([session("a", "2026-11-02T09:00:00Z", 10)], games, NOW);
     expect(lapsed.currentStreakDays).toBe(0);
+  });
+});
+
+describe("computePlayStats with estimated Steam sessions", () => {
+  it("counts their minutes but keeps them out of the longest session and the streaks", () => {
+    const estimated = { ...session("a", "2026-11-04T08:00:00Z", 600), source: "steam" };
+    const real = { ...session("b", "2026-11-02T20:00:00Z", 45), source: "manual" };
+    const stats = computePlayStats([estimated, real], games, NOW);
+    expect(stats.totalMinutes).toBe(645);
+    expect(stats.longestSession).toMatchObject({ gameId: "b", minutes: 45 });
+    // Only the manual day counts: Nov 2 is neither today nor yesterday, so the run is over.
+    expect(stats.currentStreakDays).toBe(0);
+    expect(stats.longestStreakDays).toBe(1);
+    expect(stats.topGames[0]).toMatchObject({ gameId: "a", minutes: 600 });
+    expect(stats.perWeek.at(-1)?.minutes).toBe(645);
+  });
+
+  it("has no longest session when every session is estimated", () => {
+    const stats = computePlayStats(
+      [{ ...session("a", "2026-11-04T08:00:00Z", 90), source: "steam" }],
+      games,
+      NOW
+    );
+    expect(stats.totalMinutes).toBe(90);
+    expect(stats.longestSession).toBeNull();
+    expect(stats.longestStreakDays).toBe(0);
   });
 });

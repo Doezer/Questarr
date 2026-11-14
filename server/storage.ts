@@ -1081,7 +1081,7 @@ export class MemStorage implements IStorage {
       id,
       name: patch.name ?? existing.name,
       color: patch.color ?? existing.color,
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
     this.tags.set(id, updated);
     return updated;
@@ -1114,13 +1114,11 @@ export class MemStorage implements IStorage {
   }
 
   async getTagsByIds(tagIds: string[]): Promise<Tag[]> {
-    return Array.from(this.tags.values())
-      .filter((tag) => tagIds.includes(tag.id));
+    return Array.from(this.tags.values()).filter((tag) => tagIds.includes(tag.id));
   }
 
   async getGamesByIds(gameIds: string[]): Promise<Game[]> {
-    return Array.from(this.games.values())
-      .filter((game) => gameIds.includes(game.id));
+    return Array.from(this.games.values()).filter((game) => gameIds.includes(game.id));
   }
 
   async addTagToGame(gameTag: InsertGameTag): Promise<GameTag> {
@@ -1412,6 +1410,7 @@ export class MemStorage implements IStorage {
       rssEnabled: insertIndexer.rssEnabled ?? true,
       autoSearchEnabled: insertIndexer.autoSearchEnabled ?? true,
       allowInsecureLan: insertIndexer.allowInsecureLan ?? false,
+      timeoutSeconds: insertIndexer.timeoutSeconds ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -1489,6 +1488,7 @@ export class MemStorage implements IStorage {
             rssEnabled: idx.rssEnabled ?? true,
             autoSearchEnabled: idx.autoSearchEnabled ?? true,
             allowInsecureLan: idx.allowInsecureLan ?? false,
+            timeoutSeconds: idx.timeoutSeconds ?? null,
             createdAt: new Date(),
             updatedAt: new Date(),
           };
@@ -3292,11 +3292,7 @@ export class DatabaseStorage implements IStorage {
 
   // Tag methods (DatabaseStorage implementation)
   async getTags(userId: string): Promise<Tag[]> {
-    return db
-      .select()
-      .from(tags)
-      .where(eq(tags.userId, userId))
-      .orderBy(asc(tags.name));
+    return db.select().from(tags).where(eq(tags.userId, userId)).orderBy(asc(tags.name));
   }
 
   async getTag(id: string, userId: string): Promise<Tag | undefined> {
@@ -3335,11 +3331,17 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTag(id: string, userId: string): Promise<boolean> {
     // First, delete all game_tags that reference this tag
-    await db
-      .delete(gameTags)
-      .where(and(eq(gameTags.tagId, id), exists(
-        db.select().from(tags).where(and(eq(tags.id, id), eq(tags.userId, userId)))
-      )));
+    await db.delete(gameTags).where(
+      and(
+        eq(gameTags.tagId, id),
+        exists(
+          db
+            .select()
+            .from(tags)
+            .where(and(eq(tags.id, id), eq(tags.userId, userId)))
+        )
+      )
+    );
 
     const result = await db
       .delete(tags)
@@ -3349,37 +3351,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getGameTags(gameId: string): Promise<GameTag[]> {
-    return db
-      .select()
-      .from(gameTags)
-      .where(eq(gameTags.gameId, gameId));
+    return db.select().from(gameTags).where(eq(gameTags.gameId, gameId));
   }
 
   async getGamesByTag(tagId: string, userId: string): Promise<string[]> {
     const result = await db
       .select({ gameId: gameTags.gameId })
       .from(gameTags)
-      .where(and(
-        eq(gameTags.tagId, tagId),
-        exists(
-          db.select().from(tags).where(and(eq(tags.id, tagId), eq(tags.userId, userId)))
+      .where(
+        and(
+          eq(gameTags.tagId, tagId),
+          exists(
+            db
+              .select()
+              .from(tags)
+              .where(and(eq(tags.id, tagId), eq(tags.userId, userId)))
+          )
         )
-      ));
+      );
     return result.map((row) => row.gameId);
   }
 
   async getTagsByIds(tagIds: string[]): Promise<Tag[]> {
-    return db
-      .select()
-      .from(tags)
-      .where(inArray(tags.id, tagIds));
+    return db.select().from(tags).where(inArray(tags.id, tagIds));
   }
 
   async getGamesByIds(gameIds: string[]): Promise<Game[]> {
-    return db
-      .select()
-      .from(games)
-      .where(inArray(games.id, gameIds));
+    return db.select().from(games).where(inArray(games.id, gameIds));
   }
 
   async addTagToGame(gameTag: InsertGameTag): Promise<GameTag> {

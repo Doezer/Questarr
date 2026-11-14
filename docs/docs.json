@@ -30,7 +30,7 @@
           },
           {
             "group": "Deployment",
-            "pages": ["HOME_SERVER_APPS", "PROXMOX", "REVERSE_PROXY", "DATABASE"]
+            "pages": ["HOME_SERVER_APPS", "PROXMOX", "REVERSE_PROXY", "DATABASE", "BACKUPS"]
           },
           {
             "group": "Security & credentials",

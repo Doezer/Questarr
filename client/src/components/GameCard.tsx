@@ -256,7 +256,7 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 role="img"
-                aria-label={`IGDB rating: ${game.rating ? game.rating + " out of 10" : "Not rated"}`}
+                aria-label={`IGDB rating for ${game.title}: ${game.rating ? game.rating + " out of 10" : "Not rated"}`}
               >
                 <Star className="w-3 h-3 text-accent" aria-hidden="true" />
                 <span data-testid={`text-rating-${game.id}`}>
@@ -274,7 +274,7 @@ const GameCard = ({
                 <div
                   className="flex items-center gap-1"
                   role="img"
-                  aria-label={`My rating: ${game.userRating} out of 10`}
+                  aria-label={`My rating for ${game.title}: ${game.userRating} out of 10`}
                 >
                   <Star className="w-3 h-3 fill-primary text-primary" aria-hidden="true" />
                   <span data-testid={`text-user-rating-${game.id}`}>{game.userRating}/10</span>
@@ -290,7 +290,7 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 role="img"
-                aria-label={`Release Date: ${releaseYear}`}
+                aria-label={`Release Date for ${game.title}: ${releaseYear}`}
               >
                 <Calendar className="w-3 h-3" aria-hidden="true" />
                 <span data-testid={`text-release-${game.id}`}>{releaseYear}</span>

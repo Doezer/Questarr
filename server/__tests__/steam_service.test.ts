@@ -11,6 +11,37 @@ describe("steamService", () => {
     vi.clearAllMocks();
   });
 
+  describe("getOwnedPlaytimes", () => {
+    const id = "76561198000000000";
+    it("maps each app to its cumulative minutes and reads 0 when Steam omits them", async () => {
+      vi.mocked(safeFetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          response: {
+            game_count: 2,
+            games: [
+              { appid: 10, name: "First", playtime_forever: 125 },
+              { appid: 20, name: "Second" },
+            ],
+          },
+        }),
+      } as Response);
+      expect(await steamService.getOwnedPlaytimes("test-key", id)).toEqual(
+        new Map([
+          [10, 125],
+          [20, 0],
+        ])
+      );
+    });
+
+    it("rejects an invalid Steam ID before any request", async () => {
+      await expect(steamService.getOwnedPlaytimes("test-key", "bad")).rejects.toThrow(
+        "Invalid Steam ID"
+      );
+      expect(safeFetch).not.toHaveBeenCalled();
+    });
+  });
+
   describe("getOwnedGames", () => {
     const id = "76561198000000000";
     it("uses HTTPS through safeFetch and returns deduplicated app IDs and titles", async () => {

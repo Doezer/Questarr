@@ -25,7 +25,7 @@ the latest job, with its ten most recent results.
 Only one import per account can run at a time. A single job accepts up to 20,000
 games, matching the preview's existing Steam response bound.
 
-Requirements: `STEAM_API_KEY` configured on the server, configured IGDB, a linked
+Requirements: a Steam Web API key (saved in **Settings → Steam** or set as `STEAM_API_KEY`), configured IGDB, a linked
 Steam ID, and Steam **Privacy Settings → Game details → Public**. The API key
 never goes to the browser. Preview uses Steam's official GetOwnedGames endpoint,
 not an indexer or a title scraper. Played free-to-play games are included by

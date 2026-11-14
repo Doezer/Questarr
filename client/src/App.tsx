@@ -10,6 +10,7 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 import { getPageTitle } from "@/components/navigation-items";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
 import { useGameUpdatedSocket } from "@/hooks/use-game-updated-socket";
+import { usePlaySessionsSocket } from "@/hooks/use-play-sessions-socket";
 import { AuthProvider } from "@/lib/auth";
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef } from "react";
 import LoadingFallback from "@/components/LoadingFallback";
@@ -45,6 +46,7 @@ const ImportHistoryPage = lazy(() => import("@/pages/import-history"));
 const ActivityHistoryPage = lazy(() => import("@/pages/activity-history"));
 const ActivityBlocklistPage = lazy(() => import("@/pages/activity-blocklist"));
 const SystemTasksPage = lazy(() => import("@/pages/system-tasks"));
+const SystemBackupsPage = lazy(() => import("@/pages/system-backups"));
 const PlayPage = lazy(() => import("@/pages/play"));
 const GameDetailsPage = lazy(() => import("@/pages/game-details"));
 
@@ -150,6 +152,7 @@ function Router() {
         <Route path={routePaths.activityHistory} component={ActivityHistoryPage} />
         <Route path={routePaths.activityBlocklist} component={ActivityBlocklistPage} />
         <Route path={routePaths.systemTasks} component={SystemTasksPage} />
+        <Route path={routePaths.systemBackups} component={SystemBackupsPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -160,6 +163,7 @@ function AppContent() {
   // Enable background notifications for downloads
   useBackgroundNotifications();
   useGameUpdatedSocket();
+  usePlaySessionsSocket();
 
   return <Router />;
 }

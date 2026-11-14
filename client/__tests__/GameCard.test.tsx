@@ -119,14 +119,14 @@ describe("GameCard", () => {
   it("displays a rating of 0 as 'N/A' since 0 is unrated", () => {
     renderComponent({ game: { ...mockGame, rating: 0 } });
     expect(screen.getByTestId("text-rating-1")).toHaveTextContent("N/A");
-    const ratingGroup = screen.getByRole("img", { name: /Rating: Not rated/i });
+    const ratingGroup = screen.getByRole("img", { name: /IGDB rating for Test Game: Not rated/i });
     expect(ratingGroup).toBeInTheDocument();
   });
 
   it("shows 'N/A' and 'Not rated' aria-label when rating is null", () => {
     renderComponent({ game: { ...mockGame, rating: null } });
     expect(screen.getByTestId("text-rating-1")).toHaveTextContent("N/A");
-    const ratingGroup = screen.getByRole("img", { name: /Rating: Not rated/i });
+    const ratingGroup = screen.getByRole("img", { name: /IGDB rating for Test Game: Not rated/i });
     expect(ratingGroup).toBeInTheDocument();
   });
 

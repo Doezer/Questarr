@@ -10,6 +10,8 @@ const ownedGamesResponse = z.object({
         z.object({
           appid: z.number().int().positive(),
           name: z.string().min(1).max(500),
+          // Cumulative minutes played; absent for games Steam has no playtime for.
+          playtime_forever: z.number().int().nonnegative().optional(),
         })
       )
       .max(20_000)
@@ -155,6 +157,21 @@ async function fetchGlobalAchievementPercentages(appId: number): Promise<Map<str
 export const steamService = {
   /** Read the linked account's public owned library through the official Web API. */
   async getOwnedGames(apiKey: string, steamId: string): Promise<SteamOwnedGame[]> {
+    const games = await this.fetchOwnedGames(apiKey, steamId);
+    return Array.from(
+      new Map(
+        games.map((game) => [game.appid, { steamAppId: game.appid, title: game.name }])
+      ).values()
+    );
+  },
+
+  /** Cumulative minutes played per app (`playtime_forever`); games without playtime read 0. */
+  async getOwnedPlaytimes(apiKey: string, steamId: string): Promise<Map<number, number>> {
+    const games = await this.fetchOwnedGames(apiKey, steamId);
+    return new Map(games.map((game) => [game.appid, game.playtime_forever ?? 0]));
+  },
+
+  async fetchOwnedGames(apiKey: string, steamId: string) {
     if (!this.validateSteamId(steamId)) throw new Error("Invalid Steam ID format");
     const params = new URLSearchParams({
       key: apiKey,
@@ -177,14 +194,7 @@ export const steamService = {
     if (!parsed.success || (parsed.data.response.game_count > 0 && !parsed.data.response.games)) {
       throw new Error("Steam library unavailable. Check the API key and make Game details public.");
     }
-    return Array.from(
-      new Map(
-        (parsed.data.response.games ?? []).map((game) => [
-          game.appid,
-          { steamAppId: game.appid, title: game.name },
-        ])
-      ).values()
-    );
+    return parsed.data.response.games ?? [];
   },
   validateSteamId(id: string): boolean {
     return /^7656\d{13}$/.test(id);

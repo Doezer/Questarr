@@ -37,7 +37,9 @@ steamLibraryRoutes.get(
 steamLibraryRoutes.use("/api/steam/library", authenticateToken, (req, res, next) => {
   res.set("Cache-Control", "no-store");
   if (!config.steam.isConfigured) {
-    return res.status(400).json({ error: "Configure STEAM_API_KEY on the server first." });
+    return res.status(400).json({
+      error: "Add a Steam Web API key in Settings → Integrations (or set STEAM_API_KEY) first.",
+    });
   }
   if (!(req.user as User).steamId64) {
     return res.status(400).json({ error: "Save your Steam ID in Settings first." });
@@ -95,7 +97,7 @@ steamLibraryRoutes.get("/api/steam/library", async (req, res) => {
   } catch {
     return res.status(502).json({
       error:
-        "Could not read your Steam library. Check STEAM_API_KEY and public Game details, then retry.",
+        "Could not read your Steam library. Check the Steam Web API key and public Game details, then retry.",
     });
   }
 });

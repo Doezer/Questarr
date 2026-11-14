@@ -316,7 +316,7 @@ describe("CompactGameCard remaining coverage", () => {
     const onViewDetails = vi.fn();
     renderCard(<CompactGameCard game={baseGame} onViewDetails={onViewDetails} />);
 
-    const ratingButton = screen.getByLabelText("My rating: 6.5/10. Click to change.");
+    const ratingButton = screen.getByLabelText("My rating for Questarr Game: 6.5/10. Click to change.");
     fireEvent.click(ratingButton);
     expect(screen.getByText((_, element) => element?.textContent === "6.5/10")).toBeInTheDocument();
     expect(onViewDetails).not.toHaveBeenCalled();

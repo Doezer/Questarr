@@ -10,6 +10,8 @@ import { torznabLogger } from "./logger.js";
 import { isPrivateNetworkAddress, isSafeUrl, safeFetch } from "./ssrf.js";
 import {
   getIndexerTimeoutMs,
+  IndexerRateLimitedError,
+  parseRetryAfter,
   guardedIndexerSearch,
   type SearchGuardOptions,
 } from "./search-guard.js";
@@ -136,10 +138,17 @@ export class TorznabClient {
         headers: {
           "User-Agent": "Questarr/1.0",
         },
-        timeoutMs: getIndexerTimeoutMs(),
+        timeoutMs: getIndexerTimeoutMs(indexer),
         ...(signal ? { signal } : {}),
         requireHttps,
       });
+
+      if (response.status === 429) {
+        throw new IndexerRateLimitedError(
+          "HTTP 429: Too Many Requests",
+          parseRetryAfter(response.headers.get("Retry-After"))
+        );
+      }
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "No error details available");

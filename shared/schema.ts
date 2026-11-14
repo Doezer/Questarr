@@ -282,6 +282,9 @@ export const indexers = sqliteTable("indexers", {
   // does not support TLS). When this flag is false and the indexer URL uses
   // HTTP, API keys are omitted from every outbound request.
   allowInsecureLan: integer("allow_insecure_lan", { mode: "boolean" }).notNull().default(false),
+  // Per-indexer request timeout in seconds. Null = use the global default
+  // (SEARCH_INDEXER_TIMEOUT_MS, 30 s).
+  timeoutSeconds: integer("timeout_seconds"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -466,8 +469,8 @@ export const gameJournalEntries = sqliteTable(
 );
 
 // Play sessions: time the user spent in a game. A session with no `endedAt` is a running
-// timer (at most one per user). Sources: "manual" (entered by hand), "timer" (start/stop)
-// and "steam" (reserved for playtime deltas between syncs).
+// timer (at most one per user). Sources: "manual" (entered by hand), "timer" (start/stop),
+// "steam" (reserved for playtime deltas between syncs) and "playnite" (Playnite extension).
 export const gamePlaySessions = sqliteTable(
   "game_play_sessions",
   {
@@ -480,7 +483,7 @@ export const gamePlaySessions = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
     endedAt: integer("ended_at", { mode: "timestamp_ms" }),
-    source: text("source").notNull().default("manual"), // "manual" | "timer" | "steam"
+    source: text("source").notNull().default("manual"), // "manual" | "timer" | "steam" | "playnite"
     createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
       sql`(strftime('%s', 'now') * 1000)`
     ),
@@ -916,6 +919,7 @@ export const insertIndexerSchema = createInsertSchema(indexers, {
   name: (schema) => schema.trim().min(1, "Name is required"),
   url: (schema) => schema.trim().min(1, "URL is required"),
   apiKey: (schema) => schema.trim().min(1, "API key is required"),
+  timeoutSeconds: (schema) => schema.int().min(1).max(300),
 }).omit({
   id: true,
   createdAt: true,

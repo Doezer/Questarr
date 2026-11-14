@@ -1,5 +1,7 @@
 // Force restart trigger
 import "dotenv/config";
+// Applies a staged SQLite restore; must run before anything opens the database.
+import "./backup/boot.js";
 import https from "https";
 import type { RequestListener } from "node:http";
 import fs from "fs";
@@ -14,9 +16,11 @@ import { resumeSteamLibraryImports } from "./steam-library-jobs.js";
 import { setupSocketIO } from "./socket.js";
 import { createHttpsRedirect } from "./https-redirect.js";
 import { ensureDatabase } from "./migrate.js";
+import { applyPendingPostgresRestore } from "./backup/restore.js";
 import { loadClassificationSettingsWithRetry } from "./classification/settings.js";
 import { rssService } from "./rss.js";
 import { nexusmodsClient } from "./nexusmods.js";
+import { loadSteamApiKey } from "./steam-api-key.js";
 import { appriseClient, readAppriseSettings } from "./apprise.js";
 import { storage } from "./storage.js";
 import { platformMappingService } from "./services/index.js";
@@ -58,6 +62,7 @@ void (async () => {
   try {
     // Ensure database is ready before starting server
     await ensureDatabase();
+    await applyPendingPostgresRestore();
 
     // Seed default platform mappings (must run after migrations create the table)
     try {
@@ -91,6 +96,13 @@ void (async () => {
     if (dbNexusKey && dbNexusKey.length > 0) {
       nexusmodsClient.configure(dbNexusKey);
       log("NexusMods API key loaded from database");
+    }
+
+    // Steam Web API key saved in Settings (the environment variable is the fallback)
+    try {
+      await loadSteamApiKey();
+    } catch (err) {
+      log("Failed to load the saved Steam API key: " + String(err));
     }
 
     // Initialize Apprise client from DB config

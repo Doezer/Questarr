@@ -818,6 +818,11 @@ function Get-QuestarrPlayStatusPayload {
         if ($null -eq $game.CompletionStatus) { continue }
         $statusName = [string]$game.CompletionStatus.Name
         if ([string]::IsNullOrWhiteSpace($statusName)) { continue }
+        # Questarr rejects a whole batch if one entry is over these limits, so leave such games out.
+        if ($statusName.Length -gt 100 -or $game.Name.Length -gt 500) {
+            $__logger.Warn("Questarr: '$($game.Name)' skipped from the play status sync (title or status name too long)")
+            continue
+        }
 
         $entry = @{
             title      = $game.Name

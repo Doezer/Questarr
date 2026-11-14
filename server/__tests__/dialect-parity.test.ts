@@ -226,6 +226,42 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect((await storage().getGame(game.id))?.installedVersion).toBe("v1.1");
     });
 
+    it("a synced status never overwrites one set by hand, but replaces an earlier synced one", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      const sync = { syncSource: "gog" };
+
+      // Owned game: the sync applies and is recorded.
+      await storage().updateGameStatus(game.id, { status: "owned" });
+      const synced = await storage().updateGameStatus(game.id, { status: "playing" }, sync);
+      expect(synced?.status).toBe("playing");
+      expect(synced?.statusSyncSource).toBe("gog");
+
+      // A later sync may replace its own earlier value.
+      const resynced = await storage().updateGameStatus(game.id, { status: "completed" }, sync);
+      expect(resynced?.status).toBe("completed");
+
+      // The user picks a status: the source is cleared and the next sync is refused.
+      const manual = await storage().updateGameStatus(game.id, { status: "shelved" });
+      expect(manual?.statusSyncSource).toBeNull();
+      expect(
+        await storage().updateGameStatus(game.id, { status: "playing" }, sync)
+      ).toBeUndefined();
+      expect((await storage().getGame(game.id))?.status).toBe("shelved");
+
+      // A download or wanted game started meanwhile is left alone; wanted only on request.
+      await storage().updateGameStatus(game.id, { status: "downloading" });
+      expect(await storage().updateGameStatus(game.id, { status: "owned" }, sync)).toBeUndefined();
+      await storage().updateGameStatus(game.id, { status: "wanted" });
+      expect(await storage().updateGameStatus(game.id, { status: "owned" }, sync)).toBeUndefined();
+      const promoted = await storage().updateGameStatus(
+        game.id,
+        { status: "owned" },
+        { ...sync, allowWanted: true }
+      );
+      expect(promoted?.status).toBe("owned");
+    });
+
     it("aggregates come back as numbers, not strings", async () => {
       const [user] = await storage().getAllUsers();
       const status = await storage().getDashboardStatus(user.id);

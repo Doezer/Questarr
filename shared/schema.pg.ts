@@ -109,6 +109,7 @@ export const userSettings = pgTable("user_settings", {
   xrelSceneReleases: boolean("xrel_scene_releases").notNull().default(true),
   xrelP2pReleases: boolean("xrel_p2p_releases").notNull().default(false),
   autoSearchUnreleased: boolean("auto_search_unreleased").notNull().default(false),
+  upgradePolicy: text("upgrade_policy").notNull().default("notify"),
   steamSyncFailures: integer("steam_sync_failures").notNull().default(0),
   steamSyncEnabled: boolean("steam_sync_enabled").notNull().default(false),
   steamSyncIntervalHours: integer("steam_sync_interval_hours").notNull().default(24),
@@ -165,7 +166,8 @@ export const games = pgTable("games", {
   screenshots: jsonb("screenshots").$type<string[]>(),
   gameModes: jsonb("game_modes").$type<string[]>(),
   videos: jsonb("videos").$type<Array<{ name: string; videoId: string }>>(),
-  source: text("source").default("manual"), // "manual" | "steam" | "api"
+  source: text("source").default("manual"), // "manual" | "steam" | "api" | "gog" | "epic"
+  statusSyncSource: text("status_sync_source"),
   igdbWebsites: jsonb("igdb_websites").$type<Array<{ category: number; url: string }>>(),
   expansions: jsonb("expansions").$type<GameExpansion[]>(),
   aggregatedRating: doublePrecision("aggregated_rating"),
@@ -182,6 +184,7 @@ export const games = pgTable("games", {
   userRating: doublePrecision("user_rating"),
   libraryPath: text("library_path"),
   installedVersion: text("installed_version"),
+  upgradePolicy: text("upgrade_policy"),
   searchResultsAvailable: boolean("search_results_available").default(false).notNull(),
   searchResultsAvailableAt: timestampMs("search_results_available_at"),
   updateSearchResultsAvailable: boolean("update_search_results_available").default(false).notNull(),
@@ -396,6 +399,36 @@ export const collectionGames = pgTable(
     addedAt: timestampMs("added_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
   },
   (t) => [uniqueIndex("collection_games_collection_game_idx").on(t.collectionId, t.gameId)]
+);
+
+export const tags = pgTable(
+  "tags",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color"),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+    updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("tags_user_idx").on(t.userId)]
+);
+
+export const gameTags = pgTable(
+  "game_tags",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    tagId: text("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    addedAt: timestampMs("added_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [uniqueIndex("game_tags_game_tag_idx").on(t.gameId, t.tagId)]
 );
 
 export const gameJournalEntries = pgTable(

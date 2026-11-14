@@ -9,6 +9,7 @@ import { routesLogger as logger } from "../logger.js";
 import { normalizeTitle } from "../../shared/title-utils.js";
 import { quickAddGameByTitle } from "../game-quick-add.js";
 import { notifyUser } from "../socket.js";
+import { decidePlayStatus, mapPlayniteStatus, toSyncSource } from "../play-status-sync.js";
 // Relative path, not the "@shared" alias — see the comment in
 // game-quick-add.ts.
 import { GAME_STATUSES, type Game } from "../../shared/schema.js";
@@ -423,6 +424,142 @@ integrationRouter.post(
     } catch (error) {
       logger.error({ error }, "Integration play session failed");
       return res.status(500).json({ error: "Failed to record the play session" });
+    }
+  }
+);
+
+// ── Play status from the couch PC ────────────────────────────────────────────
+// Playnite exposes the completion status of every library it reads (Steam, GOG, Epic...), so the
+// extension pushes it here. A status the user set by hand is never overwritten (see
+// decidePlayStatus); the write itself repeats that check in one statement, so a status or
+// download the user starts while a long sync runs is not overwritten.
+const playStatusSchema = z.object({
+  games: z
+    .array(
+      z.object({
+        title: z.string().trim().min(1).max(500),
+        externalId: z.string().trim().max(200).optional(),
+        gameId: z.string().trim().min(1).max(100).optional(),
+        steamAppId: z.number().int().positive().optional(),
+        // Playnite's CompletionStatus name, e.g. "Playing", "Beaten", "On Hold".
+        status: z.string().trim().min(1).max(100),
+        // Library the game comes from in Playnite (steam, gog, epic...); free text.
+        platform: z.string().trim().max(100).optional(),
+      })
+    )
+    .min(1)
+    .max(MAX_SYNC_GAMES),
+  // Off by default, like markInstalledAsOwned: games the user only wants are not turned into
+  // owned ones unless the sync was asked to.
+  promoteWanted: z.boolean().optional().default(false),
+});
+
+integrationRouter.post(
+  "/play-status",
+  requireScope("library:write"),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = playStatusSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "Invalid play status payload", issues: parsed.error.issues });
+      }
+      const { games: incoming, promoteWanted } = parsed.data;
+      const userId = req.user!.id;
+
+      const library = await storage.getUserGames(userId, true);
+      const byId = new Map<string, Game>();
+      const byNormalizedTitle = new Map<string, Game>();
+      const bySteamAppId = new Map<number, Game>();
+      for (const game of library) {
+        byId.set(game.id, game);
+        const key = normalizeTitle(game.title);
+        // A title with no letters or digits normalizes to "" and would match every other one.
+        if (key && !byNormalizedTitle.has(key)) byNormalizedTitle.set(key, game);
+        if (game.steamAppId) bySteamAppId.set(game.steamAppId, game);
+      }
+
+      type Result = {
+        externalId?: string | undefined;
+        title: string;
+        gameId?: string;
+        status?: string;
+        result: "updated" | "unchanged" | "skipped" | "unmatched";
+        reason?: string;
+      };
+      const results: Result[] = [];
+      const counts = { updated: 0, unchanged: 0, skipped: 0, unmatched: 0 };
+
+      for (const entry of incoming) {
+        const base = { externalId: entry.externalId, title: entry.title };
+        const push = (r: Omit<Result, "externalId" | "title">) => {
+          counts[r.result] += 1;
+          results.push({ ...base, ...r });
+        };
+
+        const target = mapPlayniteStatus(entry.status);
+        if (!target) {
+          push({ result: "skipped", reason: "unknown_status" });
+          continue;
+        }
+        const key = normalizeTitle(entry.title);
+        const match =
+          (entry.gameId ? byId.get(entry.gameId) : undefined) ??
+          (entry.steamAppId ? bySteamAppId.get(entry.steamAppId) : undefined) ??
+          (key ? byNormalizedTitle.get(key) : undefined);
+        if (!match) {
+          push({ result: "unmatched" });
+          continue;
+        }
+
+        const decision = decidePlayStatus(match, target, { promoteWanted });
+        if (decision.action === "skip") {
+          push({
+            gameId: match.id,
+            status: match.status,
+            result: "skipped",
+            reason: decision.reason,
+          });
+          continue;
+        }
+        if (decision.action === "unchanged") {
+          push({ gameId: match.id, status: match.status, result: "unchanged" });
+          continue;
+        }
+
+        const updated = await storage.updateGameStatus(
+          match.id,
+          { status: target },
+          { syncSource: toSyncSource(entry.platform), allowWanted: promoteWanted }
+        );
+        if (!updated) {
+          // The user set a status by hand between the read above and this write.
+          push({
+            gameId: match.id,
+            status: match.status,
+            result: "skipped",
+            reason: "manual_status",
+          });
+          continue;
+        }
+        // Keep the index current so a duplicate entry in the same payload sees the new state.
+        byId.set(updated.id, updated);
+        if (updated.steamAppId) bySteamAppId.set(updated.steamAppId, updated);
+        const titleKey = normalizeTitle(updated.title);
+        if (titleKey) byNormalizedTitle.set(titleKey, updated);
+        push({ gameId: match.id, status: updated.status, result: "updated" });
+        notifyUser("gameUpdated", match.id, userId);
+      }
+
+      logger.info(
+        { userId, received: incoming.length, ...counts },
+        "Play status received through the integration API"
+      );
+      return res.json({ received: incoming.length, ...counts, results });
+    } catch (error) {
+      logger.error({ error }, "Integration play status failed");
+      return res.status(500).json({ error: "Failed to sync play status" });
     }
   }
 );

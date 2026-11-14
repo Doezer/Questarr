@@ -33,26 +33,57 @@ describe("recordVersionFromCompletedDownload", () => {
   it("records the version of a finished full-game download when none is known", async () => {
     const recorded = await record(null, "Test.Game.v1.2.3-RUNE");
     expect(recorded).toBe("v1.2.3");
-    expect(replaceGameInstalledVersion).toHaveBeenCalledWith("g1", null, "v1.2.3", "release");
+    expect(replaceGameInstalledVersion).toHaveBeenCalledWith(
+      "g1",
+      null,
+      "v1.2.3",
+      "release",
+      false
+    );
     expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "g1");
   });
 
-  it("never overwrites a version the user typed", async () => {
+  it("never overwrites a version the user typed with an older or incomparable one", async () => {
+    getGame.mockResolvedValue({
+      id: "g1",
+      installedVersion: "v2.0",
+      installedVersionSource: "manual",
+    });
+    expect(await recordVersionFromCompletedDownload(store, "g1", "Game.v1.5-RUNE")).toBeNull();
+    expect(await recordVersionFromCompletedDownload(store, "g1", "Game.v2.0-RUNE")).toBeNull();
+    expect(
+      await recordVersionFromCompletedDownload(store, "g1", "Game.Build.1234-RUNE")
+    ).toBeNull();
+    // A value with no source recorded predates tracking: it was typed.
+    getGame.mockResolvedValue({ id: "g1", installedVersion: "v2.0", installedVersionSource: null });
+    expect(await recordVersionFromCompletedDownload(store, "g1", "Game.v1.5-RUNE")).toBeNull();
+    expect(replaceGameInstalledVersion).not.toHaveBeenCalled();
+  });
+
+  it("moves a version the user typed forward when a download is strictly newer", async () => {
     getGame.mockResolvedValue({
       id: "g1",
       installedVersion: "v1.0",
       installedVersionSource: "manual",
     });
-    expect(await recordVersionFromCompletedDownload(store, "g1", "Game.v9.0-RUNE")).toBeNull();
-    // A value with no source recorded predates tracking: it was typed.
+    expect(await recordVersionFromCompletedDownload(store, "g1", "game.update.v2.0")).toBe("v2.0");
+    expect(replaceGameInstalledVersion).toHaveBeenCalledWith("g1", "v1.0", "v2.0", "release", true);
+    // A legacy value with no source counts as typed too.
+    replaceGameInstalledVersion.mockClear();
     getGame.mockResolvedValue({ id: "g1", installedVersion: "v1.0", installedVersionSource: null });
-    expect(await recordVersionFromCompletedDownload(store, "g1", "Game.v9.0-RUNE")).toBeNull();
-    expect(replaceGameInstalledVersion).not.toHaveBeenCalled();
+    expect(await recordVersionFromCompletedDownload(store, "g1", "Game.v1.1-RUNE")).toBe("v1.1");
+    expect(replaceGameInstalledVersion).toHaveBeenCalledWith("g1", "v1.0", "v1.1", "release", true);
   });
 
   it("moves the version forward on a newer update", async () => {
     await record("v1.2", "Test.Game.v1.2.Update.v1.3-RUNE");
-    expect(replaceGameInstalledVersion).toHaveBeenCalledWith("g1", "v1.2", "v1.3", "release");
+    expect(replaceGameInstalledVersion).toHaveBeenCalledWith(
+      "g1",
+      "v1.2",
+      "v1.3",
+      "release",
+      false
+    );
   });
 
   it("never moves the version backwards or across numbering schemes", async () => {
@@ -107,7 +138,13 @@ describe("recordVersionFromCompletedDownload", () => {
     replaceGameInstalledVersion.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const recorded = await recordVersionFromCompletedDownload(store, "g1", "Game.Update.v1.3-RUNE");
     expect(recorded).toBe("v1.3");
-    expect(replaceGameInstalledVersion).toHaveBeenLastCalledWith("g1", "v1.2", "v1.3", "release");
+    expect(replaceGameInstalledVersion).toHaveBeenLastCalledWith(
+      "g1",
+      "v1.2",
+      "v1.3",
+      "release",
+      false
+    );
     expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "g1");
   });
 

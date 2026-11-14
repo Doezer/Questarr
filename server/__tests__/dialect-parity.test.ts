@@ -236,6 +236,12 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
         false
       );
       expect((await storage().getGame(game.id))?.installedVersion).toBe("v7.0");
+      // A caller that found a download strictly newer may move it forward (overManual).
+      expect(
+        await storage().replaceGameInstalledVersion(game.id, "v7.0", "v8.0", "release", true)
+      ).toBe(true);
+      expect((await storage().getGame(game.id))?.installedVersion).toBe("v8.0");
+      expect((await storage().getGame(game.id))?.installedVersionSource).toBe("release");
       await storage().updateGameInstalledVersion(game.id, user.id, null);
       expect((await storage().getGame(game.id))?.installedVersionSource).toBeNull();
     });

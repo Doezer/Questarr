@@ -15,8 +15,8 @@ import { detectVersionFromInstallFolder } from "./install-version.js";
  * finishes with post-processing off, or when the import is finalized. Only the full game
  * (editions included) or an update counts (a DLC's version says nothing about the base game),
  * and a known version is only ever moved forward: an older or incomparable release never
- * overwrites what the user has. A version typed by the user is never replaced by one taken
- * from a release name. `category` is the one stored with the download, if any;
+ * overwrites what the user has. A version typed by the user is replaced only by a strictly
+ * newer, comparable one taken from a release name (a download newer than what was typed). `category` is the one stored with the download, if any;
  * otherwise it is inferred from the title.
  * Never throws, so a failure here can't break the download or import flow. Returns the version
  * recorded, if any.
@@ -40,16 +40,22 @@ export async function recordVersionFromCompletedDownload(
     let game: Awaited<ReturnType<typeof store.getGame>>;
     for (let attempt = 0; ; attempt++) {
       game = await store.getGame(gameId);
-      if (!game || !canAutoWriteVersion(game)) return null;
+      if (!game) return null;
+      // A version the user typed is only ever moved forward: a download whose version is
+      // strictly newer and comparable advances it; anything else leaves it alone.
+      const typed = !canAutoWriteVersion(game);
       if (game.installedVersion?.trim()) {
         const cmp = compareVersions(detected, game.installedVersion);
         if (cmp === null || cmp <= 0) return null;
+      } else if (typed) {
+        return null;
       }
       const written = await store.replaceGameInstalledVersion(
         game.id,
         game.installedVersion ?? null,
         detected,
-        "release"
+        "release",
+        typed
       );
       if (written) break;
       if (attempt >= 2) return null;

@@ -188,8 +188,8 @@ export default function InstalledVersionField({
       )}
       <p className="mt-1 text-xs text-muted-foreground">
         Detected from the install files or from release names when a download finishes. A version
-        you type is never overwritten. Updates that are not newer than this version are not
-        notified.
+        you type is never replaced by the install files and only moves forward when a download is
+        newer. Updates that are not newer than this version are not notified.
       </p>
     </div>
   );

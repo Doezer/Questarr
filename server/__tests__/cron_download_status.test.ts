@@ -501,7 +501,8 @@ describe("Cron - checkDownloadStatus", () => {
       versioned.gameId,
       null,
       "v1.4.2",
-      "release"
+      "release",
+      false
     );
   });
 

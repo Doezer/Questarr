@@ -309,13 +309,15 @@ export interface IStorage {
   /**
    * Sets a game's detected installed version only if it still equals `expected` (null = not
    * set) and was not typed by the user, so a detected version can't overwrite one written in
-   * between. Returns whether it was written.
+   * between. `overManual` lets the caller replace a typed version too; it is for a version the
+   * caller has already compared and found strictly newer. Returns whether it was written.
    */
   replaceGameInstalledVersion(
     id: string,
     expected: string | null,
     installedVersion: string,
-    source?: DetectedVersionSource
+    source?: DetectedVersionSource,
+    overManual?: boolean
   ): Promise<boolean>;
   updateGameUpgradePolicy(
     id: string,
@@ -1008,10 +1010,15 @@ export class MemStorage implements IStorage {
     id: string,
     expected: string | null,
     installedVersion: string,
-    source: DetectedVersionSource = "release"
+    source: DetectedVersionSource = "release",
+    overManual = false
   ): Promise<boolean> {
     const game = this.games.get(id);
-    if (!game || (game.installedVersion ?? null) !== expected || !canAutoWriteVersion(game)) {
+    if (
+      !game ||
+      (game.installedVersion ?? null) !== expected ||
+      (!overManual && !canAutoWriteVersion(game))
+    ) {
       return Promise.resolve(false);
     }
     this.games.set(id, { ...game, installedVersion, installedVersionSource: source });
@@ -3269,11 +3276,13 @@ export class DatabaseStorage implements IStorage {
     id: string,
     expected: string | null,
     installedVersion: string,
-    source: DetectedVersionSource = "release"
+    source: DetectedVersionSource = "release",
+    overManual = false
   ): Promise<boolean> {
     const current =
       expected === null ? isNull(games.installedVersion) : eq(games.installedVersion, expected);
-    // Never over a version the user typed (or a legacy one with no source recorded).
+    // Never over a version the user typed (or a legacy one with no source recorded), unless the
+    // caller found the new one strictly newer (overManual); `current` still guards the race.
     const notManual = or(
       inArray(games.installedVersionSource, ["release", "install"]),
       and(isNull(games.installedVersionSource), isNull(games.installedVersion))
@@ -3281,7 +3290,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .update(games)
       .set({ installedVersion, installedVersionSource: source })
-      .where(and(eq(games.id, id), current, notManual));
+      .where(and(eq(games.id, id), current, overManual ? undefined : notManual));
     return affectedRows(result) > 0;
   }
 

@@ -49,6 +49,8 @@ export const {
   rssFeedItems,
   rssFeeds,
   systemConfig,
+  tags,
+  gameTags,
   userSettings,
   users,
   xrelNotifiedReleases,

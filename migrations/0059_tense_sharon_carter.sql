@@ -1,1 +1,0 @@
-ALTER TABLE `games` ADD `status_sync_source` text;

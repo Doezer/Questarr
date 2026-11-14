@@ -133,6 +133,7 @@ import {
   count,
   isNull,
   isNotNull,
+  type SQL,
   gte,
   lt,
   lte,
@@ -3037,6 +3038,28 @@ export class DatabaseStorage implements IStorage {
     const existingGame = await this.getGame(id);
     const leavingWanted = existingGame?.status === "wanted" && statusUpdate.status !== "wanted";
 
+    // Every applicable guard is checked in the UPDATE itself, so a status the user picks while a
+    // pipeline or a sync runs is never overwritten.
+    const guards: SQL[] = [eq(games.id, id)];
+    if (options?.syncSource) {
+      guards.push(
+        not(
+          inArray(games.status, options.allowWanted ? ["downloading"] : ["downloading", "wanted"])
+        )
+      );
+    }
+    if (options?.preserveCurated) {
+      guards.push(not(inArray(games.status, [...USER_CURATED_GAME_STATUSES])));
+    } else if (options?.syncSource) {
+      // A curated status only yields to a sync when an earlier sync wrote it.
+      guards.push(
+        or(
+          not(inArray(games.status, [...USER_CURATED_GAME_STATUSES])),
+          isNotNull(games.statusSyncSource)
+        )!
+      );
+    }
+
     const [updatedGame] = await db
       .update(games)
       .set({
@@ -3051,25 +3074,7 @@ export class DatabaseStorage implements IStorage {
             }
           : {}),
       })
-      .where(
-        options?.preserveCurated
-          ? and(eq(games.id, id), not(inArray(games.status, [...USER_CURATED_GAME_STATUSES])))
-          : options?.syncSource
-            ? and(
-                eq(games.id, id),
-                not(
-                  inArray(
-                    games.status,
-                    options.allowWanted ? ["downloading"] : ["downloading", "wanted"]
-                  )
-                ),
-                or(
-                  not(inArray(games.status, [...USER_CURATED_GAME_STATUSES])),
-                  isNotNull(games.statusSyncSource)
-                )
-              )
-            : eq(games.id, id)
-      )
+      .where(and(...guards))
       .returning();
 
     return updatedGame || undefined;

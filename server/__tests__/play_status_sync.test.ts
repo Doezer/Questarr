@@ -20,6 +20,13 @@ describe("mapPlayniteStatus", () => {
   it("returns undefined for an unknown status", () => {
     expect(mapPlayniteStatus("Speedrunning")).toBeUndefined();
   });
+
+  it.each(["constructor", "__proto__", "toString", "hasOwnProperty"])(
+    "does not resolve the inherited property %s",
+    (input) => {
+      expect(mapPlayniteStatus(input)).toBeUndefined();
+    }
+  );
 });
 
 describe("toSyncSource", () => {

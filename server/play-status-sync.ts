@@ -17,7 +17,9 @@ const PLAYNITE_STATUS_MAP: Readonly<Record<string, GameStatus>> = {
 
 /** Maps a Playnite completion status (case/spacing-insensitive); undefined when unknown. */
 export function mapPlayniteStatus(status: string): GameStatus | undefined {
-  return PLAYNITE_STATUS_MAP[status.trim().toLowerCase().replace(/\s+/g, " ")];
+  const key = status.trim().toLowerCase().replace(/\s+/g, " ");
+  // Own keys only: "constructor" or "__proto__" must not resolve to an inherited value.
+  return Object.hasOwn(PLAYNITE_STATUS_MAP, key) ? PLAYNITE_STATUS_MAP[key] : undefined;
 }
 
 /** Sources a sync can attribute a status to; anything else is recorded as "playnite". */

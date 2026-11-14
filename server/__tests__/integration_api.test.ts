@@ -704,6 +704,129 @@ describe("integration API", () => {
     });
   });
 
+  describe("POST /api/integration/play-time-totals", () => {
+    const game = { id: "game-1", userId: USER.id, title: "Hades", steamAppId: 1145360 };
+    const post = (body: unknown) =>
+      withKey(request(app).post("/api/integration/play-time-totals")).send(body as object);
+    const session = (minutes: number) => ({
+      startedAt: new Date(Date.now() - minutes * 60_000 - 3_600_000),
+      endedAt: new Date(Date.now() - 3_600_000),
+    });
+
+    beforeEach(() => {
+      (storage.getGame as Mock).mockResolvedValue(undefined);
+      (storage.getUserGames as Mock).mockResolvedValue([game]);
+      (storage.getGamePlaySessions as Mock).mockResolvedValue([]);
+      (storage.getRunningPlaySession as Mock).mockResolvedValue(undefined);
+      (storage.addGamePlaySession as Mock).mockImplementation(
+        async (s: Record<string, unknown>) => ({ id: "s1", ...s })
+      );
+    });
+
+    it("records the time Questarr does not have yet as one estimated session", async () => {
+      const last = new Date(Date.now() - 86_400_000).toISOString();
+      const res = await post({
+        games: [{ title: "hades", playtimeSeconds: 7200, lastPlayedAt: last }],
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ imported: 1, minutesAdded: 120, unmatched: 0 });
+      expect(storage.addGamePlaySession).toHaveBeenCalledWith(
+        expect.objectContaining({ gameId: "game-1", source: "playnite_import" })
+      );
+      const added = (storage.addGamePlaySession as Mock).mock.calls[0]![0] as {
+        startedAt: Date;
+        endedAt: Date;
+      };
+      expect(added.endedAt.toISOString()).toBe(last);
+      expect(added.endedAt.getTime() - added.startedAt.getTime()).toBe(120 * 60_000);
+    });
+
+    it("subtracts the time already recorded, so a second send adds nothing", async () => {
+      (storage.getGamePlaySessions as Mock).mockResolvedValue([session(115)]);
+      const res = await post({ games: [{ title: "Hades", playtimeSeconds: 7200 }] });
+      expect(res.body).toMatchObject({ imported: 0, unchanged: 1 });
+      expect(storage.addGamePlaySession).not.toHaveBeenCalled();
+    });
+
+    it("imports only the difference", async () => {
+      (storage.getGamePlaySessions as Mock).mockResolvedValue([session(60)]);
+      const res = await post({ games: [{ title: "Hades", playtimeSeconds: 7200 }] });
+      expect(res.body).toMatchObject({ imported: 1, minutesAdded: 60 });
+    });
+
+    it("leaves a game with a running timer and reports unknown games", async () => {
+      (storage.getRunningPlaySession as Mock).mockResolvedValue({ id: "t", gameId: "game-1" });
+      const res = await post({
+        games: [
+          { title: "Hades", playtimeSeconds: 7200 },
+          { title: "Nothing Like It", playtimeSeconds: 7200 },
+        ],
+      });
+      expect(res.body).toMatchObject({ skipped: 1, unmatched: 1, imported: 0 });
+      expect(res.body.results[0].reason).toBe("timer_running");
+    });
+
+    it("rejects an invalid payload and a read-only key", async () => {
+      expect((await post({ games: [] })).status).toBe(400);
+      expect((await post({ games: [{ title: "Hades", playtimeSeconds: -1 }] })).status).toBe(400);
+      keyOverrides.scope = "read";
+      expect((await post({ games: [{ title: "Hades", playtimeSeconds: 600 }] })).status).toBe(403);
+    });
+  });
+
+  describe("POST /api/integration/library/import", () => {
+    const post = (body: unknown) =>
+      withKey(request(app).post("/api/integration/library/import")).send(body as object);
+
+    beforeEach(async () => {
+      const { igdbClient } = await import("../igdb.js");
+      (igdbClient.searchGames as Mock).mockResolvedValue([{ id: 1 }]);
+      (igdbClient.formatGameData as Mock).mockReturnValue({
+        title: "Hades",
+        igdbId: 113112,
+        platforms: ["PC"],
+        releaseDate: "2020-09-17",
+        isAdultContent: false,
+        isAgeRestricted: false,
+      });
+      (storage.getUserGames as Mock).mockResolvedValue([
+        { id: "g1", userId: USER.id, title: "Celeste", igdbId: 1 },
+      ]);
+      (storage.addGame as Mock).mockImplementation(async (game: Record<string, unknown>) => ({
+        ...game,
+        id: "new-game",
+      }));
+    });
+
+    it("adds a missing game as owned with the store as its source", async () => {
+      const res = await post({ games: [{ title: "Hades", platform: "gog", externalId: "p1" }] });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ added: 1, existing: 0, notFound: 0 });
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "owned", source: "gog", userId: USER.id })
+      );
+    });
+
+    it("skips games already in the library and a title IGDB matches to another game", async () => {
+      const res = await post({
+        games: [
+          { title: "celeste", platform: "gog" },
+          { title: "Hades II", platform: "gog" },
+        ],
+      });
+      expect(res.body).toMatchObject({ added: 0, existing: 1, notFound: 1 });
+      expect(storage.addGame).not.toHaveBeenCalled();
+    });
+
+    it("rejects an empty payload, more than 25 games and a read-only key", async () => {
+      expect((await post({ games: [] })).status).toBe(400);
+      const many = Array.from({ length: 26 }, (_, i) => ({ title: `Game ${i}` }));
+      expect((await post({ games: many })).status).toBe(400);
+      keyOverrides.scope = "read";
+      expect((await post({ games: [{ title: "Hades" }] })).status).toBe(403);
+    });
+  });
+
   describe("POST /api/integration/play-sessions", () => {
     const game = { id: "game-1", userId: USER.id, title: "Hades", steamAppId: 1145360 };
     const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();

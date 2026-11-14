@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { decidePlayStatus, mapPlayniteStatus, toSyncSource } from "../play-status-sync.js";
+import {
+  decidePlayStatus,
+  libraryTitlesAgree,
+  mapPlayniteStatus,
+  recordedMinutes,
+  toSyncSource,
+} from "../play-status-sync.js";
 
 describe("mapPlayniteStatus", () => {
   it.each([
@@ -80,5 +86,33 @@ describe("decidePlayStatus", () => {
         promoteWanted: true,
       })
     ).toEqual({ action: "skip", reason: "downloading" });
+  });
+});
+
+describe("libraryTitlesAgree", () => {
+  it.each([
+    ["Hades", "Hades", true],
+    ["The Witcher 3: Wild Hunt - Game of the Year Edition", "The Witcher 3: Wild Hunt", true],
+    ["Prey (2017)", "Prey", false],
+    ["Hades", "Hades II", false],
+    ["Fallout", "Fallout 2", false],
+    ["Fallout", "Fallout: New Vegas", false],
+    ["", "Hades", false],
+  ])("%s vs %s", (a, b, expected) => {
+    expect(libraryTitlesAgree(a, b)).toBe(expected);
+  });
+});
+
+describe("recordedMinutes", () => {
+  it("sums finished sessions and ignores a running one", () => {
+    const t = new Date("2026-01-01T10:00:00Z");
+    const later = (m: number) => new Date(t.getTime() + m * 60_000);
+    expect(
+      recordedMinutes([
+        { startedAt: t, endedAt: later(30) },
+        { startedAt: t, endedAt: later(45) },
+        { startedAt: t, endedAt: null },
+      ])
+    ).toBe(75);
   });
 });

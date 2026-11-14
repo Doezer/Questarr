@@ -1,3 +1,4 @@
+import { normalizeTitle } from "../shared/title-utils.js";
 import { isUserCuratedGameStatus, type GameStatus } from "../shared/schema.js";
 
 /**
@@ -55,3 +56,42 @@ export function decidePlayStatus(
   if (game.status === target) return { action: "unchanged" };
   return { action: "apply" };
 }
+
+/**
+ * True when an IGDB match is plausibly the game a store library listed: the normalized titles are
+ * equal, or one starts with the other on a word boundary ("Hades" / "Hades II" is NOT accepted
+ * because a sequel is a different game, so only the shorter side may be the full title when the
+ * rest is an edition suffix such as "Game of the Year Edition").
+ */
+const EDITION_WORDS =
+  /\b(edition|remastered|remaster|definitive|complete|goty|game of the year|deluxe|enhanced|director s cut|gold|ultimate|special|anniversary|collection)\b/;
+
+export function libraryTitlesAgree(requested: string, matched: string): boolean {
+  const a = normalizeTitle(requested);
+  const b = normalizeTitle(matched);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (!long.startsWith(`${short} `)) return false;
+  // The extra words must be edition markers, not a sequel number or subtitle.
+  return EDITION_WORDS.test(long.slice(short.length + 1));
+}
+
+/** Whole minutes of play time recorded for a game, from its finished sessions. */
+export function recordedMinutes(
+  sessions: Array<{ startedAt: Date; endedAt: Date | null }>
+): number {
+  let total = 0;
+  for (const s of sessions) {
+    if (!s.endedAt) continue;
+    total += Math.max(0, Math.round((s.endedAt.getTime() - s.startedAt.getTime()) / 60_000));
+  }
+  return total;
+}
+
+/**
+ * Smallest gap between Playnite's total and the recorded time that is imported. Each finished
+ * session is rounded to whole minutes on both sides, so a few sessions can drift by a few
+ * minutes; importing that would add a bogus session after every sync.
+ */
+export const MIN_PLAYTIME_IMPORT_MINUTES = 10;

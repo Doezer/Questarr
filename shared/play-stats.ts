@@ -12,7 +12,8 @@ export interface PlaySessionInput {
   /** `null` while the timer is still running; such sessions are left out of the totals. */
   endedAt: Date | null;
   /**
-   * Where the session came from. `steam` sessions are estimates built from playtime deltas:
+   * Where the session came from. `steam` and `playnite_import` sessions are estimates built from
+   * playtime totals (Steam deltas, or the total Playnite already knew):
    * their minutes count in the totals, but they say nothing about when or how long one sitting
    * lasted, so they stay out of the longest session and the streaks.
    */
@@ -210,7 +211,7 @@ export function computePlayStats(
     // ...but only real time feeds the time-based statistics.
     if (minutes <= 0) continue;
     const local = toLocal(session.startedAt);
-    const estimated = session.source === "steam";
+    const estimated = session.source === "steam" || session.source === "playnite_import";
 
     totalMinutes += minutes;
     if (!estimated && (!longest || minutes > longest.minutes)) {

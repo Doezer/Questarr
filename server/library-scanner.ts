@@ -640,7 +640,9 @@ export async function matchUnmatchedFolder(
 
   const files = isFile ? [{ absolutePath, size: standaloneSize }] : await listFiles(absolutePath);
   const filesAdded = await assignFilesToGame(game.id, files);
-  if (!isFile) await recordVersionFromInstallFolder(storage, game.id, absolutePath);
+  // The version of the folder the game keeps, not of one it was just matched with.
+  if (!isFile)
+    await recordVersionFromInstallFolder(storage, game.id, game.libraryPath ?? absolutePath);
 
   clearUnmatched(rootFolderId, folderName);
   return { gameId: game.id, filesAdded };

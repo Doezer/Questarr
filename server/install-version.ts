@@ -17,12 +17,22 @@ const VERSION_FILE_NAMES = new Set(["version.txt", "version", "game_version.txt"
 const NFO_VERSION = /^[ \t]*version\b[\s:.=-]*v?\s?(\d+(?:\.\d+)+)(?![\w.]*\d)/im;
 
 async function readSmallText(file: string): Promise<string | null> {
+  let handle: fs.promises.FileHandle | undefined;
   try {
-    const stat = await fs.promises.lstat(file);
+    // O_NOFOLLOW: a symlink (also one swapped in after a check) is never opened. The size is
+    // checked on the opened file and the read itself is bounded, so a file that grows or is
+    // replaced meanwhile can't allocate more than the limit.
+    handle = await fs.promises.open(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    const stat = await handle.stat();
     if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return null;
-    return await fs.promises.readFile(file, "utf8");
+    const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > MAX_FILE_BYTES) return null;
+    return buffer.toString("utf8", 0, bytesRead);
   } catch {
     return null;
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
 }
 

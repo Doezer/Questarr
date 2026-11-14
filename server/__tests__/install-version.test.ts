@@ -76,6 +76,15 @@ describe("detectVersionFromInstallFolder", () => {
     expect(await detectVersionFromInstallFolder(game)).toBe("Build 9876");
   });
 
+  it("never follows a symlink named like a version file", async () => {
+    const outside = path.join(dir, "outside.txt");
+    await fs.promises.writeFile(outside, "9.9.9");
+    const game = path.join(dir, "game");
+    await fs.promises.mkdir(game);
+    await fs.promises.symlink(outside, path.join(game, "version.txt"));
+    expect(await detectVersionFromInstallFolder(game)).toBeNull();
+  });
+
   it("ignores oversized files, files instead of folders and missing paths", async () => {
     await fs.promises.writeFile(path.join(dir, "version.txt"), "1.0\n" + "x".repeat(70 * 1024));
     expect(await detectVersionFromInstallFolder(dir)).toBeNull();

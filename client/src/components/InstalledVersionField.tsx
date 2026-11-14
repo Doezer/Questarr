@@ -95,7 +95,7 @@ export default function InstalledVersionField({
     [releaseNames, draft]
   );
 
-  const save = (value: string) => {
+  const save = (value: string, confirm = false) => {
     const next = value.trim() || null;
     // Checked before comparing with the stored value, which is stale while a save is in
     // flight: going back to it then still needs a save to undo the in-flight one.
@@ -104,7 +104,11 @@ export default function InstalledVersionField({
       queued.current = mutation.variables === next ? null : { value: next };
       return;
     }
-    if (next === (installedVersion ?? null)) return;
+    // Pressing Enter on the unchanged detected version confirms it as the user's own, so it is
+    // no longer replaced by detection; leaving the field untouched does not.
+    const confirmsDetected =
+      confirm && !!next && !!installedVersionSource && installedVersionSource !== "manual";
+    if (next === (installedVersion ?? null) && !confirmsDetected) return;
     mutation.mutate(next);
   };
 
@@ -132,7 +136,7 @@ export default function InstalledVersionField({
               // Enter confirming an IME candidate is not a submit.
               if (e.nativeEvent.isComposing) return;
               e.preventDefault();
-              save(draft);
+              save(draft, true);
             } else if (e.key === "Escape" && draft !== (installedVersion ?? "")) {
               e.stopPropagation();
               setDraft(installedVersion ?? "");

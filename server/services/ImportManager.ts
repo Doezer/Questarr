@@ -27,6 +27,7 @@ import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { notifyUser } from "../socket.js";
+import { carriesBaseGameVersion } from "../../shared/version-utils.js";
 import {
   recordVersionFromCompletedDownload,
   recordVersionFromInstallFolder,
@@ -672,9 +673,12 @@ export class ImportManager {
           download.downloadTitle,
           download.category
         );
+        // The files now in the library are the better source: they replace the release's
+        // version. A DLC or extras pack's version.txt says nothing about the base game.
+        if (carriesBaseGameVersion(download.downloadTitle, download.category)) {
+          await recordVersionFromInstallFolder(this.storage, game.id, libraryPath);
+        }
       }
-      // The files now in the library are the better source: they replace the release's version.
-      await recordVersionFromInstallFolder(this.storage, game.id, libraryPath);
     } catch (error) {
       logger.warn({ error, downloadId }, "[ImportManager] Could not record the installed version");
     }

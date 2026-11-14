@@ -229,3 +229,30 @@ describe("InstalledVersionField", () => {
     expect(input).toHaveValue("v1.0");
   });
 });
+
+describe("InstalledVersionField confirming a detected version", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    apiRequest.mockResolvedValue({ ok: true, json: async () => ({}) });
+  });
+  afterEach(cleanup);
+
+  it("saves the unchanged detected version on Enter so it becomes the user's own", async () => {
+    const input = renderField("v1.2", [], "release");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("PATCH", `/api/games/${gameId}/installed-version`, {
+        installedVersion: "v1.2",
+      })
+    );
+  });
+
+  it("does not save when the field is left untouched, or for a version already typed", () => {
+    const input = renderField("v1.2", [], "release");
+    fireEvent.blur(input);
+    cleanup();
+    const manual = renderField("v1.2", [], "manual");
+    fireEvent.keyDown(manual, { key: "Enter" });
+    expect(apiRequest).not.toHaveBeenCalled();
+  });
+});

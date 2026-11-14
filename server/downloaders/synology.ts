@@ -10,11 +10,12 @@ import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
   assertCredentialsAllowed,
-  fetchWithMagnetDetection,
   extractHashFromUrl,
+  fetchWithMagnetDetection,
+  findTorrentByTagNull,
   isHttpsUrl,
   logDownloaderDebugResponse,
-  findTorrentByTagNull,
+  maxTrackerSwarmCounts,
 } from "./utils.js";
 
 interface SynologyApiDescriptor {
@@ -1088,32 +1089,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     seeders?: number | undefined;
     leechers?: number | undefined;
   } {
-    let seeders: number | undefined;
-    let leechers: number | undefined;
-
-    for (const tracker of trackers ?? []) {
-      const trackerSeeders =
-        typeof tracker.seeders === "number" &&
-        Number.isFinite(tracker.seeders) &&
-        tracker.seeders >= 0
-          ? tracker.seeders
-          : undefined;
-      const trackerLeechers =
-        typeof tracker.leechers === "number" &&
-        Number.isFinite(tracker.leechers) &&
-        tracker.leechers >= 0
-          ? tracker.leechers
-          : undefined;
-
-      if (trackerSeeders !== undefined) {
-        seeders = seeders === undefined ? trackerSeeders : Math.max(seeders, trackerSeeders);
-      }
-      if (trackerLeechers !== undefined) {
-        leechers = leechers === undefined ? trackerLeechers : Math.max(leechers, trackerLeechers);
-      }
-    }
-
-    return { seeders, leechers };
+    return maxTrackerSwarmCounts(trackers ?? []);
   }
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {

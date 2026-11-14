@@ -81,13 +81,11 @@ describe("downloaders helper regression coverage", () => {
       createDownloader({ type: "nzbget", url: "nzb.local", port: 6789 })
     ) as unknown as {
       getBaseUrl(): string;
-      escapeXml(value: string): string;
       buildXMLValue(value: unknown): string;
       parseValueObj(value: unknown): unknown;
     };
 
     expect(client.getBaseUrl()).toBe("http://nzb.local:6789");
-    expect(client.escapeXml(`<&>"'`)).toBe("&lt;&amp;&gt;&quot;&apos;");
     expect(client.buildXMLValue({ enabled: true, ratio: 1.5, items: ["a", 2] })).toContain(
       "<struct>"
     );
@@ -428,7 +426,6 @@ describe("downloaders helper regression coverage", () => {
         password: string
       ): string;
       parseXMLRPCResponse(xml: string): unknown;
-      escapeXml(value: string): string;
     };
 
     const randomBytesSpy = vi
@@ -493,7 +490,6 @@ describe("downloaders helper regression coverage", () => {
   </fault>
 </methodResponse>`)
     ).toThrow("XML-RPC Fault: Nope");
-    expect(client.escapeXml(`<&>"'`)).toBe("&lt;&amp;&gt;&quot;&apos;");
 
     randomBytesSpy.mockRestore();
   });

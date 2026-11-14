@@ -10,12 +10,15 @@ import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
-  fetchWithMagnetDetection,
   assertCredentialsAllowed,
   buildBasicAuthHeader,
+  buildDownloaderBaseUrl,
+  fetchWithMagnetDetection,
+  findTorrentByTagNull,
   isHttpsUrl,
   logDownloaderDebugResponse,
-  findTorrentByTagNull,
+  maxTrackerSwarmCounts,
+  normalizePeerCount,
 } from "./utils.js";
 
 interface TransmissionTorrent {
@@ -81,30 +84,7 @@ export class TransmissionClient implements DownloaderClient {
   }
 
   private getBaseUrl(): string {
-    let baseUrl = this.downloader.url;
-    if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
-      const protocol = this.downloader.useSsl ? "https://" : "http://";
-      baseUrl = protocol + baseUrl;
-    }
-
-    try {
-      const urlObj = new URL(baseUrl);
-      if (this.downloader.port) {
-        urlObj.port = this.downloader.port.toString();
-      }
-
-      // Add urlPath logic here
-      if (this.downloader.urlPath) {
-        let path = this.downloader.urlPath;
-        if (!path.startsWith("/")) path = `/${path}`;
-        if (path.endsWith("/")) path = path.slice(0, -1);
-        urlObj.pathname = `${urlObj.pathname.replace(/\/$/, "")}${path}`;
-      }
-
-      return urlObj.toString().replace(/\/$/, "");
-    } catch {
-      return baseUrl.replace(/\/$/, "");
-    }
+    return buildDownloaderBaseUrl(this.downloader, { applyUrlPath: true });
   }
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
@@ -536,8 +516,8 @@ export class TransmissionClient implements DownloaderClient {
     }
 
     const trackerSwarmCounts = this.getTrackerSwarmCounts(torrent.trackerStats);
-    const connectedSeeders = this.normalizePeerCount(torrent.peersSendingToUs);
-    const connectedLeechers = this.normalizePeerCount(torrent.peersGettingFromUs);
+    const connectedSeeders = normalizePeerCount(torrent.peersSendingToUs);
+    const connectedLeechers = normalizePeerCount(torrent.peersGettingFromUs);
 
     return {
       id: torrent.hashString || torrent.id.toString(), // Use hash for consistency, fallback to numeric id
@@ -654,10 +634,6 @@ export class TransmissionClient implements DownloaderClient {
     };
   }
 
-  private normalizePeerCount(count: number | undefined): number | undefined {
-    return typeof count === "number" && Number.isFinite(count) && count >= 0 ? count : undefined;
-  }
-
   private toTransmissionIds(id: string): Array<string | number> {
     return /^\d+$/.test(id) ? [Number.parseInt(id, 10)] : [id];
   }
@@ -666,22 +642,12 @@ export class TransmissionClient implements DownloaderClient {
     seeders?: number | undefined;
     leechers?: number | undefined;
   } {
-    let seeders: number | undefined;
-    let leechers: number | undefined;
-
-    for (const tracker of trackerStats ?? []) {
-      const trackerSeeders = this.normalizePeerCount(tracker.seederCount);
-      const trackerLeechers = this.normalizePeerCount(tracker.leecherCount);
-
-      if (trackerSeeders !== undefined) {
-        seeders = seeders === undefined ? trackerSeeders : Math.max(seeders, trackerSeeders);
-      }
-      if (trackerLeechers !== undefined) {
-        leechers = leechers === undefined ? trackerLeechers : Math.max(leechers, trackerLeechers);
-      }
-    }
-
-    return { seeders, leechers };
+    return maxTrackerSwarmCounts(
+      (trackerStats ?? []).map((tracker) => ({
+        seeders: tracker.seederCount,
+        leechers: tracker.leecherCount,
+      }))
+    );
   }
 
   /**

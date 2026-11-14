@@ -1,4 +1,5 @@
 import { restoredListState, saveListState } from "@/lib/in-app-history";
+import { TAGS_KEY, type Tag } from "@/lib/tags";
 import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -76,6 +77,7 @@ type LibraryListState = {
   statusFilter: GameStatus | "all";
   genreFilter: string;
   platformFilter: string;
+  tagFilter?: string;
   showSearchResultsOnly: boolean;
   showDownloadsOnly: boolean;
   showUpdateAvailableOnly: boolean;
@@ -97,6 +99,8 @@ export default function Library() {
   );
   const [genreFilter, setGenreFilter] = useState<string>(restored?.genreFilter ?? "all");
   const [platformFilter, setPlatformFilter] = useState<string>(restored?.platformFilter ?? "all");
+  // A tag id, or "all". Resolved to the tagged game ids by the server.
+  const [tagFilter, setTagFilter] = useState<string>(restored?.tagFilter ?? "all");
   const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(
     restored?.showSearchResultsOnly ?? false
   );
@@ -126,6 +130,7 @@ export default function Library() {
       statusFilter,
       genreFilter,
       platformFilter,
+      tagFilter,
       showSearchResultsOnly,
       showDownloadsOnly,
       showUpdateAvailableOnly,
@@ -140,6 +145,7 @@ export default function Library() {
     statusFilter,
     genreFilter,
     platformFilter,
+    tagFilter,
     showSearchResultsOnly,
     showDownloadsOnly,
     showUpdateAvailableOnly,
@@ -160,6 +166,7 @@ export default function Library() {
     setShowUnratedOnly(false);
     setShowShelvedOverride(false);
     setShowOwnedInResultsOverride(false);
+    setTagFilter("all");
   }, []);
 
   const { viewMode, setViewMode, listDensity, setListDensity } = useViewControls("dashboard");
@@ -272,9 +279,29 @@ export default function Library() {
     setPlatformFilter("all");
   }, [gamesLoaded, visiblePlatforms, platformFilter]);
 
+  const { data: userTagsData } = useQuery<Tag[]>({ queryKey: TAGS_KEY });
+  const userTags = useMemo(() => (Array.isArray(userTagsData) ? userTagsData : []), [userTagsData]);
+  // The server owns the tag-to-game links; hidden games are kept so the library rules decide.
+  const { data: taggedGames } = useQuery<Game[]>({
+    queryKey: ["/api/tags", tagFilter, "games?includeHidden=true"],
+    enabled: tagFilter !== "all",
+  });
+  const taggedIds = useMemo(
+    () => (taggedGames ? new Set(taggedGames.map((game) => game.id)) : null),
+    [taggedGames]
+  );
+  const activeTag = userTags.find((tag) => tag.id === tagFilter);
+
+  // A deleted tag can no longer filter; drop it so it cannot hide the whole library.
+  useEffect(() => {
+    if (tagFilter !== "all" && Array.isArray(userTagsData) && !activeTag) setTagFilter("all");
+  }, [tagFilter, userTagsData, activeTag]);
+
   const filteredGames = useMemo(() => {
     const filtered = games.filter((game) => {
       if (statusFilter !== "all" && game.status !== statusFilter) return false;
+      // While the tag's games are loading or failed, show none rather than the unfiltered library.
+      if (tagFilter !== "all" && !taggedIds?.has(game.id)) return false;
       // Shelved games are hidden by default unless the user explicitly filters
       // by the Shelved status, which always takes precedence over the default.
       if (hideShelvedByDefault && statusFilter === "all" && game.status === "shelved") return false;
@@ -303,6 +330,8 @@ export default function Library() {
     statusFilter,
     genreFilter,
     platformFilter,
+    tagFilter,
+    taggedIds,
     showSearchResultsOnly,
     hideShelvedByDefault,
     hideOwnedInHasResults,
@@ -324,6 +353,11 @@ export default function Library() {
       filters.push({
         label: `Platform: ${platformFilter}`,
         onRemove: () => setPlatformFilter("all"),
+      });
+    if (tagFilter !== "all")
+      filters.push({
+        label: `Tag: ${activeTag?.name ?? "…"}`,
+        onRemove: () => setTagFilter("all"),
       });
     if (showSearchResultsOnly)
       filters.push({
@@ -356,6 +390,8 @@ export default function Library() {
     statusFilter,
     genreFilter,
     platformFilter,
+    tagFilter,
+    activeTag,
     showSearchResultsOnly,
     showDownloadsOnly,
     showUpdateAvailableOnly,
@@ -640,7 +676,7 @@ export default function Library() {
           <Card>
             <CardContent className="p-4 space-y-4">
               <Label className="text-sm font-semibold">Filters</Label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="space-y-2">
                   <Label>Status</Label>
                   <Select
@@ -688,6 +724,22 @@ export default function Library() {
                       {visiblePlatforms.map((platform) => (
                         <SelectItem key={platform} value={platform}>
                           {platform}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="library-tag-filter">Tag</Label>
+                  <Select value={tagFilter} onValueChange={setTagFilter}>
+                    <SelectTrigger id="library-tag-filter">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Tags</SelectItem>
+                      {userTags.map((tag) => (
+                        <SelectItem key={tag.id} value={tag.id}>
+                          {tag.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -769,6 +821,7 @@ export default function Library() {
               statusFilter !== "all" ||
               genreFilter !== "all" ||
               platformFilter !== "all" ||
+              tagFilter !== "all" ||
               showUpdateAvailableOnly ||
               minRating !== null ||
               showUnratedOnly ||

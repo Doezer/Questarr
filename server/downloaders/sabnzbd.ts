@@ -6,11 +6,12 @@ import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
   assertCredentialsAllowed,
+  buildDownloaderBaseUrl,
+  findTorrentByTagNull,
   fixNzbUrlEncoding,
   isHttpsUrl,
   logDownloaderDebugResponse,
   stripTrailingPathSeparators,
-  findTorrentByTagNull,
 } from "./utils.js";
 
 /**
@@ -103,21 +104,7 @@ export class SABnzbdClient implements DownloaderClient {
   }
 
   private getBaseUrl(): string {
-    let baseUrl = this.downloader.url;
-    if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
-      const protocol = this.downloader.useSsl ? "https://" : "http://";
-      baseUrl = protocol + baseUrl;
-    }
-
-    try {
-      const urlObj = new URL(baseUrl);
-      if (this.downloader.port) {
-        urlObj.port = this.downloader.port.toString();
-      }
-      return urlObj.toString().replace(/\/$/, "");
-    } catch {
-      return baseUrl.replace(/\/$/, "");
-    }
+    return buildDownloaderBaseUrl(this.downloader);
   }
 
   /**

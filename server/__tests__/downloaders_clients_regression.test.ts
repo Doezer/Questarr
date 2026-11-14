@@ -937,14 +937,12 @@ describe("downloader client regression coverage", () => {
     );
     const privateClient = client as unknown as {
       getBaseUrl: () => string;
-      escapeXml: (value: string) => string;
       buildXMLValue: (value: unknown) => string;
       parseValueObj: (value: unknown) => unknown;
       makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
     };
 
     expect(privateClient.getBaseUrl()).toBe("https://nzbget.local:6789");
-    expect(privateClient.escapeXml(`<&>"'`)).toBe("&lt;&amp;&gt;&quot;&apos;");
     expect(privateClient.buildXMLValue({ ok: true, score: 1.5, list: [1, "two"] })).toContain(
       "<struct>"
     );

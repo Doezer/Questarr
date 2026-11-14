@@ -166,7 +166,8 @@ export const games = pgTable("games", {
   screenshots: jsonb("screenshots").$type<string[]>(),
   gameModes: jsonb("game_modes").$type<string[]>(),
   videos: jsonb("videos").$type<Array<{ name: string; videoId: string }>>(),
-  source: text("source").default("manual"), // "manual" | "steam" | "api"
+  source: text("source").default("manual"), // "manual" | "steam" | "api" | "gog" | "epic"
+  statusSyncSource: text("status_sync_source"),
   igdbWebsites: jsonb("igdb_websites").$type<Array<{ category: number; url: string }>>(),
   expansions: jsonb("expansions").$type<GameExpansion[]>(),
   aggregatedRating: doublePrecision("aggregated_rating"),

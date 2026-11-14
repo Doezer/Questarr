@@ -232,7 +232,11 @@ export const games = sqliteTable("games", {
   screenshots: text("screenshots", { mode: "json" }).$type<string[]>(),
   // IGDB trailers/gameplay clips: `videoId` is the YouTube video id
   videos: text("videos", { mode: "json" }).$type<Array<{ name: string; videoId: string }>>(),
-  source: text("source").default("manual"), // "manual" | "steam" | "api"
+  source: text("source").default("manual"), // "manual" | "steam" | "api" | "gog" | "epic"
+  // Set only while the current status was written by a library sync (Playnite push), and holds
+  // the platform it came from. Null means the user (or the app itself) set it: such a status is
+  // never overwritten by a sync.
+  statusSyncSource: text("status_sync_source"),
   igdbWebsites: text("igdb_websites", { mode: "json" }).$type<
     Array<{ category: number; url: string }>
   >(),

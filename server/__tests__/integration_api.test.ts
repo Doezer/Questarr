@@ -633,6 +633,77 @@ describe("integration API", () => {
     });
   });
 
+  describe("POST /api/integration/play-status", () => {
+    const owned = { id: "g-owned", title: "Hades", status: "owned", statusSyncSource: null };
+    const manual = { id: "g-manual", title: "Celeste", status: "playing", statusSyncSource: null };
+    const wanted = {
+      id: "g-wanted",
+      title: "Hollow Knight",
+      status: "wanted",
+      statusSyncSource: null,
+    };
+
+    beforeEach(() => {
+      (storage.getUserGames as Mock).mockResolvedValue([owned, manual, wanted]);
+      (storage.updateGameStatus as Mock).mockImplementation(
+        async (id: string, update: { status: string }, opts?: { syncSource?: string }) => ({
+          id,
+          title: "x",
+          status: update.status,
+          statusSyncSource: opts?.syncSource ?? null,
+        })
+      );
+    });
+
+    const post = (body: unknown) =>
+      withKey(request(app).post("/api/integration/play-status")).send(body as object);
+
+    it("maps the status, records the platform and keeps the user's own status", async () => {
+      const res = await post({
+        games: [
+          { title: "hades", status: "Beaten", platform: "GOG", externalId: "p1" },
+          { title: "Celeste", status: "Completed" },
+          { title: "Hollow Knight", status: "Playing" },
+          { title: "Unknown Game", status: "Playing" },
+          { title: "Hades", status: "Speedrunning" },
+        ],
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ received: 5, updated: 1, skipped: 3, unmatched: 1 });
+      expect(storage.updateGameStatus).toHaveBeenCalledTimes(1);
+      expect(storage.updateGameStatus).toHaveBeenCalledWith(
+        "g-owned",
+        { status: "completed" },
+        { syncSource: "gog" }
+      );
+      const reasons = res.body.results.map((r: { reason?: string }) => r.reason);
+      expect(reasons).toEqual([undefined, "manual_status", "wanted", undefined, "unknown_status"]);
+      expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "g-owned", USER.id);
+    });
+
+    it("promotes a wanted game only when asked", async () => {
+      const res = await post({
+        games: [{ title: "Hollow Knight", status: "Not Played" }],
+        promoteWanted: true,
+      });
+      expect(res.body.updated).toBe(1);
+    });
+
+    it("reports a status the user set between the read and the write as skipped", async () => {
+      (storage.updateGameStatus as Mock).mockResolvedValue(undefined);
+      const res = await post({ games: [{ title: "Hades", status: "Playing" }] });
+      expect(res.body.skipped).toBe(1);
+      expect(res.body.results[0].reason).toBe("manual_status");
+    });
+
+    it("rejects an invalid payload and a read-only key", async () => {
+      expect((await post({ games: [] })).status).toBe(400);
+      keyOverrides.scope = "read";
+      const ro = await post({ games: [{ title: "Hades", status: "Playing" }] });
+      expect(ro.status).toBe(403);
+    });
+  });
+
   describe("POST /api/integration/play-sessions", () => {
     const game = { id: "game-1", userId: USER.id, title: "Hades", steamAppId: 1145360 };
     const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();

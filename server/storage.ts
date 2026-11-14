@@ -272,11 +272,16 @@ export interface IStorage {
    * completed), checked in the same statement so a status the user picks while
    * a download or import is running can't be overwritten by the pipeline.
    * Returns undefined when nothing was updated.
+   *
+   * With `syncSource`, the write comes from a library sync (e.g. Playnite): it is recorded as
+   * `statusSyncSource` and only applies while the current status is not a user-curated one set
+   * by hand, again checked in the same statement. Any write without it clears `statusSyncSource`,
+   * so a status the user picks afterwards is protected from the next sync.
    */
   updateGameStatus(
     id: string,
     statusUpdate: UpdateGameStatus,
-    options?: { preserveCurated?: boolean }
+    options?: { preserveCurated?: boolean; syncSource?: string }
   ): Promise<Game | undefined>;
   updateGameHidden(id: string, hidden: boolean): Promise<Game | undefined>;
   updateGameUserRating(
@@ -831,6 +836,7 @@ export class MemStorage implements IStorage {
       id,
       userId: insertGame.userId || null,
       status: insertGame.status || "wanted",
+      statusSyncSource: null,
       hidden: insertGame.hidden ?? false, // Convert boolean to number or keep as boolean depending on memory usage
       isAdultContent: insertGame.isAdultContent ?? false,
       isAgeRestricted: insertGame.isAgeRestricted ?? false,
@@ -878,17 +884,25 @@ export class MemStorage implements IStorage {
   async updateGameStatus(
     id: string,
     statusUpdate: UpdateGameStatus,
-    options?: { preserveCurated?: boolean }
+    options?: { preserveCurated?: boolean; syncSource?: string }
   ): Promise<Game | undefined> {
     const game = this.games.get(id);
     if (!game) return undefined;
     if (options?.preserveCurated && isUserCuratedGameStatus(game.status)) return undefined;
+    if (
+      options?.syncSource &&
+      isUserCuratedGameStatus(game.status) &&
+      game.statusSyncSource === null
+    ) {
+      return undefined;
+    }
 
     const leavingWanted = game.status === "wanted" && statusUpdate.status !== "wanted";
 
     const updatedGame: Game = {
       ...game,
       status: statusUpdate.status,
+      statusSyncSource: options?.syncSource ?? null,
       completedAt: statusUpdate.status === "completed" ? new Date() : null,
       ...(leavingWanted
         ? {
@@ -3019,7 +3033,7 @@ export class DatabaseStorage implements IStorage {
   async updateGameStatus(
     id: string,
     statusUpdate: UpdateGameStatus,
-    options?: { preserveCurated?: boolean }
+    options?: { preserveCurated?: boolean; syncSource?: string }
   ): Promise<Game | undefined> {
     const existingGame = await this.getGame(id);
     const leavingWanted = existingGame?.status === "wanted" && statusUpdate.status !== "wanted";
@@ -3028,6 +3042,7 @@ export class DatabaseStorage implements IStorage {
       .update(games)
       .set({
         status: statusUpdate.status,
+        statusSyncSource: options?.syncSource ?? null,
         completedAt: statusUpdate.status === "completed" ? new Date() : null,
         ...(leavingWanted
           ? {
@@ -3040,7 +3055,15 @@ export class DatabaseStorage implements IStorage {
       .where(
         options?.preserveCurated
           ? and(eq(games.id, id), not(inArray(games.status, [...USER_CURATED_GAME_STATUSES])))
-          : eq(games.id, id)
+          : options?.syncSource
+            ? and(
+                eq(games.id, id),
+                or(
+                  not(inArray(games.status, [...USER_CURATED_GAME_STATUSES])),
+                  isNotNull(games.statusSyncSource)
+                )
+              )
+            : eq(games.id, id)
       )
       .returning();
 

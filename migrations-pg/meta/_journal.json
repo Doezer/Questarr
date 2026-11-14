@@ -162,6 +162,13 @@
       "when": 1794661404666,
       "tag": "0022_upgrade_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794664226935,
+      "tag": "0023_pale_tarot",
+      "breakpoints": true
     }
   ]
 }

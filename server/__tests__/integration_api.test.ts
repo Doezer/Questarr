@@ -674,7 +674,7 @@ describe("integration API", () => {
       expect(storage.updateGameStatus).toHaveBeenCalledWith(
         "g-owned",
         { status: "completed" },
-        { syncSource: "gog" }
+        { syncSource: "gog", allowWanted: false }
       );
       const reasons = res.body.results.map((r: { reason?: string }) => r.reason);
       expect(reasons).toEqual([undefined, "manual_status", "wanted", undefined, "unknown_status"]);

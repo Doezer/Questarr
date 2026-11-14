@@ -431,7 +431,8 @@ integrationRouter.post(
 // ── Play status from the couch PC ────────────────────────────────────────────
 // Playnite exposes the completion status of every library it reads (Steam, GOG, Epic...), so the
 // extension pushes it here. A status the user set by hand is never overwritten (see
-// decidePlayStatus); the write itself repeats that check in one statement.
+// decidePlayStatus); the write itself repeats that check in one statement, so a status or
+// download the user starts while a long sync runs is not overwritten.
 const playStatusSchema = z.object({
   games: z
     .array(
@@ -530,7 +531,7 @@ integrationRouter.post(
         const updated = await storage.updateGameStatus(
           match.id,
           { status: target },
-          { syncSource: toSyncSource(entry.platform) }
+          { syncSource: toSyncSource(entry.platform), allowWanted: promoteWanted }
         );
         if (!updated) {
           // The user set a status by hand between the read above and this write.

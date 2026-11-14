@@ -248,6 +248,18 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
         await storage().updateGameStatus(game.id, { status: "playing" }, sync)
       ).toBeUndefined();
       expect((await storage().getGame(game.id))?.status).toBe("shelved");
+
+      // A download or wanted game started meanwhile is left alone; wanted only on request.
+      await storage().updateGameStatus(game.id, { status: "downloading" });
+      expect(await storage().updateGameStatus(game.id, { status: "owned" }, sync)).toBeUndefined();
+      await storage().updateGameStatus(game.id, { status: "wanted" });
+      expect(await storage().updateGameStatus(game.id, { status: "owned" }, sync)).toBeUndefined();
+      const promoted = await storage().updateGameStatus(
+        game.id,
+        { status: "owned" },
+        { ...sync, allowWanted: true }
+      );
+      expect(promoted?.status).toBe("owned");
     });
 
     it("aggregates come back as numbers, not strings", async () => {

@@ -184,6 +184,7 @@ export const games = pgTable("games", {
   userRating: doublePrecision("user_rating"),
   libraryPath: text("library_path"),
   installedVersion: text("installed_version"),
+  installedVersionSource: text("installed_version_source"),
   upgradePolicy: text("upgrade_policy"),
   searchResultsAvailable: boolean("search_results_available").default(false).notNull(),
   searchResultsAvailableAt: timestampMs("search_results_available_at"),

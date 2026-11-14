@@ -1484,6 +1484,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     key={game.id}
                     gameId={game.id}
                     installedVersion={game.installedVersion ?? null}
+                    installedVersionSource={game.installedVersionSource ?? null}
                     releaseNames={downloadReleaseNames}
                   />
                 )}

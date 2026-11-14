@@ -255,6 +255,8 @@ export const games = sqliteTable("games", {
   userRating: real("user_rating"),
   libraryPath: text("library_path"),
   installedVersion: text("installed_version"),
+  // Where installedVersion came from (INSTALLED_VERSION_SOURCES); null while it is unset.
+  installedVersionSource: text("installed_version_source"),
   // Per-game override of the account default upgrade policy; null = use the default.
   upgradePolicy: text("upgrade_policy"), // UPGRADE_POLICIES
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
@@ -795,6 +797,16 @@ export const updateGameUserRatingSchema = z.object({
 
 // What to do when a newer version of an owned game turns up. Later steps of the upgrade loop add
 // "auto" (grab it); for now: "off" ignores updates, "notify" flags them and tells the user.
+/**
+ * Where a game's installed version came from. "manual" (typed by the user) always wins;
+ * "install" (read from files in the game folder) beats "release" (taken from the title of
+ * the release that was downloaded).
+ */
+export const INSTALLED_VERSION_SOURCES = ["manual", "release", "install"] as const;
+export type InstalledVersionSource = (typeof INSTALLED_VERSION_SOURCES)[number];
+/** The sources a version can be detected from, i.e. every one but the user typing it. */
+export type DetectedVersionSource = Exclude<InstalledVersionSource, "manual">;
+
 export const UPGRADE_POLICIES = ["off", "notify"] as const;
 export type UpgradePolicy = (typeof UPGRADE_POLICIES)[number];
 export const DEFAULT_UPGRADE_POLICY: UpgradePolicy = "notify";

@@ -10,11 +10,12 @@ import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
   assertCredentialsAllowed,
-  fetchWithMagnetDetection,
+  buildDownloaderBaseUrl,
   extractHashFromUrl,
+  fetchWithMagnetDetection,
+  findTorrentByTagNull,
   isHttpsUrl,
   logDownloaderDebugResponse,
-  findTorrentByTagNull,
 } from "./utils.js";
 import { z } from "zod";
 
@@ -89,29 +90,7 @@ export class DelugeClient implements DownloaderClient {
   }
 
   private getBaseUrl(): string {
-    let baseUrl = this.downloader.url;
-    if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
-      const protocol = this.downloader.useSsl ? "https://" : "http://";
-      baseUrl = protocol + baseUrl;
-    }
-
-    try {
-      const urlObj = new URL(baseUrl);
-      if (this.downloader.port) {
-        urlObj.port = this.downloader.port.toString();
-      }
-
-      if (this.downloader.urlPath) {
-        let path = this.downloader.urlPath;
-        if (!path.startsWith("/")) path = `/${path}`;
-        if (path.endsWith("/")) path = path.slice(0, -1);
-        urlObj.pathname = `${urlObj.pathname.replace(/\/$/, "")}${path}`;
-      }
-
-      return urlObj.toString().replace(/\/$/, "");
-    } catch {
-      return baseUrl.replace(/\/$/, "");
-    }
+    return buildDownloaderBaseUrl(this.downloader, { applyUrlPath: true });
   }
 
   private getRpcUrl(): string {
@@ -156,7 +135,8 @@ export class DelugeClient implements DownloaderClient {
 
     const hostsResponse = await this.makeRequest("web.get_hosts", []);
     const hosts = hostsResponse.result as
-      Array<[string, string, number, string, string]> | undefined;
+      | Array<[string, string, number, string, string]>
+      | undefined;
 
     const firstHost = hosts?.[0];
     if (!firstHost) {
@@ -434,7 +414,8 @@ export class DelugeClient implements DownloaderClient {
       ]);
 
       const torrents = response.result as
-        Record<string, { name?: string; time_added?: number }> | undefined;
+        | Record<string, { name?: string; time_added?: number }>
+        | undefined;
       if (!torrents || Object.keys(torrents).length === 0) return null;
 
       const entries = Object.entries(torrents);

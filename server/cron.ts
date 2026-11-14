@@ -1459,9 +1459,8 @@ async function runDownloadStatusCheck() {
 
             // Send notification
             const message = `Download finished for ${gameTitle}`;
-            if (shouldSendCompletionNotification) {
-              emitDownloadCompleted(download, gameTitle, game?.userId);
-            }
+            // The webhook means "finished in the client": it does not depend on the in-app flag.
+            emitDownloadCompleted(download, gameTitle, game?.userId);
             const dlSettings = await storage.getUserSettings(game?.userId ?? "");
             const dlPrefs = resolvePrefs(dlSettings);
             if (shouldSendCompletionNotification && dlPrefs.downloadCompleted.inApp) {
@@ -1880,6 +1879,7 @@ async function handleProbablyFinishedDisappearance(
       "be located automatically. Review it and point the import at the downloaded files."
   );
   notifyUser("downloadUpdate", download.gameId);
+  emitDownloadCompleted(download, gameTitle, game?.userId);
   try {
     const notification = await storage.addNotification({
       type: "warning",

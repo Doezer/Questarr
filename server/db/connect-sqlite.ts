@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { sql } from "drizzle-orm";
 import path from "path";
 import fs from "fs";
+import { resolveSqliteDbPath } from "./sqlite-path.js";
 import * as schema from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import type { DatabaseConnection } from "./types.js";
@@ -17,7 +18,7 @@ import type { DatabaseConnection } from "./types.js";
 export function connectSqlite(): DatabaseConnection {
   // In production, the database file should be in a persistent location
   // For development, it's in the project root
-  let dbPath = process.env.SQLITE_DB_PATH || path.join(process.cwd(), "sqlite.db");
+  const dbPath = resolveSqliteDbPath();
 
   // Ensure directory exists
   const dbDir = path.dirname(dbPath);
@@ -25,15 +26,6 @@ export function connectSqlite(): DatabaseConnection {
     if (!fs.existsSync(dbDir)) {
       logger.info(`Creating database directory: ${dbDir}`);
       fs.mkdirSync(dbDir, { recursive: true });
-    }
-
-    // Verify permissions/status of the file if it exists
-    if (fs.existsSync(dbPath)) {
-      const stats = fs.statSync(dbPath);
-      if (stats.isDirectory()) {
-        logger.warn(`Database path ${dbPath} is a directory, appending /sqlite.db`);
-        dbPath = path.join(dbPath, "sqlite.db");
-      }
     }
   } catch (err) {
     logger.error({ err }, `Failed to verify/create database directory ${dbDir}`);

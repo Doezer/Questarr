@@ -24,7 +24,7 @@ import { registerRoutes } from "../routes.js";
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
 vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
 vi.mock("../auth.js", () => createAuthMock());
-vi.mock("../db.js", () => ({ db: createDbMock() }));
+vi.mock("../db.js", () => ({ db: createDbMock(), dialect: "sqlite" }));
 vi.mock("../logger.js", () => createLoggerMocks());
 vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
 vi.mock("../torznab.js", () => ({ torznabClient: createTorznabMock() }));

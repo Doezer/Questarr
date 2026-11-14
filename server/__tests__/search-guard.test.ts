@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  getIndexerCooldownMs,
+  IndexerCoolingDownError,
+  IndexerRateLimitedError,
+  noteIndexerRateLimited,
+  parseRetryAfter,
   getIndexerTimeoutMs,
   getMaxConcurrentPerIndexer,
   guardedIndexerSearch,
@@ -154,5 +159,77 @@ describe("search guard settings", () => {
     expect(getMaxConcurrentPerIndexer()).toBe(10);
     process.env.SEARCH_INDEXER_TIMEOUT_MS = "abc";
     expect(getIndexerTimeoutMs()).toBe(30_000);
+  });
+});
+
+describe("per-indexer timeout", () => {
+  it("prefers the indexer's own timeout, clamped, over the global one", () => {
+    process.env.SEARCH_INDEXER_TIMEOUT_MS = "20000";
+    expect(getIndexerTimeoutMs({ timeoutSeconds: 5 })).toBe(5_000);
+    expect(getIndexerTimeoutMs({ timeoutSeconds: 9999 })).toBe(300_000);
+    expect(getIndexerTimeoutMs({ timeoutSeconds: null })).toBe(20_000);
+    expect(getIndexerTimeoutMs()).toBe(20_000);
+  });
+});
+
+describe("429 backoff", () => {
+  it("parses Retry-After as seconds or HTTP date", () => {
+    expect(parseRetryAfter("12")).toBe(12_000);
+    expect(parseRetryAfter(null)).toBeNull();
+    expect(parseRetryAfter("garbage")).toBeNull();
+    const now = Date.parse("2026-01-01T00:00:00Z");
+    expect(parseRetryAfter("Thu, 01 Jan 2026 00:01:00 GMT", now)).toBe(60_000);
+  });
+
+  it("honours Retry-After, else backs off exponentially up to a cap", () => {
+    expect(noteIndexerRateLimited("a", 90_000, 0)).toBe(90_000);
+    expect(noteIndexerRateLimited("b", null, 0)).toBe(30_000);
+    expect(noteIndexerRateLimited("b", null, 0)).toBe(60_000);
+    for (let i = 0; i < 10; i++) noteIndexerRateLimited("b", null, 0);
+    expect(noteIndexerRateLimited("b", null, 0)).toBe(15 * 60_000);
+  });
+
+  it("does not shorten a longer active cooldown when a shorter 429 follows", () => {
+    noteIndexerRateLimited("idx", 3_600_000, 0);
+    noteIndexerRateLimited("idx", 30_000, 1_000);
+    expect(getIndexerCooldownMs("idx", 2_000)).toBe(3_600_000 - 2_000);
+  });
+
+  it("rejects without calling the indexer while cooling down, and recovers after a success", async () => {
+    let calls = 0;
+    const limited = () => {
+      calls++;
+      return Promise.reject(new IndexerRateLimitedError("429", 60_000));
+    };
+    await expect(guardedIndexerSearch("idx", "q1", {}, limited)).rejects.toThrow("429");
+    expect(getIndexerCooldownMs("idx")).toBeGreaterThan(0);
+    await expect(guardedIndexerSearch("idx", "q2", {}, limited)).rejects.toBeInstanceOf(
+      IndexerCoolingDownError
+    );
+    expect(calls).toBe(1);
+  });
+
+  it("keeps a cooldown set by a 429 that arrived while another search was in flight", async () => {
+    const gate = deferred<string>();
+    const slow = guardedIndexerSearch("idx", "slow", {}, () => gate.promise);
+    await Promise.resolve();
+    await expect(
+      guardedIndexerSearch("idx", "limited", {}, () =>
+        Promise.reject(new IndexerRateLimitedError("429", 60_000))
+      )
+    ).rejects.toThrow("429");
+    gate.resolve("ok");
+    await slow;
+    expect(getIndexerCooldownMs("idx")).toBeGreaterThan(0);
+  });
+
+  it("sees a 429 wrapped as the cause of another error", async () => {
+    const wrapped = () =>
+      Promise.reject(
+        new Error("Failed to search", { cause: new IndexerRateLimitedError("429", null) })
+      );
+    await expect(guardedIndexerSearch("idx", "q", {}, wrapped)).rejects.toThrow("Failed");
+    expect(getIndexerCooldownMs("idx")).toBeGreaterThan(0);
+    expect(getIndexerCooldownMs("other")).toBe(0);
   });
 });

@@ -76,6 +76,11 @@ export class ConfigLoader {
     });
   }
 
+  /** Re-read the file, e.g. after a restore replaced it. */
+  public reload(): void {
+    this.config = this.loadConfig();
+  }
+
   public getConfig(): AppConfig {
     return this.config;
   }

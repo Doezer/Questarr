@@ -12,6 +12,8 @@ import { routesLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 import {
   getIndexerTimeoutMs,
+  IndexerRateLimitedError,
+  parseRetryAfter,
   guardedIndexerSearch,
   type SearchGuardOptions,
 } from "./search-guard.js";
@@ -175,10 +177,17 @@ class NewznabClient {
         headers: {
           "User-Agent": "Questarr/1.0",
         },
-        timeoutMs: getIndexerTimeoutMs(),
+        timeoutMs: getIndexerTimeoutMs(indexer),
         ...(signal ? { signal } : {}),
         requireHttps,
       });
+
+      if (response.status === 429) {
+        throw new IndexerRateLimitedError(
+          "HTTP 429: Too Many Requests",
+          parseRetryAfter(response.headers.get("Retry-After"))
+        );
+      }
 
       if (!response.ok) {
         throw new Error(
@@ -425,7 +434,8 @@ class NewznabClient {
       url.searchParams.set("t", "caps");
 
       const response = await safeFetch(url.toString(), {
-        signal: AbortSignal.timeout(10000),
+        // Keep the short 10 s default for a quick test unless the indexer sets its own timeout.
+        timeoutMs: indexer.timeoutSeconds ? getIndexerTimeoutMs(indexer) : 10_000,
         requireHttps: sendsApiKey && url.protocol === "https:",
       });
 

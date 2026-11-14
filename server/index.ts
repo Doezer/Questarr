@@ -1,5 +1,7 @@
 // Force restart trigger
 import "dotenv/config";
+// Applies a staged SQLite restore; must run before anything opens the database.
+import "./backup/boot.js";
 import https from "https";
 import type { RequestListener } from "node:http";
 import fs from "fs";
@@ -14,6 +16,7 @@ import { resumeSteamLibraryImports } from "./steam-library-jobs.js";
 import { setupSocketIO } from "./socket.js";
 import { createHttpsRedirect } from "./https-redirect.js";
 import { ensureDatabase } from "./migrate.js";
+import { applyPendingPostgresRestore } from "./backup/restore.js";
 import { loadClassificationSettingsWithRetry } from "./classification/settings.js";
 import { rssService } from "./rss.js";
 import { nexusmodsClient } from "./nexusmods.js";
@@ -59,6 +62,7 @@ void (async () => {
   try {
     // Ensure database is ready before starting server
     await ensureDatabase();
+    await applyPendingPostgresRestore();
 
     // Seed default platform mappings (must run after migrations create the table)
     try {

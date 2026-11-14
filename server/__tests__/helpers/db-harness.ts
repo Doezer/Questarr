@@ -38,7 +38,7 @@ export interface TestDb {
  * be set before the module graph is re-imported -- hence resetModules() and the
  * dynamic imports.
  */
-export async function setupTestDb(dialect: TestDialect): Promise<TestDb> {
+export async function setupTestDb(dialect: TestDialect, sqliteFile?: string): Promise<TestDb> {
   vi.resetModules();
 
   if (dialect === "pglite") {
@@ -48,7 +48,7 @@ export async function setupTestDb(dialect: TestDialect): Promise<TestDb> {
   } else {
     delete process.env.QUESTARR_DB_DRIVER;
     delete process.env.DB_DIALECT;
-    process.env.SQLITE_DB_PATH = ":memory:";
+    process.env.SQLITE_DB_PATH = sqliteFile ?? ":memory:";
   }
 
   const dbModule = await import("../../db.js");

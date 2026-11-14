@@ -365,6 +365,7 @@ describe("ImportManager", () => {
       status: "owned",
       platforms: [6],
       installedVersion: "v1.1",
+      installedVersionSource: "release",
     });
     storage.getImportConfig.mockResolvedValue({ ...baseConfig, libraryRoot: "/safe/root" });
 
@@ -384,7 +385,12 @@ describe("ImportManager", () => {
     });
 
     expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
-    expect(storage.replaceGameInstalledVersion).toHaveBeenCalledWith("g1", "v1.1", "v1.2");
+    expect(storage.replaceGameInstalledVersion).toHaveBeenCalledWith(
+      "g1",
+      "v1.1",
+      "v1.2",
+      "release"
+    );
   });
 
   it.each(["playing", "shelved", "completed"])(

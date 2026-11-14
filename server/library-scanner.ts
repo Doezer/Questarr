@@ -31,6 +31,7 @@ import {
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { igdbLogger, routesLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
+import { recordVersionFromInstallFolder } from "./game-version.js";
 import type { InsertGame, InsertGameFile, GameFile, GameFileCategory } from "../shared/schema.js";
 import { isUserCuratedGameStatus } from "../shared/schema.js";
 
@@ -639,6 +640,7 @@ export async function matchUnmatchedFolder(
 
   const files = isFile ? [{ absolutePath, size: standaloneSize }] : await listFiles(absolutePath);
   const filesAdded = await assignFilesToGame(game.id, files);
+  if (!isFile) await recordVersionFromInstallFolder(storage, game.id, absolutePath);
 
   clearUnmatched(rootFolderId, folderName);
   return { gameId: game.id, filesAdded };
@@ -716,6 +718,25 @@ export async function rescanRootFolderById(rootFolderId: string, userId: string)
   await scanRootFolderById(rootFolderId, userId);
 }
 
+/**
+ * Re-reads the install files of the games living under a root folder, so a game that was
+ * patched in place gets its new version. Best-effort: one folder failing never stops the scan.
+ */
+async function refreshInstalledVersions(rootPath: string, userId: string): Promise<void> {
+  try {
+    const root = path.resolve(rootPath);
+    const games = await storage.getUserGames(userId, true);
+    for (const game of games) {
+      if (!game.libraryPath || game.installedVersionSource === "manual") continue;
+      const folder = path.resolve(game.libraryPath);
+      if (folder !== root && !folder.startsWith(root + path.sep)) continue;
+      await recordVersionFromInstallFolder(storage, game.id, folder);
+    }
+  } catch (err) {
+    routesLogger.warn({ err, rootPath }, "scan: could not refresh installed versions");
+  }
+}
+
 type RootFolderRow = NonNullable<Awaited<ReturnType<typeof storage.getRootFolder>>>;
 
 /** Auto-link a strongly matched candidate to a game and record its files. */
@@ -745,6 +766,7 @@ async function recordMatchedCandidate(
     }
   }
   await assignFilesToGame(game.id, files);
+  await recordVersionFromInstallFolder(storage, game.id, game.libraryPath ?? cand.absolutePath);
   return game.id;
 }
 
@@ -930,6 +952,8 @@ async function runScan(
       progress.processedCandidates += 1;
       emitProgress(progress);
     }
+
+    await refreshInstalledVersions(rootFolder.path, userId);
 
     // Record the scan time first: the next folder of a batch is already
     // "queued", so nothing waits on I/O between this completion and its start.

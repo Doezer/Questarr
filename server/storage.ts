@@ -79,6 +79,7 @@ import {
   type GameScreenshot,
   type UpgradePolicy,
   DEFAULT_UPGRADE_POLICY,
+  type DetectedVersionSource,
 } from "../shared/schema.js";
 import {
   users,
@@ -140,6 +141,7 @@ import {
 import { containsCI, distinctJoin, affectedRows } from "./sql-compat.js";
 import { transactionalOps } from "./db/transactional-ops.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
+import { canAutoWriteVersion } from "../shared/version-utils.js";
 import { firstOrThrow, stripUndefined } from "./object-utils.js";
 import {
   encryptCredential,
@@ -290,13 +292,15 @@ export interface IStorage {
     installedVersion: string | null
   ): Promise<Game | undefined>;
   /**
-   * Sets a game's installed version only if it still equals `expected` (null = not set), so a
-   * detected version can't overwrite one written in between. Returns whether it was written.
+   * Sets a game's detected installed version only if it still equals `expected` (null = not
+   * set) and was not typed by the user, so a detected version can't overwrite one written in
+   * between. Returns whether it was written.
    */
   replaceGameInstalledVersion(
     id: string,
     expected: string | null,
-    installedVersion: string
+    installedVersion: string,
+    source?: DetectedVersionSource
   ): Promise<boolean>;
   updateGameUpgradePolicy(
     id: string,
@@ -867,6 +871,7 @@ export class MemStorage implements IStorage {
       userRating: null,
       libraryPath: null,
       installedVersion: null,
+      installedVersionSource: null,
       upgradePolicy: null,
       addedAt: new Date(),
       completedAt: null,
@@ -950,7 +955,12 @@ export class MemStorage implements IStorage {
     const game = this.games.get(id);
     if (game?.userId !== userId) return Promise.resolve(undefined);
 
-    const updatedGame: Game = { ...game, installedVersion };
+    // A version typed by the user is "manual"; clearing it clears the source too.
+    const updatedGame: Game = {
+      ...game,
+      installedVersion,
+      installedVersionSource: installedVersion ? "manual" : null,
+    };
     this.games.set(id, updatedGame);
     return Promise.resolve(updatedGame);
   }
@@ -958,11 +968,14 @@ export class MemStorage implements IStorage {
   replaceGameInstalledVersion(
     id: string,
     expected: string | null,
-    installedVersion: string
+    installedVersion: string,
+    source: DetectedVersionSource = "release"
   ): Promise<boolean> {
     const game = this.games.get(id);
-    if (!game || (game.installedVersion ?? null) !== expected) return Promise.resolve(false);
-    this.games.set(id, { ...game, installedVersion });
+    if (!game || (game.installedVersion ?? null) !== expected || !canAutoWriteVersion(game)) {
+      return Promise.resolve(false);
+    }
+    this.games.set(id, { ...game, installedVersion, installedVersionSource: source });
     return Promise.resolve(true);
   }
 
@@ -3089,7 +3102,8 @@ export class DatabaseStorage implements IStorage {
   ): Promise<Game | undefined> {
     const [updatedGame] = await db
       .update(games)
-      .set({ installedVersion })
+      // A version typed by the user is "manual"; clearing it clears the source too.
+      .set({ installedVersion, installedVersionSource: installedVersion ? "manual" : null })
       .where(and(eq(games.id, id), eq(games.userId, userId)))
       .returning();
     return updatedGame || undefined;
@@ -3098,14 +3112,20 @@ export class DatabaseStorage implements IStorage {
   async replaceGameInstalledVersion(
     id: string,
     expected: string | null,
-    installedVersion: string
+    installedVersion: string,
+    source: DetectedVersionSource = "release"
   ): Promise<boolean> {
     const current =
       expected === null ? isNull(games.installedVersion) : eq(games.installedVersion, expected);
+    // Never over a version the user typed (or a legacy one with no source recorded).
+    const notManual = or(
+      inArray(games.installedVersionSource, ["release", "install"]),
+      and(isNull(games.installedVersionSource), isNull(games.installedVersion))
+    );
     const result = await db
       .update(games)
-      .set({ installedVersion })
-      .where(and(eq(games.id, id), current));
+      .set({ installedVersion, installedVersionSource: source })
+      .where(and(eq(games.id, id), current, notManual));
     return affectedRows(result) > 0;
   }
 

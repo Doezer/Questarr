@@ -187,9 +187,17 @@ describe("DatabaseStorage Extended Coverage", () => {
       const versionUpdated = await storage.updateGameInstalledVersion(game.id, userId, "v1.2.3");
       expect(versionUpdated?.installedVersion).toBe("v1.2.3");
       expect(await storage.updateGameInstalledVersion(game.id, "other-user", "v9")).toBeUndefined();
+      expect(versionUpdated?.installedVersionSource).toBe("manual");
+      // A version typed by the user is never replaced by a detected one.
+      expect(await storage.replaceGameInstalledVersion(game.id, "v1.2.3", "v1.3")).toBe(false);
+      await storage.updateGameInstalledVersion(game.id, userId, null);
       expect(await storage.replaceGameInstalledVersion(game.id, "v1.0", "v1.3")).toBe(false);
-      expect(await storage.replaceGameInstalledVersion(game.id, "v1.2.3", "v1.3")).toBe(true);
-      expect((await storage.getGame(game.id))?.installedVersion).toBe("v1.3");
+      expect(await storage.replaceGameInstalledVersion(game.id, null, "v1.3", "install")).toBe(
+        true
+      );
+      const detected = await storage.getGame(game.id);
+      expect(detected?.installedVersion).toBe("v1.3");
+      expect(detected?.installedVersionSource).toBe("install");
 
       await storage.updateGameSearchResultsAvailable(game.id, true);
       const refetched = await storage.getGame(game.id);

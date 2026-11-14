@@ -1,4 +1,5 @@
 import {
+  canAutoWriteVersion,
   carriesBaseGameVersion,
   compareVersions,
   extractVersionFromReleaseName,
@@ -6,6 +7,7 @@ import {
 import type { IStorage } from "./storage.js";
 import { logger } from "./logger.js";
 import { notifyUser } from "./socket.js";
+import { detectVersionFromInstallFolder } from "./install-version.js";
 
 /**
  * Records the version carried by an installed download's release name (e.g. "v1.2.3") as the
@@ -13,7 +15,8 @@ import { notifyUser } from "./socket.js";
  * finishes with post-processing off, or when the import is finalized. Only the full game
  * (editions included) or an update counts (a DLC's version says nothing about the base game),
  * and a known version is only ever moved forward: an older or incomparable release never
- * overwrites what the user has. `category` is the one stored with the download, if any;
+ * overwrites what the user has. A version typed by the user, or read from the install's own
+ * files, is never replaced by one taken from a release name. `category` is the one stored with the download, if any;
  * otherwise it is inferred from the title.
  * Never throws, so a failure here can't break the download or import flow. Returns the version
  * recorded, if any.
@@ -37,7 +40,9 @@ export async function recordVersionFromCompletedDownload(
     let game: Awaited<ReturnType<typeof store.getGame>>;
     for (let attempt = 0; ; attempt++) {
       game = await store.getGame(gameId);
-      if (!game) return null;
+      if (!game || game.installedVersionSource === "install" || !canAutoWriteVersion(game)) {
+        return null;
+      }
       if (game.installedVersion?.trim()) {
         const cmp = compareVersions(detected, game.installedVersion);
         if (cmp === null || cmp <= 0) return null;
@@ -45,7 +50,8 @@ export async function recordVersionFromCompletedDownload(
       const written = await store.replaceGameInstalledVersion(
         game.id,
         game.installedVersion ?? null,
-        detected
+        detected,
+        "release"
       );
       if (written) break;
       if (attempt >= 2) return null;
@@ -62,6 +68,49 @@ export async function recordVersionFromCompletedDownload(
       { error, gameId, item: downloadTitle },
       "Failed to record game version from completed download"
     );
+    return null;
+  }
+}
+
+/**
+ * Reads the version from the files of a game's install folder (version.txt, a GOG .info file,
+ * a Steam app manifest, an .nfo) and records it. The files are what is really installed, so
+ * the version found there replaces one taken from a release name, whatever its order; only a
+ * version the user typed is left alone. Never throws. Returns the version recorded, if any.
+ */
+export async function recordVersionFromInstallFolder(
+  store: Pick<IStorage, "getGame" | "replaceGameInstalledVersion">,
+  gameId: string,
+  folder: string | null | undefined
+): Promise<string | null> {
+  try {
+    if (!folder) return null;
+    const detected = await detectVersionFromInstallFolder(folder);
+    if (!detected) return null;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const game = await store.getGame(gameId);
+      if (!game || !canAutoWriteVersion(game)) return null;
+      if (game.installedVersion?.trim() === detected && game.installedVersionSource === "install") {
+        return null;
+      }
+      const written = await store.replaceGameInstalledVersion(
+        game.id,
+        game.installedVersion ?? null,
+        detected,
+        "install"
+      );
+      if (!written) continue;
+      logger.info(
+        { gameId: game.id, previous: game.installedVersion, installedVersion: detected },
+        "Recorded game version from install files"
+      );
+      notifyUser("gameUpdated", game.id);
+      return detected;
+    }
+    return null;
+  } catch (error) {
+    logger.warn({ error, gameId, folder }, "Failed to record game version from install files");
     return null;
   }
 }

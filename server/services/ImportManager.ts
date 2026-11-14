@@ -33,6 +33,7 @@ import { appriseClient } from "../apprise.js";
 import { isRommPlatformFoldersEnabled, requestRommScanAfterImport } from "../romm.js";
 import { isValidRommSlug, rommSlugForPlatformId } from "../../shared/romm-platforms.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
+import { emitWebhookEvent } from "../webhooks.js";
 
 const PLATFORM_FOLDER_NAMES: Record<string, string> = {
   ...Object.fromEntries(
@@ -533,6 +534,15 @@ export class ImportManager {
     archiveInDest: string,
     err: unknown
   ): Promise<void> {
+    emitWebhookEvent(
+      "import.failed",
+      {
+        gameId: game.id,
+        gameTitle: game.title,
+        reason: `Archive extraction failed: ${err instanceof Error ? err.message : String(err)}`,
+      },
+      game.userId
+    );
     await this.storage
       .addNotification({
         userId: game.userId ?? "",
@@ -714,6 +724,15 @@ export class ImportManager {
       "[ImportManager] Path not accessible after retries — check path mappings under Settings → Path Mappings"
     );
     await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+    emitWebhookEvent(
+      "import.failed",
+      {
+        downloadId,
+        gameTitle: meta.gameTitle ?? null,
+        reason: "The downloaded files could not be accessed. Check the path mappings.",
+      },
+      meta.userId
+    );
     if (meta.gameTitle && meta.userId) {
       try {
         const notification = await this.storage.addNotification({

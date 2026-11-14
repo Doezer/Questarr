@@ -44,6 +44,9 @@ export const TABLE_ORDER = [
   "classificationCache",
   // References users and games; nothing references it.
   "integrationRequests",
+  // Reference users / webhookSubscriptions; deliveries come after their subscription.
+  "webhookSubscriptions",
+  "webhookDeliveries",
 ] as const;
 
 export type TableName = (typeof TABLE_ORDER)[number];

@@ -51,5 +51,7 @@ export const {
   systemConfig,
   userSettings,
   users,
+  webhookDeliveries,
+  webhookSubscriptions,
   xrelNotifiedReleases,
 } = active;

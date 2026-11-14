@@ -80,7 +80,15 @@ export function EditSessionDialog({
           className="space-y-4"
           onSubmit={(event) => {
             event.preventDefault();
-            if (session && startDate && endDate && !problem) onSave(session, startDate, endDate);
+            if (!session?.endedAt || !startDate || !endDate || problem) return;
+            // The inputs only show minutes: a field left alone keeps its exact stored instant.
+            const keptStart = start === toLocalInput(session.startedAt);
+            const keptEnd = end === toLocalInput(session.endedAt);
+            onSave(
+              session,
+              keptStart ? new Date(session.startedAt) : startDate,
+              keptEnd ? new Date(session.endedAt) : endDate
+            );
           }}
         >
           <div className="space-y-1">

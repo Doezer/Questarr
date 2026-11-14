@@ -219,4 +219,25 @@ describe("GamePlaytime", () => {
     expect(screen.queryByRole("button", { name: /^Split the/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
+
+  it("keeps the exact time of a field left alone when editing", async () => {
+    const session = {
+      ...finished("s-1", 90, 3),
+      startedAt: new Date(Date.UTC(2026, 9, 3, 18, 0, 37)).toISOString(),
+      endedAt: new Date(Date.UTC(2026, 9, 3, 19, 30, 50)).toISOString(),
+    };
+    mockSessions([session]);
+    renderPlaytime();
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Edit the 1h 30m session/ }));
+    fireEvent.change(await screen.findByLabelText("Stopped"), {
+      target: { value: "2026-10-03T20:00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(apiRequest).toHaveBeenCalled());
+    const body = apiRequest.mock.calls[0]?.[2] as { startedAt: string; endedAt: string };
+    expect(body.startedAt).toBe(session.startedAt);
+    expect(new Date(body.endedAt).getTime()).toBe(new Date("2026-10-03T20:00").getTime());
+  });
 });

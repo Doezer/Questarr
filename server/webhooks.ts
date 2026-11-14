@@ -135,8 +135,8 @@ async function attemptDelivery(
       body,
     });
     statusCode = res.status;
-    // Drain the body so the connection is released; the content is irrelevant.
-    await res.arrayBuffer().catch(() => undefined);
+    // Release the connection without buffering whatever the receiver sent back.
+    await res.body?.cancel().catch(() => undefined);
     if (res.status < 200 || res.status >= 300) error = `HTTP ${res.status}`;
   } catch (err) {
     error = truncate(err instanceof Error ? err.message : String(err));
@@ -227,9 +227,9 @@ export function emitWebhookEvent(
 ): void {
   void (async () => {
     const enabled = await storage.getEnabledWebhookSubscriptions();
-    // Owner unknown (a game row without a user): deliver only when every webhook belongs to the
-    // same user, as on a single-user install. With several owners, never broadcast across them.
-    if (!userId && new Set(enabled.map((s) => s.userId)).size > 1) return;
+    // Owner unknown (a game row without a user): deliver only on a single-user install. With
+    // several accounts, never broadcast across them.
+    if (!userId && (await storage.countUsers()) !== 1) return;
     const subs = enabled.filter((s) => s.events.includes(type) && (!userId || s.userId === userId));
     await Promise.all(subs.map((sub) => deliverWebhook(sub, buildWebhookEnvelope(type, data))));
   })().catch((err) => {

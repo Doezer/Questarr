@@ -234,11 +234,22 @@ describe.each(activeTestDialects())("outbound webhooks (%s)", (dialect) => {
       expect(safeFetchMock).not.toHaveBeenCalled();
     });
 
-    it("delivers an ownerless event when all webhooks share one owner", async () => {
+    it("delivers an ownerless event on a single-user install", async () => {
       await createSub({ events: ["game.released"] });
-      safeFetchMock.mockResolvedValue(okResponse());
-      webhooks.emitWebhookEvent("game.released", { gameTitle: "Z" }, undefined);
-      await vi.waitFor(() => expect(safeFetchMock).toHaveBeenCalledTimes(1));
+      const spy = vi.spyOn(db.storage, "countUsers").mockResolvedValue(1);
+      try {
+        safeFetchMock.mockResolvedValue(okResponse());
+        webhooks.emitWebhookEvent("game.released", { gameTitle: "Z" }, undefined);
+        await vi.waitFor(() => expect(safeFetchMock).toHaveBeenCalledTimes(1));
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("signs timestamp.body with HMAC-SHA256 (known answer)", () => {
+      expect(webhooks.signWebhookBody("whsec_test", "1700000000", '{"a":1}')).toBe(
+        "sha256=38877139021993b830af32feea6e18a8da83eb2f6e49ee50bd9e4cf4ca4d3789"
+      );
     });
 
     it("trims each subscription's log to the newest attempts", async () => {

@@ -529,20 +529,31 @@ export class ImportManager {
     }
   }
 
+  /** Publishes `import.failed` for a download; best effort, never throws. */
+  private async emitImportFailed(downloadId: string, err: unknown): Promise<void> {
+    try {
+      const download = await this.storage.getGameDownload(downloadId);
+      const game = download ? await this.storage.getGame(download.gameId) : undefined;
+      emitWebhookEvent(
+        "import.failed",
+        {
+          downloadId,
+          gameId: game?.id ?? download?.gameId ?? null,
+          gameTitle: game?.title ?? download?.downloadTitle ?? null,
+          reason: err instanceof Error ? err.message : String(err),
+        },
+        game?.userId
+      );
+    } catch (emitErr) {
+      logger.debug({ emitErr, downloadId }, "[ImportManager] import.failed webhook skipped");
+    }
+  }
+
   private async notifyStrandedImport(
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     archiveInDest: string,
     err: unknown
   ): Promise<void> {
-    emitWebhookEvent(
-      "import.failed",
-      {
-        gameId: game.id,
-        gameTitle: game.title,
-        reason: `Archive extraction failed: ${err instanceof Error ? err.message : String(err)}`,
-      },
-      game.userId
-    );
     await this.storage
       .addNotification({
         userId: game.userId ?? "",
@@ -1123,6 +1134,7 @@ export class ImportManager {
       } catch (statusErr) {
         logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
       }
+      await this.emitImportFailed(downloadId, err);
     }
   }
 
@@ -1437,6 +1449,7 @@ export class ImportManager {
       } catch (statusErr) {
         logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
       }
+      await this.emitImportFailed(downloadId, err);
       throw err;
     }
   }

@@ -55,18 +55,28 @@ const EVENT_LABELS: Record<string, string> = {
 const QUERY_KEY = ["/api/webhooks"];
 
 function DeliveryLog({ id }: { id: string }) {
-  const { data, isLoading } = useQuery<WebhookDelivery[]>({
+  const { data, isLoading, isError, refetch } = useQuery<WebhookDelivery[]>({
     queryKey: [`/api/webhooks/${id}/deliveries`],
     queryFn: () => apiRequest("GET", `/api/webhooks/${id}/deliveries`).then((r) => r.json()),
   });
 
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (isError) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm text-red-400" role="alert">
+        <span>Could not load deliveries.</span>
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
   if (!data || data.length === 0) {
     return <p className="text-sm text-muted-foreground">No delivery attempts yet.</p>;
   }
   return (
     <ul className="space-y-1 text-sm" aria-label="Recent delivery attempts">
-      {data.slice(0, 10).map((d) => {
+      {data.map((d) => {
         const ok = d.statusCode !== null && d.statusCode >= 200 && d.statusCode < 300;
         return (
           <li key={d.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -179,7 +189,7 @@ export default function WebhookSubscriptionsCard() {
   const [events, setEvents] = useState<string[]>([]);
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testingIds, setTestingIds] = useState<ReadonlySet<string>>(new Set());
 
   const { data } = useQuery<WebhookListResponse>({
     queryKey: QUERY_KEY,
@@ -240,7 +250,7 @@ export default function WebhookSubscriptionsCard() {
 
   const testMutation = useMutation({
     mutationFn: async (id: string) => {
-      setTestingId(id);
+      setTestingIds((prev) => new Set(prev).add(id));
       await apiRequest("POST", `/api/webhooks/${id}/test`);
       return id;
     },
@@ -252,7 +262,12 @@ export default function WebhookSubscriptionsCard() {
       toast({ title: `Test failed: ${err.message}`, variant: "destructive" });
       queryClient.invalidateQueries({ queryKey: [`/api/webhooks/${id}/deliveries`] });
     },
-    onSettled: () => setTestingId(null),
+    onSettled: (_data, _err, id) =>
+      setTestingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      }),
   });
 
   const handleToggle = useCallback(
@@ -317,7 +332,7 @@ export default function WebhookSubscriptionsCard() {
               onToggle={handleToggle}
               onTest={handleTest}
               onDelete={handleDelete}
-              testing={testingId === sub.id}
+              testing={testingIds.has(sub.id)}
             />
           ))
         )}

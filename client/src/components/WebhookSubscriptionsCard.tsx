@@ -191,7 +191,7 @@ export default function WebhookSubscriptionsCard() {
   const [copied, setCopied] = useState(false);
   const [testingIds, setTestingIds] = useState<ReadonlySet<string>>(new Set());
 
-  const { data } = useQuery<WebhookListResponse>({
+  const { data, isLoading, isError, refetch } = useQuery<WebhookListResponse>({
     queryKey: QUERY_KEY,
     queryFn: () => apiRequest("GET", "/api/webhooks").then((r) => r.json()),
   });
@@ -320,7 +320,16 @@ export default function WebhookSubscriptionsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {subscriptions.length === 0 ? (
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : isError ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm text-red-400" role="alert">
+            <span>Could not load webhooks.</span>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              Retry
+            </Button>
+          </div>
+        ) : subscriptions.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="webhooks-empty">
             No webhooks yet.
           </p>

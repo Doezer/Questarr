@@ -854,7 +854,8 @@ function Get-QuestarrPlayStatusPayload {
 function Invoke-QuestarrPlayStatusBatches {
     param(
         [Parameter(Mandatory)] $Config,
-        [Parameter(Mandatory)] $Entries
+        [Parameter(Mandatory)] $Entries,
+        $Progress = $null
     )
 
     $updated = 0
@@ -863,6 +864,11 @@ function Invoke-QuestarrPlayStatusBatches {
     $unmatched = 0
 
     for ($offset = 0; $offset -lt $Entries.Count; $offset += $script:PlayStatusBatchSize) {
+        if ($null -ne $Progress -and $Progress.CancelToken.IsCancellationRequested) {
+            # $null (not a partial tally) tells the caller the user cut it short.
+            return $null
+        }
+
         $take = [Math]::Min($script:PlayStatusBatchSize, $Entries.Count - $offset)
         $batch = @($Entries.GetRange($offset, $take))
 
@@ -875,6 +881,10 @@ function Invoke-QuestarrPlayStatusBatches {
         $unchanged += [int]$response.unchanged
         $skipped += [int]$response.skipped
         $unmatched += [int]$response.unmatched
+
+        if ($null -ne $Progress) {
+            $Progress.CurrentProgressValue = $offset + $take
+        }
     }
 
     return [PSCustomObject]@{
@@ -883,6 +893,47 @@ function Invoke-QuestarrPlayStatusBatches {
         Skipped   = $skipped
         Unmatched = $unmatched
     }
+}
+
+<#
+    Runs the status upload behind Playnite's progress dialog, like the library
+    sync, so a slow server never freezes the Playnite window. Results travel back
+    through script-scoped variables because the dialog runs on another thread.
+    Returns $null when it failed (already reported) or was cancelled.
+#>
+function Invoke-QuestarrPlayStatusWithProgress {
+    param(
+        [Parameter(Mandatory)] $Config,
+        [Parameter(Mandatory)] $Entries
+    )
+
+    $script:StatusConfig = $Config
+    $script:StatusEntries = $Entries
+    $script:StatusResult = $null
+    $script:StatusError = $null
+
+    $options = New-Object Playnite.SDK.GlobalProgressOptions("Sending play status to Questarr...", $true)
+    $options.IsIndeterminate = $false
+
+    $PlayniteApi.Dialogs.ActivateGlobalProgress({
+            param($progress)
+            $progress.ProgressMaxValue = $script:StatusEntries.Count
+            try {
+                $script:StatusResult = Invoke-QuestarrPlayStatusBatches `
+                    -Config $script:StatusConfig -Entries $script:StatusEntries -Progress $progress
+            }
+            catch {
+                $script:StatusError = Get-QuestarrErrorMessage $_
+            }
+        }, $options) | Out-Null
+
+    if ($null -ne $script:StatusError) {
+        $__logger.Error("Questarr: play status sync failed: $($script:StatusError)")
+        $PlayniteApi.Dialogs.ShowErrorMessage($script:StatusError, "Questarr")
+        return $null
+    }
+
+    return $script:StatusResult
 }
 
 function Invoke-QuestarrSyncPlayStatus {
@@ -898,15 +949,8 @@ function Invoke-QuestarrSyncPlayStatus {
         return
     }
 
-    try {
-        $result = Invoke-QuestarrPlayStatusBatches -Config $config -Entries $entries
-    }
-    catch {
-        $message = Get-QuestarrErrorMessage $_
-        $__logger.Error("Questarr: play status sync failed: $message")
-        $PlayniteApi.Dialogs.ShowErrorMessage($message, "Questarr")
-        return
-    }
+    $result = Invoke-QuestarrPlayStatusWithProgress -Config $config -Entries $entries
+    if ($null -eq $result) { return }
 
     $PlayniteApi.Dialogs.ShowMessage(
         (("Sent the status of {0} games to Questarr.`n`nUpdated: {1}`nAlready the same: {2}`n" +

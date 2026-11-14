@@ -166,6 +166,7 @@ export default function Library() {
     setShowUnratedOnly(false);
     setShowShelvedOverride(false);
     setShowOwnedInResultsOverride(false);
+    setTagFilter("all");
   }, []);
 
   const { viewMode, setViewMode, listDensity, setListDensity } = useViewControls("dashboard");
@@ -299,7 +300,8 @@ export default function Library() {
   const filteredGames = useMemo(() => {
     const filtered = games.filter((game) => {
       if (statusFilter !== "all" && game.status !== statusFilter) return false;
-      if (tagFilter !== "all" && taggedIds && !taggedIds.has(game.id)) return false;
+      // While the tag's games are loading or failed, show none rather than the unfiltered library.
+      if (tagFilter !== "all" && !taggedIds?.has(game.id)) return false;
       // Shelved games are hidden by default unless the user explicitly filters
       // by the Shelved status, which always takes precedence over the default.
       if (hideShelvedByDefault && statusFilter === "all" && game.status === "shelved") return false;

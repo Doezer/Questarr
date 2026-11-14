@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Tag as TagIcon, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -36,10 +36,16 @@ export default function GameTagsField({ gameId }: GameTagsFieldProps) {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
 
-  const { data: allTagsData } = useQuery<Tag[]>({ queryKey: TAGS_KEY });
+  const { data: allTagsData, refetch: refetchTags } = useQuery<Tag[]>({
+    queryKey: TAGS_KEY,
+  });
+  // A tag created by a failed create-then-attach, kept so a retry only attaches it.
+  const createdTag = useRef<Tag | null>(null);
   const { data: gameTagsData } = useQuery<GameTagEntry[]>({
     queryKey: ["/api/games", gameId, "tags"],
   });
+  // Without the list, "new" names cannot be told from existing ones.
+  const tagsLoaded = Array.isArray(allTagsData);
   const allTags = Array.isArray(allTagsData) ? allTagsData : [];
   const gameTags = Array.isArray(gameTagsData) ? gameTagsData : [];
 
@@ -60,9 +66,13 @@ export default function GameTagsField({ gameId }: GameTagsFieldProps) {
     mutationFn: async (tagName) => {
       const res = await apiRequest("POST", "/api/tags", { name: tagName });
       const tag = (await res.json()) as Tag;
+      createdTag.current = tag;
       await apiRequest("POST", `/api/games/${gameId}/tags`, { tagId: tag.id });
     },
-    onSuccess: () => setName(""),
+    onSuccess: () => {
+      createdTag.current = null;
+      setName("");
+    },
     // The tag exists even when attaching it failed, so a retry must find it instead of re-creating it.
     onSettled: () => invalidateTagQueries(queryClient),
     onError: fail("Could not create the tag"),
@@ -82,13 +92,22 @@ export default function GameTagsField({ gameId }: GameTagsFieldProps) {
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    const existing = findTagByName(allTags, trimmed);
+    if (!tagsLoaded) return;
+    const retained = createdTag.current;
+    const existing =
+      findTagByName(allTags, trimmed) ??
+      (retained && findTagByName([retained], trimmed) ? retained : undefined);
     if (!existing) {
       create.mutate(trimmed);
     } else if (attachedIds.has(existing.id)) {
       setName("");
     } else {
-      attach.mutate(existing.id, { onSuccess: () => setName("") });
+      attach.mutate(existing.id, {
+        onSuccess: () => {
+          createdTag.current = null;
+          setName("");
+        },
+      });
     }
   };
 
@@ -139,11 +158,26 @@ export default function GameTagsField({ gameId }: GameTagsFieldProps) {
           className="h-10 sm:h-9"
           onChange={(event) => setName(event.target.value)}
         />
-        <Button type="submit" size="sm" className="h-10 sm:h-9" disabled={busy || !name.trim()}>
+        <Button
+          type="submit"
+          size="sm"
+          className="h-10 sm:h-9"
+          disabled={busy || !tagsLoaded || !name.trim()}
+          aria-label="Add tag"
+        >
           <Plus className="mr-1 h-4 w-4" />
           Add
         </Button>
       </form>
+
+      {!tagsLoaded && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Tags are not loaded yet.{" "}
+          <button type="button" className="underline" onClick={() => void refetchTags()}>
+            Retry
+          </button>
+        </p>
+      )}
 
       {suggestions.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Existing tags">

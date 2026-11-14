@@ -39,7 +39,8 @@ function messageOf(error: Error, fallback: string): string {
 export function TagsSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data } = useQuery<Tag[]>({ queryKey: TAGS_KEY });
+  const { data, refetch } = useQuery<Tag[]>({ queryKey: TAGS_KEY });
+  const tagsLoaded = Array.isArray(data);
   const tags = Array.isArray(data) ? data : [];
 
   const [newTag, setNewTag] = useState<TagDraft>({ name: "", color: DEFAULT_TAG_COLOR });
@@ -66,8 +67,9 @@ export function TagsSettings() {
     mutationFn: async ({ id, name, color }) => {
       await apiRequest("PATCH", `/api/tags/${id}`, { name: name.trim(), color });
     },
-    onSuccess: () => {
-      setEditingId(null);
+    onSuccess: (_result, variables) => {
+      // Another tag's editor may have been opened while this save was pending.
+      setEditingId((current) => (current === variables.id ? null : current));
       done();
     },
     onError: fail("Could not save the tag"),
@@ -112,7 +114,7 @@ export function TagsSettings() {
           className="flex flex-col gap-2 sm:flex-row sm:items-end"
           onSubmit={(event) => {
             event.preventDefault();
-            if (newTag.name.trim() && !newNameTaken) create.mutate(newTag);
+            if (tagsLoaded && newTag.name.trim() && !newNameTaken) create.mutate(newTag);
           }}
         >
           <div className="flex-1 space-y-1">
@@ -139,12 +141,20 @@ export function TagsSettings() {
           <Button
             type="submit"
             className="h-10"
-            disabled={!newTag.name.trim() || newNameTaken || create.isPending}
+            disabled={!tagsLoaded || !newTag.name.trim() || newNameTaken || create.isPending}
           >
             <Plus className="mr-1 h-4 w-4" />
             Add tag
           </Button>
         </form>
+        {!tagsLoaded && (
+          <p className="text-sm text-muted-foreground">
+            Your tags are not loaded yet, so new ones cannot be created.{" "}
+            <button type="button" className="underline" onClick={() => void refetch()}>
+              Retry
+            </button>
+          </p>
+        )}
         {newNameTaken && (
           <p role="alert" className="text-sm text-destructive">
             You already have a tag with this name.

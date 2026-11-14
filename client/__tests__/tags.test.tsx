@@ -76,7 +76,7 @@ describe("GameTagsField", () => {
     renderWith(<GameTagsField gameId={GAME_ID} />, [coop, retro]);
 
     fireEvent.change(screen.getByLabelText("Tags"), { target: { value: "retro" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add tag" }));
 
     await waitFor(() =>
       expect(apiRequest).toHaveBeenCalledWith("POST", `/api/games/${GAME_ID}/tags`, {
@@ -93,7 +93,7 @@ describe("GameTagsField", () => {
     renderWith(<GameTagsField gameId={GAME_ID} />, [coop]);
 
     fireEvent.change(screen.getByLabelText("Tags"), { target: { value: "  Cozy " } });
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add tag" }));
 
     await waitFor(() =>
       expect(apiRequest).toHaveBeenCalledWith("POST", `/api/games/${GAME_ID}/tags`, {
@@ -210,8 +210,38 @@ describe("GameTagsField retry", () => {
     );
 
     fireEvent.change(screen.getByLabelText("Tags"), { target: { value: "Cozy" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add tag" }));
 
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
+  });
+  it("retries by attaching the tag it already created instead of creating it again", async () => {
+    const posts: string[] = [];
+    apiRequest.mockImplementation(async (method: string, url: string) => {
+      posts.push(`${method} ${url}`);
+      if (url === "/api/tags") return { json: async () => makeTag("new-id", "Cozy") };
+      if (method === "POST" && posts.filter((p) => p.endsWith("/tags")).length === 2) {
+        throw new Error("attach failed");
+      }
+      return { json: async () => ({}) };
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(["/api/tags"], []);
+    client.setQueryData(["/api/games", GAME_ID, "tags"], []);
+    render(
+      <QueryClientProvider client={client}>
+        <GameTagsField gameId={GAME_ID} />
+      </QueryClientProvider>
+    );
+
+    fireEvent.change(screen.getByLabelText("Tags"), { target: { value: "Cozy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add tag" }));
+    await waitFor(() => expect(posts).toHaveLength(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add tag" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Add tag" }));
+    await waitFor(() => expect(posts).toHaveLength(3));
+
+    expect(posts.filter((p) => p === "POST /api/tags")).toHaveLength(1);
   });
 });

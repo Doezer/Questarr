@@ -171,6 +171,11 @@ export const WRONG_GAME_CASES: readonly Case[] = [
   ["The.Witcher.S03E06.2160p.WEB.h265-BETTY", "The Witcher 3"],
   ["The.Witcher.S03E08.2160p.WEB.h265-BETTY", "The Witcher 3"],
   ["The.Witcher.S03E03.2160p.WEB.h265-BETTY", "The Witcher 3"],
+  ["Hitman.Absolution.Agency.HX.UMP.DLC.XBOX360-MoNGoLS", "Hitman"],
+  ["Hitman.Absolution.Bartoli.Custom.Gun.DLC.XBOX360-MoNGoLS", "Hitman"],
+  ["Hitman.Absolution.High.Tech.Suit.DLC.XBOX360-MoNGoLS", "Hitman"],
+  ["Hollow.Knight.Silksong.Update.v1.0.28561-ANOMALY", "Hollow Knight"],
+  ["Subnautica_Below_Zero_Update_v1.12.47243_NSW-SUXXORS", "Subnautica"],
 ];
 
 /** Names that are the searched game, or its DLC and updates: never a mismatch or a sequel. */
@@ -250,9 +255,6 @@ export const RIGHT_GAME_CASES: readonly Case[] = [
   ["Far.Cry.6.MULTi.PS4-AUGETY", "Far Cry 6"],
   ["Forza_Horizon_5_Cars_and_Coffee-Razor1911", "Forza Horizon 5"],
   ["Hades_Update_v1.0.38180_NSW-VENOM", "Hades"],
-  ["Hitman.Absolution.Agency.HX.UMP.DLC.XBOX360-MoNGoLS", "Hitman"],
-  ["Hitman.Absolution.Bartoli.Custom.Gun.DLC.XBOX360-MoNGoLS", "Hitman"],
-  ["Hitman.Absolution.High.Tech.Suit.DLC.XBOX360-MoNGoLS", "Hitman"],
   ["Hogwarts_Legacy_Astronomers_Hat_DLC_NSW-VENOM", "Hogwarts Legacy"],
   ["Hogwarts_Legacy_Dark_Arts_Pack_DLC_NSW-VENOM", "Hogwarts Legacy"],
   ["Hogwarts_Legacy_Portuguese_Brazil_Language_Pack_DLC_NSW-VENOM", "Hogwarts Legacy"],
@@ -261,7 +263,6 @@ export const RIGHT_GAME_CASES: readonly Case[] = [
   ["Hogwarts_Legacy_French_Language_Pack_DLC_REPACK_NSW-VENOM", "Hogwarts Legacy"],
   ["Hogwarts_Legacy_NSW-VENOM", "Hogwarts Legacy"],
   ["Hollow_Knight_v1_5_12459-Razor1911", "Hollow Knight"],
-  ["Hollow.Knight.Silksong.Update.v1.0.28561-ANOMALY", "Hollow Knight"],
   ["Hollow_Knight_v1_5_12459_Linux-Razor1911", "Hollow Knight"],
   ["Mass.Effect.Legendary.Edition.Update.v1.03.PS4-DUPLEX", "Mass Effect Legendary Edition"],
   ["Metro.Exodus.Enhanced.Edition.Update.v2.0.0.1-CODEX", "Metro Exodus"],
@@ -303,7 +304,6 @@ export const RIGHT_GAME_CASES: readonly Case[] = [
   ["Stellaris.Update.v1.4.incl.DLC-CODEX", "Stellaris"],
   ["Stellaris.Infernals.Species.Pack-RUNE", "Stellaris"],
   ["Stellaris_Aquatics_Species_Pack_MacOS-Razor1911", "Stellaris"],
-  ["Subnautica_Below_Zero_Update_v1.12.47243_NSW-SUXXORS", "Subnautica"],
   ["Subnautica.Update.v63461-CODEX", "Subnautica"],
   ["Subnautica_Update_v1.23.83358_NSW-SUXXORS", "Subnautica"],
   ["Terraria_Update_v4.0.5a_NSW-SUXXORS", "Terraria"],

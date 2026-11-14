@@ -185,6 +185,14 @@ export const sanitizeGameId = [
     .withMessage("Invalid game ID format"),
 ];
 
+// Sanitization rules for gameId parameter (used in tag routes)
+export const sanitizeGameIdParam = [
+  param("gameId")
+    .trim()
+    .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+    .withMessage("Invalid game ID format"),
+];
+
 // Sanitization rules for root folder ID parameters
 export const sanitizeRootFolderId = [
   param("id")
@@ -206,6 +214,10 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 // Sanitization rules for the game journal/milestone/screenshot sub-resource ID params
 export const sanitizeCollectionId = [
   param("collectionId").trim().matches(UUID_PATTERN).withMessage("Invalid collection ID format"),
+];
+
+export const sanitizeTagId = [
+  param("tagId").trim().matches(UUID_PATTERN).withMessage("Invalid tag ID format"),
 ];
 
 export const sanitizeJournalEntryId = [

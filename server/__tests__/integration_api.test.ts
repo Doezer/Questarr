@@ -783,6 +783,35 @@ describe("integration API", () => {
       expect(storage.getUserGames).toHaveBeenCalledTimes(1);
     });
 
+    it("imports the library entry, then finds that game for its play time", async () => {
+      const { igdbClient } = await import("../igdb.js");
+      (igdbClient.searchGames as Mock).mockResolvedValue([{ id: 1 }]);
+      (igdbClient.formatGameData as Mock).mockReturnValue({
+        title: "Divinity: Original Sin",
+        igdbId: 1,
+        platforms: ["PC"],
+        isAdultContent: false,
+        isAgeRestricted: false,
+      });
+      const store: Array<Record<string, unknown>> = [];
+      (storage.getUserGames as Mock).mockImplementation(async () => [...store]);
+      (storage.addGame as Mock).mockImplementation(async (g: Record<string, unknown>) => {
+        const created = { ...g, id: "new-game" };
+        store.push(created);
+        return created;
+      });
+      const title = "Divinity: Original Sin - Enhanced Edition";
+
+      const imported = await withKey(request(app).post("/api/integration/library/import")).send({
+        games: [{ title, platform: "gog" }],
+      });
+      expect(imported.body).toMatchObject({ added: 1 });
+
+      const res = await post({ games: [{ title, playtimeSeconds: 7200 }] });
+      expect(res.body).toMatchObject({ imported: 1, unmatched: 0 });
+      expect(res.body.results[0].gameId).toBe("new-game");
+    });
+
     it("rejects an invalid payload and a read-only key", async () => {
       expect((await post({ games: [] })).status).toBe(400);
       expect((await post({ games: [{ title: "Hades", playtimeSeconds: -1 }] })).status).toBe(400);

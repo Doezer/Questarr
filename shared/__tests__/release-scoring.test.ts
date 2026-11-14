@@ -15,6 +15,7 @@ import {
   type TitleMatch,
 } from "../release-scoring.js";
 
+import { RIGHT_GAME_CASES, WRONG_GAME_CASES } from "./fixtures/game-match-cases.js";
 const torrent = (title: string, extra: Partial<ReleaseInput> = {}): ReleaseInput => ({
   title,
   downloadType: "torrent",
@@ -807,5 +808,15 @@ describe("xREL PreDB", () => {
       profile({ builtInOverrides: { xrel_predb_match: { points: 300 } } })
     );
     expect(heavier.score).toBe(off.score + 300);
+  });
+});
+
+describe("classifyTitleMatch on the labeled release dataset (Questarr-mgmt #64)", () => {
+  it.each(WRONG_GAME_CASES)("%s is not a clear match for %s", (release, game) => {
+    expect(["exact", "contains", "ambiguous"]).not.toContain(classifyTitleMatch(release, game));
+  });
+
+  it.each(RIGHT_GAME_CASES)("%s is not a mismatch or a sequel for %s", (release, game) => {
+    expect(["mismatch", "sequel"]).not.toContain(classifyTitleMatch(release, game));
   });
 });

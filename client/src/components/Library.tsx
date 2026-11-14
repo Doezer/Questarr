@@ -286,6 +286,25 @@ export default function Library() {
     queryKey: ["/api/tags", tagFilter, "games?includeHidden=true"],
     enabled: tagFilter !== "all",
   });
+  // The roulette can narrow its draw to one tag; the library filter's tag shares the same request.
+  const [rouletteTag, setRouletteTag] = useState("all");
+  const { data: rouletteTagGames } = useQuery<Game[]>({
+    queryKey: ["/api/tags", rouletteTag, "games?includeHidden=true"],
+    enabled: rouletteTag !== "all",
+  });
+  const rouletteTagIds = useMemo(
+    () =>
+      Array.isArray(rouletteTagGames) ? new Set(rouletteTagGames.map((game) => game.id)) : null,
+    [rouletteTagGames]
+  );
+  useEffect(() => {
+    if (
+      rouletteTag !== "all" &&
+      Array.isArray(userTagsData) &&
+      !userTags.some((t) => t.id === rouletteTag)
+    )
+      setRouletteTag("all");
+  }, [rouletteTag, userTagsData, userTags]);
   const taggedIds = useMemo(
     () => (taggedGames ? new Set(taggedGames.map((game) => game.id)) : null),
     [taggedGames]
@@ -552,6 +571,10 @@ export default function Library() {
                 games={filteredGames}
                 loading={isFetching || searchQuery !== debouncedSearchQuery}
                 onStartPlaying={markRouletteGameAsPlaying}
+                tags={userTags}
+                tagId={rouletteTag}
+                onTagChange={setRouletteTag}
+                tagGameIds={rouletteTagIds}
               />
               <div className="flex sm:hidden items-center gap-2">
                 <GameFilterPills

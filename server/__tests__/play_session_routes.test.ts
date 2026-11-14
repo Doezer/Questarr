@@ -284,6 +284,220 @@ describe("Play session routes", () => {
     });
   });
 
+  describe("PATCH /api/games/:id/play-sessions/:sessionId", () => {
+    const finished = (over: Partial<GamePlaySession> = {}) =>
+      makeSession({
+        source: "manual",
+        startedAt: new Date("2026-11-05T10:00:00Z"),
+        endedAt: new Date("2026-11-05T11:00:00Z"),
+        ...over,
+      });
+    const patch = (body: object) =>
+      request(app).patch(`/api/games/${gameId}/play-sessions/${sessionId}`).send(body);
+
+    beforeEach(() => {
+      vi.mocked(storage.updateGamePlaySession).mockImplementation(async (_id, _g, _u, t) =>
+        finished({ ...t })
+      );
+    });
+
+    it("moves the start and keeps the length", async () => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([finished()]);
+      const response = await patch({ startedAt: "2026-11-04T20:00:00Z" });
+      expect(response.status).toBe(200);
+      const times = vi.mocked(storage.updateGamePlaySession).mock.calls[0]?.[3];
+      expect(times?.startedAt.toISOString()).toBe("2026-11-04T20:00:00.000Z");
+      expect(times?.endedAt.toISOString()).toBe("2026-11-04T21:00:00.000Z");
+    });
+
+    it("applies a new duration from the start", async () => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([finished()]);
+      const response = await patch({ durationMinutes: 150 });
+      expect(response.status).toBe(200);
+      expect(
+        vi.mocked(storage.updateGamePlaySession).mock.calls[0]?.[3].endedAt.toISOString()
+      ).toBe("2026-11-05T12:30:00.000Z");
+    });
+
+    it("rejects an empty body, both end and duration, and bad limits", async () => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([finished()]);
+      expect((await patch({})).status).toBe(400);
+      expect((await patch({ endedAt: "2026-11-05T12:00:00Z", durationMinutes: 30 })).status).toBe(
+        400
+      );
+      expect((await patch({ endedAt: "2026-11-05T09:00:00Z" })).status).toBe(400);
+      expect((await patch({ endedAt: "2026-11-06T11:00:00Z" })).status).toBe(400);
+      expect((await patch({ startedAt: "2999-01-01T00:00:00Z" })).status).toBe(400);
+      expect(storage.updateGamePlaySession).not.toHaveBeenCalled();
+    });
+
+    it("refuses imported sessions and running timers, and unknown ids", async () => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([finished({ source: "steam" })]);
+      expect((await patch({ durationMinutes: 30 })).status).toBe(409);
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([finished({ endedAt: null })]);
+      expect((await patch({ durationMinutes: 30 })).status).toBe(409);
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([]);
+      expect((await patch({ durationMinutes: 30 })).status).toBe(404);
+    });
+
+    it("answers 409 when the session changed meanwhile", async () => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([finished()]);
+      vi.mocked(storage.updateGamePlaySession).mockResolvedValue(undefined);
+      expect((await patch({ durationMinutes: 30 })).status).toBe(409);
+    });
+  });
+
+  describe("POST /api/games/:id/play-sessions/merge", () => {
+    const idA = "623e4567-e89b-12d3-a456-426614174000";
+    const idB = "723e4567-e89b-12d3-a456-426614174000";
+    const at = (value: string) => new Date(`2026-11-05T${value}:00Z`);
+    const make = (id: string, from: string, to: string, source = "manual") =>
+      makeSession({ id, source, startedAt: at(from), endedAt: at(to) });
+    const merge = (ids: string[]) =>
+      request(app).post(`/api/games/${gameId}/play-sessions/merge`).send({ sessionIds: ids });
+
+    beforeEach(() => {
+      vi.mocked(storage.replaceGamePlaySessions).mockImplementation(async (_u, _g, _i, r) =>
+        r.map((x) => makeSession({ id: "new", ...x }))
+      );
+    });
+
+    it("merges overlapping and nearby sessions from first start to last end", async () => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([
+        make(idA, "10:00", "11:00"),
+        make(idB, "11:20", "12:00", "timer"),
+      ]);
+      const response = await merge([idB, idA]);
+      expect(response.status).toBe(201);
+      expect(storage.replaceGamePlaySessions).toHaveBeenCalledWith(
+        OWNER_ID,
+        gameId,
+        [idB, idA],
+        [{ startedAt: at("10:00"), endedAt: at("12:00"), source: "manual" }]
+      );
+    });
+
+    it("keeps the source when every session shares it", async () => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([
+        make(idA, "10:00", "11:00", "timer"),
+        make(idB, "10:30", "10:45", "timer"),
+      ]);
+      await merge([idA, idB]);
+      expect(vi.mocked(storage.replaceGamePlaySessions).mock.calls[0]?.[3][0]?.source).toBe(
+        "timer"
+      );
+    });
+
+    it("rejects far-apart sessions, a result over 24 hours, and bad input", async () => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([
+        make(idA, "10:00", "11:00"),
+        make(idB, "13:00", "14:00"),
+      ]);
+      expect((await merge([idA, idB])).status).toBe(400);
+      expect((await merge([idA, idA])).status).toBe(400);
+      expect((await merge([idA])).status).toBe(400);
+      expect((await merge(["nope", idA])).status).toBe(400);
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([
+        makeSession({
+          id: idA,
+          source: "manual",
+          startedAt: new Date("2026-11-03T10:00:00Z"),
+          endedAt: new Date("2026-11-04T10:00:00Z"),
+        }),
+        makeSession({
+          id: idB,
+          source: "manual",
+          startedAt: new Date("2026-11-04T09:00:00Z"),
+          endedAt: new Date("2026-11-04T12:00:00Z"),
+        }),
+      ]);
+      expect((await merge([idA, idB])).status).toBe(400);
+      expect(storage.replaceGamePlaySessions).not.toHaveBeenCalled();
+    });
+
+    it("refuses imported sessions, running timers and unknown ids", async () => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([
+        make(idA, "10:00", "11:00"),
+        make(idB, "10:30", "11:30", "playnite"),
+      ]);
+      expect((await merge([idA, idB])).status).toBe(409);
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([
+        make(idA, "10:00", "11:00"),
+        makeSession({ id: idB, source: "timer", endedAt: null }),
+      ]);
+      expect((await merge([idA, idB])).status).toBe(409);
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([make(idA, "10:00", "11:00")]);
+      expect((await merge([idA, idB])).status).toBe(404);
+    });
+
+    it("answers 409 when the sessions changed meanwhile", async () => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([
+        make(idA, "10:00", "11:00"),
+        make(idB, "10:30", "11:30"),
+      ]);
+      vi.mocked(storage.replaceGamePlaySessions).mockResolvedValue(undefined);
+      expect((await merge([idA, idB])).status).toBe(409);
+    });
+  });
+
+  describe("POST /api/games/:id/play-sessions/:sessionId/split", () => {
+    const session = makeSession({
+      source: "timer",
+      startedAt: new Date("2026-11-05T10:00:00Z"),
+      endedAt: new Date("2026-11-05T22:00:00Z"),
+    });
+    const split = (splitAt: string) =>
+      request(app).post(`/api/games/${gameId}/play-sessions/${sessionId}/split`).send({ splitAt });
+
+    beforeEach(() => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([session]);
+      vi.mocked(storage.replaceGamePlaySessions).mockImplementation(async (_u, _g, _i, r) =>
+        r.map((x) => makeSession({ id: "new", ...x }))
+      );
+    });
+
+    it("cuts the session in two at the chosen time", async () => {
+      const response = await split("2026-11-05T14:00:00Z");
+      expect(response.status).toBe(201);
+      expect(response.body).toHaveLength(2);
+      expect(storage.replaceGamePlaySessions).toHaveBeenCalledWith(
+        OWNER_ID,
+        gameId,
+        [sessionId],
+        [
+          {
+            startedAt: session.startedAt,
+            endedAt: new Date("2026-11-05T14:00:00Z"),
+            source: "timer",
+          },
+          {
+            startedAt: new Date("2026-11-05T14:00:00Z"),
+            endedAt: session.endedAt,
+            source: "timer",
+          },
+        ]
+      );
+    });
+
+    it("rejects a cut outside the session or leaving a part under a minute", async () => {
+      expect((await split("2026-11-05T09:00:00Z")).status).toBe(400);
+      expect((await split("2026-11-05T10:00:30Z")).status).toBe(400);
+      expect((await split("2026-11-05T21:59:30Z")).status).toBe(400);
+      expect((await split("2026-11-06T09:00:00Z")).status).toBe(400);
+      expect((await split("not a date")).status).toBe(400);
+      expect(storage.replaceGamePlaySessions).not.toHaveBeenCalled();
+    });
+
+    it("refuses imported sessions, running timers and unknown ids", async () => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([{ ...session, source: "steam" }]);
+      expect((await split("2026-11-05T14:00:00Z")).status).toBe(409);
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([{ ...session, endedAt: null }]);
+      expect((await split("2026-11-05T14:00:00Z")).status).toBe(409);
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([]);
+      expect((await split("2026-11-05T14:00:00Z")).status).toBe(404);
+    });
+  });
+
   describe("GET /api/stats/play-time", () => {
     it("computes stats from the user's sessions and games", async () => {
       vi.mocked(storage.getUserPlaySessions).mockResolvedValue([

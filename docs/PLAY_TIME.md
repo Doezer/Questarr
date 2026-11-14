@@ -18,6 +18,20 @@ Open a game's page and scroll to **Playtime**. Pick the day, enter the hours and
 **Add session**. For today, the session ends now; for an earlier day it is recorded at noon that
 day. A session can be up to 24 hours and cannot end in the future. **Delete** removes a session.
 
+### Edit, merge and split
+
+Sessions you added by hand or recorded with the timer can be corrected from the same list; Playnite and
+Steam sessions (and the estimated ones imported from other launchers) stay as they were reported and can
+only be deleted. A timer that is still running cannot be changed until you stop it.
+
+- **Edit** (pencil): change when the session started and stopped. The usual limits apply: at least a
+  minute, at most 24 hours, not ending in the future.
+- **Split** (scissors): cut a session in two at a time you choose, for instance a timer left running
+  overnight. Each part keeps the source and lasts at least a minute.
+- **Merge**: tick two or more sessions and press **Merge sessions**. They become one session from the
+  earliest start to the latest end. They must overlap or be at most 30 minutes apart, and the result cannot
+  exceed 24 hours. The merged session keeps their source when they share one, otherwise it counts as manual.
+
 The Playtime section also shows the game's total and how it compares with the IGDB
 [Time to Beat](https://www.igdb.com/) estimate when there is one.
 

@@ -1,15 +1,18 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Timer, Trash2 } from "lucide-react";
+import { Merge, Pencil, Plus, Scissors, Timer, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { EditSessionDialog, SplitSessionDialog } from "./PlaySessionDialogs";
 import PlayTimerButton from "./PlayTimerButton";
 import { formatMinutes, sessionLengthMinutes } from "@/lib/play-time";
-import type { GamePlaySession } from "@shared/schema";
+import { isEditablePlaySession, type GamePlaySession } from "@shared/schema";
+import { ApiError } from "@/lib/queryClient";
 
 interface GamePlaytimeProps {
   gameId: string;
@@ -94,6 +97,64 @@ export default function GamePlaytime({
     onSuccess: refresh,
     onError: () => toast({ description: "Failed to delete the session", variant: "destructive" }),
   });
+
+  const failure = (fallback: string) => (error: unknown) =>
+    toast({
+      description: error instanceof ApiError ? error.message : fallback,
+      variant: "destructive",
+    });
+
+  const [editing, setEditing] = useState<GamePlaySession | null>(null);
+  const [splitting, setSplitting] = useState<GamePlaySession | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+
+  const editSession = useMutation({
+    mutationFn: async (v: { id: string; startedAt: Date; endedAt: Date }) => {
+      await apiRequest("PATCH", `/api/games/${gameId}/play-sessions/${v.id}`, {
+        startedAt: v.startedAt.toISOString(),
+        endedAt: v.endedAt.toISOString(),
+      });
+    },
+    onSuccess: () => {
+      refresh();
+      setEditing(null);
+    },
+    onError: failure("Failed to edit the session"),
+  });
+
+  const splitSession = useMutation({
+    mutationFn: async (v: { id: string; splitAt: Date }) => {
+      await apiRequest("POST", `/api/games/${gameId}/play-sessions/${v.id}/split`, {
+        splitAt: v.splitAt.toISOString(),
+      });
+    },
+    onSuccess: () => {
+      refresh();
+      setSplitting(null);
+    },
+    onError: failure("Failed to split the session"),
+  });
+
+  const mergeSessions = useMutation({
+    mutationFn: async (sessionIds: string[]) => {
+      await apiRequest("POST", `/api/games/${gameId}/play-sessions/merge`, { sessionIds });
+    },
+    onSuccess: () => {
+      refresh();
+      setSelected([]);
+    },
+    onError: failure("Failed to merge the sessions"),
+  });
+
+  // A selection only holds sessions that still exist (one may have been deleted or merged).
+  const selectedIds = useMemo(
+    () => selected.filter((id) => finished.some((s) => s.id === id)),
+    [selected, finished]
+  );
+  const toggleSelected = (id: string) =>
+    setSelected((current) =>
+      current.includes(id) ? current.filter((x) => x !== id) : [...current, id]
+    );
 
   const duration =
     (Number.parseInt(hours || "0", 10) || 0) * 60 + (Number.parseInt(minutes || "0", 10) || 0);
@@ -185,44 +246,122 @@ export default function GamePlaytime({
           className="divide-y divide-border rounded-md border border-border"
           aria-label="Sessions"
         >
-          {visible.map((session) => (
-            <li key={session.id} className="flex items-center gap-3 px-3 py-2">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium tabular-nums">
-                  {formatMinutes(sessionLengthMinutes(session.startedAt, session.endedAt))}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {formatWhen(session.startedAt)}
-                </p>
-              </div>
-              <Badge
-                variant="outline"
-                className="shrink-0 text-[10px] capitalize"
-                title={
-                  session.source === "steam"
-                    ? "Estimated from the growth of your Steam play time between two syncs"
-                    : undefined
-                }
-              >
-                {session.source === "steam" ? "Steam · estimated" : session.source}
-              </Badge>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                onClick={() => deleteSession.mutate(session.id)}
-                disabled={deleteSession.isPending}
-                aria-label={`Delete the ${formatMinutes(
-                  sessionLengthMinutes(session.startedAt, session.endedAt)
-                )} session of ${formatWhen(session.startedAt)}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </li>
-          ))}
+          {visible.map((session) => {
+            const editable = isEditablePlaySession(session);
+            const label = `${formatMinutes(
+              sessionLengthMinutes(session.startedAt, session.endedAt)
+            )} session of ${formatWhen(session.startedAt)}`;
+            return (
+              <li key={session.id} className="flex items-center gap-1 px-3 py-1">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center">
+                  {editable && (
+                    <Checkbox
+                      checked={selectedIds.includes(session.id)}
+                      onCheckedChange={() => toggleSelected(session.id)}
+                      aria-label={`Select the ${label} to merge`}
+                    />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium tabular-nums">
+                    {formatMinutes(sessionLengthMinutes(session.startedAt, session.endedAt))}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {formatWhen(session.startedAt)}
+                  </p>
+                </div>
+                <Badge
+                  variant="outline"
+                  className="shrink-0 text-[10px] capitalize"
+                  title={
+                    session.source === "steam"
+                      ? "Estimated from the growth of your Steam play time between two syncs"
+                      : undefined
+                  }
+                >
+                  {session.source === "steam" ? "Steam · estimated" : session.source}
+                </Badge>
+                {editable && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-11 w-11 shrink-0 text-muted-foreground"
+                      onClick={() => setEditing(session)}
+                      aria-label={`Edit the ${label}`}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-11 w-11 shrink-0 text-muted-foreground"
+                      onClick={() => setSplitting(session)}
+                      aria-label={`Split the ${label}`}
+                    >
+                      <Scissors className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-11 w-11 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => deleteSession.mutate(session.id)}
+                  disabled={deleteSession.isPending}
+                  aria-label={`Delete the ${label}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </li>
+            );
+          })}
         </ul>
       )}
+      {selectedIds.length >= 2 && (
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2"
+          role="status"
+        >
+          <span className="text-sm">{selectedIds.length} sessions selected</span>
+          <Button
+            type="button"
+            size="sm"
+            className="h-10 gap-2"
+            onClick={() => mergeSessions.mutate(selectedIds)}
+            disabled={mergeSessions.isPending}
+          >
+            <Merge className="h-4 w-4" />
+            Merge sessions
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-10"
+            onClick={() => setSelected([])}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+      <EditSessionDialog
+        session={editing}
+        pending={editSession.isPending}
+        onClose={() => setEditing(null)}
+        onSave={(session, startedAt, endedAt) =>
+          editSession.mutate({ id: session.id, startedAt, endedAt })
+        }
+      />
+      <SplitSessionDialog
+        session={splitting}
+        pending={splitSession.isPending}
+        onClose={() => setSplitting(null)}
+        onSplit={(session, splitAt) => splitSession.mutate({ id: session.id, splitAt })}
+      />
       {finished.length > SESSIONS_SHOWN && (
         <Button type="button" variant="ghost" size="sm" onClick={() => setShowAll((v) => !v)}>
           {showAll ? "Show fewer" : `Show all ${finished.length} sessions`}

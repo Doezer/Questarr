@@ -72,6 +72,8 @@ import {
   type InsertCollection,
   type GameJournalEntry,
   type GamePlaySession,
+  EDITABLE_PLAY_SESSION_SOURCES,
+  isEditablePlaySession,
   type InsertGamePlaySession,
   type InsertGameJournalEntry,
   type GameMilestone,
@@ -147,7 +149,7 @@ import {
   exists,
 } from "drizzle-orm";
 import { containsCI, distinctJoin, affectedRows } from "./sql-compat.js";
-import { transactionalOps } from "./db/transactional-ops.js";
+import { transactionalOps, type PlaySessionReplacement } from "./db/transactional-ops.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { firstOrThrow, stripUndefined } from "./object-utils.js";
 import {
@@ -376,6 +378,20 @@ export interface IStorage {
     endedAt: Date
   ): Promise<GamePlaySession | undefined>;
   deleteGamePlaySession(id: string, gameId: string, userId: string): Promise<boolean>;
+  /** Moves a finished manual or timer session; `undefined` if it is missing, running or imported. */
+  updateGamePlaySession(
+    id: string,
+    gameId: string,
+    userId: string,
+    times: { startedAt: Date; endedAt: Date }
+  ): Promise<GamePlaySession | undefined>;
+  /** Swaps finished manual or timer sessions for new ones in one transaction (merge, split). */
+  replaceGamePlaySessions(
+    userId: string,
+    gameId: string,
+    ids: string[],
+    replacements: PlaySessionReplacement[]
+  ): Promise<GamePlaySession[] | undefined>;
 
   // Game milestone methods (manual "successes" checklist)
   getGameMilestones(gameId: string, userId: string): Promise<GameMilestone[]>;
@@ -1252,6 +1268,36 @@ export class MemStorage implements IStorage {
     const session = this.gamePlaySessions.get(id);
     if (session?.gameId !== gameId || session.userId !== userId) return false;
     return this.gamePlaySessions.delete(id);
+  }
+
+  async updateGamePlaySession(
+    id: string,
+    gameId: string,
+    userId: string,
+    times: { startedAt: Date; endedAt: Date }
+  ): Promise<GamePlaySession | undefined> {
+    const session = this.gamePlaySessions.get(id);
+    if (session?.gameId !== gameId || session.userId !== userId) return undefined;
+    if (!isEditablePlaySession(session)) return undefined;
+    const updated = { ...session, ...times };
+    this.gamePlaySessions.set(id, updated);
+    return updated;
+  }
+
+  async replaceGamePlaySessions(
+    userId: string,
+    gameId: string,
+    ids: string[],
+    replacements: PlaySessionReplacement[]
+  ): Promise<GamePlaySession[] | undefined> {
+    const unique = new Set(ids);
+    const found = Array.from(unique).map((id) => this.gamePlaySessions.get(id));
+    const valid = found.every(
+      (s) => s?.gameId === gameId && s.userId === userId && isEditablePlaySession(s)
+    );
+    if (!valid) return undefined;
+    for (const id of unique) this.gamePlaySessions.delete(id);
+    return Promise.all(replacements.map((r) => this.addGamePlaySession({ gameId, userId, ...r })));
   }
 
   async getGameMilestones(gameId: string, userId: string): Promise<GameMilestone[]> {
@@ -3565,6 +3611,37 @@ export class DatabaseStorage implements IStorage {
       )
       .returning();
     return result.length > 0;
+  }
+
+  async updateGamePlaySession(
+    id: string,
+    gameId: string,
+    userId: string,
+    times: { startedAt: Date; endedAt: Date }
+  ): Promise<GamePlaySession | undefined> {
+    const rows = await db
+      .update(gamePlaySessions)
+      .set(times)
+      .where(
+        and(
+          eq(gamePlaySessions.id, id),
+          eq(gamePlaySessions.gameId, gameId),
+          eq(gamePlaySessions.userId, userId),
+          inArray(gamePlaySessions.source, [...EDITABLE_PLAY_SESSION_SOURCES]),
+          isNotNull(gamePlaySessions.endedAt)
+        )
+      )
+      .returning();
+    return rows[0];
+  }
+
+  async replaceGamePlaySessions(
+    userId: string,
+    gameId: string,
+    ids: string[],
+    replacements: PlaySessionReplacement[]
+  ): Promise<GamePlaySession[] | undefined> {
+    return transactionalOps.replaceGamePlaySessions(userId, gameId, ids, replacements);
   }
 
   async getGameMilestones(gameId: string, userId: string): Promise<GameMilestone[]> {

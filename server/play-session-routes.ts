@@ -10,7 +10,15 @@ import {
   sanitizePlaySessionId,
   validateRequest,
 } from "./middleware.js";
-import { insertManualPlaySessionSchema, type User } from "../shared/schema.js";
+import {
+  insertManualPlaySessionSchema,
+  isEditablePlaySession,
+  mergePlaySessionsSchema,
+  splitPlaySessionSchema,
+  updatePlaySessionSchema,
+  type GamePlaySession,
+  type User,
+} from "../shared/schema.js";
 import { computePlayStats, isValidTimeZone } from "../shared/play-stats.js";
 
 const router = Router();
@@ -33,6 +41,42 @@ function isUniqueViolation(error: unknown): boolean {
       (/UNIQUE constraint failed/i.test(error.message) ||
         /duplicate key value violates unique constraint/i.test(error.message)))
   );
+}
+
+/** Longest gap between two sessions that still count as one sitting when merging. */
+export const MAX_MERGE_GAP_MINUTES = 30;
+
+/** Why a session from `start` to `end` is not acceptable, or `null` when it is. */
+function sessionTimesError(start: Date, end: Date): string | null {
+  const length = end.getTime() - start.getTime();
+  if (Number.isNaN(length) || length < MINUTE_MS) {
+    return "A play session must last at least one minute";
+  }
+  if (length > MAX_SESSION_MINUTES * MINUTE_MS) {
+    return "A play session cannot last more than 24 hours";
+  }
+  if (end.getTime() > Date.now() + FUTURE_SLACK_MS) {
+    return "A play session cannot end in the future";
+  }
+  return null;
+}
+
+/** Looks up a session of this game and says why it cannot be changed, if it cannot. */
+async function findChangeableSession(
+  sessionId: string,
+  gameId: string,
+  userId: string
+): Promise<{ session?: GamePlaySession; status?: number; error?: string }> {
+  const sessions = await storage.getGamePlaySessions(gameId, userId);
+  const session = sessions.find((s) => s.id === sessionId);
+  if (!session) return { status: 404, error: "Play session not found" };
+  if (session.endedAt === null) {
+    return { status: 409, error: "Stop the timer before changing this session" };
+  }
+  if (!isEditablePlaySession(session)) {
+    return { status: 409, error: "Imported or estimated sessions cannot be changed" };
+  }
+  return { session };
 }
 
 /** Verifies the game exists and belongs to the requesting user; returns 404 otherwise. */
@@ -140,6 +184,176 @@ router.post(
       }
       routesLogger.error({ error }, "Error starting play timer");
       return res.status(500).json({ error: "Failed to start the play timer" });
+    }
+  }
+);
+
+/**
+ * Edits a finished manual or timer session: a new start, and a new end or duration. What is not
+ * sent stays as it was (a new start alone keeps the length). Same limits as when adding one.
+ */
+router.patch(
+  "/api/games/:id/play-sessions/:sessionId",
+  authenticateToken,
+  sensitiveEndpointLimiter,
+  sanitizeGameId,
+  sanitizePlaySessionId,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    try {
+      const gameId = await requireOwnedGame(req, res);
+      if (!gameId) return;
+      const user = req.user as User;
+      const { sessionId } = req.params as { sessionId: string };
+      const body = updatePlaySessionSchema.parse(req.body);
+
+      const found = await findChangeableSession(sessionId, gameId, user.id);
+      if (!found.session?.endedAt) {
+        return res.status(found.status ?? 404).json({ error: found.error });
+      }
+      const current = found.session;
+      const start = body.startedAt ?? current.startedAt;
+      const length = current.endedAt!.getTime() - current.startedAt.getTime();
+      let end: Date;
+      if (body.endedAt) end = body.endedAt;
+      else if (body.durationMinutes)
+        end = new Date(start.getTime() + body.durationMinutes * MINUTE_MS);
+      else end = new Date(start.getTime() + length);
+
+      const invalid = sessionTimesError(start, end);
+      if (invalid) return res.status(400).json({ error: invalid });
+
+      const updated = await storage.updateGamePlaySession(sessionId, gameId, user.id, {
+        startedAt: start,
+        endedAt: end,
+      });
+      if (!updated) return res.status(409).json({ error: "The play session changed, try again" });
+      return res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid play session", details: error.issues });
+      }
+      routesLogger.error({ error }, "Error updating play session");
+      return res.status(500).json({ error: "Failed to update play session" });
+    }
+  }
+);
+
+/**
+ * Merges finished manual or timer sessions of one game into one that runs from the earliest start
+ * to the latest end. They must overlap or be at most `MAX_MERGE_GAP_MINUTES` apart, and the
+ * result keeps the 24-hour limit. The merged session keeps their source when all share one.
+ */
+router.post(
+  "/api/games/:id/play-sessions/merge",
+  authenticateToken,
+  sensitiveEndpointLimiter,
+  sanitizeGameId,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    try {
+      const gameId = await requireOwnedGame(req, res);
+      if (!gameId) return;
+      const user = req.user as User;
+      const { sessionIds } = mergePlaySessionsSchema.parse(req.body);
+      const ids = Array.from(new Set(sessionIds));
+      if (ids.length < 2) {
+        return res.status(400).json({ error: "Choose at least two different sessions" });
+      }
+
+      const all = await storage.getGamePlaySessions(gameId, user.id);
+      const chosen: GamePlaySession[] = [];
+      for (const id of ids) {
+        const session = all.find((s) => s.id === id);
+        if (!session) return res.status(404).json({ error: "Play session not found" });
+        if (session.endedAt === null) {
+          return res.status(409).json({ error: "Stop the timer before merging this session" });
+        }
+        if (!isEditablePlaySession(session)) {
+          return res.status(409).json({ error: "Imported or estimated sessions cannot be merged" });
+        }
+        chosen.push(session);
+      }
+
+      chosen.sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+      let latestEnd = chosen[0]!.endedAt!.getTime();
+      for (const session of chosen.slice(1)) {
+        if (session.startedAt.getTime() - latestEnd > MAX_MERGE_GAP_MINUTES * MINUTE_MS) {
+          return res.status(400).json({
+            error: `Only sessions that overlap or are at most ${MAX_MERGE_GAP_MINUTES} minutes apart can be merged`,
+          });
+        }
+        latestEnd = Math.max(latestEnd, session.endedAt!.getTime());
+      }
+      const start = chosen[0]!.startedAt;
+      const end = new Date(latestEnd);
+      const invalid = sessionTimesError(start, end);
+      if (invalid) return res.status(400).json({ error: invalid });
+
+      const sources = new Set(chosen.map((s) => s.source));
+      const source = sources.size === 1 ? chosen[0]!.source : "manual";
+      const merged = await storage.replaceGamePlaySessions(user.id, gameId, ids, [
+        { startedAt: start, endedAt: end, source },
+      ]);
+      if (!merged) return res.status(409).json({ error: "The play sessions changed, try again" });
+      return res.status(201).json(merged[0]);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid request", details: error.issues });
+      }
+      routesLogger.error({ error }, "Error merging play sessions");
+      return res.status(500).json({ error: "Failed to merge play sessions" });
+    }
+  }
+);
+
+/** Cuts a finished manual or timer session in two at `splitAt` (each half lasts a minute or more). */
+router.post(
+  "/api/games/:id/play-sessions/:sessionId/split",
+  authenticateToken,
+  sensitiveEndpointLimiter,
+  sanitizeGameId,
+  sanitizePlaySessionId,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    try {
+      const gameId = await requireOwnedGame(req, res);
+      if (!gameId) return;
+      const user = req.user as User;
+      const { sessionId } = req.params as { sessionId: string };
+      const { splitAt } = splitPlaySessionSchema.parse(req.body);
+
+      const found = await findChangeableSession(sessionId, gameId, user.id);
+      if (!found.session?.endedAt) {
+        return res.status(found.status ?? 404).json({ error: found.error });
+      }
+      const { startedAt, endedAt, source } = found.session;
+      if (
+        splitAt.getTime() - startedAt.getTime() < MINUTE_MS ||
+        endedAt.getTime() - splitAt.getTime() < MINUTE_MS
+      ) {
+        return res.status(400).json({
+          error: "Split the session at least one minute after its start and before its end",
+        });
+      }
+
+      const parts = await storage.replaceGamePlaySessions(
+        user.id,
+        gameId,
+        [sessionId],
+        [
+          { startedAt, endedAt: splitAt, source },
+          { startedAt: splitAt, endedAt, source },
+        ]
+      );
+      if (!parts) return res.status(409).json({ error: "The play session changed, try again" });
+      return res.status(201).json(parts);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid request", details: error.issues });
+      }
+      routesLogger.error({ error }, "Error splitting play session");
+      return res.status(500).json({ error: "Failed to split play session" });
     }
   }
 );

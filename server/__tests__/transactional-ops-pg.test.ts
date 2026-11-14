@@ -77,4 +77,47 @@ describe("Postgres transactional ops", () => {
     expect(rejected).toHaveLength(1);
     expect(await storage().getApiKeys(user.id)).toHaveLength(1);
   });
+
+  it("replaceGamePlaySessions merges editable sessions and rolls back when one is imported", async () => {
+    // The earlier tests already created the first user.
+    const [user] = await storage().getAllUsers();
+    if (!user) throw new Error("expected a user");
+    const game = await storage().addGame({
+      title: "Merged",
+      status: "playing",
+      userId: user.id,
+      hidden: false,
+    });
+    const at = (h: number) => new Date(Date.UTC(2026, 10, 5, h));
+    const add = (source: string, from: number, to: number) =>
+      storage().addGamePlaySession({
+        gameId: game.id,
+        userId: user.id,
+        startedAt: at(from),
+        endedAt: at(to),
+        source,
+      });
+    const a = await add("manual", 10, 11);
+    const b = await add("timer", 11, 12);
+    const imported = await add("steam", 12, 13);
+
+    expect(
+      await storage().replaceGamePlaySessions(
+        user.id,
+        game.id,
+        [a.id, imported.id],
+        [{ startedAt: at(10), endedAt: at(13), source: "manual" }]
+      )
+    ).toBeUndefined();
+    expect(await storage().getGamePlaySessions(game.id, user.id)).toHaveLength(3);
+
+    const merged = await storage().replaceGamePlaySessions(
+      user.id,
+      game.id,
+      [a.id, b.id],
+      [{ startedAt: at(10), endedAt: at(12), source: "manual" }]
+    );
+    expect(merged).toHaveLength(1);
+    expect(await storage().getGamePlaySessions(game.id, user.id)).toHaveLength(2);
+  });
 });

@@ -609,6 +609,37 @@ integrationRouter.post(
       const userId = req.user!.id;
       const running = await storage.getRunningPlaySession(userId);
 
+      // One read and one index for the whole batch, like /play-status: a batch can hold thousands
+      // of title-only entries.
+      const library = await storage.getUserGames(userId, true);
+      const byId = new Map<string, Game>();
+      const bySteamAppId = new Map<number, Game>();
+      const byTitle = new Map<string, Game>();
+      for (const g of library) {
+        byId.set(g.id, g);
+        if (g.steamAppId) bySteamAppId.set(g.steamAppId, g);
+        const key = normalizeTitle(g.title);
+        if (key && !byTitle.has(key)) byTitle.set(key, g);
+      }
+      /**
+       * Id, Steam App ID, then normalized title. As a last resort, the one game whose title
+       * differs only by an edition suffix: library import stores IGDB's title, so a GOG
+       * "... - Enhanced Edition" would otherwise never find the game it just created.
+       */
+      const resolveGame = (entry: {
+        gameId?: string | undefined;
+        steamAppId?: number | undefined;
+        title: string;
+      }) => {
+        const exact =
+          (entry.gameId ? byId.get(entry.gameId) : undefined) ??
+          (entry.steamAppId ? bySteamAppId.get(entry.steamAppId) : undefined) ??
+          byTitle.get(normalizeTitle(entry.title));
+        if (exact || !normalizeTitle(entry.title)) return exact;
+        const near = library.filter((g) => libraryTitlesAgree(entry.title, g.title));
+        return near.length === 1 ? near[0] : undefined;
+      };
+
       let imported = 0;
       let unchanged = 0;
       let skipped = 0;
@@ -625,7 +656,7 @@ integrationRouter.post(
 
       for (const entry of incoming) {
         const base = { externalId: entry.externalId, title: entry.title };
-        const game = await resolvePlaySessionGame(userId, entry);
+        const game = resolveGame(entry);
         if (!game) {
           unmatched += 1;
           results.push({ ...base, result: "unmatched" });

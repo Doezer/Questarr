@@ -1086,6 +1086,16 @@ function Invoke-QuestarrImportGogPlayTime {
     $config = Get-QuestarrConfigOrWarn
     if ($null -eq $config) { return }
 
+    # Playnite's total already holds the time of any session still waiting in the queue. Sent
+    # first, the queued session would be counted a second time once it is flushed.
+    Invoke-QuestarrFlushPlayQueue -Config $config
+    if (@(Read-QuestarrPlayQueue).Count -gt 0) {
+        $PlayniteApi.Dialogs.ShowMessage(
+            "Some play sessions could not be sent to Questarr yet. Play time is not imported while they wait: " +
+            "check that Questarr is reachable and try again.", "Questarr")
+        return
+    }
+
     $entries = New-Object System.Collections.ArrayList
     foreach ($game in (Get-QuestarrGogGames)) {
         # Playtime is in seconds. Less than ten minutes is below what the server imports.

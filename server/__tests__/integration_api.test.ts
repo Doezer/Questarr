@@ -766,6 +766,23 @@ describe("integration API", () => {
       expect(res.body.results[0].reason).toBe("timer_running");
     });
 
+    it("finds a game the library import stored under IGDB's base title, reading the library once", async () => {
+      (storage.getUserGames as Mock).mockResolvedValue([
+        { id: "game-2", userId: USER.id, title: "Divinity: Original Sin" },
+        { id: "game-3", userId: USER.id, title: "Hades II" },
+      ]);
+      const res = await post({
+        games: [
+          { title: "Divinity: Original Sin - Enhanced Edition", playtimeSeconds: 3600 },
+          { title: "Hades", playtimeSeconds: 3600 },
+          { title: "Divinity: Original Sin - Enhanced Edition", playtimeSeconds: 3600 },
+        ],
+      });
+      expect(res.body).toMatchObject({ imported: 2, unmatched: 1 });
+      expect(res.body.results[0].gameId).toBe("game-2");
+      expect(storage.getUserGames).toHaveBeenCalledTimes(1);
+    });
+
     it("rejects an invalid payload and a read-only key", async () => {
       expect((await post({ games: [] })).status).toBe(400);
       expect((await post({ games: [{ title: "Hades", playtimeSeconds: -1 }] })).status).toBe(400);

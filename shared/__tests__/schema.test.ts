@@ -275,3 +275,13 @@ describe("insertApiKeySchema", () => {
     expect(result.data?.name).toBe("Playnite on the living room PC");
   });
 });
+
+describe("resolveUpgradePolicy", () => {
+  it("prefers the game override, then the account default, then notify", async () => {
+    const { resolveUpgradePolicy } = await import("../schema");
+    expect(resolveUpgradePolicy("off", "notify")).toBe("off");
+    expect(resolveUpgradePolicy(null, "off")).toBe("off");
+    expect(resolveUpgradePolicy(null, null)).toBe("notify");
+    expect(resolveUpgradePolicy("bogus", "off")).toBe("off");
+  });
+});

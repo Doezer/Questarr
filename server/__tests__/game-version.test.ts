@@ -37,17 +37,11 @@ describe("recordVersionFromCompletedDownload", () => {
     expect(notifyUser).toHaveBeenCalledWith("gameUpdated", "g1");
   });
 
-  it("never overwrites a version the user typed, or one read from the install files", async () => {
+  it("never overwrites a version the user typed", async () => {
     getGame.mockResolvedValue({
       id: "g1",
       installedVersion: "v1.0",
       installedVersionSource: "manual",
-    });
-    expect(await recordVersionFromCompletedDownload(store, "g1", "Game.v9.0-RUNE")).toBeNull();
-    getGame.mockResolvedValue({
-      id: "g1",
-      installedVersion: "v1.0",
-      installedVersionSource: "install",
     });
     expect(await recordVersionFromCompletedDownload(store, "g1", "Game.v9.0-RUNE")).toBeNull();
     // A value with no source recorded predates tracking: it was typed.
@@ -168,11 +162,11 @@ describe("recordVersionFromInstallFolder", () => {
     await fs.promises.writeFile(path.join(dir, "version.txt"), "1.4.2\n");
     getGame.mockResolvedValue({
       id: "g1",
-      installedVersion: "v9.0",
+      installedVersion: "v1.0",
       installedVersionSource: "release",
     });
     expect(await recordVersionFromInstallFolder(store, "g1", dir)).toBe("v1.4.2");
-    expect(replaceGameInstalledVersion).toHaveBeenCalledWith("g1", "v9.0", "v1.4.2", "install");
+    expect(replaceGameInstalledVersion).toHaveBeenCalledWith("g1", "v1.0", "v1.4.2", "install");
   });
 
   it("leaves a version the user typed alone", async () => {
@@ -184,6 +178,19 @@ describe("recordVersionFromInstallFolder", () => {
     });
     expect(await recordVersionFromInstallFolder(store, "g1", dir)).toBeNull();
     expect(replaceGameInstalledVersion).not.toHaveBeenCalled();
+  });
+
+  it("never moves a comparable version backwards (patch not applied to the folder yet)", async () => {
+    await fs.promises.writeFile(path.join(dir, "version.txt"), "1.0");
+    getGame.mockResolvedValue({
+      id: "g1",
+      installedVersion: "v1.3",
+      installedVersionSource: "release",
+    });
+    expect(await recordVersionFromInstallFolder(store, "g1", dir)).toBeNull();
+    // An incomparable one (build id against a dotted version) still replaces it.
+    await fs.promises.writeFile(path.join(dir, "version.txt"), "Build 55");
+    expect(await recordVersionFromInstallFolder(store, "g1", dir)).toBe("Build 55");
   });
 
   it("does nothing when the version is already recorded from the files", async () => {

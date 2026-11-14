@@ -23,6 +23,8 @@ describe("install file parsers", () => {
   it("reads a version line from an .nfo", () => {
     expect(parseNfoVersion("Release : Game\nVersion ......: 1.3.0\nSize: 4GB")).toBe("v1.3.0");
     expect(parseNfoVersion("no version number here")).toBeNull();
+    // Only a line that starts with "Version": other mentions are not the game's version.
+    expect(parseNfoVersion("Requires base game version 1.2\nInstall notes")).toBeNull();
   });
 
   it("reads the GOG build id", () => {

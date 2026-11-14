@@ -15,8 +15,8 @@ import { detectVersionFromInstallFolder } from "./install-version.js";
  * finishes with post-processing off, or when the import is finalized. Only the full game
  * (editions included) or an update counts (a DLC's version says nothing about the base game),
  * and a known version is only ever moved forward: an older or incomparable release never
- * overwrites what the user has. A version typed by the user, or read from the install's own
- * files, is never replaced by one taken from a release name. `category` is the one stored with the download, if any;
+ * overwrites what the user has. A version typed by the user is never replaced by one taken
+ * from a release name. `category` is the one stored with the download, if any;
  * otherwise it is inferred from the title.
  * Never throws, so a failure here can't break the download or import flow. Returns the version
  * recorded, if any.
@@ -40,9 +40,7 @@ export async function recordVersionFromCompletedDownload(
     let game: Awaited<ReturnType<typeof store.getGame>>;
     for (let attempt = 0; ; attempt++) {
       game = await store.getGame(gameId);
-      if (!game || game.installedVersionSource === "install" || !canAutoWriteVersion(game)) {
-        return null;
-      }
+      if (!game || !canAutoWriteVersion(game)) return null;
       if (game.installedVersion?.trim()) {
         const cmp = compareVersions(detected, game.installedVersion);
         if (cmp === null || cmp <= 0) return null;
@@ -93,6 +91,12 @@ export async function recordVersionFromInstallFolder(
       if (!game || !canAutoWriteVersion(game)) return null;
       if (game.installedVersion?.trim() === detected && game.installedVersionSource === "install") {
         return null;
+      }
+      // Files can lag behind (a patch downloaded but not yet applied to the folder): when the
+      // two versions compare, the files never move the version backwards.
+      if (game.installedVersion?.trim()) {
+        const cmp = compareVersions(detected, game.installedVersion);
+        if (cmp !== null && cmp < 0) return null;
       }
       const written = await store.replaceGameInstalledVersion(
         game.id,

@@ -14,7 +14,7 @@ import { extractVersionFromReleaseName, parseVersion } from "../shared/version-u
 
 const MAX_FILE_BYTES = 64 * 1024;
 const VERSION_FILE_NAMES = new Set(["version.txt", "version", "game_version.txt"]);
-const NFO_VERSION = /\bversion\b[\s:.=-]*v?\s?(\d+(?:\.\d+)+)(?![\w.]*\d)/i;
+const NFO_VERSION = /^[ \t]*version\b[\s:.=-]*v?\s?(\d+(?:\.\d+)+)(?![\w.]*\d)/im;
 
 async function readSmallText(file: string): Promise<string | null> {
   try {

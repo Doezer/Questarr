@@ -414,13 +414,6 @@
       "when": 1794583654873,
       "tag": "0057_indexer_timeout",
       "breakpoints": true
-    },
-    {
-      "idx": 59,
-      "version": "6",
-      "when": 1793909036531,
-      "tag": "0059_tags_and_game_tags",
-      "breakpoints": true
     }
   ]
 }

@@ -22,7 +22,11 @@ async function readSmallText(file: string): Promise<string | null> {
     // O_NOFOLLOW: a symlink (also one swapped in after a check) is never opened. The size is
     // checked on the opened file and the read itself is bounded, so a file that grows or is
     // replaced meanwhile can't allocate more than the limit.
-    handle = await fs.promises.open(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    // O_NONBLOCK keeps opening a FIFO from hanging; the isFile() check then rejects it.
+    handle = await fs.promises.open(
+      file,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK
+    );
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return null;
     const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);

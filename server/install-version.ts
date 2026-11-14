@@ -116,7 +116,7 @@ export async function detectVersionFromInstallFolder(folder: string): Promise<st
     return null;
   }
   const byLower = (pred: (lower: string) => boolean) =>
-    names.filter((n) => pred(n.toLowerCase())).sort();
+    names.filter((n) => pred(n.toLowerCase())).sort((a, b) => a.localeCompare(b));
 
   for (const name of byLower((n) => VERSION_FILE_NAMES.has(n))) {
     const content = await readSmallText(path.join(folder, name));

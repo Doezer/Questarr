@@ -90,6 +90,7 @@ import GameScreenshotGallery, { useGameScreenshots } from "./GameScreenshotGalle
 import FileCategorySelect from "./FileCategorySelect";
 import InstalledVersionField from "./InstalledVersionField";
 import UpgradePolicyField from "./UpgradePolicyField";
+import GameTagsField from "./GameTagsField";
 import { coverSrc } from "@/lib/cover";
 import { getSocket } from "@/lib/socket";
 import { useToast } from "@/hooks/use-toast";
@@ -1495,6 +1496,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     defaultPolicy={accountUpgradePolicy}
                   />
                 )}
+                {isLibraryGame && <GameTagsField key={`tags-${game.id}`} gameId={game.id} />}
               </SideBlock>
 
               {(hasScores || hasTimeToBeat) && (

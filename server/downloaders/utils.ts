@@ -461,3 +461,76 @@ export function buildRemoteImportPath(downloadDir: string, relativePath: string)
 export async function findTorrentByTagNull(_tag: string): Promise<string | null> {
   return null;
 }
+
+/** Escapes the five XML special characters for use in XML-RPC / XML bodies. */
+export function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/** Returns a peer/seeder count only when it is a finite, non-negative number. */
+export function normalizePeerCount(count: number | undefined): number | undefined {
+  return typeof count === "number" && Number.isFinite(count) && count >= 0 ? count : undefined;
+}
+
+/**
+ * Collapses per-tracker swarm counts into the highest seeder and leecher count reported
+ * by any single tracker (trackers report overlapping swarms, so summing would overcount).
+ */
+export function maxTrackerSwarmCounts(
+  trackers: ReadonlyArray<{ seeders?: number | undefined; leechers?: number | undefined }>
+): { seeders?: number | undefined; leechers?: number | undefined } {
+  let seeders: number | undefined;
+  let leechers: number | undefined;
+
+  for (const tracker of trackers) {
+    const trackerSeeders = normalizePeerCount(tracker.seeders);
+    const trackerLeechers = normalizePeerCount(tracker.leechers);
+
+    if (trackerSeeders !== undefined) {
+      seeders = seeders === undefined ? trackerSeeders : Math.max(seeders, trackerSeeders);
+    }
+    if (trackerLeechers !== undefined) {
+      leechers = leechers === undefined ? trackerLeechers : Math.max(leechers, trackerLeechers);
+    }
+  }
+
+  return { seeders, leechers };
+}
+
+/**
+ * Builds a downloader's base URL: adds a scheme when missing, applies the configured port
+ * and (optionally) URL path, and strips the trailing slash. Unparseable URLs are returned
+ * as typed, minus the trailing slash.
+ */
+export function buildDownloaderBaseUrl(
+  downloader: Pick<Downloader, "url" | "useSsl" | "port" | "urlPath">,
+  options: { applyUrlPath?: boolean } = {}
+): string {
+  let baseUrl = downloader.url;
+  if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+    baseUrl = (downloader.useSsl ? "https://" : "http://") + baseUrl;
+  }
+
+  try {
+    const urlObj = new URL(baseUrl);
+    if (downloader.port) {
+      urlObj.port = downloader.port.toString();
+    }
+
+    if (options.applyUrlPath && downloader.urlPath) {
+      let path = downloader.urlPath;
+      if (!path.startsWith("/")) path = `/${path}`;
+      if (path.endsWith("/")) path = path.slice(0, -1);
+      urlObj.pathname = `${urlObj.pathname.replace(/\/$/, "")}${path}`;
+    }
+
+    return urlObj.toString().replace(/\/$/, "");
+  } catch {
+    return baseUrl.replace(/\/$/, "");
+  }
+}

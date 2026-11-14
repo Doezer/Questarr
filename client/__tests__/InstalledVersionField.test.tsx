@@ -20,12 +20,17 @@ vi.mock("@/lib/queryClient", () => ({
 
 const gameId = "game-1";
 
-function renderField(installedVersion: string | null, releaseNames: string[] = []) {
+function renderField(
+  installedVersion: string | null,
+  releaseNames: string[] = [],
+  installedVersionSource: string | null = null
+) {
   render(
     <QueryClientProvider client={createTestQueryClient()}>
       <InstalledVersionField
         gameId={gameId}
         installedVersion={installedVersion}
+        installedVersionSource={installedVersionSource}
         releaseNames={releaseNames}
       />
     </QueryClientProvider>
@@ -47,6 +52,24 @@ describe("getVersionSuggestions", () => {
         "v1.3"
       )
     ).toEqual(["v1.10", "v1.2"]);
+  });
+});
+
+describe("InstalledVersionField source label", () => {
+  afterEach(cleanup);
+
+  it.each([
+    ["manual", "Set by you"],
+    ["release", "From the downloaded release name"],
+    ["install", "Read from the install files"],
+  ])("shows where a %s version came from", (source, label) => {
+    renderField("v1.2", [], source);
+    expect(screen.getByTestId("text-installed-version-source")).toHaveTextContent(label);
+  });
+
+  it("shows no source when there is no version", () => {
+    renderField(null);
+    expect(screen.queryByTestId("text-installed-version-source")).not.toBeInTheDocument();
   });
 });
 

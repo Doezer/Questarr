@@ -293,8 +293,8 @@ export default function Library() {
 
   // A deleted tag can no longer filter; drop it so it cannot hide the whole library.
   useEffect(() => {
-    if (tagFilter !== "all" && userTags.length > 0 && !activeTag) setTagFilter("all");
-  }, [tagFilter, userTags, activeTag]);
+    if (tagFilter !== "all" && Array.isArray(userTagsData) && !activeTag) setTagFilter("all");
+  }, [tagFilter, userTagsData, activeTag]);
 
   const filteredGames = useMemo(() => {
     const filtered = games.filter((game) => {

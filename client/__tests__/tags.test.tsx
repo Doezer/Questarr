@@ -189,3 +189,29 @@ describe("TagsSettings", () => {
     await waitFor(() => expect(apiRequest).toHaveBeenCalledWith("DELETE", `/api/tags/${coop.id}`));
   });
 });
+
+describe("GameTagsField retry", () => {
+  it("refreshes the tag list when attaching a freshly created tag fails", async () => {
+    apiRequest.mockImplementation(async (method: string, url: string) => {
+      if (url === "/api/tags") return { json: async () => makeTag("new-id", "Cozy") };
+      if (method === "POST") throw new Error("attach failed");
+      return { json: async () => ({}) };
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(["/api/tags"], []);
+    client.setQueryData(["/api/games", GAME_ID, "tags"], []);
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    render(
+      <QueryClientProvider client={client}>
+        <GameTagsField gameId={GAME_ID} />
+      </QueryClientProvider>
+    );
+
+    fireEvent.change(screen.getByLabelText("Tags"), { target: { value: "Cozy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+  });
+});

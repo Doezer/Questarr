@@ -62,10 +62,9 @@ export default function GameTagsField({ gameId }: GameTagsFieldProps) {
       const tag = (await res.json()) as Tag;
       await apiRequest("POST", `/api/games/${gameId}/tags`, { tagId: tag.id });
     },
-    onSuccess: () => {
-      setName("");
-      invalidateTagQueries(queryClient);
-    },
+    onSuccess: () => setName(""),
+    // The tag exists even when attaching it failed, so a retry must find it instead of re-creating it.
+    onSettled: () => invalidateTagQueries(queryClient),
     onError: fail("Could not create the tag"),
   });
 

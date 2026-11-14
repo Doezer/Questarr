@@ -196,6 +196,7 @@ configuration does not delete the directory itself.
 - The scan asks IGDB for ten candidates per folder, since a short name such as "Portal" is
   crowded with sequels and mods. **Needs Review** lists up to ten, likeliest first, each
   with its cover and release year.
+- A folder that stays in Needs Review is explained in the server log (search `Library scan: folder left in Needs Review`): the query sent to IGDB, how many candidates came back, and the best one with its score against the 0.85 threshold.
 - Under **Needs Review**, choose a suggested IGDB game or enter a different
   name in **Not listed? Search IGDB by name**. Search alone does not import the
   game; clicking a candidate confirms it and adds it to your library.

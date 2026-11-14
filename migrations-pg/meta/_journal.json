@@ -155,6 +155,13 @@
       "when": 1794583655705,
       "tag": "0021_indexer_timeout",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794661404666,
+      "tag": "0022_upgrade_policy",
+      "breakpoints": true
     }
   ]
 }

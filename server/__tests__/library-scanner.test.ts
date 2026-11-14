@@ -318,6 +318,17 @@ describe("scanRootFolderById full scan", () => {
     expect(unmatched[0].folderName).toBe("Mystery Game.iso");
     expect(unmatched[0].candidates).toEqual([]);
 
+    // The reason is logged so a missed match can be diagnosed from the scan log.
+    const { igdbLogger } = await import("../logger.js");
+    expect(igdbLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        folderName: "Mystery Game.iso",
+        candidates: 0,
+        threshold: expect.any(Number),
+      }),
+      expect.stringContaining("IGDB returned no candidates")
+    );
+
     // The IGDB-less ignored folder was never queried.
     expect(igdbClient.searchGames).not.toHaveBeenCalledWith("IgnoredOnly", 10);
 

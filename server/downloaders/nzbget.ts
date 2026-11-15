@@ -11,6 +11,7 @@ import {
   escapeXml,
   findTorrentByTagNull,
   fixNzbUrlEncoding,
+  getErrorMessage,
   isHttpsUrl,
   logDownloaderDebugResponse,
 } from "./utils.js";
@@ -302,7 +303,7 @@ export class NZBGetClient implements DownloaderClient {
       const version = await this.makeXMLRPCRequest("version");
       return { success: true, message: `Connected to NZBGet v${version}` };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       const baseUrl = this.getBaseUrl();
       downloadersLogger.error({ error, url: baseUrl }, "NZBGet connection test failed");
       return {
@@ -388,7 +389,7 @@ export class NZBGetClient implements DownloaderClient {
     } catch (error) {
       return {
         success: false,
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: getErrorMessage(error),
       };
     }
   }
@@ -586,7 +587,7 @@ export class NZBGetClient implements DownloaderClient {
     } catch (error) {
       return {
         success: false,
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: getErrorMessage(error),
       };
     }
   }
@@ -598,7 +599,7 @@ export class NZBGetClient implements DownloaderClient {
     } catch (error) {
       return {
         success: false,
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: getErrorMessage(error),
       };
     }
   }
@@ -613,7 +614,7 @@ export class NZBGetClient implements DownloaderClient {
     } catch (error) {
       return {
         success: false,
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: getErrorMessage(error),
       };
     }
   }

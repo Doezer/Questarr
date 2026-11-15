@@ -17,8 +17,10 @@ import {
   extractHashFromUrl,
   fetchWithMagnetDetection,
   findTorrentByTagNull,
+  getErrorMessage,
   isHttpsUrl,
   logDownloaderDebugResponse,
+  runDownloaderAction,
 } from "./utils.js";
 import { XMLParser } from "fast-xml-parser";
 
@@ -57,7 +59,7 @@ export class RTorrentClient implements DownloaderClient {
       );
       return { success: true, message: `Connected to rTorrent v${version}` };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       downloadersLogger.error(
         {
           error: errorMessage,
@@ -209,7 +211,7 @@ export class RTorrentClient implements DownloaderClient {
         message: `Failed to add download (rTorrent returned code: ${result})`,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       downloadersLogger.error({ error, url: request.url }, "Failed to add download");
       return { success: false, message: `Failed to add download: ${errorMessage}` };
     }
@@ -441,30 +443,18 @@ export class RTorrentClient implements DownloaderClient {
   }
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
-      await this.makeXMLRPCRequest("d.stop", [id]);
-      return { success: true, message: "Download paused successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to pause download: ${errorMessage}` };
-    }
+    return runDownloaderAction("pause", () => this.makeXMLRPCRequest("d.stop", [id]));
   }
 
   async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
-      await this.makeXMLRPCRequest("d.start", [id]);
-      return { success: true, message: "Download resumed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to resume download: ${errorMessage}` };
-    }
+    return runDownloaderAction("resume", () => this.makeXMLRPCRequest("d.start", [id]));
   }
 
   async removeDownload(
     id: string,
     deleteFiles = false
   ): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("remove", async () => {
       if (deleteFiles) {
         // Stop download, delete data, and remove from client
         await this.makeXMLRPCRequest("d.stop", [id]);
@@ -474,11 +464,7 @@ export class RTorrentClient implements DownloaderClient {
         // Just remove from client without deleting files
         await this.makeXMLRPCRequest("d.erase", [id]);
       }
-      return { success: true, message: "Download removed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to remove download: ${errorMessage}` };
-    }
+    });
   }
 
   async getFreeSpace(): Promise<number> {
@@ -811,7 +797,7 @@ export class RTorrentClient implements DownloaderClient {
               );
             }
           } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            const errorMessage = getErrorMessage(error);
             downloadersLogger.error({ error: errorMessage }, "Error processing Digest Auth");
             throw new Error(`Digest Auth Error: ${errorMessage}`, { cause: error });
           }

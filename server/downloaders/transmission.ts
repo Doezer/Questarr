@@ -15,10 +15,12 @@ import {
   buildDownloaderBaseUrl,
   fetchWithMagnetDetection,
   findTorrentByTagNull,
+  getErrorMessage,
   isHttpsUrl,
   logDownloaderDebugResponse,
   maxTrackerSwarmCounts,
   normalizePeerCount,
+  runDownloaderAction,
 } from "./utils.js";
 
 interface TransmissionTorrent {
@@ -103,7 +105,7 @@ export class TransmissionClient implements DownloaderClient {
             : "Connected successfully to Transmission",
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       downloadersLogger.error(
         {
           error: errorMessage,
@@ -300,7 +302,7 @@ export class TransmissionClient implements DownloaderClient {
         };
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       return { success: false, message: `Failed to add download: ${errorMessage}` };
     }
   }
@@ -419,39 +421,27 @@ export class TransmissionClient implements DownloaderClient {
   }
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("pause", async () => {
       await this.makeRequest("torrent-stop", { ids: this.toTransmissionIds(id) });
-      return { success: true, message: "Download paused successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to pause download: ${errorMessage}` };
-    }
+    });
   }
 
   async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("resume", async () => {
       await this.makeRequest("torrent-start", { ids: this.toTransmissionIds(id) });
-      return { success: true, message: "Download resumed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to resume download: ${errorMessage}` };
-    }
+    });
   }
 
   async removeDownload(
     id: string,
     deleteFiles = false
   ): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("remove", async () => {
       await this.makeRequest("torrent-remove", {
         ids: this.toTransmissionIds(id),
         "delete-local-data": deleteFiles,
       });
-      return { success: true, message: "Download removed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to remove download: ${errorMessage}` };
-    }
+    });
   }
 
   async getFreeSpace(): Promise<number> {

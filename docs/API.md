@@ -634,9 +634,7 @@ Across handlers, error responses follow one of these consistent shapes:
   ```json
   {
     "error": "Validation failed",
-    "details": [
-      /* express-validator error objects: { type, msg, path, location, value } */
-    ]
+    "details": [/* express-validator error objects: { type, msg, path, location, value } */]
   }
   ```
 - **Validation failures (Zod schemas)**: handlers that call
@@ -645,9 +643,7 @@ Across handlers, error responses follow one of these consistent shapes:
   ```json
   {
     "error": "Invalid <thing> data",
-    "details": [
-      /* ZodError.errors array */
-    ]
+    "details": [/* ZodError.errors array */]
   }
   ```
   (message text varies per handler, e.g. "Invalid game data", "Invalid

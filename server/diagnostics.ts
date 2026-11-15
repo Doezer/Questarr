@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { dialect } from "./db.js";
 import { storage } from "./storage.js";
+import { indexerAllowsApiKey } from "./indexer-caps.js";
 import { loadProwlarrSyncSettings } from "./prowlarr-settings.js";
 import { scrubPii } from "../shared/log-scrub.js";
 import type { Downloader, Indexer, UserSettings } from "../shared/schema.js";
@@ -125,6 +126,14 @@ function parseUrl(raw: string): URL | null {
   }
 }
 
+function parseStrict(raw: string): URL | null {
+  try {
+    return new URL(raw);
+  } catch {
+    return null;
+  }
+}
+
 function classifyHost(hostname: string): HostKind {
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (host === "localhost" || host === "::1" || /^127\./.test(host)) return "loopback";
@@ -142,8 +151,14 @@ function classifyHost(hostname: string): HostKind {
 }
 
 /** Describes where a URL points without revealing the host, path or query. */
-export function describeEndpoint(rawUrl: string, explicitPort?: number | null): EndpointShape {
-  const parsed = parseUrl(rawUrl);
+export function describeEndpoint(
+  rawUrl: string,
+  explicitPort?: number | null,
+  options: { strict?: boolean } = {}
+): EndpointShape {
+  // Strict mode mirrors the request path (`new URL(url)` on the stored value), so a
+  // scheme-less indexer URL shows up as invalid instead of being silently "fixed".
+  const parsed = options.strict ? parseStrict(rawUrl) : parseUrl(rawUrl);
   if (!parsed) return { scheme: null, hostKind: "invalid", port: explicitPort ?? null };
   const urlPort = parsed.port ? Number(parsed.port) : null;
   return {
@@ -174,11 +189,7 @@ function hasProwlarrProxyPath(rawUrl: string): boolean {
 }
 
 function apiKeyWithheld(indexer: Pick<Indexer, "url" | "apiKey" | "allowInsecureLan">): boolean {
-  if (!indexer.apiKey) return false;
-  const parsed = parseUrl(indexer.url);
-  if (!parsed) return true;
-  if (parsed.protocol === "https:") return false;
-  return !(parsed.protocol === "http:" && indexer.allowInsecureLan === true);
+  return Boolean(indexer.apiKey) && !indexerAllowsApiKey(indexer);
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -280,7 +291,7 @@ function describeIndexer(indexer: Indexer, prowlarrKey: string | null): IndexerD
     protocol: indexer.protocol,
     enabled: indexer.enabled,
     priority: indexer.priority,
-    ...describeEndpoint(indexer.url),
+    ...describeEndpoint(indexer.url, null, { strict: true }),
     prowlarrProxyPath: hasProwlarrProxyPath(indexer.url),
     apiKeyShape: describeSecret(indexer.apiKey),
     allowInsecureLan: indexer.allowInsecureLan,

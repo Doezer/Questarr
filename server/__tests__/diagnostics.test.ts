@@ -62,6 +62,15 @@ describe("describeEndpoint", () => {
   });
 });
 
+describe("strict endpoint parsing", () => {
+  it("does not invent a scheme for indexer URLs", () => {
+    expect(describeEndpoint("192.168.1.20:9696/1/api", null, { strict: true }).hostKind).toBe(
+      "invalid"
+    );
+    expect(describeEndpoint("192.168.1.20:9696/1/api").scheme).toBe("http");
+  });
+});
+
 describe("describeSecret", () => {
   it("reports shape only and flags padding", () => {
     expect(describeSecret(SECRET_KEY)).toEqual({

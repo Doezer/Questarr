@@ -89,7 +89,8 @@ export type UpgradeDecision<T> =
     }
   | { action: "none"; code: UpgradeNoneCode; skipped: SkippedUpgrade<T>[] };
 
-const VERSION_TOKEN = String.raw`v?\s?(\d+(?:\.\d+)+|(?<=v\s?)\d+)`;
+// A dotted number right after "Build" is a dotted build, which reads as no version.
+const VERSION_TOKEN = String.raw`v?\s?((?<!build[\s._-]?)\d+(?:\.\d+)+|(?<=v\s?)\d+)`;
 // "v1.0.to.v1.1", "1.0 to 1.1", "v1.0-v1.1" is not accepted (a dash also joins unrelated tags).
 const VERSION_RANGE = new RegExp(
   String.raw`(?<![a-z0-9])${VERSION_TOKEN}[\s._-]+to[\s._-]+v?\s?\d`,

@@ -57,6 +57,7 @@ describe("extractPatchBaseVersion", () => {
     ["Game.Update.Build.1000.to.Build.1200-RUNE", "Build 1000"],
     ["Game.Update.Build.1000.to.1200-RUNE", "Build 1000"],
     ["Game.Update.v1.1-CODEX", null],
+    ["Game.Update.Build.1491.50.to.1492.0-RUNE", null],
     ["Road.to.Vostok.v1.0-RUNE", null],
     ["Game.v2.to.v3.Update", "v2"],
   ])("%s -> %s", (name, expected) => {
@@ -176,6 +177,15 @@ describe("decideUpgrade", () => {
         "Game.Update.v1.0.to.v1.2-CODEX": "patch_base_mismatch",
         "Game.Update.v1.3-CODEX": "patch_base_unknown",
       });
+    });
+
+    it("does not read a dotted build as the base of a patch", () => {
+      const title = "Game.Update.Build.1491.50.to.1492.0-RUNE";
+      const decision = decideUpgrade([candidate(title, 100, "update")], {
+        installedVersion: "v1491.50",
+      });
+      expect(decision).toMatchObject({ action: "none", code: "nothing_newer" });
+      expect(skipCodes(decision)).toEqual({ [title]: "patch_base_unknown" });
     });
 
     it("prefers the full release at the same version unless told otherwise", () => {

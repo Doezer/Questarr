@@ -380,6 +380,7 @@ import {
 } from "./library-rescan.js";
 import { integrationRouter } from "./routes/integration.js";
 import { apiKeysRouter } from "./routes/api-keys.js";
+import { webhooksRouter } from "./routes/webhooks.js";
 import { isAdminApiRoute } from "./admin-api-routes.js";
 
 // Cache-Control header values for IGDB discovery endpoints
@@ -1829,6 +1830,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // reasoning as the mounts above.
   app.use("/api/integration", integrationRateLimiter, integrationRouter);
   app.use("/api/api-keys", apiKeysRouter);
+  app.use("/api/webhooks", webhooksRouter);
 
   // Last-used Prowlarr sync settings, to prefill the sync dialog. The stored
   // API key never leaves the server: only the redaction placeholder does.

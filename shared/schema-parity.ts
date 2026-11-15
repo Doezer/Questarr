@@ -227,6 +227,30 @@ export type _InsertGamePlaySessions = Expect<
     typeof pgSchema.gamePlaySessions.$inferInsert
   >
 >;
+export type _SelectWebhookSubscriptions = Expect<
+  Equal<
+    typeof sqliteSchema.webhookSubscriptions.$inferSelect,
+    typeof pgSchema.webhookSubscriptions.$inferSelect
+  >
+>;
+export type _InsertWebhookSubscriptions = Expect<
+  Equal<
+    typeof sqliteSchema.webhookSubscriptions.$inferInsert,
+    typeof pgSchema.webhookSubscriptions.$inferInsert
+  >
+>;
+export type _SelectWebhookDeliveries = Expect<
+  Equal<
+    typeof sqliteSchema.webhookDeliveries.$inferSelect,
+    typeof pgSchema.webhookDeliveries.$inferSelect
+  >
+>;
+export type _InsertWebhookDeliveries = Expect<
+  Equal<
+    typeof sqliteSchema.webhookDeliveries.$inferInsert,
+    typeof pgSchema.webhookDeliveries.$inferInsert
+  >
+>;
 export type _SelectGameMilestones = Expect<
   Equal<
     typeof sqliteSchema.gameMilestones.$inferSelect,

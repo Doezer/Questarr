@@ -575,6 +575,19 @@ installed, and is off by default.
 what hands it to the existing auto-search pipeline (`checkAutoSearch` in
 `server/cron.ts`) — that is how a request from the couch turns into a download.
 
+## Outbound webhooks
+
+`server/routes/webhooks.ts` — mounted at `/api/webhooks`, JWT or an `admin`-scope API key. Events, payload, signature and retry rules are in [Webhooks](WEBHOOKS.md). All responses are `Cache-Control: no-store`; a user may hold at most 20 webhooks.
+
+| Method | Path                           | Auth Required                                 | Request Body                                                                                                                                                           | Response                                                                                                                                   |
+| ------ | ------------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/api/webhooks`                | JWT or admin key                              | —                                                                                                                                                                      | `{ subscriptions: Array<{ id, userId, name, url, events, enabled, createdAt, updatedAt }>, events: string[] }` — never includes the secret |
+| POST   | `/api/webhooks`                | JWT or admin key + `sensitiveEndpointLimiter` | `{ name (1–100), url (http/https, no credentials, SSRF-checked), events: string[] (≥1 of the event types), enabled?, secret? (16–200 chars; generated when omitted) }` | 201 subscription + `secret` (shown only here); 400 invalid or unsafe URL; 409 at 20 webhooks                                               |
+| PATCH  | `/api/webhooks/:id`            | JWT or admin key + `sensitiveEndpointLimiter` | Partial: `name?, url?, events?, enabled?, secret?, rotateSecret?` — `rotateSecret: true` generates a new secret                                                        | Updated subscription (+ `secret` only when `rotateSecret` was sent); 404 if not found or not yours                                         |
+| DELETE | `/api/webhooks/:id`            | JWT or admin key + `sensitiveEndpointLimiter` | —                                                                                                                                                                      | 204; the delivery log goes with it                                                                                                         |
+| POST   | `/api/webhooks/:id/test`       | JWT or admin key + `sensitiveEndpointLimiter` | —                                                                                                                                                                      | `{ success: true, statusCode, durationMs }`, or 502 `{ success: false, error, statusCode }`. One attempt, no retry; recorded in the log    |
+| GET    | `/api/webhooks/:id/deliveries` | JWT or admin key                              | —                                                                                                                                                                      | Last 50 attempts, newest first: `Array<{ id, subscriptionId, eventId, eventType, attempt, statusCode, error, durationMs, createdAt }>`     |
+
 ## API Keys (management)
 
 `server/routes/api-keys.ts` — 3 routes, mounted at `/api/api-keys`, **JWT only**.
@@ -685,6 +698,7 @@ delivery, settings and import paths.
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Downloaders | `GET`/`POST /api/downloaders`, `PATCH`/`DELETE /api/downloaders/:id`, `POST /api/downloaders/:id/test`                                                           |
 | Indexers    | `GET /api/indexers`, `POST /api/indexers/:id/test`, `GET /api/indexers/prowlarr/settings`, `POST /api/indexers/prowlarr/sync`                                    |
+| Webhooks    | `GET`/`POST /api/webhooks`, `PATCH`/`DELETE /api/webhooks/:id`, `POST /api/webhooks/:id/test`, `GET /api/webhooks/:id/deliveries`                                |
 | Settings    | `GET`/`PATCH /api/settings`, `GET`/`POST /api/settings/apprise`, `POST /api/settings/apprise/test`                                                               |
 | Imports     | `GET`/`PATCH /api/imports/config`, `GET`/`POST /api/imports/mappings/paths`, `PATCH`/`DELETE /api/imports/mappings/paths/:id`, `GET /api/imports/hardlink/check` |
 

@@ -52,6 +52,11 @@ import {
   type ApiKey,
   DEFAULT_API_KEY_SCOPE,
   type ApiKeyPublic,
+  type WebhookSubscription,
+  type WebhookDelivery,
+  type NewWebhookSubscriptionInput,
+  type UpdateWebhookSubscriptionInput,
+  type NewWebhookDeliveryInput,
   type NewApiKeyInput,
   type IntegrationRequest,
   type IntegrationRequestProvider,
@@ -88,6 +93,8 @@ import {
 } from "../shared/schema.js";
 import {
   users,
+  webhookDeliveries,
+  webhookSubscriptions,
   games,
   indexers,
   downloaders,
@@ -644,6 +651,25 @@ export interface IStorage {
   touchApiKey(id: string): Promise<void>;
   removeApiKey(id: string, userId: string): Promise<boolean>;
 
+  // Outbound webhooks. Subscription reads return the stored (encrypted) secret: only the
+  // dispatcher uses it; routes must strip it with toPublicWebhookSubscription.
+  getWebhookSubscriptions(userId: string): Promise<WebhookSubscription[]>;
+  getWebhookSubscription(id: string, userId: string): Promise<WebhookSubscription | undefined>;
+  /** Enabled subscriptions across all users, for event dispatch. */
+  getEnabledWebhookSubscriptions(): Promise<WebhookSubscription[]>;
+  addWebhookSubscription(input: NewWebhookSubscriptionInput): Promise<WebhookSubscription>;
+  updateWebhookSubscription(
+    id: string,
+    userId: string,
+    patch: UpdateWebhookSubscriptionInput
+  ): Promise<WebhookSubscription | undefined>;
+  removeWebhookSubscription(id: string, userId: string): Promise<boolean>;
+  addWebhookDelivery(input: NewWebhookDeliveryInput): Promise<WebhookDelivery>;
+  /** Newest first. */
+  getWebhookDeliveries(subscriptionId: string, limit: number): Promise<WebhookDelivery[]>;
+  /** Keeps the newest `keepPerSubscription` attempts of each subscription; returns rows removed. */
+  pruneWebhookDeliveries(keepPerSubscription: number): Promise<number>;
+
   // External request ledger (SeerrNG), always scoped to the owning user.
   getIntegrationRequest(
     userId: string,
@@ -698,6 +724,8 @@ export class MemStorage implements IStorage {
   private classificationCandidates: Map<string, ClassificationCandidate>;
   private classificationCacheRows: Map<string, ClassificationCacheRow>;
   private apiKeys: Map<string, ApiKey>;
+  private webhookSubscriptionRows: Map<string, WebhookSubscription>;
+  private webhookDeliveryRows: Map<string, WebhookDelivery>;
   private integrationRequests: Map<string, IntegrationRequest>;
   private collections: Map<string, Collection>;
   private collectionGames: Map<string, { id: string; collectionId: string; gameId: string }>;
@@ -732,6 +760,8 @@ export class MemStorage implements IStorage {
     this.ignoredScanFolders = new Map();
     this.classificationCandidates = new Map();
     this.classificationCacheRows = new Map();
+    this.webhookSubscriptionRows = new Map();
+    this.webhookDeliveryRows = new Map();
     this.apiKeys = new Map();
     this.integrationRequests = new Map();
     this.collections = new Map();
@@ -2805,6 +2835,87 @@ export class MemStorage implements IStorage {
     const existing = this.apiKeys.get(id);
     if (!existing || existing.userId !== userId) return false;
     return this.apiKeys.delete(id);
+  }
+
+  async getWebhookSubscriptions(userId: string): Promise<WebhookSubscription[]> {
+    return Array.from(this.webhookSubscriptionRows.values())
+      .filter((s) => s.userId === userId)
+      .sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
+  }
+
+  async getWebhookSubscription(
+    id: string,
+    userId: string
+  ): Promise<WebhookSubscription | undefined> {
+    const row = this.webhookSubscriptionRows.get(id);
+    return row && row.userId === userId ? row : undefined;
+  }
+
+  async getEnabledWebhookSubscriptions(): Promise<WebhookSubscription[]> {
+    return Array.from(this.webhookSubscriptionRows.values()).filter((s) => s.enabled);
+  }
+
+  async addWebhookSubscription(input: NewWebhookSubscriptionInput): Promise<WebhookSubscription> {
+    const now = new Date();
+    const row: WebhookSubscription = {
+      id: randomUUID(),
+      userId: input.userId,
+      name: input.name,
+      url: input.url,
+      secret: input.secret,
+      events: input.events,
+      enabled: input.enabled ?? true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.webhookSubscriptionRows.set(row.id, row);
+    return row;
+  }
+
+  async updateWebhookSubscription(
+    id: string,
+    userId: string,
+    patch: UpdateWebhookSubscriptionInput
+  ): Promise<WebhookSubscription | undefined> {
+    const existing = await this.getWebhookSubscription(id, userId);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...stripUndefined(patch), updatedAt: new Date() };
+    this.webhookSubscriptionRows.set(id, updated);
+    return updated;
+  }
+
+  async removeWebhookSubscription(id: string, userId: string): Promise<boolean> {
+    const existing = await this.getWebhookSubscription(id, userId);
+    if (!existing) return false;
+    this.webhookSubscriptionRows.delete(id);
+    for (const [deliveryId, d] of this.webhookDeliveryRows) {
+      if (d.subscriptionId === id) this.webhookDeliveryRows.delete(deliveryId);
+    }
+    return true;
+  }
+
+  async addWebhookDelivery(input: NewWebhookDeliveryInput): Promise<WebhookDelivery> {
+    const row: WebhookDelivery = { ...input, id: randomUUID(), createdAt: new Date() };
+    this.webhookDeliveryRows.set(row.id, row);
+    return row;
+  }
+
+  async getWebhookDeliveries(subscriptionId: string, limit: number): Promise<WebhookDelivery[]> {
+    return Array.from(this.webhookDeliveryRows.values())
+      .filter((d) => d.subscriptionId === subscriptionId)
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
+      .slice(0, limit);
+  }
+
+  async pruneWebhookDeliveries(keepPerSubscription: number): Promise<number> {
+    let removed = 0;
+    for (const sub of this.webhookSubscriptionRows.values()) {
+      const rows = await this.getWebhookDeliveries(sub.id, Number.MAX_SAFE_INTEGER);
+      for (const stale of rows.slice(keepPerSubscription)) {
+        if (this.webhookDeliveryRows.delete(stale.id)) removed++;
+      }
+    }
+    return removed;
   }
 
   private integrationRequestKey(
@@ -5315,6 +5426,99 @@ export class DatabaseStorage implements IStorage {
       .delete(apiKeys)
       .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)));
     return affectedRows(result) > 0;
+  }
+
+  async getWebhookSubscriptions(userId: string): Promise<WebhookSubscription[]> {
+    return db
+      .select()
+      .from(webhookSubscriptions)
+      .where(eq(webhookSubscriptions.userId, userId))
+      .orderBy(asc(webhookSubscriptions.createdAt));
+  }
+
+  async getWebhookSubscription(
+    id: string,
+    userId: string
+  ): Promise<WebhookSubscription | undefined> {
+    const [row] = await db
+      .select()
+      .from(webhookSubscriptions)
+      .where(and(eq(webhookSubscriptions.id, id), eq(webhookSubscriptions.userId, userId)));
+    return row ?? undefined;
+  }
+
+  async getEnabledWebhookSubscriptions(): Promise<WebhookSubscription[]> {
+    return db.select().from(webhookSubscriptions).where(eq(webhookSubscriptions.enabled, true));
+  }
+
+  async addWebhookSubscription(input: NewWebhookSubscriptionInput): Promise<WebhookSubscription> {
+    const rows = await db
+      .insert(webhookSubscriptions)
+      .values({ id: randomUUID(), ...input, enabled: input.enabled ?? true })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async updateWebhookSubscription(
+    id: string,
+    userId: string,
+    patch: UpdateWebhookSubscriptionInput
+  ): Promise<WebhookSubscription | undefined> {
+    const rows = await db
+      .update(webhookSubscriptions)
+      .set({ ...stripUndefined(patch), updatedAt: new Date() })
+      .where(and(eq(webhookSubscriptions.id, id), eq(webhookSubscriptions.userId, userId)))
+      .returning();
+    return rows[0] ?? undefined;
+  }
+
+  async removeWebhookSubscription(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(webhookSubscriptions)
+      .where(and(eq(webhookSubscriptions.id, id), eq(webhookSubscriptions.userId, userId)));
+    return affectedRows(result) > 0;
+  }
+
+  async addWebhookDelivery(input: NewWebhookDeliveryInput): Promise<WebhookDelivery> {
+    const rows = await db
+      .insert(webhookDeliveries)
+      // createdAt set here: the column default only has second resolution, which ties
+      // attempts of one event and breaks "newest first".
+      .values({ id: randomUUID(), ...input, createdAt: new Date() })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async getWebhookDeliveries(subscriptionId: string, limit: number): Promise<WebhookDelivery[]> {
+    return db
+      .select()
+      .from(webhookDeliveries)
+      .where(eq(webhookDeliveries.subscriptionId, subscriptionId))
+      .orderBy(desc(webhookDeliveries.createdAt))
+      .limit(limit);
+  }
+
+  async pruneWebhookDeliveries(keepPerSubscription: number): Promise<number> {
+    const subs = await db.select({ id: webhookSubscriptions.id }).from(webhookSubscriptions);
+    let removed = 0;
+    for (const { id } of subs) {
+      const stale = await db
+        .select({ id: webhookDeliveries.id })
+        .from(webhookDeliveries)
+        .where(eq(webhookDeliveries.subscriptionId, id))
+        .orderBy(desc(webhookDeliveries.createdAt), desc(webhookDeliveries.id))
+        .offset(keepPerSubscription)
+        .limit(1_000_000);
+      if (stale.length === 0) continue;
+      const result = await db.delete(webhookDeliveries).where(
+        inArray(
+          webhookDeliveries.id,
+          stale.map((r) => r.id)
+        )
+      );
+      removed += affectedRows(result);
+    }
+    return removed;
   }
 
   async getIntegrationRequest(

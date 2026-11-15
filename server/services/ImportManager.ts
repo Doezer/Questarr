@@ -37,6 +37,7 @@ import { appriseClient } from "../apprise.js";
 import { isRommPlatformFoldersEnabled, requestRommScanAfterImport } from "../romm.js";
 import { isValidRommSlug, rommSlugForPlatformId } from "../../shared/romm-platforms.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
+import { emitWebhookEvent } from "../webhooks.js";
 
 const PLATFORM_FOLDER_NAMES: Record<string, string> = {
   ...Object.fromEntries(
@@ -532,6 +533,26 @@ export class ImportManager {
     }
   }
 
+  /** Publishes `import.failed` for a download; best effort, never throws. */
+  private async emitImportFailed(downloadId: string, err: unknown): Promise<void> {
+    try {
+      const download = await this.storage.getGameDownload(downloadId);
+      const game = download ? await this.storage.getGame(download.gameId) : undefined;
+      emitWebhookEvent(
+        "import.failed",
+        {
+          downloadId,
+          gameId: game?.id ?? download?.gameId ?? null,
+          gameTitle: game?.title ?? download?.downloadTitle ?? null,
+          reason: err instanceof Error ? err.message : String(err),
+        },
+        game?.userId
+      );
+    } catch (emitErr) {
+      logger.debug({ emitErr, downloadId }, "[ImportManager] import.failed webhook skipped");
+    }
+  }
+
   private async notifyStrandedImport(
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     archiveInDest: string,
@@ -724,6 +745,15 @@ export class ImportManager {
       "[ImportManager] Path not accessible after retries — check path mappings under Settings → Path Mappings"
     );
     await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+    emitWebhookEvent(
+      "import.failed",
+      {
+        downloadId,
+        gameTitle: meta.gameTitle ?? null,
+        reason: "The downloaded files could not be accessed. Check the path mappings.",
+      },
+      meta.userId
+    );
     if (meta.gameTitle && meta.userId) {
       try {
         const notification = await this.storage.addNotification({
@@ -1114,6 +1144,7 @@ export class ImportManager {
       } catch (statusErr) {
         logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
       }
+      await this.emitImportFailed(downloadId, err);
     }
   }
 
@@ -1428,6 +1459,7 @@ export class ImportManager {
       } catch (statusErr) {
         logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
       }
+      await this.emitImportFailed(downloadId, err);
       throw err;
     }
   }

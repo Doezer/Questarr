@@ -508,6 +508,65 @@ export const gamePlaySessions = sqliteTable(
   ]
 );
 
+// Outbound webhooks: external automation (n8n, Home Assistant, deployment scripts) subscribes to
+// Questarr events. Every request is signed with the subscription secret (HMAC-SHA256).
+export const WEBHOOK_EVENT_TYPES = [
+  "download.completed",
+  "download.failed",
+  "import.failed",
+  "game.released",
+  "game.delayed",
+] as const;
+export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
+/** Sent only by the test operation; never selectable in a subscription. */
+export const WEBHOOK_TEST_EVENT = "webhook.test" as const;
+
+export const webhookSubscriptions = sqliteTable(
+  "webhook_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    // Encrypted at rest (credential-crypto): the signature needs the raw value.
+    secret: text("secret").notNull(),
+    events: text("events", { mode: "json" }).$type<WebhookEventType[]>().notNull().default([]),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("webhook_subscriptions_user_id_idx").on(t.userId)]
+);
+
+// Recent delivery attempts per subscription, capped and purged by the "webhook-deliveries-purge"
+// System Task. One row per attempt; retries of the same event share `eventId`.
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    subscriptionId: text("subscription_id")
+      .notNull()
+      .references(() => webhookSubscriptions.id, { onDelete: "cascade" }),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    attempt: integer("attempt").notNull().default(1),
+    // HTTP status of the response, null when the request never got one.
+    statusCode: integer("status_code"),
+    error: text("error"),
+    durationMs: integer("duration_ms"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("webhook_deliveries_sub_created_idx").on(t.subscriptionId, t.createdAt)]
+);
+
 // User-defined "successes" checklist per game. Kept separate from any
 // Steam-sourced achievements, which are fetched live rather than stored here.
 export const gameMilestones = sqliteTable(
@@ -1282,6 +1341,23 @@ export type InsertCollection = {
   rules: CollectionRules | null;
 };
 export type CollectionGame = typeof collectionGames.$inferSelect;
+export type WebhookSubscription = typeof webhookSubscriptions.$inferSelect;
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
+/** A subscription as returned to clients: the secret never leaves the server after creation. */
+export type WebhookSubscriptionPublic = Omit<WebhookSubscription, "secret">;
+export type NewWebhookSubscriptionInput = {
+  userId: string;
+  name: string;
+  url: string;
+  /** Already encrypted. */
+  secret: string;
+  events: WebhookEventType[];
+  enabled?: boolean;
+};
+export type UpdateWebhookSubscriptionInput = Partial<
+  Pick<WebhookSubscription, "name" | "url" | "secret" | "events" | "enabled">
+>;
+export type NewWebhookDeliveryInput = Omit<WebhookDelivery, "id" | "createdAt">;
 
 export type Tag = typeof tags.$inferSelect;
 export type InsertTag = z.infer<typeof insertTagSchema>;

@@ -98,3 +98,11 @@ export function buildNewIndexer(
 export function formatSyncFailure(idx: Partial<Indexer>, error: unknown): string {
   return `Failed to sync ${idx.name}: ${error instanceof Error ? error.message : "Unknown error"}`;
 }
+
+/** Thrown inside a transaction to roll back when the sessions to replace changed under us. */
+export class PlaySessionsChangedError extends Error {
+  constructor() {
+    super("Play sessions changed");
+    this.name = "PlaySessionsChangedError";
+  }
+}

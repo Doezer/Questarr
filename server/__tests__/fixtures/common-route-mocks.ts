@@ -92,6 +92,8 @@ export function createStorageMock() {
     addGamePlaySession: vi.fn(),
     stopGamePlaySession: vi.fn(),
     deleteGamePlaySession: vi.fn(),
+    updateGamePlaySession: vi.fn(),
+    replaceGamePlaySessions: vi.fn(),
     getGameMilestones: vi.fn().mockResolvedValue([]),
     addGameMilestone: vi.fn(),
     updateGameMilestone: vi.fn(),

@@ -77,4 +77,50 @@ describe("Postgres transactional ops", () => {
     expect(rejected).toHaveLength(1);
     expect(await storage().getApiKeys(user.id)).toHaveLength(1);
   });
+
+  it("replaceGamePlaySessions merges editable sessions and rolls back when one is imported", async () => {
+    const user = await storage().createUser({ username: "merge-owner", passwordHash: "h" });
+    const game = await storage().addGame({
+      title: "Merged",
+      status: "playing",
+      userId: user.id,
+      hidden: false,
+    });
+    const at = (h: number) => new Date(Date.UTC(2026, 10, 5, h));
+    const add = (source: string, from: number, to: number) =>
+      storage().addGamePlaySession({
+        gameId: game.id,
+        userId: user.id,
+        startedAt: at(from),
+        endedAt: at(to),
+        source,
+      });
+    const exp = (x: { id: string; startedAt: Date; endedAt: Date | null }) => ({
+      id: x.id,
+      startedAt: x.startedAt,
+      endedAt: x.endedAt!,
+    });
+    const a = await add("manual", 10, 11);
+    const b = await add("timer", 11, 12);
+    const imported = await add("steam", 12, 13);
+
+    expect(
+      await storage().replaceGamePlaySessions(
+        user.id,
+        game.id,
+        [exp(a), exp(imported)],
+        [{ startedAt: at(10), endedAt: at(13), source: "manual" }]
+      )
+    ).toBeUndefined();
+    expect(await storage().getGamePlaySessions(game.id, user.id)).toHaveLength(3);
+
+    const merged = await storage().replaceGamePlaySessions(
+      user.id,
+      game.id,
+      [exp(a), exp(b)],
+      [{ startedAt: at(10), endedAt: at(12), source: "manual" }]
+    );
+    expect(merged).toHaveLength(1);
+    expect(await storage().getGamePlaySessions(game.id, user.id)).toHaveLength(2);
+  });
 });

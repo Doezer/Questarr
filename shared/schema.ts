@@ -1013,6 +1013,50 @@ export const insertManualPlaySessionSchema = z.object({
     .max(24 * 60),
 });
 
+/** Sessions the user can edit, merge and split: imported or estimated ones stay as recorded. */
+export const EDITABLE_PLAY_SESSION_SOURCES = ["manual", "timer"] as const;
+
+/** True for a finished session whose source the user may edit, merge or split. */
+export function isEditablePlaySession(session: {
+  source: string | null;
+  endedAt: Date | null;
+}): boolean {
+  return (
+    session.endedAt !== null &&
+    (EDITABLE_PLAY_SESSION_SOURCES as readonly string[]).includes(session.source ?? "")
+  );
+}
+
+/** Change a finished session: a new start, and a new end or duration (not both). */
+export const updatePlaySessionSchema = z
+  .object({
+    startedAt: z.coerce.date().optional(),
+    endedAt: z.coerce.date().optional(),
+    // JSON only: coercion would turn `true` into 1.
+    durationMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(24 * 60)
+      .optional(),
+  })
+  .refine((v) => v.startedAt || v.endedAt || v.durationMinutes, {
+    message: "Provide startedAt, endedAt or durationMinutes",
+  })
+  .refine((v) => !(v.endedAt && v.durationMinutes), {
+    message: "Provide endedAt or durationMinutes, not both",
+  });
+
+/** Merge several finished sessions of one game into one. */
+export const mergePlaySessionsSchema = z.object({
+  sessionIds: z.array(z.string().uuid()).min(2).max(20),
+});
+
+/** Cut a finished session in two at `splitAt`. */
+export const splitPlaySessionSchema = z.object({
+  splitAt: z.coerce.date(),
+});
+
 export const insertGameMilestoneSchema = createInsertSchema(gameMilestones, {
   label: (schema) => schema.trim().min(1, "Label is required").max(200),
 }).omit({

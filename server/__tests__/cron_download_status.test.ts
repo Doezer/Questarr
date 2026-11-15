@@ -225,6 +225,25 @@ describe("Cron - checkDownloadStatus", () => {
     expect(statusWritesFor(baseDownload.gameId)).not.toContainEqual({ status: "owned" });
   });
 
+  it("leaves an owned game owned when its download disappears (automatic upgrade)", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetGame.mockResolvedValue({ id: baseDownload.gameId, title: "Test Game", status: "owned" });
+    mockGetAllDownloads.mockResolvedValue([]);
+    mockGetDownloadStatus.mockResolvedValue(null);
+
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      baseDownload.id,
+      "failed",
+      expect.any(String)
+    );
+    expect(statusWritesFor(baseDownload.gameId)).toEqual([]);
+  });
+
   it("should mark as failed and reset the game to wanted when both bulk and individual checks return null", async () => {
     mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
     mockGetDownloader.mockResolvedValue(baseDownloader);

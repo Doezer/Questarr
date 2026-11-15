@@ -112,9 +112,11 @@ vi.mock("../socket.js", () => ({
 
 // Mock downloaders
 const mockAddDownloadWithFallback = vi.fn();
+const mockRemoveDownload = vi.fn().mockResolvedValue({ success: true, message: "" });
 vi.mock("../downloaders.js", () => ({
   DownloaderManager: {
     addDownloadWithFallback: mockAddDownloadWithFallback,
+    removeDownload: mockRemoveDownload,
   },
 }));
 
@@ -901,6 +903,19 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockRecordAiAutoDownloadHold).toHaveBeenCalledWith(
         expect.objectContaining({ gameId: ownedGame.id, reason: expect.stringContaining("dlc") })
       );
+    });
+
+    it("cancels the download when it cannot be tracked", async () => {
+      mockAddGameDownload.mockRejectedValueOnce(new Error("db locked"));
+
+      await checkAutoSearch();
+
+      expect(mockRemoveDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "dl-1" }),
+        "hash-abc",
+        true
+      );
+      expect(mockAddDownloadEvent).not.toHaveBeenCalled();
     });
 
     it("keeps the upgrade when its notification cannot be saved", async () => {

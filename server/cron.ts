@@ -110,6 +110,16 @@ const PROBABLY_FINISHED_STATUSES = new Set<DownloadStatus["status"]>([
   "repairing",
 ]);
 
+/**
+ * Whether a download's progress leaves the game's status alone. Statuses the user chose always
+ * do. So does "owned": a manual or wanted-game grab sets the game to "downloading" itself, so a
+ * game still owned while one of its downloads runs is being upgraded (the "auto" upgrade
+ * policy) and keeps its working install, whatever becomes of the download.
+ */
+function keepsStatusDuringDownloads(status: string | null | undefined): boolean {
+  return status === "owned" || isUserCuratedGameStatus(status);
+}
+
 const ACTIVE_DOWNLOAD_STATUSES = new Set([
   "downloading",
   "paused",
@@ -1146,7 +1156,7 @@ async function recoverFailedUsenetDownloads() {
       );
       await storage.updateGameDownloadStatus(download.id, "downloading", null);
       const game = await storage.getGame(download.gameId);
-      if (game && game.status !== "downloading" && !isUserCuratedGameStatus(game.status)) {
+      if (game && game.status !== "downloading" && !keepsStatusDuringDownloads(game.status)) {
         await storage.updateGameStatus(
           download.gameId,
           { status: "downloading" },
@@ -1303,7 +1313,7 @@ async function runDownloadStatusCheck() {
                 if (
                   failedGame &&
                   failedGame.status !== "wanted" &&
-                  !isUserCuratedGameStatus(failedGame.status)
+                  !keepsStatusDuringDownloads(failedGame.status)
                 ) {
                   await storage.updateGameStatus(
                     download.gameId,
@@ -1651,7 +1661,7 @@ async function runDownloadStatusCheck() {
               !skipGameStatusUpdate &&
               game &&
               game.status !== newGameStatus &&
-              !isUserCuratedGameStatus(game.status)
+              !keepsStatusDuringDownloads(game.status)
             ) {
               await storage.updateGameStatus(
                 download.gameId,
@@ -1762,7 +1772,7 @@ async function runDownloadStatusCheck() {
             !hasActiveSibling &&
             !!game &&
             game.status !== "wanted" &&
-            !isUserCuratedGameStatus(game.status);
+            !keepsStatusDuringDownloads(game.status);
 
           const missedErrorMessage = willResetGame
             ? "Download disappeared from the downloader before completing. It may have " +
@@ -2079,15 +2089,29 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
   });
   if (!result?.success || !result.id || !result.downloaderId) return false;
 
-  await storage.addGameDownload({
-    gameId: game.id,
-    downloaderId: result.downloaderId,
-    downloadHash: result.id,
-    downloadTitle: item.title,
-    status: "downloading",
-    downloadType: item.downloadType,
-    category: decision.patch ? "update" : "main",
-  });
+  try {
+    await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId: result.downloaderId,
+      downloadHash: result.id,
+      downloadTitle: item.title,
+      status: "downloading",
+      downloadType: item.downloadType,
+      category: decision.patch ? "update" : "main",
+    });
+  } catch (error) {
+    // An untracked job would be invisible to the "already grabbed" check and downloaded again
+    // next cycle, so it is cancelled; the release is tried again then.
+    const downloader = downloaders.find((d) => d.id === result.downloaderId);
+    const removed = downloader
+      ? await DownloaderManager.removeDownload(downloader, result.id, true)
+      : { success: false, message: "downloader not found" };
+    igdbLogger.error(
+      { gameTitle: game.title, releaseTitle: item.title, error, cancelled: removed.success },
+      "Auto-upgrade could not be tracked, download cancelled"
+    );
+    return false;
+  }
 
   const what = decision.patch ? "update patch" : "full release";
   const change = `${decision.fromVersion} to ${decision.toVersion}`;

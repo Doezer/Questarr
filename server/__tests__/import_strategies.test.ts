@@ -804,6 +804,33 @@ describe("ImportStrategies", () => {
       expect(await fs.readFile(path.join(sourceDir, "game.rom"), "utf8")).toBe("rom-bytes");
     });
 
+    it("never removes a symlink entry that is both source and destination (sortExtras)", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "game-folder");
+      await fs.ensureDir(sourceDir);
+      await fs.writeFile(path.join(root, "target.rom"), "rom-bytes");
+      await fs.symlink(path.join(root, "target.rom"), path.join(sourceDir, "game.rom"));
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: sourceDir,
+            strategy: "pc",
+            fileCategories: [{ name: "game.rom", category: "main" }],
+          },
+          "symlink",
+          new Set([path.join(sourceDir, "other.zip")])
+        )
+      ).rejects.toThrow("Destination already exists, refusing to overwrite");
+      expect((await fs.lstat(path.join(sourceDir, "game.rom"))).isSymbolicLink()).toBe(true);
+      expect(await fs.readlink(path.join(sourceDir, "game.rom"))).toBe(
+        path.join(root, "target.rom")
+      );
+    });
+
     it("still refuses an unrelated destination file in hardlink mode", async () => {
       const { sourceDir, destination, excludePaths } = await makeExcludeFixture({
         "game.rom": "loose-rom-bytes",

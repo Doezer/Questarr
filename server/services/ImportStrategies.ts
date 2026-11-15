@@ -278,6 +278,11 @@ async function transferSingleFile(
   return linkOrCopyFallback(source, destination);
 }
 
+// Resolves the directory alias but keeps the entry name, so a symlink entry is not followed.
+async function resolvedEntryPath(entryPath: string): Promise<string> {
+  return path.join(await fs.realpath(path.dirname(entryPath)), path.basename(entryPath));
+}
+
 /**
  * True when `destination` is already the file a previous, interrupted run of this same
  * transfer placed for `source`: the same inode (hardlink) or a symlink pointing at it.
@@ -286,10 +291,14 @@ async function transferSingleFile(
 async function isAlreadyPlacedFrom(source: string, destination: string): Promise<boolean> {
   try {
     const destLstat = await fs.lstat(destination);
-    const [realSource, realDestination] = await Promise.all([
+    const [realSource, realDestination, sourceEntry, destinationEntry] = await Promise.all([
       fs.realpath(source),
       fs.realpath(destination),
+      resolvedEntryPath(source),
+      resolvedEntryPath(destination),
     ]);
+    // Same directory entry: this is the source itself, never an earlier placement.
+    if (sourceEntry === destinationEntry) return false;
     if (destLstat.isSymbolicLink()) return realDestination === realSource;
     // The source itself, under any alias (symlinked parent, `..`), is never "already
     // placed": removing it would destroy the only copy.

@@ -53,6 +53,8 @@ const EXPECTED_TABLES = [
   "tags",
   "userSettings",
   "users",
+  "webhookDeliveries",
+  "webhookSubscriptions",
   "xrelNotifiedReleases",
 ] as const;
 

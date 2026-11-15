@@ -46,6 +46,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import WebhookSubscriptionsCard from "@/components/WebhookSubscriptionsCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { ApiKeysCard } from "@/components/ApiKeysCard";
@@ -1807,6 +1808,8 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+
+            <WebhookSubscriptionsCard />
 
             {/* Notification Preferences Card */}
             <Card>

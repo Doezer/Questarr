@@ -52,6 +52,11 @@ import {
   type ApiKey,
   DEFAULT_API_KEY_SCOPE,
   type ApiKeyPublic,
+  type WebhookSubscription,
+  type WebhookDelivery,
+  type NewWebhookSubscriptionInput,
+  type UpdateWebhookSubscriptionInput,
+  type NewWebhookDeliveryInput,
   type NewApiKeyInput,
   type IntegrationRequest,
   type IntegrationRequestProvider,
@@ -84,9 +89,12 @@ import {
   type InsertGameTag,
   type UpgradePolicy,
   DEFAULT_UPGRADE_POLICY,
+  type DetectedVersionSource,
 } from "../shared/schema.js";
 import {
   users,
+  webhookDeliveries,
+  webhookSubscriptions,
   games,
   indexers,
   downloaders,
@@ -149,6 +157,7 @@ import {
 import { containsCI, distinctJoin, affectedRows } from "./sql-compat.js";
 import { transactionalOps } from "./db/transactional-ops.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
+import { canAutoWriteVersion } from "../shared/version-utils.js";
 import { firstOrThrow, stripUndefined } from "./object-utils.js";
 import {
   encryptCredential,
@@ -310,13 +319,17 @@ export interface IStorage {
     installedVersion: string | null
   ): Promise<Game | undefined>;
   /**
-   * Sets a game's installed version only if it still equals `expected` (null = not set), so a
-   * detected version can't overwrite one written in between. Returns whether it was written.
+   * Sets a game's detected installed version only if it still equals `expected` (null = not
+   * set) and was not typed by the user, so a detected version can't overwrite one written in
+   * between. `overManual` lets the caller replace a typed version too; it is for a version the
+   * caller has already compared and found strictly newer. Returns whether it was written.
    */
   replaceGameInstalledVersion(
     id: string,
     expected: string | null,
-    installedVersion: string
+    installedVersion: string,
+    source?: DetectedVersionSource,
+    overManual?: boolean
   ): Promise<boolean>;
   updateGameUpgradePolicy(
     id: string,
@@ -643,6 +656,25 @@ export interface IStorage {
   touchApiKey(id: string): Promise<void>;
   removeApiKey(id: string, userId: string): Promise<boolean>;
 
+  // Outbound webhooks. Subscription reads return the stored (encrypted) secret: only the
+  // dispatcher uses it; routes must strip it with toPublicWebhookSubscription.
+  getWebhookSubscriptions(userId: string): Promise<WebhookSubscription[]>;
+  getWebhookSubscription(id: string, userId: string): Promise<WebhookSubscription | undefined>;
+  /** Enabled subscriptions across all users, for event dispatch. */
+  getEnabledWebhookSubscriptions(): Promise<WebhookSubscription[]>;
+  addWebhookSubscription(input: NewWebhookSubscriptionInput): Promise<WebhookSubscription>;
+  updateWebhookSubscription(
+    id: string,
+    userId: string,
+    patch: UpdateWebhookSubscriptionInput
+  ): Promise<WebhookSubscription | undefined>;
+  removeWebhookSubscription(id: string, userId: string): Promise<boolean>;
+  addWebhookDelivery(input: NewWebhookDeliveryInput): Promise<WebhookDelivery>;
+  /** Newest first. */
+  getWebhookDeliveries(subscriptionId: string, limit: number): Promise<WebhookDelivery[]>;
+  /** Keeps the newest `keepPerSubscription` attempts of each subscription; returns rows removed. */
+  pruneWebhookDeliveries(keepPerSubscription: number): Promise<number>;
+
   // External request ledger (SeerrNG), always scoped to the owning user.
   getIntegrationRequest(
     userId: string,
@@ -697,6 +729,8 @@ export class MemStorage implements IStorage {
   private classificationCandidates: Map<string, ClassificationCandidate>;
   private classificationCacheRows: Map<string, ClassificationCacheRow>;
   private apiKeys: Map<string, ApiKey>;
+  private webhookSubscriptionRows: Map<string, WebhookSubscription>;
+  private webhookDeliveryRows: Map<string, WebhookDelivery>;
   private integrationRequests: Map<string, IntegrationRequest>;
   private collections: Map<string, Collection>;
   private collectionGames: Map<string, { id: string; collectionId: string; gameId: string }>;
@@ -731,6 +765,8 @@ export class MemStorage implements IStorage {
     this.ignoredScanFolders = new Map();
     this.classificationCandidates = new Map();
     this.classificationCacheRows = new Map();
+    this.webhookSubscriptionRows = new Map();
+    this.webhookDeliveryRows = new Map();
     this.apiKeys = new Map();
     this.integrationRequests = new Map();
     this.collections = new Map();
@@ -905,6 +941,7 @@ export class MemStorage implements IStorage {
       userRating: null,
       libraryPath: null,
       installedVersion: null,
+      installedVersionSource: null,
       upgradePolicy: null,
       finishBy: null,
       addedAt: new Date(),
@@ -1008,7 +1045,12 @@ export class MemStorage implements IStorage {
     const game = this.games.get(id);
     if (game?.userId !== userId) return Promise.resolve(undefined);
 
-    const updatedGame: Game = { ...game, installedVersion };
+    // A version typed by the user is "manual"; clearing it clears the source too.
+    const updatedGame: Game = {
+      ...game,
+      installedVersion,
+      installedVersionSource: installedVersion ? "manual" : null,
+    };
     this.games.set(id, updatedGame);
     return Promise.resolve(updatedGame);
   }
@@ -1016,11 +1058,19 @@ export class MemStorage implements IStorage {
   replaceGameInstalledVersion(
     id: string,
     expected: string | null,
-    installedVersion: string
+    installedVersion: string,
+    source: DetectedVersionSource = "release",
+    overManual = false
   ): Promise<boolean> {
     const game = this.games.get(id);
-    if (!game || (game.installedVersion ?? null) !== expected) return Promise.resolve(false);
-    this.games.set(id, { ...game, installedVersion });
+    if (
+      !game ||
+      (game.installedVersion ?? null) !== expected ||
+      (!overManual && !canAutoWriteVersion(game))
+    ) {
+      return Promise.resolve(false);
+    }
+    this.games.set(id, { ...game, installedVersion, installedVersionSource: source });
     return Promise.resolve(true);
   }
 
@@ -2806,6 +2856,87 @@ export class MemStorage implements IStorage {
     return this.apiKeys.delete(id);
   }
 
+  async getWebhookSubscriptions(userId: string): Promise<WebhookSubscription[]> {
+    return Array.from(this.webhookSubscriptionRows.values())
+      .filter((s) => s.userId === userId)
+      .sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
+  }
+
+  async getWebhookSubscription(
+    id: string,
+    userId: string
+  ): Promise<WebhookSubscription | undefined> {
+    const row = this.webhookSubscriptionRows.get(id);
+    return row && row.userId === userId ? row : undefined;
+  }
+
+  async getEnabledWebhookSubscriptions(): Promise<WebhookSubscription[]> {
+    return Array.from(this.webhookSubscriptionRows.values()).filter((s) => s.enabled);
+  }
+
+  async addWebhookSubscription(input: NewWebhookSubscriptionInput): Promise<WebhookSubscription> {
+    const now = new Date();
+    const row: WebhookSubscription = {
+      id: randomUUID(),
+      userId: input.userId,
+      name: input.name,
+      url: input.url,
+      secret: input.secret,
+      events: input.events,
+      enabled: input.enabled ?? true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.webhookSubscriptionRows.set(row.id, row);
+    return row;
+  }
+
+  async updateWebhookSubscription(
+    id: string,
+    userId: string,
+    patch: UpdateWebhookSubscriptionInput
+  ): Promise<WebhookSubscription | undefined> {
+    const existing = await this.getWebhookSubscription(id, userId);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...stripUndefined(patch), updatedAt: new Date() };
+    this.webhookSubscriptionRows.set(id, updated);
+    return updated;
+  }
+
+  async removeWebhookSubscription(id: string, userId: string): Promise<boolean> {
+    const existing = await this.getWebhookSubscription(id, userId);
+    if (!existing) return false;
+    this.webhookSubscriptionRows.delete(id);
+    for (const [deliveryId, d] of this.webhookDeliveryRows) {
+      if (d.subscriptionId === id) this.webhookDeliveryRows.delete(deliveryId);
+    }
+    return true;
+  }
+
+  async addWebhookDelivery(input: NewWebhookDeliveryInput): Promise<WebhookDelivery> {
+    const row: WebhookDelivery = { ...input, id: randomUUID(), createdAt: new Date() };
+    this.webhookDeliveryRows.set(row.id, row);
+    return row;
+  }
+
+  async getWebhookDeliveries(subscriptionId: string, limit: number): Promise<WebhookDelivery[]> {
+    return Array.from(this.webhookDeliveryRows.values())
+      .filter((d) => d.subscriptionId === subscriptionId)
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
+      .slice(0, limit);
+  }
+
+  async pruneWebhookDeliveries(keepPerSubscription: number): Promise<number> {
+    let removed = 0;
+    for (const sub of this.webhookSubscriptionRows.values()) {
+      const rows = await this.getWebhookDeliveries(sub.id, Number.MAX_SAFE_INTEGER);
+      for (const stale of rows.slice(keepPerSubscription)) {
+        if (this.webhookDeliveryRows.delete(stale.id)) removed++;
+      }
+    }
+    return removed;
+  }
+
   private integrationRequestKey(
     userId: string,
     provider: IntegrationRequestProvider,
@@ -3277,7 +3408,8 @@ export class DatabaseStorage implements IStorage {
   ): Promise<Game | undefined> {
     const [updatedGame] = await db
       .update(games)
-      .set({ installedVersion })
+      // A version typed by the user is "manual"; clearing it clears the source too.
+      .set({ installedVersion, installedVersionSource: installedVersion ? "manual" : null })
       .where(and(eq(games.id, id), eq(games.userId, userId)))
       .returning();
     return updatedGame || undefined;
@@ -3286,14 +3418,22 @@ export class DatabaseStorage implements IStorage {
   async replaceGameInstalledVersion(
     id: string,
     expected: string | null,
-    installedVersion: string
+    installedVersion: string,
+    source: DetectedVersionSource = "release",
+    overManual = false
   ): Promise<boolean> {
     const current =
       expected === null ? isNull(games.installedVersion) : eq(games.installedVersion, expected);
+    // Never over a version the user typed (or a legacy one with no source recorded), unless the
+    // caller found the new one strictly newer (overManual); `current` still guards the race.
+    const notManual = or(
+      inArray(games.installedVersionSource, ["release", "install"]),
+      and(isNull(games.installedVersionSource), isNull(games.installedVersion))
+    );
     const result = await db
       .update(games)
-      .set({ installedVersion })
-      .where(and(eq(games.id, id), current));
+      .set({ installedVersion, installedVersionSource: source })
+      .where(and(eq(games.id, id), current, overManual ? undefined : notManual));
     return affectedRows(result) > 0;
   }
 
@@ -5318,6 +5458,99 @@ export class DatabaseStorage implements IStorage {
       .delete(apiKeys)
       .where(and(eq(apiKeys.id, id), eq(apiKeys.userId, userId)));
     return affectedRows(result) > 0;
+  }
+
+  async getWebhookSubscriptions(userId: string): Promise<WebhookSubscription[]> {
+    return db
+      .select()
+      .from(webhookSubscriptions)
+      .where(eq(webhookSubscriptions.userId, userId))
+      .orderBy(asc(webhookSubscriptions.createdAt));
+  }
+
+  async getWebhookSubscription(
+    id: string,
+    userId: string
+  ): Promise<WebhookSubscription | undefined> {
+    const [row] = await db
+      .select()
+      .from(webhookSubscriptions)
+      .where(and(eq(webhookSubscriptions.id, id), eq(webhookSubscriptions.userId, userId)));
+    return row ?? undefined;
+  }
+
+  async getEnabledWebhookSubscriptions(): Promise<WebhookSubscription[]> {
+    return db.select().from(webhookSubscriptions).where(eq(webhookSubscriptions.enabled, true));
+  }
+
+  async addWebhookSubscription(input: NewWebhookSubscriptionInput): Promise<WebhookSubscription> {
+    const rows = await db
+      .insert(webhookSubscriptions)
+      .values({ id: randomUUID(), ...input, enabled: input.enabled ?? true })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async updateWebhookSubscription(
+    id: string,
+    userId: string,
+    patch: UpdateWebhookSubscriptionInput
+  ): Promise<WebhookSubscription | undefined> {
+    const rows = await db
+      .update(webhookSubscriptions)
+      .set({ ...stripUndefined(patch), updatedAt: new Date() })
+      .where(and(eq(webhookSubscriptions.id, id), eq(webhookSubscriptions.userId, userId)))
+      .returning();
+    return rows[0] ?? undefined;
+  }
+
+  async removeWebhookSubscription(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(webhookSubscriptions)
+      .where(and(eq(webhookSubscriptions.id, id), eq(webhookSubscriptions.userId, userId)));
+    return affectedRows(result) > 0;
+  }
+
+  async addWebhookDelivery(input: NewWebhookDeliveryInput): Promise<WebhookDelivery> {
+    const rows = await db
+      .insert(webhookDeliveries)
+      // createdAt set here: the column default only has second resolution, which ties
+      // attempts of one event and breaks "newest first".
+      .values({ id: randomUUID(), ...input, createdAt: new Date() })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async getWebhookDeliveries(subscriptionId: string, limit: number): Promise<WebhookDelivery[]> {
+    return db
+      .select()
+      .from(webhookDeliveries)
+      .where(eq(webhookDeliveries.subscriptionId, subscriptionId))
+      .orderBy(desc(webhookDeliveries.createdAt))
+      .limit(limit);
+  }
+
+  async pruneWebhookDeliveries(keepPerSubscription: number): Promise<number> {
+    const subs = await db.select({ id: webhookSubscriptions.id }).from(webhookSubscriptions);
+    let removed = 0;
+    for (const { id } of subs) {
+      const stale = await db
+        .select({ id: webhookDeliveries.id })
+        .from(webhookDeliveries)
+        .where(eq(webhookDeliveries.subscriptionId, id))
+        .orderBy(desc(webhookDeliveries.createdAt), desc(webhookDeliveries.id))
+        .offset(keepPerSubscription)
+        .limit(1_000_000);
+      if (stale.length === 0) continue;
+      const result = await db.delete(webhookDeliveries).where(
+        inArray(
+          webhookDeliveries.id,
+          stale.map((r) => r.id)
+        )
+      );
+      removed += affectedRows(result);
+    }
+    return removed;
   }
 
   async getIntegrationRequest(

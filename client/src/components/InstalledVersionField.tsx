@@ -10,11 +10,19 @@ import { compareVersions, extractVersionFromReleaseName } from "@shared/version-
 interface InstalledVersionFieldProps {
   readonly gameId: string;
   readonly installedVersion: string | null;
+  /** Where the version came from: typed by the user, a release name, or the install files. */
+  readonly installedVersionSource?: string | null;
   /** Release names of the game's downloads, mined for version suggestions. */
   readonly releaseNames: readonly string[];
 }
 
 const MAX_SUGGESTIONS = 6;
+
+const SOURCE_LABELS: Record<string, string> = {
+  manual: "Set by you",
+  release: "From the downloaded release name",
+  install: "Read from the install files",
+};
 
 /** Distinct versions found in release names, newest first when they can be compared. */
 export function getVersionSuggestions(
@@ -39,6 +47,7 @@ export function getVersionSuggestions(
 export default function InstalledVersionField({
   gameId,
   installedVersion,
+  installedVersionSource = null,
   releaseNames,
 }: InstalledVersionFieldProps) {
   const { toast } = useToast();
@@ -86,7 +95,7 @@ export default function InstalledVersionField({
     [releaseNames, draft]
   );
 
-  const save = (value: string) => {
+  const save = (value: string, confirm = false) => {
     const next = value.trim() || null;
     // Checked before comparing with the stored value, which is stale while a save is in
     // flight: going back to it then still needs a save to undo the in-flight one.
@@ -95,7 +104,11 @@ export default function InstalledVersionField({
       queued.current = mutation.variables === next ? null : { value: next };
       return;
     }
-    if (next === (installedVersion ?? null)) return;
+    // Pressing Enter on the unchanged detected version confirms it as the user's own, so it is
+    // no longer replaced by detection; leaving the field untouched does not.
+    const confirmsDetected =
+      confirm && !!next && !!installedVersionSource && installedVersionSource !== "manual";
+    if (next === (installedVersion ?? null) && !confirmsDetected) return;
     mutation.mutate(next);
   };
 
@@ -123,7 +136,7 @@ export default function InstalledVersionField({
               // Enter confirming an IME candidate is not a submit.
               if (e.nativeEvent.isComposing) return;
               e.preventDefault();
-              save(draft);
+              save(draft, true);
             } else if (e.key === "Escape" && draft !== (installedVersion ?? "")) {
               e.stopPropagation();
               setDraft(installedVersion ?? "");
@@ -165,9 +178,18 @@ export default function InstalledVersionField({
           ))}
         </div>
       )}
+      {installedVersion && (
+        <p
+          className="mt-1 text-xs text-muted-foreground"
+          data-testid="text-installed-version-source"
+        >
+          Source: {SOURCE_LABELS[installedVersionSource ?? "manual"] ?? "Set by you"}
+        </p>
+      )}
       <p className="mt-1 text-xs text-muted-foreground">
-        Detected from release names when a download finishes. Updates that are not newer than this
-        version are not notified.
+        Detected from the install files or from release names when a download finishes. A version
+        you type is never replaced by the install files and only moves forward when a download is
+        newer. Updates that are not newer than this version are not notified.
       </p>
     </div>
   );

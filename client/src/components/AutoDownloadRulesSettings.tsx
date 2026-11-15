@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -54,7 +54,19 @@ const DEFAULT_RULES: DownloadRules = {
   visibleCategories: ["main", "update", "dlc", "extra", "packs"],
   hideRejected: true,
   autoPickBest: false,
+  upgradeCutoffScore: null,
+  upgradeMinScoreGain: 10,
 };
+
+// Shown when the swap is first turned on: the built-in rules put a clean scene or GOG release
+// around 150 points.
+const DEFAULT_UPGRADE_CUTOFF = 150;
+
+function clampInt(value: string, min: number, max: number, fallback: number): number {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
 
 export default function AutoDownloadRulesSettings({
   rules,
@@ -70,6 +82,12 @@ export default function AutoDownloadRulesSettings({
   );
   const [hideRejected, setHideRejected] = useState<boolean>(rules?.hideRejected ?? true);
   const [autoPickBest, setAutoPickBest] = useState<boolean>(rules?.autoPickBest ?? false);
+  const [upgradeCutoffScore, setUpgradeCutoffScore] = useState<number | null>(
+    rules?.upgradeCutoffScore ?? null
+  );
+  const [upgradeMinScoreGain, setUpgradeMinScoreGain] = useState<number>(
+    rules?.upgradeMinScoreGain ?? 10
+  );
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
     new Set(
       (rules?.visibleCategories ?? [
@@ -112,6 +130,8 @@ export default function AutoDownloadRulesSettings({
     setSortBy(source.sortBy);
     setHideRejected(source.hideRejected);
     setAutoPickBest(source.autoPickBest ?? false);
+    setUpgradeCutoffScore(source.upgradeCutoffScore ?? null);
+    setUpgradeMinScoreGain(source.upgradeMinScoreGain ?? 10);
 
     // Only update set if the content has changed to avoid infinite loop
     setVisibleCategories((prev) => {
@@ -124,15 +144,30 @@ export default function AutoDownloadRulesSettings({
   }, [rules]);
 
   // Automatically apply changes to parent component when local state changes
-  useEffect(() => {
-    onChange({
+  const currentRules = useMemo<DownloadRules>(
+    () => ({
       minSeeders,
       sortBy,
       visibleCategories: Array.from(visibleCategories),
       hideRejected,
       autoPickBest,
-    });
-  }, [minSeeders, sortBy, visibleCategories, hideRejected, autoPickBest, onChange]);
+      upgradeCutoffScore,
+      upgradeMinScoreGain,
+    }),
+    [
+      minSeeders,
+      sortBy,
+      visibleCategories,
+      hideRejected,
+      autoPickBest,
+      upgradeCutoffScore,
+      upgradeMinScoreGain,
+    ]
+  );
+
+  useEffect(() => {
+    onChange(currentRules);
+  }, [currentRules, onChange]);
 
   const handleCategoryChange = (category: DownloadCategory) => {
     setVisibleCategories((prev) => {
@@ -255,6 +290,72 @@ export default function AutoDownloadRulesSettings({
             </label>
           </div>
 
+          {/* Same-version swaps of the "Download automatically" update policy */}
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="upgradeSwap"
+                checked={upgradeCutoffScore !== null}
+                onCheckedChange={(checked) =>
+                  setUpgradeCutoffScore(checked === true ? DEFAULT_UPGRADE_CUTOFF : null)
+                }
+                className="mt-1"
+              />
+              <label htmlFor="upgradeSwap" className="flex-1 cursor-pointer text-sm leading-tight">
+                <div className="font-medium">Replace owned releases with better-scored ones</div>
+                <div className="text-xs text-muted-foreground">
+                  For owned games set to Download automatically: when a release of the installed
+                  version scores better than the one you downloaded, take it. Off: only newer
+                  versions are downloaded.
+                </div>
+              </label>
+            </div>
+            {upgradeCutoffScore !== null && (
+              <div className="grid gap-4 border-l-2 pl-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="upgradeCutoffScore" className="text-sm font-medium">
+                    Stop at score
+                  </Label>
+                  <Input
+                    id="upgradeCutoffScore"
+                    type="number"
+                    inputMode="numeric"
+                    min="-10000"
+                    max="10000"
+                    value={upgradeCutoffScore}
+                    onChange={(e) =>
+                      setUpgradeCutoffScore(
+                        clampInt(e.target.value, -10000, 10000, DEFAULT_UPGRADE_CUTOFF)
+                      )
+                    }
+                    className="h-10 w-full sm:h-9"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Once the installed release scores this much, it is kept
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="upgradeMinScoreGain" className="text-sm font-medium">
+                    Minimum score gain
+                  </Label>
+                  <Input
+                    id="upgradeMinScoreGain"
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max="10000"
+                    value={upgradeMinScoreGain}
+                    onChange={(e) => setUpgradeMinScoreGain(clampInt(e.target.value, 1, 10000, 10))}
+                    className="h-10 w-full sm:h-9"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    How many points better a release must score to replace yours
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Categories */}
           <div className="space-y-2">
             <Label className="text-sm font-medium">Content Types to Show</Label>
@@ -296,16 +397,7 @@ export default function AutoDownloadRulesSettings({
             Reset to Defaults
           </Button>
           <Button
-            onClick={() => {
-              const rulesToSave = {
-                minSeeders,
-                sortBy,
-                visibleCategories: Array.from(visibleCategories),
-                hideRejected,
-                autoPickBest,
-              };
-              saveRulesMutation.mutate(rulesToSave);
-            }}
+            onClick={() => saveRulesMutation.mutate(currentRules)}
             disabled={saveRulesMutation.isPending}
             className="gap-2"
           >

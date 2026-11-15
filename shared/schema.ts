@@ -1170,6 +1170,12 @@ export const downloadRulesSchema = z.object({
   // best-scored one instead of asking the user to choose. Off: only a single remaining
   // release is downloaded.
   autoPickBest: z.boolean().default(false),
+  // "auto" upgrade policy, same version: while the installed release scores below this cutoff,
+  // a better-scored release of the installed version replaces it. null (default) turns these
+  // swaps off; newer versions are taken either way.
+  upgradeCutoffScore: z.number().int().min(-10000).max(10000).nullable().default(null),
+  // how many points better a same-version release must score to be worth the swap
+  upgradeMinScoreGain: z.number().int().min(1).max(10000).default(10),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;

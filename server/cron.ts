@@ -40,7 +40,11 @@ import {
   OWNED_GAME_STATUSES,
 } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
-import { isReleasePossiblyNewer } from "../shared/version-utils.js";
+import {
+  compareVersions,
+  extractVersionFromReleaseName,
+  isReleasePossiblyNewer,
+} from "../shared/version-utils.js";
 import { decideUpgrade, type UpgradeDecision } from "../shared/upgrade-decision.js";
 import { recordVersionFromCompletedDownload } from "./game-version.js";
 import { rssService } from "./rss.js";
@@ -270,6 +274,21 @@ export function autoPickBestEnabled(downloadRules: string | null): boolean {
     return downloadRulesSchema.parse(JSON.parse(downloadRules)).autoPickBest;
   } catch {
     return false;
+  }
+}
+
+/** The user's settings for same-version swaps of the "auto" upgrade policy (off by default). */
+export function upgradeSwapRules(downloadRules: string | null): {
+  cutoffScore: number | null;
+  minScoreGain: number;
+} {
+  const off = { cutoffScore: null, minScoreGain: 10 };
+  if (!downloadRules) return off;
+  try {
+    const rules = downloadRulesSchema.parse(JSON.parse(downloadRules));
+    return { cutoffScore: rules.upgradeCutoffScore, minScoreGain: rules.upgradeMinScoreGain };
+  } catch {
+    return off;
   }
 }
 
@@ -1998,6 +2017,38 @@ interface AutoUpgradeInput {
   indexerPriorityMap: Map<string, number>;
   platform: string | null;
   prefs: NotificationPreferences;
+  /** The user's download rules (JSON), for the same-version swap settings. */
+  downloadRules?: string | null;
+}
+
+/**
+ * Score of the release that is installed, for a same-version swap: the last full release
+ * downloaded for the game, as it scores in this very search. Reading it from the current
+ * results keeps the comparison fair (same profile, same indexer data, same xREL state); a
+ * release no longer listed has no known score, and then nothing is swapped.
+ */
+function installedReleaseScore(
+  installedVersion: string | null | undefined,
+  downloads: readonly Pick<GameDownload, "status" | "downloadTitle" | "category" | "completedAt">[],
+  ranked: readonly SearchItem[]
+): number | null {
+  let installed: (typeof downloads)[number] | null = null;
+  for (const download of downloads) {
+    if (download.status !== "completed" && download.status !== "imported") continue;
+    const category = download.category ?? categorizeDownload(download.downloadTitle).category;
+    if (category !== "main") continue;
+    const at = download.completedAt?.getTime() ?? 0;
+    if (installed === null || at >= (installed.completedAt?.getTime() ?? 0)) installed = download;
+  }
+  if (!installed) return null;
+
+  // A name that carries another version than the installed one is not what is on disk.
+  const version = extractVersionFromReleaseName(installed.downloadTitle);
+  if (version && installedVersion && compareVersions(version, installedVersion) !== 0) return null;
+
+  const key = normalizeTitle(installed.downloadTitle);
+  const listed = ranked.find((item) => normalizeTitle(item.title) === key);
+  return listed?.evaluation?.score ?? null;
 }
 
 /** The release the "auto" policy would take for an owned game, or why it takes none. */
@@ -2006,12 +2057,23 @@ export async function decideAutoUpgrade({
   mainItems,
   updateItems,
   indexerPriorityMap,
-}: Pick<AutoUpgradeInput, "game" | "mainItems" | "updateItems" | "indexerPriorityMap">): Promise<
-  UpgradeDecision<SearchItem>
-> {
+  downloadRules,
+}: Pick<
+  AutoUpgradeInput,
+  "game" | "mainItems" | "updateItems" | "indexerPriorityMap" | "downloadRules"
+>): Promise<UpgradeDecision<SearchItem> & { installedScore?: number | null }> {
   const patches = new Set(updateItems);
   // No ranking without a score on every release: nothing is taken, the user is only notified.
   const ranked = rankAutoDownloadCandidates([...mainItems, ...updateItems], indexerPriorityMap);
+  const swap = upgradeSwapRules(downloadRules ?? null);
+  const installedScore =
+    swap.cutoffScore === null
+      ? null
+      : installedReleaseScore(
+          game.installedVersion,
+          await storage.getDownloadsByGameId(game.id),
+          ranked
+        );
   const candidates = [];
   for (const item of ranked) {
     // A release that was grabbed before (failed or not) is not taken again; the next best one
@@ -2024,7 +2086,13 @@ export async function decideAutoUpgrade({
       score: item.evaluation?.score ?? 0,
     });
   }
-  return decideUpgrade(candidates, { installedVersion: game.installedVersion });
+  const decision = decideUpgrade(candidates, {
+    installedVersion: game.installedVersion,
+    installedScore,
+    cutoffScore: swap.cutoffScore,
+    minScoreGain: swap.minScoreGain,
+  });
+  return { ...decision, installedScore };
 }
 
 /**
@@ -2114,7 +2182,11 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
   }
 
   const what = decision.patch ? "update patch" : "full release";
-  const change = `${decision.fromVersion} to ${decision.toVersion}`;
+  const score = decision.candidate.score;
+  const message =
+    decision.kind === "quality"
+      ? `Automatic upgrade to a better release of ${decision.toVersion} (score ${score}, installed release: ${decision.installedScore ?? "?"}): same version, and the installed release scores below your cutoff.`
+      : `Automatic upgrade from ${decision.fromVersion} to ${decision.toVersion} (${what}, score ${score}): the release name carries a newer version than the installed one.`;
   try {
     await storage.addDownloadEvent({
       userId,
@@ -2123,7 +2195,7 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
       eventType: "upgrade",
       releaseTitle: item.title,
       downloaderName: downloaders.find((d) => d.id === result.downloaderId)?.name ?? null,
-      message: `Automatic upgrade from ${change} (${what}, score ${decision.candidate.score}): the release name carries a newer version than the installed one.`,
+      message,
     });
   } catch (error) {
     igdbLogger.warn({ gameTitle: game.title, error }, "Failed to record the upgrade in history");
@@ -2136,7 +2208,10 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
         userId,
         type: "success",
         title: "Upgrade Started",
-        message: `${game.title}: downloading ${decision.toVersion} (installed: ${decision.fromVersion})`,
+        message:
+          decision.kind === "quality"
+            ? `${game.title}: downloading a better-scored release of ${decision.toVersion}`
+            : `${game.title}: downloading ${decision.toVersion} (installed: ${decision.fromVersion})`,
         link: `/games/${encodeURIComponent(game.id)}`,
       });
       notifyUser("notification", notification, notification.userId);
@@ -2153,6 +2228,7 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
       from: decision.fromVersion,
       to: decision.toVersion,
       patch: decision.patch,
+      kind: decision.kind,
     },
     "Auto-upgraded an owned game"
   );
@@ -2628,6 +2704,7 @@ export async function checkAutoSearch() {
                   indexerPriorityMap,
                   platform: effectivePlatform,
                   prefs,
+                  downloadRules: (freshSettings ?? settings).downloadRules,
                 });
               } catch (error) {
                 igdbLogger.error({ gameTitle: game.title, error }, "Failed to auto-upgrade");

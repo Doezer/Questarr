@@ -59,6 +59,7 @@ import {
   type XrelPredbTypes,
 } from "./xrel-predb.js";
 import {
+  compareEvaluatedReleases,
   evaluateReleases,
   type ReleaseEvaluation,
   type XrelPredbEntry,
@@ -247,6 +248,34 @@ function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   }
 
   return { minSeeders, sortBy, visibleCategoriesSet };
+}
+
+/** Whether the user asked auto-download to take the best-scored release among several. */
+export function autoPickBestEnabled(downloadRules: string | null): boolean {
+  if (!downloadRules) return false;
+  try {
+    return downloadRulesSchema.parse(JSON.parse(downloadRules)).autoPickBest;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Orders the releases left for a wanted game the way the scorer ranks them (score, preferred
+ * protocol, indexer priority, torrent health), best first. Releases without an evaluation
+ * can't be ranked, so the result is empty unless every one has been scored.
+ */
+export function rankAutoDownloadCandidates(
+  items: SearchItem[],
+  indexerPriorityMap: Map<string, number>
+): SearchItem[] {
+  const scored = [];
+  for (const source of items) {
+    if (!source.evaluation) return [];
+    const indexerPriority = indexerPriorityMap.get(source.indexerId) ?? Number.MAX_SAFE_INTEGER;
+    scored.push({ item: { ...source, indexerPriority }, evaluation: source.evaluation, source });
+  }
+  return scored.sort(compareEvaluatedReleases).map(({ source }) => source);
 }
 
 function releaseHealth(item: SearchItem): number {
@@ -2046,11 +2075,42 @@ export async function checkAutoSearch() {
             // Always mark as available when filtered results exist
             await storage.updateGameSearchResultsAvailable(game.id, true);
 
-            if (mainItems.length === 1) {
-              // Single result found
+            // The release auto-download may take: the only one left, or, when the user opted
+            // in, the best-scored of several that has not already failed for this game.
+            let autoCandidate: SearchItem | undefined =
+              mainItems.length === 1 ? mainItems[0] : undefined;
+            if (
+              mainItems.length > 1 &&
+              scoring &&
+              settings.autoDownloadEnabled &&
+              autoPickBestEnabled(settings.downloadRules)
+            ) {
+              const ranked = rankAutoDownloadCandidates(mainItems, indexerPriorityMap);
+              for (const candidate of ranked) {
+                if (!(await releaseAlreadyFailedForGame(game.id, candidate.title))) {
+                  autoCandidate = candidate;
+                  break;
+                }
+              }
+              autoCandidate ??= ranked[0];
+              if (autoCandidate) {
+                igdbLogger.info(
+                  {
+                    gameTitle: game.title,
+                    releaseTitle: autoCandidate.title,
+                    score: autoCandidate.evaluation?.score,
+                    candidates: mainItems.length,
+                  },
+                  "Picked the best-scored release among several for auto-download"
+                );
+              }
+            }
+
+            if (autoCandidate) {
+              // A single release, or the pick among several
               if (settings.autoDownloadEnabled) {
                 // Auto-download if enabled
-                const item = mainItems[0];
+                const item = autoCandidate;
 
                 if (item) {
                   // Keyed by the same normalized title used to de-duplicate candidates

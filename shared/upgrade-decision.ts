@@ -138,6 +138,57 @@ function classify<T>(candidate: UpgradeCandidate<T>, installed: string): Upgrade
   return null;
 }
 
+/** The newest version; then full release or patch as preferred; then the caller's order. */
+function pickNewest<T>(newer: readonly Ranked<T>[], preferPatches: boolean): Ranked<T> | null {
+  let best: Ranked<T> | null = null;
+  for (const entry of newer) {
+    if (best === null || isBetterPick(entry, best, preferPatches)) best = entry;
+  }
+  return best;
+}
+
+function isBetterPick<T>(entry: Ranked<T>, best: Ranked<T>, preferPatches: boolean): boolean {
+  const cmp = compareVersions(entry.version, best.version) ?? 0;
+  if (cmp !== 0) return cmp > 0;
+  if (entry.patch !== best.patch) return entry.patch === preferPatches;
+  return entry.order < best.order;
+}
+
+/**
+ * Among releases of the installed version, the one worth swapping the installed release for:
+ * only when the installed score and the cutoff are known, and the installed release is below it.
+ */
+function pickBetterScored<T>(
+  same: readonly Ranked<T>[],
+  options: UpgradeOptions
+): Ranked<T> | "cutoff_reached" | null {
+  const { installedScore, cutoffScore } = options;
+  if (same.length === 0 || typeof installedScore !== "number" || typeof cutoffScore !== "number") {
+    return null;
+  }
+  if (installedScore >= cutoffScore) return "cutoff_reached";
+  const gain = Math.max(1, options.minScoreGain ?? 1);
+  // Input order is best first, so the first one that clears the bar is the pick.
+  return same.find((entry) => entry.candidate.score >= installedScore + gain) ?? null;
+}
+
+function grab<T>(
+  kind: "version" | "quality",
+  pick: Ranked<T>,
+  installed: string,
+  skipped: SkippedUpgrade<T>[]
+): UpgradeDecision<T> {
+  return {
+    action: "grab",
+    kind,
+    candidate: pick.candidate,
+    fromVersion: installed,
+    toVersion: pick.version,
+    patch: pick.patch,
+    skipped,
+  };
+}
+
 /**
  * Picks the release to grab for an owned game, or says why none is taken.
  *
@@ -173,55 +224,22 @@ export function decideUpgrade<T>(
     else newer.push(entry);
   }
 
-  if (newer.length > 0) {
-    const preferPatches = options.preferPatches ?? false;
-    const best = newer.reduce((a, b) => {
-      const cmp = compareVersions(b.version, a.version) ?? 0;
-      if (cmp !== 0) return cmp > 0 ? b : a;
-      if (a.patch !== b.patch) return a.patch === preferPatches ? a : b;
-      return a.order <= b.order ? a : b;
-    });
-    for (const other of same) skipped.push({ candidate: other.candidate, code: "same_version" });
-    return {
-      action: "grab",
-      kind: "version",
-      candidate: best.candidate,
-      fromVersion: installed,
-      toVersion: best.version,
-      patch: best.patch,
-      skipped,
-    };
+  const sameSkips = (except?: Ranked<T>): SkippedUpgrade<T>[] =>
+    same
+      .filter((entry) => entry !== except)
+      .map((entry) => ({ candidate: entry.candidate, code: "same_version" as const }));
+
+  const best = pickNewest(newer, options.preferPatches ?? false);
+  if (best) {
+    return grab("version", best, installed, [...skipped, ...sameSkips()]);
   }
 
-  const skipSame = () => {
-    for (const other of same) skipped.push({ candidate: other.candidate, code: "same_version" });
-  };
-
-  const { installedScore, cutoffScore } = options;
-  if (same.length > 0 && typeof installedScore === "number" && typeof cutoffScore === "number") {
-    if (installedScore >= cutoffScore) {
-      skipSame();
-      return { action: "none", code: "cutoff_reached", skipped };
-    }
-    const gain = Math.max(1, options.minScoreGain ?? 1);
-    // Input order is best first, so the first one that clears the bar is the pick.
-    const better = same.find((entry) => entry.candidate.score >= installedScore + gain);
-    if (better) {
-      for (const other of same) {
-        if (other !== better) skipped.push({ candidate: other.candidate, code: "same_version" });
-      }
-      return {
-        action: "grab",
-        kind: "quality",
-        candidate: better.candidate,
-        fromVersion: installed,
-        toVersion: better.version,
-        patch: false,
-        skipped,
-      };
-    }
+  const swap = pickBetterScored(same, options);
+  if (swap === "cutoff_reached") {
+    return { action: "none", code: "cutoff_reached", skipped: [...skipped, ...sameSkips()] };
   }
-
-  skipSame();
-  return { action: "none", code: "nothing_newer", skipped };
+  if (swap) {
+    return grab("quality", swap, installed, [...skipped, ...sameSkips(swap)]);
+  }
+  return { action: "none", code: "nothing_newer", skipped: [...skipped, ...sameSkips()] };
 }

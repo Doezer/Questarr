@@ -198,4 +198,25 @@ describe("computePlayStats with estimated Steam sessions", () => {
     expect(stats.longestSession).toBeNull();
     expect(stats.longestStreakDays).toBe(0);
   });
+
+  it("lists unfinished games with a goal, soonest first", () => {
+    const stats = computePlayStats(
+      [session("a", "2026-11-04T10:00:00Z", 120)],
+      [
+        { ...games[0]!, finishBy: "2026-12-01", status: "playing" },
+        { ...games[1]!, finishBy: "2026-11-20", status: "playing" },
+        { id: "c", title: "Gamma", finishBy: "2026-11-01", status: "completed" },
+        { id: "d", title: "Delta" },
+      ],
+      NOW
+    );
+    expect(stats.goals.map((g) => g.gameId)).toEqual(["b", "a"]);
+    expect(stats.goals[1]).toMatchObject({
+      playedMinutes: 120,
+      remainingMinutes: 1080,
+      daysLeft: 26,
+      status: "behind",
+    });
+    expect(stats.goals[0]).toMatchObject({ status: "no-estimate", timeToBeatHours: null });
+  });
 });

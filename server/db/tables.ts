@@ -53,5 +53,7 @@ export const {
   gameTags,
   userSettings,
   users,
+  webhookDeliveries,
+  webhookSubscriptions,
   xrelNotifiedReleases,
 } = active;

@@ -194,6 +194,19 @@ export function isReleasePossiblyNewer(
   return cmp === null || cmp > 0;
 }
 
+/**
+ * Whether detection may write a game's installed version: not when the user typed it, nor when
+ * a version is set with no source recorded (a value that predates source tracking was typed).
+ */
+export function canAutoWriteVersion(game: {
+  installedVersion?: string | null;
+  installedVersionSource?: string | null;
+}): boolean {
+  if (game.installedVersionSource === "manual") return false;
+  if (!game.installedVersionSource) return !game.installedVersion?.trim();
+  return true;
+}
+
 // The categorizer files edition names ("Deluxe", "GOTY", "Complete") under DLC because those
 // releases bundle DLC, but they are full games and their version is the base game's. Only these
 // words mark a release that is DLC alone, once bundle mentions ("incl.DLC", "+ all DLCs") are

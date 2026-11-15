@@ -1484,6 +1484,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     key={game.id}
                     gameId={game.id}
                     installedVersion={game.installedVersion ?? null}
+                    installedVersionSource={game.installedVersionSource ?? null}
                     releaseNames={downloadReleaseNames}
                   />
                 )}
@@ -1686,6 +1687,8 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                   gameId={game.id}
                   gameTitle={game.title}
                   timeToBeatHours={game.timeToBeatNormally ?? null}
+                  gameStatus={game.status}
+                  finishBy={game.finishBy ?? null}
                 />
               </Section>
             )}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Merge, Pencil, Plus, Scissors, Timer, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -10,7 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EditSessionDialog, SplitSessionDialog } from "./PlaySessionDialogs";
 import PlayTimerButton from "./PlayTimerButton";
+import GamePlayGoal from "./GamePlayGoal";
 import { formatMinutes, sessionLengthMinutes } from "@/lib/play-time";
+import { recentPlayMinutes } from "@shared/play-goal";
 import { isEditablePlaySession, type GamePlaySession } from "@shared/schema";
 import { ApiError } from "@/lib/queryClient";
 
@@ -19,6 +21,10 @@ interface GamePlaytimeProps {
   gameTitle: string;
   /** IGDB "normally" estimate in hours, shown next to the total. */
   timeToBeatHours?: number | null;
+  /** The game's library status; a completed game's goal reads "Done". */
+  gameStatus?: string;
+  /** Saved "finish by" day (`YYYY-MM-DD`). */
+  finishBy?: string | null;
 }
 
 const SESSIONS_SHOWN = 8;
@@ -54,6 +60,8 @@ export default function GamePlaytime({
   gameId,
   gameTitle,
   timeToBeatHours,
+  gameStatus = "",
+  finishBy = null,
 }: Readonly<GamePlaytimeProps>) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -66,6 +74,14 @@ export default function GamePlaytime({
     () => finished.reduce((sum, s) => sum + sessionLengthMinutes(s.startedAt, s.endedAt), 0),
     [finished]
   );
+
+  // A clock that ticks every minute, so the 14-day pace drops old sessions while the page stays open.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const recentMinutes = useMemo(() => recentPlayMinutes(sessions, now), [sessions, now]);
 
   const [showAll, setShowAll] = useState(false);
   const [date, setDate] = useState(localToday);
@@ -185,6 +201,16 @@ export default function GamePlaytime({
           <PlayTimerButton gameId={gameId} gameTitle={gameTitle} variant="full" />
         </div>
       </div>
+
+      <GamePlayGoal
+        gameId={gameId}
+        gameStatus={gameStatus}
+        finishBy={finishBy}
+        playedMinutes={totalMinutes}
+        recentMinutes={recentMinutes}
+        timeToBeatHours={timeToBeatHours ?? null}
+        today={localToday()}
+      />
 
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3" aria-label="Add a session">
         <div className="space-y-1">

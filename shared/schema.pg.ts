@@ -187,6 +187,7 @@ export const games = pgTable("games", {
   installedVersion: text("installed_version"),
   installedVersionSource: text("installed_version_source"),
   upgradePolicy: text("upgrade_policy"),
+  finishBy: text("finish_by"),
   searchResultsAvailable: boolean("search_results_available").default(false).notNull(),
   searchResultsAvailableAt: timestampMs("search_results_available_at"),
   updateSearchResultsAvailable: boolean("update_search_results_available").default(false).notNull(),

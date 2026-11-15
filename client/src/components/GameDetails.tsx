@@ -1687,6 +1687,8 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                   gameId={game.id}
                   gameTitle={game.title}
                   timeToBeatHours={game.timeToBeatNormally ?? null}
+                  gameStatus={game.status}
+                  finishBy={game.finishBy ?? null}
                 />
               </Section>
             )}

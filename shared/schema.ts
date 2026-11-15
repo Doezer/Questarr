@@ -4,6 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { FormatSpec, ReleaseProfile } from "./release-scoring.js";
 import { resolveTargetPlatform } from "./title-utils.js";
+import { isValidFinishByDate } from "./play-goal.js";
 import { hasReversedYearRange, isEmptyCollectionRules } from "./collection-rules.js";
 
 export const users = sqliteTable("users", {
@@ -259,6 +260,8 @@ export const games = sqliteTable("games", {
   installedVersionSource: text("installed_version_source"),
   // Per-game override of the account default upgrade policy; null = use the default.
   upgradePolicy: text("upgrade_policy"), // UPGRADE_POLICIES
+  // Personal target day ("finish by"), `YYYY-MM-DD` in the user's local calendar; null = no goal.
+  finishBy: text("finish_by"),
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
@@ -889,6 +892,14 @@ export const updateGameInstalledVersionSchema = z.object({
     .max(64, "installedVersion must be at most 64 characters")
     .nullable()
     .transform((v) => v || null),
+});
+
+export const updateGameFinishBySchema = z.object({
+  // null clears the goal.
+  finishBy: z
+    .string()
+    .refine(isValidFinishByDate, "finishBy must be a date written YYYY-MM-DD")
+    .nullable(),
 });
 
 export const updateGameUpgradePolicySchema = z.object({

@@ -39,6 +39,8 @@ const RELEASE_TAGS = [
   /\b(1080p|720p|2160p|4k|uhd|bluray|h264|x264|h265|x265|hevc)\b/gi,
   /\b(multi\d*|multilingual|language|languages|german|english|french|italian|spanish|nordic|pal|ntsc|russian|japanese)\b/gi,
   /\b(iso|rip|repack|re-repack|proper|internal|readnfo|nfo|re-nfo|crackfix|fix|fixed|hotfix|update|dlc|unlocker)\b/gi,
+  /\b(?:nintendo\s*)?switch\s*2\b/gi,
+  /\b(?:nintendo\s*64|n64)\b/gi,
   /\b(ps3|ps4|ps5|xbox|xbox360|x360|switch|nsw|nsp|xci|wii|wiiu|nds|3ds|gba|psp|psvita|vita)\b/gi,
   /\b(mac|linux|osx|os\.x|macos)\b/gi,
   /\b(gog|steam|epic|uplay|origin|drm[ -]?free)\b/gi,
@@ -551,14 +553,19 @@ export const PLATFORM_CATALOG = [
     releasePattern: /(?:^|[^a-z0-9])(xbox(?:\s*(?:classic|original))?|xb)(?=$|[^a-z0-9])/i,
   },
   {
+    canonical: "Switch 2",
+    igdbIds: [508],
+    igdbNames: ["Nintendo Switch 2"],
+    // Listed before Switch: the first matching entry wins, and NSP/XCI tags on a
+    // "Switch 2" release must not read as Switch.
+    releasePattern: /(?:^|[^a-z0-9])(nintendo\s*switch\s*2|switch\s*2)(?=$|[^a-z0-9])/i,
+  },
+  {
     canonical: "Switch",
     igdbIds: [130],
     igdbNames: ["Nintendo Switch"],
-    // A "Switch 2" release must not read as Switch (NSP/XCI tags included): the catalog has
-    // no Switch 2 entry, so it stays untagged and the platform filter can let it through.
-    // The `s` flag lets both scans cross newlines, like the other patterns' plain searches.
-    releasePattern:
-      /^(?!.*switch\s*2(?!\d)).*?(?:^|[^a-z0-9])(nintendo\s*switch|switch|nsw|nsp|xci)(?=$|[^a-z0-9])/is,
+    // "Switch 2" releases are matched by the Switch 2 entry above, which comes first.
+    releasePattern: /(?:^|[^a-z0-9])(nintendo\s*switch|switch|nsw|nsp|xci)(?=$|[^a-z0-9])/i,
   },
   {
     canonical: "GameCube",

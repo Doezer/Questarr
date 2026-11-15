@@ -160,6 +160,7 @@ const {
   deduplicateByTitle,
   narrowToPreferredGroupFormat,
   getAiAutoDownloadHoldReason,
+  resetExhaustedPicks,
 } = await import("../cron.js");
 const { config: appConfig } = await import("../config.js");
 // These tests cover the legacy Jev-only check; the default mode is `hybrid`, which the pipeline
@@ -1888,6 +1889,7 @@ describe("Cron - checkAutoSearch", () => {
       afterEach(() => {
         // Failed downloads set by a test here must not leak into the following tests.
         mockGetDownloadsByGameId.mockResolvedValue([]);
+        resetExhaustedPicks();
       });
 
       it("still asks the user to choose among several releases by default", async () => {
@@ -1943,6 +1945,40 @@ describe("Cron - checkAutoSearch", () => {
         expect(mockAddNotification).toHaveBeenCalledWith(
           expect.objectContaining({ title: "Multiple Results Found" })
         );
+      });
+
+      it("asks once when every release failed for a game that already had results", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+        mockGetWantedGamesGroupedByUser.mockResolvedValue(
+          new Map([
+            [
+              userId,
+              [
+                {
+                  ...baseGame,
+                  status: "wanted" as const,
+                  releaseStatus: "released" as const,
+                  searchResultsAvailable: true,
+                },
+              ],
+            ],
+          ])
+        );
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
+          { status: "failed", downloadTitle: ITEM_INDEXER_A.title },
+        ]);
+        const asked = () =>
+          mockAddNotification.mock.calls.filter(
+            ([notification]) => notification.title === "Multiple Results Found"
+          ).length;
+
+        await checkAutoSearch();
+        expect(asked()).toBe(1);
+
+        await checkAutoSearch();
+        expect(asked()).toBe(1);
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
       });
 
       it("does not download when auto-download itself is off", async () => {

@@ -261,6 +261,28 @@ export function autoPickBestEnabled(downloadRules: string | null): boolean {
 }
 
 /**
+ * Games whose ranked releases all failed already, with the set of releases the user was asked
+ * to choose from. In memory: a restart asks once more at most, which beats never asking.
+ */
+const exhaustedPicks = new Map<string, string>();
+
+/** True the first time this exact set of releases is found exhausted for the game. */
+function markPicksExhausted(gameId: string, ranked: readonly SearchItem[]): boolean {
+  const signature = ranked
+    .map((item) => normalizeTitle(item.title))
+    .sort((a, b) => a.localeCompare(b))
+    .join("\n");
+  if (exhaustedPicks.get(gameId) === signature) return false;
+  exhaustedPicks.set(gameId, signature);
+  return true;
+}
+
+/** Test hook: forget which games were already reported as exhausted. */
+export function resetExhaustedPicks(): void {
+  exhaustedPicks.clear();
+}
+
+/**
  * Orders the releases left for a wanted game the way the scorer ranks them (score, preferred
  * protocol, indexer priority, torrent health), best first. Releases without an evaluation
  * can't be ranked, so the result is empty unless every one has been scored.
@@ -2079,6 +2101,7 @@ export async function checkAutoSearch() {
             // in, the best-scored of several that has not already failed for this game.
             let autoCandidate: SearchItem | undefined =
               mainItems.length === 1 ? mainItems[0] : undefined;
+            let askAfterFailedPicks = false;
             if (
               mainItems.length > 1 &&
               scoring &&
@@ -2093,6 +2116,11 @@ export async function checkAutoSearch() {
                 }
               }
               // Every candidate already failed: nothing is picked, so the user is asked to choose.
+              // Once per set of releases, also when the game already had results (a pick from
+              // an earlier cycle that failed since), which the availability transition misses.
+              if (!autoCandidate && ranked.length > 0) {
+                askAfterFailedPicks = markPicksExhausted(game.id, ranked);
+              }
               if (autoCandidate) {
                 igdbLogger.info(
                   {
@@ -2262,7 +2290,11 @@ export async function checkAutoSearch() {
                   if (prefs.gameAvailable.apprise) void appriseClient.send(notification);
                 }
               }
-            } else if (mainItems.length > 1 && !wasAvailable && prefs.multipleResults.inApp) {
+            } else if (
+              mainItems.length > 1 &&
+              (!wasAvailable || askAfterFailedPicks) &&
+              prefs.multipleResults.inApp
+            ) {
               // Multiple results found, notify user to choose
               const notification = await storage.addNotification({
                 userId,

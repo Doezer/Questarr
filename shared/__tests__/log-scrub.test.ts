@@ -119,4 +119,17 @@ describe("scrubPii", () => {
       expect(out).not.toMatch(/hunter2|abc123/);
     }
   });
+
+  it("keeps escaped quotes and backslashes inside a secret value from ending the match", () => {
+    const nested = JSON.stringify({ msg: JSON.stringify({ password: 'prefix"suffix' }) });
+    const spaced = JSON.stringify({ msg: 'password="prefix\\"private tail"' });
+    for (const line of [nested, spaced]) {
+      const out = redactSecretText(line);
+      expect(() => JSON.parse(out)).not.toThrow();
+      expect(out).toContain("[redacted]");
+      expect(out).not.toMatch(/prefix|suffix|private|tail/);
+    }
+    expect(redactSecretText('password="Pa55\\word!')).not.toMatch(/Pa55|word!/);
+    expect(redactSecretText("token='ab}cd")).not.toMatch(/ab|cd/);
+  });
 });

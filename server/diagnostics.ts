@@ -248,7 +248,7 @@ export function scrubFreeText(text: string): string {
       .replace(/\[host\](?::\d*)?\/[^\s"']*/g, "[host]")
       // `scrubPii` leaves `/home/[user]` and `[ip]` markers behind: take the rest of the path too.
       .replace(/\/home\/\[user\](?:\/[^\s"']*)?/g, "[path]")
-      .replace(/\[ip\]\/[^\s"']*/g, "[ip]")
+      .replace(/\[ip\](?::\d*)?\/[^\s"']*/g, "[ip]")
       .replace(/(?<![\w.:)\]])\/[\w.-]+(?:\/[\w.-]*)*/g, "[path]")
       .replace(/\b[A-Za-z]:\\[^\s"']+/g, "[path]")
   );
@@ -342,7 +342,7 @@ function describeDownloader(downloader: Downloader): DownloaderDiagnostics {
     passwordShape: describeSecret(downloader.password),
     allowInsecureLan: downloader.allowInsecureLan,
     allowSelfSignedCertificate: downloader.allowSelfSignedCertificate,
-    category: downloader.category ?? null,
+    category: downloader.category ? scrubFreeText(downloader.category) : null,
   };
 }
 

@@ -59,15 +59,32 @@ export function redactSecretText(value: string): string {
   );
 }
 
-const ESCAPED_QUOTE_SECRET_RE =
-  /(\b(?:apikey|api[_-]?key|token|password|secret)\b\s*[:=]\s*)\\(["'])(?:(?!\\\2)[^"])*(?:\\\2)?/gi;
+const SECRET_KEY = String.raw`(?:apikey|api[_-]?key|token|password|secret)`;
+
+/**
+ * A value wrapped in escaped quotes (`\"x\"`), as it appears inside a JSON string. Inside the
+ * value a backslash pair is one escaped backslash and `\\\"` is an escaped quote, so neither ends
+ * the value; a lone `\"` does. `@@` is the backreference to the opening quote.
+ */
+const escapedValue = (group: number): string =>
+  String.raw`\\(["'])(?:\\\\\\@@|\\\\|(?!@@)[^"\\])*(?:\\@@)?`.replaceAll("@@", `\\${group}`);
+
+const ESCAPED_QUOTE_SECRET_RE = new RegExp(
+  String.raw`(\b${SECRET_KEY}\b\s*[:=]\s*)${escapedValue(2)}`,
+  "gi"
+);
+
+/** Same, with the key escaped-quoted too (`{\"password\":\"x\"}` inside a message). */
+const ESCAPED_KEY_SECRET_RE = new RegExp(
+  String.raw`(\\["'])\b(${SECRET_KEY})\b\1(\s*[:=]\s*)(?:${escapedValue(4)}|[^"',\s&}\\]+)`,
+  "gi"
+);
 
 /** A quoted value that never closes (`password="hunter2`): redact up to the next quote. */
-const UNTERMINATED_SECRET_RE =
-  /(\b(?:apikey|api[_-]?key|token|password|secret)\b\s*[:=]\s*)(["'])(?:(?!\2|"\s*[,}\]])[^\\}])+/gi;
-
-const ESCAPED_KEY_SECRET_RE =
-  /(\\["'])\b(apikey|api[_-]?key|token|password|secret)\b\1(\s*[:=]\s*)(?:\\(["'])(?:(?!\\\4).)*\\\4|[^"',\s&}\\]+)/gi;
+const UNTERMINATED_SECRET_RE = new RegExp(
+  String.raw`(\b${SECRET_KEY}\b\s*[:=]\s*)(["'])(?:\\.|(?!\2|"\s*[,}\]])[^\\])+`,
+  "gi"
+);
 
 /**
  * `key: value` / `key=value` pairs whose key names a secret. Groups: the optional

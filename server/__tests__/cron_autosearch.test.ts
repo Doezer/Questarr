@@ -139,6 +139,13 @@ vi.mock("../xrel.js", () => ({
 }));
 
 // The classification pipeline only runs for the local and hybrid modes
+// The scoring profile is read from storage, which these tests mock without it: by default the
+// load fails and the job uses its legacy filters, as before. Tests that need scoring resolve it.
+const mockLoadScoringConfig = vi.hoisted(() => vi.fn());
+vi.mock("../release-scoring-service.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../release-scoring-service.js")>()),
+  loadScoringConfig: mockLoadScoringConfig,
+}));
 const mockClassify = vi.hoisted(() => vi.fn());
 vi.mock("../classification/index.js", () => ({ releasePipeline: { classify: mockClassify } }));
 
@@ -153,6 +160,7 @@ const {
   deduplicateByTitle,
   narrowToPreferredGroupFormat,
   getAiAutoDownloadHoldReason,
+  resetExhaustedPicks,
 } = await import("../cron.js");
 const { config: appConfig } = await import("../config.js");
 // These tests cover the legacy Jev-only check; the default mode is `hybrid`, which the pipeline
@@ -216,6 +224,7 @@ describe("Cron - checkAutoSearch", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(FIXED_NOW);
+    mockLoadScoringConfig.mockRejectedValue(new Error("no scoring profile in this test"));
 
     // Default mock setup:
     // - 1 user with 1 wanted game (released)
@@ -1817,6 +1826,193 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockAddNotification).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Multiple Results Found" })
       );
+    });
+
+    describe("auto-download of the best-scored release (autoPickBest)", () => {
+      // Scene-style names with a known group, so the scorer reads both as the game itself.
+      const scene = (group: string, seeders: number) => ({
+        title: `Test.Game-${group}`,
+        link: `https://indexer-a.example.com/${group.toLowerCase()}`,
+        pubDate: FIXED_PUB_DATE,
+        seeders,
+        size: 10_000_000_000,
+        indexerId: "indexer-a",
+        indexerName: "Indexer A",
+        category: ["4050"],
+        downloadType: "torrent" as const,
+        group,
+      });
+      const ITEM_INDEXER_A = scene("SKIDROW", 50);
+      const HEALTHIER_ITEM = scene("CODEX", 800);
+      // No xREL check here: with it on, an unavailable xREL defers every automatic grab.
+      const scoredSettings = {
+        ...baseSettings,
+        autoDownloadEnabled: true,
+        xrelSceneReleases: false,
+        xrelP2pReleases: false,
+      };
+      const pickBestSettings = {
+        ...scoredSettings,
+        downloadRules: JSON.stringify({ autoPickBest: true }),
+      };
+
+      beforeEach(() => {
+        mockLoadScoringConfig.mockResolvedValue({
+          profile: {
+            minScore: 0,
+            protocolPreference: "either",
+            requiredTerms: [],
+            ignoredTerms: [],
+            minSeeders: 0,
+            maxSizeBytes: null,
+            builtInOverrides: {},
+            formatScores: {},
+          },
+          formats: [],
+        });
+        mockGetEnabledDownloaders.mockResolvedValue([
+          { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true },
+        ]);
+        mockAddDownloadWithFallback.mockResolvedValue({
+          success: true,
+          id: "hash-abc",
+          downloaderId: "dl-1",
+        });
+        mockGetEnabledIndexers.mockResolvedValue([{ id: "indexer-a", priority: 1 }]);
+        mockSearchAllIndexers.mockResolvedValue({
+          items: [ITEM_INDEXER_A, HEALTHIER_ITEM],
+          errors: [],
+          total: 2,
+        });
+      });
+
+      afterEach(() => {
+        // Failed downloads set by a test here must not leak into the following tests.
+        mockGetDownloadsByGameId.mockResolvedValue([]);
+        resetExhaustedPicks();
+      });
+
+      // A game whose results were already flagged in an earlier cycle.
+      const gameAlreadyHadResults = () =>
+        mockGetWantedGamesGroupedByUser.mockResolvedValue(
+          new Map([
+            [
+              userId,
+              [
+                {
+                  ...baseGame,
+                  status: "wanted" as const,
+                  releaseStatus: "released" as const,
+                  searchResultsAvailable: true,
+                },
+              ],
+            ],
+          ])
+        );
+
+      it("still asks the user to choose among several releases by default", async () => {
+        mockGetUserSettings.mockResolvedValue(scoredSettings);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+        expect(mockAddNotification).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
+        );
+      });
+
+      it("downloads the release ranked first when the rule is on", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ url: HEALTHIER_ITEM.link })
+        );
+        expect(mockAddNotification).not.toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
+        );
+      });
+
+      it("moves on to the next release when the best one already failed for the game", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
+        ]);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ url: ITEM_INDEXER_A.link })
+        );
+      });
+
+      it("asks the user to choose when every release already failed for the game", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
+          { status: "failed", downloadTitle: ITEM_INDEXER_A.title },
+        ]);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+        expect(mockAddNotification).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
+        );
+      });
+
+      it("asks once when every release failed for a game that already had results", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+        gameAlreadyHadResults();
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
+          { status: "failed", downloadTitle: ITEM_INDEXER_A.title },
+        ]);
+        const asked = () =>
+          mockAddNotification.mock.calls.filter(
+            ([notification]) => notification.title === "Multiple Results Found"
+          ).length;
+
+        await checkAutoSearch();
+        expect(asked()).toBe(1);
+
+        await checkAutoSearch();
+        expect(asked()).toBe(1);
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("asks again next cycle when saving the notification failed", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+        gameAlreadyHadResults();
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
+          { status: "failed", downloadTitle: ITEM_INDEXER_A.title },
+        ]);
+        mockAddNotification.mockRejectedValueOnce(new Error("database is locked"));
+
+        await checkAutoSearch();
+        await checkAutoSearch();
+
+        expect(mockAddNotification).toHaveBeenCalledTimes(2);
+        expect(mockAddNotification).toHaveBeenLastCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
+        );
+      });
+
+      it("does not download when auto-download itself is off", async () => {
+        mockGetUserSettings.mockResolvedValue({ ...pickBestSettings, autoDownloadEnabled: false });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+        expect(mockAddNotification).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
+        );
+      });
     });
 
     it("should treat titles as duplicates despite punctuation or casing differences", async () => {

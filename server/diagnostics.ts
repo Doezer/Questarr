@@ -239,12 +239,16 @@ function pickSettings(settings: UserSettings | undefined): DiagnosticsSnapshot["
  * resolver errors, and absolute filesystem paths (it only handles home dirs).
  */
 export function scrubFreeText(text: string): string {
-  return scrubPii(text)
-    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/"'<>]+/gi, "$1[host]")
-    .replace(/\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|ECONNRESET)\s+\S+/g, "$1 [host]")
-    .replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b(?::\d+)?/gi, "[host]")
-    .replace(/(?<![\w.:)\]])\/[\w.-]+(?:\/[\w.-]*)*/g, "[path]")
-    .replace(/\b[A-Za-z]:\\[^\s"']+/g, "[path]");
+  return (
+    scrubPii(text)
+      .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/"'<>]+/gi, "$1[host]")
+      .replace(/\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|ECONNRESET)\s+\S+/g, "$1 [host]")
+      .replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b(?::\d+)?/gi, "[host]")
+      // A path glued to a redacted host (`[host]/a/b`, `[host]:/volume1/x`) goes with it.
+      .replace(/\[host\](?::\d*)?\/[^\s"']*/g, "[host]")
+      .replace(/(?<![\w.:)\]])\/[\w.-]+(?:\/[\w.-]*)*/g, "[path]")
+      .replace(/\b[A-Za-z]:\\[^\s"']+/g, "[path]")
+  );
 }
 
 /** User-chosen names are kept (they identify the entry) unless they contain a host or path. */

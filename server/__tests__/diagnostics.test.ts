@@ -86,6 +86,10 @@ describe("free text scrubbing", () => {
     expect(scrubFreeText("Failed to resolve hostname: downloads.private.example")).toBe(
       "Failed to resolve hostname: [host]"
     );
+    expect(scrubFreeText("GET http://h.example/a/b failed")).toBe("GET http://[host] failed");
+    expect(scrubFreeText("mount nas.example:/volume1/private; nas.example.com/secret/dir")).toBe(
+      "mount [host] [host]"
+    );
     expect(scrubFreeText("cannot read /mnt and/or HTTP/1.1")).toBe(
       "cannot read [path] and/or HTTP/1.1"
     );

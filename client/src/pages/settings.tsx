@@ -1485,7 +1485,7 @@ export default function SettingsPage() {
 
                   {/* Default policy for newer versions of owned games */}
                   {autoSearchEnabled && (
-                    <div className="flex items-center justify-between gap-4 pl-4 border-l-2">
+                    <div className="flex flex-col gap-2 pl-4 border-l-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                       <div className="space-y-0.5">
                         <Label htmlFor="upgrade-policy-default" className="text-sm font-medium">
                           Updates for Owned Games
@@ -1500,7 +1500,10 @@ export default function SettingsPage() {
                         value={upgradePolicy}
                         onValueChange={(value) => setUpgradePolicy(value as UpgradePolicy)}
                       >
-                        <SelectTrigger id="upgrade-policy-default" className="w-56 shrink-0">
+                        <SelectTrigger
+                          id="upgrade-policy-default"
+                          className="h-10 w-full sm:h-9 sm:w-56 sm:shrink-0"
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

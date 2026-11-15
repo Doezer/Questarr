@@ -936,6 +936,127 @@ describe("Cron - checkAutoSearch", () => {
 
       expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
     });
+
+    describe("same-version swaps (upgrade cutoff)", () => {
+      // With the default profile the CODEX release scores 155 and the FitGirl repack 143.
+      const INSTALLED = release("Test.Game.v1.0-FitGirl");
+      const BETTER = release("Test.Game.v1.0-CODEX");
+      const withRules = (rules: Record<string, unknown>) =>
+        mockGetUserSettings.mockResolvedValue({
+          ...autoSettings,
+          downloadRules: JSON.stringify(rules),
+        });
+      const installedDownload = (title = INSTALLED.title) =>
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "completed", downloadTitle: title, category: null, addedAt: new Date(1) },
+        ]);
+
+      beforeEach(() => {
+        searchReturns(BETTER, INSTALLED);
+        installedDownload();
+      });
+
+      it("replaces the installed release with a better-scored one below the cutoff", async () => {
+        withRules({ upgradeCutoffScore: 150 });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ url: BETTER.link })
+        );
+        expect(mockAddDownloadEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            eventType: "upgrade",
+            releaseTitle: BETTER.title,
+            message: expect.stringContaining("better release of v1.0 (score 155, installed"),
+          })
+        );
+      });
+
+      it("is off by default", async () => {
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("keeps the installed release once it reaches the cutoff", async () => {
+        withRules({ upgradeCutoffScore: 140 });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("needs the minimum score gain", async () => {
+        withRules({ upgradeCutoffScore: 150, upgradeMinScoreGain: 20 });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("takes the newest import as the installed release", async () => {
+        // An earlier swap: the CODEX release replaced the repack and both are imported, which
+        // clears completedAt. The repack must not count as installed again.
+        withRules({ upgradeCutoffScore: 150 });
+        const OTHER = release("Test.Game.v1.0-RUNE");
+        searchReturns(OTHER, BETTER, INSTALLED);
+        mockGetDownloadsByGameId.mockResolvedValue([
+          {
+            status: "imported",
+            downloadTitle: BETTER.title,
+            category: null,
+            addedAt: new Date(2),
+            completedAt: null,
+          },
+          {
+            status: "imported",
+            downloadTitle: INSTALLED.title,
+            category: null,
+            addedAt: new Date(1),
+            completedAt: null,
+          },
+        ]);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("swaps nothing when the installed release is no longer listed", async () => {
+        withRules({ upgradeCutoffScore: 150 });
+        searchReturns(BETTER);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("swaps nothing when the last download is not the installed version", async () => {
+        withRules({ upgradeCutoffScore: 150 });
+        const OLDER = release("Test.Game.v0.9-FitGirl");
+        searchReturns(BETTER, OLDER);
+        installedDownload(OLDER.title);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("still prefers a newer version over a same-version swap", async () => {
+        withRules({ upgradeCutoffScore: 150 });
+        searchReturns(BETTER, INSTALLED, NEWER_FULL);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ url: NEWER_FULL.link })
+        );
+      });
+    });
   });
 
   describe("Preferred Release Groups Filtering", () => {

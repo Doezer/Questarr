@@ -31,6 +31,10 @@
 export function redactSecretText(value: string): string {
   return (
     value
+      // A value quoted with escaped quotes (`password: \"x\"`) lives inside a JSON string
+      // in an NDJSON line: swallow the whole escaped value, quotes included, so the
+      // enclosing string keeps balanced quotes and the line stays valid JSON.
+      .replace(ESCAPED_QUOTE_SECRET_RE, "$1[redacted]")
       .replace(SECRET_FIELD_RE, (_match, quote: string, key: string, separator: string) =>
         // A quoted key means the text is JSON/JS-object shaped (e.g. an NDJSON log
         // line): keep it valid by replacing only the value. Plain `key=value` text
@@ -46,6 +50,9 @@ export function redactSecretText(value: string): string {
       )
   );
 }
+
+const ESCAPED_QUOTE_SECRET_RE =
+  /(\b(?:apikey|api[_-]?key|token|password|secret)\b\s*[:=]\s*)\\(["'])(?:(?!\\\2).)*\\\2/gi;
 
 /**
  * `key: value` / `key=value` pairs whose key names a secret. Groups: the optional

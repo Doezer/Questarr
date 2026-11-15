@@ -70,4 +70,18 @@ describe("scrubPii", () => {
     expect(result).not.toContain("abc123def");
     expect(result).toContain("[email]");
   });
+
+  it("keeps NDJSON valid when a secret phrase with escaped quotes sits inside a string value", () => {
+    const lines = [
+      String.raw`{"level":50,"msg":"login failed: password: \"hunter2\" rejected"}`,
+      String.raw`{"level":50,"msg":"header was apiKey = \"zzz\" here"}`,
+      String.raw`{"msg":"secret: \"x\" leaked"}`,
+    ];
+    for (const line of lines) {
+      const out = redactSecretText(line);
+      expect(() => JSON.parse(out)).not.toThrow();
+      expect(out).toContain("[redacted]");
+      expect(out).not.toMatch(/hunter2|zzz|"x\\"/);
+    }
+  });
 });

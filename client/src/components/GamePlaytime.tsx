@@ -227,10 +227,16 @@ export default function GamePlaytime({
                 title={
                   session.source === "steam"
                     ? "Estimated from the growth of your Steam play time between two syncs"
-                    : undefined
+                    : session.source === "playnite_import"
+                      ? "Estimated from the total play time Playnite already held"
+                      : undefined
                 }
               >
-                {session.source === "steam" ? "Steam · estimated" : session.source}
+                {session.source === "steam"
+                  ? "Steam · estimated"
+                  : session.source === "playnite_import"
+                    ? "Playnite · imported"
+                    : session.source}
               </Badge>
               <Button
                 type="button"

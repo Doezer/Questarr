@@ -339,6 +339,18 @@ function GetMainMenuItems {
     $toggleStatus.MenuSection = "@Questarr"
     $items += $toggleStatus
 
+    $importGog = New-Object Playnite.SDK.Plugins.ScriptMainMenuItem
+    $importGog.Description = "Import GOG library into Questarr"
+    $importGog.FunctionName = "Invoke-QuestarrImportGogLibrary"
+    $importGog.MenuSection = "@Questarr"
+    $items += $importGog
+
+    $gogTime = New-Object Playnite.SDK.Plugins.ScriptMainMenuItem
+    $gogTime.Description = "Import GOG play time into Questarr"
+    $gogTime.FunctionName = "Invoke-QuestarrImportGogPlayTime"
+    $gogTime.MenuSection = "@Questarr"
+    $items += $gogTime
+
     return $items
 }
 
@@ -956,6 +968,172 @@ function Invoke-QuestarrSyncPlayStatus {
         (("Sent the status of {0} games to Questarr.`n`nUpdated: {1}`nAlready the same: {2}`n" +
             "Left alone (set by hand in Questarr, wanted or downloading): {3}`nNot in Questarr: {4}") -f `
             $entries.Count, $result.Updated, $result.Unchanged, $result.Skipped, $result.Unmatched),
+        "Questarr")
+}
+
+# ── GOG library and play time ────────────────────────────────────────────────
+# One-off imports, run by hand: the GOG library is read by Playnite's own GOG plugin, so
+# nothing here talks to GOG.
+
+# The server looks each new title up on IGDB, so it takes few games per request.
+$script:ImportBatchSize = 25
+
+function Get-QuestarrGogGames {
+    @($PlayniteApi.Database.Games | Where-Object {
+            $_.PluginId -eq $script:PluginIdGog -and -not [string]::IsNullOrWhiteSpace($_.Name) -and $_.Name.Length -le 500
+        })
+}
+
+<#
+    Sends the work in batches behind Playnite's progress dialog. $Kind is "library" (create the
+    missing games) or "time" (send the play time totals). Returns the summed counters, or $null
+    when it failed (already reported) or was cancelled.
+#>
+function Invoke-QuestarrGogBatchesWithProgress {
+    param(
+        [Parameter(Mandatory)] $Config,
+        [Parameter(Mandatory)] $Entries,
+        [Parameter(Mandatory)] [ValidateSet("library", "time")] [string] $Kind,
+        [switch] $FlushQueueFirst
+    )
+
+    $script:GogConfig = $Config
+    $script:GogFlushFirst = [bool]$FlushQueueFirst
+    $script:GogQueuePending = $false
+    $script:GogEntries = $Entries
+    $script:GogKind = $Kind
+    $script:GogResult = $null
+    $script:GogError = $null
+
+    $title = if ($Kind -eq "library") { "Importing the GOG library into Questarr..." } else { "Sending GOG play time to Questarr..." }
+    $options = New-Object Playnite.SDK.GlobalProgressOptions($title, $true)
+    $options.IsIndeterminate = $false
+
+    $PlayniteApi.Dialogs.ActivateGlobalProgress({
+            param($progress)
+            $progress.ProgressMaxValue = $script:GogEntries.Count
+            try {
+                if ($script:GogFlushFirst) {
+                    # The flush is a network call: run here, off Playnite's main thread.
+                    Invoke-QuestarrFlushPlayQueue -Config $script:GogConfig
+                    if (@(Read-QuestarrPlayQueue).Count -gt 0) {
+                        $script:GogQueuePending = $true
+                        return
+                    }
+                }
+                $isLibrary = $script:GogKind -eq "library"
+                $size = if ($isLibrary) { $script:ImportBatchSize } else { $script:PlayStatusBatchSize }
+                $path = if ($isLibrary) { "/library/import" } else { "/play-time-totals" }
+                $totals = @{ Added = 0; Existing = 0; NotFound = 0; Imported = 0; Unchanged = 0; Skipped = 0; Unmatched = 0; Minutes = 0 }
+                for ($offset = 0; $offset -lt $script:GogEntries.Count; $offset += $size) {
+                    if ($progress.CancelToken.IsCancellationRequested) { return }
+                    $take = [Math]::Min($size, $script:GogEntries.Count - $offset)
+                    $batch = @($script:GogEntries.GetRange($offset, $take))
+                    $response = Invoke-QuestarrApi -Config $script:GogConfig -Path $path -Method "Post" `
+                        -Body @{ games = $batch } -TimeoutSec 300
+                    $totals.Added += [int]$response.added
+                    $totals.Existing += [int]$response.existing
+                    $totals.NotFound += [int]$response.notFound
+                    $totals.Imported += [int]$response.imported
+                    $totals.Unchanged += [int]$response.unchanged
+                    $totals.Skipped += [int]$response.skipped
+                    $totals.Unmatched += [int]$response.unmatched
+                    $totals.Minutes += [int]$response.minutesAdded
+                    $progress.CurrentProgressValue = $offset + $take
+                }
+                $script:GogResult = [PSCustomObject]$totals
+            }
+            catch {
+                $script:GogError = Get-QuestarrErrorMessage $_
+            }
+        }, $options) | Out-Null
+
+    if ($script:GogQueuePending) {
+        $PlayniteApi.Dialogs.ShowMessage(
+            "Some play sessions could not be sent to Questarr yet. Play time is not imported while they wait: " +
+            "check that Questarr is reachable and try again.", "Questarr")
+        return $null
+    }
+
+    if ($null -ne $script:GogError) {
+        $__logger.Error("Questarr: GOG import failed: $($script:GogError)")
+        $PlayniteApi.Dialogs.ShowErrorMessage($script:GogError, "Questarr")
+        return $null
+    }
+
+    return $script:GogResult
+}
+
+function Invoke-QuestarrImportGogLibrary {
+    param($scriptMainMenuItemActionArgs)
+
+    $config = Get-QuestarrConfigOrWarn
+    if ($null -eq $config) { return }
+
+    $games = Get-QuestarrGogGames
+    if ($games.Count -eq 0) {
+        $PlayniteApi.Dialogs.ShowMessage("No GOG game in this Playnite library.", "Questarr")
+        return
+    }
+
+    $answer = $PlayniteApi.Dialogs.ShowMessage(
+        "Add the $($games.Count) GOG games of this library to Questarr as owned games?`n`n" +
+        "Games already in Questarr are left alone. Each new title is looked up on IGDB, so a large " +
+        "library takes a few minutes; a title IGDB cannot match to the same game is skipped.",
+        "Questarr", [System.Windows.MessageBoxButton]::YesNo)
+    if ($answer -ne [System.Windows.MessageBoxResult]::Yes) { return }
+
+    $entries = New-Object System.Collections.ArrayList
+    foreach ($game in $games) {
+        [void]$entries.Add(@{ title = $game.Name; externalId = $game.Id.ToString(); platform = "gog" })
+    }
+
+    $result = Invoke-QuestarrGogBatchesWithProgress -Config $config -Entries $entries -Kind "library"
+    if ($null -eq $result) { return }
+
+    $PlayniteApi.Dialogs.ShowMessage(
+        (("Looked at {0} GOG games.`n`nAdded to Questarr: {1}`nAlready in Questarr: {2}`n" +
+            "No matching game on IGDB (skipped): {3}") -f `
+            $entries.Count, $result.Added, $result.Existing, $result.NotFound),
+        "Questarr")
+}
+
+function Invoke-QuestarrImportGogPlayTime {
+    param($scriptMainMenuItemActionArgs)
+
+    $config = Get-QuestarrConfigOrWarn
+    if ($null -eq $config) { return }
+
+    # Playnite's total already holds the time of any session still waiting in the queue. Sent
+    # first, the queued session would be counted a second time once it is flushed, so the
+    # progress worker flushes the queue before sending totals and stops if sessions remain.
+    $entries = New-Object System.Collections.ArrayList
+    foreach ($game in (Get-QuestarrGogGames)) {
+        # Playtime is in seconds. Less than ten minutes is below what the server imports.
+        if ([uint64]$game.Playtime -lt 600) { continue }
+        $entry = @{
+            title           = $game.Name
+            externalId      = $game.Id.ToString()
+            playtimeSeconds = [int64][Math]::Min([uint64]$game.Playtime, 100000000)
+        }
+        if ($null -ne $game.LastActivity) {
+            $entry.lastPlayedAt = Format-QuestarrUtc $game.LastActivity
+        }
+        [void]$entries.Add($entry)
+    }
+    if ($entries.Count -eq 0) {
+        $PlayniteApi.Dialogs.ShowMessage("No GOG game with recorded play time in this library.", "Questarr")
+        return
+    }
+
+    $result = Invoke-QuestarrGogBatchesWithProgress -Config $config -Entries $entries -Kind "time" -FlushQueueFirst
+    if ($null -eq $result) { return }
+
+    $hours = [Math]::Round($result.Minutes / 60, 1)
+    $PlayniteApi.Dialogs.ShowMessage(
+        (("Sent the play time of {0} GOG games.`n`nImported: {1} ({2} h)`nAlready in Questarr: {3}`n" +
+            "Left alone (timer running): {4}`nNot in Questarr: {5}") -f `
+            $entries.Count, $result.Imported, $hours, $result.Unchanged, $result.Skipped, $result.Unmatched),
         "Questarr")
 }
 

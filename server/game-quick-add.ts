@@ -41,6 +41,11 @@ export async function quickAddGameByTitle(
     igdbId?: number;
     /** Platform the release search should target instead of the account default. */
     targetPlatform?: { id: number; name: string };
+    /**
+     * Rejects an IGDB match whose title is not the one asked for (reported as `not_found`).
+     * A bulk import uses it so a wrong best guess is left out instead of added to the library.
+     */
+    acceptMatch?: (matchedTitle: string) => boolean;
   } = {}
 ): Promise<QuickAddResult> {
   const igdbResult = options.igdbId
@@ -51,6 +56,9 @@ export async function quickAddGameByTitle(
   }
 
   const match = igdbClient.formatGameData(igdbResult);
+  if (options.acceptMatch && !options.acceptMatch(String(match.title ?? ""))) {
+    return { outcome: "not_found" };
+  }
   const filterFlags = await getContentFilterFlags(userId);
   if (
     isContentFiltered(match as { isAdultContent?: boolean; isAgeRestricted?: boolean }, filterFlags)

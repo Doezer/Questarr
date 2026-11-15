@@ -91,7 +91,7 @@ estimated"). It needs a saved Steam ID, a Steam Web API key (saved in **Settings
 ## What is stored
 
 Each session records the game, when it started, when it ended (empty while the timer runs) and its
-source: `timer`, `manual`, `playnite` or `steam` (estimated, see above). The Steam sync keeps its
+source: `timer`, `manual`, `playnite`, `playnite_import` or `steam` (both estimated, see above). The Steam sync keeps its
 last totals per game in a small per-user document in the system configuration, so it needs no table. Sessions are deleted with their game. They are included when you move from SQLite to
 Postgres (`scripts/sqlite-to-pg.ts`).
 
@@ -99,3 +99,12 @@ A goal is one date (`finish_by`, `YYYY-MM-DD`) on the game itself, with no table
 
 Not included yet: importing historical playtime from Steam (the first sync only notes your totals) or Playnite (the extension only reports new sessions), weekly-hours goals and missed-goal notifications. See
 [Questarr-mgmt#71](https://github.com/Doezer/Questarr-mgmt/issues/71).
+
+## GOG play time from Playnite
+
+Playnite already knows how long each GOG game was played. **Import GOG play time into Questarr**
+(Playnite extension 1.3.0, `POST /api/integration/play-time-totals`) sends that total once; Questarr
+subtracts the time it already recorded for the game and stores the difference as one estimated
+`playnite_import` session ending at the game's last activity. Like Steam estimates, it counts in the
+totals but not in the longest session or the streaks. A gap under 10 minutes is ignored, so sending
+the same total again adds nothing.

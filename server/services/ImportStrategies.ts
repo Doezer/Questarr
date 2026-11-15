@@ -284,13 +284,16 @@ async function transferSingleFile(
  * Anything else at the destination is an unrelated file and must still be refused.
  */
 async function isAlreadyPlacedFrom(source: string, destination: string): Promise<boolean> {
-  // The source itself is never "already placed": removing it would destroy the only copy.
-  if (path.resolve(source) === path.resolve(destination)) return false;
   try {
     const destLstat = await fs.lstat(destination);
-    if (destLstat.isSymbolicLink()) {
-      return (await fs.realpath(destination)) === (await fs.realpath(source));
-    }
+    const [realSource, realDestination] = await Promise.all([
+      fs.realpath(source),
+      fs.realpath(destination),
+    ]);
+    if (destLstat.isSymbolicLink()) return realDestination === realSource;
+    // The source itself, under any alias (symlinked parent, `..`), is never "already
+    // placed": removing it would destroy the only copy.
+    if (realDestination === realSource) return false;
     // BigInt: inode numbers can exceed Number.MAX_SAFE_INTEGER (NTFS), where distinct files collide.
     const [srcStat, destStat] = await Promise.all([
       fs.stat(source, { bigint: true }),

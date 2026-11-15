@@ -733,6 +733,29 @@ describe("ImportStrategies", () => {
       ).resolves.toBeDefined();
     });
 
+    it("retries in copy mode over a hardlink left by an interrupted run", async () => {
+      const { sourceDir, destination, excludePaths } = await makeExcludeFixture({
+        "game.rom": "loose-rom-bytes",
+      });
+      await fs.ensureDir(destination);
+      await fs.link(path.join(sourceDir, "game.rom"), path.join(destination, "game.rom"));
+
+      const strategy = new PCImportStrategy();
+      await strategy.executeImport(
+        {
+          needsReview: false,
+          originalPath: sourceDir,
+          proposedPath: destination,
+          strategy: "pc",
+          fileCategories: [{ name: "game.rom", category: "main" }],
+        },
+        "copy",
+        excludePaths
+      );
+      expect(await fs.readFile(path.join(destination, "game.rom"), "utf8")).toBe("loose-rom-bytes");
+      expect(await fs.pathExists(path.join(sourceDir, "game.rom"))).toBe(true);
+    });
+
     it("still refuses an unrelated destination file in hardlink mode", async () => {
       const { sourceDir, destination, excludePaths } = await makeExcludeFixture({
         "game.rom": "loose-rom-bytes",

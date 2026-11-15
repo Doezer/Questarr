@@ -320,8 +320,13 @@ async function transferDirectoryPerFile(
   // destination, and transferSingleFile's unconditional overwrite would otherwise
   // silently replace an extracted file with an unrelated loose one of the same name.
   for (const { srcFile, destFile } of plannedTransfers) {
-    if ((await fs.pathExists(destFile)) && !(await isAlreadyPlacedFrom(srcFile, destFile))) {
-      throw new Error(`Destination already exists, refusing to overwrite: ${destFile}`);
+    if (await fs.pathExists(destFile)) {
+      if (!(await isAlreadyPlacedFrom(srcFile, destFile))) {
+        throw new Error(`Destination already exists, refusing to overwrite: ${destFile}`);
+      }
+      // A link to the source from an interrupted run: drop it so a copy or move retry
+      // doesn't see source and destination as the same file.
+      await fs.remove(destFile);
     }
   }
 
@@ -678,11 +683,13 @@ export class PCImportStrategy implements ImportStrategy {
       // an extracted file with an unrelated loose one of the same name — the same
       // failure mode transferDirectoryPerFile guards against above.
       for (const { sourceFile, destinationFile } of plannedTransfers) {
-        if (
-          (await fs.pathExists(destinationFile)) &&
-          !(await isAlreadyPlacedFrom(sourceFile, destinationFile))
-        ) {
-          throw new Error(`Destination already exists, refusing to overwrite: ${destinationFile}`);
+        if (await fs.pathExists(destinationFile)) {
+          if (!(await isAlreadyPlacedFrom(sourceFile, destinationFile))) {
+            throw new Error(
+              `Destination already exists, refusing to overwrite: ${destinationFile}`
+            );
+          }
+          await fs.remove(destinationFile);
         }
       }
 

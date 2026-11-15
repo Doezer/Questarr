@@ -2044,11 +2044,26 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
   }
 
   const item = decision.candidate.item;
+  // As for wanted games, a hold is stored: the check can fail open on a later cycle, and a
+  // release held once must not go through then.
+  const releaseKey = normalizeTitle(item.title);
+  if (await storage.hasAiAutoDownloadHold(game.id, releaseKey)) {
+    igdbLogger.debug(
+      { gameTitle: game.title, releaseTitle: item.title },
+      "Auto-upgrade skipped: release already held for review"
+    );
+    return false;
+  }
   // A patch decideUpgrade picked is meant to be a patch: only the other hold reasons apply.
   const holdReason = await getAiAutoDownloadHoldReason(item, input.platform, game.title, {
     allowPatch: decision.patch,
   });
   if (holdReason) {
+    await storage.recordAiAutoDownloadHold({
+      gameId: game.id,
+      releaseTitle: releaseKey,
+      reason: holdReason,
+    });
     igdbLogger.info(
       { gameTitle: game.title, releaseTitle: item.title, reason: holdReason },
       "Auto-upgrade held back for review"
@@ -2090,16 +2105,21 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
     igdbLogger.warn({ gameTitle: game.title, error }, "Failed to record the upgrade in history");
   }
 
+  // The download is started and tracked: a failed notification must not report otherwise.
   if (prefs.autoDownload.inApp) {
-    const notification = await storage.addNotification({
-      userId,
-      type: "success",
-      title: "Upgrade Started",
-      message: `${game.title}: downloading ${decision.toVersion} (installed: ${decision.fromVersion})`,
-      link: `/games/${encodeURIComponent(game.id)}`,
-    });
-    notifyUser("notification", notification, notification.userId);
-    if (prefs.autoDownload.apprise) void appriseClient.send(notification);
+    try {
+      const notification = await storage.addNotification({
+        userId,
+        type: "success",
+        title: "Upgrade Started",
+        message: `${game.title}: downloading ${decision.toVersion} (installed: ${decision.fromVersion})`,
+        link: `/games/${encodeURIComponent(game.id)}`,
+      });
+      notifyUser("notification", notification, notification.userId);
+      if (prefs.autoDownload.apprise) void appriseClient.send(notification);
+    } catch (error) {
+      igdbLogger.warn({ gameTitle: game.title, error }, "Failed to notify about the upgrade");
+    }
   }
 
   igdbLogger.info(
@@ -2569,7 +2589,9 @@ export async function checkAutoSearch() {
             // (the releases it may take are the ones the profile accepts); anything it does
             // not take is still flagged below, as with "notify".
             let upgraded = false;
-            if (freshPolicy === "auto" && scoring) {
+            // Both: only a search that started under "auto" waited for the xREL nuke check, so
+            // a policy switched to "auto" meanwhile takes effect at the next cycle.
+            if (upgradePolicy === "auto" && freshPolicy === "auto" && scoring) {
               try {
                 upgraded = await tryAutoUpgrade({
                   game: freshGame ?? game,

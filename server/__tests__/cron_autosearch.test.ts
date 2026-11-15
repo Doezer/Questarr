@@ -878,6 +878,40 @@ describe("Cron - checkAutoSearch", () => {
       );
     });
 
+    it("skips a release already held for review, without a new check", async () => {
+      mockHasAiAutoDownloadHold.mockResolvedValueOnce(true);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockAnalyzeRelease).not.toHaveBeenCalled();
+    });
+
+    it("stores the hold when the check holds the release back", async () => {
+      mockIsConfigured.mockResolvedValueOnce(true);
+      mockAnalyzeRelease.mockResolvedValueOnce({
+        releaseType: "dlc",
+        releaseTypeConfidence: 0.95,
+        legitimacyScore: null,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockRecordAiAutoDownloadHold).toHaveBeenCalledWith(
+        expect.objectContaining({ gameId: ownedGame.id, reason: expect.stringContaining("dlc") })
+      );
+    });
+
+    it("keeps the upgrade when its notification cannot be saved", async () => {
+      mockAddNotification.mockRejectedValueOnce(new Error("db locked"));
+
+      await checkAutoSearch();
+
+      expect(mockAddGameDownload).toHaveBeenCalledTimes(1);
+      expect(mockAddNotification).toHaveBeenCalledTimes(1);
+    });
+
     it("does not retry a release that already failed for the game", async () => {
       mockGetDownloadsByGameId.mockResolvedValue([
         { status: "failed", downloadTitle: NEWER_FULL.title },

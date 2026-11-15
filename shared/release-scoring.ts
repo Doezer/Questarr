@@ -244,6 +244,7 @@ const EDITION_TOKENS = new Set([
   "definitive",
   "remastered",
   "remaster",
+  "remake",
   "enhanced",
   "anniversary",
   "directors",
@@ -317,6 +318,8 @@ const RELEASE_TOKENS = new Set([
   "macos",
   "osx",
   "switch",
+  "switch2",
+  "n64",
   "nsw",
   "nsp",
   "xci",
@@ -476,9 +479,16 @@ const TITLE_MATCH_RANK: Record<TitleMatch, number> = {
   mismatch: 0,
 };
 
-/** "Game of the Year" is an edition; "game" and "year" alone can be part of another title. */
+/**
+ * "Game of the Year" is an edition; "game" and "year" alone can be part of another title.
+ * "Nintendo Switch 2" and "Nintendo 64" are single platform markers, so the trailing number
+ * is not read as a title word.
+ */
 function withGotyPhrase(normalized: string): string {
-  return normalized.replaceAll(/\bgame of the year\b/g, "goty");
+  return normalized
+    .replaceAll(/\bgame of the year\b/g, "goty")
+    .replaceAll(/\b(?:nintendo )?switch ?2\b/g, "switch2")
+    .replaceAll(/\bnintendo 64\b/g, "n64");
 }
 
 function classifyAgainstTitle(

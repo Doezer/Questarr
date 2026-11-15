@@ -203,9 +203,13 @@ describe("title-utils", () => {
       expect(parseReleaseMetadata("Game.Famicom-GROUP").platform).toBe("NES");
     });
 
-    it("does not read Switch 2 releases as Switch", () => {
-      expect(parseReleaseMetadata("Game.Nintendo.Switch.2-GROUP").platform).toBeUndefined();
-      expect(parseReleaseMetadata("Game Switch 2 NSP-GROUP").platform).toBeUndefined();
+    it("reads Switch 2 releases as Switch 2, not Switch", () => {
+      expect(parseReleaseMetadata("Game.Nintendo.Switch.2-GROUP").platform).toBe("Switch 2");
+      expect(parseReleaseMetadata("Game Switch 2 NSP-GROUP").platform).toBe("Switch 2");
+      expect(parseReleaseMetadata("Game Switch2 NSP-GROUP").platform).toBe("Switch 2");
+      expect(cleanReleaseName("The Legend of Zelda Ocarina of Time Switch 2 NSP")).toBe(
+        "The Legend of Zelda Ocarina of Time"
+      );
       expect(parseReleaseMetadata("Game.Switch.NSP-GROUP").platform).toBe("Switch");
       expect(parseReleaseMetadata("Game.NSW-GROUP").platform).toBe("Switch");
       expect(parseReleaseMetadata("Game.Switch.2024-GROUP").platform).toBe("Switch");
@@ -213,7 +217,7 @@ describe("title-utils", () => {
 
     it("reads Switch and Switch 2 across newlines in multiline titles", () => {
       expect(parseReleaseMetadata("Game\nFoo Switch NSP").platform).toBe("Switch");
-      expect(parseReleaseMetadata("Game\nFoo Switch 2 NSP").platform).toBeUndefined();
+      expect(parseReleaseMetadata("Game\nFoo Switch 2 NSP").platform).toBe("Switch 2");
     });
     it("should parse Mac platform and DRM-Free tags", () => {
       const release = "Shadow.of.the.Tomb.Raider.MacOS.DRM-Free";

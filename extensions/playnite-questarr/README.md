@@ -24,6 +24,10 @@ game from the couch without opening a browser.
   whatever store it comes from (Steam, GOG, Epic...). Run **Extensions →
   Questarr → Sync play status to Questarr** whenever you like, or switch on
   **Toggle sending play status after each library update**. Off by default.
+- **GOG library and play time** — **Import GOG library into Questarr** adds the
+  GOG games Questarr does not have as owned games, and **Import GOG play time
+  into Questarr** sends the play time Playnite already holds for them. Both are
+  run by hand (see below).
 - **Automatic sync** — optionally re-syncs whenever Playnite finishes updating
   its library, so installing a game on the couch PC shows up in Questarr on its
   own.
@@ -141,6 +145,24 @@ store (Steam, GOG or Epic) is sent along and recorded as where the status came f
   a failure is only logged in `extensions.log`, never shown as a dialog. The
   manual command shows a summary instead.
 - It needs the **Playnite extension** access, like the library sync.
+
+## GOG library and play time
+
+Playnite's own GOG plugin reads the library; the extension never talks to GOG.
+
+- **Import GOG library into Questarr** asks for confirmation, then adds each GOG
+  game Questarr does not have as an **owned** game, matched on IGDB. A title IGDB
+  matches to a different game (a sequel, another subtitle) is skipped rather than
+  added wrongly; "Game of the Year Edition"-style suffixes are accepted. Games
+  already in Questarr are left alone. It looks up each new title, so a large
+  library takes a few minutes.
+- **Import GOG play time into Questarr** sends the total play time Playnite has for
+  each GOG game with at least ten minutes of it. Questarr subtracts the time it
+  already recorded and adds the rest as one estimated session ending at the
+  game's last activity, so running it again changes nothing. A game with a timer
+  running is skipped. Run the library import first: a game missing from Questarr
+  is reported as not found.
+- Both need Questarr 1.7 and the **Playnite extension** access.
 
 ## Troubleshooting
 

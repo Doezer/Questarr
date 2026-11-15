@@ -29,6 +29,8 @@ export function makeGame(overrides: Partial<Game> = {}): Game {
     isAgeRestricted: false,
     libraryPath: null,
     installedVersion: null,
+    installedVersionSource: null,
+    finishBy: null,
     upgradePolicy: null,
     statusSyncSource: null,
     originalReleaseDate: null,

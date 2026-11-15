@@ -13,6 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type {
   ApiKeyScope,
+  WebhookEventType,
   IntegrationRequestProvider,
   IntegrationRequestStatus,
   SeerrngArchitecture,
@@ -184,7 +185,9 @@ export const games = pgTable("games", {
   userRating: doublePrecision("user_rating"),
   libraryPath: text("library_path"),
   installedVersion: text("installed_version"),
+  installedVersionSource: text("installed_version_source"),
   upgradePolicy: text("upgrade_policy"),
+  finishBy: text("finish_by"),
   searchResultsAvailable: boolean("search_results_available").default(false).notNull(),
   searchResultsAvailableAt: timestampMs("search_results_available_at"),
   updateSearchResultsAvailable: boolean("update_search_results_available").default(false).notNull(),
@@ -470,6 +473,42 @@ export const gamePlaySessions = pgTable(
       .on(t.userId)
       .where(sql`${t.endedAt} is null`),
   ]
+);
+
+export const webhookSubscriptions = pgTable(
+  "webhook_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    secret: text("secret").notNull(),
+    events: jsonb("events").$type<WebhookEventType[]>().notNull().default([]),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+    updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("webhook_subscriptions_user_id_idx").on(t.userId)]
+);
+
+export const webhookDeliveries = pgTable(
+  "webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    subscriptionId: text("subscription_id")
+      .notNull()
+      .references(() => webhookSubscriptions.id, { onDelete: "cascade" }),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    attempt: integer("attempt").notNull().default(1),
+    statusCode: integer("status_code"),
+    error: text("error"),
+    durationMs: integer("duration_ms"),
+    createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("webhook_deliveries_sub_created_idx").on(t.subscriptionId, t.createdAt)]
 );
 
 export const gameMilestones = pgTable(

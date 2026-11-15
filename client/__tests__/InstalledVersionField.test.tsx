@@ -20,12 +20,17 @@ vi.mock("@/lib/queryClient", () => ({
 
 const gameId = "game-1";
 
-function renderField(installedVersion: string | null, releaseNames: string[] = []) {
+function renderField(
+  installedVersion: string | null,
+  releaseNames: string[] = [],
+  installedVersionSource: string | null = null
+) {
   render(
     <QueryClientProvider client={createTestQueryClient()}>
       <InstalledVersionField
         gameId={gameId}
         installedVersion={installedVersion}
+        installedVersionSource={installedVersionSource}
         releaseNames={releaseNames}
       />
     </QueryClientProvider>
@@ -47,6 +52,24 @@ describe("getVersionSuggestions", () => {
         "v1.3"
       )
     ).toEqual(["v1.10", "v1.2"]);
+  });
+});
+
+describe("InstalledVersionField source label", () => {
+  afterEach(cleanup);
+
+  it.each([
+    ["manual", "Set by you"],
+    ["release", "From the downloaded release name"],
+    ["install", "Read from the install files"],
+  ])("shows where a %s version came from", (source, label) => {
+    renderField("v1.2", [], source);
+    expect(screen.getByTestId("text-installed-version-source")).toHaveTextContent(label);
+  });
+
+  it("shows no source when there is no version", () => {
+    renderField(null);
+    expect(screen.queryByTestId("text-installed-version-source")).not.toBeInTheDocument();
   });
 });
 
@@ -204,5 +227,32 @@ describe("InstalledVersionField", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(mockToast).toHaveBeenCalled());
     expect(input).toHaveValue("v1.0");
+  });
+});
+
+describe("InstalledVersionField confirming a detected version", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    apiRequest.mockResolvedValue({ ok: true, json: async () => ({}) });
+  });
+  afterEach(cleanup);
+
+  it("saves the unchanged detected version on Enter so it becomes the user's own", async () => {
+    const input = renderField("v1.2", [], "release");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith("PATCH", `/api/games/${gameId}/installed-version`, {
+        installedVersion: "v1.2",
+      })
+    );
+  });
+
+  it("does not save when the field is left untouched, or for a version already typed", () => {
+    const input = renderField("v1.2", [], "release");
+    fireEvent.blur(input);
+    cleanup();
+    const manual = renderField("v1.2", [], "manual");
+    fireEvent.keyDown(manual, { key: "Enter" });
+    expect(apiRequest).not.toHaveBeenCalled();
   });
 });

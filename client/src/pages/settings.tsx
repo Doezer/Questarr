@@ -46,9 +46,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import WebhookSubscriptionsCard from "@/components/WebhookSubscriptionsCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { ApiKeysCard } from "@/components/ApiKeysCard";
+import { TagsSettings } from "@/components/TagsSettings";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import ReleaseScoringSettings from "@/components/ReleaseScoringSettings";
 import ReleaseNameBlacklistSettings from "@/components/ReleaseNameBlacklistSettings";
@@ -1404,6 +1406,8 @@ export default function SettingsPage() {
             {libraryFilteringCard}
 
             <PlatformsSettings />
+
+            <TagsSettings />
           </TabsContent>
 
           <TabsContent value="discovery" className="space-y-6">
@@ -1804,6 +1808,8 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+
+            <WebhookSubscriptionsCard />
 
             {/* Notification Preferences Card */}
             <Card>

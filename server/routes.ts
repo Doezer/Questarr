@@ -15,6 +15,7 @@ import {
   updateGameStatusSchema,
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
+  updateGameFinishBySchema,
   updateGameInstalledVersionSchema,
   updateGameTargetPlatformSchema,
   insertIndexerSchema,
@@ -380,6 +381,7 @@ import {
 } from "./library-rescan.js";
 import { integrationRouter } from "./routes/integration.js";
 import { apiKeysRouter } from "./routes/api-keys.js";
+import { webhooksRouter } from "./routes/webhooks.js";
 import { isAdminApiRoute } from "./admin-api-routes.js";
 
 // Cache-Control header values for IGDB discovery endpoints
@@ -1829,6 +1831,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // reasoning as the mounts above.
   app.use("/api/integration", integrationRateLimiter, integrationRouter);
   app.use("/api/api-keys", apiKeysRouter);
+  app.use("/api/webhooks", webhooksRouter);
 
   // Last-used Prowlarr sync settings, to prefill the sync dialog. The stored
   // API key never leaves the server: only the redaction placeholder does.
@@ -2158,6 +2161,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         invalid: "Invalid user rating data",
         log: "error updating game user rating",
         failure: "Failed to update user rating",
+      }
+    )
+  );
+
+  // Personal "finish by" target day (YYYY-MM-DD), or null to clear it.
+  app.patch(
+    "/api/games/:id/finish-by",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    patchOwnGameField(
+      updateGameFinishBySchema,
+      (id, userId, { finishBy }) => storage.updateGameFinishBy(id, userId, finishBy),
+      {
+        invalid: "Invalid finish-by date",
+        log: "error updating game finish-by date",
+        failure: "Failed to update the finish-by date",
       }
     )
   );

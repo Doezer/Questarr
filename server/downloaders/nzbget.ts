@@ -7,10 +7,12 @@ import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
   assertCredentialsAllowed,
   buildBasicAuthHeader,
+  buildDownloaderBaseUrl,
+  escapeXml,
+  findTorrentByTagNull,
   fixNzbUrlEncoding,
   isHttpsUrl,
   logDownloaderDebugResponse,
-  findTorrentByTagNull,
 } from "./utils.js";
 
 interface NZBGetListResult {
@@ -78,30 +80,7 @@ export class NZBGetClient implements DownloaderClient {
   }
 
   private getBaseUrl(): string {
-    let baseUrl = this.downloader.url;
-    if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
-      const protocol = this.downloader.useSsl ? "https://" : "http://";
-      baseUrl = protocol + baseUrl;
-    }
-
-    try {
-      const urlObj = new URL(baseUrl);
-      if (this.downloader.port) {
-        urlObj.port = this.downloader.port.toString();
-      }
-      return urlObj.toString().replace(/\/$/, "");
-    } catch {
-      return baseUrl.replace(/\/$/, "");
-    }
-  }
-
-  private escapeXml(str: string): string {
-    return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;");
+    return buildDownloaderBaseUrl(this.downloader);
   }
 
   private buildXMLValue(param: unknown): string {
@@ -113,7 +92,7 @@ export class NZBGetClient implements DownloaderClient {
       }
       return `<double>${param}</double>`;
     } else if (typeof param === "string") {
-      return `<string>${this.escapeXml(param)}</string>`;
+      return `<string>${escapeXml(param)}</string>`;
     } else if (Array.isArray(param)) {
       const data = param.map((p) => `<value>${this.buildXMLValue(p)}</value>`).join("");
       return `<array><data>${data}</data></array>`;
@@ -121,7 +100,7 @@ export class NZBGetClient implements DownloaderClient {
       const members = Object.entries(param)
         .map(
           ([k, v]) =>
-            `<member><name>${this.escapeXml(k)}</name><value>${this.buildXMLValue(v)}</value></member>`
+            `<member><name>${escapeXml(k)}</name><value>${this.buildXMLValue(v)}</value></member>`
         )
         .join("");
       return `<struct>${members}</struct>`;
@@ -220,7 +199,7 @@ export class NZBGetClient implements DownloaderClient {
 
     const xmlBody = `<?xml version="1.0"?>
 <methodCall>
-  <methodName>${this.escapeXml(method)}</methodName>
+  <methodName>${escapeXml(method)}</methodName>
   <params>
     ${xmlParams}
   </params>

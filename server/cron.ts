@@ -24,6 +24,7 @@ import { runScheduledSteamPlaytimeSync } from "./steam-playtime.js";
 import { runScheduledRommSync } from "./romm-sync.js";
 import { runScheduledLibraryRescan, LIBRARY_RESCAN_TICK_MS } from "./library-rescan.js";
 import { appriseClient } from "./apprise.js";
+import { emitWebhookEvent, purgeWebhookDeliveries } from "./webhooks.js";
 import { importManager } from "./services/index.js";
 import {
   downloadRulesSchema,
@@ -768,6 +769,13 @@ function registerCronTasks(): void {
         await storage.deleteDownloadEventsOlderThan(Date.now() - DOWNLOAD_EVENT_RETENTION_MS);
       },
     },
+    {
+      name: "webhook-deliveries-purge",
+      title: "Webhook delivery log",
+      description: "Keep only the 50 most recent delivery attempts of each webhook.",
+      intervalMs: IMPORT_TASK_CLEANUP_INTERVAL_MS,
+      run: purgeWebhookDeliveries,
+    },
   ];
   for (const task of tasks) registerTask(task);
 }
@@ -844,6 +852,11 @@ export async function checkGameUpdates() {
 
   const updatesMap = new Map<string, Partial<Game>>();
   const notificationsToSend: InsertNotification[] = [];
+  const pendingWebhookEvents: Array<{
+    type: "game.released" | "game.delayed";
+    data: Record<string, unknown>;
+    userId: string | null | undefined;
+  }> = [];
   const gameUpdatePrefsCache = new Map<string, NotificationPreferences>();
   const getGameUpdatePrefs = async (userId: string): Promise<NotificationPreferences> => {
     if (!gameUpdatePrefsCache.has(userId)) {
@@ -929,6 +942,11 @@ export async function checkGameUpdates() {
     // Check if released status changed to released
     if (newReleaseStatus === "released" && game.releaseStatus !== "released") {
       const message = `${game.title} has been released!`;
+      pendingWebhookEvents.push({
+        type: "game.released",
+        data: { gameId: game.id, gameTitle: game.title, releaseDate: currentReleaseDateStr },
+        userId: game.userId,
+      });
       const prefs = await getGameUpdatePrefs(game.userId!);
       if (prefs.gameReleased.inApp) {
         notificationsToSend.push({
@@ -963,6 +981,11 @@ export async function checkGameUpdates() {
       // Send notification if game is delayed
       if (newReleaseStatus === "delayed" && game.releaseStatus !== "delayed") {
         const message = `${game.title} has been delayed to ${currentReleaseDateStr}`;
+        pendingWebhookEvents.push({
+          type: "game.delayed",
+          data: { gameId: game.id, gameTitle: game.title, releaseDate: currentReleaseDateStr },
+          userId: game.userId,
+        });
         const prefs = await getGameUpdatePrefs(game.userId!);
         if (prefs.gameDelayed.inApp) {
           notificationsToSend.push({
@@ -981,6 +1004,10 @@ export async function checkGameUpdates() {
   if (updatesMap.size > 0) {
     const batchUpdates = Array.from(updatesMap.entries()).map(([id, data]) => ({ id, data }));
     await storage.updateGamesBatch(batchUpdates);
+  }
+  // Only now: the transitions are saved, so a receiver never sees one that was lost.
+  for (const event of pendingWebhookEvents) {
+    emitWebhookEvent(event.type, event.data, event.userId);
   }
 
   // Send notifications in batch
@@ -1201,6 +1228,18 @@ async function runDownloadStatusCheck() {
                 "The download client never registered this download."
               );
               notifyUser("downloadUpdate", download.gameId);
+              const unregisteredGame = await storage.getGame(download.gameId);
+              emitWebhookEvent(
+                "download.failed",
+                {
+                  gameId: download.gameId,
+                  gameTitle: unregisteredGame?.title ?? download.downloadTitle,
+                  downloadId: download.id,
+                  downloadTitle: download.downloadTitle,
+                  reason: "The download client never registered this download.",
+                },
+                unregisteredGame?.userId
+              );
               // Mirror the normal error path: reset the game to "wanted"
               // only when no sibling download for the same game is still
               // actively downloading.
@@ -1420,6 +1459,8 @@ async function runDownloadStatusCheck() {
 
             // Send notification
             const message = `Download finished for ${gameTitle}`;
+            // The webhook means "finished in the client": it does not depend on the in-app flag.
+            emitDownloadCompleted(download, gameTitle, game?.userId);
             const dlSettings = await storage.getUserSettings(game?.userId ?? "");
             const dlPrefs = resolvePrefs(dlSettings);
             if (shouldSendCompletionNotification && dlPrefs.downloadCompleted.inApp) {
@@ -1514,6 +1555,17 @@ async function runDownloadStatusCheck() {
               const settings = await storage.getUserSettings(game?.userId ?? "");
               const prefs = resolvePrefs(settings);
               const message = `Download aborted for "${gameTitle}": ${newErrorMessage}`;
+              emitWebhookEvent(
+                "download.failed",
+                {
+                  gameId: download.gameId,
+                  gameTitle,
+                  downloadId: download.id,
+                  downloadTitle: download.downloadTitle,
+                  reason: newErrorMessage ?? "Download aborted",
+                },
+                game?.userId
+              );
 
               if (prefs.downloadFailed.inApp) {
                 const notification = await storage.addNotification({
@@ -1671,6 +1723,17 @@ async function runDownloadStatusCheck() {
 
           await storage.updateGameDownloadStatus(download.id, "failed", missedErrorMessage);
           notifyUser("downloadUpdate", download.gameId);
+          emitWebhookEvent(
+            "download.failed",
+            {
+              gameId: download.gameId,
+              gameTitle,
+              downloadId: download.id,
+              downloadTitle: download.downloadTitle,
+              reason: missedErrorMessage,
+            },
+            game?.userId
+          );
 
           if (willResetGame) {
             await storage.updateGameStatus(
@@ -1753,6 +1816,28 @@ async function recoverInterruptedImport(download: GameDownload): Promise<void> {
  * the user imports it from Pending Imports; without it, it counts as completed, as a
  * finished download normally would. The game is never reset to "wanted".
  */
+/** Download ids whose completion was already published, so a later poll can't repeat it. */
+const completionEmitted = new Set<string>();
+
+function emitDownloadCompleted(
+  download: GameDownload,
+  gameTitle: string,
+  userId: string | null | undefined
+): void {
+  if (completionEmitted.has(download.id)) return;
+  completionEmitted.add(download.id);
+  emitWebhookEvent(
+    "download.completed",
+    {
+      gameId: download.gameId,
+      gameTitle,
+      downloadId: download.id,
+      downloadTitle: download.downloadTitle,
+    },
+    userId
+  );
+}
+
 async function handleProbablyFinishedDisappearance(
   download: GameDownload,
   lastProgress: number
@@ -1783,6 +1868,7 @@ async function handleProbablyFinishedDisappearance(
       );
     }
     notifyUser("downloadUpdate", download.gameId);
+    emitDownloadCompleted(download, gameTitle, game?.userId);
     return;
   }
 
@@ -1793,6 +1879,7 @@ async function handleProbablyFinishedDisappearance(
       "be located automatically. Review it and point the import at the downloaded files."
   );
   notifyUser("downloadUpdate", download.gameId);
+  emitDownloadCompleted(download, gameTitle, game?.userId);
   try {
     const notification = await storage.addNotification({
       type: "warning",

@@ -1060,6 +1060,57 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  describe("PATCH /api/games/:id/finish-by", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("saves a target day scoped to the authenticated user", async () => {
+      vi.mocked(storage.updateGameFinishBy).mockResolvedValue({
+        id: gameId,
+        finishBy: "2026-12-31",
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/finish-by`)
+        .send({ finishBy: "2026-12-31" });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameFinishBy)).toHaveBeenCalledWith(
+        gameId,
+        "user-1",
+        "2026-12-31"
+      );
+    });
+
+    it("clears the goal with null", async () => {
+      vi.mocked(storage.updateGameFinishBy).mockResolvedValue({
+        id: gameId,
+        finishBy: null,
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/finish-by`)
+        .send({ finishBy: null });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameFinishBy)).toHaveBeenCalledWith(gameId, "user-1", null);
+    });
+
+    it.each(["2026-02-30", "31/12/2026", 12])("rejects %s", async (value) => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/finish-by`)
+        .send({ finishBy: value });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid finish-by date");
+    });
+
+    it("returns 404 when the game is not the user's", async () => {
+      vi.mocked(storage.updateGameFinishBy).mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/finish-by`)
+        .send({ finishBy: "2026-12-31" });
+      expect(response.status).toBe(404);
+    });
+  });
+
   describe("PATCH /api/games/:id/upgrade-policy", () => {
     it("also clears an aggregate-only searchResultsAvailable badge when off", async () => {
       const id = "123e4567-e89b-12d3-a456-426614174000";

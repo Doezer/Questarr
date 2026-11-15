@@ -9,7 +9,15 @@ import { routesLogger as logger } from "../logger.js";
 import { normalizeTitle } from "../../shared/title-utils.js";
 import { quickAddGameByTitle } from "../game-quick-add.js";
 import { notifyUser } from "../socket.js";
-import { decidePlayStatus, mapPlayniteStatus, toSyncSource } from "../play-status-sync.js";
+import {
+  decidePlayStatus,
+  libraryTitlesAgree,
+  mapPlayniteStatus,
+  MIN_PLAYTIME_IMPORT_MINUTES,
+  normalizedTitlesAgree,
+  recordedMinutes,
+  toSyncSource,
+} from "../play-status-sync.js";
 // Relative path, not the "@shared" alias — see the comment in
 // game-quick-add.ts.
 import { GAME_STATUSES, type Game } from "../../shared/schema.js";
@@ -74,7 +82,7 @@ function toIntegrationGame(game: Game) {
 // real work, and surfaces the version pair in its own logs.
 integrationRouter.get(
   "/ping",
-  requireScope("library:write", "read", "requests"),
+  requireScope("library:write", "read", "requests", "admin"),
   (req: Request, res: Response) => {
     res.json({
       service: "questarr",
@@ -110,7 +118,7 @@ const libraryQuerySchema = z.object({
 
 integrationRouter.get(
   "/library",
-  requireScope("library:write", "read"),
+  requireScope("library:write", "read", "admin"),
   async (req: Request, res: Response) => {
     try {
       const parsed = libraryQuerySchema.safeParse(req.query);
@@ -560,6 +568,263 @@ integrationRouter.post(
     } catch (error) {
       logger.error({ error }, "Integration play status failed");
       return res.status(500).json({ error: "Failed to sync play status" });
+    }
+  }
+);
+
+// ── Play time totals from the couch PC ───────────────────────────────────────
+// A store library (GOG, through Playnite) already knows how long each game was played before
+// Questarr existed. The extension sends that total once; the part not yet recorded in Questarr
+// becomes one estimated session (`playnite_import`). Re-sending is harmless: the recorded time
+// is subtracted first, so nothing is counted twice.
+const playTimeTotalsSchema = z.object({
+  games: z
+    .array(
+      z.object({
+        title: z.string().trim().min(1).max(500),
+        externalId: z.string().trim().max(200).optional(),
+        gameId: z.string().trim().min(1).max(100).optional(),
+        steamAppId: z.number().int().positive().optional(),
+        // Total play time Playnite holds for the game, in seconds.
+        playtimeSeconds: z.number().int().nonnegative().max(100_000_000),
+        // When the game was last played, if Playnite knows; the imported time ends there.
+        lastPlayedAt: z.coerce.date().optional(),
+      })
+    )
+    .min(1)
+    .max(MAX_SYNC_GAMES),
+});
+
+integrationRouter.post(
+  "/play-time-totals",
+  requireScope("library:write"),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = playTimeTotalsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "Invalid play time payload", issues: parsed.error.issues });
+      }
+      const { games: incoming } = parsed.data;
+      const userId = req.user!.id;
+      const running = await storage.getRunningPlaySession(userId);
+
+      // One read and one index for the whole batch, like /play-status: a batch can hold thousands
+      // of title-only entries.
+      const library = await storage.getUserGames(userId, true);
+      const byId = new Map<string, Game>();
+      const bySteamAppId = new Map<number, Game>();
+      const byTitle = new Map<string, Game>();
+      // Normalized once per library game: the edition fallback below compares against all of them.
+      const normalizedLibrary: Array<{ game: Game; key: string }> = [];
+      for (const g of library) {
+        byId.set(g.id, g);
+        if (g.steamAppId) bySteamAppId.set(g.steamAppId, g);
+        const key = normalizeTitle(g.title);
+        if (!key) continue;
+        normalizedLibrary.push({ game: g, key });
+        if (!byTitle.has(key)) byTitle.set(key, g);
+      }
+      /**
+       * Id, Steam App ID, then normalized title. As a last resort, the one game whose title
+       * differs only by an edition suffix: library import stores IGDB's title, so a GOG
+       * "... - Enhanced Edition" would otherwise never find the game it just created.
+       */
+      const resolveGame = (entry: {
+        gameId?: string | undefined;
+        steamAppId?: number | undefined;
+        title: string;
+      }) => {
+        const key = normalizeTitle(entry.title);
+        const exact =
+          (entry.gameId ? byId.get(entry.gameId) : undefined) ??
+          (entry.steamAppId ? bySteamAppId.get(entry.steamAppId) : undefined) ??
+          (key ? byTitle.get(key) : undefined);
+        if (exact || !key) return exact;
+        const near = normalizedLibrary.filter((x) => normalizedTitlesAgree(key, x.key));
+        return near.length === 1 ? near[0]?.game : undefined;
+      };
+
+      let imported = 0;
+      let unchanged = 0;
+      let skipped = 0;
+      let unmatched = 0;
+      let minutesAdded = 0;
+      const results: Array<{
+        externalId?: string | undefined;
+        title: string;
+        gameId?: string;
+        result: "imported" | "unchanged" | "skipped" | "unmatched";
+        minutes?: number;
+        reason?: string;
+      }> = [];
+
+      for (const entry of incoming) {
+        const base = { externalId: entry.externalId, title: entry.title };
+        const game = resolveGame(entry);
+        if (!game) {
+          unmatched += 1;
+          results.push({ ...base, result: "unmatched" });
+          continue;
+        }
+        // The timer owns the game's time while it runs; the next sync picks the rest up.
+        if (running?.gameId === game.id) {
+          skipped += 1;
+          results.push({ ...base, gameId: game.id, result: "skipped", reason: "timer_running" });
+          continue;
+        }
+
+        const outcome = await withPlaySessionLock(`${userId}:${game.id}`, async () => {
+          const total = Math.floor(entry.playtimeSeconds / 60);
+          const missing =
+            total - recordedMinutes(await storage.getGamePlaySessions(game.id, userId));
+          if (missing < MIN_PLAYTIME_IMPORT_MINUTES) return 0;
+          const now = Date.now();
+          const last = entry.lastPlayedAt?.getTime();
+          const end =
+            last !== undefined && last <= now && last > 0 ? new Date(last) : new Date(now);
+          await storage.addGamePlaySession({
+            gameId: game.id,
+            userId,
+            startedAt: new Date(end.getTime() - missing * 60_000),
+            endedAt: end,
+            source: "playnite_import",
+          });
+          return missing;
+        });
+
+        if (outcome > 0) {
+          imported += 1;
+          minutesAdded += outcome;
+          results.push({ ...base, gameId: game.id, result: "imported", minutes: outcome });
+        } else {
+          unchanged += 1;
+          results.push({ ...base, gameId: game.id, result: "unchanged" });
+        }
+      }
+
+      logger.info(
+        {
+          userId,
+          received: incoming.length,
+          imported,
+          unchanged,
+          skipped,
+          unmatched,
+          minutesAdded,
+        },
+        "Play time totals received through the integration API"
+      );
+      if (imported > 0) notifyUser("playSessionsUpdated", { source: "playnite" }, userId);
+      return res.json({
+        received: incoming.length,
+        imported,
+        unchanged,
+        skipped,
+        unmatched,
+        minutesAdded,
+        results,
+      });
+    } catch (error) {
+      logger.error({ error }, "Integration play time totals failed");
+      return res.status(500).json({ error: "Failed to import play time" });
+    }
+  }
+);
+
+// ── Import a store library as owned games ────────────────────────────────────
+// Creates the games a Playnite library holds and Questarr does not, as "owned". Each title goes
+// through the same IGDB matching as "request a game", and a match whose title is not the one
+// asked for is left out rather than added wrongly. IGDB is called once per new title, so a
+// request is small and the extension sends the library in batches.
+const MAX_IMPORT_GAMES = 25;
+const importSchema = z.object({
+  games: z
+    .array(
+      z.object({
+        title: z.string().trim().min(1).max(500),
+        externalId: z.string().trim().max(200).optional(),
+        steamAppId: z.number().int().positive().optional(),
+        platform: z.string().trim().max(100).optional(),
+      })
+    )
+    .min(1)
+    .max(MAX_IMPORT_GAMES),
+});
+
+integrationRouter.post(
+  "/library/import",
+  requireScope("library:write"),
+  async (req: Request, res: Response) => {
+    try {
+      const parsed = importSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "Invalid import payload", issues: parsed.error.issues });
+      }
+      const { games: incoming } = parsed.data;
+      const userId = req.user!.id;
+
+      const library = await storage.getUserGames(userId, true);
+      const byTitle = new Set<string>();
+      const bySteam = new Set<number>();
+      for (const g of library) {
+        const key = normalizeTitle(g.title);
+        if (key) byTitle.add(key);
+        if (g.steamAppId) bySteam.add(g.steamAppId);
+      }
+
+      const counts = { added: 0, existing: 0, notFound: 0 };
+      const results: Array<{
+        externalId?: string | undefined;
+        title: string;
+        result: "added" | "existing" | "not_found";
+        gameId?: string;
+      }> = [];
+
+      for (const entry of incoming) {
+        const base = { externalId: entry.externalId, title: entry.title };
+        const key = normalizeTitle(entry.title);
+        if ((entry.steamAppId && bySteam.has(entry.steamAppId)) || (key && byTitle.has(key))) {
+          counts.existing += 1;
+          results.push({ ...base, result: "existing" });
+          continue;
+        }
+
+        const result = await quickAddGameByTitle(userId, entry.title, {
+          status: "owned",
+          source:
+            toSyncSource(entry.platform) === "playnite" ? "api" : toSyncSource(entry.platform),
+          acceptMatch: (matched) => libraryTitlesAgree(entry.title, matched),
+        });
+        if (result.outcome === "not_found") {
+          counts.notFound += 1;
+          results.push({ ...base, result: "not_found" });
+          continue;
+        }
+        const gameKey = normalizeTitle(result.game.title);
+        if (gameKey) byTitle.add(gameKey);
+        if (key) byTitle.add(key);
+        if (result.outcome === "duplicate") {
+          counts.existing += 1;
+          results.push({ ...base, result: "existing", gameId: result.game.id });
+          continue;
+        }
+        counts.added += 1;
+        results.push({ ...base, result: "added", gameId: result.game.id });
+        notifyUser("gameUpdated", result.game.id, userId);
+      }
+
+      logger.info(
+        { userId, received: incoming.length, ...counts },
+        "Library import received through the integration API"
+      );
+      return res.json({ received: incoming.length, ...counts, results });
+    } catch (error) {
+      logger.error({ error }, "Integration library import failed");
+      return res.status(500).json({ error: "Failed to import the library" });
     }
   }
 );

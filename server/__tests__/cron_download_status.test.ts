@@ -497,7 +497,13 @@ describe("Cron - checkDownloadStatus", () => {
 
     await checkDownloadStatus();
 
-    expect(mockReplaceGameInstalledVersion).toHaveBeenCalledWith(versioned.gameId, null, "v1.4.2");
+    expect(mockReplaceGameInstalledVersion).toHaveBeenCalledWith(
+      versioned.gameId,
+      null,
+      "v1.4.2",
+      "release",
+      false
+    );
   });
 
   it("leaves the version to the import when post-processing is enabled", async () => {

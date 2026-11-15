@@ -22,6 +22,7 @@ const empty: Data = {
   currentStreakDays: 0,
   longestStreakDays: 0,
   topGames: [],
+  goals: [],
   topGenres: [],
   topPlatforms: [],
   perWeek: [],
@@ -83,5 +84,29 @@ describe("PlayTimeStats", () => {
     expect(screen.getByText("7h / ~10h")).toBeInTheDocument();
     expect(screen.getByText("Puzzle")).toBeInTheDocument();
     expect(screen.getByText("PC")).toBeInTheDocument();
+  });
+
+  it("lists finish-by goals even before any session", async () => {
+    renderStats({
+      ...empty,
+      goals: [
+        {
+          gameId: "g-9",
+          title: "Hades",
+          finishBy: "2026-12-01",
+          status: "behind",
+          daysLeft: 10,
+          remainingMinutes: 600,
+          neededMinutesPerDay: 55,
+          recentMinutesPerDay: 20,
+          playedMinutes: 0,
+          timeToBeatHours: 10,
+        },
+      ],
+    });
+    expect(await screen.findByText("Finish-by goals")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Hades" })).toHaveAttribute("href", "/games/g-9");
+    expect(screen.getByText("Behind")).toBeInTheDocument();
+    expect(screen.getByText(/10 days left · 10h to beat · 55m\/day needed/)).toBeInTheDocument();
   });
 });

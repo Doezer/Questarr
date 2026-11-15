@@ -4,6 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { FormatSpec, ReleaseProfile } from "./release-scoring.js";
 import { resolveTargetPlatform } from "./title-utils.js";
+import { isValidFinishByDate } from "./play-goal.js";
 import { hasReversedYearRange, isEmptyCollectionRules } from "./collection-rules.js";
 
 export const users = sqliteTable("users", {
@@ -255,8 +256,12 @@ export const games = sqliteTable("games", {
   userRating: real("user_rating"),
   libraryPath: text("library_path"),
   installedVersion: text("installed_version"),
+  // Where installedVersion came from (INSTALLED_VERSION_SOURCES); null while it is unset.
+  installedVersionSource: text("installed_version_source"),
   // Per-game override of the account default upgrade policy; null = use the default.
   upgradePolicy: text("upgrade_policy"), // UPGRADE_POLICIES
+  // Personal target day ("finish by"), `YYYY-MM-DD` in the user's local calendar; null = no goal.
+  finishBy: text("finish_by"),
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
@@ -504,6 +509,65 @@ export const gamePlaySessions = sqliteTable(
       .on(t.userId)
       .where(sql`${t.endedAt} is null`),
   ]
+);
+
+// Outbound webhooks: external automation (n8n, Home Assistant, deployment scripts) subscribes to
+// Questarr events. Every request is signed with the subscription secret (HMAC-SHA256).
+export const WEBHOOK_EVENT_TYPES = [
+  "download.completed",
+  "download.failed",
+  "import.failed",
+  "game.released",
+  "game.delayed",
+] as const;
+export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
+/** Sent only by the test operation; never selectable in a subscription. */
+export const WEBHOOK_TEST_EVENT = "webhook.test" as const;
+
+export const webhookSubscriptions = sqliteTable(
+  "webhook_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    // Encrypted at rest (credential-crypto): the signature needs the raw value.
+    secret: text("secret").notNull(),
+    events: text("events", { mode: "json" }).$type<WebhookEventType[]>().notNull().default([]),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("webhook_subscriptions_user_id_idx").on(t.userId)]
+);
+
+// Recent delivery attempts per subscription, capped and purged by the "webhook-deliveries-purge"
+// System Task. One row per attempt; retries of the same event share `eventId`.
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    subscriptionId: text("subscription_id")
+      .notNull()
+      .references(() => webhookSubscriptions.id, { onDelete: "cascade" }),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    attempt: integer("attempt").notNull().default(1),
+    // HTTP status of the response, null when the request never got one.
+    statusCode: integer("status_code"),
+    error: text("error"),
+    durationMs: integer("duration_ms"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("webhook_deliveries_sub_created_idx").on(t.subscriptionId, t.createdAt)]
 );
 
 // User-defined "successes" checklist per game. Kept separate from any
@@ -795,6 +859,16 @@ export const updateGameUserRatingSchema = z.object({
 
 // What to do when a newer version of an owned game turns up. Later steps of the upgrade loop add
 // "auto" (grab it); for now: "off" ignores updates, "notify" flags them and tells the user.
+/**
+ * Where a game's installed version came from. "manual" (typed by the user) always wins;
+ * "install" (read from files in the game folder) beats "release" (taken from the title of
+ * the release that was downloaded).
+ */
+export const INSTALLED_VERSION_SOURCES = ["manual", "release", "install"] as const;
+export type InstalledVersionSource = (typeof INSTALLED_VERSION_SOURCES)[number];
+/** The sources a version can be detected from, i.e. every one but the user typing it. */
+export type DetectedVersionSource = Exclude<InstalledVersionSource, "manual">;
+
 export const UPGRADE_POLICIES = ["off", "notify"] as const;
 export type UpgradePolicy = (typeof UPGRADE_POLICIES)[number];
 export const DEFAULT_UPGRADE_POLICY: UpgradePolicy = "notify";
@@ -818,6 +892,14 @@ export const updateGameInstalledVersionSchema = z.object({
     .max(64, "installedVersion must be at most 64 characters")
     .nullable()
     .transform((v) => v || null),
+});
+
+export const updateGameFinishBySchema = z.object({
+  // null clears the goal.
+  finishBy: z
+    .string()
+    .refine(isValidFinishByDate, "finishBy must be a date written YYYY-MM-DD")
+    .nullable(),
 });
 
 export const updateGameUpgradePolicySchema = z.object({
@@ -929,6 +1011,50 @@ export const insertManualPlaySessionSchema = z.object({
     .int()
     .min(1)
     .max(24 * 60),
+});
+
+/** Sessions the user can edit, merge and split: imported or estimated ones stay as recorded. */
+export const EDITABLE_PLAY_SESSION_SOURCES = ["manual", "timer"] as const;
+
+/** True for a finished session whose source the user may edit, merge or split. */
+export function isEditablePlaySession(session: {
+  source: string | null;
+  endedAt: Date | null;
+}): boolean {
+  return (
+    session.endedAt !== null &&
+    (EDITABLE_PLAY_SESSION_SOURCES as readonly string[]).includes(session.source ?? "")
+  );
+}
+
+/** Change a finished session: a new start, and a new end or duration (not both). */
+export const updatePlaySessionSchema = z
+  .object({
+    startedAt: z.coerce.date().optional(),
+    endedAt: z.coerce.date().optional(),
+    // JSON only: coercion would turn `true` into 1.
+    durationMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(24 * 60)
+      .optional(),
+  })
+  .refine((v) => v.startedAt || v.endedAt || v.durationMinutes, {
+    message: "Provide startedAt, endedAt or durationMinutes",
+  })
+  .refine((v) => !(v.endedAt && v.durationMinutes), {
+    message: "Provide endedAt or durationMinutes, not both",
+  });
+
+/** Merge several finished sessions of one game into one. */
+export const mergePlaySessionsSchema = z.object({
+  sessionIds: z.array(z.string().uuid()).min(2).max(20),
+});
+
+/** Cut a finished session in two at `splitAt`. */
+export const splitPlaySessionSchema = z.object({
+  splitAt: z.coerce.date(),
 });
 
 export const insertGameMilestoneSchema = createInsertSchema(gameMilestones, {
@@ -1270,6 +1396,23 @@ export type InsertCollection = {
   rules: CollectionRules | null;
 };
 export type CollectionGame = typeof collectionGames.$inferSelect;
+export type WebhookSubscription = typeof webhookSubscriptions.$inferSelect;
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
+/** A subscription as returned to clients: the secret never leaves the server after creation. */
+export type WebhookSubscriptionPublic = Omit<WebhookSubscription, "secret">;
+export type NewWebhookSubscriptionInput = {
+  userId: string;
+  name: string;
+  url: string;
+  /** Already encrypted. */
+  secret: string;
+  events: WebhookEventType[];
+  enabled?: boolean;
+};
+export type UpdateWebhookSubscriptionInput = Partial<
+  Pick<WebhookSubscription, "name" | "url" | "secret" | "events" | "enabled">
+>;
+export type NewWebhookDeliveryInput = Omit<WebhookDelivery, "id" | "createdAt">;
 
 export type Tag = typeof tags.$inferSelect;
 export type InsertTag = z.infer<typeof insertTagSchema>;

@@ -12,11 +12,12 @@ import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloadResult, DownloaderClient } from "./types.js";
 import {
   assertCredentialsAllowed,
-  fetchWithMagnetDetection,
   extractHashFromUrl,
+  fetchWithMagnetDetection,
   fixNzbUrlEncoding,
   isHttpsUrl,
   logDownloaderDebugResponse,
+  normalizePeerCount,
 } from "./utils.js";
 
 interface QBittorrentTorrent {
@@ -1301,10 +1302,10 @@ export class QBittorrentClient implements DownloaderClient {
       }
     }
 
-    const swarmSeeders = this.normalizePeerCount(torrent.num_complete);
-    const swarmLeechers = this.normalizePeerCount(torrent.num_incomplete);
-    const connectedSeeders = this.normalizePeerCount(torrent.num_seeds);
-    const connectedLeechers = this.normalizePeerCount(torrent.num_leechs);
+    const swarmSeeders = normalizePeerCount(torrent.num_complete);
+    const swarmLeechers = normalizePeerCount(torrent.num_incomplete);
+    const connectedSeeders = normalizePeerCount(torrent.num_seeds);
+    const connectedLeechers = normalizePeerCount(torrent.num_leechs);
 
     return {
       id: torrent.hash,
@@ -1326,10 +1327,6 @@ export class QBittorrentClient implements DownloaderClient {
       error: torrent.state === "error" ? "Torrent error" : undefined,
       category: torrent.category,
     };
-  }
-
-  private normalizePeerCount(count: number | undefined): number | undefined {
-    return typeof count === "number" && Number.isFinite(count) && count >= 0 ? count : undefined;
   }
 
   private sanitizeMultipartFilename(filename: string): string {

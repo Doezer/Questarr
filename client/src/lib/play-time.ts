@@ -22,3 +22,42 @@ export function sessionLengthMinutes(startedAt: string | Date, endedAt: string |
   const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
   return Math.max(0, Math.round(ms / 60_000));
 }
+
+/** A readable countdown to a "finish by" day (`daysLeft` from `computeGoalProgress`). */
+export function formatDaysLeft(daysLeft: number): string {
+  if (daysLeft < 0) {
+    const late = -daysLeft;
+    return `${late} day${late === 1 ? "" : "s"} overdue`;
+  }
+  if (daysLeft === 0) return "Last day";
+  return `${daysLeft} day${daysLeft === 1 ? "" : "s"} left`;
+}
+
+/** Label and badge colours for each goal status; colours use `in-[.dark]:` (Tailwind 4). */
+export const GOAL_STATUS_STYLE: Record<
+  "done" | "overdue" | "on-track" | "behind" | "no-estimate",
+  { label: string; className: string }
+> = {
+  done: {
+    label: "Done",
+    className:
+      "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 in-[.dark]:text-emerald-300",
+  },
+  "on-track": {
+    label: "On track",
+    className:
+      "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 in-[.dark]:text-emerald-300",
+  },
+  behind: {
+    label: "Behind",
+    className: "border-amber-500/40 bg-amber-500/10 text-amber-700 in-[.dark]:text-amber-300",
+  },
+  overdue: {
+    label: "Overdue",
+    className: "border-red-500/40 bg-red-500/10 text-red-700 in-[.dark]:text-red-300",
+  },
+  "no-estimate": {
+    label: "No estimate",
+    className: "border-border text-muted-foreground",
+  },
+};

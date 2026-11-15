@@ -1885,6 +1885,11 @@ describe("Cron - checkAutoSearch", () => {
         });
       });
 
+      afterEach(() => {
+        // Failed downloads set by a test here must not leak into the following tests.
+        mockGetDownloadsByGameId.mockResolvedValue([]);
+      });
+
       it("still asks the user to choose among several releases by default", async () => {
         mockGetUserSettings.mockResolvedValue(scoredSettings);
 
@@ -1922,6 +1927,21 @@ describe("Cron - checkAutoSearch", () => {
         expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
           expect.anything(),
           expect.objectContaining({ url: ITEM_INDEXER_A.link })
+        );
+      });
+
+      it("asks the user to choose when every release already failed for the game", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
+          { status: "failed", downloadTitle: ITEM_INDEXER_A.title },
+        ]);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+        expect(mockAddNotification).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
         );
       });
 

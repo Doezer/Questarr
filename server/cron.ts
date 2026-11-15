@@ -2092,7 +2092,7 @@ export async function checkAutoSearch() {
                   break;
                 }
               }
-              autoCandidate ??= ranked[0];
+              // Every candidate already failed: nothing is picked, so the user is asked to choose.
               if (autoCandidate) {
                 igdbLogger.info(
                   {

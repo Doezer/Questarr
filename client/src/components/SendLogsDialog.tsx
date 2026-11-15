@@ -13,8 +13,10 @@ import { useToast } from "@/hooks/use-toast";
 import {
   buildGitHubIssueUrl,
   detectPlatform,
+  fetchDiagnosticsReport,
   scrubLogLines,
   sendLogs,
+  withDiagnostics,
   type SendLogsResult,
 } from "@/lib/send-logs";
 import { copyToClipboard } from "@/lib/utils";
@@ -61,7 +63,7 @@ export default function SendLogsDialog({
   const handleSend = useCallback(async () => {
     setStep("sending");
 
-    const scrubbedLogs = scrubLogLines(logLines);
+    const scrubbedLogs = withDiagnostics(await fetchDiagnosticsReport(), scrubLogLines(logLines));
     const currentDate = getCurrentDate?.() ?? new Date();
     const outcome = await sendLogs({
       logs: scrubbedLogs,
@@ -122,6 +124,15 @@ export default function SendLogsDialog({
                     <strong>Log content</strong> — the {logLines.length} lines currently displayed
                     in the log viewer, with emails, IP addresses, and UUIDs replaced by
                     placeholders.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="mt-0.5 text-blue-400">•</span>
+                  <span>
+                    <strong>Configuration summary</strong> — runtime, database type, and for each
+                    indexer and download client its type, enabled state and whether a key or
+                    password is set. Never hostnames, addresses, or credentials — and a digest of
+                    recent errors.
                   </span>
                 </li>
                 <li className="flex gap-2">

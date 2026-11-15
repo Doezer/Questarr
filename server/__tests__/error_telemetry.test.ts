@@ -22,6 +22,11 @@ vi.mock("../ssrf.js", () => ({
   safeFetch: vi.fn(),
 }));
 
+vi.mock("../diagnostics.js", () => ({
+  buildDiagnosticsSnapshot: vi.fn().mockResolvedValue({}),
+  formatDiagnosticsBlock: vi.fn().mockReturnValue("=== DIAG ==="),
+}));
+
 vi.mock("../log-file.js", () => ({
   readLastLogLines: vi.fn().mockResolvedValue(["log line 1", "log line 2"]),
 }));

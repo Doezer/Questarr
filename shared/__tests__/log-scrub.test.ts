@@ -7,6 +7,22 @@ describe("redactSecretText", () => {
     expect(redactSecretText('password: "hunter2"')).toContain("password=[redacted]");
   });
 
+  it("keeps JSON log lines valid when redacting quoted keys", () => {
+    const line =
+      '{"level":30,"url":"http://x/api","apiKey":"abc123","protocol":"newznab","password":"a\\"b","n":1}';
+    const result = redactSecretText(line);
+
+    expect(result).not.toContain("abc123");
+    expect(result).not.toContain('a\\"b');
+    expect(JSON.parse(result)).toMatchObject({
+      apiKey: "[redacted]",
+      password: "[redacted]",
+      protocol: "newznab",
+      n: 1,
+    });
+    expect(redactSecretText(result)).toBe(result);
+  });
+
   it("redacts Bearer tokens", () => {
     const input = "Authorization header was Bearer eyJhbGciOiJIUzI1NiJ9.abc.def";
     expect(redactSecretText(input)).toBe("Authorization header was Bearer [redacted]");

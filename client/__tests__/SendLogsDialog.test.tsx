@@ -4,16 +4,21 @@ import "@testing-library/jest-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { toastMock, scrubLogLinesMock, detectPlatformMock, sendLogsMock, buildGitHubIssueUrlMock } =
-  vi.hoisted(() => ({
-    toastMock: vi.fn(),
-    scrubLogLinesMock: vi.fn((lines: string[]) => lines.join("\n")),
-    detectPlatformMock: vi.fn(() => "Windows"),
-    sendLogsMock: vi.fn(),
-    buildGitHubIssueUrlMock: vi.fn(
-      () => "https://github.com/Doezer/Questarr/issues/new?title=test"
-    ),
-  }));
+const {
+  toastMock,
+  scrubLogLinesMock,
+  detectPlatformMock,
+  sendLogsMock,
+  buildGitHubIssueUrlMock,
+  fetchDiagnosticsReportMock,
+} = vi.hoisted(() => ({
+  toastMock: vi.fn(),
+  fetchDiagnosticsReportMock: vi.fn(async () => "=== DIAG ==="),
+  scrubLogLinesMock: vi.fn((lines: string[]) => lines.join("\n")),
+  detectPlatformMock: vi.fn(() => "Windows"),
+  sendLogsMock: vi.fn(),
+  buildGitHubIssueUrlMock: vi.fn(() => "https://github.com/Doezer/Questarr/issues/new?title=test"),
+}));
 
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: toastMock }),
@@ -24,6 +29,9 @@ vi.mock("@/lib/send-logs", () => ({
   detectPlatform: detectPlatformMock,
   sendLogs: sendLogsMock,
   buildGitHubIssueUrl: buildGitHubIssueUrlMock,
+  fetchDiagnosticsReport: fetchDiagnosticsReportMock,
+  withDiagnostics: (diagnostics: string, logs: string) =>
+    diagnostics ? `${diagnostics}\n\n${logs}` : logs,
 }));
 
 vi.mock("@/components/ui/button", () => ({
@@ -109,7 +117,7 @@ describe("SendLogsDialog", () => {
     expect(scrubLogLinesMock).toHaveBeenCalledWith(["user@example.com", privateIp]);
     expect(sendLogsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        logs: `user@example.com\n${privateIp}`,
+        logs: `=== DIAG ===\n\nuser@example.com\n${privateIp}`,
         appVersion: "unknown",
         platform: "Windows",
         timestamp: "2026-05-31T12:34:56.000Z",

@@ -31,9 +31,11 @@
 export function redactSecretText(value: string): string {
   return (
     value
-      .replace(
-        /\b(apikey|api[_-]?key|token|password|secret)["']?\s*[:=]\s*["']?([^"',\s&]+)["']?/gi,
-        "$1=[redacted]"
+      .replace(SECRET_FIELD_RE, (_match, quote: string, key: string, separator: string) =>
+        // A quoted key means the text is JSON/JS-object shaped (e.g. an NDJSON log
+        // line): keep it valid by replacing only the value. Plain `key=value` text
+        // collapses to the compact `key=[redacted]` form.
+        quote ? `${quote}${key}${quote}${separator}"[redacted]"` : `${key}=[redacted]`
       )
       // The /i flag already folds case, so an explicit A-Z range here would
       // duplicate a-z -- SonarCloud flags that as a redundant character class.
@@ -44,6 +46,14 @@ export function redactSecretText(value: string): string {
       )
   );
 }
+
+/**
+ * `key: value` / `key=value` pairs whose key names a secret. Groups: the optional
+ * quote wrapping the key, the key, and the separator. The value is a quoted
+ * string or a bare run of non-delimiter characters.
+ */
+const SECRET_FIELD_RE =
+  /(["']?)\b(apikey|api[_-]?key|token|password|secret)\1(\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^"',\s&]+)/gi;
 
 // ── PII patterns ──────────────────────────────────────────────────────────────
 

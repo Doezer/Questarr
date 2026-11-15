@@ -8,6 +8,8 @@
  */
 
 import { SUPPORT_WORKER_URL, GITHUB_ISSUES_URL } from "./support-config";
+import { apiFetch } from "./queryClient";
+import { scrubPii } from "@shared/log-scrub";
 
 export { scrubPii, scrubLogLines } from "@shared/log-scrub";
 
@@ -84,6 +86,29 @@ export async function sendLogs(payload: SendLogsPayload): Promise<SendLogsResult
       message: err instanceof Error ? err.message : "Network error — check your connection.",
     };
   }
+}
+
+// ── Diagnostics ───────────────────────────────────────────────────────────────
+
+/**
+ * Fetches the server's secret-free configuration summary and error digest
+ * (`GET /api/diagnostics`). Returns an empty string on any failure so a log
+ * submission is never blocked by the extra context.
+ */
+export async function fetchDiagnosticsReport(): Promise<string> {
+  try {
+    const response = await apiFetch("/api/diagnostics");
+    if (!response.ok) return "";
+    const data = (await response.json()) as { report?: unknown };
+    return typeof data.report === "string" ? scrubPii(data.report) : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Places the diagnostics block (when available) ahead of the scrubbed logs. */
+export function withDiagnostics(diagnostics: string, logs: string): string {
+  return diagnostics ? `${diagnostics}\n\n${logs}` : logs;
 }
 
 // ── GitHub issue URL builder ──────────────────────────────────────────────────

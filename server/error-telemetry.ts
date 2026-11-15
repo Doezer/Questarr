@@ -26,12 +26,14 @@ import { appriseClient } from "./apprise.js";
 import { resolvePrefs } from "./notification-prefs.js";
 import { safeFetch } from "./ssrf.js";
 import { telemetryLogger } from "./logger.js";
+import { buildDiagnosticsSnapshot, formatDiagnosticsBlock } from "./diagnostics.js";
 import { scrubPii, scrubLogLines } from "../shared/log-scrub.js";
 import { SUPPORT_WORKER_URL } from "../shared/support-config.js";
 import type { InsertNotification, NotificationPreferences, User } from "../shared/schema.js";
 
 const ERROR_REPORT_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
 const LOG_CONTEXT_LINES = 150;
+const DIAGNOSTICS_LOG_LINES = 1000;
 const PENDING_REPORT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const WORKER_TIMEOUT_MS = 10_000;
 
@@ -157,6 +159,22 @@ async function buildScrubbedLogBundle(): Promise<{ logs: string; lineCount: numb
   }
 }
 
+/**
+ * Configuration summary + error digest placed ahead of the logs. It is built
+ * from a wider window than the attached log tail so a repeating failure shows
+ * up as one counted line. Best effort: a failure here must never block the report.
+ */
+async function buildDiagnosticsSection(): Promise<string> {
+  try {
+    const logPath = path.resolve(process.cwd(), "server.log");
+    const lines = await readLastLogLines(logPath, DIAGNOSTICS_LOG_LINES).catch(() => []);
+    return formatDiagnosticsBlock(await buildDiagnosticsSnapshot({ logLines: lines }));
+  } catch (err) {
+    telemetryLogger.warn({ error: err }, "Failed to build diagnostics for error telemetry");
+    return "";
+  }
+}
+
 function buildAutoSendBanner(errorMessage: string, context: ErrorContext): string {
   const location = context.path ? ` (${context.method} ${context.path})` : "";
   const trigger = `${context.source}${location}`;
@@ -266,7 +284,10 @@ export async function reportServerError(err: unknown, context: ErrorContext): Pr
     purgeExpiredReports();
 
     const errorMessage = scrubPii(err instanceof Error ? err.message : String(err));
-    const { logs, lineCount } = await buildScrubbedLogBundle();
+    const bundle = await buildScrubbedLogBundle();
+    const diagnostics = await buildDiagnosticsSection();
+    const logs = diagnostics ? `${diagnostics}\n\n${bundle.logs}` : bundle.logs;
+    const { lineCount } = bundle;
     const timestamp = new Date().toISOString();
 
     const users = await storage.getAllUsers();

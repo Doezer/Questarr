@@ -149,7 +149,11 @@ import {
   exists,
 } from "drizzle-orm";
 import { containsCI, distinctJoin, affectedRows } from "./sql-compat.js";
-import { transactionalOps, type PlaySessionReplacement } from "./db/transactional-ops.js";
+import {
+  transactionalOps,
+  type ExpectedPlaySession,
+  type PlaySessionReplacement,
+} from "./db/transactional-ops.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { firstOrThrow, stripUndefined } from "./object-utils.js";
 import {
@@ -383,13 +387,14 @@ export interface IStorage {
     id: string,
     gameId: string,
     userId: string,
-    times: { startedAt: Date; endedAt: Date }
+    times: { startedAt: Date; endedAt: Date },
+    expected: { startedAt: Date; endedAt: Date }
   ): Promise<GamePlaySession | undefined>;
   /** Swaps finished manual or timer sessions for new ones in one transaction (merge, split). */
   replaceGamePlaySessions(
     userId: string,
     gameId: string,
-    ids: string[],
+    expected: ExpectedPlaySession[],
     replacements: PlaySessionReplacement[]
   ): Promise<GamePlaySession[] | undefined>;
 
@@ -1274,11 +1279,18 @@ export class MemStorage implements IStorage {
     id: string,
     gameId: string,
     userId: string,
-    times: { startedAt: Date; endedAt: Date }
+    times: { startedAt: Date; endedAt: Date },
+    expected: { startedAt: Date; endedAt: Date }
   ): Promise<GamePlaySession | undefined> {
     const session = this.gamePlaySessions.get(id);
     if (session?.gameId !== gameId || session.userId !== userId) return undefined;
     if (!isEditablePlaySession(session)) return undefined;
+    if (
+      session.startedAt.getTime() !== expected.startedAt.getTime() ||
+      session.endedAt?.getTime() !== expected.endedAt.getTime()
+    ) {
+      return undefined;
+    }
     const updated = { ...session, ...times };
     this.gamePlaySessions.set(id, updated);
     return updated;
@@ -1287,16 +1299,22 @@ export class MemStorage implements IStorage {
   async replaceGamePlaySessions(
     userId: string,
     gameId: string,
-    ids: string[],
+    expected: ExpectedPlaySession[],
     replacements: PlaySessionReplacement[]
   ): Promise<GamePlaySession[] | undefined> {
-    const unique = new Set(ids);
-    const found = Array.from(unique).map((id) => this.gamePlaySessions.get(id));
-    const valid = found.every(
-      (s) => s?.gameId === gameId && s.userId === userId && isEditablePlaySession(s)
-    );
+    const unique = new Map(expected.map((e) => [e.id, e]));
+    const valid = Array.from(unique.values()).every((e) => {
+      const s = this.gamePlaySessions.get(e.id);
+      return (
+        s?.gameId === gameId &&
+        s.userId === userId &&
+        isEditablePlaySession(s) &&
+        s.startedAt.getTime() === e.startedAt.getTime() &&
+        s.endedAt?.getTime() === e.endedAt.getTime()
+      );
+    });
     if (!valid) return undefined;
-    for (const id of unique) this.gamePlaySessions.delete(id);
+    for (const id of unique.keys()) this.gamePlaySessions.delete(id);
     return Promise.all(replacements.map((r) => this.addGamePlaySession({ gameId, userId, ...r })));
   }
 
@@ -3617,7 +3635,8 @@ export class DatabaseStorage implements IStorage {
     id: string,
     gameId: string,
     userId: string,
-    times: { startedAt: Date; endedAt: Date }
+    times: { startedAt: Date; endedAt: Date },
+    expected: { startedAt: Date; endedAt: Date }
   ): Promise<GamePlaySession | undefined> {
     const rows = await db
       .update(gamePlaySessions)
@@ -3627,8 +3646,9 @@ export class DatabaseStorage implements IStorage {
           eq(gamePlaySessions.id, id),
           eq(gamePlaySessions.gameId, gameId),
           eq(gamePlaySessions.userId, userId),
-          inArray(gamePlaySessions.source, [...EDITABLE_PLAY_SESSION_SOURCES]),
-          isNotNull(gamePlaySessions.endedAt)
+          eq(gamePlaySessions.startedAt, expected.startedAt),
+          eq(gamePlaySessions.endedAt, expected.endedAt),
+          inArray(gamePlaySessions.source, [...EDITABLE_PLAY_SESSION_SOURCES])
         )
       )
       .returning();
@@ -3638,10 +3658,10 @@ export class DatabaseStorage implements IStorage {
   async replaceGamePlaySessions(
     userId: string,
     gameId: string,
-    ids: string[],
+    expected: ExpectedPlaySession[],
     replacements: PlaySessionReplacement[]
   ): Promise<GamePlaySession[] | undefined> {
-    return transactionalOps.replaceGamePlaySessions(userId, gameId, ids, replacements);
+    return transactionalOps.replaceGamePlaySessions(userId, gameId, expected, replacements);
   }
 
   async getGameMilestones(gameId: string, userId: string): Promise<GameMilestone[]> {

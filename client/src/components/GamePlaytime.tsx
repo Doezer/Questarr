@@ -115,9 +115,10 @@ export default function GamePlaytime({
         endedAt: v.endedAt.toISOString(),
       });
     },
-    onSuccess: () => {
+    onSuccess: (_data, v) => {
       refresh();
-      setEditing(null);
+      // Only close the dialog that was saved: the user may have opened another one meanwhile.
+      setEditing((current) => (current?.id === v.id ? null : current));
     },
     onError: failure("Failed to edit the session"),
   });
@@ -128,9 +129,9 @@ export default function GamePlaytime({
         splitAt: v.splitAt.toISOString(),
       });
     },
-    onSuccess: () => {
+    onSuccess: (_data, v) => {
       refresh();
-      setSplitting(null);
+      setSplitting((current) => (current?.id === v.id ? null : current));
     },
     onError: failure("Failed to split the session"),
   });

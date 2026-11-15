@@ -74,6 +74,11 @@ function unchangeableReason(
   return undefined;
 }
 
+/** The sessions as just read, so a change fails if one of them moved in the meantime. */
+function expectedTimes(sessions: GamePlaySession[]) {
+  return sessions.map((s) => ({ id: s.id, startedAt: s.startedAt, endedAt: s.endedAt! }));
+}
+
 /** Answers a failed edit, merge or split: 400 for invalid input, else a logged 500. */
 function respondToFailure(res: Response, error: unknown, verb: string): Response {
   if (error instanceof z.ZodError) {
@@ -235,10 +240,13 @@ router.patch(
       const invalid = sessionTimesError(start, end);
       if (invalid) return res.status(400).json({ error: invalid });
 
-      const updated = await storage.updateGamePlaySession(sessionId, gameId, user.id, {
-        startedAt: start,
-        endedAt: end,
-      });
+      const updated = await storage.updateGamePlaySession(
+        sessionId,
+        gameId,
+        user.id,
+        { startedAt: start, endedAt: end },
+        { startedAt: current.startedAt, endedAt: current.endedAt! }
+      );
       if (!updated) return res.status(409).json({ error: "The play session changed, try again" });
       return res.json(updated);
     } catch (error) {
@@ -296,7 +304,7 @@ router.post(
 
       const sources = new Set(chosen.map((s) => s.source));
       const source = sources.size === 1 ? chosen[0]!.source : "manual";
-      const merged = await storage.replaceGamePlaySessions(user.id, gameId, ids, [
+      const merged = await storage.replaceGamePlaySessions(user.id, gameId, expectedTimes(chosen), [
         { startedAt: start, endedAt: end, source },
       ]);
       if (!merged) return res.status(409).json({ error: "The play sessions changed, try again" });
@@ -341,7 +349,7 @@ router.post(
       const parts = await storage.replaceGamePlaySessions(
         user.id,
         gameId,
-        [sessionId],
+        expectedTimes([current]),
         [
           { startedAt, endedAt: splitAt, source },
           { startedAt: splitAt, endedAt, source },

@@ -283,24 +283,38 @@ describe("DatabaseStorage Extended Coverage", () => {
       const steam = await add("steam", 13, 14);
       const running = await add("timer", 15, null);
 
-      const moved = await storage.updateGamePlaySession(manual.id, game.id, userId, {
-        startedAt: at(9),
-        endedAt: at(11),
+      const exp = (x: { id: string; startedAt: Date; endedAt: Date | null }) => ({
+        id: x.id,
+        startedAt: x.startedAt,
+        endedAt: x.endedAt!,
       });
+      const moved = await storage.updateGamePlaySession(
+        manual.id,
+        game.id,
+        userId,
+        { startedAt: at(9), endedAt: at(11) },
+        exp(manual)
+      );
       expect(moved?.startedAt.getTime()).toBe(at(9).getTime());
       for (const blocked of [steam, running]) {
         expect(
-          await storage.updateGamePlaySession(blocked.id, game.id, userId, {
-            startedAt: at(1),
-            endedAt: at(2),
-          })
+          await storage.updateGamePlaySession(
+            blocked.id,
+            game.id,
+            userId,
+            { startedAt: at(1), endedAt: at(2) },
+            { startedAt: blocked.startedAt, endedAt: blocked.endedAt ?? at(2) }
+          )
         ).toBeUndefined();
       }
       expect(
-        await storage.updateGamePlaySession(manual.id, game.id, "someone-else", {
-          startedAt: at(1),
-          endedAt: at(2),
-        })
+        await storage.updateGamePlaySession(
+          manual.id,
+          game.id,
+          "someone-else",
+          { startedAt: at(1), endedAt: at(2) },
+          exp(moved!)
+        )
       ).toBeUndefined();
 
       // One imported session in the list: nothing changes.
@@ -308,8 +322,17 @@ describe("DatabaseStorage Extended Coverage", () => {
         await storage.replaceGamePlaySessions(
           userId,
           game.id,
-          [manual.id, steam.id],
+          [exp(moved!), exp(steam)],
           [{ startedAt: at(9), endedAt: at(14), source: "manual" }]
+        )
+      ).toBeUndefined();
+      // A session read before it was moved is stale: nothing changes either.
+      expect(
+        await storage.replaceGamePlaySessions(
+          userId,
+          game.id,
+          [exp(manual), exp(timer)],
+          [{ startedAt: at(10), endedAt: at(12), source: "manual" }]
         )
       ).toBeUndefined();
       expect(await storage.getGamePlaySessions(game.id, userId)).toHaveLength(4);
@@ -317,7 +340,7 @@ describe("DatabaseStorage Extended Coverage", () => {
       const merged = await storage.replaceGamePlaySessions(
         userId,
         game.id,
-        [manual.id, timer.id],
+        [exp(moved!), exp(timer)],
         [{ startedAt: at(9), endedAt: at(12), source: "manual" }]
       );
       expect(merged).toHaveLength(1);

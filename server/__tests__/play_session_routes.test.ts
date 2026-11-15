@@ -372,7 +372,10 @@ describe("Play session routes", () => {
       expect(storage.replaceGamePlaySessions).toHaveBeenCalledWith(
         OWNER_ID,
         gameId,
-        [idB, idA],
+        [
+          { id: idA, startedAt: at("10:00"), endedAt: at("11:00") },
+          { id: idB, startedAt: at("11:20"), endedAt: at("12:00") },
+        ],
         [{ startedAt: at("10:00"), endedAt: at("12:00"), source: "manual" }]
       );
     });
@@ -463,7 +466,7 @@ describe("Play session routes", () => {
       expect(storage.replaceGamePlaySessions).toHaveBeenCalledWith(
         OWNER_ID,
         gameId,
-        [sessionId],
+        [{ id: sessionId, startedAt: session.startedAt, endedAt: session.endedAt }],
         [
           {
             startedAt: session.startedAt,

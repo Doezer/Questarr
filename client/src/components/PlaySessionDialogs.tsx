@@ -63,8 +63,15 @@ export function EditSessionDialog({
     setEnd(toLocalInput(session.endedAt));
   }, [session]);
 
-  const startDate = fromLocalInput(start);
-  const endDate = fromLocalInput(end);
+  // The inputs only show minutes: a field left alone keeps its exact stored instant.
+  const startDate =
+    session && start === toLocalInput(session.startedAt)
+      ? new Date(session.startedAt)
+      : fromLocalInput(start);
+  const endDate =
+    session?.endedAt && end === toLocalInput(session.endedAt)
+      ? new Date(session.endedAt)
+      : fromLocalInput(end);
   const problem = timesProblem(startDate, endDate);
 
   return (
@@ -81,14 +88,7 @@ export function EditSessionDialog({
           onSubmit={(event) => {
             event.preventDefault();
             if (!session?.endedAt || !startDate || !endDate || problem) return;
-            // The inputs only show minutes: a field left alone keeps its exact stored instant.
-            const keptStart = start === toLocalInput(session.startedAt);
-            const keptEnd = end === toLocalInput(session.endedAt);
-            onSave(
-              session,
-              keptStart ? new Date(session.startedAt) : startDate,
-              keptEnd ? new Date(session.endedAt) : endDate
-            );
+            onSave(session, startDate, endDate);
           }}
         >
           <div className="space-y-1">

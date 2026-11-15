@@ -97,6 +97,11 @@ describe("Postgres transactional ops", () => {
         endedAt: at(to),
         source,
       });
+    const exp = (x: { id: string; startedAt: Date; endedAt: Date | null }) => ({
+      id: x.id,
+      startedAt: x.startedAt,
+      endedAt: x.endedAt!,
+    });
     const a = await add("manual", 10, 11);
     const b = await add("timer", 11, 12);
     const imported = await add("steam", 12, 13);
@@ -105,7 +110,7 @@ describe("Postgres transactional ops", () => {
       await storage().replaceGamePlaySessions(
         user.id,
         game.id,
-        [a.id, imported.id],
+        [exp(a), exp(imported)],
         [{ startedAt: at(10), endedAt: at(13), source: "manual" }]
       )
     ).toBeUndefined();
@@ -114,7 +119,7 @@ describe("Postgres transactional ops", () => {
     const merged = await storage().replaceGamePlaySessions(
       user.id,
       game.id,
-      [a.id, b.id],
+      [exp(a), exp(b)],
       [{ startedAt: at(10), endedAt: at(12), source: "manual" }]
     );
     expect(merged).toHaveLength(1);

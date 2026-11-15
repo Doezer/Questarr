@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, count, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { db as appDb } from "../db.js";
 import * as pgSchema from "../../shared/schema.pg.js";
@@ -22,7 +22,11 @@ import type {
   InsertUser,
   User,
 } from "../../shared/schema.js";
-import type { PlaySessionReplacement, SyncIndexersResult } from "./transactional-ops.js";
+import type {
+  ExpectedPlaySession,
+  PlaySessionReplacement,
+  SyncIndexersResult,
+} from "./transactional-ops.js";
 
 /**
  * Postgres implementations.
@@ -212,7 +216,7 @@ export async function addApiKey(key: NewApiKeyInput, maxKeys: number): Promise<A
 export async function replaceGamePlaySessions(
   userId: string,
   gameId: string,
-  ids: string[],
+  expected: ExpectedPlaySession[],
   replacements: PlaySessionReplacement[]
 ): Promise<GamePlaySession[] | undefined> {
   try {
@@ -221,7 +225,15 @@ export async function replaceGamePlaySessions(
         .delete(gamePlaySessions)
         .where(
           and(
-            inArray(gamePlaySessions.id, ids),
+            or(
+              ...expected.map((e) =>
+                and(
+                  eq(gamePlaySessions.id, e.id),
+                  eq(gamePlaySessions.startedAt, e.startedAt),
+                  eq(gamePlaySessions.endedAt, e.endedAt)
+                )
+              )
+            ),
             eq(gamePlaySessions.gameId, gameId),
             eq(gamePlaySessions.userId, userId),
             inArray(gamePlaySessions.source, [...EDITABLE_PLAY_SESSION_SOURCES]),
@@ -229,7 +241,8 @@ export async function replaceGamePlaySessions(
           )
         )
         .returning({ id: gamePlaySessions.id });
-      if (removed.length !== new Set(ids).size) throw new PlaySessionsChangedError();
+      if (removed.length !== new Set(expected.map((e) => e.id)).size)
+        throw new PlaySessionsChangedError();
       const created: GamePlaySession[] = [];
       for (const r of replacements) {
         const [row] = await tx

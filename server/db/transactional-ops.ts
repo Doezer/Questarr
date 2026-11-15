@@ -12,6 +12,13 @@ import type {
 import * as sqliteOps from "./transactional-ops.sqlite.js";
 import * as pgOps from "./transactional-ops.pg.js";
 
+/** A session as the caller last read it: a change only applies while it still looks like this. */
+export interface ExpectedPlaySession {
+  id: string;
+  startedAt: Date;
+  endedAt: Date;
+}
+
 /** A finished play session that takes the place of the ones being merged or split. */
 export interface PlaySessionReplacement {
   startedAt: Date;
@@ -76,12 +83,13 @@ export interface TransactionalOps {
 
   /**
    * Swap finished, editable (manual or timer) sessions of one game for new ones, all or nothing.
-   * Resolves to `undefined`, changing nothing, when any of `ids` is missing, running or imported.
+   * Resolves to `undefined`, changing nothing, when any of `expected` is missing, running, imported
+   * or no longer has the times it was read with.
    */
   replaceGamePlaySessions(
     userId: string,
     gameId: string,
-    ids: string[],
+    expected: ExpectedPlaySession[],
     replacements: PlaySessionReplacement[]
   ): Promise<GamePlaySession[] | undefined>;
 }

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestQueryClient, getRequestUrl } from "./test-utils";
 import GamePlaytime from "../src/components/GamePlaytime";
+import { toLocalInput } from "../src/components/PlaySessionDialogs";
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
@@ -230,14 +231,13 @@ describe("GamePlaytime", () => {
     renderPlaytime();
 
     fireEvent.click(await screen.findByRole("button", { name: /^Edit the 1h 30m session/ }));
-    fireEvent.change(await screen.findByLabelText("Stopped"), {
-      target: { value: "2026-10-03T20:00" },
-    });
+    const localEnd = toLocalInput(new Date(Date.parse(session.startedAt) + 100 * 60_000));
+    fireEvent.change(await screen.findByLabelText("Stopped"), { target: { value: localEnd } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(apiRequest).toHaveBeenCalled());
     const body = apiRequest.mock.calls[0]?.[2] as { startedAt: string; endedAt: string };
     expect(body.startedAt).toBe(session.startedAt);
-    expect(new Date(body.endedAt).getTime()).toBe(new Date("2026-10-03T20:00").getTime());
+    expect(new Date(body.endedAt).getTime()).toBe(new Date(localEnd).getTime());
   });
 });

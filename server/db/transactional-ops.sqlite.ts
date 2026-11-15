@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, count, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { db } from "../db.js";
 import {
   EDITABLE_PLAY_SESSION_SOURCES,
@@ -29,7 +29,11 @@ import type {
   InsertUser,
   User,
 } from "../../shared/schema.js";
-import type { PlaySessionReplacement, SyncIndexersResult } from "./transactional-ops.js";
+import type {
+  ExpectedPlaySession,
+  PlaySessionReplacement,
+  SyncIndexersResult,
+} from "./transactional-ops.js";
 
 /**
  * SQLite implementations, moved verbatim from DatabaseStorage.
@@ -196,7 +200,7 @@ export async function addApiKey(key: NewApiKeyInput, maxKeys: number): Promise<A
 export async function replaceGamePlaySessions(
   userId: string,
   gameId: string,
-  ids: string[],
+  expected: ExpectedPlaySession[],
   replacements: PlaySessionReplacement[]
 ): Promise<GamePlaySession[] | undefined> {
   try {
@@ -205,7 +209,15 @@ export async function replaceGamePlaySessions(
         .delete(gamePlaySessions)
         .where(
           and(
-            inArray(gamePlaySessions.id, ids),
+            or(
+              ...expected.map((e) =>
+                and(
+                  eq(gamePlaySessions.id, e.id),
+                  eq(gamePlaySessions.startedAt, e.startedAt),
+                  eq(gamePlaySessions.endedAt, e.endedAt)
+                )
+              )
+            ),
             eq(gamePlaySessions.gameId, gameId),
             eq(gamePlaySessions.userId, userId),
             inArray(gamePlaySessions.source, [...EDITABLE_PLAY_SESSION_SOURCES]),
@@ -214,7 +226,8 @@ export async function replaceGamePlaySessions(
         )
         .returning({ id: gamePlaySessions.id })
         .all();
-      if (removed.length !== new Set(ids).size) throw new PlaySessionsChangedError();
+      if (removed.length !== new Set(expected.map((e) => e.id)).size)
+        throw new PlaySessionsChangedError();
       return replacements.map((r) =>
         tx
           .insert(gamePlaySessions)

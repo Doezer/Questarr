@@ -767,6 +767,17 @@ describe("integration API", () => {
     });
 
     it("finds a game the library import stored under IGDB's base title, reading the library once", async () => {
+      // Sessions persist across entries, as in the database: the duplicate entry finds the
+      // minutes the first one recorded.
+      const recorded: Array<Record<string, unknown>> = [];
+      (storage.getGamePlaySessions as Mock).mockImplementation(async () => [...recorded]);
+      (storage.addGamePlaySession as Mock).mockImplementation(
+        async (input: Record<string, unknown>) => {
+          const created = { ...input, id: `s${recorded.length}` };
+          recorded.push(created);
+          return created;
+        }
+      );
       (storage.getUserGames as Mock).mockResolvedValue([
         { id: "game-2", userId: USER.id, title: "Divinity: Original Sin" },
         { id: "game-3", userId: USER.id, title: "Hades II" },
@@ -778,8 +789,14 @@ describe("integration API", () => {
           { title: "Divinity: Original Sin - Enhanced Edition", playtimeSeconds: 3600 },
         ],
       });
-      expect(res.body).toMatchObject({ imported: 2, unmatched: 1 });
+      expect(res.body).toMatchObject({
+        imported: 1,
+        unchanged: 1,
+        unmatched: 1,
+        minutesAdded: 60,
+      });
       expect(res.body.results[0].gameId).toBe("game-2");
+      expect(storage.addGamePlaySession).toHaveBeenCalledTimes(1);
       expect(storage.getUserGames).toHaveBeenCalledTimes(1);
     });
 

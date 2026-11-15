@@ -993,10 +993,13 @@ function Invoke-QuestarrGogBatchesWithProgress {
     param(
         [Parameter(Mandatory)] $Config,
         [Parameter(Mandatory)] $Entries,
-        [Parameter(Mandatory)] [ValidateSet("library", "time")] [string] $Kind
+        [Parameter(Mandatory)] [ValidateSet("library", "time")] [string] $Kind,
+        [switch] $FlushQueueFirst
     )
 
     $script:GogConfig = $Config
+    $script:GogFlushFirst = [bool]$FlushQueueFirst
+    $script:GogQueuePending = $false
     $script:GogEntries = $Entries
     $script:GogKind = $Kind
     $script:GogResult = $null
@@ -1010,6 +1013,14 @@ function Invoke-QuestarrGogBatchesWithProgress {
             param($progress)
             $progress.ProgressMaxValue = $script:GogEntries.Count
             try {
+                if ($script:GogFlushFirst) {
+                    # The flush is a network call: run here, off Playnite's main thread.
+                    Invoke-QuestarrFlushPlayQueue -Config $script:GogConfig
+                    if (@(Read-QuestarrPlayQueue).Count -gt 0) {
+                        $script:GogQueuePending = $true
+                        return
+                    }
+                }
                 $isLibrary = $script:GogKind -eq "library"
                 $size = if ($isLibrary) { $script:ImportBatchSize } else { $script:PlayStatusBatchSize }
                 $path = if ($isLibrary) { "/library/import" } else { "/play-time-totals" }
@@ -1036,6 +1047,13 @@ function Invoke-QuestarrGogBatchesWithProgress {
                 $script:GogError = Get-QuestarrErrorMessage $_
             }
         }, $options) | Out-Null
+
+    if ($script:GogQueuePending) {
+        $PlayniteApi.Dialogs.ShowMessage(
+            "Some play sessions could not be sent to Questarr yet. Play time is not imported while they wait: " +
+            "check that Questarr is reachable and try again.", "Questarr")
+        return $null
+    }
 
     if ($null -ne $script:GogError) {
         $__logger.Error("Questarr: GOG import failed: $($script:GogError)")
@@ -1087,15 +1105,8 @@ function Invoke-QuestarrImportGogPlayTime {
     if ($null -eq $config) { return }
 
     # Playnite's total already holds the time of any session still waiting in the queue. Sent
-    # first, the queued session would be counted a second time once it is flushed.
-    Invoke-QuestarrFlushPlayQueue -Config $config
-    if (@(Read-QuestarrPlayQueue).Count -gt 0) {
-        $PlayniteApi.Dialogs.ShowMessage(
-            "Some play sessions could not be sent to Questarr yet. Play time is not imported while they wait: " +
-            "check that Questarr is reachable and try again.", "Questarr")
-        return
-    }
-
+    # first, the queued session would be counted a second time once it is flushed, so the
+    # progress worker flushes the queue before sending totals and stops if sessions remain.
     $entries = New-Object System.Collections.ArrayList
     foreach ($game in (Get-QuestarrGogGames)) {
         # Playtime is in seconds. Less than ten minutes is below what the server imports.
@@ -1115,7 +1126,7 @@ function Invoke-QuestarrImportGogPlayTime {
         return
     }
 
-    $result = Invoke-QuestarrGogBatchesWithProgress -Config $config -Entries $entries -Kind "time"
+    $result = Invoke-QuestarrGogBatchesWithProgress -Config $config -Entries $entries -Kind "time" -FlushQueueFirst
     if ($null -eq $result) { return }
 
     $hours = [Math]::Round($result.Minutes / 60, 1)

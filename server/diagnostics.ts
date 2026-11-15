@@ -246,6 +246,9 @@ export function scrubFreeText(text: string): string {
       .replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b(?::\d+)?/gi, "[host]")
       // A path glued to a redacted host (`[host]/a/b`, `[host]:/volume1/x`) goes with it.
       .replace(/\[host\](?::\d*)?\/[^\s"']*/g, "[host]")
+      // `scrubPii` leaves `/home/[user]` and `[ip]` markers behind: take the rest of the path too.
+      .replace(/\/home\/\[user\](?:\/[^\s"']*)?/g, "[path]")
+      .replace(/\[ip\]\/[^\s"']*/g, "[ip]")
       .replace(/(?<![\w.:)\]])\/[\w.-]+(?:\/[\w.-]*)*/g, "[path]")
       .replace(/\b[A-Za-z]:\\[^\s"']+/g, "[path]")
   );

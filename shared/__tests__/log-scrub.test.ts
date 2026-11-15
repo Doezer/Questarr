@@ -97,4 +97,21 @@ describe("scrubPii", () => {
       expect(out).not.toMatch(/hunter2|12345/);
     }
   });
+
+  it("redacts quoted secret values that never close, raw and JSON-escaped", () => {
+    const raw = ['login failed password="hunter2', "login failed token='abc123"];
+    for (const text of raw) {
+      expect(redactSecretText(text)).not.toMatch(/hunter2|abc123/);
+    }
+    const escaped = [
+      String.raw`{"msg":"login failed password=\"hunter2"}`,
+      String.raw`{"msg":"login failed token=\'abc123"}`,
+      `{"msg":"login failed password='hunter2"}`,
+    ];
+    for (const line of escaped) {
+      const out = redactSecretText(line);
+      expect(() => JSON.parse(out)).not.toThrow();
+      expect(out).not.toMatch(/hunter2|abc123/);
+    }
+  });
 });

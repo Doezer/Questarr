@@ -215,4 +215,10 @@ describe("buildDiagnosticsSnapshot", () => {
     expect(snapshot.prowlarr).toBeNull();
     expect(snapshot.downloaders).toHaveLength(1);
   });
+
+  it("removes the whole path after home-user and ip markers", () => {
+    expect(scrubFreeText("open /home/alice/private/library failed")).toBe("open [path] failed");
+    expect(scrubFreeText("connect 10.0.0.5/private/dir")).toBe("connect [ip]");
+    expect(scrubFreeText("open /mnt/private/library failed")).toBe("open [path] failed");
+  });
 });

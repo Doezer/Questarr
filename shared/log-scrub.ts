@@ -48,6 +48,7 @@ export function redactSecretText(value: string): string {
         // collapses to the compact `key=[redacted]` form.
         quote ? `${quote}${key}${quote}${separator}"[redacted]"` : `${key}=[redacted]`
       )
+      .replace(UNTERMINATED_SECRET_RE, "$1[redacted]")
       // The /i flag already folds case, so an explicit A-Z range here would
       // duplicate a-z -- SonarCloud flags that as a redundant character class.
       .replace(/(Bearer\s+)[a-z0-9._~+/=-]+/gi, "$1[redacted]")
@@ -59,7 +60,11 @@ export function redactSecretText(value: string): string {
 }
 
 const ESCAPED_QUOTE_SECRET_RE =
-  /(\b(?:apikey|api[_-]?key|token|password|secret)\b\s*[:=]\s*)\\(["'])(?:(?!\\\2).)*\\\2/gi;
+  /(\b(?:apikey|api[_-]?key|token|password|secret)\b\s*[:=]\s*)\\(["'])(?:(?!\\\2)[^"])*(?:\\\2)?/gi;
+
+/** A quoted value that never closes (`password="hunter2`): redact up to the next quote. */
+const UNTERMINATED_SECRET_RE =
+  /(\b(?:apikey|api[_-]?key|token|password|secret)\b\s*[:=]\s*)["'][^"'\\}]+/gi;
 
 const ESCAPED_KEY_SECRET_RE =
   /(\\["'])\b(apikey|api[_-]?key|token|password|secret)\b\1(\s*[:=]\s*)(?:\\(["'])(?:(?!\\\4).)*\\\4|[^"',\s&}\\]+)/gi;

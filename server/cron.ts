@@ -266,15 +266,12 @@ export function autoPickBestEnabled(downloadRules: string | null): boolean {
  */
 const exhaustedPicks = new Map<string, string>();
 
-/** True the first time this exact set of releases is found exhausted for the game. */
-function markPicksExhausted(gameId: string, ranked: readonly SearchItem[]): boolean {
-  const signature = ranked
+/** Identifies a set of releases whatever their order. */
+function picksSignature(ranked: readonly SearchItem[]): string {
+  return ranked
     .map((item) => normalizeTitle(item.title))
     .sort((a, b) => a.localeCompare(b))
     .join("\n");
-  if (exhaustedPicks.get(gameId) === signature) return false;
-  exhaustedPicks.set(gameId, signature);
-  return true;
 }
 
 /** Test hook: forget which games were already reported as exhausted. */
@@ -2101,7 +2098,8 @@ export async function checkAutoSearch() {
             // in, the best-scored of several that has not already failed for this game.
             let autoCandidate: SearchItem | undefined =
               mainItems.length === 1 ? mainItems[0] : undefined;
-            let askAfterFailedPicks = false;
+            // Set when every ranked release already failed and the user was not asked yet.
+            let exhaustedSignature: string | undefined;
             if (
               mainItems.length > 1 &&
               scoring &&
@@ -2119,7 +2117,8 @@ export async function checkAutoSearch() {
               // Once per set of releases, also when the game already had results (a pick from
               // an earlier cycle that failed since), which the availability transition misses.
               if (!autoCandidate && ranked.length > 0) {
-                askAfterFailedPicks = markPicksExhausted(game.id, ranked);
+                const signature = picksSignature(ranked);
+                if (exhaustedPicks.get(game.id) !== signature) exhaustedSignature = signature;
               }
               if (autoCandidate) {
                 igdbLogger.info(
@@ -2292,7 +2291,7 @@ export async function checkAutoSearch() {
               }
             } else if (
               mainItems.length > 1 &&
-              (!wasAvailable || askAfterFailedPicks) &&
+              (!wasAvailable || exhaustedSignature !== undefined) &&
               prefs.multipleResults.inApp
             ) {
               // Multiple results found, notify user to choose
@@ -2303,6 +2302,10 @@ export async function checkAutoSearch() {
                 message: `${mainItems.length} result(s) found for ${game.title}. Please review and choose.`,
                 link: `modal:game:${game.id}`,
               });
+              // Recorded once the notification is saved, so a failed write asks again next cycle.
+              if (exhaustedSignature !== undefined) {
+                exhaustedPicks.set(game.id, exhaustedSignature);
+              }
               notifyUser("notification", notification, notification.userId);
               if (prefs.multipleResults.apprise) void appriseClient.send(notification);
             }

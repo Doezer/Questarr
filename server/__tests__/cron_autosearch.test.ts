@@ -1892,6 +1892,24 @@ describe("Cron - checkAutoSearch", () => {
         resetExhaustedPicks();
       });
 
+      // A game whose results were already flagged in an earlier cycle.
+      const gameAlreadyHadResults = () =>
+        mockGetWantedGamesGroupedByUser.mockResolvedValue(
+          new Map([
+            [
+              userId,
+              [
+                {
+                  ...baseGame,
+                  status: "wanted" as const,
+                  releaseStatus: "released" as const,
+                  searchResultsAvailable: true,
+                },
+              ],
+            ],
+          ])
+        );
+
       it("still asks the user to choose among several releases by default", async () => {
         mockGetUserSettings.mockResolvedValue(scoredSettings);
 
@@ -1949,21 +1967,7 @@ describe("Cron - checkAutoSearch", () => {
 
       it("asks once when every release failed for a game that already had results", async () => {
         mockGetUserSettings.mockResolvedValue(pickBestSettings);
-        mockGetWantedGamesGroupedByUser.mockResolvedValue(
-          new Map([
-            [
-              userId,
-              [
-                {
-                  ...baseGame,
-                  status: "wanted" as const,
-                  releaseStatus: "released" as const,
-                  searchResultsAvailable: true,
-                },
-              ],
-            ],
-          ])
-        );
+        gameAlreadyHadResults();
         mockGetDownloadsByGameId.mockResolvedValue([
           { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
           { status: "failed", downloadTitle: ITEM_INDEXER_A.title },
@@ -1979,6 +1983,24 @@ describe("Cron - checkAutoSearch", () => {
         await checkAutoSearch();
         expect(asked()).toBe(1);
         expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("asks again next cycle when saving the notification failed", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+        gameAlreadyHadResults();
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
+          { status: "failed", downloadTitle: ITEM_INDEXER_A.title },
+        ]);
+        mockAddNotification.mockRejectedValueOnce(new Error("database is locked"));
+
+        await checkAutoSearch();
+        await checkAutoSearch();
+
+        expect(mockAddNotification).toHaveBeenCalledTimes(2);
+        expect(mockAddNotification).toHaveBeenLastCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
+        );
       });
 
       it("does not download when auto-download itself is off", async () => {

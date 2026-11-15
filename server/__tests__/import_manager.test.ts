@@ -24,7 +24,11 @@ vi.mock("../downloaders.js", () => ({
   DownloaderManager: downloadersMock,
 }));
 
-import { ImportManager, IncompleteScanError } from "../services/ImportManager.js";
+import {
+  ImportManager,
+  ImportInProgressError,
+  IncompleteScanError,
+} from "../services/ImportManager.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
 describe("ImportManager", () => {
@@ -243,6 +247,44 @@ describe("ImportManager", () => {
     ).rejects.toThrow("Download dl-1 not found");
   });
 
+  it("confirmImport: an already imported download is a no-op and is not demoted", async () => {
+    storage.getGameDownload.mockResolvedValue({ id: "dl-1", gameId: "g1", status: "imported" });
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await expect(
+      manager.confirmImport("dl-1", { strategy: "pc" } as never) // NOSONAR
+    ).resolves.toBeUndefined();
+    expect(storage.updateGameDownloadStatus).not.toHaveBeenCalled();
+    expect(fsMock.copy).not.toHaveBeenCalled();
+  });
+
+  it("confirmImport: a concurrent confirmation is rejected while one is in flight", async () => {
+    let release: () => void = () => {};
+    storage.getGameDownload.mockImplementation(
+      () => new Promise((resolve) => (release = () => resolve(undefined)))
+    );
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    const first = manager.confirmImport("dl-1", { strategy: "pc" } as never); // NOSONAR
+    expect(manager.isImportInFlight("dl-1")).toBe(true);
+    await expect(
+      manager.confirmImport("dl-1", { strategy: "pc" } as never) // NOSONAR
+    ).rejects.toBeInstanceOf(ImportInProgressError);
+    release();
+    await expect(first).rejects.toThrow("not found");
+    expect(manager.isImportInFlight("dl-1")).toBe(false);
+  });
+
   it("throws when confirmImport is called without a plan", async () => {
     storage.getGameDownload.mockResolvedValue({ id: "dl-1", gameId: "g1" });
     const manager = new ImportManager(
@@ -343,7 +385,7 @@ describe("ImportManager", () => {
     expect(fsMock.move).toHaveBeenCalledWith("/downloads/source-folder", "/safe/root/PC/My Game", {
       overwrite: true,
     });
-    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported", null);
     expect(storage.updateGameStatus).toHaveBeenCalledWith(
       "g1",
       { status: "owned" },
@@ -384,7 +426,7 @@ describe("ImportManager", () => {
       transferMode: "move",
     });
 
-    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported", null);
     expect(storage.replaceGameInstalledVersion).toHaveBeenCalledWith(
       "g1",
       "v1.1",
@@ -422,7 +464,7 @@ describe("ImportManager", () => {
         transferMode: "move",
       });
 
-      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported", null);
       expect(storage.updateGameStatus).not.toHaveBeenCalled();
     }
   );
@@ -1468,7 +1510,7 @@ describe("ImportManager", () => {
     // a post-finalization auto-delete failure must not re-route an
     // already-completed download back into the retryable review flow, which
     // would risk a duplicate transfer if the user clicks Confirm Import again.
-    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported", null);
     expect(storage.updateGameDownloadStatus).not.toHaveBeenCalledWith(
       "dl-1",
       "manual_review_required",
@@ -1530,7 +1572,7 @@ describe("ImportManager", () => {
       );
       // The import must never proceed past quarantine. Checked by scanning all
       // calls for this (id, status) pair regardless of any trailing argument,
-      // rather than toHaveBeenCalledWith("dl-1", "imported") — which only
+      // rather than toHaveBeenCalledWith("dl-1", "imported", null) — which only
       // matches an exact-arity call and would silently pass if the status
       // were ever set alongside an error message or other third argument.
       expect(
@@ -1684,7 +1726,7 @@ describe("ImportManager", () => {
       });
 
       expect(securityScanService.scan).toHaveBeenCalled();
-      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported", null);
     });
 
     it("does not create a notification when the securityAlert.inApp preference is disabled", async () => {
@@ -1801,7 +1843,7 @@ describe("ImportManager", () => {
       await manager.processImport("dl-1", "/remote/path");
 
       expect(securityScanService.scan).toHaveBeenCalled();
-      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported", null);
       expect(storage.updateGameDownloadStatus).not.toHaveBeenCalledWith(
         "dl-1",
         "quarantined",
@@ -1833,7 +1875,7 @@ describe("ImportManager", () => {
 
       await manager.processImport("dl-1", "/remote/path");
 
-      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+      expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported", null);
     });
 
     it("confirmImport rejects a download that is already quarantined", async () => {

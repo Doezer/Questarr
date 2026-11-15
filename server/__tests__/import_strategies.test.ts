@@ -709,6 +709,53 @@ describe("ImportStrategies", () => {
       );
     });
 
+    it("recognizes files an interrupted hardlink transfer already placed, in both branches", async () => {
+      const { sourceDir, destination, excludePaths } = await makeExcludeFixture({
+        "game.rom": "loose-rom-bytes",
+      });
+      await fs.ensureDir(destination);
+      await fs.link(path.join(sourceDir, "game.rom"), path.join(destination, "game.rom"));
+
+      const strategy = new PCImportStrategy();
+      const plan = {
+        needsReview: false,
+        originalPath: sourceDir,
+        proposedPath: destination,
+        strategy: "pc" as const,
+      };
+      await expect(strategy.executeImport(plan, "hardlink", excludePaths)).resolves.toBeDefined();
+      await expect(
+        strategy.executeImport(
+          { ...plan, fileCategories: [{ name: "game.rom", category: "main" }] },
+          "hardlink",
+          excludePaths
+        )
+      ).resolves.toBeDefined();
+    });
+
+    it("still refuses an unrelated destination file in hardlink mode", async () => {
+      const { sourceDir, destination, excludePaths } = await makeExcludeFixture({
+        "game.rom": "loose-rom-bytes",
+      });
+      await fs.ensureDir(destination);
+      await fs.writeFile(path.join(destination, "game.rom"), "loose-rom-bytes");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: destination,
+            strategy: "pc",
+            fileCategories: [{ name: "game.rom", category: "main" }],
+          },
+          "hardlink",
+          excludePaths
+        )
+      ).rejects.toThrow("Destination already exists, refusing to overwrite");
+    });
+
     it("skips excluded entries in the sortExtras per-file path too", async () => {
       const { sourceDir, destination, excludePaths } = await makeExcludeFixture({
         "Game Update v1.nsp": "update",

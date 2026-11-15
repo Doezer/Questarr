@@ -735,7 +735,8 @@ describe("ImportManager - shouldSkipPCPlatform", () => {
 
         expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
           "dl-1",
-          allowed ? "imported" : "completed"
+          allowed ? "imported" : "completed",
+          ...(allowed ? [null] : [])
         );
         expect(execSpy).toHaveBeenCalledTimes(allowed ? 1 : 0);
         if ("folder" in expected) {

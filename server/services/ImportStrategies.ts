@@ -278,6 +278,24 @@ async function transferSingleFile(
   return linkOrCopyFallback(source, destination);
 }
 
+/**
+ * True when `destination` is already the file a previous, interrupted run of this same
+ * transfer placed for `source`: the same inode (hardlink) or a symlink pointing at it.
+ * Anything else at the destination is an unrelated file and must still be refused.
+ */
+async function isAlreadyPlacedFrom(source: string, destination: string): Promise<boolean> {
+  try {
+    const destLstat = await fs.lstat(destination);
+    if (destLstat.isSymbolicLink()) {
+      return (await fs.realpath(destination)) === (await fs.realpath(source));
+    }
+    const [srcStat, destStat] = await Promise.all([fs.stat(source), fs.stat(destination)]);
+    return srcStat.isFile() && srcStat.dev === destStat.dev && srcStat.ino === destStat.ino;
+  } catch {
+    return false;
+  }
+}
+
 // Hardlinks can't target a directory as one call, and excluding specific
 // files (e.g. a raw archive whose contents were already extracted straight
 // to the destination) requires acting per-file rather than on the
@@ -301,8 +319,8 @@ async function transferDirectoryPerFile(
   // volumes are excluded here because they were already extracted straight into
   // destination, and transferSingleFile's unconditional overwrite would otherwise
   // silently replace an extracted file with an unrelated loose one of the same name.
-  for (const { destFile } of plannedTransfers) {
-    if (await fs.pathExists(destFile)) {
+  for (const { srcFile, destFile } of plannedTransfers) {
+    if ((await fs.pathExists(destFile)) && !(await isAlreadyPlacedFrom(srcFile, destFile))) {
       throw new Error(`Destination already exists, refusing to overwrite: ${destFile}`);
     }
   }
@@ -659,8 +677,11 @@ export class PCImportStrategy implements ImportStrategy {
       // transferSingleFile's unconditional overwrite would otherwise silently replace
       // an extracted file with an unrelated loose one of the same name — the same
       // failure mode transferDirectoryPerFile guards against above.
-      for (const { destinationFile } of plannedTransfers) {
-        if (await fs.pathExists(destinationFile)) {
+      for (const { sourceFile, destinationFile } of plannedTransfers) {
+        if (
+          (await fs.pathExists(destinationFile)) &&
+          !(await isAlreadyPlacedFrom(sourceFile, destinationFile))
+        ) {
           throw new Error(`Destination already exists, refusing to overwrite: ${destinationFile}`);
         }
       }

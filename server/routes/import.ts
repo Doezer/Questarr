@@ -4,6 +4,7 @@ import { importManager, platformMappingService } from "../services/index.js";
 import {
   ARCHIVE_PASSWORD_REQUIRED_PREFIX,
   IncompleteScanError,
+  ImportInProgressError,
 } from "../services/ImportManager.js";
 import { ArchivePasswordRequiredError } from "../services/ArchiveService.js";
 import { routesLogger as logger } from "../logger.js";
@@ -677,7 +678,7 @@ importRouter.post("/:id/confirm", async (req, res) => {
     if (error instanceof ArchivePasswordRequiredError) {
       return res.status(400).json({ error: error.message, passwordRequired: true });
     }
-    if (error instanceof IncompleteScanError) {
+    if (error instanceof IncompleteScanError || error instanceof ImportInProgressError) {
       return res.status(409).json({ error: error.message });
     }
     if (error instanceof Error) {

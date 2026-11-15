@@ -86,6 +86,15 @@ export const ARCHIVE_PASSWORD_REQUIRED_PREFIX = "ARCHIVE_PASSWORD_REQUIRED:";
 /** Thrown when a confirmation is the first to learn the security scan was incomplete. */
 export class IncompleteScanError extends Error {}
 
+type ConfirmPlan = ImportReview & {
+  transferMode?: "move" | "copy" | "hardlink" | "symlink" | undefined;
+  unpack?: boolean | undefined;
+  password?: string | undefined;
+};
+
+/** Thrown when a confirmation arrives while another import of the same download is running. */
+export class ImportInProgressError extends Error {}
+
 interface ArchiveResolution {
   archivePath: string;
   isDirectorySource: boolean;
@@ -670,7 +679,8 @@ export class ImportManager {
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     libraryPath: string
   ): Promise<void> {
-    await this.storage.updateGameDownloadStatus(downloadId, "imported");
+    // null clears an error left by an earlier failed attempt.
+    await this.storage.updateGameDownloadStatus(downloadId, "imported", null);
     await this.storage.updateGame(game.id, { libraryPath });
     await this.recordInstalledVersion(downloadId, game, libraryPath);
     if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
@@ -1293,11 +1303,23 @@ export class ImportManager {
 
   async confirmImport(
     downloadId: string,
-    overridePlan?: ImportReview & {
-      transferMode?: "move" | "copy" | "hardlink" | "symlink" | undefined;
-      unpack?: boolean | undefined;
-      password?: string | undefined;
-    },
+    overridePlan?: ConfirmPlan,
+    callerUserId?: string
+  ): Promise<void> {
+    if (this.importsInFlight.has(downloadId)) {
+      throw new ImportInProgressError("An import of this download is already running");
+    }
+    this.importsInFlight.add(downloadId);
+    try {
+      await this.runConfirmImport(downloadId, overridePlan, callerUserId);
+    } finally {
+      this.importsInFlight.delete(downloadId);
+    }
+  }
+
+  private async runConfirmImport(
+    downloadId: string,
+    overridePlan?: ConfirmPlan,
     callerUserId?: string
   ): Promise<void> {
     const download = await this.storage.getGameDownload(downloadId, callerUserId);
@@ -1312,6 +1334,13 @@ export class ImportManager {
     // flagged, regardless of what the caller submits as a plan.
     if (download.status === QUARANTINED_STATUS) {
       throw new Error("This download was flagged by the security scan and cannot be imported.");
+    }
+
+    // A completed import is final: reconfirming it must neither re-transfer files nor
+    // demote the download back to manual review.
+    if (download.status === "imported") {
+      logger.info({ downloadId }, "[ImportManager] Import already completed, nothing to do");
+      return;
     }
 
     if (!overridePlan) {

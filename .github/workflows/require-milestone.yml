@@ -1,0 +1,30 @@
+# Fails when a pull request has no milestone, so the check can be marked as required
+# in the branch protection rules. Re-runs when the milestone is set or removed.
+name: Require milestone
+
+on:
+  pull_request:
+    types: [opened, reopened, edited, synchronize, milestoned, demilestoned, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: require-milestone-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  require-milestone:
+    name: Milestone is set
+    runs-on: ubuntu-latest
+    # Dependabot PRs are opened without a milestone; they get one at triage time.
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - name: Check the pull request milestone
+        env:
+          MILESTONE: ${{ github.event.pull_request.milestone.title }}
+        run: |
+          if [ -z "$MILESTONE" ]; then
+            echo "::error title=Milestone missing::Set a milestone on this pull request (e.g. the current release milestone), then this check re-runs automatically."
+            exit 1
+          fi
+          echo "Milestone: $MILESTONE"

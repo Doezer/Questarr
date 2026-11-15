@@ -55,6 +55,7 @@ import {
 import { z } from "zod";
 import { routesLogger } from "./logger.js";
 import { getPendingReport, sendPendingReport } from "./error-telemetry.js";
+import { buildDiagnosticsSnapshot, formatDiagnosticsBlock } from "./diagnostics.js";
 import { SCAN_MAX_FILES, SCAN_TIME_BUDGET_MS } from "./scan-limits.js";
 import {
   igdbRateLimiter,
@@ -1178,6 +1179,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to read server log file");
       return res.status(500).json({ error: "Failed to read log file" });
+    }
+  });
+
+  // Secret-free configuration summary + error digest, attached to "Send Logs"
+  // submissions (see server/diagnostics.ts). Returns the rendered text block.
+  app.get("/api/diagnostics", authenticateToken, async (req, res) => {
+    try {
+      const logPath = path.resolve(process.cwd(), "server.log");
+      const logLines = await readLastLogLines(logPath, 1000).catch(() => [] as string[]);
+      const snapshot = await buildDiagnosticsSnapshot({ logLines, userId: req.user!.id });
+      return res.json({ report: formatDiagnosticsBlock(snapshot) });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to build diagnostics snapshot");
+      return res.status(500).json({ error: "Failed to build diagnostics" });
     }
   });
 

@@ -1492,17 +1492,20 @@ export default function SettingsPage() {
                         </Label>
                         <p className="text-xs text-muted-foreground">
                           Default for newer versions and repacks. Each game can override it.
+                          Download automatically only takes a release whose name proves a newer
+                          version than the installed one, and needs a scoring profile.
                         </p>
                       </div>
                       <Select
                         value={upgradePolicy}
                         onValueChange={(value) => setUpgradePolicy(value as UpgradePolicy)}
                       >
-                        <SelectTrigger id="upgrade-policy-default" className="w-36">
+                        <SelectTrigger id="upgrade-policy-default" className="w-56 shrink-0">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="notify">Notify me</SelectItem>
+                          <SelectItem value="auto">Download automatically</SelectItem>
                           <SelectItem value="off">Off</SelectItem>
                         </SelectContent>
                       </Select>

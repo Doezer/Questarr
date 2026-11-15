@@ -41,6 +41,7 @@ import {
 } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isReleasePossiblyNewer } from "../shared/version-utils.js";
+import { decideUpgrade, type UpgradeDecision } from "../shared/upgrade-decision.js";
 import { recordVersionFromCompletedDownload } from "./game-version.js";
 import { rssService } from "./rss.js";
 import { registerTask, startTaskScheduler, type TaskDefinition } from "./task-registry.js";
@@ -1957,6 +1958,141 @@ async function releaseAlreadyFailedForGame(gameId: string, releaseTitle: string)
   );
 }
 
+/** A download that has not finished yet: an automatic upgrade waits for it. */
+const IN_FLIGHT_DOWNLOAD_STATUSES = new Set(["downloading", "paused"]);
+
+interface AutoUpgradeInput {
+  game: Pick<Game, "id" | "title" | "installedVersion">;
+  userId: string;
+  /** Full releases and update patches auto-search may take, already filtered and de-duplicated. */
+  mainItems: SearchItem[];
+  updateItems: SearchItem[];
+  indexerPriorityMap: Map<string, number>;
+  platform: string | null;
+  prefs: NotificationPreferences;
+}
+
+/** The release the "auto" policy would take for an owned game, or why it takes none. */
+export async function decideAutoUpgrade({
+  game,
+  mainItems,
+  updateItems,
+  indexerPriorityMap,
+}: Pick<AutoUpgradeInput, "game" | "mainItems" | "updateItems" | "indexerPriorityMap">): Promise<
+  UpgradeDecision<SearchItem>
+> {
+  const patches = new Set(updateItems);
+  // No ranking without a score on every release: nothing is taken, the user is only notified.
+  const ranked = rankAutoDownloadCandidates([...mainItems, ...updateItems], indexerPriorityMap);
+  const candidates = [];
+  for (const item of ranked) {
+    // A release that failed before is not tried again; the next best one may still qualify.
+    if (await releaseAlreadyFailedForGame(game.id, item.title)) continue;
+    candidates.push({
+      item,
+      title: item.title,
+      category: patches.has(item) ? ("update" as const) : ("main" as const),
+      score: item.evaluation?.score ?? 0,
+    });
+  }
+  return decideUpgrade(candidates, { installedVersion: game.installedVersion });
+}
+
+/**
+ * "auto" upgrade policy: downloads the release decideUpgrade picks for an owned game, records
+ * why in Activity > History and notifies. Returns true when a download was started. The game
+ * keeps its status: it is still owned while the newer version downloads.
+ */
+async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
+  const { game, userId, prefs } = input;
+  const downloads = await storage.getDownloadsByGameId(game.id);
+  if (downloads.some((d) => IN_FLIGHT_DOWNLOAD_STATUSES.has(d.status))) {
+    igdbLogger.debug({ gameTitle: game.title }, "Auto-upgrade waits: a download is in progress");
+    return false;
+  }
+
+  const decision = await decideAutoUpgrade(input);
+  if (decision.action !== "grab") {
+    igdbLogger.debug(
+      {
+        gameTitle: game.title,
+        reason: decision.code,
+        skipped: decision.skipped.map(({ candidate, code }) => ({ title: candidate.title, code })),
+      },
+      "Auto-upgrade: no release taken"
+    );
+    return false;
+  }
+
+  const item = decision.candidate.item;
+  const holdReason = await getAiAutoDownloadHoldReason(item, input.platform, game.title);
+  if (holdReason) {
+    igdbLogger.info(
+      { gameTitle: game.title, releaseTitle: item.title, reason: holdReason },
+      "Auto-upgrade held back for review"
+    );
+    return false;
+  }
+
+  const downloaders = await storage.getEnabledDownloaders();
+  if (downloaders.length === 0) return false;
+  const result = await DownloaderManager.addDownloadWithFallback(downloaders, {
+    url: item.link,
+    title: item.title,
+  });
+  if (!result?.success || !result.id || !result.downloaderId) return false;
+
+  await storage.addGameDownload({
+    gameId: game.id,
+    downloaderId: result.downloaderId,
+    downloadHash: result.id,
+    downloadTitle: item.title,
+    status: "downloading",
+    downloadType: item.downloadType,
+    category: decision.patch ? "update" : "main",
+  });
+
+  const what = decision.patch ? "update patch" : "full release";
+  const change = `${decision.fromVersion} to ${decision.toVersion}`;
+  try {
+    await storage.addDownloadEvent({
+      userId,
+      gameId: game.id,
+      gameTitle: game.title,
+      eventType: "upgrade",
+      releaseTitle: item.title,
+      downloaderName: downloaders.find((d) => d.id === result.downloaderId)?.name ?? null,
+      message: `Automatic upgrade from ${change} (${what}, score ${decision.candidate.score}): the release name carries a newer version than the installed one.`,
+    });
+  } catch (error) {
+    igdbLogger.warn({ gameTitle: game.title, error }, "Failed to record the upgrade in history");
+  }
+
+  if (prefs.autoDownload.inApp) {
+    const notification = await storage.addNotification({
+      userId,
+      type: "success",
+      title: "Upgrade Started",
+      message: `${game.title}: downloading ${decision.toVersion} (installed: ${decision.fromVersion})`,
+      link: `/games/${encodeURIComponent(game.id)}`,
+    });
+    notifyUser("notification", notification, notification.userId);
+    if (prefs.autoDownload.apprise) void appriseClient.send(notification);
+  }
+
+  igdbLogger.info(
+    {
+      gameTitle: game.title,
+      releaseTitle: item.title,
+      from: decision.fromVersion,
+      to: decision.toVersion,
+      patch: decision.patch,
+    },
+    "Auto-upgraded an owned game"
+  );
+  return true;
+}
+
 /**
  * Runs the scheduled auto-search for every user's wanted and owned games, applying the
  * user's release filters (global blacklist, preferred groups, platform, download rules)
@@ -2319,7 +2455,8 @@ export async function checkAutoSearch() {
           try {
             // "off": the user doesn't want update/pack tracking for this game, so don't search
             // and clear any badge left from before the policy changed.
-            if (resolveUpgradePolicy(game.upgradePolicy, settings.upgradePolicy) === "off") {
+            const upgradePolicy = resolveUpgradePolicy(game.upgradePolicy, settings.upgradePolicy);
+            if (upgradePolicy === "off") {
               if (
                 game.searchResultsAvailable ||
                 game.updateSearchResultsAvailable ||
@@ -2343,7 +2480,10 @@ export async function checkAutoSearch() {
               settings.downloadRules,
               indexerPriorityMap,
               blacklistTerms,
-              scoring
+              // "auto" may grab, so like auto-download it waits while xREL cannot be checked.
+              scoring && upgradePolicy === "auto"
+                ? { ...scoring, deferOnXrelUnavailable: true }
+                : scoring
             );
             if (searchResult === AUTO_SEARCH_DEFERRED) continue;
             if (!searchResult) {
@@ -2393,17 +2533,38 @@ export async function checkAutoSearch() {
               storage.getGame(game.id),
               storage.getUserSettings(userId),
             ]);
-            if (
-              freshGame &&
-              resolveUpgradePolicy(freshGame.upgradePolicy, freshSettings?.upgradePolicy) === "off"
-            ) {
-              continue;
-            }
+            const freshPolicy = freshGame
+              ? resolveUpgradePolicy(freshGame.upgradePolicy, freshSettings?.upgradePolicy)
+              : upgradePolicy;
+            if (freshPolicy === "off") continue;
 
             await storage.updateGameSearchResultsByCategory(game.id, {
               updates: updateItems.length > 0,
               packs: packsItems.length > 0,
             });
+
+            // "auto": take a provably newer version by itself. It needs the scoring profile
+            // (the releases it may take are the ones the profile accepts); anything it does
+            // not take is still flagged below, as with "notify".
+            let upgraded = false;
+            if (freshPolicy === "auto" && scoring) {
+              try {
+                upgraded = await tryAutoUpgrade({
+                  game: freshGame ?? game,
+                  userId,
+                  mainItems: deduplicateByTitle(
+                    applyPreferredPlatformFilter(searchResult.mainItems, effectivePlatform),
+                    indexerPriorityMap
+                  ),
+                  updateItems,
+                  indexerPriorityMap,
+                  platform: effectivePlatform,
+                  prefs,
+                });
+              } catch (error) {
+                igdbLogger.error({ gameTitle: game.title, error }, "Failed to auto-upgrade");
+              }
+            }
 
             // Keep availability badges current even when this status is muted.
             if (
@@ -2413,7 +2574,12 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            if (updateItems.length > 0 && !wasUpdateAvailable && prefs.gameUpdates.inApp) {
+            if (
+              !upgraded &&
+              updateItems.length > 0 &&
+              !wasUpdateAvailable &&
+              prefs.gameUpdates.inApp
+            ) {
               const notification = await storage.addNotification({
                 userId,
                 type: "info",

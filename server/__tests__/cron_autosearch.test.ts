@@ -37,6 +37,7 @@ const mockUpdateGameSearchResultsByCategory = vi.fn();
 const mockUpdateGameStatus = vi.fn();
 const mockUpdateGame = vi.fn();
 const mockAddGameDownload = vi.fn();
+const mockAddDownloadEvent = vi.fn();
 const mockGetEnabledDownloaders = vi.fn().mockResolvedValue([]);
 const mockGetReleaseBlacklistSet = vi.fn();
 const mockGetEnabledIndexers = vi.fn().mockResolvedValue([]);
@@ -58,6 +59,7 @@ vi.mock("../storage.js", () => ({
     updateGameStatus: mockUpdateGameStatus,
     updateGame: mockUpdateGame,
     addGameDownload: mockAddGameDownload,
+    addDownloadEvent: mockAddDownloadEvent,
     getEnabledDownloaders: mockGetEnabledDownloaders,
     getReleaseBlacklistSet: mockGetReleaseBlacklistSet,
     getEnabledIndexers: mockGetEnabledIndexers,
@@ -685,6 +687,160 @@ describe("Cron - checkAutoSearch", () => {
     await checkAutoSearch();
 
     expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
+  });
+
+  describe("automatic upgrades of owned games (upgradePolicy auto)", () => {
+    const release = (title: string, seeders = 100) => ({
+      title,
+      link: `https://indexer-a.example.com/${encodeURIComponent(title)}`,
+      pubDate: FIXED_PUB_DATE,
+      seeders,
+      size: 10_000_000_000,
+      indexerId: "indexer-a",
+      indexerName: "Indexer A",
+      category: ["4050"],
+      downloadType: "torrent" as const,
+      group: "CODEX",
+    });
+    const NEWER_FULL = release("Test.Game.v1.2-CODEX");
+    const SAME_FULL = release("Test.Game.v1.0-CODEX");
+    const NO_VERSION = release("Test.Game-CODEX");
+    const ownedGame = {
+      ...baseGame,
+      status: "owned" as const,
+      releaseStatus: "released" as const,
+      installedVersion: "v1.0",
+    };
+    // No xREL check here: with it on, an unavailable xREL defers every automatic grab.
+    const autoSettings = {
+      ...baseSettings,
+      upgradePolicy: "auto",
+      xrelSceneReleases: false,
+      xrelP2pReleases: false,
+    };
+    const searchReturns = (...items: ReturnType<typeof release>[]) =>
+      mockSearchAllIndexers.mockResolvedValue({ items, errors: [], total: items.length });
+
+    beforeEach(() => {
+      mockLoadScoringConfig.mockResolvedValue({
+        profile: {
+          minScore: 0,
+          protocolPreference: "either",
+          requiredTerms: [],
+          ignoredTerms: [],
+          minSeeders: 0,
+          maxSizeBytes: null,
+          builtInOverrides: {},
+          formatScores: {},
+        },
+        formats: [],
+      });
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      mockGetUserGames.mockResolvedValue([ownedGame]);
+      mockGetUserSettings.mockResolvedValue(autoSettings);
+      mockGetEnabledDownloaders.mockResolvedValue([
+        { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true },
+      ]);
+      mockAddDownloadWithFallback.mockResolvedValue({
+        success: true,
+        id: "hash-abc",
+        downloaderId: "dl-1",
+      });
+      mockGetEnabledIndexers.mockResolvedValue([{ id: "indexer-a", priority: 1 }]);
+      searchReturns(NEWER_FULL, SAME_FULL);
+    });
+
+    afterEach(() => {
+      mockGetDownloadsByGameId.mockResolvedValue([]);
+    });
+
+    it("downloads a provably newer version, records why and notifies", async () => {
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ url: NEWER_FULL.link })
+      );
+      expect(mockAddGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ gameId: ownedGame.id, category: "main" })
+      );
+      expect(mockAddDownloadEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: "upgrade",
+          releaseTitle: NEWER_FULL.title,
+          downloaderName: "qBittorrent",
+          message: expect.stringContaining("v1.0 to v1.2"),
+        })
+      );
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Upgrade Started" })
+      );
+      // The game is still owned while the newer version downloads.
+      expect(mockUpdateGameStatus).not.toHaveBeenCalled();
+    });
+
+    it("does not download with the notify policy", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...autoSettings, upgradePolicy: "notify" });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("follows the game's own policy over the account default", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...autoSettings, upgradePolicy: "notify" });
+      mockGetUserGames.mockResolvedValue([{ ...ownedGame, upgradePolicy: "auto" }]);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+    });
+
+    it("takes nothing when no release proves a newer version", async () => {
+      searchReturns(SAME_FULL, NO_VERSION);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockAddDownloadEvent).not.toHaveBeenCalled();
+    });
+
+    it("takes nothing when the installed version is unknown", async () => {
+      mockGetUserGames.mockResolvedValue([{ ...ownedGame, installedVersion: null }]);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("needs a scoring profile", async () => {
+      mockLoadScoringConfig.mockRejectedValue(new Error("no scoring profile"));
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("waits while a download of the game is in progress", async () => {
+      mockGetDownloadsByGameId.mockResolvedValue([
+        { status: "downloading", downloadTitle: "Test.Game.v1.1-CODEX" },
+      ]);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("does not retry a release that already failed for the game", async () => {
+      mockGetDownloadsByGameId.mockResolvedValue([
+        { status: "failed", downloadTitle: NEWER_FULL.title },
+      ]);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
   });
 
   describe("Preferred Release Groups Filtering", () => {

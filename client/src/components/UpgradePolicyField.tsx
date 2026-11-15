@@ -16,6 +16,7 @@ const FOLLOW_DEFAULT = "default";
 
 export const UPGRADE_POLICY_LABELS: Record<UpgradePolicy, string> = {
   notify: "Notify me",
+  auto: "Download automatically",
   off: "Off",
 };
 
@@ -64,12 +65,14 @@ export default function UpgradePolicyField({
             Account default ({UPGRADE_POLICY_LABELS[defaultPolicy]})
           </SelectItem>
           <SelectItem value="notify">{UPGRADE_POLICY_LABELS.notify}</SelectItem>
+          <SelectItem value="auto">{UPGRADE_POLICY_LABELS.auto}</SelectItem>
           <SelectItem value="off">{UPGRADE_POLICY_LABELS.off}</SelectItem>
         </SelectContent>
       </Select>
       <p className="mt-1 text-xs text-muted-foreground">
-        Notify: look for newer versions and repacks and flag them. Off: don&apos;t search for
-        updates or packs for this game.
+        Notify: look for newer versions and repacks and flag them. Download automatically: also take
+        a release whose name proves a newer version than the installed one. Off: don&apos;t search
+        for updates or packs for this game.
       </p>
     </div>
   );

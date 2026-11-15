@@ -33,6 +33,7 @@ const EVENT_LABELS: Record<DownloadEventType, { label: string; className: string
     label: "Blocklisted",
     className: "border-purple-700/50 bg-purple-900/40 text-purple-400",
   },
+  upgrade: { label: "Upgrade", className: "border-sky-700/50 bg-sky-900/40 text-sky-400" },
 };
 
 function EventBadge({ type }: Readonly<{ type: DownloadEventType }>) {

@@ -1485,24 +1485,30 @@ export default function SettingsPage() {
 
                   {/* Default policy for newer versions of owned games */}
                   {autoSearchEnabled && (
-                    <div className="flex items-center justify-between gap-4 pl-4 border-l-2">
+                    <div className="flex flex-col gap-2 pl-4 border-l-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                       <div className="space-y-0.5">
                         <Label htmlFor="upgrade-policy-default" className="text-sm font-medium">
                           Updates for Owned Games
                         </Label>
                         <p className="text-xs text-muted-foreground">
                           Default for newer versions and repacks. Each game can override it.
+                          Download automatically only takes a release whose name proves a newer
+                          version than the installed one, and needs a scoring profile.
                         </p>
                       </div>
                       <Select
                         value={upgradePolicy}
                         onValueChange={(value) => setUpgradePolicy(value as UpgradePolicy)}
                       >
-                        <SelectTrigger id="upgrade-policy-default" className="w-36">
+                        <SelectTrigger
+                          id="upgrade-policy-default"
+                          className="h-10 w-full sm:h-9 sm:w-56 sm:shrink-0"
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="notify">Notify me</SelectItem>
+                          <SelectItem value="auto">Download automatically</SelectItem>
                           <SelectItem value="off">Off</SelectItem>
                         </SelectContent>
                       </Select>

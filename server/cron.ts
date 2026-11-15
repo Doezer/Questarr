@@ -15,7 +15,7 @@ import {
   type SearchItem,
 } from "./search.js";
 import { config } from "./config.js";
-import { pipelineHoldReason } from "./classification/hold.js";
+import { pipelineHoldReason, type HoldOptions } from "./classification/hold.js";
 import { autoShareVerifiedLabels } from "./classification/share.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
@@ -41,6 +41,7 @@ import {
 } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isReleasePossiblyNewer } from "../shared/version-utils.js";
+import { decideUpgrade, type UpgradeDecision } from "../shared/upgrade-decision.js";
 import { recordVersionFromCompletedDownload } from "./game-version.js";
 import { rssService } from "./rss.js";
 import { registerTask, startTaskScheduler, type TaskDefinition } from "./task-registry.js";
@@ -108,6 +109,16 @@ const PROBABLY_FINISHED_STATUSES = new Set<DownloadStatus["status"]>([
   "unpacking",
   "repairing",
 ]);
+
+/**
+ * Whether a download's progress leaves the game's status alone. Statuses the user chose always
+ * do. So does "owned": a manual or wanted-game grab sets the game to "downloading" itself, so a
+ * game still owned while one of its downloads runs is being upgraded (the "auto" upgrade
+ * policy) and keeps its working install, whatever becomes of the download.
+ */
+function keepsStatusDuringDownloads(status: string | null | undefined): boolean {
+  return status === "owned" || isUserCuratedGameStatus(status);
+}
 
 const ACTIVE_DOWNLOAD_STATUSES = new Set([
   "downloading",
@@ -189,11 +200,12 @@ const AI_AUTO_DOWNLOAD_LEGITIMACY_THRESHOLD = 0.5;
 export async function getAiAutoDownloadHoldReason(
   item: Pick<SearchItem, "title" | "size">,
   platform: string | null,
-  gameTitle?: string
+  gameTitle?: string,
+  options: HoldOptions = {}
 ): Promise<string | null> {
   // `cloud` (the legacy mode) keeps the Jev-only check below untouched
   if (config.classification.mode !== "cloud") {
-    return pipelineHoldReason(item, platform, gameTitle);
+    return pipelineHoldReason(item, platform, gameTitle, options);
   }
   let analysis: Awaited<ReturnType<typeof typesafeClient.analyzeRelease>>;
   try {
@@ -218,6 +230,7 @@ export async function getAiAutoDownloadHoldReason(
   if (
     analysis.releaseType &&
     AI_AUTO_DOWNLOAD_BLOCK_TYPES.has(analysis.releaseType) &&
+    !(options.allowPatch && analysis.releaseType === "update") &&
     (analysis.releaseTypeConfidence ?? 0) >= AI_AUTO_DOWNLOAD_TYPE_CONFIDENCE_THRESHOLD
   ) {
     return `AI classified this release as "${analysis.releaseType}" rather than the full game`;
@@ -1143,7 +1156,7 @@ async function recoverFailedUsenetDownloads() {
       );
       await storage.updateGameDownloadStatus(download.id, "downloading", null);
       const game = await storage.getGame(download.gameId);
-      if (game && game.status !== "downloading" && !isUserCuratedGameStatus(game.status)) {
+      if (game && game.status !== "downloading" && !keepsStatusDuringDownloads(game.status)) {
         await storage.updateGameStatus(
           download.gameId,
           { status: "downloading" },
@@ -1300,7 +1313,7 @@ async function runDownloadStatusCheck() {
                 if (
                   failedGame &&
                   failedGame.status !== "wanted" &&
-                  !isUserCuratedGameStatus(failedGame.status)
+                  !keepsStatusDuringDownloads(failedGame.status)
                 ) {
                   await storage.updateGameStatus(
                     download.gameId,
@@ -1648,7 +1661,7 @@ async function runDownloadStatusCheck() {
               !skipGameStatusUpdate &&
               game &&
               game.status !== newGameStatus &&
-              !isUserCuratedGameStatus(game.status)
+              !keepsStatusDuringDownloads(game.status)
             ) {
               await storage.updateGameStatus(
                 download.gameId,
@@ -1759,7 +1772,7 @@ async function runDownloadStatusCheck() {
             !hasActiveSibling &&
             !!game &&
             game.status !== "wanted" &&
-            !isUserCuratedGameStatus(game.status);
+            !keepsStatusDuringDownloads(game.status);
 
           const missedErrorMessage = willResetGame
             ? "Download disappeared from the downloader before completing. It may have " +
@@ -1955,6 +1968,195 @@ async function releaseAlreadyFailedForGame(gameId: string, releaseTitle: string)
   return downloads.some(
     (d) => FAILED_DOWNLOAD_STATUSES.has(d.status) && normalizeTitle(d.downloadTitle) === key
   );
+}
+
+/**
+ * Statuses of a download nothing more will happen to. Any other one (downloading, paused,
+ * unpacking, waiting for import or for a manual review) may still change what is installed, so
+ * an automatic upgrade waits for it.
+ */
+const SETTLED_DOWNLOAD_STATUSES = new Set(["completed", "imported", ...FAILED_DOWNLOAD_STATUSES]);
+
+/**
+ * Whether the release was already sent to a downloader for the game, whatever became of it.
+ * An automatic upgrade never takes the same release twice: when the installed version did not
+ * move after a download (import off, version not detected), the next cycle would otherwise
+ * prove it "newer" again and download it over and over.
+ */
+async function releaseAlreadyGrabbedForGame(gameId: string, releaseTitle: string) {
+  const key = normalizeTitle(releaseTitle);
+  const downloads = await storage.getDownloadsByGameId(gameId);
+  return downloads.some((d) => normalizeTitle(d.downloadTitle) === key);
+}
+
+interface AutoUpgradeInput {
+  game: Pick<Game, "id" | "title" | "installedVersion">;
+  userId: string;
+  /** Full releases and update patches auto-search may take, already filtered and de-duplicated. */
+  mainItems: SearchItem[];
+  updateItems: SearchItem[];
+  indexerPriorityMap: Map<string, number>;
+  platform: string | null;
+  prefs: NotificationPreferences;
+}
+
+/** The release the "auto" policy would take for an owned game, or why it takes none. */
+export async function decideAutoUpgrade({
+  game,
+  mainItems,
+  updateItems,
+  indexerPriorityMap,
+}: Pick<AutoUpgradeInput, "game" | "mainItems" | "updateItems" | "indexerPriorityMap">): Promise<
+  UpgradeDecision<SearchItem>
+> {
+  const patches = new Set(updateItems);
+  // No ranking without a score on every release: nothing is taken, the user is only notified.
+  const ranked = rankAutoDownloadCandidates([...mainItems, ...updateItems], indexerPriorityMap);
+  const candidates = [];
+  for (const item of ranked) {
+    // A release that was grabbed before (failed or not) is not taken again; the next best one
+    // may still qualify.
+    if (await releaseAlreadyGrabbedForGame(game.id, item.title)) continue;
+    candidates.push({
+      item,
+      title: item.title,
+      category: patches.has(item) ? ("update" as const) : ("main" as const),
+      score: item.evaluation?.score ?? 0,
+    });
+  }
+  return decideUpgrade(candidates, { installedVersion: game.installedVersion });
+}
+
+/**
+ * "auto" upgrade policy: downloads the release decideUpgrade picks for an owned game, records
+ * why in Activity > History and notifies. Returns true when a download was started. The game
+ * keeps its status: it is still owned while the newer version downloads.
+ */
+async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
+  const { game, userId, prefs } = input;
+  const downloads = await storage.getDownloadsByGameId(game.id);
+  if (downloads.some((d) => !SETTLED_DOWNLOAD_STATUSES.has(d.status))) {
+    igdbLogger.debug({ gameTitle: game.title }, "Auto-upgrade waits: a download is in progress");
+    return false;
+  }
+
+  const decision = await decideAutoUpgrade(input);
+  if (decision.action !== "grab") {
+    igdbLogger.debug(
+      {
+        gameTitle: game.title,
+        reason: decision.code,
+        skipped: decision.skipped.map(({ candidate, code }) => ({ title: candidate.title, code })),
+      },
+      "Auto-upgrade: no release taken"
+    );
+    return false;
+  }
+
+  const item = decision.candidate.item;
+  // As for wanted games, a hold is stored: the check can fail open on a later cycle, and a
+  // release held once must not go through then.
+  const releaseKey = normalizeTitle(item.title);
+  if (await storage.hasAiAutoDownloadHold(game.id, releaseKey)) {
+    igdbLogger.debug(
+      { gameTitle: game.title, releaseTitle: item.title },
+      "Auto-upgrade skipped: release already held for review"
+    );
+    return false;
+  }
+  // A patch decideUpgrade picked is meant to be a patch: only the other hold reasons apply.
+  const holdReason = await getAiAutoDownloadHoldReason(item, input.platform, game.title, {
+    allowPatch: decision.patch,
+  });
+  if (holdReason) {
+    await storage.recordAiAutoDownloadHold({
+      gameId: game.id,
+      releaseTitle: releaseKey,
+      reason: holdReason,
+    });
+    igdbLogger.info(
+      { gameTitle: game.title, releaseTitle: item.title, reason: holdReason },
+      "Auto-upgrade held back for review"
+    );
+    return false;
+  }
+
+  const downloaders = await storage.getEnabledDownloaders();
+  if (downloaders.length === 0) return false;
+  const result = await DownloaderManager.addDownloadWithFallback(downloaders, {
+    url: item.link,
+    title: item.title,
+  });
+  if (!result?.success || !result.id || !result.downloaderId) return false;
+
+  try {
+    await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId: result.downloaderId,
+      downloadHash: result.id,
+      downloadTitle: item.title,
+      status: "downloading",
+      downloadType: item.downloadType,
+      category: decision.patch ? "update" : "main",
+    });
+  } catch (error) {
+    // An untracked job would be invisible to the "already grabbed" check and downloaded again
+    // next cycle, so it is cancelled; the release is tried again then.
+    const downloader = downloaders.find((d) => d.id === result.downloaderId);
+    const removed = downloader
+      ? await DownloaderManager.removeDownload(downloader, result.id, true)
+      : { success: false, message: "downloader not found" };
+    igdbLogger.error(
+      { gameTitle: game.title, releaseTitle: item.title, error, cancelled: removed.success },
+      "Auto-upgrade could not be tracked, download cancelled"
+    );
+    return false;
+  }
+
+  const what = decision.patch ? "update patch" : "full release";
+  const change = `${decision.fromVersion} to ${decision.toVersion}`;
+  try {
+    await storage.addDownloadEvent({
+      userId,
+      gameId: game.id,
+      gameTitle: game.title,
+      eventType: "upgrade",
+      releaseTitle: item.title,
+      downloaderName: downloaders.find((d) => d.id === result.downloaderId)?.name ?? null,
+      message: `Automatic upgrade from ${change} (${what}, score ${decision.candidate.score}): the release name carries a newer version than the installed one.`,
+    });
+  } catch (error) {
+    igdbLogger.warn({ gameTitle: game.title, error }, "Failed to record the upgrade in history");
+  }
+
+  // The download is started and tracked: a failed notification must not report otherwise.
+  if (prefs.autoDownload.inApp) {
+    try {
+      const notification = await storage.addNotification({
+        userId,
+        type: "success",
+        title: "Upgrade Started",
+        message: `${game.title}: downloading ${decision.toVersion} (installed: ${decision.fromVersion})`,
+        link: `/games/${encodeURIComponent(game.id)}`,
+      });
+      notifyUser("notification", notification, notification.userId);
+      if (prefs.autoDownload.apprise) void appriseClient.send(notification);
+    } catch (error) {
+      igdbLogger.warn({ gameTitle: game.title, error }, "Failed to notify about the upgrade");
+    }
+  }
+
+  igdbLogger.info(
+    {
+      gameTitle: game.title,
+      releaseTitle: item.title,
+      from: decision.fromVersion,
+      to: decision.toVersion,
+      patch: decision.patch,
+    },
+    "Auto-upgraded an owned game"
+  );
+  return true;
 }
 
 /**
@@ -2319,7 +2521,8 @@ export async function checkAutoSearch() {
           try {
             // "off": the user doesn't want update/pack tracking for this game, so don't search
             // and clear any badge left from before the policy changed.
-            if (resolveUpgradePolicy(game.upgradePolicy, settings.upgradePolicy) === "off") {
+            const upgradePolicy = resolveUpgradePolicy(game.upgradePolicy, settings.upgradePolicy);
+            if (upgradePolicy === "off") {
               if (
                 game.searchResultsAvailable ||
                 game.updateSearchResultsAvailable ||
@@ -2343,7 +2546,10 @@ export async function checkAutoSearch() {
               settings.downloadRules,
               indexerPriorityMap,
               blacklistTerms,
-              scoring
+              // "auto" may grab, so like auto-download it waits while xREL cannot be checked.
+              scoring && upgradePolicy === "auto"
+                ? { ...scoring, deferOnXrelUnavailable: true }
+                : scoring
             );
             if (searchResult === AUTO_SEARCH_DEFERRED) continue;
             if (!searchResult) {
@@ -2393,17 +2599,40 @@ export async function checkAutoSearch() {
               storage.getGame(game.id),
               storage.getUserSettings(userId),
             ]);
-            if (
-              freshGame &&
-              resolveUpgradePolicy(freshGame.upgradePolicy, freshSettings?.upgradePolicy) === "off"
-            ) {
-              continue;
-            }
+            const freshPolicy = freshGame
+              ? resolveUpgradePolicy(freshGame.upgradePolicy, freshSettings?.upgradePolicy)
+              : upgradePolicy;
+            if (freshPolicy === "off") continue;
 
             await storage.updateGameSearchResultsByCategory(game.id, {
               updates: updateItems.length > 0,
               packs: packsItems.length > 0,
             });
+
+            // "auto": take a provably newer version by itself. It needs the scoring profile
+            // (the releases it may take are the ones the profile accepts); anything it does
+            // not take is still flagged below, as with "notify".
+            let upgraded = false;
+            // Both: only a search that started under "auto" waited for the xREL nuke check, so
+            // a policy switched to "auto" meanwhile takes effect at the next cycle.
+            if (upgradePolicy === "auto" && freshPolicy === "auto" && scoring) {
+              try {
+                upgraded = await tryAutoUpgrade({
+                  game: freshGame ?? game,
+                  userId,
+                  mainItems: deduplicateByTitle(
+                    applyPreferredPlatformFilter(searchResult.mainItems, effectivePlatform),
+                    indexerPriorityMap
+                  ),
+                  updateItems,
+                  indexerPriorityMap,
+                  platform: effectivePlatform,
+                  prefs,
+                });
+              } catch (error) {
+                igdbLogger.error({ gameTitle: game.title, error }, "Failed to auto-upgrade");
+              }
+            }
 
             // Keep availability badges current even when this status is muted.
             if (
@@ -2413,7 +2642,12 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            if (updateItems.length > 0 && !wasUpdateAvailable && prefs.gameUpdates.inApp) {
+            if (
+              !upgraded &&
+              updateItems.length > 0 &&
+              !wasUpdateAvailable &&
+              prefs.gameUpdates.inApp
+            ) {
               const notification = await storage.addNotification({
                 userId,
                 type: "info",

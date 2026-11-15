@@ -16,6 +16,14 @@ export const PROVIDER_MAX_ITEMS = 15;
 
 type ReleaseInput = Pick<SearchItem, "title" | "size">;
 
+export interface HoldOptions {
+  /**
+   * The caller means to download an update patch (an automatic upgrade of an owned game), so
+   * a release classified as a patch is what it expects. Everything else is still held.
+   */
+  allowPatch?: boolean;
+}
+
 /**
  * Runs the classification pipeline for one release. This is the only entry point for the
  * `local` and `hybrid` modes, shared by the auto-download hold and the search results, so both
@@ -54,9 +62,14 @@ export async function classifyRelease(
  * It holds what the layers agree is not the full game. A release no layer could classify goes
  * through unless CLASSIFICATION_HOLD_UNKNOWN is set.
  */
-export function holdReasonFor(result: PipelineResult, item: ReleaseInput): string | null {
+export function holdReasonFor(
+  result: PipelineResult,
+  item: ReleaseInput,
+  options: HoldOptions = {}
+): string | null {
   const flag = result.flags?.find((f) => HOLD_FLAGS.has(f));
-  if (HOLD_CLASSES.has(result.class) || flag) {
+  const expectedPatch = options.allowPatch === true && result.class === "patch";
+  if ((HOLD_CLASSES.has(result.class) && !expectedPatch) || flag) {
     return `Classified (${result.source}) as "${flag ?? result.class}" rather than the full game`;
   }
   // A layer failure is not a verdict: holding on it would block the release for days
@@ -78,10 +91,11 @@ export function holdReasonFor(result: PipelineResult, item: ReleaseInput): strin
 export async function pipelineHoldReason(
   item: ReleaseInput,
   platform: string | null,
-  gameTitle: string | undefined
+  gameTitle: string | undefined,
+  options: HoldOptions = {}
 ): Promise<string | null> {
   const result = await classifyRelease(item, platform, gameTitle, { collect: true });
-  return result ? holdReasonFor(result, item) : null;
+  return result ? holdReasonFor(result, item, options) : null;
 }
 
 /** The legacy Jev release types, which the existing search categories and UI understand. */

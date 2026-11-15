@@ -234,6 +234,26 @@ function pickSettings(settings: UserSettings | undefined): DiagnosticsSnapshot["
 
 // ── Error digest ─────────────────────────────────────────────────────────────
 
+/**
+ * Strips what `scrubPii` leaves behind in free text: URL hosts, DNS names after
+ * resolver errors, and absolute filesystem paths (it only handles home dirs).
+ */
+export function scrubFreeText(text: string): string {
+  return scrubPii(text)
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/"'<>]+/gi, "$1[host]")
+    .replace(/\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|ECONNRESET)\s+\S+/g, "$1 [host]")
+    .replace(/(?<![\w.:])\/(?:[\w.-]+\/)+[\w.-]*/g, "[path]")
+    .replace(/\b[A-Za-z]:\\[^\s"']+/g, "[path]");
+}
+
+/** User-chosen names are kept (they identify the entry) unless they look like a host or path. */
+export function sanitizeName(name: string): string {
+  const scrubbed = scrubFreeText(name);
+  return /^\S+\.[a-z]{2,}(?::\d+)?$/i.test(scrubbed) || /[/\\]/.test(scrubbed)
+    ? "[host-like name]"
+    : scrubbed;
+}
+
 function clip(text: string): string {
   return text.length > MAX_ERROR_TEXT ? `${text.slice(0, MAX_ERROR_TEXT)}…` : text;
 }
@@ -264,7 +284,7 @@ export function summarizeErrors(lines: string[]): ErrorGroup[] {
           ? String((errorField as { message: unknown }).message)
           : "";
     const msg = typeof entry.msg === "string" ? entry.msg : "";
-    const message = clip(scrubPii([msg, errorMessage].filter(Boolean).join(": ")));
+    const message = clip(scrubFreeText([msg, errorMessage].filter(Boolean).join(": ")));
     const time = typeof entry.time === "string" ? entry.time : null;
 
     const key = `${module}|${message}`;
@@ -287,7 +307,7 @@ function toMb(bytes: number): number {
 
 function describeIndexer(indexer: Indexer, prowlarrKey: string | null): IndexerDiagnostics {
   return {
-    name: scrubPii(indexer.name),
+    name: sanitizeName(indexer.name),
     protocol: indexer.protocol,
     enabled: indexer.enabled,
     priority: indexer.priority,
@@ -306,7 +326,7 @@ function describeIndexer(indexer: Indexer, prowlarrKey: string | null): IndexerD
 
 function describeDownloader(downloader: Downloader): DownloaderDiagnostics {
   return {
-    name: scrubPii(downloader.name),
+    name: sanitizeName(downloader.name),
     type: downloader.type,
     enabled: downloader.enabled,
     priority: downloader.priority,
@@ -388,7 +408,7 @@ export async function buildDiagnosticsSnapshot(
 // Field names above deliberately avoid `apiKey`/`password`/`token`/`secret`:
 // the final scrubPii pass would rewrite them as secrets and corrupt the JSON.
 export const DIAGNOSTICS_BEGIN =
-  "=== QUESTARR DIAGNOSTICS (no hostnames, addresses or credentials) ===";
+  "=== QUESTARR DIAGNOSTICS (hosts, addresses, paths and credentials removed) ===";
 export const DIAGNOSTICS_END = "=== END DIAGNOSTICS ===";
 
 /** Renders the snapshot as a text block that precedes the logs in a submission. */

@@ -23,6 +23,14 @@ describe("redactSecretText", () => {
     expect(redactSecretText(result)).toBe(result);
   });
 
+  it("keeps closing delimiters when the secret value is not a string", () => {
+    for (const value of ["null", "12345", "true"]) {
+      const result = redactSecretText(`{"n":1,"token":${value}}`);
+      expect(JSON.parse(result)).toEqual({ n: 1, token: "[redacted]" });
+    }
+    expect(redactSecretText('["secret=abc"]')).toBe('["secret=[redacted]"]');
+  });
+
   it("redacts Bearer tokens", () => {
     const input = "Authorization header was Bearer eyJhbGciOiJIUzI1NiJ9.abc.def";
     expect(redactSecretText(input)).toBe("Authorization header was Bearer [redacted]");

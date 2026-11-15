@@ -20,6 +20,8 @@ import {
   describeEndpoint,
   describeSecret,
   formatDiagnosticsBlock,
+  sanitizeName,
+  scrubFreeText,
   summarizeErrors,
 } from "../diagnostics.js";
 
@@ -68,6 +70,18 @@ describe("strict endpoint parsing", () => {
       "invalid"
     );
     expect(describeEndpoint("192.168.1.20:9696/1/api").scheme).toBe("http");
+  });
+});
+
+describe("free text scrubbing", () => {
+  it("removes hosts and paths that scrubPii leaves behind", () => {
+    const text = scrubFreeText(
+      "getaddrinfo ENOTFOUND downloads.private.example; open /mnt/private/library failed; GET https://idx.private.example/api"
+    );
+    expect(text).not.toContain("private.example");
+    expect(text).not.toContain("/mnt/private");
+    expect(sanitizeName("NZBgeek")).toBe("NZBgeek");
+    expect(sanitizeName("idx.private.example")).toBe("[host-like name]");
   });
 });
 

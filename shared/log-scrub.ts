@@ -53,7 +53,7 @@ export function redactSecretText(value: string): string {
  * string or a bare run of non-delimiter characters.
  */
 const SECRET_FIELD_RE =
-  /(["']?)\b(apikey|api[_-]?key|token|password|secret)\1(\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^"',\s&]+)/gi;
+  /(["']?)\b(apikey|api[_-]?key|token|password|secret)\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|[^"',\s&}]+)/gi;
 
 // ── PII patterns ──────────────────────────────────────────────────────────────
 

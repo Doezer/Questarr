@@ -95,9 +95,13 @@ export async function sendLogs(payload: SendLogsPayload): Promise<SendLogsResult
  * (`GET /api/diagnostics`). Returns an empty string on any failure so a log
  * submission is never blocked by the extra context.
  */
+const DIAGNOSTICS_TIMEOUT_MS = 5000;
+
 export async function fetchDiagnosticsReport(): Promise<string> {
   try {
-    const response = await apiFetch("/api/diagnostics");
+    const response = await apiFetch("/api/diagnostics", {
+      signal: AbortSignal.timeout(DIAGNOSTICS_TIMEOUT_MS),
+    });
     if (!response.ok) return "";
     const data = (await response.json()) as { report?: unknown };
     return typeof data.report === "string" ? scrubPii(data.report) : "";

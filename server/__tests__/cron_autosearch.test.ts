@@ -832,6 +832,52 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
     });
 
+    it.each(["unpacking", "completed_pending_import", "manual_review_required"])(
+      "waits while a download of the game is %s",
+      async (status) => {
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status, downloadTitle: "Test.Game.v1.1-CODEX" },
+        ]);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      }
+    );
+
+    it("does not take a release again once it was downloaded", async () => {
+      // The download finished but the installed version did not move (import off, say).
+      mockGetDownloadsByGameId.mockResolvedValue([
+        { status: "completed", downloadTitle: NEWER_FULL.title },
+      ]);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("downloads an update patch that starts from the installed version", async () => {
+      const PATCH = release("Test.Game.Update.v1.0.to.v1.2-CODEX");
+      searchReturns(PATCH);
+      // The legacy check reads the patch as an update: expected here, so it is not held.
+      mockIsConfigured.mockResolvedValueOnce(true);
+      mockAnalyzeRelease.mockResolvedValueOnce({
+        releaseType: "update",
+        releaseTypeConfidence: 0.95,
+        legitimacyScore: null,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ url: PATCH.link })
+      );
+      expect(mockAddGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ gameId: ownedGame.id, category: "update" })
+      );
+    });
+
     it("does not retry a release that already failed for the game", async () => {
       mockGetDownloadsByGameId.mockResolvedValue([
         { status: "failed", downloadTitle: NEWER_FULL.title },
@@ -3462,6 +3508,17 @@ describe("auto-download hold with the classification pipeline", () => {
     classification.holdUnknown = false;
   });
   afterEach(() => Object.assign(classification, original));
+
+  it("lets an expected patch through, and still holds the rest", async () => {
+    mockClassify.mockResolvedValue({ confidence: 0.9, path: ["rules"], class: "patch" });
+    expect(
+      await getAiAutoDownloadHoldReason(item, null, "Test Game", { allowPatch: true })
+    ).toBeNull();
+    mockClassify.mockResolvedValue({ confidence: 0.9, path: ["rules"], class: "dlc" });
+    expect(
+      await getAiAutoDownloadHoldReason(item, null, "Test Game", { allowPatch: true })
+    ).toMatch(/as "dlc"/);
+  });
 
   it("keeps the Jev-only check, and skips the pipeline, in cloud mode", async () => {
     classification.mode = "cloud";

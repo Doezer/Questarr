@@ -15,7 +15,7 @@ import {
   type SearchItem,
 } from "./search.js";
 import { config } from "./config.js";
-import { pipelineHoldReason } from "./classification/hold.js";
+import { pipelineHoldReason, type HoldOptions } from "./classification/hold.js";
 import { autoShareVerifiedLabels } from "./classification/share.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
@@ -190,11 +190,12 @@ const AI_AUTO_DOWNLOAD_LEGITIMACY_THRESHOLD = 0.5;
 export async function getAiAutoDownloadHoldReason(
   item: Pick<SearchItem, "title" | "size">,
   platform: string | null,
-  gameTitle?: string
+  gameTitle?: string,
+  options: HoldOptions = {}
 ): Promise<string | null> {
   // `cloud` (the legacy mode) keeps the Jev-only check below untouched
   if (config.classification.mode !== "cloud") {
-    return pipelineHoldReason(item, platform, gameTitle);
+    return pipelineHoldReason(item, platform, gameTitle, options);
   }
   let analysis: Awaited<ReturnType<typeof typesafeClient.analyzeRelease>>;
   try {
@@ -219,6 +220,7 @@ export async function getAiAutoDownloadHoldReason(
   if (
     analysis.releaseType &&
     AI_AUTO_DOWNLOAD_BLOCK_TYPES.has(analysis.releaseType) &&
+    !(options.allowPatch && analysis.releaseType === "update") &&
     (analysis.releaseTypeConfidence ?? 0) >= AI_AUTO_DOWNLOAD_TYPE_CONFIDENCE_THRESHOLD
   ) {
     return `AI classified this release as "${analysis.releaseType}" rather than the full game`;
@@ -1958,8 +1960,24 @@ async function releaseAlreadyFailedForGame(gameId: string, releaseTitle: string)
   );
 }
 
-/** A download that has not finished yet: an automatic upgrade waits for it. */
-const IN_FLIGHT_DOWNLOAD_STATUSES = new Set(["downloading", "paused"]);
+/**
+ * Statuses of a download nothing more will happen to. Any other one (downloading, paused,
+ * unpacking, waiting for import or for a manual review) may still change what is installed, so
+ * an automatic upgrade waits for it.
+ */
+const SETTLED_DOWNLOAD_STATUSES = new Set(["completed", "imported", ...FAILED_DOWNLOAD_STATUSES]);
+
+/**
+ * Whether the release was already sent to a downloader for the game, whatever became of it.
+ * An automatic upgrade never takes the same release twice: when the installed version did not
+ * move after a download (import off, version not detected), the next cycle would otherwise
+ * prove it "newer" again and download it over and over.
+ */
+async function releaseAlreadyGrabbedForGame(gameId: string, releaseTitle: string) {
+  const key = normalizeTitle(releaseTitle);
+  const downloads = await storage.getDownloadsByGameId(gameId);
+  return downloads.some((d) => normalizeTitle(d.downloadTitle) === key);
+}
 
 interface AutoUpgradeInput {
   game: Pick<Game, "id" | "title" | "installedVersion">;
@@ -1986,8 +2004,9 @@ export async function decideAutoUpgrade({
   const ranked = rankAutoDownloadCandidates([...mainItems, ...updateItems], indexerPriorityMap);
   const candidates = [];
   for (const item of ranked) {
-    // A release that failed before is not tried again; the next best one may still qualify.
-    if (await releaseAlreadyFailedForGame(game.id, item.title)) continue;
+    // A release that was grabbed before (failed or not) is not taken again; the next best one
+    // may still qualify.
+    if (await releaseAlreadyGrabbedForGame(game.id, item.title)) continue;
     candidates.push({
       item,
       title: item.title,
@@ -2006,7 +2025,7 @@ export async function decideAutoUpgrade({
 async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
   const { game, userId, prefs } = input;
   const downloads = await storage.getDownloadsByGameId(game.id);
-  if (downloads.some((d) => IN_FLIGHT_DOWNLOAD_STATUSES.has(d.status))) {
+  if (downloads.some((d) => !SETTLED_DOWNLOAD_STATUSES.has(d.status))) {
     igdbLogger.debug({ gameTitle: game.title }, "Auto-upgrade waits: a download is in progress");
     return false;
   }
@@ -2025,7 +2044,10 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
   }
 
   const item = decision.candidate.item;
-  const holdReason = await getAiAutoDownloadHoldReason(item, input.platform, game.title);
+  // A patch decideUpgrade picked is meant to be a patch: only the other hold reasons apply.
+  const holdReason = await getAiAutoDownloadHoldReason(item, input.platform, game.title, {
+    allowPatch: decision.patch,
+  });
   if (holdReason) {
     igdbLogger.info(
       { gameTitle: game.title, releaseTitle: item.title, reason: holdReason },

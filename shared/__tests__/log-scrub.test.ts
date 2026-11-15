@@ -84,4 +84,17 @@ describe("scrubPii", () => {
       expect(out).not.toMatch(/hunter2|zzz|"x\\"/);
     }
   });
+
+  it("redacts secrets in a stringified JSON body embedded in a log message", () => {
+    const lines = [
+      String.raw`{"msg":"body {\"password\":\"hunter2\"} x"}`,
+      String.raw`{"msg":"body {\"token\":12345,\"a\":1} x"}`,
+    ];
+    for (const line of lines) {
+      const out = redactSecretText(line);
+      expect(() => JSON.parse(out)).not.toThrow();
+      expect(out).toContain("[redacted]");
+      expect(out).not.toMatch(/hunter2|12345/);
+    }
+  });
 });

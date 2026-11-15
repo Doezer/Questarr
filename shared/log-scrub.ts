@@ -35,6 +35,13 @@ export function redactSecretText(value: string): string {
       // in an NDJSON line: swallow the whole escaped value, quotes included, so the
       // enclosing string keeps balanced quotes and the line stays valid JSON.
       .replace(ESCAPED_QUOTE_SECRET_RE, "$1[redacted]")
+      // Same idea for a stringified JSON body inside a message (`{\"password\":\"x\"}`):
+      // the key is escaped-quoted too. Keep the escapes so the line stays valid JSON.
+      .replace(
+        ESCAPED_KEY_SECRET_RE,
+        (_match, quote: string, key: string, separator: string) =>
+          `${quote}${key}${quote}${separator}\\"[redacted]\\"`
+      )
       .replace(SECRET_FIELD_RE, (_match, quote: string, key: string, separator: string) =>
         // A quoted key means the text is JSON/JS-object shaped (e.g. an NDJSON log
         // line): keep it valid by replacing only the value. Plain `key=value` text
@@ -53,6 +60,9 @@ export function redactSecretText(value: string): string {
 
 const ESCAPED_QUOTE_SECRET_RE =
   /(\b(?:apikey|api[_-]?key|token|password|secret)\b\s*[:=]\s*)\\(["'])(?:(?!\\\2).)*\\\2/gi;
+
+const ESCAPED_KEY_SECRET_RE =
+  /(\\["'])\b(apikey|api[_-]?key|token|password|secret)\b\1(\s*[:=]\s*)(?:\\(["'])(?:(?!\\\4).)*\\\4|[^"',\s&}\\]+)/gi;
 
 /**
  * `key: value` / `key=value` pairs whose key names a secret. Groups: the optional

@@ -194,6 +194,26 @@ describe("GamePlaytime", () => {
     expect(new Date(body.splitAt).getTime()).toBe(target.getTime());
   });
 
+  it("splits at the exact midpoint when the cut is left alone", async () => {
+    const session = {
+      ...finished("s-1", 2, 3),
+      startedAt: new Date(Date.UTC(2026, 9, 3, 10, 0, 45)).toISOString(),
+      endedAt: new Date(Date.UTC(2026, 9, 3, 10, 2, 45)).toISOString(),
+    };
+    mockSessions([session]);
+    renderPlaytime();
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Split the / }));
+    await screen.findByLabelText("Cut at");
+    const split = screen.getByRole("button", { name: "Split" });
+    expect(split).toBeEnabled();
+    fireEvent.click(split);
+
+    await waitFor(() => expect(apiRequest).toHaveBeenCalled());
+    const body = apiRequest.mock.calls[0]?.[2] as { splitAt: string };
+    expect(body.splitAt).toBe(new Date(Date.UTC(2026, 9, 3, 10, 1, 45)).toISOString());
+  });
+
   it("merges the selected sessions", async () => {
     mockSessions([finished("s-1", 90, 3), finished("s-2", 30, 2)]);
     renderPlaytime();

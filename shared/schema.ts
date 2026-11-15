@@ -1032,7 +1032,8 @@ export const updatePlaySessionSchema = z
   .object({
     startedAt: z.coerce.date().optional(),
     endedAt: z.coerce.date().optional(),
-    durationMinutes: z.coerce
+    // JSON only: coercion would turn `true` into 1.
+    durationMinutes: z
       .number()
       .int()
       .min(1)

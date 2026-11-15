@@ -79,9 +79,7 @@ describe("Postgres transactional ops", () => {
   });
 
   it("replaceGamePlaySessions merges editable sessions and rolls back when one is imported", async () => {
-    // The earlier tests already created the first user.
-    const [user] = await storage().getAllUsers();
-    if (!user) throw new Error("expected a user");
+    const user = await storage().createUser({ username: "merge-owner", passwordHash: "h" });
     const game = await storage().addGame({
       title: "Merged",
       status: "playing",

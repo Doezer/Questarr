@@ -310,6 +310,12 @@ describe("Play session routes", () => {
       expect(times?.endedAt.toISOString()).toBe("2026-11-04T21:00:00.000Z");
     });
 
+    it.each([true, "90", null])("rejects a non-number duration %j", async (durationMinutes) => {
+      vi.mocked(storage.getGamePlaySessions).mockResolvedValue([finished()]);
+      expect((await patch({ durationMinutes })).status).toBe(400);
+      expect(storage.updateGamePlaySession).not.toHaveBeenCalled();
+    });
+
     it("applies a new duration from the start", async () => {
       vi.mocked(storage.getGamePlaySessions).mockResolvedValue([finished()]);
       const response = await patch({ durationMinutes: 150 });

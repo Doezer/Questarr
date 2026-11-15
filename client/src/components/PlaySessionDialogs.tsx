@@ -156,7 +156,11 @@ export function SplitSessionDialog({
     setCut(toLocalInput(new Date(middle)));
   }, [session]);
 
-  const cutDate = fromLocalInput(cut);
+  // The input only shows minutes: left alone, the cut keeps its exact midpoint.
+  const middleDate =
+    session?.endedAt &&
+    new Date((new Date(session.startedAt).getTime() + new Date(session.endedAt).getTime()) / 2);
+  const cutDate = middleDate && cut === toLocalInput(middleDate) ? middleDate : fromLocalInput(cut);
   const startMs = session ? new Date(session.startedAt).getTime() : 0;
   const endMs = session?.endedAt ? new Date(session.endedAt).getTime() : 0;
   let problem: string | null = null;

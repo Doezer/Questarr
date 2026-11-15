@@ -208,6 +208,8 @@ describe("title-utils", () => {
       expect(parseReleaseMetadata("Game Switch 2 NSP-GROUP").platform).toBe("Switch 2");
       expect(parseReleaseMetadata("Game Switch2 NSP-GROUP").platform).toBe("Switch 2");
       expect(cleanReleaseName("Game.NintendoSwitch2.NSP-GROUP")).toBe("Game");
+      expect(cleanReleaseName("Game.N64-GROUP")).toBe("Game");
+      expect(cleanReleaseName("Game.Nintendo.64-GROUP")).toBe("Game");
       expect(cleanReleaseName("The Legend of Zelda Ocarina of Time Switch 2 NSP")).toBe(
         "The Legend of Zelda Ocarina of Time"
       );

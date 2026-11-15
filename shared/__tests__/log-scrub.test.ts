@@ -99,9 +99,14 @@ describe("scrubPii", () => {
   });
 
   it("redacts quoted secret values that never close, raw and JSON-escaped", () => {
-    const raw = ['login failed password="hunter2', "login failed token='abc123"];
+    const raw = [
+      'login failed password="hunter2',
+      "login failed token='abc123",
+      `login failed password="hunter'secret`,
+      `login failed token='abc"123`,
+    ];
     for (const text of raw) {
-      expect(redactSecretText(text)).not.toMatch(/hunter2|abc123/);
+      expect(redactSecretText(text)).not.toMatch(/hunter|abc|secret|123/);
     }
     const escaped = [
       String.raw`{"msg":"login failed password=\"hunter2"}`,

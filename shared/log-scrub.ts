@@ -64,7 +64,7 @@ const ESCAPED_QUOTE_SECRET_RE =
 
 /** A quoted value that never closes (`password="hunter2`): redact up to the next quote. */
 const UNTERMINATED_SECRET_RE =
-  /(\b(?:apikey|api[_-]?key|token|password|secret)\b\s*[:=]\s*)["'][^"'\\}]+/gi;
+  /(\b(?:apikey|api[_-]?key|token|password|secret)\b\s*[:=]\s*)(["'])(?:(?!\2|"\s*[,}\]])[^\\}])+/gi;
 
 const ESCAPED_KEY_SECRET_RE =
   /(\\["'])\b(apikey|api[_-]?key|token|password|secret)\b\1(\s*[:=]\s*)(?:\\(["'])(?:(?!\\\4).)*\\\4|[^"',\s&}\\]+)/gi;

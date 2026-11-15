@@ -948,7 +948,7 @@ describe("Cron - checkAutoSearch", () => {
         });
       const installedDownload = (title = INSTALLED.title) =>
         mockGetDownloadsByGameId.mockResolvedValue([
-          { status: "completed", downloadTitle: title, category: null, completedAt: new Date(1) },
+          { status: "completed", downloadTitle: title, category: null, addedAt: new Date(1) },
         ]);
 
       beforeEach(() => {
@@ -991,6 +991,34 @@ describe("Cron - checkAutoSearch", () => {
 
       it("needs the minimum score gain", async () => {
         withRules({ upgradeCutoffScore: 150, upgradeMinScoreGain: 20 });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("takes the newest import as the installed release", async () => {
+        // An earlier swap: the CODEX release replaced the repack and both are imported, which
+        // clears completedAt. The repack must not count as installed again.
+        withRules({ upgradeCutoffScore: 150 });
+        const OTHER = release("Test.Game.v1.0-RUNE");
+        searchReturns(OTHER, BETTER, INSTALLED);
+        mockGetDownloadsByGameId.mockResolvedValue([
+          {
+            status: "imported",
+            downloadTitle: BETTER.title,
+            category: null,
+            addedAt: new Date(2),
+            completedAt: null,
+          },
+          {
+            status: "imported",
+            downloadTitle: INSTALLED.title,
+            category: null,
+            addedAt: new Date(1),
+            completedAt: null,
+          },
+        ]);
 
         await checkAutoSearch();
 

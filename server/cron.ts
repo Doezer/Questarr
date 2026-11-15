@@ -2029,7 +2029,7 @@ interface AutoUpgradeInput {
  */
 function installedReleaseScore(
   installedVersion: string | null | undefined,
-  downloads: readonly Pick<GameDownload, "status" | "downloadTitle" | "category" | "completedAt">[],
+  downloads: readonly Pick<GameDownload, "status" | "downloadTitle" | "category" | "addedAt">[],
   ranked: readonly SearchItem[]
 ): number | null {
   let installed: (typeof downloads)[number] | null = null;
@@ -2037,8 +2037,10 @@ function installedReleaseScore(
     if (download.status !== "completed" && download.status !== "imported") continue;
     const category = download.category ?? categorizeDownload(download.downloadTitle).category;
     if (category !== "main") continue;
-    const at = download.completedAt?.getTime() ?? 0;
-    if (installed === null || at >= (installed.completedAt?.getTime() ?? 0)) installed = download;
+    // addedAt, not completedAt: the latter is cleared when a download becomes "imported".
+    // Downloads come newest first, so the first one wins a tie.
+    const at = download.addedAt?.getTime() ?? 0;
+    if (installed === null || at > (installed.addedAt?.getTime() ?? 0)) installed = download;
   }
   if (!installed) return null;
 

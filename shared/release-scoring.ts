@@ -244,7 +244,6 @@ const EDITION_TOKENS = new Set([
   "definitive",
   "remastered",
   "remaster",
-  "remake",
   "enhanced",
   "anniversary",
   "directors",

@@ -830,9 +830,12 @@ describe("platform and edition words in titles", () => {
     "The Legend of Zelda Ocarina of Time Nintendo Switch 2",
     "The Legend of Zelda Ocarina of Time N64",
     "The Legend of Zelda Ocarina of Time Nintendo 64",
-    "The Legend of Zelda Ocarina of Time Remake",
   ])("treats %s as the game itself", (name) => {
     expect(classifyTitleMatch(name, zelda)).toBe("exact");
+  });
+
+  it("keeps a remake apart from the original game", () => {
+    expect(classifyTitleMatch("Final Fantasy VII Remake", "Final Fantasy VII")).not.toBe("exact");
   });
 
   it("still sees a real extra word next to the platform", () => {

@@ -81,7 +81,14 @@ describe("free text scrubbing", () => {
     expect(text).not.toContain("private.example");
     expect(text).not.toContain("/mnt/private");
     expect(sanitizeName("NZBgeek")).toBe("NZBgeek");
-    expect(sanitizeName("idx.private.example")).toBe("[host-like name]");
+    expect(sanitizeName("idx.private.example")).toBe("[host]");
+    expect(sanitizeName("Indexer idx.private.example")).toBe("Indexer [host]");
+    expect(scrubFreeText("Failed to resolve hostname: downloads.private.example")).toBe(
+      "Failed to resolve hostname: [host]"
+    );
+    expect(scrubFreeText("cannot read /mnt and/or HTTP/1.1")).toBe(
+      "cannot read [path] and/or HTTP/1.1"
+    );
   });
 });
 

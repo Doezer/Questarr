@@ -26,7 +26,7 @@ describe("canonicalPlatformsForIgdbIds", () => {
   });
 
   it("ignores ids with no release label and dedupes", () => {
-    expect(canonicalPlatformsForIgdbIds([508, 130, 130])).toEqual(["Switch"]);
+    expect(canonicalPlatformsForIgdbIds([9999, 130, 130])).toEqual(["Switch"]);
   });
 
   it("treats a non-array payload as an empty selection", () => {
@@ -80,7 +80,7 @@ describe("matchesSelectedIgdbPlatform", () => {
   });
 
   it("does not hide everything when the selection has no release label", () => {
-    expect(matchesSelectedIgdbPlatform("Switch", [508])).toBe(true);
+    expect(matchesSelectedIgdbPlatform("Switch", [9999])).toBe(true);
   });
 
   it("treats a non-array selection as no restriction", () => {
@@ -99,13 +99,20 @@ describe("matchesSelectedIgdbPlatform", () => {
   });
 
   it("keeps untagged releases when part of the selection has no release label", () => {
-    expect(matchesSelectedIgdbPlatform(undefined, [508, 130])).toBe(true);
-    expect(matchesSelectedIgdbPlatform("PS5", [508, 130])).toBe(false);
+    expect(matchesSelectedIgdbPlatform(undefined, [9999, 130])).toBe(true);
+    expect(matchesSelectedIgdbPlatform("PS5", [9999, 130])).toBe(false);
   });
 
   it("keeps a Switch 2 release when Switch 2 is selected alongside another console", () => {
     const platform = parseReleaseMetadata("Game.Nintendo.Switch.2-GROUP").platform;
     expect(matchesSelectedIgdbPlatform(platform, [508, 5])).toBe(true);
+  });
+
+  it("labels Switch 2 releases so the platform filter can match them", () => {
+    expect(canonicalPlatformsForIgdbIds([508])).toEqual(["Switch 2"]);
+    expect(matchesSelectedIgdbPlatform("Switch 2", [508])).toBe(true);
+    expect(matchesSelectedIgdbPlatform("Switch", [508])).toBe(false);
+    expect(matchesSelectedIgdbPlatform("Switch 2", [130])).toBe(false);
   });
 
   it("keeps Super Famicom releases when SNES is selected", () => {

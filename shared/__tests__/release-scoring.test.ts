@@ -820,3 +820,29 @@ describe("classifyTitleMatch on the labeled release dataset (Questarr-mgmt #64)"
     expect(["mismatch", "sequel"]).not.toContain(classifyTitleMatch(release, game));
   });
 });
+
+describe("platform and edition words in titles", () => {
+  const zelda = "The Legend of Zelda: Ocarina of Time";
+  it.each([
+    "The Legend of Zelda Ocarina of Time Switch",
+    "The Legend of Zelda Ocarina of Time Switch 2",
+    "The Legend of Zelda, Ocarina of Time Switch 2 [NSP]",
+    "The Legend of Zelda Ocarina of Time Nintendo Switch 2",
+    "The Legend of Zelda Ocarina of Time N64",
+    "The Legend of Zelda Ocarina of Time Nintendo 64",
+    "The Legend of Zelda Ocarina of Time Nintendo64",
+    "The Legend of Zelda Ocarina of Time NintendoSwitch2",
+  ])("treats %s as the game itself", (name) => {
+    expect(classifyTitleMatch(name, zelda)).toBe("exact");
+  });
+
+  it("keeps a remake apart from the original game", () => {
+    expect(classifyTitleMatch("Final Fantasy VII Remake", "Final Fantasy VII")).not.toBe("exact");
+  });
+
+  it("still sees a real extra word next to the platform", () => {
+    expect(
+      classifyTitleMatch("The Legend of Zelda Ocarina of Time Master Quest Switch 2", zelda)
+    ).toBe("spinoff");
+  });
+});

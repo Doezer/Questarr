@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Auto-download the best-scored release**: with **Settings → Discovery & Downloads → Download Rules → Auto-download the best-scored release** switched on, auto-download no longer stops when several releases remain for a wanted game: it takes the one your scoring profile ranks first, skipping a release that already failed for that game. Off by default, so the "Multiple Results Found" notification is unchanged until you opt in; it needs an active scoring profile and auto-download.
 - **Finish-by goal**: pick a target day for a game in its **Playtime** section and Questarr compares it with the IGDB Time to Beat and your pace of the last 14 days (**On track**, **Behind**, **Overdue** or **Done**, with the time left and the time needed per day). The **Statistics** page lists every unfinished game with a goal, soonest first. See [Play time](PLAY_TIME.md#finish-by-goals) (#1351).
 - **Installed version detection**: a scan and an import now read the installed version of a game from `version.txt`, a GOG `goggame-*.info`, a Steam `appmanifest_*.acf` or an `.nfo` file, and the game page shows where the version comes from. A version you typed yourself is kept until a strictly newer download replaces it (#1342).
 - **Admin API keys on more integration routes**: an `admin`-scope API key can now call the integration ping and library read routes (#1357).
@@ -35,6 +36,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Switch 2, Nintendo 64 and remake releases**: Switch 2 is now a platform of its own, `Nintendo 64`/`N64` markers are read as a platform, and a remake is kept distinct from the original game, so these releases are no longer scored as title spinoffs of another game (#1345, #1356).
 - **xREL checks**: a malformed xREL response is treated as unavailable, never as an empty result (#1305). A release missing from a full, truncated xREL list is reported as unknown instead of not found (#1309). xREL results are kept across long auto-search intervals and large wanted lists (#1307). The trust badge says that p2p releases cannot be checked for nukes (#1306).
 - **Large archive imports**: archive listings are streamed, so valid archives with a long file list no longer fail on a size limit (#1300, thanks @JEFF7712).
 - **Path checks**: the sensitive-path guard also rejects Windows system paths, the `ADMIN$` share and the macOS `/private/etc` alias, and SeerrNG assets are validated against your real library roots (#1304).

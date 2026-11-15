@@ -53,6 +53,7 @@ const DEFAULT_RULES: DownloadRules = {
   sortBy: "seeders",
   visibleCategories: ["main", "update", "dlc", "extra", "packs"],
   hideRejected: true,
+  autoPickBest: false,
 };
 
 export default function AutoDownloadRulesSettings({
@@ -68,6 +69,7 @@ export default function AutoDownloadRulesSettings({
     rules?.sortBy ?? "seeders"
   );
   const [hideRejected, setHideRejected] = useState<boolean>(rules?.hideRejected ?? true);
+  const [autoPickBest, setAutoPickBest] = useState<boolean>(rules?.autoPickBest ?? false);
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
     new Set(
       (rules?.visibleCategories ?? [
@@ -109,6 +111,7 @@ export default function AutoDownloadRulesSettings({
     setMinSeeders(source.minSeeders);
     setSortBy(source.sortBy);
     setHideRejected(source.hideRejected);
+    setAutoPickBest(source.autoPickBest ?? false);
 
     // Only update set if the content has changed to avoid infinite loop
     setVisibleCategories((prev) => {
@@ -127,8 +130,9 @@ export default function AutoDownloadRulesSettings({
       sortBy,
       visibleCategories: Array.from(visibleCategories),
       hideRejected,
+      autoPickBest,
     });
-  }, [minSeeders, sortBy, visibleCategories, hideRejected, onChange]);
+  }, [minSeeders, sortBy, visibleCategories, hideRejected, autoPickBest, onChange]);
 
   const handleCategoryChange = (category: DownloadCategory) => {
     setVisibleCategories((prev) => {
@@ -233,6 +237,24 @@ export default function AutoDownloadRulesSettings({
             </label>
           </div>
 
+          {/* Best release among several */}
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id="autoPickBest"
+              checked={autoPickBest}
+              onCheckedChange={(checked) => setAutoPickBest(checked === true)}
+              className="mt-1"
+            />
+            <label htmlFor="autoPickBest" className="flex-1 cursor-pointer text-sm leading-tight">
+              <div className="font-medium">Auto-download the best-scored release</div>
+              <div className="text-xs text-muted-foreground">
+                When auto-download finds several releases for a wanted game, take the one your
+                scoring profile ranks first. Off: it only downloads when a single release is left,
+                and asks you to choose otherwise.
+              </div>
+            </label>
+          </div>
+
           {/* Categories */}
           <div className="space-y-2">
             <Label className="text-sm font-medium">Content Types to Show</Label>
@@ -280,6 +302,7 @@ export default function AutoDownloadRulesSettings({
                 sortBy,
                 visibleCategories: Array.from(visibleCategories),
                 hideRejected,
+                autoPickBest,
               };
               saveRulesMutation.mutate(rulesToSave);
             }}

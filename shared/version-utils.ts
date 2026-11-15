@@ -30,9 +30,10 @@ const V_VERSION = new RegExp(
   "i"
 );
 const V_VERSION_ALL = new RegExp(V_VERSION.source, "gi");
-// "Build 12345", "Build.12345", "build_12345"
+// "Build 12345", "Build.12345", "build_12345". A dotted build ("Build.1491.50") is not cut down
+// to its first number: it reads as no version.
 const BUILD_VERSION = new RegExp(
-  String.raw`${NOT_PRECEDED_BY_ALNUM}build[\s._-]?(\d+)${NOT_FOLLOWED_BY_ALNUM}`,
+  String.raw`${NOT_PRECEDED_BY_ALNUM}build[\s._-]?(\d+)${VERSION_END}`,
   "i"
 );
 // "Update.v2", "Update.1.05", "Patch 2.1.3" -- a version right after "Update" or "Patch". Without a "v" it
@@ -43,7 +44,7 @@ const UPDATE_VERSION = new RegExp(
 );
 // "Update.Build.5000" -- an update whose target is a build number.
 const UPDATE_BUILD_VERSION = new RegExp(
-  String.raw`${NOT_PRECEDED_BY_ALNUM}(?:update|patch)[\s._-]build[\s._-]?(\d+)${NOT_FOLLOWED_BY_ALNUM}`,
+  String.raw`${NOT_PRECEDED_BY_ALNUM}(?:update|patch)[\s._-]build[\s._-]?(\d+)${VERSION_END}`,
   "i"
 );
 

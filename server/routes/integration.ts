@@ -82,7 +82,7 @@ function toIntegrationGame(game: Game) {
 // real work, and surfaces the version pair in its own logs.
 integrationRouter.get(
   "/ping",
-  requireScope("library:write", "read", "requests"),
+  requireScope("library:write", "read", "requests", "admin"),
   (req: Request, res: Response) => {
     res.json({
       service: "questarr",
@@ -118,7 +118,7 @@ const libraryQuerySchema = z.object({
 
 integrationRouter.get(
   "/library",
-  requireScope("library:write", "read"),
+  requireScope("library:write", "read", "admin"),
   async (req: Request, res: Response) => {
     try {
       const parsed = libraryQuerySchema.safeParse(req.query);

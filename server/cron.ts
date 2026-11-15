@@ -59,6 +59,7 @@ import {
   type XrelPredbTypes,
 } from "./xrel-predb.js";
 import {
+  compareEvaluatedReleases,
   evaluateReleases,
   type ReleaseEvaluation,
   type XrelPredbEntry,
@@ -247,6 +248,53 @@ function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   }
 
   return { minSeeders, sortBy, visibleCategoriesSet };
+}
+
+/** Whether the user asked auto-download to take the best-scored release among several. */
+export function autoPickBestEnabled(downloadRules: string | null): boolean {
+  if (!downloadRules) return false;
+  try {
+    return downloadRulesSchema.parse(JSON.parse(downloadRules)).autoPickBest;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Games whose ranked releases all failed already, with the set of releases the user was asked
+ * to choose from. In memory: a restart asks once more at most, which beats never asking.
+ */
+const exhaustedPicks = new Map<string, string>();
+
+/** Identifies a set of releases whatever their order. */
+function picksSignature(ranked: readonly SearchItem[]): string {
+  return ranked
+    .map((item) => normalizeTitle(item.title))
+    .sort((a, b) => a.localeCompare(b))
+    .join("\n");
+}
+
+/** Test hook: forget which games were already reported as exhausted. */
+export function resetExhaustedPicks(): void {
+  exhaustedPicks.clear();
+}
+
+/**
+ * Orders the releases left for a wanted game the way the scorer ranks them (score, preferred
+ * protocol, indexer priority, torrent health), best first. Releases without an evaluation
+ * can't be ranked, so the result is empty unless every one has been scored.
+ */
+export function rankAutoDownloadCandidates(
+  items: SearchItem[],
+  indexerPriorityMap: Map<string, number>
+): SearchItem[] {
+  const scored = [];
+  for (const source of items) {
+    if (!source.evaluation) return [];
+    const indexerPriority = indexerPriorityMap.get(source.indexerId) ?? Number.MAX_SAFE_INTEGER;
+    scored.push({ item: { ...source, indexerPriority }, evaluation: source.evaluation, source });
+  }
+  return scored.sort(compareEvaluatedReleases).map(({ source }) => source);
 }
 
 function releaseHealth(item: SearchItem): number {
@@ -2046,11 +2094,50 @@ export async function checkAutoSearch() {
             // Always mark as available when filtered results exist
             await storage.updateGameSearchResultsAvailable(game.id, true);
 
-            if (mainItems.length === 1) {
-              // Single result found
+            // The release auto-download may take: the only one left, or, when the user opted
+            // in, the best-scored of several that has not already failed for this game.
+            let autoCandidate: SearchItem | undefined =
+              mainItems.length === 1 ? mainItems[0] : undefined;
+            // Set when every ranked release already failed and the user was not asked yet.
+            let exhaustedSignature: string | undefined;
+            if (
+              mainItems.length > 1 &&
+              scoring &&
+              settings.autoDownloadEnabled &&
+              autoPickBestEnabled(settings.downloadRules)
+            ) {
+              const ranked = rankAutoDownloadCandidates(mainItems, indexerPriorityMap);
+              for (const candidate of ranked) {
+                if (!(await releaseAlreadyFailedForGame(game.id, candidate.title))) {
+                  autoCandidate = candidate;
+                  break;
+                }
+              }
+              // Every candidate already failed: nothing is picked, so the user is asked to choose.
+              // Once per set of releases, also when the game already had results (a pick from
+              // an earlier cycle that failed since), which the availability transition misses.
+              if (!autoCandidate && ranked.length > 0) {
+                const signature = picksSignature(ranked);
+                if (exhaustedPicks.get(game.id) !== signature) exhaustedSignature = signature;
+              }
+              if (autoCandidate) {
+                igdbLogger.info(
+                  {
+                    gameTitle: game.title,
+                    releaseTitle: autoCandidate.title,
+                    score: autoCandidate.evaluation?.score,
+                    candidates: mainItems.length,
+                  },
+                  "Picked the best-scored release among several for auto-download"
+                );
+              }
+            }
+
+            if (autoCandidate) {
+              // A single release, or the pick among several
               if (settings.autoDownloadEnabled) {
                 // Auto-download if enabled
-                const item = mainItems[0];
+                const item = autoCandidate;
 
                 if (item) {
                   // Keyed by the same normalized title used to de-duplicate candidates
@@ -2202,7 +2289,11 @@ export async function checkAutoSearch() {
                   if (prefs.gameAvailable.apprise) void appriseClient.send(notification);
                 }
               }
-            } else if (mainItems.length > 1 && !wasAvailable && prefs.multipleResults.inApp) {
+            } else if (
+              mainItems.length > 1 &&
+              (!wasAvailable || exhaustedSignature !== undefined) &&
+              prefs.multipleResults.inApp
+            ) {
               // Multiple results found, notify user to choose
               const notification = await storage.addNotification({
                 userId,
@@ -2211,6 +2302,10 @@ export async function checkAutoSearch() {
                 message: `${mainItems.length} result(s) found for ${game.title}. Please review and choose.`,
                 link: `modal:game:${game.id}`,
               });
+              // Recorded once the notification is saved, so a failed write asks again next cycle.
+              if (exhaustedSignature !== undefined) {
+                exhaustedPicks.set(game.id, exhaustedSignature);
+              }
               notifyUser("notification", notification, notification.userId);
               if (prefs.multipleResults.apprise) void appriseClient.send(notification);
             }

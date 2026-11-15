@@ -1162,6 +1162,10 @@ export const downloadRulesSchema = z.object({
   // releases the scoring profile rejects (wrong title, nuked, below the minimum score) stay out
   // of the manual download dialog unless the user turns this off
   hideRejected: z.boolean().default(true),
+  // when auto-download is on and several releases remain for a wanted game, take the
+  // best-scored one instead of asking the user to choose. Off: only a single remaining
+  // release is downloaded.
+  autoPickBest: z.boolean().default(false),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;

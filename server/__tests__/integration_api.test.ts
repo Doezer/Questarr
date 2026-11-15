@@ -291,9 +291,30 @@ describe("integration API", () => {
       expect((await withKey(request(app).get("/api/games"))).status).toBe(401);
     });
 
-    it("refuses an admin key on integration routes it was not granted", async () => {
+    it("lets an admin key use the read routes, like a read key", async () => {
       keyOverrides = { scope: "admin" };
-      expect((await withKey(request(app).get("/api/integration/library"))).status).toBe(403);
+      (storage.getUserGames as Mock).mockResolvedValue([]);
+      (storage.getUserSettings as Mock).mockResolvedValue({});
+      expect((await withKey(request(app).get("/api/integration/ping"))).status).toBe(200);
+      expect((await withKey(request(app).get("/api/integration/library"))).status).toBe(200);
+    });
+
+    it("refuses an admin key on integration write routes", async () => {
+      keyOverrides = { scope: "admin" };
+      const sync = await withKey(
+        request(app)
+          .post("/api/integration/library/sync")
+          .send({ games: [{ title: "Hades" }] })
+      );
+      expect(sync.status).toBe(403);
+      expect(sync.body.code).toBe("API_KEY_SCOPE_DENIED");
+      expect(
+        (
+          await withKey(
+            request(app).post("/api/integration/games/request").send({ title: "Hades" })
+          )
+        ).status
+      ).toBe(403);
     });
 
     it("still serves a JWT session on configuration routes", async () => {

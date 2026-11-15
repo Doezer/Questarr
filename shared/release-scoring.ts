@@ -486,8 +486,8 @@ const TITLE_MATCH_RANK: Record<TitleMatch, number> = {
 function withGotyPhrase(normalized: string): string {
   return normalized
     .replaceAll(/\bgame of the year\b/g, "goty")
-    .replaceAll(/\b(?:nintendo )?switch ?2\b/g, "switch2")
-    .replaceAll(/\bnintendo 64\b/g, "n64");
+    .replaceAll(/\b(?:nintendo ?)?switch ?2\b/g, "switch2")
+    .replaceAll(/\bnintendo ?64\b/g, "n64");
 }
 
 function classifyAgainstTitle(

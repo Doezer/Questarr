@@ -830,6 +830,8 @@ describe("platform and edition words in titles", () => {
     "The Legend of Zelda Ocarina of Time Nintendo Switch 2",
     "The Legend of Zelda Ocarina of Time N64",
     "The Legend of Zelda Ocarina of Time Nintendo 64",
+    "The Legend of Zelda Ocarina of Time Nintendo64",
+    "The Legend of Zelda Ocarina of Time NintendoSwitch2",
   ])("treats %s as the game itself", (name) => {
     expect(classifyTitleMatch(name, zelda)).toBe("exact");
   });

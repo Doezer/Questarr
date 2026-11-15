@@ -89,8 +89,7 @@ export type UpgradeDecision<T> =
     }
   | { action: "none"; code: UpgradeNoneCode; skipped: SkippedUpgrade<T>[] };
 
-// A dotted number right after "Build" is a dotted build, which reads as no version.
-const VERSION_TOKEN = String.raw`v?\s?((?<!build[\s._-]?)\d+(?:\.\d+)+|(?<=v\s?)\d+)`;
+const VERSION_TOKEN = String.raw`v?\s?(\d+(?:\.\d+)+|(?<=v\s?)\d+)`;
 // "v1.0.to.v1.1", "1.0 to 1.1", "v1.0-v1.1" is not accepted (a dash also joins unrelated tags).
 const VERSION_RANGE = new RegExp(
   String.raw`(?<![a-z0-9])${VERSION_TOKEN}[\s._-]+to[\s._-]+v?\s?\d`,
@@ -98,11 +97,15 @@ const VERSION_RANGE = new RegExp(
 );
 const BUILD_RANGE = /(?<![a-z0-9])build[\s._-]?(\d+)[\s._-]+to[\s._-]+(?:build[\s._-]?)?\d/i;
 
+const DOTTED_BUILD = /(?<![a-z0-9])build[\s._-]?\d+\.\d/i;
+
 /**
  * The version an update patch starts from ("Game.Update.v1.0.to.v1.1" -> "v1.0",
  * "Update.Build.1000.to.1200" -> "Build 1000"), or null when the name gives no range.
  */
 export function extractPatchBaseVersion(releaseName: string): string | null {
+  // A dotted build ("Build.1491.50") reads as no version, and none of its parts is one either.
+  if (DOTTED_BUILD.test(releaseName)) return null;
   const range = VERSION_RANGE.exec(releaseName);
   if (range?.[1]) return `v${range[1]}`;
   const build = BUILD_RANGE.exec(releaseName);

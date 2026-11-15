@@ -58,6 +58,8 @@ describe("extractPatchBaseVersion", () => {
     ["Game.Update.Build.1000.to.1200-RUNE", "Build 1000"],
     ["Game.Update.v1.1-CODEX", null],
     ["Game.Update.Build.1491.50.to.1492.0-RUNE", null],
+    ["Game.Update.Build.1491.50.1.to.1492.0.0-RUNE", null],
+    ["Game.Update.Build 1491.50 to Build 1492.0", null],
     ["Road.to.Vostok.v1.0-RUNE", null],
     ["Game.v2.to.v3.Update", "v2"],
   ])("%s -> %s", (name, expected) => {

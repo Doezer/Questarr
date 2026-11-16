@@ -135,6 +135,9 @@ export const userSettings = pgTable("user_settings", {
   libraryRoot: text("library_root").notNull().default("/data"),
   autoDeleteAfterImport: boolean("auto_delete_after_import").notNull().default(false),
   sortExtras: boolean("sort_extras").notNull().default(false),
+  // What happens to the version already in the library when a new one is imported:
+  // "off" (kept), "archive" (moved to .questarr-replaced) or "delete".
+  upgradeReplaceMode: text("upgrade_replace_mode").notNull().default("off"),
   // Telemetry: opt-in, off by default. When enabled, automatically-detected server
   // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
   telemetryEnabled: boolean("telemetry_enabled").notNull().default(false),

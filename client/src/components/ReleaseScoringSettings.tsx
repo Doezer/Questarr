@@ -209,7 +209,7 @@ export default function ReleaseScoringSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle as="h2" className="flex items-center gap-2 text-lg">
           <Scale className="h-5 w-5" />
           Release Scoring
         </CardTitle>

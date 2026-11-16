@@ -198,7 +198,9 @@ function SettingsFilterCard({
       <CardHeader>
         <div className="flex items-center space-x-3">
           <Icon className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">{title}</CardTitle>
+          <CardTitle as="h2" className="text-lg">
+            {title}
+          </CardTitle>
         </div>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
@@ -632,7 +634,7 @@ export default function SettingsPage() {
     notifPrefSaveTimeoutRef.current = setTimeout(() => {
       updateSettingsMutation.mutate({
         updates: { notificationPreferences: JSON.stringify(updated) },
-        successMessage: "",
+        successMessage: "Your notification preferences have been saved.",
       });
     }, 500);
   };
@@ -1030,6 +1032,25 @@ export default function SettingsPage() {
   const isLoading = configLoading || settingsLoading;
   const error = configError;
 
+  // A link such as /settings?tab=integrations#igdb-config lands on the card it names. Runs
+  // once the tab content exists, which is after the loading branch below gives way. The
+  // history events cover a link followed while its tab is already open: only the hash
+  // changes then, so nothing here re-renders.
+  useEffect(() => {
+    if (isLoading) return;
+    const scrollToHash = () => {
+      const id = window.location.hash.slice(1);
+      if (!id) return;
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    };
+    scrollToHash();
+    const events = ["pushState", "replaceState", "hashchange"];
+    for (const event of events) window.addEventListener(event, scrollToHash);
+    return () => {
+      for (const event of events) window.removeEventListener(event, scrollToHash);
+    };
+  }, [isLoading, activeTab, search]);
+
   const handleSaveAutoSearch = () => {
     updateSettingsMutation.mutate({
       updates: {
@@ -1214,7 +1235,7 @@ export default function SettingsPage() {
     return (
       <div className="p-6">
         <div className="flex items-center space-x-2">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <div className="h-4 w-4 motion-safe:animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span>Loading configuration...</span>
         </div>
       </div>
@@ -1226,7 +1247,7 @@ export default function SettingsPage() {
       <div className="p-6">
         <Card>
           <CardHeader>
-            <CardTitle>Error Loading Configuration</CardTitle>
+            <CardTitle as="h2">Error Loading Configuration</CardTitle>
             <CardDescription>Failed to load configuration. Please try again later.</CardDescription>
           </CardHeader>
         </Card>
@@ -1356,7 +1377,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Monitor className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Theme</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Theme
+                  </CardTitle>
                 </div>
                 <CardDescription>Select the visual theme for Questarr</CardDescription>
               </CardHeader>
@@ -1416,7 +1439,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Search className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Auto-Search & Download</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Auto-Search & Download
+                  </CardTitle>
                 </div>
                 <CardDescription>
                   Automatically search for and download releases for wanted games
@@ -1454,7 +1479,9 @@ export default function SettingsPage() {
                         max="168"
                         value={searchIntervalHours}
                         onChange={(e) =>
-                          setSearchIntervalHours(Number.parseInt(e.target.value) || 6)
+                          setSearchIntervalHours(
+                            Math.min(168, Math.max(1, Number.parseInt(e.target.value) || 6))
+                          )
                         }
                         className="w-32"
                       />
@@ -1570,7 +1597,7 @@ export default function SettingsPage() {
                   >
                     {updateSettingsMutation.isPending ? (
                       <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
                       </>
                     ) : (
@@ -1605,12 +1632,14 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <Bell className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-lg">Apprise Push Notifications</CardTitle>
+                    <CardTitle as="h2" className="text-lg">
+                      Apprise Push Notifications
+                    </CardTitle>
                   </div>
                   {appriseSettings?.configured ? (
                     <Badge
                       variant="default"
-                      className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                      className="bg-emerald-500/20 text-emerald-800 in-[.dark]:text-emerald-400 border-emerald-500/30"
                     >
                       Connected
                     </Badge>
@@ -1820,7 +1849,9 @@ export default function SettingsPage() {
             {/* Notification Preferences Card */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Notification Preferences</CardTitle>
+                <CardTitle as="h2" className="text-lg">
+                  Notification Preferences
+                </CardTitle>
                 <CardDescription>
                   Control which events create notifications and where they are sent.
                 </CardDescription>
@@ -1925,7 +1956,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Gamepad2 className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Steam Integration</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Steam Integration
+                  </CardTitle>
                 </div>
                 <CardDescription>Sync your Steam wishlist and import owned games.</CardDescription>
               </CardHeader>
@@ -2028,7 +2061,7 @@ export default function SettingsPage() {
                       />
                       <Button
                         onClick={handleSaveSteamId}
-                        disabled={updateSteamIdMutation.isPending}
+                        disabled={updateSteamIdMutation.isPending || !steamIdInput.trim()}
                       >
                         {updateSteamIdMutation.isPending ? "Saving..." : "Save ID"}
                       </Button>
@@ -2094,7 +2127,7 @@ export default function SettingsPage() {
                     >
                       {updateSettingsMutation.isPending ? (
                         <>
-                          <RefreshCw className="h-4 w-4 animate-spin" />
+                          <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                           Saving...
                         </>
                       ) : (
@@ -2118,8 +2151,10 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
-                    <NexusModsIcon className="h-5 w-5 text-amber-500" />
-                    <CardTitle className="text-lg">Nexus Mods</CardTitle>
+                    <NexusModsIcon className="h-5 w-5 text-amber-500" aria-hidden="true" />
+                    <CardTitle as="h2" className="text-lg">
+                      Nexus Mods
+                    </CardTitle>
                   </div>
                   {nexusmodsSettings?.configured ? (
                     <Badge
@@ -2197,7 +2232,7 @@ export default function SettingsPage() {
                   >
                     {updateNexusMutation.isPending ? (
                       <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
                       </>
                     ) : (
@@ -2217,7 +2252,9 @@ export default function SettingsPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <Sparkles className="h-5 w-5 shrink-0 text-blue-500" />
-                    <CardTitle className="text-lg">AI Release Analysis (TypeSafe)</CardTitle>
+                    <CardTitle as="h2" className="text-lg">
+                      AI Release Analysis (TypeSafe)
+                    </CardTitle>
                     <Badge
                       variant="outline"
                       className="gap-1 border-amber-600/50 text-amber-700 in-[.dark]:border-amber-500/50 in-[.dark]:text-amber-500"
@@ -2350,7 +2387,9 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <Key className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-lg">IGDB API</CardTitle>
+                    <CardTitle as="h2" className="text-lg">
+                      IGDB API
+                    </CardTitle>
                     <IgdbHelpPopover />
                   </div>
                 </div>
@@ -2456,8 +2495,8 @@ export default function SettingsPage() {
                       Only increase if you experience slow loading times and are confident your
                       usage won&apos;t exceed the limit.
                     </p>
-                    <p className="text-amber-500">
-                      ⚠️ Setting too high may result in API blacklisting.
+                    <p className="text-amber-700 in-[.dark]:text-amber-500">
+                      Setting too high may result in API blacklisting.
                     </p>
                   </div>
                 </div>
@@ -2491,7 +2530,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Newspaper className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">xREL.to</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    xREL.to
+                  </CardTitle>
                 </div>
                 <CardDescription>
                   Alert when a wanted game appears on xREL.to (scene/P2P release list). API base URL
@@ -2560,7 +2601,7 @@ export default function SettingsPage() {
                   >
                     {saveXrelMutation.isPending ? (
                       <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
                       </>
                     ) : (
@@ -2585,7 +2626,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Server className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Maintenance</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Maintenance
+                  </CardTitle>
                 </div>
                 <CardDescription>Application maintenance and data management tasks</CardDescription>
               </CardHeader>
@@ -2633,7 +2676,7 @@ export default function SettingsPage() {
                       className="gap-2 w-full sm:w-auto shrink-0"
                     >
                       {refreshMetadataMutation.isPending ? (
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                       ) : (
                         <RefreshCw className="h-4 w-4" />
                       )}
@@ -2658,7 +2701,7 @@ export default function SettingsPage() {
                       className="gap-2 w-full sm:w-auto shrink-0"
                     >
                       {libraryHealthMutation.isPending ? (
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                       ) : (
                         <RefreshCw className="h-4 w-4" />
                       )}
@@ -2671,7 +2714,7 @@ export default function SettingsPage() {
                       <div className="mt-2 space-y-3 rounded-md border border-border p-3 text-xs">
                         {libraryHealthResult.drifted.length > 0 && (
                           <div>
-                            <p className="font-medium text-amber-500">
+                            <p className="font-medium text-amber-700 in-[.dark]:text-amber-500">
                               Drifted ({libraryHealthResult.drifted.length})
                             </p>
                             <ul className="mt-1 space-y-1 text-muted-foreground">
@@ -2685,7 +2728,7 @@ export default function SettingsPage() {
                         )}
                         {libraryHealthResult.orphaned.length > 0 && (
                           <div>
-                            <p className="font-medium text-amber-500">
+                            <p className="font-medium text-amber-700 in-[.dark]:text-amber-500">
                               Orphaned ({libraryHealthResult.orphaned.length})
                             </p>
                             <ul className="mt-1 space-y-1 text-muted-foreground">
@@ -2706,7 +2749,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Radio className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Telemetry</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Telemetry
+                  </CardTitle>
                 </div>
                 <CardDescription>
                   Help improve Questarr by automatically sharing diagnostic data when something goes
@@ -2721,12 +2766,12 @@ export default function SettingsPage() {
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       Off by default. When Questarr detects an unexpected server error, it will
-                      normally ask you first (see the &quot;Error Detected&quot; notification
-                      below). Turn this on to skip that prompt and send a scrubbed diagnostic report
-                      automatically instead — no personal data, IP addresses, or file paths are
-                      included. Reports help the maintainer catch bugs users don't otherwise report.
-                      You can still send a one-off report manually from the Logs page at any time,
-                      whatever this setting is.
+                      normally ask you first (see the &quot;Error Detected&quot; event in the
+                      Notifications tab). Turn this on to skip that prompt and send a scrubbed
+                      diagnostic report automatically instead — no personal data, IP addresses, or
+                      file paths are included. Reports help the maintainer catch bugs users don't
+                      otherwise report. You can still send a one-off report manually from the Logs
+                      page at any time, whatever this setting is.
                     </p>
                   </div>
                   <Switch
@@ -2743,7 +2788,7 @@ export default function SettingsPage() {
                   >
                     {updateSettingsMutation.isPending ? (
                       <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
                       </>
                     ) : (
@@ -2762,7 +2807,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Server className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Downloader Debug Logging</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Downloader Debug Logging
+                  </CardTitle>
                 </div>
                 <CardDescription>
                   Log downloader response status, headers, and body (up to 10KB) from download
@@ -2813,7 +2860,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Lock className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">SSL/HTTPS Configuration</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    SSL/HTTPS Configuration
+                  </CardTitle>
                 </div>
                 <CardDescription>
                   Configure secure access to Questarr. Requires server restart to apply changes.
@@ -2916,7 +2965,7 @@ export default function SettingsPage() {
 
                           {sslRedirectHttp && (
                             <Alert className="border-orange-500/50 bg-orange-500/10">
-                              <AlertCircle className="h-4 w-4 text-orange-500" />
+                              <AlertCircle className="h-4 w-4 text-orange-700 in-[.dark]:text-orange-500" />
                               <AlertTitle>HTTP Port Will Be Disabled</AlertTitle>
                               <AlertDescription>
                                 When HTTPS redirect is enabled, the HTTP port will be disabled on
@@ -2999,7 +3048,7 @@ export default function SettingsPage() {
                                 <p className="text-xs text-muted-foreground mb-2">
                                   Generate a self-signed certificate if you don't have one.
                                   <br />
-                                  <span className="text-amber-500 font-semibold">
+                                  <span className="text-amber-700 in-[.dark]:text-amber-500 font-semibold">
                                     Warning:
                                   </span>{" "}
                                   Browsers will show a security warning for self-signed

@@ -205,7 +205,9 @@ export default function ClassificationSettings() {
       <CardHeader>
         <div className="flex items-center space-x-3">
           <Sparkles className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">Release classification</CardTitle>
+          <CardTitle as="h2" className="text-lg">
+            Release classification
+          </CardTitle>
         </div>
         <CardDescription>
           Decides whether a release is the game itself or a patch, DLC, crack, demo or soundtrack

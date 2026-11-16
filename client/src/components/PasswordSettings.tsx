@@ -56,7 +56,9 @@ export default function PasswordSettings() {
       <CardHeader>
         <div className="flex items-center space-x-3">
           <Lock className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">Change Password</CardTitle>
+          <CardTitle as="h2" className="text-lg">
+            Change Password
+          </CardTitle>
         </div>
         <CardDescription>Update your account password</CardDescription>
       </CardHeader>
@@ -163,7 +165,7 @@ export default function PasswordSettings() {
             <Button type="submit" disabled={updatePasswordMutation.isPending} className="gap-2">
               {updatePasswordMutation.isPending ? (
                 <>
-                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                   Updating...
                 </>
               ) : (

@@ -196,14 +196,14 @@ export function PathMappingSettings() {
     selectedDownloaderValue = UNAVAILABLE_DOWNLOADER_VALUE;
   }
 
-  if (isLoading) return <Loader2 className="h-6 w-6 animate-spin" />;
+  if (isLoading) return <Loader2 className="h-6 w-6 motion-safe:animate-spin" />;
 
   return (
     <Card>
       <CardHeader>
         <div className="flex justify-between items-center">
           <div>
-            <CardTitle>Path Mappings</CardTitle>
+            <CardTitle as="h2">Path Mappings</CardTitle>
             <CardDescription>
               Translate download client paths to paths accessible by Questarr. Required when
               Questarr and your download client run on separate machines or containers with
@@ -285,7 +285,7 @@ export function PathMappingSettings() {
                   </div>
                 </div>
                 <Button className="w-full" onClick={handleSubmit} disabled={isSaving}>
-                  {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {isSaving && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
                   {editingMappingId ? "Save Changes" : "Create Mapping"}
                 </Button>
               </div>

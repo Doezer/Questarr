@@ -335,7 +335,9 @@ export default function ClassificationReviewSettings() {
       <CardHeader>
         <div className="flex items-center space-x-3">
           <ListChecks className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">Release classification review</CardTitle>
+          <CardTitle as="h2" className="text-lg">
+            Release classification review
+          </CardTitle>
         </div>
         <CardDescription>
           Releases the classifier was unsure about, most useful first. Only labels you verify can be

@@ -305,7 +305,9 @@ export default function WebhookSubscriptionsCard() {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center space-x-3">
             <Webhook className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-lg">Outbound Webhooks</CardTitle>
+            <CardTitle as="h2" className="text-lg">
+              Outbound Webhooks
+            </CardTitle>
           </div>
           <Button size="sm" className="min-h-11 sm:min-h-9" onClick={() => setDialogOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />

@@ -29,6 +29,14 @@ function overlaps(a: string, b: string): boolean {
   return a === b || isInside(a, b) || isInside(b, a);
 }
 
+function asidePathFor(oldPath: string): string {
+  return path.join(path.dirname(oldPath), ASIDE_PREFIX + path.basename(oldPath));
+}
+
+function interruptedMessage(aside: string): string {
+  return `An earlier replacement was interrupted: ${aside} still holds the previous version. Restore or delete it, then retry the import.`;
+}
+
 /**
  * Decides whether importing to `newPath` replaces the version at `oldLibraryPath`. Null when
  * there is nothing safe to replace: the mode is off, the old version is not on disk, it is not
@@ -63,7 +71,13 @@ export async function planUpgradeReplacement(input: {
   // One nested in the other: removing the old version would take part of the new one with it.
   if (!samePath && overlaps(oldPath, newPath)) return null;
 
-  if (!(await fs.pathExists(oldPath))) return null;
+  if (!(await fs.pathExists(oldPath))) {
+    // The old version is gone but its set-aside copy is still there: an earlier replacement
+    // was cut short. Importing now would leave that copy behind without a word.
+    const aside = asidePathFor(oldPath);
+    if (await fs.pathExists(aside)) throw new Error(interruptedMessage(aside));
+    return null;
+  }
 
   return { mode: input.mode, libraryRoot, oldPath, samePath, asidePath: null };
 }
@@ -74,15 +88,8 @@ export async function planUpgradeReplacement(input: {
  */
 export async function setOldVersionAside(replacement: UpgradeReplacement): Promise<void> {
   if (!replacement.samePath) return;
-  const aside = path.join(
-    path.dirname(replacement.oldPath),
-    ASIDE_PREFIX + path.basename(replacement.oldPath)
-  );
-  if (await fs.pathExists(aside)) {
-    throw new Error(
-      `An earlier replacement was interrupted: ${aside} still holds the previous version. Restore or delete it, then retry the import.`
-    );
-  }
+  const aside = asidePathFor(replacement.oldPath);
+  if (await fs.pathExists(aside)) throw new Error(interruptedMessage(aside));
   await fs.rename(replacement.oldPath, aside);
   replacement.asidePath = aside;
 }

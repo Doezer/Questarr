@@ -90,6 +90,18 @@ describe("planUpgradeReplacement", () => {
     ).toBeNull();
   });
 
+  it("is not fooled by a folder whose name starts like the library root", async () => {
+    const lookalike = path.join(base, "library-backup", "PC", "My Game");
+    await writeTree(lookalike, { "game.exe": "v1" });
+    expect(await plan({ oldLibraryPath: lookalike })).toBeNull();
+  });
+
+  it("stops when only the set-aside copy of an interrupted replacement is left", async () => {
+    const old = path.join(libraryRoot, "PC", "My Game");
+    await fs.rename(old, path.join(libraryRoot, "PC", ".questarr-old-My Game"));
+    await expect(plan()).rejects.toThrow(/earlier replacement was interrupted/);
+  });
+
   it("does nothing when the old version overlaps the import", async () => {
     const old = path.join(libraryRoot, "PC", "My Game");
     // Imported in place: the download is the library folder.
@@ -353,6 +365,91 @@ describe("ImportManager: replacing the installed version", () => {
     expect(status).toBe("manual_review_required");
     expect(reason).toContain("extraction failed");
     expect(reason).toContain(`kept at ${keptPath}`);
+  });
+
+  it("puts the old version back when recording the import fails after the transfer", async () => {
+    const { manager, storage } = setup({ upgradeReplaceMode: "delete" });
+    storage.updateGame.mockRejectedValue(new Error("database is locked"));
+
+    await manager.processImport("dl-1", path.join(downloads, RELEASE));
+
+    const [, status, reason] = storage.updateGameDownloadStatus.mock.calls.at(-1) ?? [];
+    expect(status).toBe("manual_review_required");
+    expect(reason).toContain("database is locked");
+    expect((await fs.readdir(oldDir())).sort()).toEqual(["game.exe", "old-only.dll"]);
+    expect(await read(path.join(oldDir(), "game.exe"))).toBe("v1");
+    expect(await fs.readdir(path.join(libraryRoot, "PC"))).toEqual(["My Game"]);
+    // Copy mode: the download itself is untouched and can be imported again.
+    expect(await read(path.join(downloads, RELEASE, "game.exe"))).toBe("v2");
+  });
+
+  it("applies the replacement to a manually confirmed import", async () => {
+    const { manager, storage } = setup({ upgradeReplaceMode: "archive" });
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: RELEASE,
+      category: "main",
+      status: "manual_review_required",
+    });
+
+    await manager.confirmImport("dl-1", {
+      needsReview: false,
+      strategy: "pc",
+      originalPath: path.join(downloads, RELEASE),
+      proposedPath: oldDir(),
+    });
+
+    expect(statuses(storage).at(-1)).toBe("imported");
+    expect(await fs.readdir(oldDir())).toEqual(["game.exe"]);
+    expect(await read(path.join(oldDir(), "game.exe"))).toBe("v2");
+    const [archived] = await fs.readdir(path.join(libraryRoot, REPLACED_ARCHIVE_DIR));
+    expect(
+      await read(path.join(libraryRoot, REPLACED_ARCHIVE_DIR, archived as string, "old-only.dll"))
+    ).toBe("v1");
+    expect(storage.addDownloadEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: "upgrade" })
+    );
+  });
+
+  it("runs two imports of the same game one after the other", async () => {
+    const { manager, storage } = setup({ upgradeReplaceMode: "delete" });
+    const OTHER = "My.Game.v3.0-GRP";
+    await writeTree(path.join(downloads, OTHER), { "game.exe": "v3" });
+    storage.getGameDownload.mockImplementation(async (id: string) => ({
+      id,
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: id === "dl-1" ? RELEASE : OTHER,
+      category: "main",
+    }));
+
+    const order: string[] = [];
+    const original = (
+      manager as unknown as { transferWithUnpack: (...args: unknown[]) => Promise<unknown> }
+    ).transferWithUnpack.bind(manager);
+    vi.spyOn(
+      manager as unknown as { transferWithUnpack: (...args: unknown[]) => Promise<unknown> },
+      "transferWithUnpack"
+    ).mockImplementation(async (...args: unknown[]) => {
+      const source = (args[0] as { originalPath: string }).originalPath;
+      order.push(`start ${path.basename(source)}`);
+      // Leave time for the other import to barge in if nothing holds it back.
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const result = await original(...args);
+      order.push(`end ${path.basename(source)}`);
+      return result;
+    });
+
+    await Promise.all([
+      manager.processImport("dl-1", path.join(downloads, RELEASE)),
+      manager.processImport("dl-2", path.join(downloads, OTHER)),
+    ]);
+
+    expect(order).toEqual([`start ${RELEASE}`, `end ${RELEASE}`, `start ${OTHER}`, `end ${OTHER}`]);
+    expect(await read(path.join(oldDir(), "game.exe"))).toBe("v3");
+    expect(await fs.readdir(path.join(libraryRoot, "PC"))).toEqual(["My Game"]);
   });
 
   it("leaves the installed version alone for a DLC or an update", async () => {

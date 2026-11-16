@@ -120,6 +120,8 @@ export class ImportManager {
   // is the only way to tell an import that is still running from one that a
   // restart cut short.
   private readonly importsInFlight = new Set<string>();
+  // Tail of each game's chain of imports; see acquireGameLock.
+  private readonly gameImportQueues = new Map<string, Promise<void>>();
 
   // Optional and defaulted (rather than required) so existing call sites — and
   // the many unit tests that construct an ImportManager directly — don't all
@@ -696,6 +698,78 @@ export class ImportManager {
     requestRommScanAfterImport();
   }
 
+  /** Waits for the game's running import, if any; the returned function lets the next one in. */
+  private async acquireGameLock(gameId: string): Promise<() => void> {
+    const previous = this.gameImportQueues.get(gameId) ?? Promise.resolve();
+    let open!: () => void;
+    const held = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const tail = previous.then(() => held);
+    this.gameImportQueues.set(gameId, tail);
+    await previous;
+    return () => {
+      open();
+      if (this.gameImportQueues.get(gameId) === tail) this.gameImportQueues.delete(gameId);
+    };
+  }
+
+  /**
+   * The replacement a new full release of an owned game triggers when the user turned it on.
+   * Add-ons (DLC, updates, extras) never replace anything.
+   */
+  private async planReplacement(
+    download: NonNullable<Awaited<ReturnType<IStorage["getGameDownload"]>>>,
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    config: Awaited<ReturnType<IStorage["getImportConfig"]>>,
+    newPath: string,
+    sourcePath: string
+  ): Promise<UpgradeReplacement | null> {
+    const mode = config.upgradeReplaceMode ?? "off";
+    if (mode === "off") return null;
+    const category = download.category || inferReleaseCategory(download.downloadTitle || "");
+    if (category !== "main") return null;
+    return planUpgradeReplacement({
+      mode,
+      libraryRoot: config.libraryRoot || "/data",
+      oldLibraryPath: game.libraryPath,
+      newPath,
+      sourcePath,
+    });
+  }
+
+  /**
+   * Transfers and finalizes an import around a replacement: the old version is moved aside
+   * first when it is in the way, put back if the transfer or the finalization fails, and
+   * only cleaned up once the new version is recorded.
+   */
+  private async importWithReplacement(
+    replacement: UpgradeReplacement | null,
+    transferMode: TransferMode,
+    download: NonNullable<Awaited<ReturnType<IStorage["getGameDownload"]>>>,
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    transfer: () => Promise<ImportResult>
+  ): Promise<ImportResult> {
+    if (replacement) await setOldVersionAside(replacement);
+    let result: ImportResult;
+    try {
+      result = await transfer();
+      await this.finalizeImport(download.id, game, result.destDir);
+    } catch (err) {
+      if (replacement) {
+        const keptAt = await this.restoreReplacedVersion(replacement, transferMode, download.id);
+        // The files are no longer where the transfer left them: say where they went, on
+        // the error the user sees in Pending Manual Imports (its type is kept).
+        if (keptAt && err instanceof Error) {
+          err.message = `${err.message}. The previous version was restored; the partially imported files were kept at ${keptAt}`;
+        }
+      }
+      throw err;
+    }
+    if (replacement) await this.completeReplacement(replacement, download, game);
+    return result;
+  }
+
   /**
    * Puts the old version back after a failed import; never throws over the import error.
    * Returns where a partial import was kept, if it was.
@@ -1127,6 +1201,9 @@ export class ImportManager {
       return;
     }
 
+    // One import at a time per game: a second one must not land in a folder the first is
+    // still replacing, or be swept away when the first rolls back.
+    const release = await this.acquireGameLock(game.id);
     try {
       await this.storage.updateGameDownloadStatus(downloadId, "unpacking");
 
@@ -1215,18 +1292,13 @@ export class ImportManager {
 
       // A new full release of a game that already has files in the library replaces them
       // when the user turned that on. Add-ons (DLC, updates, extras) never do.
-      const isFullRelease =
-        config.upgradeReplaceMode !== "off" &&
-        (download.category || inferReleaseCategory(download.downloadTitle || "")) === "main";
-      const replacement = isFullRelease
-        ? await planUpgradeReplacement({
-            mode: config.upgradeReplaceMode,
-            libraryRoot,
-            oldLibraryPath: game.libraryPath,
-            newPath: plan.proposedPath,
-            sourcePath: localPath,
-          })
-        : null;
+      const replacement = await this.planReplacement(
+        download,
+        game,
+        config,
+        plan.proposedPath,
+        localPath
+      );
 
       // "Destination already exists" is the old version itself when the new one goes to the
       // same place: it is moved aside below instead of sending the import to review.
@@ -1246,38 +1318,21 @@ export class ImportManager {
       }
 
       await this.storage.updateGameDownloadStatus(downloadId, "completed_pending_import");
-      if (replacement) await setOldVersionAside(replacement);
-      let result: ImportResult;
-      try {
-        result = await this.transferWithUnpack(
-          plan,
-          config.transferMode,
-          archiveResolution,
-          game,
-          password,
-          config.sortExtras
-        );
-      } catch (transferErr) {
-        // The old version is only cleaned up after a successful import: put it back.
-        if (replacement) {
-          const keptAt = await this.restoreReplacedVersion(
-            replacement,
+      const result = await this.importWithReplacement(
+        replacement,
+        config.transferMode,
+        download,
+        game,
+        () =>
+          this.transferWithUnpack(
+            plan,
             config.transferMode,
-            downloadId
-          );
-          // The files are no longer where the transfer left them: say where they went, on
-          // the error the user sees in Pending Manual Imports (its type is kept).
-          if (keptAt && transferErr instanceof Error) {
-            transferErr.message = `${transferErr.message}. The previous version was restored; the partially imported files were kept at ${keptAt}`;
-          }
-        }
-        throw transferErr;
-      }
-
-      await this.finalizeImport(downloadId, game, result.destDir);
-      if (replacement) {
-        await this.completeReplacement(replacement, download, game);
-      }
+            archiveResolution,
+            game,
+            password,
+            config.sortExtras
+          )
+      );
       await this.reportLeftoverArchives(game, result.destDir, {
         extractionAttempted: needsExtraction,
       });
@@ -1297,6 +1352,8 @@ export class ImportManager {
         logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
       }
       await this.emitImportFailed(downloadId, err);
+    } finally {
+      release();
     }
   }
 
@@ -1603,17 +1660,31 @@ export class ImportManager {
       planToExecute.fileCategories = categorizedPlan.fileCategories;
     }
 
+    const release = await this.acquireGameLock(game.id);
     try {
-      const result = await this.transferWithUnpack(
-        planToExecute,
-        transferMode,
-        archiveResolution,
+      // A confirmed import replaces the previous version the same way an automatic one does.
+      const replacement = await this.planReplacement(
+        download,
         game,
-        overridePlan.password,
-        config.sortExtras
+        config,
+        proposedPath,
+        resolvedOriginalPath
       );
-
-      await this.finalizeImport(downloadId, game, result.destDir);
+      const result = await this.importWithReplacement(
+        replacement,
+        transferMode,
+        download,
+        game,
+        () =>
+          this.transferWithUnpack(
+            planToExecute,
+            transferMode,
+            archiveResolution,
+            game,
+            overridePlan.password,
+            config.sortExtras
+          )
+      );
       await this.reportLeftoverArchives(game, result.destDir, {
         extractionAttempted: needsExtraction,
       });
@@ -1632,6 +1703,8 @@ export class ImportManager {
       }
       await this.emitImportFailed(downloadId, err);
       throw err;
+    } finally {
+      release();
     }
   }
 }

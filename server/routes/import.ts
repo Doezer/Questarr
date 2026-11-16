@@ -381,7 +381,9 @@ importRouter.patch("/config", async (req, res) => {
 
     const existing = await storage.getUserSettings(userId);
     if (existing) {
-      await storage.updateUserSettings(userId, settingsPatch);
+      // Only what the request changes is written: a field it does not carry must not be
+      // overwritten with the value read above, which another request may have changed since.
+      await storage.updateUserSettings(userId, updates);
     } else {
       await storage.createUserSettings({ userId, ...settingsPatch });
     }

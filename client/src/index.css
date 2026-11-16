@@ -121,7 +121,7 @@
   --primary: 217 91% 60%;
   /* Filled surfaces that carry --primary-foreground text: same hue as --primary, dark enough
      for 4.5:1. --primary stays the brand accent for text, borders and icons. */
-  --primary-solid: 217 91% 52%;
+  --primary-solid: 217 91% 49%;
 
   --primary-foreground: 210 20% 98%;
 

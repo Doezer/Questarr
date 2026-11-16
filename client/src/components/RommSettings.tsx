@@ -239,7 +239,7 @@ export function RommSettings() {
 
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
-            {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {save.isPending && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
             Save RomM settings
           </Button>
           <Button
@@ -247,7 +247,7 @@ export function RommSettings() {
             onClick={() => test.mutate()}
             disabled={test.isPending || !form.url || !form.apiToken}
           >
-            {test.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {test.isPending && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
             Test connection
           </Button>
           <Button
@@ -255,7 +255,7 @@ export function RommSettings() {
             onClick={() => sync.mutate()}
             disabled={sync.isPending || !data?.enabled || !data.url || !data.apiToken}
           >
-            {sync.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {sync.isPending && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
             Sync now
           </Button>
         </div>

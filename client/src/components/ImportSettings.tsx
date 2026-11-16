@@ -135,7 +135,7 @@ export default function ImportSettings() {
   if (configLoading) {
     return (
       <div className="flex justify-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <Loader2 className="h-8 w-8 motion-safe:animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -160,7 +160,9 @@ export default function ImportSettings() {
                   {/* Master switch — always interactive */}
                   <div className="flex items-center justify-between pb-6">
                     <div className="space-y-0.5">
-                      <Label className="text-sm font-medium">Enable Post-Processing</Label>
+                      <Label htmlFor="import-post-processing" className="text-sm font-medium">
+                        Enable Post-Processing
+                      </Label>
                       <p className="text-xs text-muted-foreground">
                         Master switch for the import engine.
                       </p>
@@ -174,6 +176,7 @@ export default function ImportSettings() {
                       )}
                     </div>
                     <Switch
+                      id="import-post-processing"
                       checked={localConfig.enablePostProcessing}
                       onCheckedChange={(c) =>
                         setLocalConfig({ ...localConfig, enablePostProcessing: c })
@@ -197,24 +200,26 @@ export default function ImportSettings() {
                     <div className="space-y-4 mb-6">
                       <div className="flex items-center justify-between">
                         <div className="space-y-0.5">
-                          <Label>Auto-Unpack Archives</Label>
+                          <Label htmlFor="import-auto-unpack">Auto-Unpack Archives</Label>
                           <p className="text-xs text-muted-foreground">
                             Automatically extract zip, rar, and 7z archives before importing.
                           </p>
                         </div>
                         <Switch
+                          id="import-auto-unpack"
                           checked={localConfig.autoUnpack}
                           onCheckedChange={(c) => setLocalConfig({ ...localConfig, autoUnpack: c })}
                         />
                       </div>
                       <div className="flex items-center justify-between">
                         <div className="space-y-0.5">
-                          <Label>Overwrite Existing Files</Label>
+                          <Label htmlFor="import-overwrite">Overwrite Existing Files</Label>
                           <p className="text-xs text-muted-foreground">
                             Replace files already present at the destination.
                           </p>
                         </div>
                         <Switch
+                          id="import-overwrite"
                           checked={localConfig.overwriteExisting}
                           onCheckedChange={(c) =>
                             setLocalConfig({ ...localConfig, overwriteExisting: c })
@@ -231,9 +236,10 @@ export default function ImportSettings() {
                     </p>
                     <div className="space-y-4 mb-6">
                       <div className="space-y-1.5">
-                        <Label>Library Root</Label>
+                        <Label htmlFor="import-library-root">Library Root</Label>
                         <div className="flex gap-2">
                           <Input
+                            id="import-library-root"
                             placeholder="/data/library"
                             value={localConfig.libraryRoot}
                             onChange={(e) =>
@@ -260,7 +266,7 @@ export default function ImportSettings() {
                         </p>
                       </div>
                       <div className="space-y-1.5">
-                        <Label>Transfer Mode</Label>
+                        <Label htmlFor="import-transfer-mode">Transfer Mode</Label>
                         <Select
                           value={localConfig.transferMode}
                           onValueChange={(value) =>
@@ -270,7 +276,7 @@ export default function ImportSettings() {
                             })
                           }
                         >
-                          <SelectTrigger>
+                          <SelectTrigger id="import-transfer-mode">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -302,13 +308,16 @@ export default function ImportSettings() {
                       </div>
                       <div className="flex items-center justify-between">
                         <div className="space-y-0.5">
-                          <Label>Auto-delete source after import</Label>
+                          <Label htmlFor="import-auto-delete">
+                            Auto-delete source after import
+                          </Label>
                           <p className="text-xs text-muted-foreground">
                             After a successful copy or move import, remove the download from the
                             client and delete source files.
                           </p>
                         </div>
                         <Switch
+                          id="import-auto-delete"
                           checked={localConfig.autoDeleteAfterImport}
                           onCheckedChange={(c) =>
                             setLocalConfig({ ...localConfig, autoDeleteAfterImport: c })
@@ -376,7 +385,7 @@ export default function ImportSettings() {
                   }
                 >
                   {updateConfigMutation.isPending && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />
                   )}
                   Save Changes
                 </Button>

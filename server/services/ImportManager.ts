@@ -691,10 +691,12 @@ export class ImportManager {
     // null clears an error left by an earlier failed attempt.
     await this.storage.updateGameDownloadStatus(downloadId, "imported", null);
     await this.storage.updateGame(game.id, { libraryPath });
-    await this.recordInstalledVersion(downloadId, game, libraryPath);
     if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
       await this.storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
     }
+    // Last, and it never throws: a write that fails above puts the previous version back, and
+    // the new version must not stay recorded for it.
+    await this.recordInstalledVersion(downloadId, game, libraryPath);
     requestRommScanAfterImport();
   }
 

@@ -96,6 +96,14 @@ describe("planUpgradeReplacement", () => {
     expect(await plan({ oldLibraryPath: lookalike })).toBeNull();
   });
 
+  it("does nothing when a symlink makes the old and the new folder one directory", async () => {
+    const alias = path.join(libraryRoot, "PC", "My Game 2.0");
+    await fs.symlink(path.join(libraryRoot, "PC", "My Game"), alias, "dir");
+
+    expect(await plan({ mode: "delete", newPath: alias })).toBeNull();
+    expect(await plan({ mode: "delete", newPath: path.join(alias, "sub") })).toBeNull();
+  });
+
   it("stops when only the set-aside copy of an interrupted replacement is left", async () => {
     const old = path.join(libraryRoot, "PC", "My Game");
     await fs.rename(old, path.join(libraryRoot, "PC", ".questarr-old-My Game"));

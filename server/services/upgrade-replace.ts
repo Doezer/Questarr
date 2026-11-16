@@ -29,6 +29,25 @@ function overlaps(a: string, b: string): boolean {
   return a === b || isInside(a, b) || isInside(b, a);
 }
 
+/**
+ * The path with every symlink resolved, as far as it exists: the part that is not on disk yet
+ * (a destination about to be created) is appended as written.
+ */
+async function canonicalPath(target: string): Promise<string> {
+  const missing: string[] = [];
+  let current = target;
+  for (;;) {
+    try {
+      return path.join(await fs.realpath(current), ...missing);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return target;
+      missing.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
 function asidePathFor(oldPath: string): string {
   return path.join(path.dirname(oldPath), ASIDE_PREFIX + path.basename(oldPath));
 }
@@ -78,6 +97,14 @@ export async function planUpgradeReplacement(input: {
     if (await fs.pathExists(aside)) throw new Error(interruptedMessage(aside));
     return null;
   }
+
+  // The same checks on the real locations: a symlinked folder can make one directory look like
+  // two, and cleaning up the "old" one would then take the new version with it.
+  const [realOld, realNew, realSource] = await Promise.all(
+    [oldPath, newPath, sourcePath].map(canonicalPath)
+  );
+  if (overlaps(realOld!, realSource!)) return null;
+  if (!samePath && overlaps(realOld!, realNew!)) return null;
 
   return { mode: input.mode, libraryRoot, oldPath, samePath, asidePath: null };
 }

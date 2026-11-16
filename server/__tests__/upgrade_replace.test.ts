@@ -452,6 +452,37 @@ describe("ImportManager: replacing the installed version", () => {
     expect(await fs.readdir(path.join(libraryRoot, "PC"))).toEqual(["My Game"]);
   });
 
+  it("plans a queued import on the folder the previous import left", async () => {
+    const { manager, storage } = setup({
+      upgradeReplaceMode: "delete",
+      renamePattern: "{Title} {Version}",
+    });
+    const OTHER = "My.Game.v3.0-GRP";
+    await writeTree(path.join(downloads, OTHER), { "game.exe": "v3" });
+    storage.getGameDownload.mockImplementation(async (id: string) => ({
+      id,
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: id === "dl-1" ? RELEASE : OTHER,
+      category: "main",
+    }));
+    // The game row follows what each import records, as the database would.
+    let current = await storage.getGame("g1");
+    storage.getGame.mockImplementation(async () => current);
+    storage.updateGame.mockImplementation(async (_id: string, updates: object) => {
+      current = { ...current, ...updates };
+    });
+
+    await Promise.all([
+      manager.processImport("dl-1", path.join(downloads, RELEASE)),
+      manager.processImport("dl-2", path.join(downloads, OTHER)),
+    ]);
+
+    const folders = await fs.readdir(path.join(libraryRoot, "PC"));
+    expect(folders).toHaveLength(1);
+    expect(await read(path.join(libraryRoot, "PC", folders[0] as string, "game.exe"))).toBe("v3");
+  });
+
   it("leaves the installed version alone for a DLC or an update", async () => {
     const { manager, storage } = setup(
       { upgradeReplaceMode: "delete" },

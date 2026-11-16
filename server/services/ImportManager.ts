@@ -1169,8 +1169,8 @@ export class ImportManager {
       return;
     }
 
-    const game = await this.storage.getGame(download.gameId);
-    if (!game) {
+    const queuedGame = await this.storage.getGame(download.gameId);
+    if (!queuedGame) {
       logger.error({ downloadId }, "[ImportManager] Game not found for download");
       // "error" is a dead end: unlike "manual_review_required", nothing ever
       // re-polls or surfaces it in the UI (getDownloadingGameDownloads only
@@ -1194,8 +1194,8 @@ export class ImportManager {
       return;
     }
 
-    const config = await this.storage.getImportConfig(game.userId ?? undefined);
-    if (!config.enablePostProcessing) {
+    const queuedConfig = await this.storage.getImportConfig(queuedGame.userId ?? undefined);
+    if (!queuedConfig.enablePostProcessing) {
       logger.info({ downloadId }, "[ImportManager] Post-processing disabled, skipping");
       await this.storage.updateGameDownloadStatus(downloadId, "completed");
       return;
@@ -1203,8 +1203,12 @@ export class ImportManager {
 
     // One import at a time per game: a second one must not land in a folder the first is
     // still replacing, or be swept away when the first rolls back.
-    const release = await this.acquireGameLock(game.id);
+    const release = await this.acquireGameLock(queuedGame.id);
     try {
+      // An import that ran while this one waited may have moved the game's files or changed
+      // its version, so the game and the settings are read again now that the lock is held.
+      const game = (await this.storage.getGame(queuedGame.id)) ?? queuedGame;
+      const config = await this.storage.getImportConfig(game.userId ?? undefined);
       await this.storage.updateGameDownloadStatus(downloadId, "unpacking");
 
       const resolved = await this.resolveLocalPath(remoteDownloadPath, download.downloaderId);
@@ -1662,11 +1666,14 @@ export class ImportManager {
 
     const release = await this.acquireGameLock(game.id);
     try {
+      // An import that ran while this one waited may have moved the game's files or changed
+      // its version: plan the replacement on the game as it is now that the lock is held.
+      const current = (await this.storage.getGame(game.id)) ?? game;
       // A confirmed import replaces the previous version the same way an automatic one does.
       const replacement = await this.planReplacement(
         download,
-        game,
-        config,
+        current,
+        await this.storage.getImportConfig(current.userId ?? undefined),
         proposedPath,
         resolvedOriginalPath
       );
@@ -1674,18 +1681,18 @@ export class ImportManager {
         replacement,
         transferMode,
         download,
-        game,
+        current,
         () =>
           this.transferWithUnpack(
             planToExecute,
             transferMode,
             archiveResolution,
-            game,
+            current,
             overridePlan.password,
             config.sortExtras
           )
       );
-      await this.reportLeftoverArchives(game, result.destDir, {
+      await this.reportLeftoverArchives(current, result.destDir, {
         extractionAttempted: needsExtraction,
       });
     } catch (err) {

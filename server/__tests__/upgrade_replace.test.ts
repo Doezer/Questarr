@@ -330,6 +330,31 @@ describe("ImportManager: replacing the installed version", () => {
     expect(storage.addDownloadEvent).not.toHaveBeenCalled();
   });
 
+  it("move mode: keeps the partial import and says where it is", async () => {
+    const { manager, storage } = setup({ upgradeReplaceMode: "delete", transferMode: "move" });
+    vi.spyOn(
+      manager as unknown as { transferWithUnpack: () => Promise<never> },
+      "transferWithUnpack"
+    ).mockImplementation(async () => {
+      await writeTree(oldDir(), { "game.part1.rar": "only copy" });
+      throw new Error("extraction failed");
+    });
+
+    await manager.processImport("dl-1", path.join(downloads, RELEASE));
+
+    expect(await read(path.join(oldDir(), "game.exe"))).toBe("v1");
+    const kept = (await fs.readdir(path.join(libraryRoot, "PC"))).find((name) =>
+      name.startsWith(".questarr-failed-My Game-")
+    );
+    expect(kept).toBeDefined();
+    const keptPath = path.join(libraryRoot, "PC", kept as string);
+    expect(await read(path.join(keptPath, "game.part1.rar"))).toBe("only copy");
+    const [, status, reason] = storage.updateGameDownloadStatus.mock.calls.at(-1) ?? [];
+    expect(status).toBe("manual_review_required");
+    expect(reason).toContain("extraction failed");
+    expect(reason).toContain(`kept at ${keptPath}`);
+  });
+
   it("leaves the installed version alone for a DLC or an update", async () => {
     const { manager, storage } = setup(
       { upgradeReplaceMode: "delete" },

@@ -696,12 +696,15 @@ export class ImportManager {
     requestRommScanAfterImport();
   }
 
-  /** Puts the old version back after a failed import; never throws over the import error. */
+  /**
+   * Puts the old version back after a failed import; never throws over the import error.
+   * Returns where a partial import was kept, if it was.
+   */
   private async restoreReplacedVersion(
     replacement: UpgradeReplacement,
     transferMode: TransferMode,
     downloadId: string
-  ): Promise<void> {
+  ): Promise<string | null> {
     try {
       // In move mode a partial import is the only copy of the download: keep it.
       const keptAt = await restoreOldVersion(replacement, { keepPartial: transferMode === "move" });
@@ -709,11 +712,13 @@ export class ImportManager {
         { downloadId, restored: replacement.oldPath, partialImportKeptAt: keptAt },
         "[ImportManager] Import failed, previous version restored"
       );
+      return keptAt;
     } catch (restoreErr) {
       logger.error(
         { restoreErr, downloadId, asidePath: replacement.asidePath },
         "[ImportManager] Could not restore the previous version after a failed import"
       );
+      return null;
     }
   }
 
@@ -1255,7 +1260,16 @@ export class ImportManager {
       } catch (transferErr) {
         // The old version is only cleaned up after a successful import: put it back.
         if (replacement) {
-          await this.restoreReplacedVersion(replacement, config.transferMode, downloadId);
+          const keptAt = await this.restoreReplacedVersion(
+            replacement,
+            config.transferMode,
+            downloadId
+          );
+          // The files are no longer where the transfer left them: say where they went, on
+          // the error the user sees in Pending Manual Imports (its type is kept).
+          if (keptAt && transferErr instanceof Error) {
+            transferErr.message = `${transferErr.message}. The previous version was restored; the partially imported files were kept at ${keptAt}`;
+          }
         }
         throw transferErr;
       }

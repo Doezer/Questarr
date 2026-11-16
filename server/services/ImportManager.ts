@@ -754,11 +754,25 @@ export class ImportManager {
   ): Promise<ImportResult> {
     if (replacement) await setOldVersionAside(replacement);
     let result: ImportResult;
+    let transferred = false;
     try {
       result = await transfer();
+      transferred = true;
       await this.finalizeImport(download.id, game, result.destDir);
     } catch (err) {
       if (replacement) {
+        // Recording the import may have stopped halfway: the game must keep pointing at the
+        // version that is still in place, not at the import that failed.
+        if (transferred) {
+          await this.storage
+            .updateGame(game.id, { libraryPath: game.libraryPath })
+            .catch((restoreErr) =>
+              logger.error(
+                { err: restoreErr, gameId: game.id },
+                "[ImportManager] Could not point the game back at its previous version"
+              )
+            );
+        }
         const keptAt = await this.restoreReplacedVersion(replacement, transferMode, download.id);
         // The files are no longer where the transfer left them: say where they went, on
         // the error the user sees in Pending Manual Imports (its type is kept).

@@ -117,6 +117,8 @@ describe("planUpgradeReplacement", () => {
     expect(await plan({ sourcePath: path.join(old, "sub") })).toBeNull();
     // New version nested in the old one, and the reverse.
     expect(await plan({ newPath: path.join(old, "v2") })).toBeNull();
+    // A child whose name merely starts with two dots is still inside.
+    expect(await plan({ newPath: path.join(old, "..v2") })).toBeNull();
     expect(await plan({ newPath: path.join(libraryRoot, "PC") })).toBeNull();
   });
 });
@@ -389,6 +391,21 @@ describe("ImportManager: replacing the installed version", () => {
     expect(await fs.readdir(path.join(libraryRoot, "PC"))).toEqual(["My Game"]);
     // Copy mode: the download itself is untouched and can be imported again.
     expect(await read(path.join(downloads, RELEASE, "game.exe"))).toBe("v2");
+  });
+
+  it("keeps the game on its previous folder when recording a side by side import fails", async () => {
+    const { manager, storage } = setup({
+      upgradeReplaceMode: "delete",
+      renamePattern: "{Title} {Version}",
+    });
+    storage.getGame.mockResolvedValue({ ...(await storage.getGame("g1")), status: "wanted" });
+    storage.updateGameStatus.mockRejectedValue(new Error("database is locked"));
+
+    await manager.processImport("dl-1", path.join(downloads, RELEASE));
+
+    expect(statuses(storage).at(-1)).toBe("manual_review_required");
+    expect(storage.updateGame.mock.calls.at(-1)).toEqual(["g1", { libraryPath: oldDir() }]);
+    expect(await read(path.join(oldDir(), "game.exe"))).toBe("v1");
   });
 
   it("applies the replacement to a manually confirmed import", async () => {

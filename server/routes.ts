@@ -352,6 +352,7 @@ import { normalizeInitialReleaseStatus } from "./game-status.js";
 import { quickAddGameByTitle } from "./game-quick-add.js";
 import { importRouter } from "./routes/import.js";
 import { rommRouter } from "./routes/romm.js";
+import { libraryMigrationRouter } from "./routes/library-migration.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { backupsRouter } from "./routes/backups.js";
@@ -1838,6 +1839,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // already accepted the request) while doubling the per-request auth cost.
   app.use("/api/imports", importRouter);
   app.use("/api/settings/romm", rommRouter);
+  app.use("/api/library/migration", libraryMigrationRouter);
   app.use("/api/import-tasks", importTasksRouter);
   app.use("/api/system/backups", backupsRouter);
   app.use("/api/system", systemRouter);

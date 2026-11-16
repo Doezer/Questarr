@@ -26,6 +26,7 @@
 
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-solid: hsl(var(--primary-solid));
 
   --color-secondary: hsl(var(--secondary));
   --color-secondary-foreground: hsl(var(--secondary-foreground));
@@ -118,6 +119,9 @@
   --popover-border: 210 20% 82%;
 
   --primary: 217 91% 60%;
+  /* Filled surfaces that carry --primary-foreground text: same hue as --primary, dark enough
+     for 4.5:1. --primary stays the brand accent for text, borders and icons. */
+  --primary-solid: 217 91% 49%;
 
   --primary-foreground: 210 20% 98%;
 
@@ -127,7 +131,7 @@
 
   --muted: 210 20% 85%;
 
-  --muted-foreground: 210 24% 46%;
+  --muted-foreground: 210 24% 37%;
 
   --accent: 45 93% 47%;
 
@@ -250,6 +254,7 @@
   --popover-border: 210 20% 30%;
 
   --primary: 217 91% 60%;
+  --primary-solid: 217 91% 47%;
 
   --primary-foreground: 210 20% 98%;
 
@@ -259,7 +264,7 @@
 
   --muted: 210 20% 30%;
 
-  --muted-foreground: 210 20% 65%;
+  --muted-foreground: 210 20% 74%;
 
   --accent: 45 93% 47%;
 
@@ -318,6 +323,7 @@
   --popover-border: 140 60% 16%;
 
   --primary: 140 100% 50%;
+  --primary-solid: 140 100% 50%;
   --primary-foreground: 140 40% 3%;
 
   --secondary: 165 90% 40%;
@@ -373,6 +379,7 @@
   --popover-border: 0 0% 50%;
 
   --primary: 0 0% 75%;
+  --primary-solid: 0 0% 75%;
   --primary-foreground: 0 0% 0%;
 
   --secondary: 0 0% 75%;

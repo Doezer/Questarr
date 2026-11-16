@@ -32,6 +32,7 @@ import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SettingRow } from "@/components/ui/setting-row";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { PathBrowser } from "@/components/PathBrowser";
@@ -132,15 +133,13 @@ function SettingsToggleRow({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <div className="space-y-0.5">
-        <Label htmlFor={id} className="text-sm font-medium">
-          {label}
-        </Label>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
-      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
-    </div>
+    <SettingRow
+      id={id}
+      label={label}
+      description={description}
+      checked={checked}
+      onCheckedChange={onCheckedChange}
+    />
   );
 }
 
@@ -1318,14 +1317,14 @@ export default function SettingsPage() {
 
   return (
     <div className="h-full overflow-auto p-4 pb-20 sm:p-6 md:pb-6">
-      <div className="mb-6">
+      <div className="mx-auto mb-6 max-w-4xl">
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-muted-foreground text-sm mt-0.5">
           Configure your preferences and system settings
         </p>
       </div>
 
-      <div className="w-full space-y-6">
+      <div className="mx-auto w-full max-w-4xl space-y-6">
         {/* Database Migration Alert */}
         {settingsError && (
           <Alert variant="destructive">
@@ -1450,21 +1449,13 @@ export default function SettingsPage() {
               <CardContent className="space-y-6">
                 <div className="space-y-4">
                   {/* Auto Search Toggle */}
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="auto-search" className="text-sm font-medium">
-                        Enable Auto-Search
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Periodically search indexers for wanted games
-                      </p>
-                    </div>
-                    <Switch
-                      id="auto-search"
-                      checked={autoSearchEnabled}
-                      onCheckedChange={setAutoSearchEnabled}
-                    />
-                  </div>
+                  <SettingRow
+                    id="auto-search"
+                    label="Enable Auto-Search"
+                    description="Periodically search indexers for wanted games"
+                    checked={autoSearchEnabled}
+                    onCheckedChange={setAutoSearchEnabled}
+                  />
 
                   {/* Search Interval */}
                   {autoSearchEnabled && (
@@ -1493,21 +1484,14 @@ export default function SettingsPage() {
 
                   {/* Auto Search Unreleased Toggle */}
                   {autoSearchEnabled && (
-                    <div className="flex items-center justify-between pl-4 border-l-2">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="auto-search-unreleased" className="text-sm font-medium">
-                          Search Unreleased Games
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          Include unreleased (upcoming/delayed) games in search
-                        </p>
-                      </div>
-                      <Switch
-                        id="auto-search-unreleased"
-                        checked={autoSearchUnreleased}
-                        onCheckedChange={setAutoSearchUnreleased}
-                      />
-                    </div>
+                    <SettingRow
+                      id="auto-search-unreleased"
+                      label="Search Unreleased Games"
+                      description="Include unreleased (upcoming/delayed) games in search"
+                      className="pl-4 border-l-2"
+                      checked={autoSearchUnreleased}
+                      onCheckedChange={setAutoSearchUnreleased}
+                    />
                   )}
 
                   {/* Default policy for newer versions of owned games */}
@@ -1544,21 +1528,14 @@ export default function SettingsPage() {
 
                   {/* Auto Download Toggle */}
                   {autoSearchEnabled && (
-                    <div className="flex items-center justify-between pl-4 border-l-2">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="auto-download" className="text-sm font-medium">
-                          Auto-Download Single Releases
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          Automatically download when only one release is found
-                        </p>
-                      </div>
-                      <Switch
-                        id="auto-download"
-                        checked={autoDownloadEnabled}
-                        onCheckedChange={setAutoDownloadEnabled}
-                      />
-                    </div>
+                    <SettingRow
+                      id="auto-download"
+                      label="Auto-Download Single Releases"
+                      description="Automatically download when only one release is found"
+                      className="pl-4 border-l-2"
+                      checked={autoDownloadEnabled}
+                      onCheckedChange={setAutoDownloadEnabled}
+                    />
                   )}
                 </div>
 
@@ -1922,26 +1899,22 @@ export default function SettingsPage() {
                       to both In-App and Apprise. Games are still checked for available content.
                     </p>
                   </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <Label htmlFor="notify-updates-shelved">Notify for shelved games</Label>
-                    <Switch
-                      id="notify-updates-shelved"
-                      checked={notifPrefs.gameUpdates.includeShelved !== false}
-                      onCheckedChange={(checked) =>
-                        handleNotifPrefChange("gameUpdates", "includeShelved", checked)
-                      }
-                    />
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <Label htmlFor="notify-updates-completed">Notify for completed games</Label>
-                    <Switch
-                      id="notify-updates-completed"
-                      checked={notifPrefs.gameUpdates.includeCompleted !== false}
-                      onCheckedChange={(checked) =>
-                        handleNotifPrefChange("gameUpdates", "includeCompleted", checked)
-                      }
-                    />
-                  </div>
+                  <SettingRow
+                    id="notify-updates-shelved"
+                    label="Notify for shelved games"
+                    checked={notifPrefs.gameUpdates.includeShelved !== false}
+                    onCheckedChange={(checked) =>
+                      handleNotifPrefChange("gameUpdates", "includeShelved", checked)
+                    }
+                  />
+                  <SettingRow
+                    id="notify-updates-completed"
+                    label="Notify for completed games"
+                    checked={notifPrefs.gameUpdates.includeCompleted !== false}
+                    onCheckedChange={(checked) =>
+                      handleNotifPrefChange("gameUpdates", "includeCompleted", checked)
+                    }
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -2079,21 +2052,14 @@ export default function SettingsPage() {
                     </p>
                   </div>
 
-                  <div className="flex items-center justify-between pt-4 border-t">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="steam-sync-enabled" className="text-sm font-medium">
-                        Auto-Sync Wishlist
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Periodically import new games from your Steam Wishlist
-                      </p>
-                    </div>
-                    <Switch
-                      id="steam-sync-enabled"
-                      checked={steamSyncEnabled}
-                      onCheckedChange={setSteamSyncEnabled}
-                    />
-                  </div>
+                  <SettingRow
+                    id="steam-sync-enabled"
+                    label="Auto-Sync Wishlist"
+                    description="Periodically import new games from your Steam Wishlist"
+                    className="pt-4 border-t"
+                    checked={steamSyncEnabled}
+                    onCheckedChange={setSteamSyncEnabled}
+                  />
 
                   {steamSyncEnabled && (
                     <div className="space-y-2 pl-4 border-l-2">
@@ -2562,36 +2528,20 @@ export default function SettingsPage() {
                       Use the mirror if your IP is blocked by Cloudflare on the official API.
                     </p>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="xrel-scene" className="text-sm font-medium">
-                        Include scene releases
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Search scene releases when checking for wanted games on xREL.to
-                      </p>
-                    </div>
-                    <Switch
-                      id="xrel-scene"
-                      checked={xrelSceneReleases}
-                      onCheckedChange={setXrelSceneReleases}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="xrel-p2p" className="text-sm font-medium">
-                        Include P2P releases
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Search P2P releases when checking for wanted games on xREL.to
-                      </p>
-                    </div>
-                    <Switch
-                      id="xrel-p2p"
-                      checked={xrelP2pReleases}
-                      onCheckedChange={setXrelP2pReleases}
-                    />
-                  </div>
+                  <SettingRow
+                    id="xrel-scene"
+                    label="Include scene releases"
+                    description="Search scene releases when checking for wanted games on xREL.to"
+                    checked={xrelSceneReleases}
+                    onCheckedChange={setXrelSceneReleases}
+                  />
+                  <SettingRow
+                    id="xrel-p2p"
+                    label="Include P2P releases"
+                    description="Search P2P releases when checking for wanted games on xREL.to"
+                    checked={xrelP2pReleases}
+                    onCheckedChange={setXrelP2pReleases}
+                  />
                 </div>
                 <div className="flex justify-end pt-4 border-t">
                   <Button
@@ -2759,27 +2709,13 @@ export default function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5 pr-4">
-                    <Label htmlFor="telemetry-enabled" className="text-sm font-medium">
-                      Automatically send error reports
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Off by default. When Questarr detects an unexpected server error, it will
-                      normally ask you first (see the &quot;Error Detected&quot; event in the
-                      Notifications tab). Turn this on to skip that prompt and send a scrubbed
-                      diagnostic report automatically instead — no personal data, IP addresses, or
-                      file paths are included. Reports help the maintainer catch bugs users don't
-                      otherwise report. You can still send a one-off report manually from the Logs
-                      page at any time, whatever this setting is.
-                    </p>
-                  </div>
-                  <Switch
-                    id="telemetry-enabled"
-                    checked={telemetryEnabled}
-                    onCheckedChange={setTelemetryEnabled}
-                  />
-                </div>
+                <SettingRow
+                  id="telemetry-enabled"
+                  label="Automatically send error reports"
+                  description={`Off by default. When Questarr detects an unexpected server error, it will normally ask you first (see the "Error Detected" event in the Notifications tab). Turn this on to skip that prompt and send a scrubbed diagnostic report automatically instead — no personal data, IP addresses, or file paths are included. Reports help the maintainer catch bugs users don't otherwise report. You can still send a one-off report manually from the Logs page at any time, whatever this setting is.`}
+                  checked={telemetryEnabled}
+                  onCheckedChange={setTelemetryEnabled}
+                />
                 <div className="flex justify-end pt-4 border-t">
                   <Button
                     onClick={handleSaveTelemetry}
@@ -2821,34 +2757,27 @@ export default function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="downloader-debug-logging" className="text-sm font-medium">
-                      Log full downloader responses
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Applies immediately and affects all configured downloaders. View the results
-                      on the Logs page.
-                    </p>
-                    {isDownloaderDebugLoggingError && (
-                      <p className="text-xs text-destructive">
+                <SettingRow
+                  id="downloader-debug-logging"
+                  label="Log full downloader responses"
+                  description="Applies immediately and affects all configured downloaders. View the results on the Logs page."
+                  extra={
+                    isDownloaderDebugLoggingError && (
+                      <span className="block text-xs text-destructive">
                         Failed to load the current setting. Refresh the page to try again.
-                      </p>
-                    )}
-                  </div>
-                  <Switch
-                    id="downloader-debug-logging"
-                    checked={downloaderDebugLogging?.enabled ?? false}
-                    disabled={
-                      isDownloaderDebugLoggingLoading ||
-                      isDownloaderDebugLoggingError ||
-                      updateDownloaderDebugLoggingMutation.isPending
-                    }
-                    onCheckedChange={(checked) =>
-                      updateDownloaderDebugLoggingMutation.mutate(checked)
-                    }
-                  />
-                </div>
+                      </span>
+                    )
+                  }
+                  checked={downloaderDebugLogging?.enabled ?? false}
+                  disabled={
+                    isDownloaderDebugLoggingLoading ||
+                    isDownloaderDebugLoggingError ||
+                    updateDownloaderDebugLoggingMutation.isPending
+                  }
+                  onCheckedChange={(checked) =>
+                    updateDownloaderDebugLoggingMutation.mutate(checked)
+                  }
+                />
               </CardContent>
             </Card>
           </TabsContent>
@@ -2871,19 +2800,13 @@ export default function SettingsPage() {
               <CardContent className="space-y-6">
                 {sslSettings && (
                   <>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="ssl-enabled" className="text-sm font-medium">
-                          Enable SSL
-                        </Label>
-                        <p className="text-xs text-muted-foreground">Turn on HTTPS support</p>
-                      </div>
-                      <Switch
-                        id="ssl-enabled"
-                        checked={sslEnabled}
-                        onCheckedChange={setSslEnabled}
-                      />
-                    </div>
+                    <SettingRow
+                      id="ssl-enabled"
+                      label="Enable SSL"
+                      description="Turn on HTTPS support"
+                      checked={sslEnabled}
+                      onCheckedChange={setSslEnabled}
+                    />
 
                     {sslEnabled && (
                       <>
@@ -2949,19 +2872,13 @@ export default function SettingsPage() {
                         </div>
 
                         <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label htmlFor="ssl-redirect">Force HTTPS</Label>
-                              <p className="text-xs text-muted-foreground">
-                                Redirect all HTTP traffic to HTTPS
-                              </p>
-                            </div>
-                            <Switch
-                              id="ssl-redirect"
-                              checked={sslRedirectHttp}
-                              onCheckedChange={setSslRedirectHttp}
-                            />
-                          </div>
+                          <SettingRow
+                            id="ssl-redirect"
+                            label="Force HTTPS"
+                            description="Redirect all HTTP traffic to HTTPS"
+                            checked={sslRedirectHttp}
+                            onCheckedChange={setSslRedirectHttp}
+                          />
 
                           {sslRedirectHttp && (
                             <Alert className="border-orange-500/50 bg-orange-500/10">

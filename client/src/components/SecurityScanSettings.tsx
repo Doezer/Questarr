@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SettingRow } from "@/components/ui/setting-row";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -110,24 +111,16 @@ export default function SecurityScanSettings() {
 
           {/* ── VirusTotal ── */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="scan-virustotal-enabled" className="text-sm font-medium">
-                  VirusTotal (Hash-Based)
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Looks up the SHA-256 hash of the downloaded file against VirusTotal before import.
-                  Requires a free VirusTotal API key.
-                </p>
-              </div>
-              <Switch
-                id="scan-virustotal-enabled"
-                checked={local.virusTotal.enabled}
-                onCheckedChange={(c) =>
-                  setLocal({ ...local, virusTotal: { ...local.virusTotal, enabled: c } })
-                }
-              />
-            </div>
+            <SettingRow
+              id="scan-virustotal-enabled"
+              label="VirusTotal (Hash-Based)"
+              description="Looks up the SHA-256 hash of the downloaded file against VirusTotal before import.
+                  Requires a free VirusTotal API key."
+              checked={local.virusTotal.enabled}
+              onCheckedChange={(c) =>
+                setLocal({ ...local, virusTotal: { ...local.virusTotal, enabled: c } })
+              }
+            />
 
             <div
               className={
@@ -190,25 +183,16 @@ export default function SecurityScanSettings() {
                 </p>
               </div>
 
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="scan-block-unknown-hashes">Block Unknown Hashes</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Block files VirusTotal has never scanned before. Disabled by default so new
-                    legitimate releases aren't blocked.
-                  </p>
-                </div>
-                <Switch
-                  id="scan-block-unknown-hashes"
-                  checked={local.virusTotal.blockUnknownHashes}
-                  onCheckedChange={(c) =>
-                    setLocal({
-                      ...local,
-                      virusTotal: { ...local.virusTotal, blockUnknownHashes: c },
-                    })
-                  }
-                />
-              </div>
+              <SettingRow
+                id="scan-block-unknown-hashes"
+                label="Block Unknown Hashes"
+                description="Block files VirusTotal has never scanned before. Disabled by default so new
+                    legitimate releases aren't blocked."
+                checked={local.virusTotal.blockUnknownHashes}
+                onCheckedChange={(c) =>
+                  setLocal({ ...local, virusTotal: { ...local.virusTotal, blockUnknownHashes: c } })
+                }
+              />
             </div>
           </div>
 

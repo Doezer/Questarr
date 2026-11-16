@@ -17,7 +17,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, FolderOpen, ArrowRight, Folder, Link, Copy, MoveRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { ImportConfig, UserSettings } from "@shared/schema";
+import type { ImportConfig, UpgradeReplaceMode, UserSettings } from "@shared/schema";
 import { selectedPlatformNames as resolveSelectedPlatformNames } from "@shared/platforms";
 import { PathMappingSettings } from "./PathMappingSettings";
 import { FileBrowser } from "./FileBrowser";
@@ -25,6 +25,16 @@ import { RommSettings } from "./RommSettings";
 import { validatePattern } from "@shared/naming";
 import { NamingPatternEditor } from "./NamingPatternEditor";
 import SecurityScanSettings from "./SecurityScanSettings";
+
+// The previous version is only touched once the new one is imported; a failed import puts
+// it back.
+const UPGRADE_REPLACE_HELP: Record<UpgradeReplaceMode, string> = {
+  off: "A new full release of a game you own is imported next to the old one, or waits for your review when both would use the same folder.",
+  archive:
+    "Once the new release is imported, the old one is moved to .questarr-replaced in your library root. Empty that folder yourself.",
+  delete:
+    "Once the new release is imported, the old one is deleted from your library. This cannot be undone.",
+};
 
 type HardlinkPairCheck = {
   sourcePath: string;
@@ -220,6 +230,32 @@ export default function ImportSettings() {
                             setLocalConfig({ ...localConfig, overwriteExisting: c })
                           }
                         />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="upgradeReplaceMode">
+                          Previous version after an upgrade
+                        </Label>
+                        <Select
+                          value={localConfig.upgradeReplaceMode ?? "off"}
+                          onValueChange={(value) =>
+                            setLocalConfig({
+                              ...localConfig,
+                              upgradeReplaceMode: value as UpgradeReplaceMode,
+                            })
+                          }
+                        >
+                          <SelectTrigger id="upgradeReplaceMode" className="h-10 sm:h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="off">Keep it</SelectItem>
+                            <SelectItem value="archive">Move it to .questarr-replaced</SelectItem>
+                            <SelectItem value="delete">Delete it</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          {UPGRADE_REPLACE_HELP[localConfig.upgradeReplaceMode ?? "off"]}
+                        </p>
                       </div>
                     </div>
 

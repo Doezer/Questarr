@@ -27,7 +27,7 @@ import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { notifyUser } from "../socket.js";
-import { carriesBaseGameVersion } from "../../shared/version-utils.js";
+import { carriesBaseGameVersion, inferReleaseCategory } from "../../shared/version-utils.js";
 import {
   recordVersionFromCompletedDownload,
   recordVersionFromInstallFolder,
@@ -38,6 +38,13 @@ import { isRommPlatformFoldersEnabled, requestRommScanAfterImport } from "../rom
 import { isValidRommSlug, rommSlugForPlatformId } from "../../shared/romm-platforms.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
 import { emitWebhookEvent } from "../webhooks.js";
+import {
+  planUpgradeReplacement,
+  setOldVersionAside,
+  restoreOldVersion,
+  disposeOldVersion,
+  type UpgradeReplacement,
+} from "./upgrade-replace.js";
 
 const PLATFORM_FOLDER_NAMES: Record<string, string> = {
   ...Object.fromEntries(
@@ -689,6 +696,97 @@ export class ImportManager {
     requestRommScanAfterImport();
   }
 
+  /** Puts the old version back after a failed import; never throws over the import error. */
+  private async restoreReplacedVersion(
+    replacement: UpgradeReplacement,
+    transferMode: TransferMode,
+    downloadId: string
+  ): Promise<void> {
+    try {
+      // In move mode a partial import is the only copy of the download: keep it.
+      const keptAt = await restoreOldVersion(replacement, { keepPartial: transferMode === "move" });
+      logger.warn(
+        { downloadId, restored: replacement.oldPath, partialImportKeptAt: keptAt },
+        "[ImportManager] Import failed, previous version restored"
+      );
+    } catch (restoreErr) {
+      logger.error(
+        { restoreErr, downloadId, asidePath: replacement.asidePath },
+        "[ImportManager] Could not restore the previous version after a failed import"
+      );
+    }
+  }
+
+  /**
+   * Cleans up the version the import replaced, then records it in history and notifies.
+   * Best effort: the new version is already imported, so nothing here may fail the import.
+   */
+  private async completeReplacement(
+    replacement: UpgradeReplacement,
+    download: NonNullable<Awaited<ReturnType<IStorage["getGameDownload"]>>>,
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>
+  ): Promise<void> {
+    const userId = game.userId ?? "";
+    let outcome: string;
+    let failed = false;
+    try {
+      const archivedTo = await disposeOldVersion(replacement);
+      outcome = archivedTo
+        ? `the previous version was moved to ${archivedTo}`
+        : "the previous version was deleted";
+    } catch (error) {
+      failed = true;
+      const leftAt = replacement.asidePath ?? replacement.oldPath;
+      outcome = `the previous version could not be cleaned up and is still at ${leftAt}`;
+      logger.error(
+        { error, downloadId: download.id, leftAt },
+        "[ImportManager] Could not clean up the replaced version"
+      );
+    }
+
+    let versions = "";
+    try {
+      const after = await this.storage.getGame(game.id);
+      const from = game.installedVersion;
+      const to = after?.installedVersion;
+      if (from && to && from !== to) versions = ` (${from} to ${to})`;
+    } catch (error) {
+      logger.debug({ error }, "[ImportManager] Could not read the new installed version");
+    }
+    const message = `Replaced the installed version${versions}: ${outcome}.`;
+
+    try {
+      await this.storage.addDownloadEvent({
+        userId,
+        gameId: game.id,
+        gameTitle: game.title,
+        eventType: "upgrade",
+        releaseTitle: download.downloadTitle,
+        downloaderName: null,
+        message,
+      });
+    } catch (error) {
+      logger.warn({ error, downloadId: download.id }, "[ImportManager] Replacement not recorded");
+    }
+
+    try {
+      const prefs = resolvePrefs(await this.storage.getUserSettings(userId));
+      if (prefs.downloadCompleted.inApp) {
+        const notification = await this.storage.addNotification({
+          userId: game.userId ?? undefined,
+          type: failed ? "warning" : "success",
+          title: failed ? "Version replaced, cleanup failed" : "Version replaced",
+          message: `${game.title}: ${message.charAt(0).toLowerCase()}${message.slice(1)}`,
+          link: `/games/${encodeURIComponent(game.id)}`,
+        });
+        notifyUser("notification", notification, notification.userId);
+        if (prefs.downloadCompleted.apprise) void appriseClient.send(notification);
+      }
+    } catch (error) {
+      logger.warn({ error, downloadId: download.id }, "[ImportManager] Replacement not notified");
+    }
+  }
+
   /** Best-effort: a version that can't be recorded must not fail an import that succeeded. */
   private async recordInstalledVersion(
     downloadId: string,
@@ -1110,7 +1208,24 @@ export class ImportManager {
         downloadTitle: download.downloadTitle,
       });
 
-      if (plan.needsReview) {
+      // A new full release of a game that already has files in the library replaces them
+      // when the user turned that on. Add-ons (DLC, updates, extras) never do.
+      const isFullRelease =
+        config.upgradeReplaceMode !== "off" &&
+        (download.category || inferReleaseCategory(download.downloadTitle || "")) === "main";
+      const replacement = isFullRelease
+        ? await planUpgradeReplacement({
+            mode: config.upgradeReplaceMode,
+            libraryRoot,
+            oldLibraryPath: game.libraryPath,
+            newPath: plan.proposedPath,
+            sourcePath: localPath,
+          })
+        : null;
+
+      // "Destination already exists" is the old version itself when the new one goes to the
+      // same place: it is moved aside below instead of sending the import to review.
+      if (plan.needsReview && !replacement?.samePath) {
         await this.flagNeedsReview(downloadId, game, plan);
         return;
       }
@@ -1126,16 +1241,29 @@ export class ImportManager {
       }
 
       await this.storage.updateGameDownloadStatus(downloadId, "completed_pending_import");
-      const result = await this.transferWithUnpack(
-        plan,
-        config.transferMode,
-        archiveResolution,
-        game,
-        password,
-        config.sortExtras
-      );
+      if (replacement) await setOldVersionAside(replacement);
+      let result: ImportResult;
+      try {
+        result = await this.transferWithUnpack(
+          plan,
+          config.transferMode,
+          archiveResolution,
+          game,
+          password,
+          config.sortExtras
+        );
+      } catch (transferErr) {
+        // The old version is only cleaned up after a successful import: put it back.
+        if (replacement) {
+          await this.restoreReplacedVersion(replacement, config.transferMode, downloadId);
+        }
+        throw transferErr;
+      }
 
       await this.finalizeImport(downloadId, game, result.destDir);
+      if (replacement) {
+        await this.completeReplacement(replacement, download, game);
+      }
       await this.reportLeftoverArchives(game, result.destDir, {
         extractionAttempted: needsExtraction,
       });

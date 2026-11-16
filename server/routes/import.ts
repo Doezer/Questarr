@@ -16,6 +16,7 @@ import {
   insertPlatformMappingSchema,
   updatePathMappingSchema,
   importTransferModeSchema,
+  upgradeReplaceModeSchema,
   IMPORT_TRANSFER_MODES,
   GAME_LINK_REQUIRED_STATUS,
 } from "../../shared/schema.js";
@@ -63,6 +64,7 @@ const importConfigPatchSchema = z
     libraryRoot: z.string().min(1).max(1024).optional(),
     autoDeleteAfterImport: z.boolean().optional(),
     sortExtras: z.boolean().optional(),
+    upgradeReplaceMode: upgradeReplaceModeSchema.optional(),
   })
   .strict();
 
@@ -374,6 +376,7 @@ importRouter.patch("/config", async (req, res) => {
       minFileSize: newConfig.minFileSize,
       libraryRoot: newConfig.libraryRoot,
       sortExtras: newConfig.sortExtras,
+      upgradeReplaceMode: newConfig.upgradeReplaceMode,
     };
 
     const existing = await storage.getUserSettings(userId);

@@ -1033,12 +1033,22 @@ export default function SettingsPage() {
   const error = configError;
 
   // A link such as /settings?tab=integrations#igdb-config lands on the card it names. Runs
-  // once the tab content exists, which is after the loading branch below gives way.
+  // once the tab content exists, which is after the loading branch below gives way. The
+  // history events cover a link followed while its tab is already open: only the hash
+  // changes then, so nothing here re-renders.
   useEffect(() => {
     if (isLoading) return;
-    const id = window.location.hash.slice(1);
-    if (!id) return;
-    document.getElementById(id)?.scrollIntoView({ block: "start" });
+    const scrollToHash = () => {
+      const id = window.location.hash.slice(1);
+      if (!id) return;
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    };
+    scrollToHash();
+    const events = ["pushState", "replaceState", "hashchange"];
+    for (const event of events) window.addEventListener(event, scrollToHash);
+    return () => {
+      for (const event of events) window.removeEventListener(event, scrollToHash);
+    };
   }, [isLoading, activeTab, search]);
 
   const handleSaveAutoSearch = () => {

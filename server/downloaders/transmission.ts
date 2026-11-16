@@ -75,6 +75,36 @@ interface TransmissionTorrent {
   [key: string]: unknown;
 }
 
+/** Torrent reference returned by `torrent-add` (added or duplicate). */
+interface TransmissionAddedTorrent {
+  id?: number;
+  hashString?: string;
+  name?: string;
+}
+
+/** Arguments accepted by `torrent-add` that this client sets. */
+interface TransmissionAddArguments {
+  filename?: string;
+  metainfo?: string;
+  "download-dir"?: string;
+  labels?: string[];
+  "priority-high"?: boolean;
+  "priority-low"?: boolean;
+}
+
+/** Envelope of a Transmission RPC response, limited to the fields this client reads. */
+interface TransmissionRpcResponse {
+  result?: string;
+  arguments: {
+    "torrent-added"?: TransmissionAddedTorrent;
+    "torrent-duplicate"?: TransmissionAddedTorrent;
+    torrents?: TransmissionTorrent[];
+    "download-dir"?: string;
+    "size-bytes"?: number;
+    [key: string]: unknown;
+  };
+}
+
 export class TransmissionClient implements DownloaderClient {
   private downloader: Downloader;
   private sessionId: string | null = null;
@@ -150,8 +180,7 @@ export class TransmissionClient implements DownloaderClient {
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const args: any = {};
+      const args: TransmissionAddArguments = {};
 
       // Check if it's a magnet link or a URL that needs downloading
       const isMagnet = request.url.startsWith("magnet:");
@@ -262,9 +291,7 @@ export class TransmissionClient implements DownloaderClient {
               ids: [torrent.id],
               fields: ["hashString"],
             });
-            if (details.arguments.torrents && details.arguments.torrents.length > 0) {
-              id = details.arguments.torrents[0].hashString;
-            }
+            id = details.arguments.torrents?.[0]?.hashString;
           } catch (error) {
             downloadersLogger.warn(
               { error, torrentId: torrent.id },
@@ -273,18 +300,20 @@ export class TransmissionClient implements DownloaderClient {
           }
         }
 
+        const resolvedId = id || torrent.id?.toString();
         return {
           success: true,
-          id: id || torrent.id?.toString(),
+          ...(resolvedId ? { id: resolvedId } : {}),
           message: "Download added successfully",
         };
       } else if (response.arguments["torrent-duplicate"]) {
         const torrent = response.arguments["torrent-duplicate"];
         // Return success: true for duplicates to prevent fallback mechanism from trying other downloaders
         // as the user likely intends for this specific downloader to handle it (or it's already there)
+        const duplicateId = torrent.hashString || torrent.id?.toString();
         return {
           success: true,
-          id: torrent.hashString || torrent.id?.toString(),
+          ...(duplicateId ? { id: duplicateId } : {}),
           message: "Download already exists (Transmission)",
         };
       } else {
@@ -330,8 +359,8 @@ export class TransmissionClient implements DownloaderClient {
         ],
       });
 
-      if (response.arguments.torrents && response.arguments.torrents.length > 0) {
-        const torrent = response.arguments.torrents[0];
+      const torrent = response.arguments.torrents?.[0];
+      if (torrent) {
         return this.mapTransmissionStatus(torrent);
       }
 
@@ -375,8 +404,8 @@ export class TransmissionClient implements DownloaderClient {
         ],
       });
 
-      if (response.arguments.torrents && response.arguments.torrents.length > 0) {
-        const torrent = response.arguments.torrents[0];
+      const torrent = response.arguments.torrents?.[0];
+      if (torrent) {
         return this.mapTransmissionDetails(torrent);
       }
 
@@ -656,9 +685,10 @@ export class TransmissionClient implements DownloaderClient {
    * @throws If the transport policy forbids the configured credentials, or the
    * underlying RPC call fails.
    */
-  // Transmission API response structure
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async makeRequest(method: string, arguments_: any): Promise<any> {
+  private async makeRequest(
+    method: string,
+    arguments_: Record<string, unknown> | TransmissionAddArguments
+  ): Promise<TransmissionRpcResponse> {
     const baseUrl = this.getBaseUrl();
 
     // If the base URL doesn't already contain /transmission/rpc, append it

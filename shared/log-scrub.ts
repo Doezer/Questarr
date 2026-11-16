@@ -31,10 +31,24 @@
 export function redactSecretText(value: string): string {
   return (
     value
+      // A value quoted with escaped quotes (`password: \"x\"`) lives inside a JSON string
+      // in an NDJSON line: swallow the whole escaped value, quotes included, so the
+      // enclosing string keeps balanced quotes and the line stays valid JSON.
+      .replace(ESCAPED_QUOTE_SECRET_RE, "$1[redacted]")
+      // Same idea for a stringified JSON body inside a message (`{\"password\":\"x\"}`):
+      // the key is escaped-quoted too. Keep the escapes so the line stays valid JSON.
       .replace(
-        /\b(apikey|api[_-]?key|token|password|secret)["']?\s*[:=]\s*["']?([^"',\s&]+)["']?/gi,
-        "$1=[redacted]"
+        ESCAPED_KEY_SECRET_RE,
+        (_match, quote: string, key: string, separator: string) =>
+          `${quote}${key}${quote}${separator}\\"[redacted]\\"`
       )
+      .replace(SECRET_FIELD_RE, (_match, quote: string, key: string, separator: string) =>
+        // A quoted key means the text is JSON/JS-object shaped (e.g. an NDJSON log
+        // line): keep it valid by replacing only the value. Plain `key=value` text
+        // collapses to the compact `key=[redacted]` form.
+        quote ? `${quote}${key}${quote}${separator}"[redacted]"` : `${key}=[redacted]`
+      )
+      .replace(UNTERMINATED_SECRET_RE, "$1[redacted]")
       // The /i flag already folds case, so an explicit A-Z range here would
       // duplicate a-z -- SonarCloud flags that as a redundant character class.
       .replace(/(Bearer\s+)[a-z0-9._~+/=-]+/gi, "$1[redacted]")
@@ -44,6 +58,41 @@ export function redactSecretText(value: string): string {
       )
   );
 }
+
+const SECRET_KEY = String.raw`(?:apikey|api[_-]?key|token|password|secret)`;
+
+/**
+ * A value wrapped in escaped quotes (`\"x\"`), as it appears inside a JSON string. Inside the
+ * value a backslash pair is one escaped backslash and `\\\"` is an escaped quote, so neither ends
+ * the value; a lone `\"` does. `@@` is the backreference to the opening quote.
+ */
+const escapedValue = (group: number): string =>
+  String.raw`\\(["'])(?:\\\\\\@@|\\\\|(?!@@)[^"\\])*(?:\\@@)?`.replaceAll("@@", `\\${group}`);
+
+const ESCAPED_QUOTE_SECRET_RE = new RegExp(
+  String.raw`(\b${SECRET_KEY}\b\s*[:=]\s*)${escapedValue(2)}`,
+  "gi"
+);
+
+/** Same, with the key escaped-quoted too (`{\"password\":\"x\"}` inside a message). */
+const ESCAPED_KEY_SECRET_RE = new RegExp(
+  String.raw`(\\["'])\b(${SECRET_KEY})\b\1(\s*[:=]\s*)(?:${escapedValue(4)}|[^"',\s&}\\]+)`,
+  "gi"
+);
+
+/** A quoted value that never closes (`password="hunter2`): redact up to the next quote. */
+const UNTERMINATED_SECRET_RE = new RegExp(
+  String.raw`(\b${SECRET_KEY}\b\s*[:=]\s*)(["'])(?:\\.|(?!\2|"\s*[,}\]])[^\\])+`,
+  "gi"
+);
+
+/**
+ * `key: value` / `key=value` pairs whose key names a secret. Groups: the optional
+ * quote wrapping the key, the key, and the separator. The value is a quoted
+ * string or a bare run of non-delimiter characters.
+ */
+const SECRET_FIELD_RE =
+  /(["']?)\b(apikey|api[_-]?key|token|password|secret)\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|[^"',\s&}]+)/gi;
 
 // ── PII patterns ──────────────────────────────────────────────────────────────
 

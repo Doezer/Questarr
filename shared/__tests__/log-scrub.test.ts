@@ -7,6 +7,30 @@ describe("redactSecretText", () => {
     expect(redactSecretText('password: "hunter2"')).toContain("password=[redacted]");
   });
 
+  it("keeps JSON log lines valid when redacting quoted keys", () => {
+    const line =
+      '{"level":30,"url":"http://x/api","apiKey":"abc123","protocol":"newznab","password":"a\\"b","n":1}';
+    const result = redactSecretText(line);
+
+    expect(result).not.toContain("abc123");
+    expect(result).not.toContain('a\\"b');
+    expect(JSON.parse(result)).toMatchObject({
+      apiKey: "[redacted]",
+      password: "[redacted]",
+      protocol: "newznab",
+      n: 1,
+    });
+    expect(redactSecretText(result)).toBe(result);
+  });
+
+  it("keeps closing delimiters when the secret value is not a string", () => {
+    for (const value of ["null", "12345", "true"]) {
+      const result = redactSecretText(`{"n":1,"token":${value}}`);
+      expect(JSON.parse(result)).toEqual({ n: 1, token: "[redacted]" });
+    }
+    expect(redactSecretText('["secret=abc"]')).toBe('["secret=[redacted]"]');
+  });
+
   it("redacts Bearer tokens", () => {
     const input = "Authorization header was Bearer eyJhbGciOiJIUzI1NiJ9.abc.def";
     expect(redactSecretText(input)).toBe("Authorization header was Bearer [redacted]");
@@ -45,5 +69,67 @@ describe("scrubPii", () => {
 
     expect(result).not.toContain("abc123def");
     expect(result).toContain("[email]");
+  });
+
+  it("keeps NDJSON valid when a secret phrase with escaped quotes sits inside a string value", () => {
+    const lines = [
+      String.raw`{"level":50,"msg":"login failed: password: \"hunter2\" rejected"}`,
+      String.raw`{"level":50,"msg":"header was apiKey = \"zzz\" here"}`,
+      String.raw`{"msg":"secret: \"x\" leaked"}`,
+    ];
+    for (const line of lines) {
+      const out = redactSecretText(line);
+      expect(() => JSON.parse(out)).not.toThrow();
+      expect(out).toContain("[redacted]");
+      expect(out).not.toMatch(/hunter2|zzz|"x\\"/);
+    }
+  });
+
+  it("redacts secrets in a stringified JSON body embedded in a log message", () => {
+    const lines = [
+      String.raw`{"msg":"body {\"password\":\"hunter2\"} x"}`,
+      String.raw`{"msg":"body {\"token\":12345,\"a\":1} x"}`,
+    ];
+    for (const line of lines) {
+      const out = redactSecretText(line);
+      expect(() => JSON.parse(out)).not.toThrow();
+      expect(out).toContain("[redacted]");
+      expect(out).not.toMatch(/hunter2|12345/);
+    }
+  });
+
+  it("redacts quoted secret values that never close, raw and JSON-escaped", () => {
+    const raw = [
+      'login failed password="hunter2',
+      "login failed token='abc123",
+      `login failed password="hunter'secret`,
+      `login failed token='abc"123`,
+    ];
+    for (const text of raw) {
+      expect(redactSecretText(text)).not.toMatch(/hunter|abc|secret|123/);
+    }
+    const escaped = [
+      String.raw`{"msg":"login failed password=\"hunter2"}`,
+      String.raw`{"msg":"login failed token=\'abc123"}`,
+      `{"msg":"login failed password='hunter2"}`,
+    ];
+    for (const line of escaped) {
+      const out = redactSecretText(line);
+      expect(() => JSON.parse(out)).not.toThrow();
+      expect(out).not.toMatch(/hunter2|abc123/);
+    }
+  });
+
+  it("keeps escaped quotes and backslashes inside a secret value from ending the match", () => {
+    const nested = JSON.stringify({ msg: JSON.stringify({ password: 'prefix"suffix' }) });
+    const spaced = JSON.stringify({ msg: 'password="prefix\\"private tail"' });
+    for (const line of [nested, spaced]) {
+      const out = redactSecretText(line);
+      expect(() => JSON.parse(out)).not.toThrow();
+      expect(out).toContain("[redacted]");
+      expect(out).not.toMatch(/prefix|suffix|private|tail/);
+    }
+    expect(redactSecretText('password="Pa55\\word!')).not.toMatch(/Pa55|word!/);
+    expect(redactSecretText("token='ab}cd")).not.toMatch(/ab|cd/);
   });
 });

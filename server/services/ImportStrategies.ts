@@ -278,6 +278,42 @@ async function transferSingleFile(
   return linkOrCopyFallback(source, destination);
 }
 
+// Resolves the directory alias but keeps the entry name, so a symlink entry is not followed.
+async function resolvedEntryPath(entryPath: string): Promise<string> {
+  return path.join(await fs.realpath(path.dirname(entryPath)), path.basename(entryPath));
+}
+
+/**
+ * True when `destination` is already the file a previous, interrupted run of this same
+ * transfer placed for `source`: the same inode (hardlink) or a symlink pointing at it.
+ * Anything else at the destination is an unrelated file and must still be refused.
+ */
+async function isAlreadyPlacedFrom(source: string, destination: string): Promise<boolean> {
+  try {
+    const destLstat = await fs.lstat(destination);
+    const [realSource, realDestination, sourceEntry, destinationEntry] = await Promise.all([
+      fs.realpath(source),
+      fs.realpath(destination),
+      resolvedEntryPath(source),
+      resolvedEntryPath(destination),
+    ]);
+    // Same directory entry: this is the source itself, never an earlier placement.
+    if (sourceEntry === destinationEntry) return false;
+    if (destLstat.isSymbolicLink()) return realDestination === realSource;
+    // The source itself, under any alias (symlinked parent, `..`), is never "already
+    // placed": removing it would destroy the only copy.
+    if (realDestination === realSource) return false;
+    // BigInt: inode numbers can exceed Number.MAX_SAFE_INTEGER (NTFS), where distinct files collide.
+    const [srcStat, destStat] = await Promise.all([
+      fs.stat(source, { bigint: true }),
+      fs.stat(destination, { bigint: true }),
+    ]);
+    return srcStat.isFile() && srcStat.dev === destStat.dev && srcStat.ino === destStat.ino;
+  } catch {
+    return false;
+  }
+}
+
 // Hardlinks can't target a directory as one call, and excluding specific
 // files (e.g. a raw archive whose contents were already extracted straight
 // to the destination) requires acting per-file rather than on the
@@ -301,9 +337,14 @@ async function transferDirectoryPerFile(
   // volumes are excluded here because they were already extracted straight into
   // destination, and transferSingleFile's unconditional overwrite would otherwise
   // silently replace an extracted file with an unrelated loose one of the same name.
-  for (const { destFile } of plannedTransfers) {
+  for (const { srcFile, destFile } of plannedTransfers) {
     if (await fs.pathExists(destFile)) {
-      throw new Error(`Destination already exists, refusing to overwrite: ${destFile}`);
+      if (!(await isAlreadyPlacedFrom(srcFile, destFile))) {
+        throw new Error(`Destination already exists, refusing to overwrite: ${destFile}`);
+      }
+      // A link to the source from an interrupted run: drop it so a copy or move retry
+      // doesn't see source and destination as the same file.
+      await fs.remove(destFile);
     }
   }
 
@@ -659,9 +700,14 @@ export class PCImportStrategy implements ImportStrategy {
       // transferSingleFile's unconditional overwrite would otherwise silently replace
       // an extracted file with an unrelated loose one of the same name — the same
       // failure mode transferDirectoryPerFile guards against above.
-      for (const { destinationFile } of plannedTransfers) {
+      for (const { sourceFile, destinationFile } of plannedTransfers) {
         if (await fs.pathExists(destinationFile)) {
-          throw new Error(`Destination already exists, refusing to overwrite: ${destinationFile}`);
+          if (!(await isAlreadyPlacedFrom(sourceFile, destinationFile))) {
+            throw new Error(
+              `Destination already exists, refusing to overwrite: ${destinationFile}`
+            );
+          }
+          await fs.remove(destinationFile);
         }
       }
 

@@ -869,7 +869,11 @@ export type InstalledVersionSource = (typeof INSTALLED_VERSION_SOURCES)[number];
 /** The sources a version can be detected from, i.e. every one but the user typing it. */
 export type DetectedVersionSource = Exclude<InstalledVersionSource, "manual">;
 
-export const UPGRADE_POLICIES = ["off", "notify"] as const;
+/**
+ * "notify" flags newer versions and packs. "auto" also downloads a provably newer version by
+ * itself (see shared/upgrade-decision.ts) and still flags the rest. Opt-in: never the default.
+ */
+export const UPGRADE_POLICIES = ["off", "notify", "auto"] as const;
 export type UpgradePolicy = (typeof UPGRADE_POLICIES)[number];
 export const DEFAULT_UPGRADE_POLICY: UpgradePolicy = "notify";
 
@@ -1166,6 +1170,12 @@ export const downloadRulesSchema = z.object({
   // best-scored one instead of asking the user to choose. Off: only a single remaining
   // release is downloaded.
   autoPickBest: z.boolean().default(false),
+  // "auto" upgrade policy, same version: while the installed release scores below this cutoff,
+  // a better-scored release of the installed version replaces it. null (default) turns these
+  // swaps off; newer versions are taken either way.
+  upgradeCutoffScore: z.number().int().min(-10000).max(10000).nullable().default(null),
+  // how many points better a same-version release must score to be worth the swap
+  upgradeMinScoreGain: z.number().int().min(1).max(10000).default(10),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;
@@ -1765,6 +1775,8 @@ export const DOWNLOAD_EVENT_TYPES = [
   "needs_review",
   "removed",
   "blocklisted",
+  // A newer version of an owned game taken by the "auto" upgrade policy; the message says why.
+  "upgrade",
 ] as const;
 export type DownloadEventType = (typeof DOWNLOAD_EVENT_TYPES)[number];
 

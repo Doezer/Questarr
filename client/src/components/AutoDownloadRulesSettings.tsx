@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -54,7 +54,28 @@ const DEFAULT_RULES: DownloadRules = {
   visibleCategories: ["main", "update", "dlc", "extra", "packs"],
   hideRejected: true,
   autoPickBest: false,
+  upgradeCutoffScore: null,
+  upgradeMinScoreGain: 10,
 };
+
+// Shown when the swap is first turned on: the built-in rules put a clean scene or GOG release
+// around 150 points.
+const DEFAULT_UPGRADE_CUTOFF = 150;
+
+const CUTOFF_RANGE = { min: -10000, max: 10000 } as const;
+const GAIN_RANGE = { min: 1, max: 10000 } as const;
+
+/** The integer a field holds, clamped to its range; null while it is empty or just a sign. */
+function parseClampedInt(value: string, range: { min: number; max: number }): number | null {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return null;
+  return Math.min(range.max, Math.max(range.min, parsed));
+}
+
+/** Keeps what is being typed when it already means `value`, else shows `value`. */
+function syncedText(text: string, value: number, range: { min: number; max: number }): string {
+  return parseClampedInt(text, range) === value ? text : String(value);
+}
 
 export default function AutoDownloadRulesSettings({
   rules,
@@ -70,6 +91,18 @@ export default function AutoDownloadRulesSettings({
   );
   const [hideRejected, setHideRejected] = useState<boolean>(rules?.hideRejected ?? true);
   const [autoPickBest, setAutoPickBest] = useState<boolean>(rules?.autoPickBest ?? false);
+  const [upgradeCutoffScore, setUpgradeCutoffScore] = useState<number | null>(
+    rules?.upgradeCutoffScore ?? null
+  );
+  const [upgradeMinScoreGain, setUpgradeMinScoreGain] = useState<number>(
+    rules?.upgradeMinScoreGain ?? 10
+  );
+  // What is typed in the two number fields: kept apart from the values so a field can be
+  // emptied, or start with a minus sign, without snapping back to a default mid-edit.
+  const [cutoffText, setCutoffText] = useState<string>(
+    String(rules?.upgradeCutoffScore ?? DEFAULT_UPGRADE_CUTOFF)
+  );
+  const [gainText, setGainText] = useState<string>(String(rules?.upgradeMinScoreGain ?? 10));
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
     new Set(
       (rules?.visibleCategories ?? [
@@ -112,6 +145,13 @@ export default function AutoDownloadRulesSettings({
     setSortBy(source.sortBy);
     setHideRejected(source.hideRejected);
     setAutoPickBest(source.autoPickBest ?? false);
+    setUpgradeCutoffScore(source.upgradeCutoffScore ?? null);
+    setUpgradeMinScoreGain(source.upgradeMinScoreGain ?? 10);
+    const cutoff = source.upgradeCutoffScore;
+    if (cutoff !== null && cutoff !== undefined) {
+      setCutoffText((prev) => syncedText(prev, cutoff, CUTOFF_RANGE));
+    }
+    setGainText((prev) => syncedText(prev, source.upgradeMinScoreGain ?? 10, GAIN_RANGE));
 
     // Only update set if the content has changed to avoid infinite loop
     setVisibleCategories((prev) => {
@@ -124,15 +164,30 @@ export default function AutoDownloadRulesSettings({
   }, [rules]);
 
   // Automatically apply changes to parent component when local state changes
-  useEffect(() => {
-    onChange({
+  const currentRules = useMemo<DownloadRules>(
+    () => ({
       minSeeders,
       sortBy,
       visibleCategories: Array.from(visibleCategories),
       hideRejected,
       autoPickBest,
-    });
-  }, [minSeeders, sortBy, visibleCategories, hideRejected, autoPickBest, onChange]);
+      upgradeCutoffScore,
+      upgradeMinScoreGain,
+    }),
+    [
+      minSeeders,
+      sortBy,
+      visibleCategories,
+      hideRejected,
+      autoPickBest,
+      upgradeCutoffScore,
+      upgradeMinScoreGain,
+    ]
+  );
+
+  useEffect(() => {
+    onChange(currentRules);
+  }, [currentRules, onChange]);
 
   const handleCategoryChange = (category: DownloadCategory) => {
     setVisibleCategories((prev) => {
@@ -255,6 +310,79 @@ export default function AutoDownloadRulesSettings({
             </label>
           </div>
 
+          {/* Same-version swaps of the "Download automatically" update policy */}
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="upgradeSwap"
+                checked={upgradeCutoffScore !== null}
+                onCheckedChange={(checked) => {
+                  setUpgradeCutoffScore(checked === true ? DEFAULT_UPGRADE_CUTOFF : null);
+                  if (checked === true) setCutoffText(String(DEFAULT_UPGRADE_CUTOFF));
+                }}
+                className="mt-1"
+              />
+              <label htmlFor="upgradeSwap" className="flex-1 cursor-pointer text-sm leading-tight">
+                <div className="font-medium">Replace owned releases with better-scored ones</div>
+                <div className="text-xs text-muted-foreground">
+                  For owned games set to Download automatically: when a release of the installed
+                  version scores better than the one you downloaded, take it. Off: only newer
+                  versions are downloaded.
+                </div>
+              </label>
+            </div>
+            {upgradeCutoffScore !== null && (
+              <div className="grid gap-4 border-l-2 pl-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="upgradeCutoffScore" className="text-sm font-medium">
+                    Stop at score
+                  </Label>
+                  <Input
+                    id="upgradeCutoffScore"
+                    type="number"
+                    inputMode="numeric"
+                    min="-10000"
+                    max="10000"
+                    value={cutoffText}
+                    onChange={(e) => {
+                      setCutoffText(e.target.value);
+                      const parsed = parseClampedInt(e.target.value, CUTOFF_RANGE);
+                      if (parsed !== null) setUpgradeCutoffScore(parsed);
+                    }}
+                    onBlur={() => setCutoffText(String(upgradeCutoffScore))}
+                    className="h-10 w-full sm:h-9"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Once the installed release scores this much, it is kept
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="upgradeMinScoreGain" className="text-sm font-medium">
+                    Minimum score gain
+                  </Label>
+                  <Input
+                    id="upgradeMinScoreGain"
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max="10000"
+                    value={gainText}
+                    onChange={(e) => {
+                      setGainText(e.target.value);
+                      const parsed = parseClampedInt(e.target.value, GAIN_RANGE);
+                      if (parsed !== null) setUpgradeMinScoreGain(parsed);
+                    }}
+                    onBlur={() => setGainText(String(upgradeMinScoreGain))}
+                    className="h-10 w-full sm:h-9"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    How many points better a release must score to replace yours
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Categories */}
           <div className="space-y-2">
             <Label className="text-sm font-medium">Content Types to Show</Label>
@@ -296,16 +424,7 @@ export default function AutoDownloadRulesSettings({
             Reset to Defaults
           </Button>
           <Button
-            onClick={() => {
-              const rulesToSave = {
-                minSeeders,
-                sortBy,
-                visibleCategories: Array.from(visibleCategories),
-                hideRejected,
-                autoPickBest,
-              };
-              saveRulesMutation.mutate(rulesToSave);
-            }}
+            onClick={() => saveRulesMutation.mutate(currentRules)}
             disabled={saveRulesMutation.isPending}
             className="gap-2"
           >

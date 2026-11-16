@@ -1222,7 +1222,7 @@ describe("API Routes - Extended Coverage", () => {
     it("rejects an unknown policy", async () => {
       const response = await request(app)
         .patch(`/api/games/${gameId}/upgrade-policy`)
-        .send({ upgradePolicy: "auto" });
+        .send({ upgradePolicy: "always" });
       expect(response.status).toBe(400);
       expect(response.body.error).toBe("Invalid upgrade policy data");
     });

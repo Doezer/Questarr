@@ -7,7 +7,8 @@ vi.mock("../logger.js", () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-describe("ArchiveService streamed listings", () => {
+// The fake 7z/unrar binaries are `#!node` scripts, which Windows cannot execute.
+describe.skipIf(process.platform === "win32")("ArchiveService streamed listings", () => {
   let directory: string;
   let binary: string;
 

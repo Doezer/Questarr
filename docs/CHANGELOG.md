@@ -45,6 +45,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Release scores after a profile change**: search results no longer keep the scores computed with the previous release profile after you save the release profile or a custom format (#1376).
 - **Manual import retries**: confirming a manual import again no longer transfers the files twice or sends a finished download back to manual review, and a second confirmation while the first is still running is refused with a clear message (#1275, #1359).
 - **Switch 2, Nintendo 64 and remake releases**: Switch 2 is now a platform of its own, `Nintendo 64`/`N64` markers are read as a platform, and a remake is kept distinct from the original game, so these releases are no longer scored as title spinoffs of another game (#1345, #1356).
 - **xREL checks**: a malformed xREL response is treated as unavailable, never as an empty result (#1305). A release missing from a full, truncated xREL list is reported as unknown instead of not found (#1309). xREL results are kept across long auto-search intervals and large wanted lists (#1307). The trust badge says that p2p releases cannot be checked for nukes (#1306).

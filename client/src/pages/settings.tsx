@@ -917,7 +917,7 @@ export default function SettingsPage() {
 
       return { data: await res.json(), successMessage };
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       toast({
         title: "Settings Updated",
         description: data.successMessage,
@@ -925,10 +925,20 @@ export default function SettingsPage() {
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-      // The PATCH answers with the saved settings: make them the baseline right away so Discard
-      // never restores stale values, even if the refetch below fails.
-      if (data.data && typeof data.data === "object") {
-        queryClient.setQueryData<UserSettings>(["/api/settings"], data.data as UserSettings);
+      // The PATCH answers with the saved settings: make the fields this save sent the baseline
+      // right away so Discard never restores stale values, even if the refetch below fails.
+      // Only those keys are merged, so an overlapping save is never overwritten by an older reply.
+      const saved = data.data as Partial<UserSettings> | null;
+      if (saved && typeof saved === "object") {
+        const sentKeys = Object.keys(variables.updates) as (keyof UserSettings)[];
+        queryClient.setQueryData<UserSettings>(["/api/settings"], (cached) => {
+          if (!cached) return cached;
+          const next = { ...cached };
+          for (const key of sentKeys) {
+            if (key in saved) (next as Record<string, unknown>)[key] = saved[key];
+          }
+          return next;
+        });
       }
       // Returned so the mutation stays pending until the refetch lands: Save all / Discard stay
       // disabled and the unload guard stays on until the saved baseline is up to date.

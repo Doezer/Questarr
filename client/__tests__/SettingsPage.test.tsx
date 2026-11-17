@@ -290,6 +290,23 @@ describe("SettingsPage", () => {
       await screen.findByTestId("unsaved-changes-bar");
       expect(closeTab()).toBe(true);
     });
+
+    it("keeps warning while a save is in flight even if the field is toggled back", async () => {
+      const { apiRequest } = await import("@/lib/queryClient");
+      const respond = { headers: { get: () => null }, json: async () => ({}) };
+      vi.mocked(apiRequest).mockImplementation(((method: string) =>
+        method === "PATCH" ? new Promise(() => {}) : Promise.resolve(respond)) as never);
+      renderPage();
+      const toggle = await screen.findByLabelText("Hide shelved games by default");
+      fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole("button", { name: /save library filtering/i }));
+      await screen.findByRole("button", { name: /saving/i });
+
+      fireEvent.click(toggle); // back to the cached value: nothing dirty, but the PATCH holds false
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    });
   });
 
   it("saves auto-search settings via the PATCH mutation", async () => {

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { SteamLibraryImport } from "@/components/SteamLibraryImport";
 import { SteamPlaytimeSync } from "@/components/SteamPlaytimeSync";
 import { useLocation, useSearch } from "wouter";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/react-query";
 import {
   Server,
   Key,
@@ -237,6 +237,8 @@ function SettingsFilterCard({
     </Card>
   );
 }
+
+const SETTINGS_SAVE_KEY = ["settings-save"] as const;
 
 /**
  * Configures application preferences, integrations, notifications, account security, and system maintenance settings.
@@ -895,6 +897,7 @@ export default function SettingsPage() {
   };
 
   const updateSettingsMutation = useMutation({
+    mutationKey: SETTINGS_SAVE_KEY,
     mutationFn: async ({
       updates,
       successMessage,
@@ -1347,7 +1350,9 @@ export default function SettingsPage() {
 
   // Closing or reloading the tab would drop these edits without a word.
   const hasUnsavedChanges = dirtySections.length > 0;
-  const guardUnload = hasUnsavedChanges || updateSettingsMutation.isPending;
+  // `isPending` only follows the latest mutate() call, so count every in-flight settings save.
+  const settingsSavesInFlight = useIsMutating({ mutationKey: SETTINGS_SAVE_KEY });
+  const guardUnload = hasUnsavedChanges || settingsSavesInFlight > 0;
   useEffect(() => {
     if (!guardUnload) return;
     const warn = (event: BeforeUnloadEvent) => {
@@ -1394,7 +1399,7 @@ export default function SettingsPage() {
       description="Control which games appear in your library and discovery results"
       onSave={handleSaveContentFilter}
       savePending={isSectionSaving("content-filter")}
-      saveDisabled={updateSettingsMutation.isPending}
+      saveDisabled={settingsSavesInFlight > 0}
       saveDirty={isSectionDirty("content-filter")}
       saveIcon={EyeOff}
       saveLabel="Save Content Filtering"
@@ -1441,7 +1446,7 @@ export default function SettingsPage() {
       description="Choose which games are hidden by default in your library"
       onSave={handleSaveLibraryFilters}
       savePending={isSectionSaving("library-filter")}
-      saveDisabled={updateSettingsMutation.isPending}
+      saveDisabled={settingsSavesInFlight > 0}
       saveDirty={isSectionDirty("library-filter")}
       saveIcon={Archive}
       saveLabel="Save Library Filtering"
@@ -1476,14 +1481,14 @@ export default function SettingsPage() {
                 variant="outline"
                 className="min-h-11"
                 onClick={discardAllSections}
-                disabled={updateSettingsMutation.isPending}
+                disabled={settingsSavesInFlight > 0}
               >
                 Discard
               </Button>
               <Button
                 className="min-h-11"
                 onClick={saveAllSections}
-                disabled={updateSettingsMutation.isPending}
+                disabled={settingsSavesInFlight > 0}
               >
                 {isSectionSaving("all") ? "Saving..." : "Save all"}
               </Button>
@@ -1736,7 +1741,7 @@ export default function SettingsPage() {
                   <UnsavedHint show={isSectionDirty("auto-search")} />
                   <Button
                     onClick={handleSaveAutoSearch}
-                    disabled={updateSettingsMutation.isPending}
+                    disabled={settingsSavesInFlight > 0}
                     className="gap-2"
                   >
                     {isSectionSaving("auto-search") ? (
@@ -2256,7 +2261,7 @@ export default function SettingsPage() {
                     <UnsavedHint show={isSectionDirty("steam-sync")} />
                     <Button
                       onClick={handleSaveSteamSync}
-                      disabled={updateSettingsMutation.isPending}
+                      disabled={settingsSavesInFlight > 0}
                       className="gap-2"
                     >
                       {isSectionSaving("steam-sync") ? (
@@ -2888,7 +2893,7 @@ export default function SettingsPage() {
                   <UnsavedHint show={isSectionDirty("telemetry")} />
                   <Button
                     onClick={handleSaveTelemetry}
-                    disabled={updateSettingsMutation.isPending}
+                    disabled={settingsSavesInFlight > 0}
                     className="gap-2"
                   >
                     {isSectionSaving("telemetry") ? (

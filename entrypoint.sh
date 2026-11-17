@@ -34,8 +34,13 @@ if [ "$(id -u)" != "0" ]; then
   if [ -z "$SQLITE_DB_PATH" ]; then
     export SQLITE_DB_PATH="/app/data/sqlite.db"
   fi
-  if [ -f "$SQLITE_DB_PATH" ] && [ ! -w "$SQLITE_DB_PATH" ]; then
-    echo "ERROR: existing database file ${SQLITE_DB_PATH} is not writable by uid $(id -u)."
+  # A directory in SQLITE_DB_PATH means "sqlite.db inside it" (see server/db/sqlite-path.ts)
+  _NR_DB_FILE="$SQLITE_DB_PATH"
+  if [ -d "$_NR_DB_FILE" ]; then
+    _NR_DB_FILE="${_NR_DB_FILE%/}/sqlite.db"
+  fi
+  if [ -f "$_NR_DB_FILE" ] && [ ! -w "$_NR_DB_FILE" ]; then
+    echo "ERROR: existing database file ${_NR_DB_FILE} is not writable by uid $(id -u)."
     exit 1
   fi
   exec "$@"

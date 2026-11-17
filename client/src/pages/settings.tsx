@@ -157,19 +157,22 @@ function SettingsSaveButton({
   onClick,
   pending,
   dirty = false,
+  disabled = false,
   icon: Icon,
   label,
 }: {
   onClick: () => void;
   pending: boolean;
   dirty?: boolean;
+  /** Disable the button without showing the "Saving..." label (another save is in flight). */
+  disabled?: boolean;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
 }) {
   return (
     <div className="flex justify-end pt-4 border-t">
       <UnsavedHint show={dirty} />
-      <Button onClick={onClick} disabled={pending} className="gap-2">
+      <Button onClick={onClick} disabled={pending || disabled} className="gap-2">
         {pending ? (
           <>
             <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
@@ -192,6 +195,7 @@ function SettingsFilterCard({
   description,
   onSave,
   savePending,
+  saveDisabled = false,
   saveDirty,
   saveIcon,
   saveLabel,
@@ -202,6 +206,7 @@ function SettingsFilterCard({
   description: string;
   onSave: () => void;
   savePending: boolean;
+  saveDisabled?: boolean;
   saveDirty: boolean;
   saveIcon: React.ComponentType<{ className?: string }>;
   saveLabel: string;
@@ -224,6 +229,7 @@ function SettingsFilterCard({
           onClick={onSave}
           pending={savePending}
           dirty={saveDirty}
+          disabled={saveDisabled}
           icon={saveIcon}
           label={saveLabel}
         />
@@ -1385,6 +1391,7 @@ export default function SettingsPage() {
       description="Control which games appear in your library and discovery results"
       onSave={handleSaveContentFilter}
       savePending={isSectionSaving("content-filter")}
+      saveDisabled={updateSettingsMutation.isPending}
       saveDirty={isSectionDirty("content-filter")}
       saveIcon={EyeOff}
       saveLabel="Save Content Filtering"
@@ -1431,6 +1438,7 @@ export default function SettingsPage() {
       description="Choose which games are hidden by default in your library"
       onSave={handleSaveLibraryFilters}
       savePending={isSectionSaving("library-filter")}
+      saveDisabled={updateSettingsMutation.isPending}
       saveDirty={isSectionDirty("library-filter")}
       saveIcon={Archive}
       saveLabel="Save Library Filtering"
@@ -1725,7 +1733,7 @@ export default function SettingsPage() {
                   <UnsavedHint show={isSectionDirty("auto-search")} />
                   <Button
                     onClick={handleSaveAutoSearch}
-                    disabled={isSectionSaving("auto-search")}
+                    disabled={updateSettingsMutation.isPending}
                     className="gap-2"
                   >
                     {isSectionSaving("auto-search") ? (
@@ -2245,7 +2253,7 @@ export default function SettingsPage() {
                     <UnsavedHint show={isSectionDirty("steam-sync")} />
                     <Button
                       onClick={handleSaveSteamSync}
-                      disabled={isSectionSaving("steam-sync")}
+                      disabled={updateSettingsMutation.isPending}
                       className="gap-2"
                     >
                       {isSectionSaving("steam-sync") ? (
@@ -2877,7 +2885,7 @@ export default function SettingsPage() {
                   <UnsavedHint show={isSectionDirty("telemetry")} />
                   <Button
                     onClick={handleSaveTelemetry}
-                    disabled={isSectionSaving("telemetry")}
+                    disabled={updateSettingsMutation.isPending}
                     className="gap-2"
                   >
                     {isSectionSaving("telemetry") ? (

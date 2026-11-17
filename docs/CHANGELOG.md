@@ -41,7 +41,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- **Settings reorganized**: the tabs are now **General**, **Search & Downloads**, **Release Scoring**, **Notifications**, **Connections**, **Import**, **Security** and **System**. Release scoring and the release classification cards moved to their own **Release Scoring** tab, and the IGDB card comes first under **Connections** (previously **Integrations**). Links to the classification review from older notifications still open the right card. Each Settings card now shows unsaved changes and saves on its own, muted text and primary buttons meet WCAG AA contrast, and the page width is capped (#1378, #1380, #1381, #1382).
+- **Settings reorganized**: each section now has its own page under `/settings` (for example `/settings/connections`), listed in a sidebar: **General**, **Search & Downloads**, **Release Scoring**, **Notifications**, **Connections**, **Import**, **Security** and **System**. Release scoring and the release classification cards moved to their own **Release Scoring** page, and the IGDB card comes first under **Connections** (previously **Integrations**). Links to the classification review from older notifications still open the right card. Each Settings card now shows unsaved changes and saves on its own, muted text and primary buttons meet WCAG AA contrast, and the page width is capped (#1378, #1380, #1381, #1382, #1390).
 
 ### Fixed
 

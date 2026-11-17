@@ -209,6 +209,7 @@ function buildImportConfigFromSettings(
     | "autoDeleteAfterImport"
     | "sortExtras"
     | "upgradeReplaceMode"
+    | "folderForSingleFiles"
   >
 ): ImportConfig {
   const parsed = importConfigSchema.safeParse({
@@ -224,6 +225,7 @@ function buildImportConfigFromSettings(
     autoDeleteAfterImport: settings?.autoDeleteAfterImport ?? false,
     sortExtras: settings?.sortExtras ?? false,
     upgradeReplaceMode: settings?.upgradeReplaceMode ?? "off",
+    folderForSingleFiles: settings?.folderForSingleFiles ?? true,
   });
 
   if (parsed.success) return parsed.data;
@@ -241,6 +243,7 @@ function buildImportConfigFromSettings(
     autoDeleteAfterImport: settings?.autoDeleteAfterImport ?? false,
     sortExtras: settings?.sortExtras ?? false,
     upgradeReplaceMode: "off",
+    folderForSingleFiles: settings?.folderForSingleFiles ?? true,
   };
 }
 
@@ -2191,6 +2194,7 @@ export class MemStorage implements IStorage {
       autoDeleteAfterImport: insertSettings.autoDeleteAfterImport ?? false,
       sortExtras: insertSettings.sortExtras ?? false,
       upgradeReplaceMode: insertSettings.upgradeReplaceMode ?? "off",
+      folderForSingleFiles: insertSettings.folderForSingleFiles ?? true,
 
       preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,

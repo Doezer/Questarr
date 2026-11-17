@@ -86,6 +86,22 @@ describe("ReleaseScoringSettings", () => {
     );
   });
 
+  it("drops cached search results once the profile is saved, so scores are recomputed", async () => {
+    const { client } = renderSettings();
+    client.setQueryData(["/api/search?query=zelda&gameId=g1"], { items: [] });
+    client.setQueryData(["/api/search", "zelda"], { items: [] });
+    client.setQueryData(["/api/games"], []);
+
+    fireEvent.change(screen.getByLabelText("Repack points"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save profile and rules/i }));
+
+    await waitFor(() =>
+      expect(client.getQueryState(["/api/search?query=zelda&gameId=g1"])?.isInvalidated).toBe(true)
+    );
+    expect(client.getQueryState(["/api/search", "zelda"])?.isInvalidated).toBe(true);
+    expect(client.getQueryState(["/api/games"])?.isInvalidated).toBe(false);
+  });
+
   it("lets a rule weight be cleared and typed as a negative number", async () => {
     renderSettings();
     const input = screen.getByLabelText("Repack points") as HTMLInputElement;

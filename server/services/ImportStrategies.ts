@@ -35,6 +35,9 @@ export interface ImportReview {
   ignoredExtensions?: string[];
   fileCategories?: FileCategoryEntry[] | undefined;
   importResult?: ImportResult;
+  // The folder a single file was wrapped in (see folderForSingleFiles); the game's own entry
+  // in the library is then this folder, not the file inside it.
+  wrapperFolder?: string | undefined;
 }
 
 export interface FileCategoryEntry {
@@ -598,7 +601,12 @@ export class PCImportStrategy implements ImportStrategy {
     const stats = await fs.stat(sourcePath);
     const cleanTitle = resolveLibraryLeafName(game, config, platformDir, options?.downloadTitle);
     const ext = options?.treatAsDirectory || stats.isDirectory() ? "" : path.extname(sourcePath);
-    const destination = path.join(targetRoot, platformDir ?? "PC", cleanTitle + ext);
+    // A single file gets the folder a multi-file release has, when the user asked for it.
+    const wrapInFolder =
+      config.folderForSingleFiles && !stats.isDirectory() && !options?.treatAsDirectory;
+    const destination = wrapInFolder
+      ? path.join(targetRoot, platformDir ?? "PC", cleanTitle, cleanTitle + ext)
+      : path.join(targetRoot, platformDir ?? "PC", cleanTitle + ext);
 
     // sanitizeFsName strips filesystem-illegal characters but not ".." segments, so a
     // game title alone doesn't guarantee destination stays under targetRoot. Verify
@@ -624,6 +632,7 @@ export class PCImportStrategy implements ImportStrategy {
       proposedPath: destination,
       strategy: "pc",
       fileCategories,
+      wrapperFolder: wrapInFolder ? path.dirname(destination) : undefined,
     };
   }
 
@@ -744,6 +753,13 @@ export class PCImportStrategy implements ImportStrategy {
     }
 
     await fs.ensureDir(path.dirname(review.proposedPath));
+    if (review.wrapperFolder) {
+      // a game folder that is a link could send the file outside the library
+      const wrapper = await fs.lstat(review.wrapperFolder);
+      if (wrapper.isSymbolicLink()) {
+        throw new Error(`Refusing to import into a symlinked game folder: ${review.wrapperFolder}`);
+      }
+    }
     const modeUsed = await transferFile(
       review.originalPath,
       review.proposedPath,

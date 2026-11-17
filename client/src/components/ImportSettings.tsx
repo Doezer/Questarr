@@ -225,6 +225,15 @@ export default function ImportSettings() {
                           setLocalConfig({ ...localConfig, overwriteExisting: c })
                         }
                       />
+                      <SettingRow
+                        id="import-folder-single-files"
+                        label="Folder for single-file releases"
+                        description="Put a release that is one file in its own folder named like the game, as multi-file releases already are."
+                        checked={localConfig.folderForSingleFiles ?? true}
+                        onCheckedChange={(c) =>
+                          setLocalConfig({ ...localConfig, folderForSingleFiles: c })
+                        }
+                      />
                       <div className="space-y-1.5">
                         <Label htmlFor="upgradeReplaceMode">
                           Previous version after an upgrade

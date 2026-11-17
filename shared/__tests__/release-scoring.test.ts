@@ -846,3 +846,22 @@ describe("platform and edition words in titles", () => {
     ).toBe("spinoff");
   });
 });
+
+describe("remake in release titles (#1365)", () => {
+  it("never makes a remake an exact match for the original game", () => {
+    expect(classifyTitleMatch("Final Fantasy VII Remake", "Final Fantasy VII")).not.toBe("exact");
+    expect(classifyTitleMatch("Resident Evil 4 Remake", "Resident Evil 4")).not.toBe("exact");
+    expect(classifyTitleMatch("Resident.Evil.4.Remake-CODEX", "Resident Evil 4")).not.toBe("exact");
+  });
+
+  it("matches a remake exactly when the game's own names say it is one", () => {
+    expect(classifyTitleMatch("Final Fantasy VII Remake-CODEX", "Final Fantasy VII Remake")).toBe(
+      "exact"
+    );
+    expect(
+      classifyTitleMatch("Dead.Space.Remake.Deluxe.Edition-GOG", "Dead Space", [
+        "Dead Space Remake",
+      ])
+    ).toBe("exact");
+  });
+});

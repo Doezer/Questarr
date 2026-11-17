@@ -138,6 +138,9 @@ export const userSettings = pgTable("user_settings", {
   // What happens to the version already in the library when a new one is imported:
   // "off" (kept), "archive" (moved to .questarr-replaced) or "delete".
   upgradeReplaceMode: text("upgrade_replace_mode").notNull().default("off"),
+  // A release that is a single file lands in a folder named like the game, as multi-file
+  // releases do, instead of directly in the platform folder.
+  folderForSingleFiles: boolean("folder_for_single_files").notNull().default(true),
   // Telemetry: opt-in, off by default. When enabled, automatically-detected server
   // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
   telemetryEnabled: boolean("telemetry_enabled").notNull().default(false),

@@ -10,7 +10,7 @@ test("a mixed-case trailing-slash login uses the auth layout and restores encode
   });
   try {
     const page = await context.newPage();
-    const target = "/settings?tab=import&note=A%26B&literal=%252F#context";
+    const target = "/settings/import?note=A%26B&literal=%252F#context";
     const login = `/LoGiN/?next=${encodeURIComponent(target)}`;
     await page.goto(login);
     const submit = page.getByRole("button", { name: "Login", exact: true });
@@ -27,10 +27,9 @@ test("a mixed-case trailing-slash login uses the auth layout and restores encode
     await page.fill('input[name="password"]', "password123");
     await submit.click();
     await expect(page).toHaveURL(target);
-    await expect(page.getByRole("tab", { name: "Import", exact: true })).toHaveAttribute(
-      "data-state",
-      "active"
-    );
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Import", exact: true })
+    ).toBeVisible();
   } finally {
     await context.close();
   }
@@ -67,7 +66,7 @@ test("a notification opens its game page after login and a login-page reload", a
   }
 });
 
-test("a settings notification retains its tab and anchor after login", async ({
+test("a settings notification retains its section and anchor after login", async ({
   browser,
 }, testInfo) => {
   const context = await browser.newContext({
@@ -76,17 +75,16 @@ test("a settings notification retains its tab and anchor after login", async ({
   });
   try {
     const page = await context.newPage();
-    const target = "/settings?tab=notifications&note=A%26B#context";
+    const target = "/settings/notifications?note=A%26B#context";
     await page.goto(target);
     await expect(page).toHaveURL(`/login?next=${encodeURIComponent(target)}`);
     await page.fill('input[name="username"]', "admin");
     await page.fill('input[name="password"]', "password123");
     await page.getByRole("button", { name: /^(login|sign in|log in)$/i }).click();
     await expect(page).toHaveURL(target);
-    await expect(page.getByRole("tab", { name: "Notifications", exact: true })).toHaveAttribute(
-      "data-state",
-      "active"
-    );
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Notifications", exact: true })
+    ).toBeVisible();
   } finally {
     await context.close();
   }

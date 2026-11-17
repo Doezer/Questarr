@@ -1,3 +1,5 @@
+import { SETTINGS_PAGES, settingsPagePath } from "@/lib/settings-pages";
+
 export const routePaths = {
   login: "/login",
   setup: "/setup",
@@ -25,6 +27,9 @@ export const routePaths = {
   systemBackups: "/system/backups",
 } as const;
 
+/** Wouter pattern for the settings page and its sections (/settings/<section>). */
+export const settingsRoutePattern = "/settings/:section?";
+
 /** Wouter pattern for the per-game details page. */
 export const gameDetailsRoutePattern = "/games/:id";
 
@@ -49,6 +54,7 @@ export const appRoutePaths = [
   routePaths.indexers,
   routePaths.downloaders,
   routePaths.settings,
+  ...SETTINGS_PAGES.map((page) => settingsPagePath(page.slug)),
   routePaths.calendar,
   routePaths.wishlist,
   routePaths.playing,

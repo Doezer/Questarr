@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { patchUserSettings, uniqueId } from "./helpers";
+import { patchUserSettings, uniqueId, openSettingsSection } from "./helpers";
 
 test.describe("Release name blacklist journey", () => {
   test.describe.configure({ mode: "serial" });
@@ -14,7 +14,7 @@ test.describe("Release name blacklist journey", () => {
 
     try {
       await page.goto("/settings");
-      await page.getByRole("tab", { name: "Search & Downloads" }).click();
+      await openSettingsSection(page, "Search & Downloads");
 
       const blacklistInput = page.getByLabel("Blacklisted Terms");
       await blacklistInput.fill(term.toLowerCase());

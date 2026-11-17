@@ -1,7 +1,6 @@
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
 import { resolveArchivePassword } from "../../shared/archive-password.js";
 import { downloadersLogger } from "../logger.js";
-import { XMLParser } from "fast-xml-parser";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import {
@@ -14,6 +13,7 @@ import {
   isHttpsUrl,
   logDownloaderDebugResponse,
 } from "./utils.js";
+import { parseXmlRpcResponse, serializeXmlRpcValue } from "./xmlrpc.js";
 
 interface NZBGetListResult {
   NZBID: number;
@@ -83,98 +83,6 @@ export class NZBGetClient implements DownloaderClient {
     return buildDownloaderBaseUrl(this.downloader);
   }
 
-  private buildXMLValue(param: unknown): string {
-    if (typeof param === "boolean") {
-      return `<boolean>${param ? 1 : 0}</boolean>`;
-    } else if (typeof param === "number") {
-      if (Number.isInteger(param)) {
-        return `<int>${param}</int>`;
-      }
-      return `<double>${param}</double>`;
-    } else if (typeof param === "string") {
-      return `<string>${escapeXml(param)}</string>`;
-    } else if (Array.isArray(param)) {
-      const data = param.map((p) => `<value>${this.buildXMLValue(p)}</value>`).join("");
-      return `<array><data>${data}</data></array>`;
-    } else if (typeof param === "object" && param !== null) {
-      const members = Object.entries(param)
-        .map(
-          ([k, v]) =>
-            `<member><name>${escapeXml(k)}</name><value>${this.buildXMLValue(v)}</value></member>`
-        )
-        .join("");
-      return `<struct>${members}</struct>`;
-    }
-    return "";
-  }
-
-  private parseValueObj(valueObj: unknown): unknown {
-    if (typeof valueObj !== "object" || valueObj === null) {
-      return valueObj;
-    }
-
-    // Unwrap array if it's a value array from fast-xml-parser (due to isArray config)
-    let obj = valueObj;
-    if (Array.isArray(obj)) {
-      obj = obj[0];
-      if (typeof obj !== "object" || obj === null) {
-        return obj;
-      }
-    }
-
-    const rec = obj as Record<string, unknown>;
-
-    // With parseTagValue: false and textNodeName: "_text", values might be wrapped
-    const getValue = (v: unknown) =>
-      v && typeof v === "object" && "_text" in v ? (v as Record<string, unknown>)._text : v;
-
-    if ("string" in rec) return getValue(rec.string);
-    if ("int" in rec) return Number.parseInt(getValue(rec.int) as string);
-    if ("i4" in rec) return Number.parseInt(getValue(rec.i4) as string);
-    if ("boolean" in rec) {
-      const boolVal = getValue(rec.boolean);
-      return boolVal == 1 || boolVal === "1";
-    }
-    if ("double" in rec) return Number.parseFloat(getValue(rec.double) as string);
-    if ("base64" in rec) return getValue(rec.base64);
-
-    if ("array" in rec) {
-      const arrayObj = rec["array"] as Record<string, unknown>;
-      const data = arrayObj["data"];
-      if (!data) return [];
-
-      const dataBlock = Array.isArray(data) ? data[0] : data;
-
-      if (!dataBlock || typeof dataBlock !== "object" || !("value" in dataBlock)) return [];
-
-      const values = Array.isArray((dataBlock as Record<string, unknown>).value)
-        ? (dataBlock as Record<string, unknown>).value
-        : [(dataBlock as Record<string, unknown>).value];
-      return (values as unknown[]).map((v: unknown) => this.parseValueObj(v));
-    }
-
-    if ("struct" in rec) {
-      const structObj = rec["struct"] as Record<string, unknown>;
-      const members = structObj["member"] as Record<string, unknown>[];
-      if (!members) return {};
-
-      const result: Record<string, unknown> = {};
-      for (const m of members) {
-        if (m["name"] && m["value"]) {
-          result[getValue(m["name"]) as string] = this.parseValueObj(m["value"]);
-        }
-      }
-      return result;
-    }
-
-    // Handle direct value text if none of the above matched (e.g. <value>string</value> without <string> tag?)
-    // XML-RPC spec says <value> without type is string.
-    if ("_text" in rec) return rec._text;
-
-    // Fallback
-    return String(Object.values(rec)[0]);
-  }
-
   /**
    * Sends an NZBGet XML-RPC request, adding Basic authentication when configured.
    *
@@ -194,7 +102,7 @@ export class NZBGetClient implements DownloaderClient {
     const url = `${baseUrl}/${path.replace(/^\//, "")}`;
 
     const xmlParams = params
-      .map((param) => `<param><value>${this.buildXMLValue(param)}</value></param>`)
+      .map((param) => `<param><value>${serializeXmlRpcValue(param)}</value></param>`)
       .join("");
 
     const xmlBody = `<?xml version="1.0"?>
@@ -264,37 +172,11 @@ export class NZBGetClient implements DownloaderClient {
 
     const responseText = await response.text();
 
-    const parser = new XMLParser({
-      ignoreAttributes: true,
-      parseTagValue: false,
-      textNodeName: "_text",
-      isArray: (name) => {
-        return ["member", "data", "value", "param"].includes(name);
-      },
+    return parseXmlRpcResponse(responseText, {
+      lenient: true,
+      formatFault: (fault) =>
+        `NZBGet Fault: ${fault["faultString"] as string} (${fault["faultCode"] as number})`,
     });
-
-    const parsed = parser.parse(responseText);
-
-    if (parsed.methodResponse?.fault) {
-      const fault = this.parseValueObj(parsed.methodResponse.fault.value) as Record<
-        string,
-        unknown
-      >;
-      throw new Error(
-        `NZBGet Fault: ${fault["faultString"] as string} (${fault["faultCode"] as number})`
-      );
-    }
-
-    if (parsed.methodResponse?.params?.param) {
-      const params = parsed.methodResponse.params.param;
-      const param = Array.isArray(params) ? params[0] : params;
-
-      if (param && param.value) {
-        return this.parseValueObj(param.value);
-      }
-    }
-
-    return null;
   }
 
   async testConnection(): Promise<{ success: boolean; message: string }> {

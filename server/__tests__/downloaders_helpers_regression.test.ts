@@ -10,6 +10,11 @@ import { RTorrentClient } from "../downloaders/rtorrent.js";
 import { SABnzbdClient } from "../downloaders/sabnzbd.js";
 import { SynologyDownloadStationClient } from "../downloaders/synology.js";
 import { TransmissionClient } from "../downloaders/transmission.js";
+import {
+  parseXmlRpcResponse,
+  parseXmlRpcValue,
+  serializeXmlRpcValue,
+} from "../downloaders/xmlrpc.js";
 import { safeFetch } from "../ssrf.js";
 
 vi.mock("../ssrf.js", () => ({
@@ -81,44 +86,48 @@ describe("downloaders helper regression coverage", () => {
       createDownloader({ type: "nzbget", url: "nzb.local", port: 6789 })
     ) as unknown as {
       getBaseUrl(): string;
-      buildXMLValue(value: unknown): string;
-      parseValueObj(value: unknown): unknown;
     };
 
     expect(client.getBaseUrl()).toBe("http://nzb.local:6789");
-    expect(client.buildXMLValue({ enabled: true, ratio: 1.5, items: ["a", 2] })).toContain(
+    expect(serializeXmlRpcValue({ enabled: true, ratio: 1.5, items: ["a", 2] })).toContain(
       "<struct>"
     );
-    expect(client.parseValueObj({ string: { _text: "value" } })).toBe("value");
-    expect(client.parseValueObj({ int: { _text: "4" } })).toBe(4);
-    expect(client.parseValueObj({ i4: { _text: "5" } })).toBe(5);
-    expect(client.parseValueObj({ boolean: { _text: "1" } })).toBe(true);
-    expect(client.parseValueObj({ double: { _text: "1.25" } })).toBe(1.25);
-    expect(client.parseValueObj({ base64: { _text: "YWJj" } })).toBe("YWJj");
+    expect(parseXmlRpcValue({ string: { _text: "value" } }, { lenient: true })).toBe("value");
+    expect(parseXmlRpcValue({ int: { _text: "4" } }, { lenient: true })).toBe(4);
+    expect(parseXmlRpcValue({ i4: { _text: "5" } }, { lenient: true })).toBe(5);
+    expect(parseXmlRpcValue({ boolean: { _text: "1" } }, { lenient: true })).toBe(true);
+    expect(parseXmlRpcValue({ double: { _text: "1.25" } }, { lenient: true })).toBe(1.25);
+    expect(parseXmlRpcValue({ base64: { _text: "YWJj" } }, { lenient: true })).toBe("YWJj");
     expect(
-      client.parseValueObj({
-        array: {
-          data: [
-            {
-              value: [{ string: { _text: "one" } }, { int: { _text: "2" } }],
-            },
-          ],
+      parseXmlRpcValue(
+        {
+          array: {
+            data: [
+              {
+                value: [{ string: { _text: "one" } }, { int: { _text: "2" } }],
+              },
+            ],
+          },
         },
-      })
+        { lenient: true }
+      )
     ).toEqual(["one", 2]);
     expect(
-      client.parseValueObj({
-        struct: {
-          member: [
-            {
-              name: { _text: "name" },
-              value: { string: { _text: "Questarr" } },
-            },
-          ],
+      parseXmlRpcValue(
+        {
+          struct: {
+            member: [
+              {
+                name: { _text: "name" },
+                value: { string: { _text: "Questarr" } },
+              },
+            ],
+          },
         },
-      })
+        { lenient: true }
+      )
     ).toEqual({ name: "Questarr" });
-    expect(client.parseValueObj({ _text: "fallback" })).toBe("fallback");
+    expect(parseXmlRpcValue({ _text: "fallback" }, { lenient: true })).toBe("fallback");
   });
 
   it("covers SABnzbd URL building and SSL fallback retry", async () => {
@@ -425,7 +434,6 @@ describe("downloaders helper regression coverage", () => {
         username: string,
         password: string
       ): string;
-      parseXMLRPCResponse(xml: string): unknown;
     };
 
     const randomBytesSpy = vi
@@ -458,7 +466,7 @@ describe("downloaders helper regression coverage", () => {
     ).toEqual(expect.objectContaining({ status: "error", error: "boom" }));
 
     expect(
-      client.parseXMLRPCResponse(`<?xml version="1.0"?>
+      parseXmlRpcResponse(`<?xml version="1.0"?>
 <methodResponse>
   <params>
     <param>
@@ -476,7 +484,7 @@ describe("downloaders helper regression coverage", () => {
     ).toEqual(["one", 2]);
 
     expect(() =>
-      client.parseXMLRPCResponse(`<?xml version="1.0"?>
+      parseXmlRpcResponse(`<?xml version="1.0"?>
 <methodResponse>
   <fault>
     <value>

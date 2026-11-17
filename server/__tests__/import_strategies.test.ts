@@ -399,11 +399,32 @@ describe("ImportStrategies", () => {
 
       const result = await strategy.executeImport(filePlan, "copy");
       expect(result.filesPlaced.length).toBe(1);
-      // recorded as the game's folder, so the next upgrade replaces the whole folder
-      expect(result.destDir).toBe(path.join(lib, "Switch", "My Game"));
       expect(await fs.readFile(path.join(lib, "Switch", "My Game", "My Game.nsp"), "utf8")).toBe(
         "nsp"
       );
+    });
+
+    it("refuses to import a wrapped file into a game folder that is a symlink", async () => {
+      const root = tempDir();
+      const single = path.join(root, "downloads", "single.nsp");
+      await fs.outputFile(single, "nsp");
+      const outside = path.join(root, "elsewhere");
+      await fs.ensureDir(outside);
+      const lib = path.join(root, "library");
+      await fs.ensureDir(path.join(lib, "Switch"));
+      await fs.symlink(outside, path.join(lib, "Switch", "My Game"));
+      const strategy = new PCImportStrategy();
+      const config = makeImportConfig({ renamePattern: "{Title}", folderForSingleFiles: true });
+
+      const plan = await strategy.planImport(
+        single,
+        makeGame({ title: "My Game" }),
+        lib,
+        config,
+        "Switch"
+      );
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow(/symlinked game folder/);
+      expect(await fs.readdir(outside)).toEqual([]);
     });
 
     it("keeps a hostile release name inside the library", async () => {

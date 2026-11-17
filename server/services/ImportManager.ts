@@ -741,6 +741,22 @@ export class ImportManager {
   }
 
   /**
+   * Where a new version goes, for replacing the old one. A wrapped single file replaces the
+   * whole game folder only when the game's entry is that folder (an earlier folder release);
+   * when it is a file, only that file is replaced and the rest of the folder (add-ons) stays.
+   */
+  private replacementTarget(
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    wrapperFolder: string | undefined,
+    proposedPath: string
+  ): string {
+    if (wrapperFolder && game.libraryPath) {
+      if (path.resolve(game.libraryPath) === path.resolve(wrapperFolder)) return wrapperFolder;
+    }
+    return proposedPath;
+  }
+
+  /**
    * The game folder a single file was placed in when "folder for single-file releases" is on,
    * for a path the user confirmed (the plan's own wrapperFolder is not echoed back by the client).
    */
@@ -751,7 +767,14 @@ export class ImportManager {
   ): Promise<string | undefined> {
     if (!config.folderForSingleFiles) return undefined;
     const folder = path.dirname(proposedPath);
-    if (path.basename(folder) !== path.parse(proposedPath).name) return undefined;
+    // the leaf without the source's own extension: a dotted title ("Game.v1") keeps its dots
+    const sourceExt = path.extname(originalPath);
+    const leaf = path.basename(proposedPath);
+    const name =
+      sourceExt && leaf.toLowerCase().endsWith(sourceExt.toLowerCase())
+        ? leaf.slice(0, -sourceExt.length)
+        : leaf;
+    if (path.basename(folder) !== name) return undefined;
     const stats = await fs.stat(originalPath).catch(() => undefined);
     return stats?.isFile() ? folder : undefined;
   }
@@ -1332,7 +1355,7 @@ export class ImportManager {
         download,
         game,
         config,
-        plan.wrapperFolder ?? plan.proposedPath,
+        this.replacementTarget(game, plan.wrapperFolder, plan.proposedPath),
         localPath
       );
 
@@ -1661,8 +1684,12 @@ export class ImportManager {
       const ext = path.extname(resolvedOriginalPath);
       if (ext && proposedPath.toLowerCase().endsWith(ext.toLowerCase())) {
         proposedPath = proposedPath.slice(0, -ext.length);
-        // a wrapper folder around the archive is the folder it unpacks into
-        if (path.basename(path.dirname(proposedPath)) === path.basename(proposedPath)) {
+        // a wrapper folder around the archive is the folder it unpacks into; only when the
+        // setting made one, or a game named like its platform folder would lose a level
+        if (
+          config.folderForSingleFiles &&
+          path.basename(path.dirname(proposedPath)) === path.basename(proposedPath)
+        ) {
           proposedPath = path.dirname(proposedPath);
         }
       }
@@ -1715,7 +1742,7 @@ export class ImportManager {
         current,
         importConfig,
         // A single file wrapped in its game folder replaces the old version as that folder
-        planToExecute.wrapperFolder ?? proposedPath,
+        this.replacementTarget(current, planToExecute.wrapperFolder, proposedPath),
         resolvedOriginalPath
       );
       const result = await this.importWithReplacement(

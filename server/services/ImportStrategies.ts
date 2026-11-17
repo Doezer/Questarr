@@ -753,6 +753,13 @@ export class PCImportStrategy implements ImportStrategy {
     }
 
     await fs.ensureDir(path.dirname(review.proposedPath));
+    if (review.wrapperFolder) {
+      // a game folder that is a link could send the file outside the library
+      const wrapper = await fs.lstat(review.wrapperFolder);
+      if (wrapper.isSymbolicLink()) {
+        throw new Error(`Refusing to import into a symlinked game folder: ${review.wrapperFolder}`);
+      }
+    }
     const modeUsed = await transferFile(
       review.originalPath,
       review.proposedPath,
@@ -761,8 +768,7 @@ export class PCImportStrategy implements ImportStrategy {
     );
     const filesPlaced = await gatherFiles(review.proposedPath, { skipExtractStaging: true });
     return {
-      // a wrapped single file is recorded as its game folder, which is what a later upgrade replaces
-      destDir: review.wrapperFolder ?? review.proposedPath,
+      destDir: review.proposedPath,
       filesPlaced,
       modeUsed,
       conflictsResolved: [],

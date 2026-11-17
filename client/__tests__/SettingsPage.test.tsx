@@ -3,7 +3,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsPage from "../src/pages/settings";
 import { createTestQueryClient } from "./test-utils";
 
@@ -200,6 +200,151 @@ describe("SettingsPage", () => {
         "/api/settings",
         expect.objectContaining({ hideShelvedByDefault: false, hideOwnedInHasResults: true })
       );
+    });
+  });
+
+  describe("unsaved changes", () => {
+    afterEach(async () => {
+      // One test leaves PATCH pending forever; give later tests the default mock back.
+      const { apiRequest } = await import("@/lib/queryClient");
+      vi.mocked(apiRequest).mockImplementation((async () => ({
+        headers: { get: () => null },
+        json: async () => ({}),
+      })) as never);
+    });
+
+    const renderPage = () =>
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <SettingsPage />
+        </QueryClientProvider>
+      );
+
+    it("shows no unsaved-changes bar until a card is edited", async () => {
+      renderPage();
+      await screen.findByLabelText("Hide shelved games by default");
+      expect(screen.queryByTestId("unsaved-changes-bar")).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText("Hide shelved games by default"));
+
+      const bar = await screen.findByTestId("unsaved-changes-bar");
+      expect(bar).toHaveTextContent("Unsaved changes in Library Filtering");
+      expect(screen.getAllByText("Unsaved changes").length).toBeGreaterThan(0);
+    });
+
+    it("Discard puts the edited fields back to the saved values", async () => {
+      renderPage();
+      const toggle = await screen.findByLabelText("Hide shelved games by default");
+      fireEvent.click(toggle);
+      expect(toggle).not.toBeChecked();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+
+      await waitFor(() => expect(toggle).toBeChecked());
+      expect(screen.queryByTestId("unsaved-changes-bar")).not.toBeInTheDocument();
+    });
+
+    it("Save all sends the edits of every changed card in one request", async () => {
+      const { apiRequest } = await import("@/lib/queryClient");
+      renderPage();
+      fireEvent.click(await screen.findByLabelText("Hide shelved games by default"));
+      fireEvent.click(screen.getByLabelText("Hide erotic content"));
+
+      fireEvent.click(await screen.findByRole("button", { name: "Save all" }));
+
+      await waitFor(() => {
+        expect(apiRequest).toHaveBeenCalledWith(
+          "PATCH",
+          "/api/settings",
+          expect.objectContaining({ hideShelvedByDefault: false, hideAdultContent: false })
+        );
+      });
+    });
+
+    it("only the card being saved shows Saving...", async () => {
+      const { apiRequest } = await import("@/lib/queryClient");
+      const respond = { headers: { get: () => null }, json: async () => ({}) };
+      // Page-load GETs resolve at once; the save request stays pending.
+      vi.mocked(apiRequest).mockImplementation(((method: string) =>
+        method === "PATCH" ? new Promise(() => {}) : Promise.resolve(respond)) as never);
+      renderPage();
+      fireEvent.click(await screen.findByLabelText("Hide shelved games by default"));
+      fireEvent.click(screen.getByRole("button", { name: /save library filtering/i }));
+
+      await screen.findByRole("button", { name: /saving/i });
+      expect(screen.getAllByRole("button", { name: /saving/i })).toHaveLength(1);
+      expect(screen.getByRole("button", { name: /save content filtering/i })).toBeInTheDocument();
+    });
+
+    it("warns before the tab is closed only while edits are pending", async () => {
+      renderPage();
+      const toggle = await screen.findByLabelText("Hide shelved games by default");
+      const closeTab = () => {
+        const event = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      expect(closeTab()).toBe(false);
+
+      fireEvent.click(toggle);
+      await screen.findByTestId("unsaved-changes-bar");
+      expect(closeTab()).toBe(true);
+    });
+
+    it("Discard restores the saved value even when the refetch after a save fails", async () => {
+      const { apiRequest } = await import("@/lib/queryClient");
+      const saved = { ...defaultUserSettings, hideShelvedByDefault: false };
+      const respond = { headers: { get: () => null }, json: async () => ({}) };
+      vi.mocked(apiRequest).mockImplementation(((method: string) =>
+        Promise.resolve(
+          method === "PATCH" ? { headers: { get: () => null }, json: async () => saved } : respond
+        )) as never);
+      let settingsLoaded = false;
+      const baseFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/settings") && !url.includes("/api/settings/")) {
+          if (settingsLoaded) throw new Error("network down");
+          settingsLoaded = true;
+        }
+        return baseFetch(input, init);
+      }) as typeof fetch;
+      renderPage();
+      const toggle = await screen.findByLabelText("Hide shelved games by default");
+      fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole("button", { name: /save library filtering/i }));
+      // The PATCH succeeded; the refetch keeps failing (and retrying) in the background.
+      await waitFor(() => expect(settingsLoaded).toBe(true));
+      await waitFor(() =>
+        expect(screen.queryByTestId("unsaved-changes-bar")).not.toBeInTheDocument()
+      );
+
+      fireEvent.click(toggle); // edit the saved field again...
+      // Discard stays locked while the (failing) refetch is retried, then unlocks.
+      const discard = await screen.findByRole("button", { name: "Discard" });
+      await waitFor(() => expect(discard).toBeEnabled(), { timeout: 20000 });
+      fireEvent.click(discard);
+
+      // ...and Discard goes back to the saved value (false), not the stale cached true.
+      await waitFor(() => expect(toggle).not.toBeChecked());
+    }, 30000);
+
+    it("keeps warning while a save is in flight even if the field is toggled back", async () => {
+      const { apiRequest } = await import("@/lib/queryClient");
+      const respond = { headers: { get: () => null }, json: async () => ({}) };
+      vi.mocked(apiRequest).mockImplementation(((method: string) =>
+        method === "PATCH" ? new Promise(() => {}) : Promise.resolve(respond)) as never);
+      renderPage();
+      const toggle = await screen.findByLabelText("Hide shelved games by default");
+      fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole("button", { name: /save library filtering/i }));
+      await screen.findByRole("button", { name: /saving/i });
+
+      fireEvent.click(toggle); // back to the cached value: nothing dirty, but the PATCH holds false
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
     });
   });
 

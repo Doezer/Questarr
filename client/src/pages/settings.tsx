@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { SteamLibraryImport } from "@/components/SteamLibraryImport";
 import { SteamPlaytimeSync } from "@/components/SteamPlaytimeSync";
 import { useLocation, useSearch } from "wouter";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/react-query";
 import {
   Server,
   Key,
@@ -143,20 +143,36 @@ function SettingsToggleRow({
   );
 }
 
+/** Next to a card's Save button: tells the user this card has edits that are not saved yet. */
+function UnsavedHint({ show }: Readonly<{ show: boolean }>) {
+  // The live region stays mounted so assistive tech announces the text when it appears.
+  return (
+    <output className="mr-3 self-center text-xs font-medium text-amber-700 in-[.dark]:text-amber-400">
+      {show ? "Unsaved changes" : ""}
+    </output>
+  );
+}
+
 function SettingsSaveButton({
   onClick,
   pending,
+  dirty = false,
+  disabled = false,
   icon: Icon,
   label,
 }: {
   onClick: () => void;
   pending: boolean;
+  dirty?: boolean;
+  /** Disable the button without showing the "Saving..." label (another save is in flight). */
+  disabled?: boolean;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
 }) {
   return (
     <div className="flex justify-end pt-4 border-t">
-      <Button onClick={onClick} disabled={pending} className="gap-2">
+      <UnsavedHint show={dirty} />
+      <Button onClick={onClick} disabled={pending || disabled} className="gap-2">
         {pending ? (
           <>
             <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
@@ -179,6 +195,8 @@ function SettingsFilterCard({
   description,
   onSave,
   savePending,
+  saveDisabled = false,
+  saveDirty,
   saveIcon,
   saveLabel,
   children,
@@ -188,6 +206,8 @@ function SettingsFilterCard({
   description: string;
   onSave: () => void;
   savePending: boolean;
+  saveDisabled?: boolean;
+  saveDirty: boolean;
   saveIcon: React.ComponentType<{ className?: string }>;
   saveLabel: string;
   children: React.ReactNode;
@@ -208,6 +228,8 @@ function SettingsFilterCard({
         <SettingsSaveButton
           onClick={onSave}
           pending={savePending}
+          dirty={saveDirty}
+          disabled={saveDisabled}
           icon={saveIcon}
           label={saveLabel}
         />
@@ -215,6 +237,8 @@ function SettingsFilterCard({
     </Card>
   );
 }
+
+const SETTINGS_SAVE_KEY = ["settings-save"] as const;
 
 /**
  * Configures application preferences, integrations, notifications, account security, and system maintenance settings.
@@ -233,6 +257,18 @@ const SETTINGS_TABS = new Set([
 function tabFromSearch(search: string): string | null {
   const tab = new URLSearchParams(search).get("tab");
   return tab && SETTINGS_TABS.has(tab) ? tab : null;
+}
+
+type SettingsSectionId =
+  "auto-search" | "content-filter" | "library-filter" | "steam-sync" | "telemetry";
+
+interface SettingsSection {
+  id: SettingsSectionId;
+  label: string;
+  dirty: boolean;
+  updates: Partial<UserSettings>;
+  successMessage: string;
+  reset: () => void;
 }
 
 /** Edit account integrations and preferences, including owned-library import progress. */
@@ -861,12 +897,15 @@ export default function SettingsPage() {
   };
 
   const updateSettingsMutation = useMutation({
+    mutationKey: SETTINGS_SAVE_KEY,
     mutationFn: async ({
       updates,
       successMessage,
     }: {
       updates: Partial<UserSettings>;
       successMessage: string;
+      /** Which card asked, so only its Save button shows "Saving...". Unset for auto-saves. */
+      section?: string;
     }) => {
       const res = await apiRequest("PATCH", "/api/settings", updates);
 
@@ -878,15 +917,32 @@ export default function SettingsPage() {
 
       return { data: await res.json(), successMessage };
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       toast({
         title: "Settings Updated",
         description: data.successMessage,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      // The PATCH answers with the saved settings: make the fields this save sent the baseline
+      // right away so Discard never restores stale values, even if the refetch below fails.
+      // Only those keys are merged, so an overlapping save is never overwritten by an older reply.
+      const saved = data.data as Partial<UserSettings> | null;
+      if (saved && typeof saved === "object") {
+        const sentKeys = Object.keys(variables.updates) as (keyof UserSettings)[];
+        queryClient.setQueryData<UserSettings>(["/api/settings"], (cached) => {
+          if (!cached) return cached;
+          const next = { ...cached };
+          for (const key of sentKeys) {
+            if (key in saved) (next as Record<string, unknown>)[key] = saved[key];
+          }
+          return next;
+        });
+      }
+      // Returned so the mutation stays pending until the refetch lands: Save all / Discard stay
+      // disabled and the unload guard stays on until the saved baseline is up to date.
+      return queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
     },
     onError: (error: Error) => {
       console.error("Settings update error:", error);
@@ -1050,49 +1106,6 @@ export default function SettingsPage() {
     };
   }, [isLoading, activeTab, search]);
 
-  const handleSaveAutoSearch = () => {
-    updateSettingsMutation.mutate({
-      updates: {
-        autoSearchEnabled,
-        autoSearchUnreleased,
-        upgradePolicy,
-        autoDownloadEnabled,
-        searchIntervalHours,
-        preferredPlatform: preferredPlatform || null,
-      },
-      successMessage: "Your auto-search preferences have been saved.",
-    });
-  };
-
-  const handleSaveContentFilter = () => {
-    updateSettingsMutation.mutate({
-      updates: {
-        hideAdultContent,
-        hideAgeRestrictedContent,
-      },
-      successMessage: "Content filtering preferences have been saved.",
-    });
-  };
-
-  const handleSaveLibraryFilters = () => {
-    updateSettingsMutation.mutate({
-      updates: {
-        hideShelvedByDefault,
-        hideOwnedInHasResults,
-      },
-      successMessage: "Your library filtering defaults have been saved.",
-    });
-  };
-
-  const handleSaveTelemetry = () => {
-    updateSettingsMutation.mutate({
-      updates: { telemetryEnabled },
-      successMessage: telemetryEnabled
-        ? "Telemetry enabled. Detected errors will be reported automatically."
-        : "Telemetry disabled.",
-    });
-  };
-
   const saveXrelMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("PATCH", "/api/settings/xrel", {
@@ -1220,15 +1233,155 @@ export default function SettingsPage() {
     updateSteamIdMutation.mutate(steamIdInput);
   };
 
-  const handleSaveSteamSync = () => {
-    updateSettingsMutation.mutate({
-      updates: {
-        steamSyncEnabled,
-        steamSyncIntervalHours,
+  // Cards whose fields are edited locally and sent with one Save button. Comparing each card's
+  // fields with the saved settings gives its "unsaved changes" state, which feeds the card
+  // hint, the bar at the top of the page and the warning when closing the tab.
+  const settingsSections = useMemo<SettingsSection[]>(() => {
+    if (!userSettings) return [];
+    const saved = userSettings;
+    return [
+      {
+        id: "auto-search",
+        label: "Auto-Search & Download",
+        dirty:
+          autoSearchEnabled !== saved.autoSearchEnabled ||
+          autoSearchUnreleased !== (saved.autoSearchUnreleased ?? false) ||
+          upgradePolicy !== resolveUpgradePolicy(undefined, saved.upgradePolicy) ||
+          autoDownloadEnabled !== saved.autoDownloadEnabled ||
+          searchIntervalHours !== saved.searchIntervalHours ||
+          preferredPlatform !== (saved.preferredPlatform ?? ""),
+        updates: {
+          autoSearchEnabled,
+          autoSearchUnreleased,
+          upgradePolicy,
+          autoDownloadEnabled,
+          searchIntervalHours,
+          preferredPlatform: preferredPlatform || null,
+        },
+        successMessage: "Your auto-search preferences have been saved.",
+        reset: () => {
+          setAutoSearchEnabled(saved.autoSearchEnabled);
+          setAutoSearchUnreleased(saved.autoSearchUnreleased ?? false);
+          setUpgradePolicy(resolveUpgradePolicy(undefined, saved.upgradePolicy));
+          setAutoDownloadEnabled(saved.autoDownloadEnabled);
+          setSearchIntervalHours(saved.searchIntervalHours);
+          setPreferredPlatform(saved.preferredPlatform ?? "");
+        },
       },
-      successMessage: "Your Steam Wishlist auto-sync preferences have been saved.",
+      {
+        id: "content-filter",
+        label: "Content Filtering",
+        dirty:
+          hideAdultContent !== (saved.hideAdultContent ?? true) ||
+          hideAgeRestrictedContent !== (saved.hideAgeRestrictedContent ?? true),
+        updates: { hideAdultContent, hideAgeRestrictedContent },
+        successMessage: "Content filtering preferences have been saved.",
+        reset: () => {
+          setHideAdultContent(saved.hideAdultContent ?? true);
+          setHideAgeRestrictedContent(saved.hideAgeRestrictedContent ?? true);
+        },
+      },
+      {
+        id: "library-filter",
+        label: "Library Filtering",
+        dirty:
+          hideShelvedByDefault !== (saved.hideShelvedByDefault ?? true) ||
+          hideOwnedInHasResults !== (saved.hideOwnedInHasResults ?? true),
+        updates: { hideShelvedByDefault, hideOwnedInHasResults },
+        successMessage: "Your library filtering defaults have been saved.",
+        reset: () => {
+          setHideShelvedByDefault(saved.hideShelvedByDefault ?? true);
+          setHideOwnedInHasResults(saved.hideOwnedInHasResults ?? true);
+        },
+      },
+      {
+        id: "steam-sync",
+        label: "Steam Wishlist sync",
+        dirty:
+          steamSyncEnabled !== (saved.steamSyncEnabled ?? false) ||
+          steamSyncIntervalHours !== (saved.steamSyncIntervalHours ?? 24),
+        updates: { steamSyncEnabled, steamSyncIntervalHours },
+        successMessage: "Your Steam Wishlist auto-sync preferences have been saved.",
+        reset: () => {
+          setSteamSyncEnabled(saved.steamSyncEnabled ?? false);
+          setSteamSyncIntervalHours(saved.steamSyncIntervalHours ?? 24);
+        },
+      },
+      {
+        id: "telemetry",
+        label: "Telemetry",
+        dirty: telemetryEnabled !== (saved.telemetryEnabled ?? false),
+        updates: { telemetryEnabled },
+        successMessage: telemetryEnabled
+          ? "Telemetry enabled. Detected errors will be reported automatically."
+          : "Telemetry disabled.",
+        reset: () => setTelemetryEnabled(saved.telemetryEnabled ?? false),
+      },
+    ];
+  }, [
+    userSettings,
+    autoSearchEnabled,
+    autoSearchUnreleased,
+    upgradePolicy,
+    autoDownloadEnabled,
+    searchIntervalHours,
+    preferredPlatform,
+    hideAdultContent,
+    hideAgeRestrictedContent,
+    hideShelvedByDefault,
+    hideOwnedInHasResults,
+    steamSyncEnabled,
+    steamSyncIntervalHours,
+    telemetryEnabled,
+  ]);
+
+  const dirtySections = useMemo(() => settingsSections.filter((x) => x.dirty), [settingsSections]);
+  const isSectionDirty = (id: SettingsSectionId) => dirtySections.some((x) => x.id === id);
+  // Only the card whose button was pressed shows "Saving...", not every card on the page.
+  const isSectionSaving = (id: string) =>
+    updateSettingsMutation.isPending && updateSettingsMutation.variables?.section === id;
+
+  const saveSection = (id: SettingsSectionId) => {
+    const section = settingsSections.find((x) => x.id === id);
+    if (!section) return;
+    updateSettingsMutation.mutate({
+      updates: section.updates,
+      successMessage: section.successMessage,
+      section: id,
     });
   };
+
+  const saveAllSections = () => {
+    updateSettingsMutation.mutate({
+      updates: Object.assign({}, ...dirtySections.map((x) => x.updates)),
+      successMessage: "Your settings have been saved.",
+      section: "all",
+    });
+  };
+
+  const discardAllSections = () => {
+    for (const section of dirtySections) section.reset();
+  };
+
+  // Closing or reloading the tab would drop these edits without a word.
+  const hasUnsavedChanges = dirtySections.length > 0;
+  // `isPending` only follows the latest mutate() call, so count every in-flight settings save.
+  const settingsSavesInFlight = useIsMutating({ mutationKey: SETTINGS_SAVE_KEY });
+  const guardUnload = hasUnsavedChanges || settingsSavesInFlight > 0;
+  useEffect(() => {
+    if (!guardUnload) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [guardUnload]);
+
+  const handleSaveAutoSearch = () => saveSection("auto-search");
+  const handleSaveContentFilter = () => saveSection("content-filter");
+  const handleSaveLibraryFilters = () => saveSection("library-filter");
+  const handleSaveSteamSync = () => saveSection("steam-sync");
+  const handleSaveTelemetry = () => saveSection("telemetry");
 
   if (isLoading) {
     return (
@@ -1260,7 +1413,9 @@ export default function SettingsPage() {
       title="Content Filtering"
       description="Control which games appear in your library and discovery results"
       onSave={handleSaveContentFilter}
-      savePending={updateSettingsMutation.isPending}
+      savePending={isSectionSaving("content-filter")}
+      saveDisabled={settingsSavesInFlight > 0}
+      saveDirty={isSectionDirty("content-filter")}
       saveIcon={EyeOff}
       saveLabel="Save Content Filtering"
     >
@@ -1305,7 +1460,9 @@ export default function SettingsPage() {
       title="Library Filtering"
       description="Choose which games are hidden by default in your library"
       onSave={handleSaveLibraryFilters}
-      savePending={updateSettingsMutation.isPending}
+      savePending={isSectionSaving("library-filter")}
+      saveDisabled={settingsSavesInFlight > 0}
+      saveDirty={isSectionDirty("library-filter")}
       saveIcon={Archive}
       saveLabel="Save Library Filtering"
     >
@@ -1325,6 +1482,35 @@ export default function SettingsPage() {
       </div>
 
       <div className="mx-auto w-full max-w-4xl space-y-6">
+        {hasUnsavedChanges && (
+          <div
+            data-testid="unsaved-changes-bar"
+            className="sticky top-0 z-20 flex flex-col gap-3 rounded-md border border-amber-500/60 bg-card p-3 shadow-md sm:flex-row sm:items-center sm:justify-between"
+          >
+            <output className="block text-sm">
+              <span className="font-medium">Unsaved changes</span> in{" "}
+              {dirtySections.map((x) => x.label).join(", ")}.
+            </output>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="min-h-11"
+                onClick={discardAllSections}
+                disabled={settingsSavesInFlight > 0}
+              >
+                Discard
+              </Button>
+              <Button
+                className="min-h-11"
+                onClick={saveAllSections}
+                disabled={settingsSavesInFlight > 0}
+              >
+                {isSectionSaving("all") ? "Saving..." : "Save all"}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Database Migration Alert */}
         {settingsError && (
           <Alert variant="destructive">
@@ -1567,12 +1753,13 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="flex justify-end pt-4 border-t">
+                  <UnsavedHint show={isSectionDirty("auto-search")} />
                   <Button
                     onClick={handleSaveAutoSearch}
-                    disabled={updateSettingsMutation.isPending}
+                    disabled={settingsSavesInFlight > 0}
                     className="gap-2"
                   >
-                    {updateSettingsMutation.isPending ? (
+                    {isSectionSaving("auto-search") ? (
                       <>
                         <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
@@ -2086,12 +2273,13 @@ export default function SettingsPage() {
                   )}
 
                   <div className="flex justify-end pt-2 border-t">
+                    <UnsavedHint show={isSectionDirty("steam-sync")} />
                     <Button
                       onClick={handleSaveSteamSync}
-                      disabled={updateSettingsMutation.isPending}
+                      disabled={settingsSavesInFlight > 0}
                       className="gap-2"
                     >
-                      {updateSettingsMutation.isPending ? (
+                      {isSectionSaving("steam-sync") ? (
                         <>
                           <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                           Saving...
@@ -2717,12 +2905,13 @@ export default function SettingsPage() {
                   onCheckedChange={setTelemetryEnabled}
                 />
                 <div className="flex justify-end pt-4 border-t">
+                  <UnsavedHint show={isSectionDirty("telemetry")} />
                   <Button
                     onClick={handleSaveTelemetry}
-                    disabled={updateSettingsMutation.isPending}
+                    disabled={settingsSavesInFlight > 0}
                     className="gap-2"
                   >
-                    {updateSettingsMutation.isPending ? (
+                    {isSectionSaving("telemetry") ? (
                       <>
                         <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...

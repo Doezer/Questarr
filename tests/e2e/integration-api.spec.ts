@@ -15,7 +15,7 @@ test.describe("Integration API keys (Playnite)", () => {
     await seedGame(page, { title: gameTitle, igdbId: id });
 
     await page.goto("/settings");
-    await page.getByRole("tab", { name: "Integrations" }).click();
+    await page.getByRole("tab", { name: "Connections" }).click();
     await page.getByLabel("Name", { exact: true }).fill(keyName);
     await page.getByRole("button", { name: "Create key" }).click();
 

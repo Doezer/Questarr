@@ -36,7 +36,7 @@ test("imports 1,000 games with one action and restores background progress after
     await route.fulfill({ status: 202, json: { job } });
   });
   await page.goto("/settings?tab=integrations");
-  await page.getByRole("tab", { name: "Integrations", exact: true }).click();
+  await page.getByRole("tab", { name: "Connections", exact: true }).click();
   await page.getByRole("button", { name: "Preview owned games" }).click();
   const panel = page.getByRole("region", { name: "Import owned Steam games" });
   await expect(panel.getByText("1,000 games in Steam · 1,000 selected")).toBeVisible();
@@ -90,7 +90,7 @@ test("shows a failed preview and lets the user retry", async ({ page }) => {
     );
   });
   await page.goto("/settings?tab=integrations");
-  await page.getByRole("tab", { name: "Integrations", exact: true }).click();
+  await page.getByRole("tab", { name: "Connections", exact: true }).click();
   await page.getByRole("button", { name: "Preview owned games" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Steam is unavailable" })).toBeVisible();
   await page.getByRole("button", { name: "Preview owned games" }).click();

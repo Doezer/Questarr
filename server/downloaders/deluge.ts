@@ -14,8 +14,10 @@ import {
   extractHashFromUrl,
   fetchWithMagnetDetection,
   findTorrentByTagNull,
+  getErrorMessage,
   isHttpsUrl,
   logDownloaderDebugResponse,
+  runDownloaderAction,
 } from "./utils.js";
 import { z } from "zod";
 
@@ -135,8 +137,7 @@ export class DelugeClient implements DownloaderClient {
 
     const hostsResponse = await this.makeRequest("web.get_hosts", []);
     const hosts = hostsResponse.result as
-      | Array<[string, string, number, string, string]>
-      | undefined;
+      Array<[string, string, number, string, string]> | undefined;
 
     const firstHost = hosts?.[0];
     if (!firstHost) {
@@ -175,7 +176,7 @@ export class DelugeClient implements DownloaderClient {
           : "Connected successfully to Deluge",
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       return { success: false, message: `Failed to connect to Deluge: ${errorMessage}` };
     }
   }
@@ -197,7 +198,7 @@ export class DelugeClient implements DownloaderClient {
         "Downloader version probe completed"
       );
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       downloadersLogger.warn(
         {
           downloaderId: this.downloader.id,
@@ -320,7 +321,7 @@ export class DelugeClient implements DownloaderClient {
           "Successfully downloaded torrent file for Deluge"
         );
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        const errorMessage = getErrorMessage(error);
         downloadersLogger.error(
           { error: errorMessage, url: request.url },
           "Failed to download torrent file"
@@ -395,7 +396,7 @@ export class DelugeClient implements DownloaderClient {
         message: "Failed to add download to Deluge",
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       downloadersLogger.error({ error: errorMessage }, "Error adding download to Deluge");
       return { success: false, message: `Failed to add download: ${errorMessage}` };
     }
@@ -414,8 +415,7 @@ export class DelugeClient implements DownloaderClient {
       ]);
 
       const torrents = response.result as
-        | Record<string, { name?: string; time_added?: number }>
-        | undefined;
+        Record<string, { name?: string; time_added?: number }> | undefined;
       if (!torrents || Object.keys(torrents).length === 0) return null;
 
       const entries = Object.entries(torrents);
@@ -630,42 +630,30 @@ export class DelugeClient implements DownloaderClient {
   }
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("pause", async () => {
       await this.authenticate();
       await this.ensureConnected();
       await this.makeRequest("core.pause_torrent", [id]);
-      return { success: true, message: "Download paused successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to pause download: ${errorMessage}` };
-    }
+    });
   }
 
   async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("resume", async () => {
       await this.authenticate();
       await this.ensureConnected();
       await this.makeRequest("core.resume_torrent", [id]);
-      return { success: true, message: "Download resumed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to resume download: ${errorMessage}` };
-    }
+    });
   }
 
   async removeDownload(
     id: string,
     deleteFiles = false
   ): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("remove", async () => {
       await this.authenticate();
       await this.ensureConnected();
       await this.makeRequest("core.remove_torrent", [id, deleteFiles]);
-      return { success: true, message: "Download removed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to remove download: ${errorMessage}` };
-    }
+    });
   }
 
   async getFreeSpace(): Promise<number> {

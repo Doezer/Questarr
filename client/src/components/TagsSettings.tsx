@@ -101,7 +101,7 @@ export function TagsSettings() {
   return (
     <Card id="tags-config">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle as="h2" className="flex items-center gap-2 text-lg">
           <TagIcon className="h-5 w-5" />
           Tags
         </CardTitle>

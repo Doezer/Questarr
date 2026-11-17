@@ -29,8 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { SettingRow } from "@/components/ui/setting-row";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch, apiRequest, throwIfResNotOk } from "@/lib/queryClient";
 import type { CandidateReason, CandidateSignals } from "@shared/release-labels";
@@ -335,7 +334,9 @@ export default function ClassificationReviewSettings() {
       <CardHeader>
         <div className="flex items-center space-x-3">
           <ListChecks className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">Release classification review</CardTitle>
+          <CardTitle as="h2" className="text-lg">
+            Release classification review
+          </CardTitle>
         </div>
         <CardDescription>
           Releases the classifier was unsure about, most useful first. Only labels you verify can be
@@ -373,23 +374,21 @@ export default function ClassificationReviewSettings() {
 
         <fieldset className="space-y-3 rounded-md border p-4">
           <legend className="px-1 text-sm font-medium">Share verified labels</legend>
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <Label htmlFor="classification-share">Share my verified labels automatically</Label>
-              <p className="text-xs text-muted-foreground">
+          <SettingRow
+            id="classification-share"
+            label="Share my verified labels automatically"
+            description={
+              <>
                 Off by default. Helps improve the model shipped with Questarr. When on, labels you
                 verify are sent automatically, every 6 hours. Only the release name, the game title,
                 the label you chose and the model version are sent: no account, path, address or
                 library data. Turn it off at any time to stop.
-              </p>
-            </div>
-            <Switch
-              id="classification-share"
-              checked={data.shareLabels}
-              disabled={toggleShare.isPending}
-              onCheckedChange={(checked) => toggleShare.mutate(checked)}
-            />
-          </div>
+              </>
+            }
+            checked={data.shareLabels}
+            disabled={toggleShare.isPending}
+            onCheckedChange={(checked) => toggleShare.mutate(checked)}
+          />
           <Button variant="outline" className="min-h-11" onClick={() => setPreviewOpen(true)}>
             <Eye className="mr-2 h-4 w-4" />
             See what will be sent

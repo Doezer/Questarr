@@ -5,7 +5,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
+import { SettingRow } from "@/components/ui/setting-row";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 
@@ -144,35 +144,27 @@ export function RommSettings() {
           </p>
         </div>
 
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-0.5">
-            <Label htmlFor="romm-platform-folders">RomM platform folders</Label>
-            <p className="text-xs text-muted-foreground">
+        <SettingRow
+          id="romm-platform-folders"
+          label="RomM platform folders"
+          description={
+            <>
               Place imports in <code>&lt;library root&gt;/&lt;platform&gt;/</code> using RomM folder
               names (<code>snes</code>, <code>ps2</code>, <code>win</code>…). Point the library root
               at RomM&apos;s <code>roms</code> folder. Works without the API below.
-            </p>
-          </div>
-          <Switch
-            id="romm-platform-folders"
-            checked={form.platformFolders}
-            onCheckedChange={(value) => set("platformFolders", value)}
-          />
-        </div>
+            </>
+          }
+          checked={form.platformFolders}
+          onCheckedChange={(value) => set("platformFolders", value)}
+        />
 
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-0.5">
-            <Label htmlFor="romm-enabled">Connect to the RomM API</Label>
-            <p className="text-xs text-muted-foreground">
-              Needed to read your RomM library and to trigger a rescan after imports.
-            </p>
-          </div>
-          <Switch
-            id="romm-enabled"
-            checked={form.enabled}
-            onCheckedChange={(value) => set("enabled", value)}
-          />
-        </div>
+        <SettingRow
+          id="romm-enabled"
+          label="Connect to the RomM API"
+          description={<>Needed to read your RomM library and to trigger a rescan after imports.</>}
+          checked={form.enabled}
+          onCheckedChange={(value) => set("enabled", value)}
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -207,39 +199,31 @@ export function RommSettings() {
           </p>
         )}
 
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-0.5">
-            <Label htmlFor="romm-scan">Rescan RomM after an import</Label>
-            <p className="text-xs text-muted-foreground">
-              A RomM outage never fails or delays an import.
-            </p>
-          </div>
-          <Switch
-            id="romm-scan"
-            checked={form.scanAfterImport}
-            onCheckedChange={(value) => set("scanAfterImport", value)}
-          />
-        </div>
+        <SettingRow
+          id="romm-scan"
+          label="Rescan RomM after an import"
+          description={<>A RomM outage never fails or delays an import.</>}
+          checked={form.scanAfterImport}
+          onCheckedChange={(value) => set("scanAfterImport", value)}
+        />
 
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-0.5">
-            <Label htmlFor="romm-sync">Mark games found in RomM as owned</Label>
-            <p className="text-xs text-muted-foreground">
+        <SettingRow
+          id="romm-sync"
+          label="Mark games found in RomM as owned"
+          description={
+            <>
               Every 6 hours, games in your wishlist that RomM already has become owned. Games are
               matched by IGDB id, then by title. Nothing is created, and playing, shelved or
               completed games are left alone.
-            </p>
-          </div>
-          <Switch
-            id="romm-sync"
-            checked={form.syncEnabled}
-            onCheckedChange={(value) => set("syncEnabled", value)}
-          />
-        </div>
+            </>
+          }
+          checked={form.syncEnabled}
+          onCheckedChange={(value) => set("syncEnabled", value)}
+        />
 
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
-            {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {save.isPending && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
             Save RomM settings
           </Button>
           <Button
@@ -247,7 +231,7 @@ export function RommSettings() {
             onClick={() => test.mutate()}
             disabled={test.isPending || !form.url || !form.apiToken}
           >
-            {test.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {test.isPending && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
             Test connection
           </Button>
           <Button
@@ -255,7 +239,7 @@ export function RommSettings() {
             onClick={() => sync.mutate()}
             disabled={sync.isPending || !data?.enabled || !data.url || !data.apiToken}
           >
-            {sync.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {sync.isPending && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
             Sync now
           </Button>
         </div>

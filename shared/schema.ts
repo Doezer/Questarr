@@ -90,6 +90,9 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   sortExtras: integer("sort_extras", { mode: "boolean" }).notNull().default(false),
+  // What happens to the version already in the library when a new one is imported:
+  // "off" (kept), "archive" (moved to .questarr-replaced) or "delete".
+  upgradeReplaceMode: text("upgrade_replace_mode").notNull().default("off"),
   // Telemetry: opt-in, off by default. When enabled, automatically-detected server
   // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
   telemetryEnabled: integer("telemetry_enabled", { mode: "boolean" }).notNull().default(false),
@@ -138,6 +141,7 @@ export interface ImportConfig {
   libraryRoot: string;
   autoDeleteAfterImport: boolean;
   sortExtras: boolean;
+  upgradeReplaceMode: UpgradeReplaceMode;
 }
 
 // gameDownloads.status value for a download whose linked game record can't be
@@ -159,6 +163,15 @@ export type ImportTransferMode = (typeof IMPORT_TRANSFER_MODES)[number];
 
 export const importTransferModeSchema = z.enum(IMPORT_TRANSFER_MODES);
 
+// What happens to the version a game already has in the library once a new one is imported.
+// "off" keeps it (and the import asks for review when both would share a folder), "archive"
+// moves it to .questarr-replaced under the library root, "delete" removes it.
+export const UPGRADE_REPLACE_MODES = ["off", "archive", "delete"] as const;
+
+export type UpgradeReplaceMode = (typeof UPGRADE_REPLACE_MODES)[number];
+
+export const upgradeReplaceModeSchema = z.enum(UPGRADE_REPLACE_MODES);
+
 export const importConfigSchema = z.object({
   enablePostProcessing: z.boolean(),
   autoUnpack: z.boolean(),
@@ -171,6 +184,7 @@ export const importConfigSchema = z.object({
   libraryRoot: z.string().min(1),
   autoDeleteAfterImport: z.boolean(),
   sortExtras: z.boolean(),
+  upgradeReplaceMode: upgradeReplaceModeSchema,
 });
 
 // A DLC/expansion IGDB reports as related to a game, carried through from

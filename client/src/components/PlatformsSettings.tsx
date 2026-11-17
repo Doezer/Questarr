@@ -97,7 +97,9 @@ export default function PlatformsSettings() {
       <CardHeader>
         <div className="flex items-center space-x-3">
           <Gamepad2 className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">Platforms</CardTitle>
+          <CardTitle as="h2" className="text-lg">
+            Platforms
+          </CardTitle>
         </div>
         <CardDescription>
           Choose the platforms you use. Only these appear in platform filters across the app, and
@@ -112,7 +114,9 @@ export default function PlatformsSettings() {
         />
         <div className="flex justify-end">
           <Button onClick={handleSave} disabled={!settings || updateSettingsMutation.isPending}>
-            {updateSettingsMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {updateSettingsMutation.isPending && (
+              <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />
+            )}
             Save Changes
           </Button>
         </div>

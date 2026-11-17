@@ -196,7 +196,9 @@ export function ApiKeysCard() {
       <CardHeader>
         <div className="flex items-center space-x-3">
           <KeyRound className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">API Keys</CardTitle>
+          <CardTitle as="h2" className="text-lg">
+            API Keys
+          </CardTitle>
         </div>
         <CardDescription>
           Let external clients such as the Playnite extension sync your library and request games.

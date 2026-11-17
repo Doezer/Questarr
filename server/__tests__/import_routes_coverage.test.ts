@@ -573,6 +573,36 @@ describe("PATCH /api/imports/config — root folder scan on enabling post-proces
     expect(rescanAllEnabledRootFolders).toHaveBeenCalledTimes(1);
   });
 
+  it("writes only the fields the request carries", async () => {
+    // The stored mode may have changed since the config was read: an unrelated update must
+    // not write the stale value back.
+    mockStorage.getImportConfig.mockResolvedValue(
+      makeImportConfig({ upgradeReplaceMode: "delete" })
+    );
+
+    const res = await request(createApp()).patch("/api/imports/config").send({ autoUnpack: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ autoUnpack: true, upgradeReplaceMode: "delete" });
+    expect(mockStorage.updateUserSettings).toHaveBeenCalledWith(expect.any(String), {
+      autoUnpack: true,
+    });
+  });
+
+  it("saves the upgrade replace mode and rejects an unknown one", async () => {
+    mockStorage.getImportConfig.mockResolvedValue(makeImportConfig());
+
+    await request(createApp()).patch("/api/imports/config").send({ upgradeReplaceMode: "archive" });
+    expect(mockStorage.updateUserSettings).toHaveBeenCalledWith(expect.any(String), {
+      upgradeReplaceMode: "archive",
+    });
+
+    const bad = await request(createApp())
+      .patch("/api/imports/config")
+      .send({ upgradeReplaceMode: "shred" });
+    expect(bad.status).toBe(400);
+  });
+
   it("does not scan when post-processing was already on", async () => {
     mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ enablePostProcessing: true }));
 

@@ -65,7 +65,9 @@ export default function TagListSettingsCard({
       <CardHeader>
         <div className="flex items-center space-x-3">
           <Icon className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">{title}</CardTitle>
+          <CardTitle as="h2" className="text-lg">
+            {title}
+          </CardTitle>
         </div>
         <CardDescription>{description}</CardDescription>
       </CardHeader>

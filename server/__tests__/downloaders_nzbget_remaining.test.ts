@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Downloader } from "../../shared/schema.js";
 import { NZBGetClient } from "../downloaders/nzbget.js";
+import { parseXmlRpcValue, serializeXmlRpcValue } from "../downloaders/xmlrpc.js";
 
 // Exposes NZBGetClient's private makeXMLRPCRequest with its real signature for
 // spying, rather than casting through the untyped `typeof Function` at each call site.
@@ -75,20 +76,18 @@ describe("NZBGet remaining coverage", () => {
     const client = new NZBGetClient(createDownloader({ url: "http://bad url/", port: null }));
     const privateClient = client as unknown as {
       getBaseUrl: () => string;
-      buildXMLValue: (value: unknown) => string;
-      parseValueObj: (value: unknown) => unknown;
       makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
     };
 
     expect(privateClient.getBaseUrl()).toBe("http://bad url");
-    expect(privateClient.buildXMLValue(undefined)).toBe("");
-    expect(privateClient.parseValueObj("raw")).toBe("raw");
-    expect(privateClient.parseValueObj([7])).toBe(7);
-    expect(privateClient.parseValueObj({ array: { data: null } })).toEqual([]);
-    expect(privateClient.parseValueObj({ array: { data: { nope: [] } } })).toEqual([]);
-    expect(privateClient.parseValueObj({ struct: { member: null } })).toEqual({});
-    expect(privateClient.parseValueObj({ _text: "direct text" })).toBe("direct text");
-    expect(privateClient.parseValueObj({ fallback: "value" })).toBe("value");
+    expect(serializeXmlRpcValue(undefined)).toBe("");
+    expect(parseXmlRpcValue("raw", { lenient: true })).toBe("raw");
+    expect(parseXmlRpcValue([7], { lenient: true })).toBe(7);
+    expect(parseXmlRpcValue({ array: { data: null } }, { lenient: true })).toEqual([]);
+    expect(parseXmlRpcValue({ array: { data: { nope: [] } } }, { lenient: true })).toEqual([]);
+    expect(parseXmlRpcValue({ struct: { member: null } }, { lenient: true })).toEqual({});
+    expect(parseXmlRpcValue({ _text: "direct text" }, { lenient: true })).toBe("direct text");
+    expect(parseXmlRpcValue({ fallback: "value" }, { lenient: true })).toBe("value");
 
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: false,

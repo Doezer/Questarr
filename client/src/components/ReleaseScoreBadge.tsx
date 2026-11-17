@@ -28,6 +28,22 @@ const TITLE_MATCH_LABELS: Record<ReleaseEvaluation["titleMatch"], string> = {
   mismatch: "Different game",
 };
 
+/**
+ * A title that continues past the game name is either a spin-off or another game ("Hades Uprising"),
+ * or an add-on of this very game ("Crusader Kings III All Under Heaven" as DLC). The release
+ * category tells the two apart well enough to word the label, though a series add-on such as
+ * "Hitman Absolution" DLC under "Hitman" still reads as an add-on.
+ */
+export function titleMatchLabel(
+  titleMatch: ReleaseEvaluation["titleMatch"],
+  category: ReleaseEvaluation["category"]
+): string {
+  if (titleMatch === "spinoff" && category !== "main") {
+    return "Title continues past the game name (DLC or update?)";
+  }
+  return TITLE_MATCH_LABELS[titleMatch];
+}
+
 const XREL_BADGES = {
   verified: {
     label: "xREL",
@@ -82,7 +98,7 @@ export default function ReleaseScoreBadge({
   evaluation,
   className,
 }: Readonly<{ evaluation: ReleaseEvaluation; className?: string }>) {
-  const { accepted, score, lines, rejections, titleMatch } = evaluation;
+  const { accepted, score, lines, rejections, titleMatch, category } = evaluation;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -107,7 +123,7 @@ export default function ReleaseScoreBadge({
       </PopoverTrigger>
       <PopoverContent className="w-72 space-y-2 text-xs" align="start">
         <div className="flex items-center justify-between font-semibold">
-          <span>{TITLE_MATCH_LABELS[titleMatch]}</span>
+          <span>{titleMatchLabel(titleMatch, category)}</span>
           <span className="font-mono">{score}</span>
         </div>
         {rejections.length > 0 && (

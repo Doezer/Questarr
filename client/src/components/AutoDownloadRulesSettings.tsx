@@ -219,7 +219,9 @@ export default function AutoDownloadRulesSettings({
       <CardHeader>
         <div className="flex items-center space-x-3">
           <Filter className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">Download Rules</CardTitle>
+          <CardTitle as="h2" className="text-lg">
+            Download Rules
+          </CardTitle>
         </div>
         <CardDescription>
           These filters will be used as defaults when you open the manual download dialog, and
@@ -430,7 +432,7 @@ export default function AutoDownloadRulesSettings({
           >
             {saveRulesMutation.isPending ? (
               <>
-                <RefreshCw className="h-4 w-4 animate-spin" />
+                <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                 Saving...
               </>
             ) : (

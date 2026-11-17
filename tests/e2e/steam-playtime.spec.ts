@@ -40,7 +40,7 @@ test("turns the Steam play-time sync on and runs it from the settings", async ({
   });
 
   await page.goto("/settings?tab=integrations");
-  await page.getByRole("tab", { name: "Integrations", exact: true }).click();
+  await page.getByRole("tab", { name: "Connections", exact: true }).click();
   const panel = page.getByRole("region", { name: "Steam play time" });
   const toggle = panel.getByRole("switch", { name: "Sync Steam play time" });
   await expect(toggle).toBeEnabled();

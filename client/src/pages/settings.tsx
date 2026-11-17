@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { SteamLibraryImport } from "@/components/SteamLibraryImport";
 import { SteamPlaytimeSync } from "@/components/SteamPlaytimeSync";
 import { useLocation, useSearch } from "wouter";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/react-query";
 import {
   Server,
   Key,
@@ -32,6 +32,7 @@ import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SettingRow } from "@/components/ui/setting-row";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { PathBrowser } from "@/components/PathBrowser";
@@ -132,32 +133,46 @@ function SettingsToggleRow({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <div className="space-y-0.5">
-        <Label htmlFor={id} className="text-sm font-medium">
-          {label}
-        </Label>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
-      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
-    </div>
+    <SettingRow
+      id={id}
+      label={label}
+      description={description}
+      checked={checked}
+      onCheckedChange={onCheckedChange}
+    />
+  );
+}
+
+/** Next to a card's Save button: tells the user this card has edits that are not saved yet. */
+function UnsavedHint({ show }: Readonly<{ show: boolean }>) {
+  // The live region stays mounted so assistive tech announces the text when it appears.
+  return (
+    <output className="mr-3 self-center text-xs font-medium text-amber-700 in-[.dark]:text-amber-400">
+      {show ? "Unsaved changes" : ""}
+    </output>
   );
 }
 
 function SettingsSaveButton({
   onClick,
   pending,
+  dirty = false,
+  disabled = false,
   icon: Icon,
   label,
 }: {
   onClick: () => void;
   pending: boolean;
+  dirty?: boolean;
+  /** Disable the button without showing the "Saving..." label (another save is in flight). */
+  disabled?: boolean;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
 }) {
   return (
     <div className="flex justify-end pt-4 border-t">
-      <Button onClick={onClick} disabled={pending} className="gap-2">
+      <UnsavedHint show={dirty} />
+      <Button onClick={onClick} disabled={pending || disabled} className="gap-2">
         {pending ? (
           <>
             <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
@@ -180,6 +195,8 @@ function SettingsFilterCard({
   description,
   onSave,
   savePending,
+  saveDisabled = false,
+  saveDirty,
   saveIcon,
   saveLabel,
   children,
@@ -189,6 +206,8 @@ function SettingsFilterCard({
   description: string;
   onSave: () => void;
   savePending: boolean;
+  saveDisabled?: boolean;
+  saveDirty: boolean;
   saveIcon: React.ComponentType<{ className?: string }>;
   saveLabel: string;
   children: React.ReactNode;
@@ -198,7 +217,9 @@ function SettingsFilterCard({
       <CardHeader>
         <div className="flex items-center space-x-3">
           <Icon className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-lg">{title}</CardTitle>
+          <CardTitle as="h2" className="text-lg">
+            {title}
+          </CardTitle>
         </div>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
@@ -207,6 +228,8 @@ function SettingsFilterCard({
         <SettingsSaveButton
           onClick={onSave}
           pending={savePending}
+          dirty={saveDirty}
+          disabled={saveDisabled}
           icon={saveIcon}
           label={saveLabel}
         />
@@ -215,12 +238,15 @@ function SettingsFilterCard({
   );
 }
 
+const SETTINGS_SAVE_KEY = ["settings-save"] as const;
+
 /**
  * Configures application preferences, integrations, notifications, account security, and system maintenance settings.
  */
 const SETTINGS_TABS = new Set([
   "appearance",
   "discovery",
+  "scoring",
   "notifications",
   "integrations",
   "import",
@@ -228,21 +254,50 @@ const SETTINGS_TABS = new Set([
   "system",
 ]);
 
+/** Cards that moved to another tab: older links (stored notifications) still name the old one. */
+const MOVED_CARD_TABS = new Map([["classification-review", "scoring"]]);
+
 /** The tab named by `?tab=` (a notification link), or null when there is none. */
-function tabFromSearch(search: string): string | null {
+function tabFromSearch(search: string, hash = ""): string | null {
+  const moved = MOVED_CARD_TABS.get(hash.replace(/^#/, ""));
+  if (moved) return moved;
   const tab = new URLSearchParams(search).get("tab");
   return tab && SETTINGS_TABS.has(tab) ? tab : null;
+}
+
+type SettingsSectionId =
+  "auto-search" | "content-filter" | "library-filter" | "steam-sync" | "telemetry";
+
+interface SettingsSection {
+  id: SettingsSectionId;
+  label: string;
+  dirty: boolean;
+  updates: Partial<UserSettings>;
+  successMessage: string;
+  reset: () => void;
 }
 
 /** Edit account integrations and preferences, including owned-library import progress. */
 export default function SettingsPage() {
   const search = useSearch();
   const [, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState(() => tabFromSearch(search) ?? "appearance");
+  const [activeTab, setActiveTab] = useState(
+    () => tabFromSearch(search, window.location.hash) ?? "appearance"
+  );
   // A link to this page while it is already open, such as a notification, changes the tab
+  // The hash is not part of `search`, so history events also re-read the URL: a link that only
+  // adds #classification-review to the current ?tab= must still move to the card's new tab
   useEffect(() => {
-    const tab = tabFromSearch(search);
-    if (tab) setActiveTab(tab);
+    const sync = () => {
+      const tab = tabFromSearch(window.location.search, window.location.hash);
+      if (tab) setActiveTab(tab);
+    };
+    sync();
+    const events = ["pushState", "replaceState", "hashchange"];
+    for (const event of events) window.addEventListener(event, sync);
+    return () => {
+      for (const event of events) window.removeEventListener(event, sync);
+    };
   }, [search]);
   // Picking a tab by hand updates the URL too, so a later link to ?tab= is a real change
   const selectTab = (tab: string) => {
@@ -632,7 +687,7 @@ export default function SettingsPage() {
     notifPrefSaveTimeoutRef.current = setTimeout(() => {
       updateSettingsMutation.mutate({
         updates: { notificationPreferences: JSON.stringify(updated) },
-        successMessage: "",
+        successMessage: "Your notification preferences have been saved.",
       });
     }, 500);
   };
@@ -860,12 +915,15 @@ export default function SettingsPage() {
   };
 
   const updateSettingsMutation = useMutation({
+    mutationKey: SETTINGS_SAVE_KEY,
     mutationFn: async ({
       updates,
       successMessage,
     }: {
       updates: Partial<UserSettings>;
       successMessage: string;
+      /** Which card asked, so only its Save button shows "Saving...". Unset for auto-saves. */
+      section?: string;
     }) => {
       const res = await apiRequest("PATCH", "/api/settings", updates);
 
@@ -877,15 +935,32 @@ export default function SettingsPage() {
 
       return { data: await res.json(), successMessage };
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       toast({
         title: "Settings Updated",
         description: data.successMessage,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      // The PATCH answers with the saved settings: make the fields this save sent the baseline
+      // right away so Discard never restores stale values, even if the refetch below fails.
+      // Only those keys are merged, so an overlapping save is never overwritten by an older reply.
+      const saved = data.data as Partial<UserSettings> | null;
+      if (saved && typeof saved === "object") {
+        const sentKeys = Object.keys(variables.updates) as (keyof UserSettings)[];
+        queryClient.setQueryData<UserSettings>(["/api/settings"], (cached) => {
+          if (!cached) return cached;
+          const next = { ...cached };
+          for (const key of sentKeys) {
+            if (key in saved) (next as Record<string, unknown>)[key] = saved[key];
+          }
+          return next;
+        });
+      }
+      // Returned so the mutation stays pending until the refetch lands: Save all / Discard stay
+      // disabled and the unload guard stays on until the saved baseline is up to date.
+      return queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
     },
     onError: (error: Error) => {
       console.error("Settings update error:", error);
@@ -1030,48 +1105,24 @@ export default function SettingsPage() {
   const isLoading = configLoading || settingsLoading;
   const error = configError;
 
-  const handleSaveAutoSearch = () => {
-    updateSettingsMutation.mutate({
-      updates: {
-        autoSearchEnabled,
-        autoSearchUnreleased,
-        upgradePolicy,
-        autoDownloadEnabled,
-        searchIntervalHours,
-        preferredPlatform: preferredPlatform || null,
-      },
-      successMessage: "Your auto-search preferences have been saved.",
-    });
-  };
-
-  const handleSaveContentFilter = () => {
-    updateSettingsMutation.mutate({
-      updates: {
-        hideAdultContent,
-        hideAgeRestrictedContent,
-      },
-      successMessage: "Content filtering preferences have been saved.",
-    });
-  };
-
-  const handleSaveLibraryFilters = () => {
-    updateSettingsMutation.mutate({
-      updates: {
-        hideShelvedByDefault,
-        hideOwnedInHasResults,
-      },
-      successMessage: "Your library filtering defaults have been saved.",
-    });
-  };
-
-  const handleSaveTelemetry = () => {
-    updateSettingsMutation.mutate({
-      updates: { telemetryEnabled },
-      successMessage: telemetryEnabled
-        ? "Telemetry enabled. Detected errors will be reported automatically."
-        : "Telemetry disabled.",
-    });
-  };
+  // A link such as /settings?tab=integrations#igdb-config lands on the card it names. Runs
+  // once the tab content exists, which is after the loading branch below gives way. The
+  // history events cover a link followed while its tab is already open: only the hash
+  // changes then, so nothing here re-renders.
+  useEffect(() => {
+    if (isLoading) return;
+    const scrollToHash = () => {
+      const id = window.location.hash.slice(1);
+      if (!id) return;
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    };
+    scrollToHash();
+    const events = ["pushState", "replaceState", "hashchange"];
+    for (const event of events) window.addEventListener(event, scrollToHash);
+    return () => {
+      for (const event of events) window.removeEventListener(event, scrollToHash);
+    };
+  }, [isLoading, activeTab, search]);
 
   const saveXrelMutation = useMutation({
     mutationFn: async () => {
@@ -1200,21 +1251,161 @@ export default function SettingsPage() {
     updateSteamIdMutation.mutate(steamIdInput);
   };
 
-  const handleSaveSteamSync = () => {
-    updateSettingsMutation.mutate({
-      updates: {
-        steamSyncEnabled,
-        steamSyncIntervalHours,
+  // Cards whose fields are edited locally and sent with one Save button. Comparing each card's
+  // fields with the saved settings gives its "unsaved changes" state, which feeds the card
+  // hint, the bar at the top of the page and the warning when closing the tab.
+  const settingsSections = useMemo<SettingsSection[]>(() => {
+    if (!userSettings) return [];
+    const saved = userSettings;
+    return [
+      {
+        id: "auto-search",
+        label: "Auto-Search & Download",
+        dirty:
+          autoSearchEnabled !== saved.autoSearchEnabled ||
+          autoSearchUnreleased !== (saved.autoSearchUnreleased ?? false) ||
+          upgradePolicy !== resolveUpgradePolicy(undefined, saved.upgradePolicy) ||
+          autoDownloadEnabled !== saved.autoDownloadEnabled ||
+          searchIntervalHours !== saved.searchIntervalHours ||
+          preferredPlatform !== (saved.preferredPlatform ?? ""),
+        updates: {
+          autoSearchEnabled,
+          autoSearchUnreleased,
+          upgradePolicy,
+          autoDownloadEnabled,
+          searchIntervalHours,
+          preferredPlatform: preferredPlatform || null,
+        },
+        successMessage: "Your auto-search preferences have been saved.",
+        reset: () => {
+          setAutoSearchEnabled(saved.autoSearchEnabled);
+          setAutoSearchUnreleased(saved.autoSearchUnreleased ?? false);
+          setUpgradePolicy(resolveUpgradePolicy(undefined, saved.upgradePolicy));
+          setAutoDownloadEnabled(saved.autoDownloadEnabled);
+          setSearchIntervalHours(saved.searchIntervalHours);
+          setPreferredPlatform(saved.preferredPlatform ?? "");
+        },
       },
-      successMessage: "Your Steam Wishlist auto-sync preferences have been saved.",
+      {
+        id: "content-filter",
+        label: "Content Filtering",
+        dirty:
+          hideAdultContent !== (saved.hideAdultContent ?? true) ||
+          hideAgeRestrictedContent !== (saved.hideAgeRestrictedContent ?? true),
+        updates: { hideAdultContent, hideAgeRestrictedContent },
+        successMessage: "Content filtering preferences have been saved.",
+        reset: () => {
+          setHideAdultContent(saved.hideAdultContent ?? true);
+          setHideAgeRestrictedContent(saved.hideAgeRestrictedContent ?? true);
+        },
+      },
+      {
+        id: "library-filter",
+        label: "Library Filtering",
+        dirty:
+          hideShelvedByDefault !== (saved.hideShelvedByDefault ?? true) ||
+          hideOwnedInHasResults !== (saved.hideOwnedInHasResults ?? true),
+        updates: { hideShelvedByDefault, hideOwnedInHasResults },
+        successMessage: "Your library filtering defaults have been saved.",
+        reset: () => {
+          setHideShelvedByDefault(saved.hideShelvedByDefault ?? true);
+          setHideOwnedInHasResults(saved.hideOwnedInHasResults ?? true);
+        },
+      },
+      {
+        id: "steam-sync",
+        label: "Steam Wishlist sync",
+        dirty:
+          steamSyncEnabled !== (saved.steamSyncEnabled ?? false) ||
+          steamSyncIntervalHours !== (saved.steamSyncIntervalHours ?? 24),
+        updates: { steamSyncEnabled, steamSyncIntervalHours },
+        successMessage: "Your Steam Wishlist auto-sync preferences have been saved.",
+        reset: () => {
+          setSteamSyncEnabled(saved.steamSyncEnabled ?? false);
+          setSteamSyncIntervalHours(saved.steamSyncIntervalHours ?? 24);
+        },
+      },
+      {
+        id: "telemetry",
+        label: "Telemetry",
+        dirty: telemetryEnabled !== (saved.telemetryEnabled ?? false),
+        updates: { telemetryEnabled },
+        successMessage: telemetryEnabled
+          ? "Telemetry enabled. Detected errors will be reported automatically."
+          : "Telemetry disabled.",
+        reset: () => setTelemetryEnabled(saved.telemetryEnabled ?? false),
+      },
+    ];
+  }, [
+    userSettings,
+    autoSearchEnabled,
+    autoSearchUnreleased,
+    upgradePolicy,
+    autoDownloadEnabled,
+    searchIntervalHours,
+    preferredPlatform,
+    hideAdultContent,
+    hideAgeRestrictedContent,
+    hideShelvedByDefault,
+    hideOwnedInHasResults,
+    steamSyncEnabled,
+    steamSyncIntervalHours,
+    telemetryEnabled,
+  ]);
+
+  const dirtySections = useMemo(() => settingsSections.filter((x) => x.dirty), [settingsSections]);
+  const isSectionDirty = (id: SettingsSectionId) => dirtySections.some((x) => x.id === id);
+  // Only the card whose button was pressed shows "Saving...", not every card on the page.
+  const isSectionSaving = (id: string) =>
+    updateSettingsMutation.isPending && updateSettingsMutation.variables?.section === id;
+
+  const saveSection = (id: SettingsSectionId) => {
+    const section = settingsSections.find((x) => x.id === id);
+    if (!section) return;
+    updateSettingsMutation.mutate({
+      updates: section.updates,
+      successMessage: section.successMessage,
+      section: id,
     });
   };
+
+  const saveAllSections = () => {
+    updateSettingsMutation.mutate({
+      updates: Object.assign({}, ...dirtySections.map((x) => x.updates)),
+      successMessage: "Your settings have been saved.",
+      section: "all",
+    });
+  };
+
+  const discardAllSections = () => {
+    for (const section of dirtySections) section.reset();
+  };
+
+  // Closing or reloading the tab would drop these edits without a word.
+  const hasUnsavedChanges = dirtySections.length > 0;
+  // `isPending` only follows the latest mutate() call, so count every in-flight settings save.
+  const settingsSavesInFlight = useIsMutating({ mutationKey: SETTINGS_SAVE_KEY });
+  const guardUnload = hasUnsavedChanges || settingsSavesInFlight > 0;
+  useEffect(() => {
+    if (!guardUnload) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [guardUnload]);
+
+  const handleSaveAutoSearch = () => saveSection("auto-search");
+  const handleSaveContentFilter = () => saveSection("content-filter");
+  const handleSaveLibraryFilters = () => saveSection("library-filter");
+  const handleSaveSteamSync = () => saveSection("steam-sync");
+  const handleSaveTelemetry = () => saveSection("telemetry");
 
   if (isLoading) {
     return (
       <div className="p-6">
         <div className="flex items-center space-x-2">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <div className="h-4 w-4 motion-safe:animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span>Loading configuration...</span>
         </div>
       </div>
@@ -1226,7 +1417,7 @@ export default function SettingsPage() {
       <div className="p-6">
         <Card>
           <CardHeader>
-            <CardTitle>Error Loading Configuration</CardTitle>
+            <CardTitle as="h2">Error Loading Configuration</CardTitle>
             <CardDescription>Failed to load configuration. Please try again later.</CardDescription>
           </CardHeader>
         </Card>
@@ -1240,7 +1431,9 @@ export default function SettingsPage() {
       title="Content Filtering"
       description="Control which games appear in your library and discovery results"
       onSave={handleSaveContentFilter}
-      savePending={updateSettingsMutation.isPending}
+      savePending={isSectionSaving("content-filter")}
+      saveDisabled={settingsSavesInFlight > 0}
+      saveDirty={isSectionDirty("content-filter")}
       saveIcon={EyeOff}
       saveLabel="Save Content Filtering"
     >
@@ -1285,7 +1478,9 @@ export default function SettingsPage() {
       title="Library Filtering"
       description="Choose which games are hidden by default in your library"
       onSave={handleSaveLibraryFilters}
-      savePending={updateSettingsMutation.isPending}
+      savePending={isSectionSaving("library-filter")}
+      saveDisabled={settingsSavesInFlight > 0}
+      saveDirty={isSectionDirty("library-filter")}
       saveIcon={Archive}
       saveLabel="Save Library Filtering"
     >
@@ -1297,14 +1492,43 @@ export default function SettingsPage() {
 
   return (
     <div className="h-full overflow-auto p-4 pb-20 sm:p-6 md:pb-6">
-      <div className="mb-6">
+      <div className="mx-auto mb-6 max-w-4xl">
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-muted-foreground text-sm mt-0.5">
           Configure your preferences and system settings
         </p>
       </div>
 
-      <div className="w-full space-y-6">
+      <div className="mx-auto w-full max-w-4xl space-y-6">
+        {hasUnsavedChanges && (
+          <div
+            data-testid="unsaved-changes-bar"
+            className="sticky top-0 z-20 flex flex-col gap-3 rounded-md border border-amber-500/60 bg-card p-3 shadow-md sm:flex-row sm:items-center sm:justify-between"
+          >
+            <output className="block text-sm">
+              <span className="font-medium">Unsaved changes</span> in{" "}
+              {dirtySections.map((x) => x.label).join(", ")}.
+            </output>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="min-h-11"
+                onClick={discardAllSections}
+                disabled={settingsSavesInFlight > 0}
+              >
+                Discard
+              </Button>
+              <Button
+                className="min-h-11"
+                onClick={saveAllSections}
+                disabled={settingsSavesInFlight > 0}
+              >
+                {isSectionSaving("all") ? "Saving..." : "Save all"}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Database Migration Alert */}
         {settingsError && (
           <Alert variant="destructive">
@@ -1326,12 +1550,13 @@ export default function SettingsPage() {
               className="mb-0 flex w-full flex-nowrap justify-start overflow-x-auto motion-safe:scroll-smooth motion-reduce:scroll-auto"
             >
               <div ref={setTabsInnerNode} className="flex w-max flex-nowrap [&>*]:shrink-0">
-                <TabsTrigger value="appearance">Appearance</TabsTrigger>
-                <TabsTrigger value="discovery">Discovery & Downloads</TabsTrigger>
+                <TabsTrigger value="appearance">General</TabsTrigger>
+                <TabsTrigger value="discovery">Search & Downloads</TabsTrigger>
+                <TabsTrigger value="scoring">Release Scoring</TabsTrigger>
                 <TabsTrigger value="notifications">Notifications</TabsTrigger>
-                <TabsTrigger value="integrations">Integrations</TabsTrigger>
+                <TabsTrigger value="integrations">Connections</TabsTrigger>
                 <TabsTrigger value="import">Import</TabsTrigger>
-                <TabsTrigger value="account-security">Account & Security</TabsTrigger>
+                <TabsTrigger value="account-security">Security</TabsTrigger>
                 <TabsTrigger value="system">System</TabsTrigger>
               </div>
             </TabsList>
@@ -1356,7 +1581,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Monitor className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Theme</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Theme
+                  </CardTitle>
                 </div>
                 <CardDescription>Select the visual theme for Questarr</CardDescription>
               </CardHeader>
@@ -1416,7 +1643,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Search className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Auto-Search & Download</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Auto-Search & Download
+                  </CardTitle>
                 </div>
                 <CardDescription>
                   Automatically search for and download releases for wanted games
@@ -1425,21 +1654,13 @@ export default function SettingsPage() {
               <CardContent className="space-y-6">
                 <div className="space-y-4">
                   {/* Auto Search Toggle */}
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="auto-search" className="text-sm font-medium">
-                        Enable Auto-Search
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Periodically search indexers for wanted games
-                      </p>
-                    </div>
-                    <Switch
-                      id="auto-search"
-                      checked={autoSearchEnabled}
-                      onCheckedChange={setAutoSearchEnabled}
-                    />
-                  </div>
+                  <SettingRow
+                    id="auto-search"
+                    label="Enable Auto-Search"
+                    description="Periodically search indexers for wanted games"
+                    checked={autoSearchEnabled}
+                    onCheckedChange={setAutoSearchEnabled}
+                  />
 
                   {/* Search Interval */}
                   {autoSearchEnabled && (
@@ -1454,7 +1675,9 @@ export default function SettingsPage() {
                         max="168"
                         value={searchIntervalHours}
                         onChange={(e) =>
-                          setSearchIntervalHours(Number.parseInt(e.target.value) || 6)
+                          setSearchIntervalHours(
+                            Math.min(168, Math.max(1, Number.parseInt(e.target.value) || 6))
+                          )
                         }
                         className="w-32"
                       />
@@ -1466,21 +1689,14 @@ export default function SettingsPage() {
 
                   {/* Auto Search Unreleased Toggle */}
                   {autoSearchEnabled && (
-                    <div className="flex items-center justify-between pl-4 border-l-2">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="auto-search-unreleased" className="text-sm font-medium">
-                          Search Unreleased Games
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          Include unreleased (upcoming/delayed) games in search
-                        </p>
-                      </div>
-                      <Switch
-                        id="auto-search-unreleased"
-                        checked={autoSearchUnreleased}
-                        onCheckedChange={setAutoSearchUnreleased}
-                      />
-                    </div>
+                    <SettingRow
+                      id="auto-search-unreleased"
+                      label="Search Unreleased Games"
+                      description="Include unreleased (upcoming/delayed) games in search"
+                      className="pl-4 border-l-2"
+                      checked={autoSearchUnreleased}
+                      onCheckedChange={setAutoSearchUnreleased}
+                    />
                   )}
 
                   {/* Default policy for newer versions of owned games */}
@@ -1517,21 +1733,14 @@ export default function SettingsPage() {
 
                   {/* Auto Download Toggle */}
                   {autoSearchEnabled && (
-                    <div className="flex items-center justify-between pl-4 border-l-2">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="auto-download" className="text-sm font-medium">
-                          Auto-Download Single Releases
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          Automatically download when only one release is found
-                        </p>
-                      </div>
-                      <Switch
-                        id="auto-download"
-                        checked={autoDownloadEnabled}
-                        onCheckedChange={setAutoDownloadEnabled}
-                      />
-                    </div>
+                    <SettingRow
+                      id="auto-download"
+                      label="Auto-Download Single Releases"
+                      description="Automatically download when only one release is found"
+                      className="pl-4 border-l-2"
+                      checked={autoDownloadEnabled}
+                      onCheckedChange={setAutoDownloadEnabled}
+                    />
                   )}
                 </div>
 
@@ -1563,14 +1772,15 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="flex justify-end pt-4 border-t">
+                  <UnsavedHint show={isSectionDirty("auto-search")} />
                   <Button
                     onClick={handleSaveAutoSearch}
-                    disabled={updateSettingsMutation.isPending}
+                    disabled={settingsSavesInFlight > 0}
                     className="gap-2"
                   >
-                    {updateSettingsMutation.isPending ? (
+                    {isSectionSaving("auto-search") ? (
                       <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
                       </>
                     ) : (
@@ -1589,11 +1799,14 @@ export default function SettingsPage() {
               onChange={setDownloadRules}
               onReset={() => setDownloadRules(null)}
             />
-            <ReleaseScoringSettings />
             <ReleaseNameBlacklistSettings
               blacklistTerms={releaseNameBlacklist}
               onTermsChange={setReleaseNameBlacklist}
             />
+          </TabsContent>
+
+          <TabsContent value="scoring" className="space-y-6">
+            <ReleaseScoringSettings />
             <ClassificationSettings />
             <ClassificationReviewSettings />
           </TabsContent>
@@ -1605,12 +1818,14 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <Bell className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-lg">Apprise Push Notifications</CardTitle>
+                    <CardTitle as="h2" className="text-lg">
+                      Apprise Push Notifications
+                    </CardTitle>
                   </div>
                   {appriseSettings?.configured ? (
                     <Badge
                       variant="default"
-                      className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                      className="bg-emerald-500/20 text-emerald-800 in-[.dark]:text-emerald-400 border-emerald-500/30"
                     >
                       Connected
                     </Badge>
@@ -1820,7 +2035,9 @@ export default function SettingsPage() {
             {/* Notification Preferences Card */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Notification Preferences</CardTitle>
+                <CardTitle as="h2" className="text-lg">
+                  Notification Preferences
+                </CardTitle>
                 <CardDescription>
                   Control which events create notifications and where they are sent.
                 </CardDescription>
@@ -1891,32 +2108,172 @@ export default function SettingsPage() {
                       to both In-App and Apprise. Games are still checked for available content.
                     </p>
                   </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <Label htmlFor="notify-updates-shelved">Notify for shelved games</Label>
-                    <Switch
-                      id="notify-updates-shelved"
-                      checked={notifPrefs.gameUpdates.includeShelved !== false}
-                      onCheckedChange={(checked) =>
-                        handleNotifPrefChange("gameUpdates", "includeShelved", checked)
-                      }
-                    />
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <Label htmlFor="notify-updates-completed">Notify for completed games</Label>
-                    <Switch
-                      id="notify-updates-completed"
-                      checked={notifPrefs.gameUpdates.includeCompleted !== false}
-                      onCheckedChange={(checked) =>
-                        handleNotifPrefChange("gameUpdates", "includeCompleted", checked)
-                      }
-                    />
-                  </div>
+                  <SettingRow
+                    id="notify-updates-shelved"
+                    label="Notify for shelved games"
+                    checked={notifPrefs.gameUpdates.includeShelved !== false}
+                    onCheckedChange={(checked) =>
+                      handleNotifPrefChange("gameUpdates", "includeShelved", checked)
+                    }
+                  />
+                  <SettingRow
+                    id="notify-updates-completed"
+                    label="Notify for completed games"
+                    checked={notifPrefs.gameUpdates.includeCompleted !== false}
+                    onCheckedChange={(checked) =>
+                      handleNotifPrefChange("gameUpdates", "includeCompleted", checked)
+                    }
+                  />
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
 
           <TabsContent value="integrations" className="space-y-6">
+            {/* IGDB Card */}
+            <Card id="igdb-config">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <Key className="h-5 w-5 text-muted-foreground" />
+                    <CardTitle as="h2" className="text-lg">
+                      IGDB API
+                    </CardTitle>
+                    <IgdbHelpPopover />
+                  </div>
+                </div>
+                <CardDescription>Twitch/IGDB API integration for game metadata.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col space-y-2 pb-4 border-b">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">Status</span>
+                    {config?.igdb.configured ? (
+                      <Badge variant={config.igdb.source === "database" ? "default" : "secondary"}>
+                        {config.igdb.source === "database"
+                          ? "Database (Active)"
+                          : "Environment Variable"}
+                      </Badge>
+                    ) : (
+                      <Badge variant="destructive">Not Configured</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Credentials configured here will override environment variables (IGDB_CLIENT_ID,
+                    IGDB_CLIENT_SECRET).
+                  </p>
+                </div>
+
+                <div className="space-y-4 pt-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="igdb-client-id">Client ID</Label>
+                    <Input
+                      id="igdb-client-id"
+                      placeholder="Enter your IGDB Client ID"
+                      value={igdbClientId}
+                      onChange={(e) => setIgdbClientId(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="igdb-client-secret">Client Secret</Label>
+                    <div className="relative">
+                      <Input
+                        id="igdb-client-secret"
+                        type={showClientSecret ? "text" : "password"}
+                        placeholder={
+                          config?.igdb.configured ? "********" : "Enter your IGDB Client Secret"
+                        }
+                        value={igdbClientSecret}
+                        onChange={(e) => setIgdbClientSecret(e.target.value)}
+                        className="pr-10"
+                      />
+                      {igdbClientSecret && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                          onClick={() => setShowClientSecret(!showClientSecret)}
+                          aria-label={
+                            showClientSecret ? "Hide client secret" : "Show client secret"
+                          }
+                        >
+                          {showClientSecret ? (
+                            <EyeOff className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <IgdbTestConnectionButton
+                  clientId={igdbClientId}
+                  clientSecret={igdbClientSecret || (config?.igdb.configured ? "********" : "")}
+                  testEndpoint="/api/settings/igdb/test"
+                />
+
+                {/* Rate limit (formerly a standalone "Advanced" card) */}
+                <div className="space-y-3 pt-4 border-t">
+                  <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
+                    IGDB API Rate Limit (requests/second)
+                  </Label>
+                  <Input
+                    id="igdb-rate-limit"
+                    type="number"
+                    min="1"
+                    max="4"
+                    value={igdbRateLimitPerSecond}
+                    onChange={(e) => {
+                      const parsed = Number.parseInt(e.target.value);
+                      setIgdbRateLimitPerSecond(
+                        Number.isNaN(parsed) ? 3 : Math.min(4, Math.max(1, parsed))
+                      );
+                    }}
+                    className="w-32"
+                  />
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p>
+                      <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
+                      conservative.
+                    </p>
+                    <p>
+                      Only increase if you experience slow loading times and are confident your
+                      usage won&apos;t exceed the limit.
+                    </p>
+                    <p className="text-amber-700 in-[.dark]:text-amber-500">
+                      Setting too high may result in API blacklisting.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t">
+                  <Button
+                    onClick={handleSaveIgdb}
+                    disabled={
+                      updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending
+                    }
+                    className="gap-2"
+                  >
+                    {updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending ? (
+                      <span role="status" className="flex items-center gap-2">
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                        Saving...
+                      </span>
+                    ) : (
+                      <>
+                        <Key className="h-4 w-4" />
+                        Save
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* API keys for external clients (Playnite extension, scripts) */}
             <ApiKeysCard />
 
@@ -1925,7 +2282,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Gamepad2 className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Steam Integration</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Steam Integration
+                  </CardTitle>
                 </div>
                 <CardDescription>Sync your Steam wishlist and import owned games.</CardDescription>
               </CardHeader>
@@ -2028,7 +2387,7 @@ export default function SettingsPage() {
                       />
                       <Button
                         onClick={handleSaveSteamId}
-                        disabled={updateSteamIdMutation.isPending}
+                        disabled={updateSteamIdMutation.isPending || !steamIdInput.trim()}
                       >
                         {updateSteamIdMutation.isPending ? "Saving..." : "Save ID"}
                       </Button>
@@ -2046,21 +2405,14 @@ export default function SettingsPage() {
                     </p>
                   </div>
 
-                  <div className="flex items-center justify-between pt-4 border-t">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="steam-sync-enabled" className="text-sm font-medium">
-                        Auto-Sync Wishlist
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Periodically import new games from your Steam Wishlist
-                      </p>
-                    </div>
-                    <Switch
-                      id="steam-sync-enabled"
-                      checked={steamSyncEnabled}
-                      onCheckedChange={setSteamSyncEnabled}
-                    />
-                  </div>
+                  <SettingRow
+                    id="steam-sync-enabled"
+                    label="Auto-Sync Wishlist"
+                    description="Periodically import new games from your Steam Wishlist"
+                    className="pt-4 border-t"
+                    checked={steamSyncEnabled}
+                    onCheckedChange={setSteamSyncEnabled}
+                  />
 
                   {steamSyncEnabled && (
                     <div className="space-y-2 pl-4 border-l-2">
@@ -2087,14 +2439,15 @@ export default function SettingsPage() {
                   )}
 
                   <div className="flex justify-end pt-2 border-t">
+                    <UnsavedHint show={isSectionDirty("steam-sync")} />
                     <Button
                       onClick={handleSaveSteamSync}
-                      disabled={updateSettingsMutation.isPending}
+                      disabled={settingsSavesInFlight > 0}
                       className="gap-2"
                     >
-                      {updateSettingsMutation.isPending ? (
+                      {isSectionSaving("steam-sync") ? (
                         <>
-                          <RefreshCw className="h-4 w-4 animate-spin" />
+                          <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                           Saving...
                         </>
                       ) : (
@@ -2118,8 +2471,10 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
-                    <NexusModsIcon className="h-5 w-5 text-amber-500" />
-                    <CardTitle className="text-lg">Nexus Mods</CardTitle>
+                    <NexusModsIcon className="h-5 w-5 text-amber-500" aria-hidden="true" />
+                    <CardTitle as="h2" className="text-lg">
+                      Nexus Mods
+                    </CardTitle>
                   </div>
                   {nexusmodsSettings?.configured ? (
                     <Badge
@@ -2197,7 +2552,7 @@ export default function SettingsPage() {
                   >
                     {updateNexusMutation.isPending ? (
                       <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
                       </>
                     ) : (
@@ -2217,7 +2572,9 @@ export default function SettingsPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <Sparkles className="h-5 w-5 shrink-0 text-blue-500" />
-                    <CardTitle className="text-lg">AI Release Analysis (TypeSafe)</CardTitle>
+                    <CardTitle as="h2" className="text-lg">
+                      AI Release Analysis (TypeSafe)
+                    </CardTitle>
                     <Badge
                       variant="outline"
                       className="gap-1 border-amber-600/50 text-amber-700 in-[.dark]:border-amber-500/50 in-[.dark]:text-amber-500"
@@ -2344,154 +2701,14 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            {/* IGDB Card */}
-            <Card id="igdb-config">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Key className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-lg">IGDB API</CardTitle>
-                    <IgdbHelpPopover />
-                  </div>
-                </div>
-                <CardDescription>Twitch/IGDB API integration for game metadata.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col space-y-2 pb-4 border-b">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Status</span>
-                    {config?.igdb.configured ? (
-                      <Badge variant={config.igdb.source === "database" ? "default" : "secondary"}>
-                        {config.igdb.source === "database"
-                          ? "Database (Active)"
-                          : "Environment Variable"}
-                      </Badge>
-                    ) : (
-                      <Badge variant="destructive">Not Configured</Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Credentials configured here will override environment variables (IGDB_CLIENT_ID,
-                    IGDB_CLIENT_SECRET).
-                  </p>
-                </div>
-
-                <div className="space-y-4 pt-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="igdb-client-id">Client ID</Label>
-                    <Input
-                      id="igdb-client-id"
-                      placeholder="Enter your IGDB Client ID"
-                      value={igdbClientId}
-                      onChange={(e) => setIgdbClientId(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="igdb-client-secret">Client Secret</Label>
-                    <div className="relative">
-                      <Input
-                        id="igdb-client-secret"
-                        type={showClientSecret ? "text" : "password"}
-                        placeholder={
-                          config?.igdb.configured ? "********" : "Enter your IGDB Client Secret"
-                        }
-                        value={igdbClientSecret}
-                        onChange={(e) => setIgdbClientSecret(e.target.value)}
-                        className="pr-10"
-                      />
-                      {igdbClientSecret && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                          onClick={() => setShowClientSecret(!showClientSecret)}
-                          aria-label={
-                            showClientSecret ? "Hide client secret" : "Show client secret"
-                          }
-                        >
-                          {showClientSecret ? (
-                            <EyeOff className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <Eye className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <IgdbTestConnectionButton
-                  clientId={igdbClientId}
-                  clientSecret={igdbClientSecret || (config?.igdb.configured ? "********" : "")}
-                  testEndpoint="/api/settings/igdb/test"
-                />
-
-                {/* Rate limit (formerly a standalone "Advanced" card) */}
-                <div className="space-y-3 pt-4 border-t">
-                  <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
-                    IGDB API Rate Limit (requests/second)
-                  </Label>
-                  <Input
-                    id="igdb-rate-limit"
-                    type="number"
-                    min="1"
-                    max="4"
-                    value={igdbRateLimitPerSecond}
-                    onChange={(e) => {
-                      const parsed = Number.parseInt(e.target.value);
-                      setIgdbRateLimitPerSecond(
-                        Number.isNaN(parsed) ? 3 : Math.min(4, Math.max(1, parsed))
-                      );
-                    }}
-                    className="w-32"
-                  />
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p>
-                      <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
-                      conservative.
-                    </p>
-                    <p>
-                      Only increase if you experience slow loading times and are confident your
-                      usage won&apos;t exceed the limit.
-                    </p>
-                    <p className="text-amber-500">
-                      ⚠️ Setting too high may result in API blacklisting.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-4 border-t">
-                  <Button
-                    onClick={handleSaveIgdb}
-                    disabled={
-                      updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending
-                    }
-                    className="gap-2"
-                  >
-                    {updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending ? (
-                      <span role="status" className="flex items-center gap-2">
-                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
-                        Saving...
-                      </span>
-                    ) : (
-                      <>
-                        <Key className="h-4 w-4" />
-                        Save
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* xREL.to Search Options */}
             <Card id="xrel-settings">
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Newspaper className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">xREL.to</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    xREL.to
+                  </CardTitle>
                 </div>
                 <CardDescription>
                   Alert when a wanted game appears on xREL.to (scene/P2P release list). API base URL
@@ -2521,36 +2738,20 @@ export default function SettingsPage() {
                       Use the mirror if your IP is blocked by Cloudflare on the official API.
                     </p>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="xrel-scene" className="text-sm font-medium">
-                        Include scene releases
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Search scene releases when checking for wanted games on xREL.to
-                      </p>
-                    </div>
-                    <Switch
-                      id="xrel-scene"
-                      checked={xrelSceneReleases}
-                      onCheckedChange={setXrelSceneReleases}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="xrel-p2p" className="text-sm font-medium">
-                        Include P2P releases
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Search P2P releases when checking for wanted games on xREL.to
-                      </p>
-                    </div>
-                    <Switch
-                      id="xrel-p2p"
-                      checked={xrelP2pReleases}
-                      onCheckedChange={setXrelP2pReleases}
-                    />
-                  </div>
+                  <SettingRow
+                    id="xrel-scene"
+                    label="Include scene releases"
+                    description="Search scene releases when checking for wanted games on xREL.to"
+                    checked={xrelSceneReleases}
+                    onCheckedChange={setXrelSceneReleases}
+                  />
+                  <SettingRow
+                    id="xrel-p2p"
+                    label="Include P2P releases"
+                    description="Search P2P releases when checking for wanted games on xREL.to"
+                    checked={xrelP2pReleases}
+                    onCheckedChange={setXrelP2pReleases}
+                  />
                 </div>
                 <div className="flex justify-end pt-4 border-t">
                   <Button
@@ -2560,7 +2761,7 @@ export default function SettingsPage() {
                   >
                     {saveXrelMutation.isPending ? (
                       <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
                       </>
                     ) : (
@@ -2585,7 +2786,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Server className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Maintenance</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Maintenance
+                  </CardTitle>
                 </div>
                 <CardDescription>Application maintenance and data management tasks</CardDescription>
               </CardHeader>
@@ -2633,7 +2836,7 @@ export default function SettingsPage() {
                       className="gap-2 w-full sm:w-auto shrink-0"
                     >
                       {refreshMetadataMutation.isPending ? (
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                       ) : (
                         <RefreshCw className="h-4 w-4" />
                       )}
@@ -2658,7 +2861,7 @@ export default function SettingsPage() {
                       className="gap-2 w-full sm:w-auto shrink-0"
                     >
                       {libraryHealthMutation.isPending ? (
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                       ) : (
                         <RefreshCw className="h-4 w-4" />
                       )}
@@ -2671,7 +2874,7 @@ export default function SettingsPage() {
                       <div className="mt-2 space-y-3 rounded-md border border-border p-3 text-xs">
                         {libraryHealthResult.drifted.length > 0 && (
                           <div>
-                            <p className="font-medium text-amber-500">
+                            <p className="font-medium text-amber-700 in-[.dark]:text-amber-500">
                               Drifted ({libraryHealthResult.drifted.length})
                             </p>
                             <ul className="mt-1 space-y-1 text-muted-foreground">
@@ -2685,7 +2888,7 @@ export default function SettingsPage() {
                         )}
                         {libraryHealthResult.orphaned.length > 0 && (
                           <div>
-                            <p className="font-medium text-amber-500">
+                            <p className="font-medium text-amber-700 in-[.dark]:text-amber-500">
                               Orphaned ({libraryHealthResult.orphaned.length})
                             </p>
                             <ul className="mt-1 space-y-1 text-muted-foreground">
@@ -2706,7 +2909,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Radio className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Telemetry</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Telemetry
+                  </CardTitle>
                 </div>
                 <CardDescription>
                   Help improve Questarr by automatically sharing diagnostic data when something goes
@@ -2714,36 +2919,23 @@ export default function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5 pr-4">
-                    <Label htmlFor="telemetry-enabled" className="text-sm font-medium">
-                      Automatically send error reports
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Off by default. When Questarr detects an unexpected server error, it will
-                      normally ask you first (see the &quot;Error Detected&quot; notification
-                      below). Turn this on to skip that prompt and send a scrubbed diagnostic report
-                      automatically instead — no personal data, IP addresses, or file paths are
-                      included. Reports help the maintainer catch bugs users don't otherwise report.
-                      You can still send a one-off report manually from the Logs page at any time,
-                      whatever this setting is.
-                    </p>
-                  </div>
-                  <Switch
-                    id="telemetry-enabled"
-                    checked={telemetryEnabled}
-                    onCheckedChange={setTelemetryEnabled}
-                  />
-                </div>
+                <SettingRow
+                  id="telemetry-enabled"
+                  label="Automatically send error reports"
+                  description={`Off by default. When Questarr detects an unexpected server error, it will normally ask you first (see the "Error Detected" event in the Notifications tab). Turn this on to skip that prompt and send a scrubbed diagnostic report automatically instead — no personal data, IP addresses, or file paths are included. Reports help the maintainer catch bugs users don't otherwise report. You can still send a one-off report manually from the Logs page at any time, whatever this setting is.`}
+                  checked={telemetryEnabled}
+                  onCheckedChange={setTelemetryEnabled}
+                />
                 <div className="flex justify-end pt-4 border-t">
+                  <UnsavedHint show={isSectionDirty("telemetry")} />
                   <Button
                     onClick={handleSaveTelemetry}
-                    disabled={updateSettingsMutation.isPending}
+                    disabled={settingsSavesInFlight > 0}
                     className="gap-2"
                   >
-                    {updateSettingsMutation.isPending ? (
+                    {isSectionSaving("telemetry") ? (
                       <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
                       </>
                     ) : (
@@ -2762,7 +2954,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Server className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Downloader Debug Logging</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    Downloader Debug Logging
+                  </CardTitle>
                 </div>
                 <CardDescription>
                   Log downloader response status, headers, and body (up to 10KB) from download
@@ -2774,34 +2968,27 @@ export default function SettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="downloader-debug-logging" className="text-sm font-medium">
-                      Log full downloader responses
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Applies immediately and affects all configured downloaders. View the results
-                      on the Logs page.
-                    </p>
-                    {isDownloaderDebugLoggingError && (
-                      <p className="text-xs text-destructive">
+                <SettingRow
+                  id="downloader-debug-logging"
+                  label="Log full downloader responses"
+                  description="Applies immediately and affects all configured downloaders. View the results on the Logs page."
+                  extra={
+                    isDownloaderDebugLoggingError && (
+                      <span className="block text-xs text-destructive">
                         Failed to load the current setting. Refresh the page to try again.
-                      </p>
-                    )}
-                  </div>
-                  <Switch
-                    id="downloader-debug-logging"
-                    checked={downloaderDebugLogging?.enabled ?? false}
-                    disabled={
-                      isDownloaderDebugLoggingLoading ||
-                      isDownloaderDebugLoggingError ||
-                      updateDownloaderDebugLoggingMutation.isPending
-                    }
-                    onCheckedChange={(checked) =>
-                      updateDownloaderDebugLoggingMutation.mutate(checked)
-                    }
-                  />
-                </div>
+                      </span>
+                    )
+                  }
+                  checked={downloaderDebugLogging?.enabled ?? false}
+                  disabled={
+                    isDownloaderDebugLoggingLoading ||
+                    isDownloaderDebugLoggingError ||
+                    updateDownloaderDebugLoggingMutation.isPending
+                  }
+                  onCheckedChange={(checked) =>
+                    updateDownloaderDebugLoggingMutation.mutate(checked)
+                  }
+                />
               </CardContent>
             </Card>
           </TabsContent>
@@ -2813,7 +3000,9 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center space-x-3">
                   <Lock className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">SSL/HTTPS Configuration</CardTitle>
+                  <CardTitle as="h2" className="text-lg">
+                    SSL/HTTPS Configuration
+                  </CardTitle>
                 </div>
                 <CardDescription>
                   Configure secure access to Questarr. Requires server restart to apply changes.
@@ -2822,19 +3011,13 @@ export default function SettingsPage() {
               <CardContent className="space-y-6">
                 {sslSettings && (
                   <>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="ssl-enabled" className="text-sm font-medium">
-                          Enable SSL
-                        </Label>
-                        <p className="text-xs text-muted-foreground">Turn on HTTPS support</p>
-                      </div>
-                      <Switch
-                        id="ssl-enabled"
-                        checked={sslEnabled}
-                        onCheckedChange={setSslEnabled}
-                      />
-                    </div>
+                    <SettingRow
+                      id="ssl-enabled"
+                      label="Enable SSL"
+                      description="Turn on HTTPS support"
+                      checked={sslEnabled}
+                      onCheckedChange={setSslEnabled}
+                    />
 
                     {sslEnabled && (
                       <>
@@ -2900,23 +3083,17 @@ export default function SettingsPage() {
                         </div>
 
                         <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label htmlFor="ssl-redirect">Force HTTPS</Label>
-                              <p className="text-xs text-muted-foreground">
-                                Redirect all HTTP traffic to HTTPS
-                              </p>
-                            </div>
-                            <Switch
-                              id="ssl-redirect"
-                              checked={sslRedirectHttp}
-                              onCheckedChange={setSslRedirectHttp}
-                            />
-                          </div>
+                          <SettingRow
+                            id="ssl-redirect"
+                            label="Force HTTPS"
+                            description="Redirect all HTTP traffic to HTTPS"
+                            checked={sslRedirectHttp}
+                            onCheckedChange={setSslRedirectHttp}
+                          />
 
                           {sslRedirectHttp && (
                             <Alert className="border-orange-500/50 bg-orange-500/10">
-                              <AlertCircle className="h-4 w-4 text-orange-500" />
+                              <AlertCircle className="h-4 w-4 text-orange-700 in-[.dark]:text-orange-500" />
                               <AlertTitle>HTTP Port Will Be Disabled</AlertTitle>
                               <AlertDescription>
                                 When HTTPS redirect is enabled, the HTTP port will be disabled on
@@ -2999,7 +3176,7 @@ export default function SettingsPage() {
                                 <p className="text-xs text-muted-foreground mb-2">
                                   Generate a self-signed certificate if you don't have one.
                                   <br />
-                                  <span className="text-amber-500 font-semibold">
+                                  <span className="text-amber-700 in-[.dark]:text-amber-500 font-semibold">
                                     Warning:
                                   </span>{" "}
                                   Browsers will show a security warning for self-signed

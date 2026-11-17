@@ -208,6 +208,7 @@ function buildImportConfigFromSettings(
     | "libraryRoot"
     | "autoDeleteAfterImport"
     | "sortExtras"
+    | "upgradeReplaceMode"
   >
 ): ImportConfig {
   const parsed = importConfigSchema.safeParse({
@@ -222,6 +223,7 @@ function buildImportConfigFromSettings(
     libraryRoot: settings?.libraryRoot ?? "/data",
     autoDeleteAfterImport: settings?.autoDeleteAfterImport ?? false,
     sortExtras: settings?.sortExtras ?? false,
+    upgradeReplaceMode: settings?.upgradeReplaceMode ?? "off",
   });
 
   if (parsed.success) return parsed.data;
@@ -238,6 +240,7 @@ function buildImportConfigFromSettings(
     libraryRoot: settings?.libraryRoot ?? "/data",
     autoDeleteAfterImport: settings?.autoDeleteAfterImport ?? false,
     sortExtras: settings?.sortExtras ?? false,
+    upgradeReplaceMode: "off",
   };
 }
 
@@ -2187,6 +2190,7 @@ export class MemStorage implements IStorage {
       libraryRoot: insertSettings.libraryRoot ?? "/data",
       autoDeleteAfterImport: insertSettings.autoDeleteAfterImport ?? false,
       sortExtras: insertSettings.sortExtras ?? false,
+      upgradeReplaceMode: insertSettings.upgradeReplaceMode ?? "off",
 
       preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,

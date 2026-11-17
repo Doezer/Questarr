@@ -6,6 +6,7 @@ import { RTorrentClient } from "../downloaders/rtorrent.js";
 import { SABnzbdClient } from "../downloaders/sabnzbd.js";
 import { SynologyDownloadStationClient } from "../downloaders/synology.js";
 import { TransmissionClient } from "../downloaders/transmission.js";
+import { parseXmlRpcValue, serializeXmlRpcValue } from "../downloaders/xmlrpc.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 
 vi.mock("../logger.js", () => ({
@@ -937,36 +938,35 @@ describe("downloader client regression coverage", () => {
     );
     const privateClient = client as unknown as {
       getBaseUrl: () => string;
-      buildXMLValue: (value: unknown) => string;
-      parseValueObj: (value: unknown) => unknown;
       makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
     };
 
     expect(privateClient.getBaseUrl()).toBe("https://nzbget.local:6789");
-    expect(privateClient.buildXMLValue({ ok: true, score: 1.5, list: [1, "two"] })).toContain(
-      "<struct>"
-    );
+    expect(serializeXmlRpcValue({ ok: true, score: 1.5, list: [1, "two"] })).toContain("<struct>");
     expect(
-      privateClient.parseValueObj({
-        struct: {
-          member: [
-            { name: { _text: "flag" }, value: { boolean: { _text: "1" } } },
-            { name: { _text: "count" }, value: { int: { _text: "2" } } },
-            {
-              name: { _text: "items" },
-              value: {
-                array: {
-                  data: [
-                    {
-                      value: [{ string: { _text: "one" } }, { double: { _text: "2.5" } }],
-                    },
-                  ],
+      parseXmlRpcValue(
+        {
+          struct: {
+            member: [
+              { name: { _text: "flag" }, value: { boolean: { _text: "1" } } },
+              { name: { _text: "count" }, value: { int: { _text: "2" } } },
+              {
+                name: { _text: "items" },
+                value: {
+                  array: {
+                    data: [
+                      {
+                        value: [{ string: { _text: "one" } }, { double: { _text: "2.5" } }],
+                      },
+                    ],
+                  },
                 },
               },
-            },
-          ],
+            ],
+          },
         },
-      })
+        { lenient: true }
+      )
     ).toEqual({
       flag: true,
       count: 2,

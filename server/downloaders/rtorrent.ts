@@ -17,10 +17,12 @@ import {
   extractHashFromUrl,
   fetchWithMagnetDetection,
   findTorrentByTagNull,
+  getErrorMessage,
   isHttpsUrl,
   logDownloaderDebugResponse,
+  runDownloaderAction,
 } from "./utils.js";
-import { XMLParser } from "fast-xml-parser";
+import { parseXmlRpcResponse, serializeXmlRpcValue } from "./xmlrpc.js";
 
 /**
  * rTorrent/ruTorrent client implementation using XML-RPC protocol.
@@ -33,12 +35,6 @@ import { XMLParser } from "fast-xml-parser";
  */
 export class RTorrentClient implements DownloaderClient {
   private downloader: Downloader;
-  private xmlParser = new XMLParser({
-    ignoreAttributes: true,
-    parseTagValue: false,
-    textNodeName: "_text",
-    isArray: (name) => ["member", "data", "value", "param"].includes(name),
-  });
 
   constructor(downloader: Downloader) {
     this.downloader = downloader;
@@ -57,7 +53,7 @@ export class RTorrentClient implements DownloaderClient {
       );
       return { success: true, message: `Connected to rTorrent v${version}` };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       downloadersLogger.error(
         {
           error: errorMessage,
@@ -209,7 +205,7 @@ export class RTorrentClient implements DownloaderClient {
         message: `Failed to add download (rTorrent returned code: ${result})`,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       downloadersLogger.error({ error, url: request.url }, "Failed to add download");
       return { success: false, message: `Failed to add download: ${errorMessage}` };
     }
@@ -441,30 +437,18 @@ export class RTorrentClient implements DownloaderClient {
   }
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
-      await this.makeXMLRPCRequest("d.stop", [id]);
-      return { success: true, message: "Download paused successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to pause download: ${errorMessage}` };
-    }
+    return runDownloaderAction("pause", () => this.makeXMLRPCRequest("d.stop", [id]));
   }
 
   async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
-      await this.makeXMLRPCRequest("d.start", [id]);
-      return { success: true, message: "Download resumed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to resume download: ${errorMessage}` };
-    }
+    return runDownloaderAction("resume", () => this.makeXMLRPCRequest("d.start", [id]));
   }
 
   async removeDownload(
     id: string,
     deleteFiles = false
   ): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("remove", async () => {
       if (deleteFiles) {
         // Stop download, delete data, and remove from client
         await this.makeXMLRPCRequest("d.stop", [id]);
@@ -474,11 +458,7 @@ export class RTorrentClient implements DownloaderClient {
         // Just remove from client without deleting files
         await this.makeXMLRPCRequest("d.erase", [id]);
       }
-      return { success: true, message: "Download removed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to remove download: ${errorMessage}` };
-    }
+    });
   }
 
   async getFreeSpace(): Promise<number> {
@@ -709,16 +689,7 @@ export class RTorrentClient implements DownloaderClient {
 
     // Build XML-RPC request
     const xmlParams = params
-      .map((param) => {
-        if (Buffer.isBuffer(param)) {
-          return `<param><value><base64>${param.toString("base64")}</base64></value></param>`;
-        } else if (typeof param === "string") {
-          return `<param><value><string>${escapeXml(param)}</string></value></param>`;
-        } else if (typeof param === "number") {
-          return `<param><value><int>${param}</int></value></param>`;
-        }
-        return `<param><value><string>${escapeXml(String(param))}</string></value></param>`;
-      })
+      .map((param) => `<param><value>${serializeXmlRpcValue(param)}</value></param>`)
       .join("");
 
     const xmlBody = `<?xml version="1.0"?>
@@ -791,7 +762,7 @@ export class RTorrentClient implements DownloaderClient {
 
             if (retryResponse.ok) {
               const retryResponseText = await retryResponse.text();
-              return this.parseXMLRPCResponse(retryResponseText);
+              return parseXmlRpcResponse(retryResponseText);
             } else {
               const retryErrorText = await retryResponse.text().catch(() => "No error details");
               downloadersLogger.error(
@@ -811,7 +782,7 @@ export class RTorrentClient implements DownloaderClient {
               );
             }
           } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            const errorMessage = getErrorMessage(error);
             downloadersLogger.error({ error: errorMessage }, "Error processing Digest Auth");
             throw new Error(`Digest Auth Error: ${errorMessage}`, { cause: error });
           }
@@ -846,88 +817,6 @@ export class RTorrentClient implements DownloaderClient {
     }
 
     const responseText = await response.text();
-    return this.parseXMLRPCResponse(responseText);
-  }
-
-  private parseXMLRPCResponse(xml: string): XMLValue {
-    const parsed = this.xmlParser.parse(xml);
-
-    if (parsed.methodResponse?.fault) {
-      const fault = this.parseXMLValueObj(parsed.methodResponse.fault.value) as Record<
-        string,
-        unknown
-      >;
-      const faultString = fault["faultString"] as string;
-      throw new Error(faultString ? `XML-RPC Fault: ${faultString}` : "XML-RPC Fault occurred");
-    }
-
-    if (parsed.methodResponse?.params?.param) {
-      const params = parsed.methodResponse.params.param;
-      const param = Array.isArray(params) ? params[0] : params;
-      if (param?.value) {
-        return this.parseXMLValueObj(param.value);
-      }
-    }
-
-    return null;
-  }
-
-  private parseXMLValueObj(valueObj: unknown): XMLValue {
-    if (typeof valueObj !== "object" || valueObj === null) {
-      return valueObj;
-    }
-
-    let obj = valueObj;
-    if (Array.isArray(obj)) {
-      obj = obj[0];
-      if (typeof obj !== "object" || obj === null) {
-        return obj;
-      }
-    }
-
-    const rec = obj as Record<string, unknown>;
-    const getText = (v: unknown) =>
-      v && typeof v === "object" && "_text" in v ? (v as Record<string, unknown>)._text : v;
-
-    if ("string" in rec) return getText(rec.string);
-    if ("int" in rec) return Number.parseInt(getText(rec.int) as string);
-    if ("i4" in rec) return Number.parseInt(getText(rec.i4) as string);
-    if ("i8" in rec) return Number.parseInt(getText(rec.i8) as string);
-    if ("double" in rec) return Number.parseFloat(getText(rec.double) as string);
-    if ("boolean" in rec) {
-      const boolVal = getText(rec.boolean);
-      return boolVal == 1 || boolVal === "1";
-    }
-    if ("base64" in rec) return getText(rec.base64);
-
-    if ("array" in rec) {
-      const arrayObj = rec["array"] as Record<string, unknown>;
-      const data = arrayObj["data"];
-      if (!data) return [];
-
-      const dataBlock = Array.isArray(data) ? data[0] : data;
-      if (!dataBlock || typeof dataBlock !== "object" || !("value" in dataBlock)) return [];
-
-      const values = Array.isArray((dataBlock as Record<string, unknown>).value)
-        ? (dataBlock as Record<string, unknown>).value
-        : [(dataBlock as Record<string, unknown>).value];
-      return (values as unknown[]).map((v: unknown) => this.parseXMLValueObj(v));
-    }
-
-    if ("struct" in rec) {
-      const structObj = rec["struct"] as Record<string, unknown>;
-      const members = structObj["member"] as Record<string, unknown>[];
-      if (!members) return {};
-
-      const result: Record<string, unknown> = {};
-      for (const m of members) {
-        if (m["name"] && m["value"]) {
-          result[getText(m["name"]) as string] = this.parseXMLValueObj(m["value"]);
-        }
-      }
-      return result;
-    }
-
-    return null;
+    return parseXmlRpcResponse(responseText);
   }
 }

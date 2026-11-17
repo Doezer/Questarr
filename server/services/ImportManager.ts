@@ -1661,6 +1661,10 @@ export class ImportManager {
       const ext = path.extname(resolvedOriginalPath);
       if (ext && proposedPath.toLowerCase().endsWith(ext.toLowerCase())) {
         proposedPath = proposedPath.slice(0, -ext.length);
+        // a wrapper folder around the archive is the folder it unpacks into
+        if (path.basename(path.dirname(proposedPath)) === path.basename(proposedPath)) {
+          proposedPath = path.dirname(proposedPath);
+        }
       }
     }
 

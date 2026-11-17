@@ -3,7 +3,7 @@ name: questarr
 description: Questarr — an *Arr-inspired game manager that helps you discover, track, and automatically download the games you want.
 type: application
 # Chart version — bump on every chart change (SemVer).
-version: 0.1.3
+version: 0.1.4
 # Version of Questarr shipped by default (image tag adds the v release prefix).
 appVersion: "1.6.0"
 kubeVersion: ">=1.23.0-0"
@@ -23,3 +23,9 @@ maintainers:
 annotations:
   category: MediaManagement
   licenses: GPL-3.0-only
+  artifacthub.io/license: GPL-3.0-only
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/Doezer/Questarr/tree/main/docs
+    - name: Support
+      url: https://github.com/Doezer/Questarr/issues

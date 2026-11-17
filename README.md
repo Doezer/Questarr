@@ -242,14 +242,15 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
 <details>
 <summary><b>Install with the bundled Helm chart</b></summary>
 
-A Helm chart lives in [`charts/questarr`](charts/questarr). It is not published to a Helm
-repository yet, so install it from a clone:
+A Helm chart lives in [`charts/questarr`](charts/questarr) and is published as an OCI chart on
+GitHub Container Registry:
 
 ```bash
-git clone https://github.com/Doezer/Questarr.git
-cd Questarr
-helm install questarr charts/questarr --namespace questarr --create-namespace
+helm install questarr oci://ghcr.io/doezer/charts/questarr --namespace questarr --create-namespace
 ```
+
+You can also install it from a clone with
+`helm install questarr charts/questarr --namespace questarr --create-namespace`.
 
 Then port-forward (or enable the Ingress) and open the UI:
 

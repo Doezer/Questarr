@@ -5,11 +5,13 @@ on:
     branches: [main, release/*]
     paths:
       - "charts/**"
+      - "package.json"
       - ".github/workflows/helm-chart.yml"
   pull_request:
     branches: [main, release/*]
     paths:
       - "charts/**"
+      - "package.json"
       - ".github/workflows/helm-chart.yml"
   workflow_dispatch:
 

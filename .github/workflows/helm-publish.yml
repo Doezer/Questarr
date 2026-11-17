@@ -64,9 +64,15 @@ jobs:
           set -euo pipefail
           owner_lc=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
           ref="oci://ghcr.io/${owner_lc}/charts"
-          if helm show chart "${ref}/${CHART_NAME}" --version "${CHART_VERSION}" > /dev/null 2>&1; then
+          # Only a "not found" answer from the registry means the version is free to publish. Any
+          # other failure (network, outage, rate limit, auth) must fail the job rather than risk
+          # overwriting a released chart version.
+          if out=$(helm show chart "${ref}/${CHART_NAME}" --version "${CHART_VERSION}" 2>&1); then
             echo "Chart ${CHART_NAME} ${CHART_VERSION} is already published; nothing to do."
             exit 0
+          elif ! grep -qiE 'not found|manifest unknown|name unknown' <<<"$out"; then
+            echo "::error::Could not check for an existing chart: $out"
+            exit 1
           fi
           helm package charts/questarr --destination dist-chart
           helm push "dist-chart/${CHART_NAME}-${CHART_VERSION}.tgz" "${ref}"

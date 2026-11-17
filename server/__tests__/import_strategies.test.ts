@@ -393,6 +393,8 @@ describe("ImportStrategies", () => {
 
       const result = await strategy.executeImport(filePlan, "copy");
       expect(result.filesPlaced.length).toBe(1);
+      // recorded as the game's folder, so the next upgrade replaces the whole folder
+      expect(result.destDir).toBe(path.join(lib, "Switch", "My Game"));
       expect(await fs.readFile(path.join(lib, "Switch", "My Game", "My Game.nsp"), "utf8")).toBe(
         "nsp"
       );

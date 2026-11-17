@@ -1687,6 +1687,9 @@ export class ImportManager {
       fileCategories: undefined,
       originalPath: resolvedOriginalPath,
       proposedPath,
+      // Derived here, never taken from the client: it ends up as the game's library entry
+      // and what a later upgrade replaces.
+      wrapperFolder: await this.wrappedSingleFileFolder(config, resolvedOriginalPath, proposedPath),
     };
 
     const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
@@ -1712,8 +1715,7 @@ export class ImportManager {
         current,
         importConfig,
         // A single file wrapped in its game folder replaces the old version as that folder
-        (await this.wrappedSingleFileFolder(importConfig, resolvedOriginalPath, proposedPath)) ??
-          proposedPath,
+        planToExecute.wrapperFolder ?? proposedPath,
         resolvedOriginalPath
       );
       const result = await this.importWithReplacement(

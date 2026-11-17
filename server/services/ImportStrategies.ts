@@ -760,7 +760,8 @@ export class PCImportStrategy implements ImportStrategy {
     );
     const filesPlaced = await gatherFiles(review.proposedPath, { skipExtractStaging: true });
     return {
-      destDir: review.proposedPath,
+      // a wrapped single file is recorded as its game folder, which is what a later upgrade replaces
+      destDir: review.wrapperFolder ?? review.proposedPath,
       filesPlaced,
       modeUsed,
       conflictsResolved: [],

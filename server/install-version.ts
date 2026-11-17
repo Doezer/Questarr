@@ -22,6 +22,8 @@ const NFO_VERSION = /^[ \t]*version\b[\s:.=-]*v?\s?(?=(\d+(?:\.\d+)+))\1(?![\w.]
 async function readSmallText(file: string): Promise<string | null> {
   let handle: fs.promises.FileHandle | undefined;
   try {
+    // O_NOFOLLOW is ignored on Windows, so refuse a link up front on every platform.
+    if (!(await fs.promises.lstat(file)).isFile()) return null;
     // O_NOFOLLOW: a symlink (also one swapped in after a check) is never opened. The size is
     // checked on the opened file and the read itself is bounded, so a file that grows or is
     // replaced meanwhile can't allocate more than the limit.

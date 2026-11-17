@@ -32,7 +32,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.BACKUP_DIR;
   delete process.env.TEST_CONFIG_DIR;
-  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 async function zipOf(file: string, entries: Record<string, string>): Promise<void> {
@@ -85,6 +85,12 @@ describe.each(activeTestDialects())("backup and restore on %s", (name) => {
 
   afterEach(async () => {
     await t?.teardown();
+    if (name === "sqlite") {
+      // closeDatabase() is a no-op on SQLite, and Windows refuses to delete a file that is
+      // still open, so release the handle before the outer hook removes the temp directory.
+      const { pool } = await import("../db.js");
+      pool.close();
+    }
     delete process.env.TEST_DB_FILE;
   });
 
@@ -118,7 +124,10 @@ describe.each(activeTestDialects())("backup and restore on %s", (name) => {
     expect(created.manifest.tables.games).toBe(1);
     expect(created.manifest.migrations.applied).toBeGreaterThan(0);
     expect(created.manifest.files.every((f) => /^[0-9a-f]{64}$/.test(f.sha256))).toBe(true);
-    expect(fs.statSync(path.join(process.env.BACKUP_DIR!, created.name)).mode & 0o077).toBe(0);
+    // POSIX permission bits do not exist on Windows.
+    if (process.platform !== "win32") {
+      expect(fs.statSync(path.join(process.env.BACKUP_DIR!, created.name)).mode & 0o077).toBe(0);
+    }
 
     const list = await svc.listBackups();
     expect(list).toHaveLength(1);

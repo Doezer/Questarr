@@ -2,13 +2,13 @@ import { test, expect } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { patchUserSettings } from "./helpers";
+import { patchUserSettings, openSettingsSection } from "./helpers";
 import { DEFAULT_NOTIFICATION_PREFERENCES } from "../../shared/schema";
 
 test.describe("v1.5 changes since RC1", () => {
   test("explains incomplete ClamAV scans and large-file limits", async ({ page }, testInfo) => {
     await page.goto("/settings");
-    await page.getByRole("tab", { name: "Import", exact: true }).click();
+    await openSettingsSection(page, "Import");
     await page.getByRole("tab", { name: "Security & Scanning", exact: true }).click();
     await expect(page.getByText(/A download ClamAV can't fully scan/)).toBeVisible();
     await page.getByText(/A download ClamAV can't fully scan/).scrollIntoViewIfNeeded();
@@ -182,7 +182,7 @@ test.describe("v1.5 changes since RC1", () => {
       await patchUserSettings(page, { enablePostProcessing: false });
       const beforeSettingsChange = await scan();
       await page.goto("/settings");
-      await page.getByRole("tab", { name: "Import", exact: true }).click();
+      await openSettingsSection(page, "Import");
       await page
         .getByText("Enable Post-Processing", { exact: true })
         .locator("../..")
@@ -275,7 +275,7 @@ test.describe("v1.5 changes since RC1", () => {
         notificationPreferences: JSON.stringify(DEFAULT_NOTIFICATION_PREFERENCES),
       });
       await page.goto("/settings");
-      await page.getByRole("tab", { name: "Notifications", exact: true }).click();
+      await openSettingsSection(page, "Notifications");
       const shelved = page.getByLabel("Notify for shelved games", { exact: true });
       const completed = page.getByLabel("Notify for completed games", { exact: true });
       await expect(shelved).toBeChecked();
@@ -300,7 +300,7 @@ test.describe("v1.5 changes since RC1", () => {
         )
         .toBe(false);
       await page.reload();
-      await page.getByRole("tab", { name: "Notifications", exact: true }).click();
+      await openSettingsSection(page, "Notifications");
       await expect(shelved).not.toBeChecked();
       await expect(completed).not.toBeChecked();
       const saved = await (await page.request.get("/api/settings")).json();
@@ -443,7 +443,7 @@ test.describe("v1.5 changes since RC1", () => {
       }
     });
     await page.goto("/settings");
-    await page.getByRole("tab", { name: "Notifications", exact: true }).click();
+    await openSettingsSection(page, "Notifications");
     await expect(page.locator("#apprise-password")).toHaveValue(saved.password);
     await page.locator("#apprise-api-url").fill("http://apprise:8000");
     await expect(page.getByText(/This API URL uses http:\/\//)).toBeVisible();
@@ -452,7 +452,7 @@ test.describe("v1.5 changes since RC1", () => {
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(() => saves).toBe(1);
     await page.reload();
-    await page.getByRole("tab", { name: "Notifications", exact: true }).click();
+    await openSettingsSection(page, "Notifications");
     await expect(page.locator("#apprise-username")).toHaveValue(saved.username);
     await expect(page.locator("#apprise-password")).toHaveValue(saved.password);
     await page.getByLabel("Mode", { exact: true }).click();

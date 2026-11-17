@@ -22,6 +22,8 @@ import {
   Star,
 } from "lucide-react";
 import type { ComponentType } from "react";
+import { SETTINGS_PAGES, settingsPagePath } from "@/lib/settings-pages";
+import { settingsPageIcon } from "@/lib/settings-page-icons";
 
 type LucideIcon = ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
 
@@ -66,7 +68,18 @@ export const primaryNavigation: AppNavItem[] = [
 export const managementNavigation: AppNavItem[] = [
   { title: "Indexers", url: "/indexers", icon: Database },
   { title: "Downloaders", url: "/downloaders", icon: HardDrive },
-  { title: "Settings", url: "/settings", icon: Settings },
+  {
+    title: "Settings",
+    url: "/settings",
+    icon: Settings,
+    // One page per section. The group header only toggles the group on desktop (/settings opens
+    // the first section); on a phone /settings is the list of sections.
+    children: SETTINGS_PAGES.map((page) => ({
+      title: page.title,
+      url: settingsPagePath(page.slug),
+      icon: settingsPageIcon(page.slug),
+    })),
+  },
 ];
 
 export const activityNavigation: AppNavItem[] = [
@@ -94,12 +107,14 @@ export function flattenNavigation(items: AppNavItem[]): AppNavItem[] {
 
 const allNavigation: AppNavItem[] = [
   ...flattenNavigation(primaryNavigation),
-  ...managementNavigation,
+  ...flattenNavigation(managementNavigation),
   ...activityNavigation,
   { title: "Search", url: "/search", icon: Search },
 ];
 
 export function getPageTitle(path: string): string {
+  // Sections show their own title in the page; the header names the area.
+  if (path === "/settings" || path.startsWith("/settings/")) return "Settings";
   const item = allNavigation.find((entry) => entry.url === path);
   return item?.title ?? "Questarr";
 }

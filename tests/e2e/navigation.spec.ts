@@ -21,6 +21,10 @@ test.describe("Navigation", () => {
     await expect(page).toHaveURL("/");
 
     await page.getByTestId("nav-settings").click();
-    await expect(page).toHaveURL("/settings");
+    await expect(page).toHaveURL("/settings/general");
+
+    await page.getByTestId("nav-connections").click();
+    await expect(page).toHaveURL("/settings/connections");
+    await expect(page.getByRole("heading", { level: 1, name: "Connections" })).toBeVisible();
   });
 });

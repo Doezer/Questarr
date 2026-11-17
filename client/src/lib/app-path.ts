@@ -111,6 +111,14 @@ const runtimeAssetHref =
 export const appBasePath = resolveBasePathFrom(configuredBase, currentHref, runtimeAssetHref);
 export const routerBase = appBasePath === "/" ? undefined : appBasePath.slice(0, -1);
 
+/** Remove the router base from a browser pathname, matching the paths Wouter reports. */
+export function stripRouterBase(pathname: string): string {
+  if (routerBase && (pathname === routerBase || pathname.startsWith(`${routerBase}/`))) {
+    return pathname.slice(routerBase.length) || "/";
+  }
+  return pathname;
+}
+
 export function withBasePathFrom(basePath: string, path: string): string {
   if (!path || path === "/") {
     return basePath;

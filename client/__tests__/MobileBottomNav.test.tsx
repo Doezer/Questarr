@@ -10,6 +10,12 @@ vi.mock("lucide-react", () => {
   const Icon = () => <svg data-testid="icon" />;
   return {
     Ban: Icon,
+    Bell: Icon,
+    Monitor: Icon,
+    Plug: Icon,
+    Scale: Icon,
+    Server: Icon,
+    ShieldCheck: Icon,
     ClipboardList: Icon,
     History: Icon,
     Timer: Icon,

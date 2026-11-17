@@ -88,11 +88,18 @@ const defaultUserSettings = {
   hideOwnedInHasResults: true,
 };
 
+/** Settings sections are pages: moving between them is a navigation, as the sidebar does. */
+function openSection(slug: string) {
+  act(() => {
+    window.history.pushState(null, "", `/settings/${slug}`);
+  });
+}
+
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Picking a tab writes ?tab= to the URL, which would otherwise leak into the next test
-    window.history.replaceState(null, "", "/");
+    // Sections are routes, so the URL would otherwise leak into the next test
+    window.history.replaceState(null, "", "/settings/general");
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.includes("/api/config")) {
@@ -129,7 +136,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
+    openSection("search-downloads");
 
     expect(await screen.findByLabelText("Enable Auto-Search")).toBeChecked();
     expect(screen.getByLabelText("Search Interval (hours)")).toBeInTheDocument();
@@ -159,14 +166,51 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
+    openSection("search-downloads");
 
     await screen.findByLabelText("Enable Auto-Search");
     expect(screen.queryByLabelText("Search Interval (hours)")).not.toBeInTheDocument();
   });
 
-  it("opens the tab named by ?tab= in the URL", async () => {
-    window.history.replaceState(null, "", "/?tab=discovery");
+  it("opens the first section from /settings on a wide screen", async () => {
+    window.history.replaceState(null, "", "/settings");
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("heading", { level: 1, name: "General" })).toBeVisible();
+    expect(window.location.pathname).toBe("/settings/general");
+  });
+
+  it("lists the sections at /settings on a phone", async () => {
+    const matchMedia = vi.mocked(window.matchMedia);
+    const original = matchMedia.getMockImplementation();
+    matchMedia.mockImplementation(
+      (query: string) => ({ ...original?.(query), matches: true }) as MediaQueryList
+    );
+    window.history.replaceState(null, "", "/settings");
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <SettingsPage />
+        </QueryClientProvider>
+      );
+
+      const list = await screen.findByRole("navigation", { name: "Settings sections" });
+      expect(within(list).getByRole("link", { name: /Release Scoring/ })).toHaveAttribute(
+        "href",
+        "/settings/release-scoring"
+      );
+      expect(window.location.pathname).toBe("/settings");
+    } finally {
+      if (original) matchMedia.mockImplementation(original);
+    }
+  });
+
+  it("opens the section named by the URL", async () => {
+    window.history.replaceState(null, "", "/settings/search-downloads");
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
@@ -357,7 +401,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
+    openSection("search-downloads");
 
     await screen.findByLabelText("Enable Auto-Search");
     fireEvent.click(screen.getByRole("button", { name: /save auto-search/i }));
@@ -379,7 +423,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
+    openSection("search-downloads");
 
     const intervalInput = await screen.findByLabelText("Search Interval (hours)");
     fireEvent.change(intervalInput, { target: { value: "24" } });
@@ -394,7 +438,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
+    openSection("search-downloads");
 
     expect(await screen.findByTestId("auto-download-rules")).toBeInTheDocument();
   });
@@ -407,12 +451,12 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Release Scoring" }));
+    openSection("release-scoring");
 
     expect(await screen.findByTestId("release-scoring")).toBeInTheDocument();
   });
 
-  it("opens the Release Scoring tab for a link to the classification review card", async () => {
+  it("opens Release Scoring for an older link to the classification review card", async () => {
     window.history.replaceState(null, "", "/settings?tab=discovery#classification-review");
     render(
       <QueryClientProvider client={createTestQueryClient()}>
@@ -421,11 +465,24 @@ describe("SettingsPage", () => {
     );
 
     expect(await screen.findByTestId("release-scoring")).toBeInTheDocument();
-    window.history.replaceState(null, "", "/");
+    expect(window.location.pathname).toBe("/settings/release-scoring");
+    expect(window.location.hash).toBe("#classification-review");
   });
 
-  it("follows a review link that only adds the hash to the current tab", async () => {
-    window.history.replaceState(null, "", "/settings?tab=discovery");
+  it("opens the section an older ?tab= link names", async () => {
+    window.history.replaceState(null, "", "/settings?tab=integrations");
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Connections" })).toBeVisible();
+    expect(window.location.pathname).toBe("/settings/connections");
+  });
+
+  it("follows a review link that only adds the hash to the section already open", async () => {
+    window.history.replaceState(null, "", "/settings/search-downloads");
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
@@ -434,24 +491,22 @@ describe("SettingsPage", () => {
     await screen.findByTestId("auto-download-rules");
 
     act(() => {
-      window.history.replaceState(null, "", "/settings?tab=discovery#classification-review");
+      window.history.replaceState(null, "", "/settings/search-downloads#classification-review");
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
 
     expect(await screen.findByTestId("release-scoring")).toBeInTheDocument();
-    window.history.replaceState(null, "", "/");
   });
 
   it("ignores an inherited property name in the URL hash", async () => {
-    window.history.replaceState(null, "", "/settings?tab=integrations#__proto__");
+    window.history.replaceState(null, "", "/settings/connections#__proto__");
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("tab", { name: "Connections", selected: true })).toBeVisible();
-    window.history.replaceState(null, "", "/");
+    expect(await screen.findByRole("heading", { level: 1, name: "Connections" })).toBeVisible();
   });
 
   it("renders the platform picker in the General tab", async () => {
@@ -463,7 +518,6 @@ describe("SettingsPage", () => {
 
     await screen.findByText("Settings");
     expect(screen.queryByRole("tab", { name: "Platforms" })).not.toBeInTheDocument();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "General" }));
 
     expect(
       await screen.findByText("Choose the platforms you use.", { exact: false })
@@ -479,7 +533,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Connections" }));
+    openSection("connections");
 
     const steamInput = await screen.findByLabelText("Steam ID (64-bit)");
     fireEvent.change(steamInput, { target: { value: "76561198000000000" } });
@@ -500,7 +554,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Notifications" }));
+    openSection("notifications");
 
     expect(await screen.findByLabelText(/API URL/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Config Key/)).toBeInTheDocument();
@@ -524,7 +578,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Notifications" }));
+    openSection("notifications");
 
     const saveButton = await screen.findByRole("button", { name: "Save" });
     expect(saveButton).toBeDisabled();
@@ -560,7 +614,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Notifications" }));
+    openSection("notifications");
 
     const toggle = await screen.findByLabelText("In-App: Game Released");
     expect(toggle).toBeChecked();
@@ -614,7 +668,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
+    openSection("search-downloads");
 
     expect(await screen.findByText("Space Quest")).toBeInTheDocument();
     const releaseTitle = screen.getByText("Space.Quest-GROUP");
@@ -634,7 +688,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Connections" }));
+    openSection("connections");
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     fireEvent.change(rateLimitInput, { target: { value: "0" } });
@@ -649,7 +703,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Connections" }));
+    openSection("connections");
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     fireEvent.change(rateLimitInput, { target: { value: "5" } });
@@ -664,7 +718,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Connections" }));
+    openSection("connections");
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     fireEvent.change(rateLimitInput, { target: { value: "abc" } });
@@ -699,7 +753,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Connections" }));
+    openSection("connections");
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     expect(rateLimitInput).toHaveValue(4);
@@ -722,7 +776,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "System" }));
+    openSection("system");
 
     const debugSwitch = await screen.findByLabelText("Log full downloader responses");
     await waitFor(() => expect(debugSwitch).not.toBeDisabled());
@@ -754,7 +808,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "System" }));
+    openSection("system");
 
     const debugSwitch = await screen.findByLabelText("Log full downloader responses");
     await waitFor(() => expect(debugSwitch).toBeDisabled());

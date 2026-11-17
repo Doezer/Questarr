@@ -93,6 +93,11 @@ export const userSettings = sqliteTable("user_settings", {
   // What happens to the version already in the library when a new one is imported:
   // "off" (kept), "archive" (moved to .questarr-replaced) or "delete".
   upgradeReplaceMode: text("upgrade_replace_mode").notNull().default("off"),
+  // A release that is a single file lands in a folder named like the game, as multi-file
+  // releases do, instead of directly in the platform folder.
+  folderForSingleFiles: integer("folder_for_single_files", { mode: "boolean" })
+    .notNull()
+    .default(false),
   // Telemetry: opt-in, off by default. When enabled, automatically-detected server
   // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
   telemetryEnabled: integer("telemetry_enabled", { mode: "boolean" }).notNull().default(false),
@@ -142,6 +147,7 @@ export interface ImportConfig {
   autoDeleteAfterImport: boolean;
   sortExtras: boolean;
   upgradeReplaceMode: UpgradeReplaceMode;
+  folderForSingleFiles: boolean;
 }
 
 // gameDownloads.status value for a download whose linked game record can't be
@@ -185,6 +191,7 @@ export const importConfigSchema = z.object({
   autoDeleteAfterImport: z.boolean(),
   sortExtras: z.boolean(),
   upgradeReplaceMode: upgradeReplaceModeSchema,
+  folderForSingleFiles: z.boolean(),
 });
 
 // A DLC/expansion IGDB reports as related to a game, carried through from

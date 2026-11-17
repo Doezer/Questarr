@@ -356,6 +356,45 @@ describe("ImportStrategies", () => {
       expect(unpacked.proposedPath).toBe(path.join(lib, "PC", "My Game (2019)"));
     });
 
+    it("puts a single file in its own game folder when asked to", async () => {
+      const root = tempDir();
+      const folder = path.join(root, "downloads", "Release");
+      await fs.outputFile(path.join(folder, "game.exe"), "exe");
+      const single = path.join(root, "downloads", "single.nsp");
+      await fs.writeFile(single, "nsp");
+      const strategy = new PCImportStrategy();
+      const game = makeGame({ title: "My Game" });
+      const lib = path.join(root, "library");
+      const config = makeImportConfig({ renamePattern: "{Title}", folderForSingleFiles: true });
+
+      const filePlan = await strategy.planImport(single, game, lib, config, "Switch");
+      expect(filePlan.proposedPath).toBe(path.join(lib, "Switch", "My Game", "My Game.nsp"));
+
+      // folders and archives that will be unpacked already get a folder of their own
+      const dirPlan = await strategy.planImport(folder, game, lib, config, "Switch");
+      expect(dirPlan.proposedPath).toBe(path.join(lib, "Switch", "My Game"));
+      const unpacked = await strategy.planImport(single, game, lib, config, "Switch", {
+        treatAsDirectory: true,
+      });
+      expect(unpacked.proposedPath).toBe(path.join(lib, "Switch", "My Game"));
+
+      // and the file stays directly in the platform folder when it is off
+      const off = await strategy.planImport(
+        single,
+        game,
+        lib,
+        { ...config, folderForSingleFiles: false },
+        "Switch"
+      );
+      expect(off.proposedPath).toBe(path.join(lib, "Switch", "My Game.nsp"));
+
+      const result = await strategy.executeImport(filePlan, "copy");
+      expect(result.filesPlaced.length).toBe(1);
+      expect(await fs.readFile(path.join(lib, "Switch", "My Game", "My Game.nsp"), "utf8")).toBe(
+        "nsp"
+      );
+    });
+
     it("keeps a hostile release name inside the library", async () => {
       const root = tempDir();
       const folder = path.join(root, "downloads", "Release");

@@ -147,12 +147,9 @@ function SettingsToggleRow({
 function UnsavedHint({ show }: Readonly<{ show: boolean }>) {
   // The live region stays mounted so assistive tech announces the text when it appears.
   return (
-    <span
-      role="status"
-      className="mr-3 self-center text-xs font-medium text-amber-700 in-[.dark]:text-amber-400"
-    >
+    <output className="mr-3 self-center text-xs font-medium text-amber-700 in-[.dark]:text-amber-400">
       {show ? "Unsaved changes" : ""}
-    </span>
+    </output>
   );
 }
 
@@ -1459,10 +1456,10 @@ export default function SettingsPage() {
             data-testid="unsaved-changes-bar"
             className="sticky top-0 z-20 flex flex-col gap-3 rounded-md border border-amber-500/60 bg-card p-3 shadow-md sm:flex-row sm:items-center sm:justify-between"
           >
-            <p role="status" className="text-sm">
+            <output className="block text-sm">
               <span className="font-medium">Unsaved changes</span> in{" "}
               {dirtySections.map((x) => x.label).join(", ")}.
-            </p>
+            </output>
             <div className="flex gap-2">
               <Button
                 variant="outline"

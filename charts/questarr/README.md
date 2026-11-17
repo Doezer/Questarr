@@ -15,8 +15,13 @@ state Questarr persists).
 
 ## Install
 
-The chart is not published to a Helm repository yet — install it from a clone of the
-repository:
+The chart is published as an OCI chart on GitHub Container Registry (Helm >= 3.8):
+
+```bash
+helm install questarr oci://ghcr.io/doezer/charts/questarr --namespace questarr --create-namespace
+```
+
+Pin a chart version with `--version <x.y.z>`. To install from a clone instead:
 
 ```bash
 git clone https://github.com/Doezer/questarr.git

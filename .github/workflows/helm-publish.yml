@@ -1,0 +1,82 @@
+name: Helm chart publish
+
+# Publishes charts/questarr as an OCI artifact on GHCR:
+#   helm install questarr oci://ghcr.io/doezer/charts/questarr --version <chart version>
+# The chart `version` in Chart.yaml must be bumped on every chart change (helm-chart.yml and the
+# bump-questarr-version skill already require it). A version that is already published is left
+# untouched, so re-running this workflow or merging a change without a bump never overwrites a
+# released chart.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm-publish.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.2.0
+        with:
+          persist-credentials: false
+
+      - name: Lint the chart
+        run: helm lint charts/questarr
+
+      - name: Read chart metadata
+        id: chart
+        run: |
+          echo "name=$(helm show chart charts/questarr | sed -n 's/^name: //p')" >> "$GITHUB_OUTPUT"
+          echo "version=$(helm show chart charts/questarr | sed -n 's/^version: //p')" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$GITHUB_TOKEN" | helm registry login ghcr.io --username "$ACTOR" --password-stdin
+
+      - name: Publish the chart if this version is new
+        env:
+          CHART_NAME: ${{ steps.chart.outputs.name }}
+          CHART_VERSION: ${{ steps.chart.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          owner_lc=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          ref="oci://ghcr.io/${owner_lc}/charts"
+          if helm show chart "${ref}/${CHART_NAME}" --version "${CHART_VERSION}" > /dev/null 2>&1; then
+            echo "Chart ${CHART_NAME} ${CHART_VERSION} is already published; nothing to do."
+            exit 0
+          fi
+          helm package charts/questarr --destination dist-chart
+          helm push "dist-chart/${CHART_NAME}-${CHART_VERSION}.tgz" "${ref}"
+          {
+            echo "## Helm chart published"
+            echo
+            echo "- **Chart:** ${ref}/${CHART_NAME}"
+            echo "- **Version:** ${CHART_VERSION}"
+            echo
+            echo '```bash'
+            echo "helm install questarr ${ref}/${CHART_NAME} --version ${CHART_VERSION} --namespace questarr --create-namespace"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

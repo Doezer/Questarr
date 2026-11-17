@@ -255,11 +255,11 @@ const SETTINGS_TABS = new Set([
 ]);
 
 /** Cards that moved to another tab: older links (stored notifications) still name the old one. */
-const MOVED_CARD_TABS: Record<string, string> = { "classification-review": "scoring" };
+const MOVED_CARD_TABS = new Map([["classification-review", "scoring"]]);
 
 /** The tab named by `?tab=` (a notification link), or null when there is none. */
 function tabFromSearch(search: string, hash = ""): string | null {
-  const moved = MOVED_CARD_TABS[hash.replace(/^#/, "")];
+  const moved = MOVED_CARD_TABS.get(hash.replace(/^#/, ""));
   if (moved) return moved;
   const tab = new URLSearchParams(search).get("tab");
   return tab && SETTINGS_TABS.has(tab) ? tab : null;

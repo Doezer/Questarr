@@ -442,6 +442,18 @@ describe("SettingsPage", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("ignores an inherited property name in the URL hash", async () => {
+    window.history.replaceState(null, "", "/settings?tab=integrations#__proto__");
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("tab", { name: "Connections", selected: true })).toBeVisible();
+    window.history.replaceState(null, "", "/");
+  });
+
   it("renders the platform picker in the General tab", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>

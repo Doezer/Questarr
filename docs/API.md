@@ -449,7 +449,7 @@ Mounted under `/api/activity` and `/api/system` (JWT). Activity only sees the re
 
 ## Release Scoring
 
-Authenticated endpoints behind the **Settings → Discovery & Downloads → Release Scoring** card. Each user has one release profile and any number of custom formats; both are created with defaults (and the old preferred release groups converted) the first time they are read.
+Authenticated endpoints behind the **Settings → Release Scoring** card. Each user has one release profile and any number of custom formats; both are created with defaults (and the old preferred release groups converted) the first time they are read.
 
 | Method | Path                                   | Request body                                                                                                                                                                                                                            | Response                                                                                  |
 | ------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |

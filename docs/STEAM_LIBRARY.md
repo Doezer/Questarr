@@ -1,6 +1,6 @@
 # Import owned Steam games
 
-In **Settings → Integrations**, save your SteamID64, then use **Preview owned
+In **Settings → Connections**, save your SteamID64, then use **Preview owned
 games**. All untracked games are selected by default. Choose **Import selected**
 once to import a large library, including thousands of games, without manually
 submitting batches.

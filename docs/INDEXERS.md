@@ -45,7 +45,7 @@ applies to search results as well as Discover games.
 
 ## Manage release blacklists
 
-Open **Settings → Discovery & Downloads → Release Blacklist**. Add terms to
+Open **Settings → Search & Downloads → Release Blacklist**. Add terms to
 hide matching release names across manual, automatic and AI-assisted searches;
 matching is case-insensitive. Choose **Save Blacklist** to save term edits.
 

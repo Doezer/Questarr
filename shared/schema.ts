@@ -97,7 +97,7 @@ export const userSettings = sqliteTable("user_settings", {
   // releases do, instead of directly in the platform folder.
   folderForSingleFiles: integer("folder_for_single_files", { mode: "boolean" })
     .notNull()
-    .default(false),
+    .default(true),
   // Telemetry: opt-in, off by default. When enabled, automatically-detected server
   // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
   telemetryEnabled: integer("telemetry_enabled", { mode: "boolean" }).notNull().default(false),

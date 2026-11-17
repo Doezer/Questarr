@@ -1,1 +1,1 @@
-ALTER TABLE "user_settings" ADD COLUMN "folder_for_single_files" boolean DEFAULT false NOT NULL;
+ALTER TABLE "user_settings" ADD COLUMN "folder_for_single_files" boolean DEFAULT true NOT NULL;

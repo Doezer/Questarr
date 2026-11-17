@@ -229,7 +229,7 @@ export default function ImportSettings() {
                         id="import-folder-single-files"
                         label="Folder for single-file releases"
                         description="Put a release that is one file in its own folder named like the game, as multi-file releases already are."
-                        checked={localConfig.folderForSingleFiles ?? false}
+                        checked={localConfig.folderForSingleFiles ?? true}
                         onCheckedChange={(c) =>
                           setLocalConfig({ ...localConfig, folderForSingleFiles: c })
                         }

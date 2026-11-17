@@ -8,56 +8,51 @@ export interface SettingsPageDef {
   description: string;
 }
 
-export const SETTINGS_PAGES: readonly SettingsPageDef[] = [
-  {
-    id: "appearance",
-    slug: "general",
-    title: "General",
-    description: "Theme, content filters, library filters, platforms and tags",
-  },
-  {
-    id: "discovery",
-    slug: "search-downloads",
-    title: "Search & Downloads",
-    description: "Auto-search, auto-download rules and the release name blacklist",
-  },
-  {
-    id: "scoring",
-    slug: "release-scoring",
-    title: "Release Scoring",
-    description: "How releases are scored, classified and reviewed",
-  },
-  {
-    id: "notifications",
-    slug: "notifications",
-    title: "Notifications",
-    description: "Apprise, Discord, webhooks and what you get notified about",
-  },
-  {
-    id: "integrations",
-    slug: "connections",
-    title: "Connections",
-    description: "IGDB, Steam, NexusMods, API keys and other services",
-  },
-  {
-    id: "import",
-    slug: "import",
-    title: "Import",
-    description: "Library imports, path mappings and import history",
-  },
-  {
-    id: "account-security",
-    slug: "security",
-    title: "Security",
-    description: "Password, two-factor authentication and security scanning",
-  },
-  {
-    id: "system",
-    slug: "system",
-    title: "System",
-    description: "SSL, telemetry, backups and maintenance",
-  },
+// [id, slug, title, description]
+const PAGE_ROWS: readonly (readonly [string, string, string, string])[] = [
+  [
+    "appearance",
+    "general",
+    "General",
+    "Theme, content filters, library filters, platforms and tags",
+  ],
+  [
+    "discovery",
+    "search-downloads",
+    "Search & Downloads",
+    "Auto-search, auto-download rules and the release name blacklist",
+  ],
+  [
+    "scoring",
+    "release-scoring",
+    "Release Scoring",
+    "How releases are scored, classified and reviewed",
+  ],
+  [
+    "notifications",
+    "notifications",
+    "Notifications",
+    "Apprise, Discord, webhooks and what you get notified about",
+  ],
+  [
+    "integrations",
+    "connections",
+    "Connections",
+    "IGDB, Steam, NexusMods, API keys and other services",
+  ],
+  ["import", "import", "Import", "Library imports, path mappings and import history"],
+  [
+    "account-security",
+    "security",
+    "Security",
+    "Password, two-factor authentication and security scanning",
+  ],
+  ["system", "system", "System", "SSL, telemetry, backups and maintenance"],
 ];
+
+export const SETTINGS_PAGES: readonly SettingsPageDef[] = PAGE_ROWS.map(
+  ([id, slug, title, description]) => ({ id, slug, title, description })
+);
 
 /** Cards that moved to another section: older links (stored notifications) still name the old one. */
 const MOVED_CARD_SLUGS = new Map([["classification-review", "release-scoring"]]);

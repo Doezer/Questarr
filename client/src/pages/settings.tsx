@@ -246,6 +246,7 @@ const SETTINGS_SAVE_KEY = ["settings-save"] as const;
 const SETTINGS_TABS = new Set([
   "appearance",
   "discovery",
+  "scoring",
   "notifications",
   "integrations",
   "import",
@@ -253,8 +254,13 @@ const SETTINGS_TABS = new Set([
   "system",
 ]);
 
+/** Cards that moved to another tab: older links (stored notifications) still name the old one. */
+const MOVED_CARD_TABS: Record<string, string> = { "classification-review": "scoring" };
+
 /** The tab named by `?tab=` (a notification link), or null when there is none. */
-function tabFromSearch(search: string): string | null {
+function tabFromSearch(search: string, hash = ""): string | null {
+  const moved = MOVED_CARD_TABS[hash.replace(/^#/, "")];
+  if (moved) return moved;
   const tab = new URLSearchParams(search).get("tab");
   return tab && SETTINGS_TABS.has(tab) ? tab : null;
 }
@@ -275,10 +281,12 @@ interface SettingsSection {
 export default function SettingsPage() {
   const search = useSearch();
   const [, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState(() => tabFromSearch(search) ?? "appearance");
+  const [activeTab, setActiveTab] = useState(
+    () => tabFromSearch(search, window.location.hash) ?? "appearance"
+  );
   // A link to this page while it is already open, such as a notification, changes the tab
   useEffect(() => {
-    const tab = tabFromSearch(search);
+    const tab = tabFromSearch(search, window.location.hash);
     if (tab) setActiveTab(tab);
   }, [search]);
   // Picking a tab by hand updates the URL too, so a later link to ?tab= is a real change
@@ -1532,12 +1540,13 @@ export default function SettingsPage() {
               className="mb-0 flex w-full flex-nowrap justify-start overflow-x-auto motion-safe:scroll-smooth motion-reduce:scroll-auto"
             >
               <div ref={setTabsInnerNode} className="flex w-max flex-nowrap [&>*]:shrink-0">
-                <TabsTrigger value="appearance">Appearance</TabsTrigger>
-                <TabsTrigger value="discovery">Discovery & Downloads</TabsTrigger>
+                <TabsTrigger value="appearance">General</TabsTrigger>
+                <TabsTrigger value="discovery">Search & Downloads</TabsTrigger>
+                <TabsTrigger value="scoring">Release Scoring</TabsTrigger>
                 <TabsTrigger value="notifications">Notifications</TabsTrigger>
-                <TabsTrigger value="integrations">Integrations</TabsTrigger>
+                <TabsTrigger value="integrations">Connections</TabsTrigger>
                 <TabsTrigger value="import">Import</TabsTrigger>
-                <TabsTrigger value="account-security">Account & Security</TabsTrigger>
+                <TabsTrigger value="account-security">Security</TabsTrigger>
                 <TabsTrigger value="system">System</TabsTrigger>
               </div>
             </TabsList>
@@ -1780,11 +1789,14 @@ export default function SettingsPage() {
               onChange={setDownloadRules}
               onReset={() => setDownloadRules(null)}
             />
-            <ReleaseScoringSettings />
             <ReleaseNameBlacklistSettings
               blacklistTerms={releaseNameBlacklist}
               onTermsChange={setReleaseNameBlacklist}
             />
+          </TabsContent>
+
+          <TabsContent value="scoring" className="space-y-6">
+            <ReleaseScoringSettings />
             <ClassificationSettings />
             <ClassificationReviewSettings />
           </TabsContent>
@@ -2108,6 +2120,150 @@ export default function SettingsPage() {
           </TabsContent>
 
           <TabsContent value="integrations" className="space-y-6">
+            {/* IGDB Card */}
+            <Card id="igdb-config">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <Key className="h-5 w-5 text-muted-foreground" />
+                    <CardTitle as="h2" className="text-lg">
+                      IGDB API
+                    </CardTitle>
+                    <IgdbHelpPopover />
+                  </div>
+                </div>
+                <CardDescription>Twitch/IGDB API integration for game metadata.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col space-y-2 pb-4 border-b">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium">Status</span>
+                    {config?.igdb.configured ? (
+                      <Badge variant={config.igdb.source === "database" ? "default" : "secondary"}>
+                        {config.igdb.source === "database"
+                          ? "Database (Active)"
+                          : "Environment Variable"}
+                      </Badge>
+                    ) : (
+                      <Badge variant="destructive">Not Configured</Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Credentials configured here will override environment variables (IGDB_CLIENT_ID,
+                    IGDB_CLIENT_SECRET).
+                  </p>
+                </div>
+
+                <div className="space-y-4 pt-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="igdb-client-id">Client ID</Label>
+                    <Input
+                      id="igdb-client-id"
+                      placeholder="Enter your IGDB Client ID"
+                      value={igdbClientId}
+                      onChange={(e) => setIgdbClientId(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="igdb-client-secret">Client Secret</Label>
+                    <div className="relative">
+                      <Input
+                        id="igdb-client-secret"
+                        type={showClientSecret ? "text" : "password"}
+                        placeholder={
+                          config?.igdb.configured ? "********" : "Enter your IGDB Client Secret"
+                        }
+                        value={igdbClientSecret}
+                        onChange={(e) => setIgdbClientSecret(e.target.value)}
+                        className="pr-10"
+                      />
+                      {igdbClientSecret && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                          onClick={() => setShowClientSecret(!showClientSecret)}
+                          aria-label={
+                            showClientSecret ? "Hide client secret" : "Show client secret"
+                          }
+                        >
+                          {showClientSecret ? (
+                            <EyeOff className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <IgdbTestConnectionButton
+                  clientId={igdbClientId}
+                  clientSecret={igdbClientSecret || (config?.igdb.configured ? "********" : "")}
+                  testEndpoint="/api/settings/igdb/test"
+                />
+
+                {/* Rate limit (formerly a standalone "Advanced" card) */}
+                <div className="space-y-3 pt-4 border-t">
+                  <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
+                    IGDB API Rate Limit (requests/second)
+                  </Label>
+                  <Input
+                    id="igdb-rate-limit"
+                    type="number"
+                    min="1"
+                    max="4"
+                    value={igdbRateLimitPerSecond}
+                    onChange={(e) => {
+                      const parsed = Number.parseInt(e.target.value);
+                      setIgdbRateLimitPerSecond(
+                        Number.isNaN(parsed) ? 3 : Math.min(4, Math.max(1, parsed))
+                      );
+                    }}
+                    className="w-32"
+                  />
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p>
+                      <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
+                      conservative.
+                    </p>
+                    <p>
+                      Only increase if you experience slow loading times and are confident your
+                      usage won&apos;t exceed the limit.
+                    </p>
+                    <p className="text-amber-700 in-[.dark]:text-amber-500">
+                      Setting too high may result in API blacklisting.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t">
+                  <Button
+                    onClick={handleSaveIgdb}
+                    disabled={
+                      updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending
+                    }
+                    className="gap-2"
+                  >
+                    {updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending ? (
+                      <span role="status" className="flex items-center gap-2">
+                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                        Saving...
+                      </span>
+                    ) : (
+                      <>
+                        <Key className="h-4 w-4" />
+                        Save
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* API keys for external clients (Playnite extension, scripts) */}
             <ApiKeysCard />
 
@@ -2528,150 +2684,6 @@ export default function SettingsPage() {
                       <>
                         <Key className="h-4 w-4" />
                         Save API Key
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* IGDB Card */}
-            <Card id="igdb-config">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Key className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle as="h2" className="text-lg">
-                      IGDB API
-                    </CardTitle>
-                    <IgdbHelpPopover />
-                  </div>
-                </div>
-                <CardDescription>Twitch/IGDB API integration for game metadata.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col space-y-2 pb-4 border-b">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Status</span>
-                    {config?.igdb.configured ? (
-                      <Badge variant={config.igdb.source === "database" ? "default" : "secondary"}>
-                        {config.igdb.source === "database"
-                          ? "Database (Active)"
-                          : "Environment Variable"}
-                      </Badge>
-                    ) : (
-                      <Badge variant="destructive">Not Configured</Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Credentials configured here will override environment variables (IGDB_CLIENT_ID,
-                    IGDB_CLIENT_SECRET).
-                  </p>
-                </div>
-
-                <div className="space-y-4 pt-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="igdb-client-id">Client ID</Label>
-                    <Input
-                      id="igdb-client-id"
-                      placeholder="Enter your IGDB Client ID"
-                      value={igdbClientId}
-                      onChange={(e) => setIgdbClientId(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="igdb-client-secret">Client Secret</Label>
-                    <div className="relative">
-                      <Input
-                        id="igdb-client-secret"
-                        type={showClientSecret ? "text" : "password"}
-                        placeholder={
-                          config?.igdb.configured ? "********" : "Enter your IGDB Client Secret"
-                        }
-                        value={igdbClientSecret}
-                        onChange={(e) => setIgdbClientSecret(e.target.value)}
-                        className="pr-10"
-                      />
-                      {igdbClientSecret && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                          onClick={() => setShowClientSecret(!showClientSecret)}
-                          aria-label={
-                            showClientSecret ? "Hide client secret" : "Show client secret"
-                          }
-                        >
-                          {showClientSecret ? (
-                            <EyeOff className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <Eye className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <IgdbTestConnectionButton
-                  clientId={igdbClientId}
-                  clientSecret={igdbClientSecret || (config?.igdb.configured ? "********" : "")}
-                  testEndpoint="/api/settings/igdb/test"
-                />
-
-                {/* Rate limit (formerly a standalone "Advanced" card) */}
-                <div className="space-y-3 pt-4 border-t">
-                  <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
-                    IGDB API Rate Limit (requests/second)
-                  </Label>
-                  <Input
-                    id="igdb-rate-limit"
-                    type="number"
-                    min="1"
-                    max="4"
-                    value={igdbRateLimitPerSecond}
-                    onChange={(e) => {
-                      const parsed = Number.parseInt(e.target.value);
-                      setIgdbRateLimitPerSecond(
-                        Number.isNaN(parsed) ? 3 : Math.min(4, Math.max(1, parsed))
-                      );
-                    }}
-                    className="w-32"
-                  />
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p>
-                      <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
-                      conservative.
-                    </p>
-                    <p>
-                      Only increase if you experience slow loading times and are confident your
-                      usage won&apos;t exceed the limit.
-                    </p>
-                    <p className="text-amber-700 in-[.dark]:text-amber-500">
-                      Setting too high may result in API blacklisting.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-4 border-t">
-                  <Button
-                    onClick={handleSaveIgdb}
-                    disabled={
-                      updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending
-                    }
-                    className="gap-2"
-                  >
-                    {updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending ? (
-                      <span role="status" className="flex items-center gap-2">
-                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
-                        Saving...
-                      </span>
-                    ) : (
-                      <>
-                        <Key className="h-4 w-4" />
-                        Save
                       </>
                     )}
                   </Button>

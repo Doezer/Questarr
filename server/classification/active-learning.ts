@@ -117,7 +117,7 @@ export function assessCandidate(
   };
 }
 
-/** The review card, reached from the notification: Settings > Discovery & Downloads. */
+/** The review card, reached from the notification: Settings > Release Scoring. */
 export const REVIEW_LINK = "/settings?tab=discovery#classification-review";
 
 /** One notification each time the waiting list grows by this many, so it never turns into noise. */

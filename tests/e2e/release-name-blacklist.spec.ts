@@ -14,7 +14,7 @@ test.describe("Release name blacklist journey", () => {
 
     try {
       await page.goto("/settings");
-      await page.getByRole("tab", { name: "Discovery & Downloads" }).click();
+      await page.getByRole("tab", { name: "Search & Downloads" }).click();
 
       const blacklistInput = page.getByLabel("Blacklisted Terms");
       await blacklistInput.fill(term.toLowerCase());

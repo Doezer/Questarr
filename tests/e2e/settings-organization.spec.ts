@@ -24,14 +24,14 @@ test.describe("Settings organization", () => {
     );
     await page.goto("/settings");
     await expect(page.getByRole("tab", { name: "Platforms", exact: true })).toHaveCount(0);
-    await page.getByRole("tab", { name: "Appearance", exact: true }).click();
+    await page.getByRole("tab", { name: "General", exact: true }).click();
     const platforms = page.getByText("Platforms", { exact: true }).locator("../../..");
     await expect(platforms.getByRole("checkbox", { name: "PC", exact: true })).toBeChecked();
     await platforms.getByRole("checkbox", { name: "Wii U", exact: true }).click();
     await platforms.getByRole("button", { name: "Save Changes", exact: true }).click();
     await expect.poll(() => saves).toBe(1);
     await page.reload();
-    await page.getByRole("tab", { name: "Appearance", exact: true }).click();
+    await page.getByRole("tab", { name: "General", exact: true }).click();
     await expect(page.getByRole("checkbox", { name: "Wii U", exact: true })).toBeChecked();
   });
 
@@ -78,7 +78,7 @@ test.describe("Settings organization", () => {
       await route.fulfill({ status: 204 });
     });
     await page.goto("/settings");
-    await page.getByRole("tab", { name: "Discovery & Downloads", exact: true }).click();
+    await page.getByRole("tab", { name: "Search & Downloads", exact: true }).click();
     await expect(page.getByText("Release Blacklist", { exact: true })).toBeVisible();
     await expect(page.getByText("Could not load blacklisted releases.")).toBeVisible();
     await expect(page.getByText("No blacklisted releases.")).toHaveCount(0);

@@ -129,7 +129,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
 
     expect(await screen.findByLabelText("Enable Auto-Search")).toBeChecked();
     expect(screen.getByLabelText("Search Interval (hours)")).toBeInTheDocument();
@@ -159,7 +159,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
 
     await screen.findByLabelText("Enable Auto-Search");
     expect(screen.queryByLabelText("Search Interval (hours)")).not.toBeInTheDocument();
@@ -357,7 +357,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
 
     await screen.findByLabelText("Enable Auto-Search");
     fireEvent.click(screen.getByRole("button", { name: /save auto-search/i }));
@@ -379,14 +379,14 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
 
     const intervalInput = await screen.findByLabelText("Search Interval (hours)");
     fireEvent.change(intervalInput, { target: { value: "24" } });
     expect(intervalInput).toHaveValue(24);
   });
 
-  it("switches to the Discovery & Downloads tab and renders the mocked rule components", async () => {
+  it("switches to the Search & Downloads tab and renders the mocked rule components", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
@@ -394,13 +394,37 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
 
     expect(await screen.findByTestId("auto-download-rules")).toBeInTheDocument();
-    expect(screen.getByTestId("release-scoring")).toBeInTheDocument();
   });
 
-  it("renders the platform picker in the Appearance tab", async () => {
+  it("lists release scoring on its own tab and keeps old classification links working", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Release Scoring" }));
+
+    expect(await screen.findByTestId("release-scoring")).toBeInTheDocument();
+  });
+
+  it("opens the Release Scoring tab for a link to the classification review card", async () => {
+    window.history.replaceState(null, "", "/settings?tab=discovery#classification-review");
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByTestId("release-scoring")).toBeInTheDocument();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("renders the platform picker in the General tab", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
@@ -409,7 +433,7 @@ describe("SettingsPage", () => {
 
     await screen.findByText("Settings");
     expect(screen.queryByRole("tab", { name: "Platforms" })).not.toBeInTheDocument();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Appearance" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "General" }));
 
     expect(
       await screen.findByText("Choose the platforms you use.", { exact: false })
@@ -425,7 +449,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Connections" }));
 
     const steamInput = await screen.findByLabelText("Steam ID (64-bit)");
     fireEvent.change(steamInput, { target: { value: "76561198000000000" } });
@@ -527,7 +551,7 @@ describe("SettingsPage", () => {
     );
   });
 
-  it("switches to the Discovery & Downloads tab, lists a blacklist entry, and removes it", async () => {
+  it("switches to the Search & Downloads tab, lists a blacklist entry, and removes it", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -560,7 +584,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Search & Downloads" }));
 
     expect(await screen.findByText("Space Quest")).toBeInTheDocument();
     const releaseTitle = screen.getByText("Space.Quest-GROUP");
@@ -580,7 +604,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Connections" }));
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     fireEvent.change(rateLimitInput, { target: { value: "0" } });
@@ -595,7 +619,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Connections" }));
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     fireEvent.change(rateLimitInput, { target: { value: "5" } });
@@ -610,7 +634,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Connections" }));
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     fireEvent.change(rateLimitInput, { target: { value: "abc" } });
@@ -645,7 +669,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Connections" }));
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     expect(rateLimitInput).toHaveValue(4);

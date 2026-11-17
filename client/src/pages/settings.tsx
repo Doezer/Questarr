@@ -285,9 +285,19 @@ export default function SettingsPage() {
     () => tabFromSearch(search, window.location.hash) ?? "appearance"
   );
   // A link to this page while it is already open, such as a notification, changes the tab
+  // The hash is not part of `search`, so history events also re-read the URL: a link that only
+  // adds #classification-review to the current ?tab= must still move to the card's new tab
   useEffect(() => {
-    const tab = tabFromSearch(search, window.location.hash);
-    if (tab) setActiveTab(tab);
+    const sync = () => {
+      const tab = tabFromSearch(window.location.search, window.location.hash);
+      if (tab) setActiveTab(tab);
+    };
+    sync();
+    const events = ["pushState", "replaceState", "hashchange"];
+    for (const event of events) window.addEventListener(event, sync);
+    return () => {
+      for (const event of events) window.removeEventListener(event, sync);
+    };
   }, [search]);
   // Picking a tab by hand updates the URL too, so a later link to ?tab= is a real change
   const selectTab = (tab: string) => {

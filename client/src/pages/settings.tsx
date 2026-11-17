@@ -919,10 +919,12 @@ export default function SettingsPage() {
         title: "Settings Updated",
         description: data.successMessage,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      // Returned so the mutation stays pending until the refetch lands: Save all / Discard stay
+      // disabled and the unload guard stays on until the saved baseline is up to date.
+      return queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
     },
     onError: (error: Error) => {
       console.error("Settings update error:", error);
@@ -1345,14 +1347,15 @@ export default function SettingsPage() {
 
   // Closing or reloading the tab would drop these edits without a word.
   const hasUnsavedChanges = dirtySections.length > 0;
+  const guardUnload = hasUnsavedChanges || updateSettingsMutation.isPending;
   useEffect(() => {
-    if (!hasUnsavedChanges) return;
+    if (!guardUnload) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [hasUnsavedChanges]);
+  }, [guardUnload]);
 
   const handleSaveAutoSearch = () => saveSection("auto-search");
   const handleSaveContentFilter = () => saveSection("content-filter");

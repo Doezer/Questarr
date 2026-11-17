@@ -602,7 +602,8 @@ export class PCImportStrategy implements ImportStrategy {
     const cleanTitle = resolveLibraryLeafName(game, config, platformDir, options?.downloadTitle);
     const ext = options?.treatAsDirectory || stats.isDirectory() ? "" : path.extname(sourcePath);
     // A single file gets the folder a multi-file release has, when the user asked for it.
-    const wrapInFolder = config.folderForSingleFiles && ext !== "";
+    const wrapInFolder =
+      config.folderForSingleFiles && !stats.isDirectory() && !options?.treatAsDirectory;
     const destination = wrapInFolder
       ? path.join(targetRoot, platformDir ?? "PC", cleanTitle, cleanTitle + ext)
       : path.join(targetRoot, platformDir ?? "PC", cleanTitle + ext);

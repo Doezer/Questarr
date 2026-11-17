@@ -380,6 +380,12 @@ describe("ImportStrategies", () => {
       });
       expect(unpacked.proposedPath).toBe(path.join(lib, "Switch", "My Game"));
 
+      // a file without an extension is a single file too
+      const bare = path.join(root, "downloads", "gamefile");
+      await fs.writeFile(bare, "bin");
+      const barePlan = await strategy.planImport(bare, game, lib, config, "Switch");
+      expect(barePlan.proposedPath).toBe(path.join(lib, "Switch", "My Game", "My Game"));
+
       // and the file stays directly in the platform folder when it is off
       const off = await strategy.planImport(
         single,

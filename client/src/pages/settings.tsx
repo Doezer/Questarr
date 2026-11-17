@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { SteamLibraryImport } from "@/components/SteamLibraryImport";
 import { SteamPlaytimeSync } from "@/components/SteamPlaytimeSync";
-import { useLocation, useSearch } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/react-query";
 import {
+  ChevronLeft,
+  ChevronRight,
   Server,
   Key,
   RefreshCw,
@@ -38,6 +40,7 @@ import { Label } from "@/components/ui/label";
 import { PathBrowser } from "@/components/PathBrowser";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { stripRouterBase } from "@/lib/app-path";
 import { apiFetch, apiRequest, clearSearchCache } from "@/lib/queryClient";
 import {
   Select,
@@ -48,7 +51,6 @@ import {
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import WebhookSubscriptionsCard from "@/components/WebhookSubscriptionsCard";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { ApiKeysCard } from "@/components/ApiKeysCard";
 import { TagsSettings } from "@/components/TagsSettings";
@@ -58,6 +60,13 @@ import ReleaseNameBlacklistSettings from "@/components/ReleaseNameBlacklistSetti
 import ClassificationReviewSettings from "@/components/ClassificationReviewSettings";
 import ClassificationSettings from "@/components/ClassificationSettings";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
+import {
+  SETTINGS_PAGES,
+  legacySettingsSlug,
+  settingsPageFromPath,
+  settingsPagePath,
+} from "@/lib/settings-pages";
+import { settingsPageIcon } from "@/lib/settings-page-icons";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 import {
   THEMES,
@@ -240,29 +249,23 @@ function SettingsFilterCard({
 
 const SETTINGS_SAVE_KEY = ["settings-save"] as const;
 
-/**
- * Configures application preferences, integrations, notifications, account security, and system maintenance settings.
- */
-const SETTINGS_TABS = new Set([
-  "appearance",
-  "discovery",
-  "scoring",
-  "notifications",
-  "integrations",
-  "import",
-  "account-security",
-  "system",
-]);
+function SettingsEntryIcon({ slug }: Readonly<{ slug: string }>) {
+  const Icon = settingsPageIcon(slug);
+  return <Icon className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />;
+}
 
-/** Cards that moved to another tab: older links (stored notifications) still name the old one. */
-const MOVED_CARD_TABS = new Map([["classification-review", "scoring"]]);
-
-/** The tab named by `?tab=` (a notification link), or null when there is none. */
-function tabFromSearch(search: string, hash = ""): string | null {
-  const moved = MOVED_CARD_TABS.get(hash.replace(/^#/, ""));
-  if (moved) return moved;
-  const tab = new URLSearchParams(search).get("tab");
-  return tab && SETTINGS_TABS.has(tab) ? tab : null;
+/** One section of the settings, rendered only while its page is the one being viewed. */
+function SettingsPanel({
+  id,
+  active,
+  children,
+}: Readonly<{ id: string; active: string; children: React.ReactNode }>) {
+  if (id !== active) return null;
+  return (
+    <section aria-labelledby="settings-page-title" className="space-y-6">
+      {children}
+    </section>
+  );
 }
 
 type SettingsSectionId =
@@ -280,30 +283,41 @@ interface SettingsSection {
 /** Edit account integrations and preferences, including owned-library import progress. */
 export default function SettingsPage() {
   const search = useSearch();
-  const [, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState(
-    () => tabFromSearch(search, window.location.hash) ?? "appearance"
-  );
-  // A link to this page while it is already open, such as a notification, changes the tab
+  const [location, navigate] = useLocation();
+  const page = settingsPageFromPath(location);
+  const activeTab = page?.id ?? "";
+  // Older links name a tab (?tab=) or a card that has since moved (#classification-review).
   // The hash is not part of `search`, so history events also re-read the URL: a link that only
-  // adds #classification-review to the current ?tab= must still move to the card's new tab
+  // adds a hash to the page already open must still reach the section the card is in now.
   useEffect(() => {
-    const sync = () => {
-      const tab = tabFromSearch(window.location.search, window.location.hash);
-      if (tab) setActiveTab(tab);
+    const follow = () => {
+      const slug = legacySettingsSlug(window.location.search, window.location.hash);
+      if (slug && settingsPageFromPath(stripRouterBase(window.location.pathname))?.slug !== slug) {
+        navigate(`${settingsPagePath(slug)}${window.location.hash}`, { replace: true });
+      }
     };
-    sync();
+    follow();
     const events = ["pushState", "replaceState", "hashchange"];
-    for (const event of events) window.addEventListener(event, sync);
+    for (const event of events) window.addEventListener(event, follow);
     return () => {
-      for (const event of events) window.removeEventListener(event, sync);
+      for (const event of events) window.removeEventListener(event, follow);
     };
-  }, [search]);
-  // Picking a tab by hand updates the URL too, so a later link to ?tab= is a real change
-  const selectTab = (tab: string) => {
-    setActiveTab(tab);
-    navigate(`/settings?tab=${tab}`, { replace: true });
-  };
+  }, [search, navigate]);
+  // /settings on its own is the list of sections on a phone; elsewhere it opens the first one
+  useEffect(() => {
+    const openFirstSection = () => {
+      // Read the live URL: the effect above may just have moved an older link to its section
+      if (settingsPageFromPath(stripRouterBase(window.location.pathname))) return;
+      if (legacySettingsSlug(window.location.search, window.location.hash)) return;
+      if (phoneQuery?.matches) return;
+      navigate(settingsPagePath(SETTINGS_PAGES[0]?.slug ?? "general"), { replace: true });
+    };
+    const phoneQuery = globalThis.matchMedia?.("(max-width: 767px)");
+    openFirstSection();
+    // Widening past the breakpoint hides the section list: open the first section then
+    phoneQuery?.addEventListener?.("change", openFirstSection);
+    return () => phoneQuery?.removeEventListener?.("change", openFirstSection);
+  }, [page, navigate]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -376,61 +390,6 @@ export default function SettingsPage() {
   const { data: user } = useQuery<{ id: string; username: string; steamId64?: string }>({
     queryKey: ["/api/auth/me"],
   });
-
-  // Mobile tab scroller: tracks whether the tab strip has more content to
-  // reveal on either side, so we can show a fade hint (tabs overflow on
-  // narrow phones and there's no visible scrollbar to signal that).
-  const tabsScrollRef = useRef<HTMLDivElement | null>(null);
-  const tabsResizeObserverRef = useRef<ResizeObserver | null>(null);
-  const [tabsCanScrollLeft, setTabsCanScrollLeft] = useState(false);
-  const [tabsCanScrollRight, setTabsCanScrollRight] = useState(false);
-
-  const updateTabsScrollFade = useCallback(() => {
-    const el = tabsScrollRef.current;
-    if (!el) return;
-    setTabsCanScrollLeft(el.scrollLeft > 1);
-    setTabsCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
-  }, []);
-
-  // A callback ref (rather than measuring in an effect keyed on a stable
-  // callback) so the tab strip is measured whenever it actually mounts —
-  // including after the page's loading branch gives way to the real
-  // content, which a mount-only effect would otherwise miss entirely.
-  const setTabsScrollNode = useCallback(
-    (el: HTMLDivElement | null) => {
-      tabsScrollRef.current = el;
-      updateTabsScrollFade();
-    },
-    [updateTabsScrollFade]
-  );
-
-  // The scroll container itself is pinned to w-full, so a ResizeObserver on
-  // it won't fire when only its (overflowing) content grows — e.g. this app
-  // ships variable web fonts, and the fallback-font layout can be narrower
-  // than the loaded-font layout, widening tab labels after the swap without
-  // changing the container's own box. Observe the intrinsic-width inner
-  // wrapper instead, whose box does reflect that.
-  const setTabsInnerNode = useCallback(
-    (el: HTMLDivElement | null) => {
-      tabsResizeObserverRef.current?.disconnect();
-      tabsResizeObserverRef.current = null;
-      if (el && typeof ResizeObserver !== "undefined") {
-        const observer = new ResizeObserver(updateTabsScrollFade);
-        observer.observe(el);
-        tabsResizeObserverRef.current = observer;
-      }
-      updateTabsScrollFade();
-    },
-    [updateTabsScrollFade]
-  );
-
-  useEffect(() => {
-    window.addEventListener("resize", updateTabsScrollFade);
-    return () => {
-      window.removeEventListener("resize", updateTabsScrollFade);
-      tabsResizeObserverRef.current?.disconnect();
-    };
-  }, [updateTabsScrollFade]);
 
   // Local state for form
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
@@ -1105,7 +1064,7 @@ export default function SettingsPage() {
   const isLoading = configLoading || settingsLoading;
   const error = configError;
 
-  // A link such as /settings?tab=integrations#igdb-config lands on the card it names. Runs
+  // A link such as /settings/connections#igdb-config lands on the card it names. Runs
   // once the tab content exists, which is after the loading branch below gives way. The
   // history events cover a link followed while its tab is already open: only the hash
   // changes then, so nothing here re-renders.
@@ -1493,9 +1452,20 @@ export default function SettingsPage() {
   return (
     <div className="h-full overflow-auto p-4 pb-20 sm:p-6 md:pb-6">
       <div className="mx-auto mb-6 max-w-4xl">
-        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+        {page && (
+          <Link
+            href="/settings"
+            className="mb-2 inline-flex min-h-11 items-center gap-1 text-sm text-muted-foreground hover:text-foreground md:hidden"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+            Settings
+          </Link>
+        )}
+        <h1 id="settings-page-title" className="text-2xl font-bold tracking-tight">
+          {page?.title ?? "Settings"}
+        </h1>
         <p className="text-muted-foreground text-sm mt-0.5">
-          Configure your preferences and system settings
+          {page?.description ?? "Configure your preferences and system settings"}
         </p>
       </div>
 
@@ -1542,664 +1512,780 @@ export default function SettingsPage() {
           </Alert>
         )}
 
-        <Tabs value={activeTab} onValueChange={selectTab} className="w-full">
-          <div className="relative mb-4 sm:mb-8">
-            <TabsList
-              ref={setTabsScrollNode}
-              onScroll={updateTabsScrollFade}
-              className="mb-0 flex w-full flex-nowrap justify-start overflow-x-auto motion-safe:scroll-smooth motion-reduce:scroll-auto"
-            >
-              <div ref={setTabsInnerNode} className="flex w-max flex-nowrap [&>*]:shrink-0">
-                <TabsTrigger value="appearance">General</TabsTrigger>
-                <TabsTrigger value="discovery">Search & Downloads</TabsTrigger>
-                <TabsTrigger value="scoring">Release Scoring</TabsTrigger>
-                <TabsTrigger value="notifications">Notifications</TabsTrigger>
-                <TabsTrigger value="integrations">Connections</TabsTrigger>
-                <TabsTrigger value="import">Import</TabsTrigger>
-                <TabsTrigger value="account-security">Security</TabsTrigger>
-                <TabsTrigger value="system">System</TabsTrigger>
+        {!page && (
+          <nav aria-label="Settings sections" className="mx-auto max-w-4xl md:hidden">
+            <ul className="divide-y rounded-lg border bg-card">
+              {SETTINGS_PAGES.map((entry) => (
+                <li key={entry.slug}>
+                  <Link
+                    href={settingsPagePath(entry.slug)}
+                    className="flex min-h-14 items-center gap-3 px-4 py-3 hover:bg-muted/60"
+                  >
+                    <SettingsEntryIcon slug={entry.slug} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium">{entry.title}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {entry.description}
+                      </span>
+                    </span>
+                    <ChevronRight
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
+
+        <SettingsPanel id="appearance" active={activeTab}>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-3">
+                <Monitor className="h-5 w-5 text-muted-foreground" />
+                <CardTitle as="h2" className="text-lg">
+                  Theme
+                </CardTitle>
               </div>
-            </TabsList>
-            {/* Edge fades hint that the tab strip scrolls further, since it has
-                no visible scrollbar on touch devices. */}
-            {tabsCanScrollLeft && (
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-y-0 left-0 w-6 rounded-l-md bg-gradient-to-r from-muted to-transparent"
-              />
-            )}
-            {tabsCanScrollRight && (
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-y-0 right-0 w-6 rounded-r-md bg-gradient-to-l from-muted to-transparent"
-              />
-            )}
-          </div>
-
-          <TabsContent value="appearance" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <Monitor className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle as="h2" className="text-lg">
-                    Theme
-                  </CardTitle>
-                </div>
-                <CardDescription>Select the visual theme for Questarr</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="theme-select" className="text-sm font-medium">
-                      Select Theme
-                    </Label>
-                    <Select
-                      value={effectiveTheme}
-                      onValueChange={(value) => handleThemeChange(value as Theme)}
-                    >
-                      <SelectTrigger id="theme-select" className="w-full sm:w-64">
-                        <SelectValue placeholder="Select a theme">
-                          {THEME_CONFIGS[effectiveTheme].name}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {THEMES.map((theme) => {
-                          const config = THEME_CONFIGS[theme];
-                          // Only show Ghost if unlocked
-                          if (theme === "ghost" && !ghostUnlocked) return null;
-                          return (
-                            <SelectItem key={theme} value={theme}>
-                              <div className="flex flex-col">
-                                <span className="font-medium">{config.name}</span>
-                                <span className="text-xs text-muted-foreground">
-                                  {config.description}
-                                </span>
-                              </div>
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Purely cosmetic &mdash; changes the visual appearance, nothing else changes
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {contentFilteringCard}
-
-            {libraryFilteringCard}
-
-            <PlatformsSettings />
-
-            <TagsSettings />
-          </TabsContent>
-
-          <TabsContent value="discovery" className="space-y-6">
-            {/* Auto-Search Settings */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <Search className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle as="h2" className="text-lg">
-                    Auto-Search & Download
-                  </CardTitle>
-                </div>
-                <CardDescription>
-                  Automatically search for and download releases for wanted games
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-4">
-                  {/* Auto Search Toggle */}
-                  <SettingRow
-                    id="auto-search"
-                    label="Enable Auto-Search"
-                    description="Periodically search indexers for wanted games"
-                    checked={autoSearchEnabled}
-                    onCheckedChange={setAutoSearchEnabled}
-                  />
-
-                  {/* Search Interval */}
-                  {autoSearchEnabled && (
-                    <div className="space-y-2 pl-4 border-l-2">
-                      <Label htmlFor="search-interval" className="text-sm font-medium">
-                        Search Interval (hours)
-                      </Label>
-                      <Input
-                        id="search-interval"
-                        type="number"
-                        min="1"
-                        max="168"
-                        value={searchIntervalHours}
-                        onChange={(e) =>
-                          setSearchIntervalHours(
-                            Math.min(168, Math.max(1, Number.parseInt(e.target.value) || 6))
-                          )
-                        }
-                        className="w-32"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        How often to search for new releases (1-168 hours)
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Auto Search Unreleased Toggle */}
-                  {autoSearchEnabled && (
-                    <SettingRow
-                      id="auto-search-unreleased"
-                      label="Search Unreleased Games"
-                      description="Include unreleased (upcoming/delayed) games in search"
-                      className="pl-4 border-l-2"
-                      checked={autoSearchUnreleased}
-                      onCheckedChange={setAutoSearchUnreleased}
-                    />
-                  )}
-
-                  {/* Default policy for newer versions of owned games */}
-                  {autoSearchEnabled && (
-                    <div className="flex flex-col gap-2 pl-4 border-l-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="upgrade-policy-default" className="text-sm font-medium">
-                          Updates for Owned Games
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          Default for newer versions and repacks. Each game can override it.
-                          Download automatically only takes a release whose name proves a newer
-                          version than the installed one, and needs a scoring profile.
-                        </p>
-                      </div>
-                      <Select
-                        value={upgradePolicy}
-                        onValueChange={(value) => setUpgradePolicy(value as UpgradePolicy)}
-                      >
-                        <SelectTrigger
-                          id="upgrade-policy-default"
-                          className="h-10 w-full sm:h-9 sm:w-56 sm:shrink-0"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="notify">Notify me</SelectItem>
-                          <SelectItem value="auto">Download automatically</SelectItem>
-                          <SelectItem value="off">Off</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {/* Auto Download Toggle */}
-                  {autoSearchEnabled && (
-                    <SettingRow
-                      id="auto-download"
-                      label="Auto-Download Single Releases"
-                      description="Automatically download when only one release is found"
-                      className="pl-4 border-l-2"
-                      checked={autoDownloadEnabled}
-                      onCheckedChange={setAutoDownloadEnabled}
-                    />
-                  )}
-                </div>
-
-                {/* Preferred Platform */}
-                <div className="space-y-2 pt-4 border-t">
-                  <Label htmlFor="preferred-platform" className="text-sm font-medium">
-                    Preferred Platform
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Pre-filter results to this platform in the download dialog and auto-search. PC
-                    also matches releases with no explicit platform tag.
-                  </p>
-                  <Select
-                    value={preferredPlatform || "__none__"}
-                    onValueChange={(v) => setPreferredPlatform(v === "__none__" ? "" : v)}
-                  >
-                    <SelectTrigger id="preferred-platform" className="w-full sm:w-48">
-                      <SelectValue placeholder="No preference" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">No preference</SelectItem>
-                      {CANONICAL_PLATFORMS.map((p) => (
-                        <SelectItem key={p} value={p}>
-                          {p}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex justify-end pt-4 border-t">
-                  <UnsavedHint show={isSectionDirty("auto-search")} />
-                  <Button
-                    onClick={handleSaveAutoSearch}
-                    disabled={settingsSavesInFlight > 0}
-                    className="gap-2"
-                  >
-                    {isSectionSaving("auto-search") ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="h-4 w-4" />
-                        Save Auto-Search
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <AutoDownloadRulesSettings
-              rules={downloadRules}
-              onChange={setDownloadRules}
-              onReset={() => setDownloadRules(null)}
-            />
-            <ReleaseNameBlacklistSettings
-              blacklistTerms={releaseNameBlacklist}
-              onTermsChange={setReleaseNameBlacklist}
-            />
-          </TabsContent>
-
-          <TabsContent value="scoring" className="space-y-6">
-            <ReleaseScoringSettings />
-            <ClassificationSettings />
-            <ClassificationReviewSettings />
-          </TabsContent>
-
-          <TabsContent value="notifications" className="space-y-6">
-            {/* Apprise Integration Card */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Bell className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle as="h2" className="text-lg">
-                      Apprise Push Notifications
-                    </CardTitle>
-                  </div>
-                  {appriseSettings?.configured ? (
-                    <Badge
-                      variant="default"
-                      className="bg-emerald-500/20 text-emerald-800 in-[.dark]:text-emerald-400 border-emerald-500/30"
-                    >
-                      Connected
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">Not configured</Badge>
-                  )}
-                </div>
-                <CardDescription>
-                  Forward notifications through a self-hosted{" "}
-                  <span className="font-medium">Apprise API</span> server or the local{" "}
-                  <span className="font-medium">Apprise CLI</span>.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+              <CardDescription>Select the visual theme for Questarr</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="apprise-mode">Mode</Label>
+                  <Label htmlFor="theme-select" className="text-sm font-medium">
+                    Select Theme
+                  </Label>
                   <Select
-                    value={appriseMode}
-                    onValueChange={(value) => {
-                      if (value === "api" || value === "cli") setAppriseMode(value);
-                    }}
+                    value={effectiveTheme}
+                    onValueChange={(value) => handleThemeChange(value as Theme)}
                   >
-                    <SelectTrigger id="apprise-mode" className="w-full sm:w-56">
-                      <SelectValue placeholder="Select mode" />
+                    <SelectTrigger id="theme-select" className="w-full sm:w-64">
+                      <SelectValue placeholder="Select a theme">
+                        {THEME_CONFIGS[effectiveTheme].name}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="api">API</SelectItem>
-                      <SelectItem value="cli">CLI</SelectItem>
+                      {THEMES.map((theme) => {
+                        const config = THEME_CONFIGS[theme];
+                        // Only show Ghost if unlocked
+                        if (theme === "ghost" && !ghostUnlocked) return null;
+                        return (
+                          <SelectItem key={theme} value={theme}>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{config.name}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {config.description}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    API mode sends notifications to a remote Apprise server. CLI mode runs the local{" "}
-                    <code className="px-1">apprise</code> command inside Questarr.
+                    Purely cosmetic &mdash; changes the visual appearance, nothing else changes
                   </p>
                 </div>
-                {appriseMode === "api" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="apprise-api-url">
-                      API URL <span className="text-destructive">*</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {contentFilteringCard}
+
+          {libraryFilteringCard}
+
+          <PlatformsSettings />
+
+          <TagsSettings />
+        </SettingsPanel>
+
+        <SettingsPanel id="discovery" active={activeTab}>
+          {/* Auto-Search Settings */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-3">
+                <Search className="h-5 w-5 text-muted-foreground" />
+                <CardTitle as="h2" className="text-lg">
+                  Auto-Search & Download
+                </CardTitle>
+              </div>
+              <CardDescription>
+                Automatically search for and download releases for wanted games
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                {/* Auto Search Toggle */}
+                <SettingRow
+                  id="auto-search"
+                  label="Enable Auto-Search"
+                  description="Periodically search indexers for wanted games"
+                  checked={autoSearchEnabled}
+                  onCheckedChange={setAutoSearchEnabled}
+                />
+
+                {/* Search Interval */}
+                {autoSearchEnabled && (
+                  <div className="space-y-2 pl-4 border-l-2">
+                    <Label htmlFor="search-interval" className="text-sm font-medium">
+                      Search Interval (hours)
                     </Label>
                     <Input
-                      id="apprise-api-url"
-                      type="text"
-                      placeholder="http://apprise:8000"
-                      value={appriseApiUrl}
-                      onChange={(e) => setAppriseApiUrl(e.target.value)}
+                      id="search-interval"
+                      type="number"
+                      min="1"
+                      max="168"
+                      value={searchIntervalHours}
+                      onChange={(e) =>
+                        setSearchIntervalHours(
+                          Math.min(168, Math.max(1, Number.parseInt(e.target.value) || 6))
+                        )
+                      }
+                      className="w-32"
                     />
+                    <p className="text-xs text-muted-foreground">
+                      How often to search for new releases (1-168 hours)
+                    </p>
                   </div>
                 )}
-                {appriseMode === "api" && (
+
+                {/* Auto Search Unreleased Toggle */}
+                {autoSearchEnabled && (
+                  <SettingRow
+                    id="auto-search-unreleased"
+                    label="Search Unreleased Games"
+                    description="Include unreleased (upcoming/delayed) games in search"
+                    className="pl-4 border-l-2"
+                    checked={autoSearchUnreleased}
+                    onCheckedChange={setAutoSearchUnreleased}
+                  />
+                )}
+
+                {/* Default policy for newer versions of owned games */}
+                {autoSearchEnabled && (
+                  <div className="flex flex-col gap-2 pl-4 border-l-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="upgrade-policy-default" className="text-sm font-medium">
+                        Updates for Owned Games
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Default for newer versions and repacks. Each game can override it. Download
+                        automatically only takes a release whose name proves a newer version than
+                        the installed one, and needs a scoring profile.
+                      </p>
+                    </div>
+                    <Select
+                      value={upgradePolicy}
+                      onValueChange={(value) => setUpgradePolicy(value as UpgradePolicy)}
+                    >
+                      <SelectTrigger
+                        id="upgrade-policy-default"
+                        className="h-10 w-full sm:h-9 sm:w-56 sm:shrink-0"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="notify">Notify me</SelectItem>
+                        <SelectItem value="auto">Download automatically</SelectItem>
+                        <SelectItem value="off">Off</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Auto Download Toggle */}
+                {autoSearchEnabled && (
+                  <SettingRow
+                    id="auto-download"
+                    label="Auto-Download Single Releases"
+                    description="Automatically download when only one release is found"
+                    className="pl-4 border-l-2"
+                    checked={autoDownloadEnabled}
+                    onCheckedChange={setAutoDownloadEnabled}
+                  />
+                )}
+              </div>
+
+              {/* Preferred Platform */}
+              <div className="space-y-2 pt-4 border-t">
+                <Label htmlFor="preferred-platform" className="text-sm font-medium">
+                  Preferred Platform
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Pre-filter results to this platform in the download dialog and auto-search. PC
+                  also matches releases with no explicit platform tag.
+                </p>
+                <Select
+                  value={preferredPlatform || "__none__"}
+                  onValueChange={(v) => setPreferredPlatform(v === "__none__" ? "" : v)}
+                >
+                  <SelectTrigger id="preferred-platform" className="w-full sm:w-48">
+                    <SelectValue placeholder="No preference" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No preference</SelectItem>
+                    {CANONICAL_PLATFORMS.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex justify-end pt-4 border-t">
+                <UnsavedHint show={isSectionDirty("auto-search")} />
+                <Button
+                  onClick={handleSaveAutoSearch}
+                  disabled={settingsSavesInFlight > 0}
+                  className="gap-2"
+                >
+                  {isSectionSaving("auto-search") ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-4 w-4" />
+                      Save Auto-Search
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <AutoDownloadRulesSettings
+            rules={downloadRules}
+            onChange={setDownloadRules}
+            onReset={() => setDownloadRules(null)}
+          />
+          <ReleaseNameBlacklistSettings
+            blacklistTerms={releaseNameBlacklist}
+            onTermsChange={setReleaseNameBlacklist}
+          />
+        </SettingsPanel>
+
+        <SettingsPanel id="scoring" active={activeTab}>
+          <ReleaseScoringSettings />
+          <ClassificationSettings />
+          <ClassificationReviewSettings />
+        </SettingsPanel>
+
+        <SettingsPanel id="notifications" active={activeTab}>
+          {/* Apprise Integration Card */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Bell className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle as="h2" className="text-lg">
+                    Apprise Push Notifications
+                  </CardTitle>
+                </div>
+                {appriseSettings?.configured ? (
+                  <Badge
+                    variant="default"
+                    className="bg-emerald-500/20 text-emerald-800 in-[.dark]:text-emerald-400 border-emerald-500/30"
+                  >
+                    Connected
+                  </Badge>
+                ) : (
+                  <Badge variant="outline">Not configured</Badge>
+                )}
+              </div>
+              <CardDescription>
+                Forward notifications through a self-hosted{" "}
+                <span className="font-medium">Apprise API</span> server or the local{" "}
+                <span className="font-medium">Apprise CLI</span>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="apprise-mode">Mode</Label>
+                <Select
+                  value={appriseMode}
+                  onValueChange={(value) => {
+                    if (value === "api" || value === "cli") setAppriseMode(value);
+                  }}
+                >
+                  <SelectTrigger id="apprise-mode" className="w-full sm:w-56">
+                    <SelectValue placeholder="Select mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="api">API</SelectItem>
+                    <SelectItem value="cli">CLI</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  API mode sends notifications to a remote Apprise server. CLI mode runs the local{" "}
+                  <code className="px-1">apprise</code> command inside Questarr.
+                </p>
+              </div>
+              {appriseMode === "api" && (
+                <div className="space-y-2">
+                  <Label htmlFor="apprise-api-url">
+                    API URL <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="apprise-api-url"
+                    type="text"
+                    placeholder="http://apprise:8000"
+                    value={appriseApiUrl}
+                    onChange={(e) => setAppriseApiUrl(e.target.value)}
+                  />
+                </div>
+              )}
+              {appriseMode === "api" && (
+                <div className="space-y-2">
+                  <Label htmlFor="apprise-key">
+                    Config Key{" "}
+                    <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Input
+                    id="apprise-key"
+                    type="text"
+                    placeholder="my-config-key"
+                    value={appriseKey}
+                    onChange={(e) => setAppriseKey(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Persistent mode: a config key pre-configured in your Apprise API server.
+                  </p>
+                </div>
+              )}
+              {appriseMode === "api" && (
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="apprise-key">
-                      Config Key{" "}
+                    <Label htmlFor="apprise-username">
+                      Username{" "}
                       <span className="text-xs text-muted-foreground font-normal">(optional)</span>
                     </Label>
                     <Input
-                      id="apprise-key"
+                      id="apprise-username"
                       type="text"
-                      placeholder="my-config-key"
-                      value={appriseKey}
-                      onChange={(e) => setAppriseKey(e.target.value)}
+                      autoComplete="off"
+                      value={appriseUsername}
+                      onChange={(e) => setAppriseUsername(e.target.value)}
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Persistent mode: a config key pre-configured in your Apprise API server.
-                    </p>
                   </div>
-                )}
-                {appriseMode === "api" && (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="apprise-username">
-                        Username{" "}
-                        <span className="text-xs text-muted-foreground font-normal">
-                          (optional)
-                        </span>
-                      </Label>
-                      <Input
-                        id="apprise-username"
-                        type="text"
-                        autoComplete="off"
-                        value={appriseUsername}
-                        onChange={(e) => setAppriseUsername(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="apprise-password">
-                        Password{" "}
-                        <span className="text-xs text-muted-foreground font-normal">
-                          (optional)
-                        </span>
-                      </Label>
-                      <Input
-                        id="apprise-password"
-                        type="password"
-                        autoComplete="new-password"
-                        value={apprisePassword}
-                        onChange={(e) => setApprisePassword(e.target.value)}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground sm:col-span-2">
-                      Only needed when your Apprise API server requires a login:{" "}
-                      <code className="px-1">APPRISE_AUTH_REQUIRED=yes</code>.
-                    </p>
-                    {(appriseUsername.trim() || apprisePassword) && isHttpUrl(appriseApiUrl) && (
-                      <p className="text-xs text-amber-700 in-[.dark]:text-amber-500 sm:col-span-2">
-                        This API URL uses http://, so the login is sent unencrypted. Use https://
-                        unless Apprise runs on a network you trust.
-                      </p>
-                    )}
+                  <div className="space-y-2">
+                    <Label htmlFor="apprise-password">
+                      Password{" "}
+                      <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+                    </Label>
+                    <Input
+                      id="apprise-password"
+                      type="password"
+                      autoComplete="new-password"
+                      value={apprisePassword}
+                      onChange={(e) => setApprisePassword(e.target.value)}
+                    />
                   </div>
-                )}
-                <div className="space-y-2">
-                  <Label htmlFor="apprise-urls">
-                    Notification URLs{" "}
-                    <span className="text-xs text-muted-foreground font-normal">
-                      {appriseMode === "cli" ? "(required)" : "(optional)"}
-                    </span>
-                  </Label>
-                  <Textarea
-                    id="apprise-urls"
-                    placeholder={"discord://webhook/...\npushover://token@user/"}
-                    value={appriseUrls}
-                    onChange={(e) => setAppriseUrls(e.target.value)}
-                    className="font-mono text-sm"
-                    rows={4}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    One Apprise URL per line. Build URLs at{" "}
-                    <a
-                      href="https://appriseit.com/url-builder"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-primary underline underline-offset-2"
-                    >
-                      appriseit.com/url-builder
-                    </a>
-                    .
+                  <p className="text-xs text-muted-foreground sm:col-span-2">
+                    Only needed when your Apprise API server requires a login:{" "}
+                    <code className="px-1">APPRISE_AUTH_REQUIRED=yes</code>.
                   </p>
-                </div>
-                <div
-                  className="space-y-1 rounded-md border p-3 text-sm text-muted-foreground"
-                  data-testid="apprise-context-links-help"
-                >
-                  <p className="font-medium text-foreground">Context links</p>
-                  {appriseSettings?.contextLinksEnabled ? (
-                    <p>
-                      Alerts tied to a page end with an &ldquo;Open in Questarr&rdquo; link (for
-                      example the game&apos;s details page, where you can download). Error reports
-                      have no page to link to.
-                    </p>
-                  ) : (
-                    <p>
-                      Set the <code>APP_URL</code> environment variable (for example{" "}
-                      <code>https://questarr.example.com</code>) to add an &ldquo;Open in
-                      Questarr&rdquo; link to alerts that have a related page (error reports do
-                      not).
+                  {(appriseUsername.trim() || apprisePassword) && isHttpUrl(appriseApiUrl) && (
+                    <p className="text-xs text-amber-700 in-[.dark]:text-amber-500 sm:col-span-2">
+                      This API URL uses http://, so the login is sent unencrypted. Use https://
+                      unless Apprise runs on a network you trust.
                     </p>
                   )}
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="apprise-urls">
+                  Notification URLs{" "}
+                  <span className="text-xs text-muted-foreground font-normal">
+                    {appriseMode === "cli" ? "(required)" : "(optional)"}
+                  </span>
+                </Label>
+                <Textarea
+                  id="apprise-urls"
+                  placeholder={"discord://webhook/...\npushover://token@user/"}
+                  value={appriseUrls}
+                  onChange={(e) => setAppriseUrls(e.target.value)}
+                  className="font-mono text-sm"
+                  rows={4}
+                />
+                <p className="text-xs text-muted-foreground">
+                  One Apprise URL per line. Build URLs at{" "}
+                  <a
+                    href="https://appriseit.com/url-builder"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary underline underline-offset-2"
+                  >
+                    appriseit.com/url-builder
+                  </a>
+                  .
+                </p>
+              </div>
+              <div
+                className="space-y-1 rounded-md border p-3 text-sm text-muted-foreground"
+                data-testid="apprise-context-links-help"
+              >
+                <p className="font-medium text-foreground">Context links</p>
+                {appriseSettings?.contextLinksEnabled ? (
                   <p>
-                    The link is sent in the message body. Rich cards, buttons or link previews
-                    depend on the target service: set them in its Apprise URL (for example{" "}
-                    <code>format=markdown</code> for Telegram or Discord). See the{" "}
-                    <a
-                      href="https://github.com/caronc/apprise/wiki"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-primary underline underline-offset-2"
-                    >
-                      Apprise service documentation
-                    </a>
-                    .
+                    Alerts tied to a page end with an &ldquo;Open in Questarr&rdquo; link (for
+                    example the game&apos;s details page, where you can download). Error reports
+                    have no page to link to.
+                  </p>
+                ) : (
+                  <p>
+                    Set the <code>APP_URL</code> environment variable (for example{" "}
+                    <code>https://questarr.example.com</code>) to add an &ldquo;Open in
+                    Questarr&rdquo; link to alerts that have a related page (error reports do not).
+                  </p>
+                )}
+                <p>
+                  The link is sent in the message body. Rich cards, buttons or link previews depend
+                  on the target service: set them in its Apprise URL (for example{" "}
+                  <code>format=markdown</code> for Telegram or Discord). See the{" "}
+                  <a
+                    href="https://github.com/caronc/apprise/wiki"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary underline underline-offset-2"
+                  >
+                    Apprise service documentation
+                  </a>
+                  .
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button
+                  onClick={() =>
+                    updateAppriseMutation.mutate(
+                      appriseMode === "cli"
+                        ? { mode: appriseMode, urls: appriseUrls.trim() }
+                        : {
+                            mode: appriseMode,
+                            apiUrl: appriseApiUrl.trim(),
+                            key: appriseKey.trim(),
+                            urls: appriseUrls.trim(),
+                            username: appriseUsername.trim(),
+                            password: apprisePassword,
+                          }
+                    )
+                  }
+                  disabled={appriseSaveDisabled}
+                >
+                  {updateAppriseMutation.isPending ? "Saving..." : "Save"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => testAppriseMutation.mutate()}
+                  disabled={testAppriseMutation.isPending || !appriseSettings?.configured}
+                >
+                  {testAppriseMutation.isPending ? "Sending..." : "Send Test Notification"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <WebhookSubscriptionsCard />
+
+          {/* Notification Preferences Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle as="h2" className="text-lg">
+                Notification Preferences
+              </CardTitle>
+              <CardDescription>
+                Control which events create notifications and where they are sent.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left text-sm font-medium text-muted-foreground pb-3 pr-2 sm:pr-4">
+                        Event
+                      </th>
+                      <th className="text-center text-sm font-medium text-muted-foreground pb-3 px-3 sm:px-6 w-14 sm:w-24">
+                        In-App
+                      </th>
+                      <th className="text-center text-sm font-medium text-muted-foreground pb-3 pl-3 sm:pl-6 w-14 sm:w-24">
+                        Apprise
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {NOTIFICATION_EVENT_ROWS.map(({ key, label, group }, idx, arr) => {
+                      const isGroupStart = idx > 0 && arr[idx - 1]!.group !== group;
+                      return (
+                        <tr
+                          key={key}
+                          className={`border-b last:border-0 ${isGroupStart ? "border-t-2 border-t-muted" : ""}`}
+                        >
+                          <td className="py-3 pr-2 sm:pr-4 text-sm">{label}</td>
+                          <td className="py-3 px-3 sm:px-6 text-center">
+                            <Switch
+                              aria-label={`In-App: ${label}`}
+                              checked={notifPrefs[key].inApp}
+                              onCheckedChange={(checked) =>
+                                handleNotifPrefChange(key, "inApp", checked)
+                              }
+                            />
+                          </td>
+                          <td className="py-3 pl-3 sm:pl-6 text-center">
+                            <div
+                              title={
+                                !appriseSettings?.configured
+                                  ? "Configure Apprise above to enable"
+                                  : undefined
+                              }
+                            >
+                              <Switch
+                                aria-label={`Apprise: ${label}`}
+                                checked={notifPrefs[key].apprise}
+                                onCheckedChange={(checked) =>
+                                  handleNotifPrefChange(key, "apprise", checked)
+                                }
+                                disabled={!appriseSettings?.configured}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-6 space-y-4 border-t pt-4">
+                <div>
+                  <h3 className="text-sm font-medium">Game updates and new packs/add-ons</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Choose whether shelved and completed games send these notifications. Applies to
+                    both In-App and Apprise. Games are still checked for available content.
                   </p>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <Button
-                    onClick={() =>
-                      updateAppriseMutation.mutate(
-                        appriseMode === "cli"
-                          ? { mode: appriseMode, urls: appriseUrls.trim() }
-                          : {
-                              mode: appriseMode,
-                              apiUrl: appriseApiUrl.trim(),
-                              key: appriseKey.trim(),
-                              urls: appriseUrls.trim(),
-                              username: appriseUsername.trim(),
-                              password: apprisePassword,
-                            }
-                      )
-                    }
-                    disabled={appriseSaveDisabled}
-                  >
-                    {updateAppriseMutation.isPending ? "Saving..." : "Save"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => testAppriseMutation.mutate()}
-                    disabled={testAppriseMutation.isPending || !appriseSettings?.configured}
-                  >
-                    {testAppriseMutation.isPending ? "Sending..." : "Send Test Notification"}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                <SettingRow
+                  id="notify-updates-shelved"
+                  label="Notify for shelved games"
+                  checked={notifPrefs.gameUpdates.includeShelved !== false}
+                  onCheckedChange={(checked) =>
+                    handleNotifPrefChange("gameUpdates", "includeShelved", checked)
+                  }
+                />
+                <SettingRow
+                  id="notify-updates-completed"
+                  label="Notify for completed games"
+                  checked={notifPrefs.gameUpdates.includeCompleted !== false}
+                  onCheckedChange={(checked) =>
+                    handleNotifPrefChange("gameUpdates", "includeCompleted", checked)
+                  }
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </SettingsPanel>
 
-            <WebhookSubscriptionsCard />
-
-            {/* Notification Preferences Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle as="h2" className="text-lg">
-                  Notification Preferences
-                </CardTitle>
-                <CardDescription>
-                  Control which events create notifications and where they are sent.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left text-sm font-medium text-muted-foreground pb-3 pr-2 sm:pr-4">
-                          Event
-                        </th>
-                        <th className="text-center text-sm font-medium text-muted-foreground pb-3 px-3 sm:px-6 w-14 sm:w-24">
-                          In-App
-                        </th>
-                        <th className="text-center text-sm font-medium text-muted-foreground pb-3 pl-3 sm:pl-6 w-14 sm:w-24">
-                          Apprise
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {NOTIFICATION_EVENT_ROWS.map(({ key, label, group }, idx, arr) => {
-                        const isGroupStart = idx > 0 && arr[idx - 1]!.group !== group;
-                        return (
-                          <tr
-                            key={key}
-                            className={`border-b last:border-0 ${isGroupStart ? "border-t-2 border-t-muted" : ""}`}
-                          >
-                            <td className="py-3 pr-2 sm:pr-4 text-sm">{label}</td>
-                            <td className="py-3 px-3 sm:px-6 text-center">
-                              <Switch
-                                aria-label={`In-App: ${label}`}
-                                checked={notifPrefs[key].inApp}
-                                onCheckedChange={(checked) =>
-                                  handleNotifPrefChange(key, "inApp", checked)
-                                }
-                              />
-                            </td>
-                            <td className="py-3 pl-3 sm:pl-6 text-center">
-                              <div
-                                title={
-                                  !appriseSettings?.configured
-                                    ? "Configure Apprise above to enable"
-                                    : undefined
-                                }
-                              >
-                                <Switch
-                                  aria-label={`Apprise: ${label}`}
-                                  checked={notifPrefs[key].apprise}
-                                  onCheckedChange={(checked) =>
-                                    handleNotifPrefChange(key, "apprise", checked)
-                                  }
-                                  disabled={!appriseSettings?.configured}
-                                />
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+        <SettingsPanel id="integrations" active={activeTab}>
+          {/* IGDB Card */}
+          <Card id="igdb-config">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Key className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle as="h2" className="text-lg">
+                    IGDB API
+                  </CardTitle>
+                  <IgdbHelpPopover />
                 </div>
-                <div className="mt-6 space-y-4 border-t pt-4">
-                  <div>
-                    <h3 className="text-sm font-medium">Game updates and new packs/add-ons</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Choose whether shelved and completed games send these notifications. Applies
-                      to both In-App and Apprise. Games are still checked for available content.
-                    </p>
-                  </div>
-                  <SettingRow
-                    id="notify-updates-shelved"
-                    label="Notify for shelved games"
-                    checked={notifPrefs.gameUpdates.includeShelved !== false}
-                    onCheckedChange={(checked) =>
-                      handleNotifPrefChange("gameUpdates", "includeShelved", checked)
-                    }
-                  />
-                  <SettingRow
-                    id="notify-updates-completed"
-                    label="Notify for completed games"
-                    checked={notifPrefs.gameUpdates.includeCompleted !== false}
-                    onCheckedChange={(checked) =>
-                      handleNotifPrefChange("gameUpdates", "includeCompleted", checked)
-                    }
+              </div>
+              <CardDescription>Twitch/IGDB API integration for game metadata.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col space-y-2 pb-4 border-b">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">Status</span>
+                  {config?.igdb.configured ? (
+                    <Badge variant={config.igdb.source === "database" ? "default" : "secondary"}>
+                      {config.igdb.source === "database"
+                        ? "Database (Active)"
+                        : "Environment Variable"}
+                    </Badge>
+                  ) : (
+                    <Badge variant="destructive">Not Configured</Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Credentials configured here will override environment variables (IGDB_CLIENT_ID,
+                  IGDB_CLIENT_SECRET).
+                </p>
+              </div>
+
+              <div className="space-y-4 pt-2">
+                <div className="space-y-2">
+                  <Label htmlFor="igdb-client-id">Client ID</Label>
+                  <Input
+                    id="igdb-client-id"
+                    placeholder="Enter your IGDB Client ID"
+                    value={igdbClientId}
+                    onChange={(e) => setIgdbClientId(e.target.value)}
                   />
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
-          <TabsContent value="integrations" className="space-y-6">
-            {/* IGDB Card */}
-            <Card id="igdb-config">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Key className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle as="h2" className="text-lg">
-                      IGDB API
-                    </CardTitle>
-                    <IgdbHelpPopover />
-                  </div>
-                </div>
-                <CardDescription>Twitch/IGDB API integration for game metadata.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col space-y-2 pb-4 border-b">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Status</span>
-                    {config?.igdb.configured ? (
-                      <Badge variant={config.igdb.source === "database" ? "default" : "secondary"}>
-                        {config.igdb.source === "database"
-                          ? "Database (Active)"
-                          : "Environment Variable"}
-                      </Badge>
-                    ) : (
-                      <Badge variant="destructive">Not Configured</Badge>
+                <div className="space-y-2">
+                  <Label htmlFor="igdb-client-secret">Client Secret</Label>
+                  <div className="relative">
+                    <Input
+                      id="igdb-client-secret"
+                      type={showClientSecret ? "text" : "password"}
+                      placeholder={
+                        config?.igdb.configured ? "********" : "Enter your IGDB Client Secret"
+                      }
+                      value={igdbClientSecret}
+                      onChange={(e) => setIgdbClientSecret(e.target.value)}
+                      className="pr-10"
+                    />
+                    {igdbClientSecret && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        onClick={() => setShowClientSecret(!showClientSecret)}
+                        aria-label={showClientSecret ? "Hide client secret" : "Show client secret"}
+                      >
+                        {showClientSecret ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Credentials configured here will override environment variables (IGDB_CLIENT_ID,
-                    IGDB_CLIENT_SECRET).
+                </div>
+              </div>
+
+              <IgdbTestConnectionButton
+                clientId={igdbClientId}
+                clientSecret={igdbClientSecret || (config?.igdb.configured ? "********" : "")}
+                testEndpoint="/api/settings/igdb/test"
+              />
+
+              {/* Rate limit (formerly a standalone "Advanced" card) */}
+              <div className="space-y-3 pt-4 border-t">
+                <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
+                  IGDB API Rate Limit (requests/second)
+                </Label>
+                <Input
+                  id="igdb-rate-limit"
+                  type="number"
+                  min="1"
+                  max="4"
+                  value={igdbRateLimitPerSecond}
+                  onChange={(e) => {
+                    const parsed = Number.parseInt(e.target.value);
+                    setIgdbRateLimitPerSecond(
+                      Number.isNaN(parsed) ? 3 : Math.min(4, Math.max(1, parsed))
+                    );
+                  }}
+                  className="w-32"
+                />
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p>
+                    <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
+                    conservative.
+                  </p>
+                  <p>
+                    Only increase if you experience slow loading times and are confident your usage
+                    won&apos;t exceed the limit.
+                  </p>
+                  <p className="text-amber-700 in-[.dark]:text-amber-500">
+                    Setting too high may result in API blacklisting.
                   </p>
                 </div>
+              </div>
 
-                <div className="space-y-4 pt-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="igdb-client-id">Client ID</Label>
-                    <Input
-                      id="igdb-client-id"
-                      placeholder="Enter your IGDB Client ID"
-                      value={igdbClientId}
-                      onChange={(e) => setIgdbClientId(e.target.value)}
-                    />
+              <div className="flex justify-end pt-4 border-t">
+                <Button
+                  onClick={handleSaveIgdb}
+                  disabled={
+                    updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending
+                  }
+                  className="gap-2"
+                >
+                  {updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending ? (
+                    <span role="status" className="flex items-center gap-2">
+                      <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                      Saving...
+                    </span>
+                  ) : (
+                    <>
+                      <Key className="h-4 w-4" />
+                      Save
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* API keys for external clients (Playnite extension, scripts) */}
+          <ApiKeysCard />
+
+          {/* Steam Integration Card */}
+          <Card id="steam-config">
+            <CardHeader>
+              <div className="flex items-center space-x-3">
+                <Gamepad2 className="h-5 w-5 text-muted-foreground" />
+                <CardTitle as="h2" className="text-lg">
+                  Steam Integration
+                </CardTitle>
+              </div>
+              <CardDescription>Sync your Steam wishlist and import owned games.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col space-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="steam-api-key">Steam Web API key</Label>
+                    {steamKeySettings?.apiKeyConfigured ? (
+                      <Badge
+                        variant={steamKeySettings.source === "database" ? "default" : "secondary"}
+                      >
+                        {steamKeySettings.source === "database"
+                          ? "Saved here"
+                          : "Environment variable"}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline">Not configured</Badge>
+                    )}
                   </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="igdb-client-secret">Client Secret</Label>
-                    <div className="relative">
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
                       <Input
-                        id="igdb-client-secret"
-                        type={showClientSecret ? "text" : "password"}
+                        id="steam-api-key"
+                        type={showSteamApiKey ? "text" : "password"}
+                        autoComplete="off"
                         placeholder={
-                          config?.igdb.configured ? "********" : "Enter your IGDB Client Secret"
+                          steamKeySettings?.apiKeyConfigured
+                            ? "Enter a new key to replace the current one"
+                            : "Enter your Steam Web API key"
                         }
-                        value={igdbClientSecret}
-                        onChange={(e) => setIgdbClientSecret(e.target.value)}
+                        value={steamApiKey}
+                        onChange={(e) => setSteamApiKey(e.target.value)}
                         className="pr-10"
                       />
-                      {igdbClientSecret && (
+                      {steamApiKey && (
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                          onClick={() => setShowClientSecret(!showClientSecret)}
-                          aria-label={
-                            showClientSecret ? "Hide client secret" : "Show client secret"
-                          }
+                          onClick={() => setShowSteamApiKey(!showSteamApiKey)}
+                          aria-label={showSteamApiKey ? "Hide API key" : "Show API key"}
                         >
-                          {showClientSecret ? (
+                          {showSteamApiKey ? (
                             <EyeOff className="h-4 w-4 text-muted-foreground" />
                           ) : (
                             <Eye className="h-4 w-4 text-muted-foreground" />
@@ -2207,1072 +2293,937 @@ export default function SettingsPage() {
                         </Button>
                       )}
                     </div>
-                  </div>
-                </div>
-
-                <IgdbTestConnectionButton
-                  clientId={igdbClientId}
-                  clientSecret={igdbClientSecret || (config?.igdb.configured ? "********" : "")}
-                  testEndpoint="/api/settings/igdb/test"
-                />
-
-                {/* Rate limit (formerly a standalone "Advanced" card) */}
-                <div className="space-y-3 pt-4 border-t">
-                  <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
-                    IGDB API Rate Limit (requests/second)
-                  </Label>
-                  <Input
-                    id="igdb-rate-limit"
-                    type="number"
-                    min="1"
-                    max="4"
-                    value={igdbRateLimitPerSecond}
-                    onChange={(e) => {
-                      const parsed = Number.parseInt(e.target.value);
-                      setIgdbRateLimitPerSecond(
-                        Number.isNaN(parsed) ? 3 : Math.min(4, Math.max(1, parsed))
-                      );
-                    }}
-                    className="w-32"
-                  />
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p>
-                      <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
-                      conservative.
-                    </p>
-                    <p>
-                      Only increase if you experience slow loading times and are confident your
-                      usage won&apos;t exceed the limit.
-                    </p>
-                    <p className="text-amber-700 in-[.dark]:text-amber-500">
-                      Setting too high may result in API blacklisting.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-4 border-t">
-                  <Button
-                    onClick={handleSaveIgdb}
-                    disabled={
-                      updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending
-                    }
-                    className="gap-2"
-                  >
-                    {updateIgdbMutation.isPending || updateAdvancedSettingsMutation.isPending ? (
-                      <span role="status" className="flex items-center gap-2">
-                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
-                        Saving...
-                      </span>
-                    ) : (
-                      <>
-                        <Key className="h-4 w-4" />
-                        Save
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* API keys for external clients (Playnite extension, scripts) */}
-            <ApiKeysCard />
-
-            {/* Steam Integration Card */}
-            <Card id="steam-config">
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <Gamepad2 className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle as="h2" className="text-lg">
-                    Steam Integration
-                  </CardTitle>
-                </div>
-                <CardDescription>Sync your Steam wishlist and import owned games.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="steam-api-key">Steam Web API key</Label>
-                      {steamKeySettings?.apiKeyConfigured ? (
-                        <Badge
-                          variant={steamKeySettings.source === "database" ? "default" : "secondary"}
-                        >
-                          {steamKeySettings.source === "database"
-                            ? "Saved here"
-                            : "Environment variable"}
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline">Not configured</Badge>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Input
-                          id="steam-api-key"
-                          type={showSteamApiKey ? "text" : "password"}
-                          autoComplete="off"
-                          placeholder={
-                            steamKeySettings?.apiKeyConfigured
-                              ? "Enter a new key to replace the current one"
-                              : "Enter your Steam Web API key"
-                          }
-                          value={steamApiKey}
-                          onChange={(e) => setSteamApiKey(e.target.value)}
-                          className="pr-10"
-                        />
-                        {steamApiKey && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                            onClick={() => setShowSteamApiKey(!showSteamApiKey)}
-                            aria-label={showSteamApiKey ? "Hide API key" : "Show API key"}
-                          >
-                            {showSteamApiKey ? (
-                              <EyeOff className="h-4 w-4 text-muted-foreground" />
-                            ) : (
-                              <Eye className="h-4 w-4 text-muted-foreground" />
-                            )}
-                          </Button>
-                        )}
-                      </div>
-                      <Button
-                        onClick={() => updateSteamKeyMutation.mutate(steamApiKey.trim())}
-                        disabled={updateSteamKeyMutation.isPending || !steamApiKey.trim()}
-                      >
-                        {updateSteamKeyMutation.isPending ? "Saving..." : "Save key"}
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Needed to import your library, sync play time and show achievements. Get a key
-                      on the{" "}
-                      <a
-                        href="https://steamcommunity.com/dev/apikey"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline"
-                      >
-                        Steam Web API page
-                      </a>
-                      . It is stored encrypted and never shown again.
-                      {steamKeySettings?.source === "env" && (
-                        <span className="block mt-1">
-                          A key is set through the <code>STEAM_API_KEY</code> environment variable.
-                          Saving one here overrides it.
-                        </span>
-                      )}
-                    </p>
-                    {steamKeySettings?.source === "database" && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => updateSteamKeyMutation.mutate("")}
-                        disabled={updateSteamKeyMutation.isPending}
-                      >
-                        Remove the saved key
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="steam-id">Steam ID (64-bit)</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="steam-id"
-                        placeholder="76561198..."
-                        value={steamIdInput}
-                        onChange={(e) => setSteamIdInput(e.target.value)}
-                      />
-                      <Button
-                        onClick={handleSaveSteamId}
-                        disabled={updateSteamIdMutation.isPending || !steamIdInput.trim()}
-                      >
-                        {updateSteamIdMutation.isPending ? "Saving..." : "Save ID"}
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Enter your SteamID64 to sync your wishlist or import owned games. Find it on{" "}
-                      <a
-                        href="https://steamid.io"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline"
-                      >
-                        steamid.io
-                      </a>
-                    </p>
-                  </div>
-
-                  <SettingRow
-                    id="steam-sync-enabled"
-                    label="Auto-Sync Wishlist"
-                    description="Periodically import new games from your Steam Wishlist"
-                    className="pt-4 border-t"
-                    checked={steamSyncEnabled}
-                    onCheckedChange={setSteamSyncEnabled}
-                  />
-
-                  {steamSyncEnabled && (
-                    <div className="space-y-2 pl-4 border-l-2">
-                      <Label htmlFor="steam-sync-interval" className="text-sm font-medium">
-                        Sync Interval (hours)
-                      </Label>
-                      <Input
-                        id="steam-sync-interval"
-                        type="number"
-                        min="1"
-                        max="168"
-                        value={steamSyncIntervalHours}
-                        onChange={(e) =>
-                          setSteamSyncIntervalHours(
-                            Math.min(168, Math.max(1, Number.parseInt(e.target.value) || 24))
-                          )
-                        }
-                        className="w-32"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        How often to check your Steam Wishlist for new games (1-168 hours)
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end pt-2 border-t">
-                    <UnsavedHint show={isSectionDirty("steam-sync")} />
                     <Button
-                      onClick={handleSaveSteamSync}
-                      disabled={settingsSavesInFlight > 0}
-                      className="gap-2"
+                      onClick={() => updateSteamKeyMutation.mutate(steamApiKey.trim())}
+                      disabled={updateSteamKeyMutation.isPending || !steamApiKey.trim()}
                     >
-                      {isSectionSaving("steam-sync") ? (
-                        <>
-                          <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="h-4 w-4" />
-                          Save Sync Settings
-                        </>
-                      )}
+                      {updateSteamKeyMutation.isPending ? "Saving..." : "Save key"}
                     </Button>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <SteamLibraryImport />
-
-            <SteamPlaytimeSync />
-
-            {/* Nexus Mods Card */}
-            <Card id="nexusmods-config">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <NexusModsIcon className="h-5 w-5 text-amber-500" aria-hidden="true" />
-                    <CardTitle as="h2" className="text-lg">
-                      Nexus Mods
-                    </CardTitle>
-                  </div>
-                  {nexusmodsSettings?.configured ? (
-                    <Badge
-                      variant={nexusmodsSettings.source === "database" ? "default" : "secondary"}
-                    >
-                      {nexusmodsSettings.source === "database"
-                        ? "Database (Active)"
-                        : "Environment Variable"}
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">Not Configured</Badge>
-                  )}
-                </div>
-                <CardDescription>
-                  Display trending mods and verify if your games have a Nexus Mods section.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="nexus-api-key">Personal API Key</Label>
-                  <div className="relative">
-                    <Input
-                      id="nexus-api-key"
-                      type={showNexusApiKey ? "text" : "password"}
-                      placeholder={
-                        nexusmodsSettings?.configured
-                          ? "Enter a new key to override the current one"
-                          : "Enter your Nexus Mods API key"
-                      }
-                      value={nexusApiKey}
-                      onChange={(e) => setNexusApiKey(e.target.value)}
-                      className="pr-10"
-                    />
-                    {nexusApiKey && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                        onClick={() => setShowNexusApiKey(!showNexusApiKey)}
-                        aria-label={showNexusApiKey ? "Hide API key" : "Show API key"}
-                      >
-                        {showNexusApiKey ? (
-                          <EyeOff className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <Eye className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </Button>
-                    )}
-                  </div>
                   <p className="text-xs text-muted-foreground">
-                    Get your personal API key on the{" "}
+                    Needed to import your library, sync play time and show achievements. Get a key
+                    on the{" "}
                     <a
-                      href="https://www.nexusmods.com/users/myaccount?tab=api"
+                      href="https://steamcommunity.com/dev/apikey"
                       target="_blank"
                       rel="noreferrer"
                       className="underline"
                     >
-                      Nexus Mods account page
+                      Steam Web API page
                     </a>
-                    . Rate limits: 500 req/hour, 20,000 req/day.
-                    {nexusmodsSettings?.source === "env" && (
+                    . It is stored encrypted and never shown again.
+                    {steamKeySettings?.source === "env" && (
                       <span className="block mt-1">
-                        A key is configured via the <code>NEXUSMODS_API_KEY</code> environment
-                        variable. Saving a key here will override it.
+                        A key is set through the <code>STEAM_API_KEY</code> environment variable.
+                        Saving one here overrides it.
                       </span>
                     )}
                   </p>
-                </div>
-                <div className="flex justify-end pt-2 border-t">
-                  <Button
-                    onClick={handleSaveNexus}
-                    disabled={updateNexusMutation.isPending || !nexusApiKey.trim()}
-                    className="gap-2"
-                  >
-                    {updateNexusMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Key className="h-4 w-4" />
-                        Save API Key
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* TypeSafe (Jev) AI Card */}
-            <Card id="typesafe-config">
-              <CardHeader>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <Sparkles className="h-5 w-5 shrink-0 text-blue-500" />
-                    <CardTitle as="h2" className="text-lg">
-                      AI Release Analysis (TypeSafe)
-                    </CardTitle>
-                    <Badge
-                      variant="outline"
-                      className="gap-1 border-amber-600/50 text-amber-700 in-[.dark]:border-amber-500/50 in-[.dark]:text-amber-500"
-                      title="Experimental feature: behavior and results may change between releases"
-                    >
-                      <FlaskConical className="h-3 w-3" aria-hidden="true" />
-                      Experimental
-                    </Badge>
-                  </div>
-                  {typesafeSettings?.configured ? (
-                    <Badge variant="default">Enabled</Badge>
-                  ) : (
-                    <Badge variant="outline">Not Configured</Badge>
-                  )}
-                </div>
-                <CardDescription>
-                  Optional. Uses TypeSafe&apos;s Jev model to classify release types (full game,
-                  DLC, update, repack...) and flag suspiciously small files in search results.
-                  Entirely optional and off by default &mdash; Questarr works normally without it.
-                  Bring your own API key and endpoint (TypeSafe, OpenRouter, a self-hosted proxy,
-                  etc.).{" "}
-                  <span className="mt-2 block text-amber-700 in-[.dark]:text-amber-500">
-                    Experimental: Jev classifications can be wrong, and how they are used may change
-                    between releases. Check flagged results before relying on them.
-                  </span>
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="typesafe-api-url">API URL</Label>
-                  <Input
-                    id="typesafe-api-url"
-                    type="text"
-                    placeholder="https://api.typesafe.ai/v1/systemone"
-                    value={typesafeApiUrl}
-                    onChange={(e) => setTypesafeApiUrl(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Leave blank to use TypeSafe&apos;s default endpoint.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="typesafe-api-key">API Key</Label>
-                  <div className="relative">
-                    <Input
-                      id="typesafe-api-key"
-                      type={showTypesafeApiKey ? "text" : "password"}
-                      placeholder={
-                        typesafeSettings?.configured
-                          ? "Enter a new key to override the current one"
-                          : "Enter your API key"
-                      }
-                      value={typesafeApiKey}
-                      onChange={(e) => setTypesafeApiKey(e.target.value)}
-                      className="pr-10"
-                    />
-                    {typesafeApiKey && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                        onClick={() => setShowTypesafeApiKey(!showTypesafeApiKey)}
-                        aria-label={showTypesafeApiKey ? "Hide API key" : "Show API key"}
-                      >
-                        {showTypesafeApiKey ? (
-                          <EyeOff className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <Eye className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="typesafe-model">Model</Label>
-                  <Input
-                    id="typesafe-model"
-                    type="text"
-                    placeholder="jev-latest"
-                    value={typesafeModel}
-                    onChange={(e) => setTypesafeModel(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Leave blank for TypeSafe&apos;s default model. Routing through OpenRouter? Set
-                    the API URL to{" "}
-                    <code className="text-[10px]">https://openrouter.ai/api/alpha/decisions</code>{" "}
-                    and the model to <code className="text-[10px]">typesafe/jev-1.13</code>.
-                  </p>
-                </div>
-                <div className="flex justify-end gap-2 pt-2 border-t">
-                  {typesafeSettings?.configured && (
+                  {steamKeySettings?.source === "database" && (
                     <Button
+                      type="button"
                       variant="outline"
-                      onClick={() => clearTypesafeMutation.mutate()}
-                      disabled={clearTypesafeMutation.isPending}
-                      className="gap-2"
+                      size="sm"
+                      onClick={() => updateSteamKeyMutation.mutate("")}
+                      disabled={updateSteamKeyMutation.isPending}
                     >
-                      <Trash2 className="h-4 w-4" />
-                      Disable
+                      Remove the saved key
                     </Button>
                   )}
-                  <Button
-                    onClick={handleSaveTypesafe}
-                    disabled={
-                      updateTypesafeMutation.isPending ||
-                      (!typesafeApiKey.trim() && !typesafeSettings?.configured)
-                    }
-                    className="gap-2"
-                  >
-                    {updateTypesafeMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Key className="h-4 w-4" />
-                        Save API Key
-                      </>
-                    )}
-                  </Button>
                 </div>
-              </CardContent>
-            </Card>
 
-            {/* xREL.to Search Options */}
-            <Card id="xrel-settings">
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <Newspaper className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle as="h2" className="text-lg">
-                    xREL.to
-                  </CardTitle>
+                <div className="space-y-2">
+                  <Label htmlFor="steam-id">Steam ID (64-bit)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="steam-id"
+                      placeholder="76561198..."
+                      value={steamIdInput}
+                      onChange={(e) => setSteamIdInput(e.target.value)}
+                    />
+                    <Button
+                      onClick={handleSaveSteamId}
+                      disabled={updateSteamIdMutation.isPending || !steamIdInput.trim()}
+                    >
+                      {updateSteamIdMutation.isPending ? "Saving..." : "Save ID"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Enter your SteamID64 to sync your wishlist or import owned games. Find it on{" "}
+                    <a
+                      href="https://steamid.io"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                    >
+                      steamid.io
+                    </a>
+                  </p>
                 </div>
-                <CardDescription>
-                  Alert when a wanted game appears on xREL.to (scene/P2P release list). API base URL
-                  and search options for the auto-check.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="xrel-api-base" className="text-sm font-medium">
-                      API base URL
+
+                <SettingRow
+                  id="steam-sync-enabled"
+                  label="Auto-Sync Wishlist"
+                  description="Periodically import new games from your Steam Wishlist"
+                  className="pt-4 border-t"
+                  checked={steamSyncEnabled}
+                  onCheckedChange={setSteamSyncEnabled}
+                />
+
+                {steamSyncEnabled && (
+                  <div className="space-y-2 pl-4 border-l-2">
+                    <Label htmlFor="steam-sync-interval" className="text-sm font-medium">
+                      Sync Interval (hours)
                     </Label>
-                    <Select value={xrelApiBase} onValueChange={setXrelApiBase}>
-                      <SelectTrigger id="xrel-api-base" className="w-full font-mono text-sm">
-                        <SelectValue placeholder="Select API base URL" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="https://xrel-api.nfos.to">
-                          https://xrel-api.nfos.to (Mirror - Recommended)
-                        </SelectItem>
-                        <SelectItem value="https://api.xrel.to">
-                          https://api.xrel.to (Official - Often blocked)
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Input
+                      id="steam-sync-interval"
+                      type="number"
+                      min="1"
+                      max="168"
+                      value={steamSyncIntervalHours}
+                      onChange={(e) =>
+                        setSteamSyncIntervalHours(
+                          Math.min(168, Math.max(1, Number.parseInt(e.target.value) || 24))
+                        )
+                      }
+                      className="w-32"
+                    />
                     <p className="text-xs text-muted-foreground">
-                      Use the mirror if your IP is blocked by Cloudflare on the official API.
+                      How often to check your Steam Wishlist for new games (1-168 hours)
                     </p>
                   </div>
-                  <SettingRow
-                    id="xrel-scene"
-                    label="Include scene releases"
-                    description="Search scene releases when checking for wanted games on xREL.to"
-                    checked={xrelSceneReleases}
-                    onCheckedChange={setXrelSceneReleases}
-                  />
-                  <SettingRow
-                    id="xrel-p2p"
-                    label="Include P2P releases"
-                    description="Search P2P releases when checking for wanted games on xREL.to"
-                    checked={xrelP2pReleases}
-                    onCheckedChange={setXrelP2pReleases}
-                  />
-                </div>
-                <div className="flex justify-end pt-4 border-t">
+                )}
+
+                <div className="flex justify-end pt-2 border-t">
+                  <UnsavedHint show={isSectionDirty("steam-sync")} />
                   <Button
-                    onClick={handleSaveXrel}
-                    disabled={saveXrelMutation.isPending}
-                    className="gap-2"
-                  >
-                    {saveXrelMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Newspaper className="h-4 w-4" />
-                        Save xREL.to options
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="import" className="space-y-6">
-            <ImportSettings />
-          </TabsContent>
-
-          <TabsContent value="system" className="space-y-6">
-            {/* Application Management */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <Server className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle as="h2" className="text-lg">
-                    Maintenance
-                  </CardTitle>
-                </div>
-                <CardDescription>Application maintenance and data management tasks</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col space-y-2">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Clear Downloads Cache</p>
-                      <p className="text-xs text-muted-foreground">
-                        Clear cached torrent/NZB search results so the next search fetches fresh
-                        data from all configured indexers.
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        clearSearchCache();
-                        toast({
-                          title: "Downloads Cache Cleared",
-                          description:
-                            "Search results cache has been cleared. New searches will fetch fresh data.",
-                        });
-                      }}
-                      className="gap-2 w-full sm:w-auto shrink-0"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      Clear Cache
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex flex-col space-y-2">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Refresh Metadata</p>
-                      <p className="text-xs text-muted-foreground">
-                        Update all games in your library with the latest information from IGDB.
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => refreshMetadataMutation.mutate()}
-                      disabled={refreshMetadataMutation.isPending}
-                      className="gap-2 w-full sm:w-auto shrink-0"
-                    >
-                      {refreshMetadataMutation.isPending ? (
-                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4" />
-                      )}
-                      Refresh All
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex flex-col space-y-2">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Check Library Health</p>
-                      <p className="text-xs text-muted-foreground">
-                        Find games whose library files have gone missing, and library folders that
-                        no longer match any game.
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => libraryHealthMutation.mutate()}
-                      disabled={libraryHealthMutation.isPending}
-                      className="gap-2 w-full sm:w-auto shrink-0"
-                    >
-                      {libraryHealthMutation.isPending ? (
-                        <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4" />
-                      )}
-                      Check Library
-                    </Button>
-                  </div>
-                  {libraryHealthResult &&
-                    (libraryHealthResult.drifted.length > 0 ||
-                      libraryHealthResult.orphaned.length > 0) && (
-                      <div className="mt-2 space-y-3 rounded-md border border-border p-3 text-xs">
-                        {libraryHealthResult.drifted.length > 0 && (
-                          <div>
-                            <p className="font-medium text-amber-700 in-[.dark]:text-amber-500">
-                              Drifted ({libraryHealthResult.drifted.length})
-                            </p>
-                            <ul className="mt-1 space-y-1 text-muted-foreground">
-                              {libraryHealthResult.drifted.map((g) => (
-                                <li key={g.id}>
-                                  {g.title} — {g.libraryPath}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {libraryHealthResult.orphaned.length > 0 && (
-                          <div>
-                            <p className="font-medium text-amber-700 in-[.dark]:text-amber-500">
-                              Orphaned ({libraryHealthResult.orphaned.length})
-                            </p>
-                            <ul className="mt-1 space-y-1 text-muted-foreground">
-                              {libraryHealthResult.orphaned.map((o) => (
-                                <li key={o.path}>{o.path}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Telemetry */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <Radio className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle as="h2" className="text-lg">
-                    Telemetry
-                  </CardTitle>
-                </div>
-                <CardDescription>
-                  Help improve Questarr by automatically sharing diagnostic data when something goes
-                  wrong
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <SettingRow
-                  id="telemetry-enabled"
-                  label="Automatically send error reports"
-                  description={`Off by default. When Questarr detects an unexpected server error, it will normally ask you first (see the "Error Detected" event in the Notifications tab). Turn this on to skip that prompt and send a scrubbed diagnostic report automatically instead — no personal data, IP addresses, or file paths are included. Reports help the maintainer catch bugs users don't otherwise report. You can still send a one-off report manually from the Logs page at any time, whatever this setting is.`}
-                  checked={telemetryEnabled}
-                  onCheckedChange={setTelemetryEnabled}
-                />
-                <div className="flex justify-end pt-4 border-t">
-                  <UnsavedHint show={isSectionDirty("telemetry")} />
-                  <Button
-                    onClick={handleSaveTelemetry}
+                    onClick={handleSaveSteamSync}
                     disabled={settingsSavesInFlight > 0}
                     className="gap-2"
                   >
-                    {isSectionSaving("telemetry") ? (
+                    {isSectionSaving("steam-sync") ? (
                       <>
                         <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
                         Saving...
                       </>
                     ) : (
                       <>
-                        <Radio className="h-4 w-4" />
-                        Save Telemetry
+                        <RefreshCw className="h-4 w-4" />
+                        Save Sync Settings
                       </>
                     )}
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </CardContent>
+          </Card>
 
-            {/* Downloader Debug Logging */}
-            <Card>
-              <CardHeader>
+          <SteamLibraryImport />
+
+          <SteamPlaytimeSync />
+
+          {/* Nexus Mods Card */}
+          <Card id="nexusmods-config">
+            <CardHeader>
+              <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  <Server className="h-5 w-5 text-muted-foreground" />
+                  <NexusModsIcon className="h-5 w-5 text-amber-500" aria-hidden="true" />
                   <CardTitle as="h2" className="text-lg">
-                    Downloader Debug Logging
+                    Nexus Mods
                   </CardTitle>
                 </div>
-                <CardDescription>
-                  Log downloader response status, headers, and body (up to 10KB) from download
-                  clients (qBittorrent, Transmission, rTorrent, Deluge, Synology Download Station,
-                  sabnzbd, nzbget) at debug level. Response headers and bodies can contain sensitive
-                  data - enable this only while debugging and review logs carefully. Useful when
-                  diagnosing why a download isn&apos;t being added or tracked correctly - leave this
-                  off otherwise, as it can be noisy.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <SettingRow
-                  id="downloader-debug-logging"
-                  label="Log full downloader responses"
-                  description="Applies immediately and affects all configured downloaders. View the results on the Logs page."
-                  extra={
-                    isDownloaderDebugLoggingError && (
-                      <span className="block text-xs text-destructive">
-                        Failed to load the current setting. Refresh the page to try again.
-                      </span>
-                    )
-                  }
-                  checked={downloaderDebugLogging?.enabled ?? false}
-                  disabled={
-                    isDownloaderDebugLoggingLoading ||
-                    isDownloaderDebugLoggingError ||
-                    updateDownloaderDebugLoggingMutation.isPending
-                  }
-                  onCheckedChange={(checked) =>
-                    updateDownloaderDebugLoggingMutation.mutate(checked)
-                  }
+                {nexusmodsSettings?.configured ? (
+                  <Badge
+                    variant={nexusmodsSettings.source === "database" ? "default" : "secondary"}
+                  >
+                    {nexusmodsSettings.source === "database"
+                      ? "Database (Active)"
+                      : "Environment Variable"}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline">Not Configured</Badge>
+                )}
+              </div>
+              <CardDescription>
+                Display trending mods and verify if your games have a Nexus Mods section.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="nexus-api-key">Personal API Key</Label>
+                <div className="relative">
+                  <Input
+                    id="nexus-api-key"
+                    type={showNexusApiKey ? "text" : "password"}
+                    placeholder={
+                      nexusmodsSettings?.configured
+                        ? "Enter a new key to override the current one"
+                        : "Enter your Nexus Mods API key"
+                    }
+                    value={nexusApiKey}
+                    onChange={(e) => setNexusApiKey(e.target.value)}
+                    className="pr-10"
+                  />
+                  {nexusApiKey && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      onClick={() => setShowNexusApiKey(!showNexusApiKey)}
+                      aria-label={showNexusApiKey ? "Hide API key" : "Show API key"}
+                    >
+                      {showNexusApiKey ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Get your personal API key on the{" "}
+                  <a
+                    href="https://www.nexusmods.com/users/myaccount?tab=api"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline"
+                  >
+                    Nexus Mods account page
+                  </a>
+                  . Rate limits: 500 req/hour, 20,000 req/day.
+                  {nexusmodsSettings?.source === "env" && (
+                    <span className="block mt-1">
+                      A key is configured via the <code>NEXUSMODS_API_KEY</code> environment
+                      variable. Saving a key here will override it.
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div className="flex justify-end pt-2 border-t">
+                <Button
+                  onClick={handleSaveNexus}
+                  disabled={updateNexusMutation.isPending || !nexusApiKey.trim()}
+                  className="gap-2"
+                >
+                  {updateNexusMutation.isPending ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Key className="h-4 w-4" />
+                      Save API Key
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* TypeSafe (Jev) AI Card */}
+          <Card id="typesafe-config">
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <Sparkles className="h-5 w-5 shrink-0 text-blue-500" />
+                  <CardTitle as="h2" className="text-lg">
+                    AI Release Analysis (TypeSafe)
+                  </CardTitle>
+                  <Badge
+                    variant="outline"
+                    className="gap-1 border-amber-600/50 text-amber-700 in-[.dark]:border-amber-500/50 in-[.dark]:text-amber-500"
+                    title="Experimental feature: behavior and results may change between releases"
+                  >
+                    <FlaskConical className="h-3 w-3" aria-hidden="true" />
+                    Experimental
+                  </Badge>
+                </div>
+                {typesafeSettings?.configured ? (
+                  <Badge variant="default">Enabled</Badge>
+                ) : (
+                  <Badge variant="outline">Not Configured</Badge>
+                )}
+              </div>
+              <CardDescription>
+                Optional. Uses TypeSafe&apos;s Jev model to classify release types (full game, DLC,
+                update, repack...) and flag suspiciously small files in search results. Entirely
+                optional and off by default &mdash; Questarr works normally without it. Bring your
+                own API key and endpoint (TypeSafe, OpenRouter, a self-hosted proxy, etc.).{" "}
+                <span className="mt-2 block text-amber-700 in-[.dark]:text-amber-500">
+                  Experimental: Jev classifications can be wrong, and how they are used may change
+                  between releases. Check flagged results before relying on them.
+                </span>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="typesafe-api-url">API URL</Label>
+                <Input
+                  id="typesafe-api-url"
+                  type="text"
+                  placeholder="https://api.typesafe.ai/v1/systemone"
+                  value={typesafeApiUrl}
+                  onChange={(e) => setTypesafeApiUrl(e.target.value)}
                 />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="account-security" className="space-y-6">
-            <PasswordSettings />
-
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <Lock className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle as="h2" className="text-lg">
-                    SSL/HTTPS Configuration
-                  </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Leave blank to use TypeSafe&apos;s default endpoint.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="typesafe-api-key">API Key</Label>
+                <div className="relative">
+                  <Input
+                    id="typesafe-api-key"
+                    type={showTypesafeApiKey ? "text" : "password"}
+                    placeholder={
+                      typesafeSettings?.configured
+                        ? "Enter a new key to override the current one"
+                        : "Enter your API key"
+                    }
+                    value={typesafeApiKey}
+                    onChange={(e) => setTypesafeApiKey(e.target.value)}
+                    className="pr-10"
+                  />
+                  {typesafeApiKey && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      onClick={() => setShowTypesafeApiKey(!showTypesafeApiKey)}
+                      aria-label={showTypesafeApiKey ? "Hide API key" : "Show API key"}
+                    >
+                      {showTypesafeApiKey ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  )}
                 </div>
-                <CardDescription>
-                  Configure secure access to Questarr. Requires server restart to apply changes.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {sslSettings && (
-                  <>
-                    <SettingRow
-                      id="ssl-enabled"
-                      label="Enable SSL"
-                      description="Turn on HTTPS support"
-                      checked={sslEnabled}
-                      onCheckedChange={setSslEnabled}
-                    />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="typesafe-model">Model</Label>
+                <Input
+                  id="typesafe-model"
+                  type="text"
+                  placeholder="jev-latest"
+                  value={typesafeModel}
+                  onChange={(e) => setTypesafeModel(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Leave blank for TypeSafe&apos;s default model. Routing through OpenRouter? Set the
+                  API URL to{" "}
+                  <code className="text-[10px]">https://openrouter.ai/api/alpha/decisions</code> and
+                  the model to <code className="text-[10px]">typesafe/jev-1.13</code>.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                {typesafeSettings?.configured && (
+                  <Button
+                    variant="outline"
+                    onClick={() => clearTypesafeMutation.mutate()}
+                    disabled={clearTypesafeMutation.isPending}
+                    className="gap-2"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Disable
+                  </Button>
+                )}
+                <Button
+                  onClick={handleSaveTypesafe}
+                  disabled={
+                    updateTypesafeMutation.isPending ||
+                    (!typesafeApiKey.trim() && !typesafeSettings?.configured)
+                  }
+                  className="gap-2"
+                >
+                  {updateTypesafeMutation.isPending ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Key className="h-4 w-4" />
+                      Save API Key
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
-                    {sslEnabled && (
-                      <>
-                        <div className="space-y-2">
-                          <Label htmlFor="ssl-port">SSL Port</Label>
-                          <Input
-                            id="ssl-port"
-                            type="number"
-                            value={sslPort}
-                            disabled
-                            className="w-32 bg-muted"
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            Configured via SSL_PORT environment variable (e.g., in
-                            docker-compose.yml) - Default: 9898
+          {/* xREL.to Search Options */}
+          <Card id="xrel-settings">
+            <CardHeader>
+              <div className="flex items-center space-x-3">
+                <Newspaper className="h-5 w-5 text-muted-foreground" />
+                <CardTitle as="h2" className="text-lg">
+                  xREL.to
+                </CardTitle>
+              </div>
+              <CardDescription>
+                Alert when a wanted game appears on xREL.to (scene/P2P release list). API base URL
+                and search options for the auto-check.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="xrel-api-base" className="text-sm font-medium">
+                    API base URL
+                  </Label>
+                  <Select value={xrelApiBase} onValueChange={setXrelApiBase}>
+                    <SelectTrigger id="xrel-api-base" className="w-full font-mono text-sm">
+                      <SelectValue placeholder="Select API base URL" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="https://xrel-api.nfos.to">
+                        https://xrel-api.nfos.to (Mirror - Recommended)
+                      </SelectItem>
+                      <SelectItem value="https://api.xrel.to">
+                        https://api.xrel.to (Official - Often blocked)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Use the mirror if your IP is blocked by Cloudflare on the official API.
+                  </p>
+                </div>
+                <SettingRow
+                  id="xrel-scene"
+                  label="Include scene releases"
+                  description="Search scene releases when checking for wanted games on xREL.to"
+                  checked={xrelSceneReleases}
+                  onCheckedChange={setXrelSceneReleases}
+                />
+                <SettingRow
+                  id="xrel-p2p"
+                  label="Include P2P releases"
+                  description="Search P2P releases when checking for wanted games on xREL.to"
+                  checked={xrelP2pReleases}
+                  onCheckedChange={setXrelP2pReleases}
+                />
+              </div>
+              <div className="flex justify-end pt-4 border-t">
+                <Button
+                  onClick={handleSaveXrel}
+                  disabled={saveXrelMutation.isPending}
+                  className="gap-2"
+                >
+                  {saveXrelMutation.isPending ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Newspaper className="h-4 w-4" />
+                      Save xREL.to options
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </SettingsPanel>
+
+        <SettingsPanel id="import" active={activeTab}>
+          <ImportSettings />
+        </SettingsPanel>
+
+        <SettingsPanel id="system" active={activeTab}>
+          {/* Application Management */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-3">
+                <Server className="h-5 w-5 text-muted-foreground" />
+                <CardTitle as="h2" className="text-lg">
+                  Maintenance
+                </CardTitle>
+              </div>
+              <CardDescription>Application maintenance and data management tasks</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col space-y-2">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Clear Downloads Cache</p>
+                    <p className="text-xs text-muted-foreground">
+                      Clear cached torrent/NZB search results so the next search fetches fresh data
+                      from all configured indexers.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      clearSearchCache();
+                      toast({
+                        title: "Downloads Cache Cleared",
+                        description:
+                          "Search results cache has been cleared. New searches will fetch fresh data.",
+                      });
+                    }}
+                    className="gap-2 w-full sm:w-auto shrink-0"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Clear Cache
+                  </Button>
+                </div>
+              </div>
+              <div className="flex flex-col space-y-2">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Refresh Metadata</p>
+                    <p className="text-xs text-muted-foreground">
+                      Update all games in your library with the latest information from IGDB.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => refreshMetadataMutation.mutate()}
+                    disabled={refreshMetadataMutation.isPending}
+                    className="gap-2 w-full sm:w-auto shrink-0"
+                  >
+                    {refreshMetadataMutation.isPending ? (
+                      <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    Refresh All
+                  </Button>
+                </div>
+              </div>
+              <div className="flex flex-col space-y-2">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Check Library Health</p>
+                    <p className="text-xs text-muted-foreground">
+                      Find games whose library files have gone missing, and library folders that no
+                      longer match any game.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => libraryHealthMutation.mutate()}
+                    disabled={libraryHealthMutation.isPending}
+                    className="gap-2 w-full sm:w-auto shrink-0"
+                  >
+                    {libraryHealthMutation.isPending ? (
+                      <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    Check Library
+                  </Button>
+                </div>
+                {libraryHealthResult &&
+                  (libraryHealthResult.drifted.length > 0 ||
+                    libraryHealthResult.orphaned.length > 0) && (
+                    <div className="mt-2 space-y-3 rounded-md border border-border p-3 text-xs">
+                      {libraryHealthResult.drifted.length > 0 && (
+                        <div>
+                          <p className="font-medium text-amber-700 in-[.dark]:text-amber-500">
+                            Drifted ({libraryHealthResult.drifted.length})
                           </p>
+                          <ul className="mt-1 space-y-1 text-muted-foreground">
+                            {libraryHealthResult.drifted.map((g) => (
+                              <li key={g.id}>
+                                {g.title} — {g.libraryPath}
+                              </li>
+                            ))}
+                          </ul>
                         </div>
+                      )}
+                      {libraryHealthResult.orphaned.length > 0 && (
+                        <div>
+                          <p className="font-medium text-amber-700 in-[.dark]:text-amber-500">
+                            Orphaned ({libraryHealthResult.orphaned.length})
+                          </p>
+                          <ul className="mt-1 space-y-1 text-muted-foreground">
+                            {libraryHealthResult.orphaned.map((o) => (
+                              <li key={o.path}>{o.path}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+              </div>
+            </CardContent>
+          </Card>
 
-                        <div className="space-y-2">
-                          <Label htmlFor="cert-path">Certificate Path (.crt/.pem)</Label>
-                          <div className="flex gap-2">
-                            <Input
-                              id="cert-path"
-                              value={sslCertPath}
-                              onChange={(e) => setSslCertPath(e.target.value)}
-                              placeholder="/path/to/server.crt"
-                            />
-                            <Button variant="outline" onClick={() => setIsCertBrowserOpen(true)}>
-                              Browse
-                            </Button>
-                          </div>
-                          <PathBrowser
-                            isOpen={isCertBrowserOpen}
-                            onClose={() => setIsCertBrowserOpen(false)}
-                            onSelect={(path) => setSslCertPath(path)}
-                            initialPath={sslCertPath}
-                            title="Select Certificate File"
-                            extensions={[".crt", ".pem", ".cer"]}
+          {/* Telemetry */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-3">
+                <Radio className="h-5 w-5 text-muted-foreground" />
+                <CardTitle as="h2" className="text-lg">
+                  Telemetry
+                </CardTitle>
+              </div>
+              <CardDescription>
+                Help improve Questarr by automatically sharing diagnostic data when something goes
+                wrong
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <SettingRow
+                id="telemetry-enabled"
+                label="Automatically send error reports"
+                description={`Off by default. When Questarr detects an unexpected server error, it will normally ask you first (see the "Error Detected" event in Settings > Notifications). Turn this on to skip that prompt and send a scrubbed diagnostic report automatically instead — no personal data, IP addresses, or file paths are included. Reports help the maintainer catch bugs users don't otherwise report. You can still send a one-off report manually from the Logs page at any time, whatever this setting is.`}
+                checked={telemetryEnabled}
+                onCheckedChange={setTelemetryEnabled}
+              />
+              <div className="flex justify-end pt-4 border-t">
+                <UnsavedHint show={isSectionDirty("telemetry")} />
+                <Button
+                  onClick={handleSaveTelemetry}
+                  disabled={settingsSavesInFlight > 0}
+                  className="gap-2"
+                >
+                  {isSectionSaving("telemetry") ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Radio className="h-4 w-4" />
+                      Save Telemetry
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Downloader Debug Logging */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-3">
+                <Server className="h-5 w-5 text-muted-foreground" />
+                <CardTitle as="h2" className="text-lg">
+                  Downloader Debug Logging
+                </CardTitle>
+              </div>
+              <CardDescription>
+                Log downloader response status, headers, and body (up to 10KB) from download clients
+                (qBittorrent, Transmission, rTorrent, Deluge, Synology Download Station, sabnzbd,
+                nzbget) at debug level. Response headers and bodies can contain sensitive data -
+                enable this only while debugging and review logs carefully. Useful when diagnosing
+                why a download isn&apos;t being added or tracked correctly - leave this off
+                otherwise, as it can be noisy.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SettingRow
+                id="downloader-debug-logging"
+                label="Log full downloader responses"
+                description="Applies immediately and affects all configured downloaders. View the results on the Logs page."
+                extra={
+                  isDownloaderDebugLoggingError && (
+                    <span className="block text-xs text-destructive">
+                      Failed to load the current setting. Refresh the page to try again.
+                    </span>
+                  )
+                }
+                checked={downloaderDebugLogging?.enabled ?? false}
+                disabled={
+                  isDownloaderDebugLoggingLoading ||
+                  isDownloaderDebugLoggingError ||
+                  updateDownloaderDebugLoggingMutation.isPending
+                }
+                onCheckedChange={(checked) => updateDownloaderDebugLoggingMutation.mutate(checked)}
+              />
+            </CardContent>
+          </Card>
+        </SettingsPanel>
+
+        <SettingsPanel id="account-security" active={activeTab}>
+          <PasswordSettings />
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-3">
+                <Lock className="h-5 w-5 text-muted-foreground" />
+                <CardTitle as="h2" className="text-lg">
+                  SSL/HTTPS Configuration
+                </CardTitle>
+              </div>
+              <CardDescription>
+                Configure secure access to Questarr. Requires server restart to apply changes.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {sslSettings && (
+                <>
+                  <SettingRow
+                    id="ssl-enabled"
+                    label="Enable SSL"
+                    description="Turn on HTTPS support"
+                    checked={sslEnabled}
+                    onCheckedChange={setSslEnabled}
+                  />
+
+                  {sslEnabled && (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="ssl-port">SSL Port</Label>
+                        <Input
+                          id="ssl-port"
+                          type="number"
+                          value={sslPort}
+                          disabled
+                          className="w-32 bg-muted"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Configured via SSL_PORT environment variable (e.g., in docker-compose.yml)
+                          - Default: 9898
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="cert-path">Certificate Path (.crt/.pem)</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="cert-path"
+                            value={sslCertPath}
+                            onChange={(e) => setSslCertPath(e.target.value)}
+                            placeholder="/path/to/server.crt"
                           />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="key-path">Private Key Path (.key)</Label>
-                          <div className="flex gap-2">
-                            <Input
-                              id="key-path"
-                              value={sslKeyPath}
-                              onChange={(e) => setSslKeyPath(e.target.value)}
-                              placeholder="/path/to/server.key"
-                            />
-                            <Button variant="outline" onClick={() => setIsKeyBrowserOpen(true)}>
-                              Browse
-                            </Button>
-                          </div>
-                          <PathBrowser
-                            isOpen={isKeyBrowserOpen}
-                            onClose={() => setIsKeyBrowserOpen(false)}
-                            onSelect={(path) => setSslKeyPath(path)}
-                            initialPath={sslKeyPath}
-                            title="Select Private Key File"
-                            extensions={[".key", ".pem"]}
-                          />
-                        </div>
-
-                        <div className="space-y-4">
-                          <SettingRow
-                            id="ssl-redirect"
-                            label="Force HTTPS"
-                            description="Redirect all HTTP traffic to HTTPS"
-                            checked={sslRedirectHttp}
-                            onCheckedChange={setSslRedirectHttp}
-                          />
-
-                          {sslRedirectHttp && (
-                            <Alert className="border-orange-500/50 bg-orange-500/10">
-                              <AlertCircle className="h-4 w-4 text-orange-700 in-[.dark]:text-orange-500" />
-                              <AlertTitle>HTTP Port Will Be Disabled</AlertTitle>
-                              <AlertDescription>
-                                When HTTPS redirect is enabled, the HTTP port will be disabled on
-                                the next server restart. Make sure you can access the server via
-                                HTTPS before restarting to avoid losing access.
-                              </AlertDescription>
-                            </Alert>
-                          )}
-                        </div>
-
-                        <div className="pt-4 border-t">
-                          <h4 className="text-sm font-medium mb-4">Certificate Status</h4>
-
-                          {certInfo ? (
-                            <div className="rounded-md border bg-card text-card-foreground shadow-sm mb-6 p-4 space-y-3">
-                              <div className="flex items-center gap-2 mb-2">
-                                {certInfo.valid ? (
-                                  <ShieldCheck className="h-5 w-5 text-green-500" />
-                                ) : (
-                                  <ShieldAlert className="h-5 w-5 text-red-500" />
-                                )}
-                                <span className="font-semibold">
-                                  {certInfo.selfSigned
-                                    ? "Self-Signed Certificate"
-                                    : "Valid Certificate"}
-                                </span>
-                              </div>
-
-                              <div className="grid gap-1 text-sm text-muted-foreground">
-                                <div className="flex justify-between">
-                                  <span>Issued To:</span>
-                                  <span className="font-mono text-xs">
-                                    {certInfo.subject ? certInfo.subject.split(",")[0] : "Unknown"}
-                                  </span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span>Issued By:</span>
-                                  <span className="font-mono text-xs">
-                                    {certInfo.issuer ? certInfo.issuer.split(",")[0] : "Unknown"}
-                                  </span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                  <div className="flex items-center gap-1">
-                                    <Calendar className="h-3 w-3" />
-                                    <span>Valid Until:</span>
-                                  </div>
-                                  <span>
-                                    {certInfo.validTo
-                                      ? new Date(certInfo.validTo).toLocaleDateString()
-                                      : "Unknown"}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-muted-foreground mb-4">
-                              No valid certificate information found.
-                            </p>
-                          )}
-
-                          <div className="space-y-4">
-                            {certInfo?.selfSigned ? (
-                              <div>
-                                <p className="text-xs text-muted-foreground mb-2">
-                                  You are using a self-signed certificate. You can renew it if it's
-                                  expired or about to expire.
-                                </p>
-                                <Button
-                                  variant="outline"
-                                  onClick={() => generateCertMutation.mutate()}
-                                  disabled={generateCertMutation.isPending}
-                                >
-                                  {generateCertMutation.isPending
-                                    ? "Renewing..."
-                                    : "Renew Self-Signed Certificate"}
-                                </Button>
-                              </div>
-                            ) : (
-                              <div>
-                                <p className="text-xs text-muted-foreground mb-2">
-                                  Generate a self-signed certificate if you don't have one.
-                                  <br />
-                                  <span className="text-amber-700 in-[.dark]:text-amber-500 font-semibold">
-                                    Warning:
-                                  </span>{" "}
-                                  Browsers will show a security warning for self-signed
-                                  certificates.
-                                </p>
-                                <Button
-                                  variant="outline"
-                                  onClick={() => generateCertMutation.mutate()}
-                                  disabled={
-                                    generateCertMutation.isPending ||
-                                    (!!certInfo && !certInfo.selfSigned)
-                                  }
-                                >
-                                  {generateCertMutation.isPending
-                                    ? "Generating..."
-                                    : "Generate Self-Signed Certificate"}
-                                </Button>
-                                {!!certInfo && !certInfo.selfSigned && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Certificate generation disabled because a non-self-signed
-                                    certificate is detected.
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="pt-4 border-t space-y-4">
-                          <h4 className="text-sm font-medium">Upload Certificate</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="cert-upload">Certificate File (.crt/.pem)</Label>
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  id="cert-upload"
-                                  type="file"
-                                  accept=".crt,.pem,.cer"
-                                  className="hidden"
-                                  ref={certInputRef}
-                                  onChange={(e) => setSelectedCert(e.target.files?.[0] || null)}
-                                />
-                                <Label
-                                  htmlFor="cert-upload"
-                                  className={`flex h-10 w-full cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${selectedCert ? "text-primary border-primary" : "text-muted-foreground"}`}
-                                >
-                                  <Upload className="mr-2 h-4 w-4" />
-                                  {selectedCert ? selectedCert.name : "Select Certificate File"}
-                                </Label>
-                              </div>
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="key-upload">Private Key File (.key/.pem)</Label>
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  id="key-upload"
-                                  type="file"
-                                  accept=".key,.pem"
-                                  className="hidden"
-                                  ref={keyInputRef}
-                                  onChange={(e) => setSelectedKey(e.target.files?.[0] || null)}
-                                />
-                                <Label
-                                  htmlFor="key-upload"
-                                  className={`flex h-10 w-full cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${selectedKey ? "text-primary border-primary" : "text-muted-foreground"}`}
-                                >
-                                  <Upload className="mr-2 h-4 w-4" />
-                                  {selectedKey ? selectedKey.name : "Select Private Key File"}
-                                </Label>
-                              </div>
-                            </div>
-                          </div>
-                          <Button
-                            variant="outline"
-                            onClick={() => uploadCertMutation.mutate()}
-                            disabled={!selectedCert || !selectedKey || uploadCertMutation.isPending}
-                          >
-                            {uploadCertMutation.isPending
-                              ? "Uploading..."
-                              : "Upload Certificate & Key"}
+                          <Button variant="outline" onClick={() => setIsCertBrowserOpen(true)}>
+                            Browse
                           </Button>
                         </div>
-                      </>
-                    )}
+                        <PathBrowser
+                          isOpen={isCertBrowserOpen}
+                          onClose={() => setIsCertBrowserOpen(false)}
+                          onSelect={(path) => setSslCertPath(path)}
+                          initialPath={sslCertPath}
+                          title="Select Certificate File"
+                          extensions={[".crt", ".pem", ".cer"]}
+                        />
+                      </div>
 
-                    <div className="flex justify-end pt-4 border-t">
-                      <Button onClick={handleSaveSsl} disabled={updateSslMutation.isPending}>
-                        {updateSslMutation.isPending ? "Saving..." : "Save SSL Settings"}
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+                      <div className="space-y-2">
+                        <Label htmlFor="key-path">Private Key Path (.key)</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id="key-path"
+                            value={sslKeyPath}
+                            onChange={(e) => setSslKeyPath(e.target.value)}
+                            placeholder="/path/to/server.key"
+                          />
+                          <Button variant="outline" onClick={() => setIsKeyBrowserOpen(true)}>
+                            Browse
+                          </Button>
+                        </div>
+                        <PathBrowser
+                          isOpen={isKeyBrowserOpen}
+                          onClose={() => setIsKeyBrowserOpen(false)}
+                          onSelect={(path) => setSslKeyPath(path)}
+                          initialPath={sslKeyPath}
+                          title="Select Private Key File"
+                          extensions={[".key", ".pem"]}
+                        />
+                      </div>
+
+                      <div className="space-y-4">
+                        <SettingRow
+                          id="ssl-redirect"
+                          label="Force HTTPS"
+                          description="Redirect all HTTP traffic to HTTPS"
+                          checked={sslRedirectHttp}
+                          onCheckedChange={setSslRedirectHttp}
+                        />
+
+                        {sslRedirectHttp && (
+                          <Alert className="border-orange-500/50 bg-orange-500/10">
+                            <AlertCircle className="h-4 w-4 text-orange-700 in-[.dark]:text-orange-500" />
+                            <AlertTitle>HTTP Port Will Be Disabled</AlertTitle>
+                            <AlertDescription>
+                              When HTTPS redirect is enabled, the HTTP port will be disabled on the
+                              next server restart. Make sure you can access the server via HTTPS
+                              before restarting to avoid losing access.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </div>
+
+                      <div className="pt-4 border-t">
+                        <h4 className="text-sm font-medium mb-4">Certificate Status</h4>
+
+                        {certInfo ? (
+                          <div className="rounded-md border bg-card text-card-foreground shadow-sm mb-6 p-4 space-y-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              {certInfo.valid ? (
+                                <ShieldCheck className="h-5 w-5 text-green-500" />
+                              ) : (
+                                <ShieldAlert className="h-5 w-5 text-red-500" />
+                              )}
+                              <span className="font-semibold">
+                                {certInfo.selfSigned
+                                  ? "Self-Signed Certificate"
+                                  : "Valid Certificate"}
+                              </span>
+                            </div>
+
+                            <div className="grid gap-1 text-sm text-muted-foreground">
+                              <div className="flex justify-between">
+                                <span>Issued To:</span>
+                                <span className="font-mono text-xs">
+                                  {certInfo.subject ? certInfo.subject.split(",")[0] : "Unknown"}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Issued By:</span>
+                                <span className="font-mono text-xs">
+                                  {certInfo.issuer ? certInfo.issuer.split(",")[0] : "Unknown"}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  <span>Valid Until:</span>
+                                </div>
+                                <span>
+                                  {certInfo.validTo
+                                    ? new Date(certInfo.validTo).toLocaleDateString()
+                                    : "Unknown"}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground mb-4">
+                            No valid certificate information found.
+                          </p>
+                        )}
+
+                        <div className="space-y-4">
+                          {certInfo?.selfSigned ? (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-2">
+                                You are using a self-signed certificate. You can renew it if it's
+                                expired or about to expire.
+                              </p>
+                              <Button
+                                variant="outline"
+                                onClick={() => generateCertMutation.mutate()}
+                                disabled={generateCertMutation.isPending}
+                              >
+                                {generateCertMutation.isPending
+                                  ? "Renewing..."
+                                  : "Renew Self-Signed Certificate"}
+                              </Button>
+                            </div>
+                          ) : (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-2">
+                                Generate a self-signed certificate if you don't have one.
+                                <br />
+                                <span className="text-amber-700 in-[.dark]:text-amber-500 font-semibold">
+                                  Warning:
+                                </span>{" "}
+                                Browsers will show a security warning for self-signed certificates.
+                              </p>
+                              <Button
+                                variant="outline"
+                                onClick={() => generateCertMutation.mutate()}
+                                disabled={
+                                  generateCertMutation.isPending ||
+                                  (!!certInfo && !certInfo.selfSigned)
+                                }
+                              >
+                                {generateCertMutation.isPending
+                                  ? "Generating..."
+                                  : "Generate Self-Signed Certificate"}
+                              </Button>
+                              {!!certInfo && !certInfo.selfSigned && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Certificate generation disabled because a non-self-signed
+                                  certificate is detected.
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="pt-4 border-t space-y-4">
+                        <h4 className="text-sm font-medium">Upload Certificate</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="cert-upload">Certificate File (.crt/.pem)</Label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                id="cert-upload"
+                                type="file"
+                                accept=".crt,.pem,.cer"
+                                className="hidden"
+                                ref={certInputRef}
+                                onChange={(e) => setSelectedCert(e.target.files?.[0] || null)}
+                              />
+                              <Label
+                                htmlFor="cert-upload"
+                                className={`flex h-10 w-full cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${selectedCert ? "text-primary border-primary" : "text-muted-foreground"}`}
+                              >
+                                <Upload className="mr-2 h-4 w-4" />
+                                {selectedCert ? selectedCert.name : "Select Certificate File"}
+                              </Label>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="key-upload">Private Key File (.key/.pem)</Label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                id="key-upload"
+                                type="file"
+                                accept=".key,.pem"
+                                className="hidden"
+                                ref={keyInputRef}
+                                onChange={(e) => setSelectedKey(e.target.files?.[0] || null)}
+                              />
+                              <Label
+                                htmlFor="key-upload"
+                                className={`flex h-10 w-full cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${selectedKey ? "text-primary border-primary" : "text-muted-foreground"}`}
+                              >
+                                <Upload className="mr-2 h-4 w-4" />
+                                {selectedKey ? selectedKey.name : "Select Private Key File"}
+                              </Label>
+                            </div>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          onClick={() => uploadCertMutation.mutate()}
+                          disabled={!selectedCert || !selectedKey || uploadCertMutation.isPending}
+                        >
+                          {uploadCertMutation.isPending
+                            ? "Uploading..."
+                            : "Upload Certificate & Key"}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="flex justify-end pt-4 border-t">
+                    <Button onClick={handleSaveSsl} disabled={updateSslMutation.isPending}>
+                      {updateSslMutation.isPending ? "Saving..." : "Save SSL Settings"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </SettingsPanel>
       </div>
     </div>
   );

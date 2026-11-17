@@ -1,5 +1,5 @@
 import { ChevronRight, LogOut, User } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -68,6 +68,14 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
     }
     return { wishlistCount: wanted, playingCount: playing };
   }, [games]);
+
+  // With a section list open (Settings) the active entry can sit below the fold of a short
+  // window, so keep it in view as the user moves between pages.
+  useEffect(() => {
+    document
+      .querySelector<HTMLElement>('[data-testid="sidebar-main"] [data-active="true"]')
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [activeItem]);
 
   const activeDownloadsCount = useMemo(() => {
     const downloads = downloadsData?.downloads;
@@ -233,23 +241,51 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
           <SidebarGroupLabel>Management</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {managementNavigation.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={activeItem === item.url}
-                    data-testid={`nav-${item.title.toLowerCase()}`}
-                  >
-                    <button
-                      onClick={() => handleNavigation(item.url)}
-                      className="flex items-center gap-2 w-full"
+              {managementNavigation.map((item) => {
+                const sectionActive = item.children?.some((child) => child.url === activeItem);
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={activeItem === item.url}
+                      data-testid={`nav-${item.title.toLowerCase()}`}
                     >
-                      <item.icon className="w-4 h-4" aria-hidden="true" />
-                      <span>{item.title}</span>
-                    </button>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+                      <button
+                        onClick={() => handleNavigation(item.url)}
+                        className="flex items-center gap-2 w-full"
+                        aria-expanded={item.children ? sectionActive : undefined}
+                      >
+                        <item.icon className="w-4 h-4" aria-hidden="true" />
+                        <span>{item.title}</span>
+                      </button>
+                    </SidebarMenuButton>
+                    {/* Sections are listed while one of them is open, so the sidebar stays short
+                        everywhere else. */}
+                    {item.children && sectionActive && (
+                      <SidebarMenuSub>
+                        {item.children.map((child) => (
+                          <SidebarMenuSubItem key={child.url}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={activeItem === child.url}
+                              data-testid={`nav-${child.title.toLowerCase().replace(/\s+/g, "-")}`}
+                            >
+                              <button
+                                onClick={() => handleNavigation(child.url)}
+                                className="flex items-center gap-2 w-full"
+                                aria-current={activeItem === child.url ? "page" : undefined}
+                              >
+                                <child.icon className="w-4 h-4" aria-hidden="true" />
+                                <span>{child.title}</span>
+                              </button>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    )}
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

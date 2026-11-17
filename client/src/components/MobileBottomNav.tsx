@@ -148,7 +148,9 @@ export default function MobileBottomNav({
               </p>
               <div className="grid grid-cols-1 gap-0.5">
                 {managementNavigation.map((item) => {
-                  const isActive = activeItem === item.url;
+                  const isActive =
+                    activeItem === item.url ||
+                    (item.children?.some((c) => c.url === activeItem) ?? false);
                   return (
                     <button
                       key={item.url}

@@ -17,7 +17,7 @@ import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
 import "@/lib/in-app-history";
 import { routerBase } from "@/lib/app-path";
-import { authRoute, gameDetailsRoutePattern, routePaths } from "@/lib/routes";
+import { authRoute, gameDetailsRoutePattern, routePaths, settingsRoutePattern } from "@/lib/routes";
 import { applyThemeClass, migrateLegacyTheme } from "@/lib/theme-mode";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
@@ -138,7 +138,7 @@ function Router() {
         <Route path={routePaths.downloads} component={DownloadsPage} />
         <Route path={routePaths.indexers} component={IndexersPage} />
         <Route path={routePaths.downloaders} component={DownloadersPage} />
-        <Route path={routePaths.settings} component={SettingsPage} />
+        <Route path={settingsRoutePattern} component={SettingsPage} />
         <Route path={routePaths.calendar} component={CalendarPage} />
         <Route path={routePaths.wishlist} component={WishlistPage} />
         <Route path={routePaths.playing} component={PlayingPage} />

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openSettingsSection } from "./helpers";
 
 interface KeyStatus {
   apiKeyConfigured: boolean;
@@ -21,7 +22,7 @@ test("saves and removes the Steam Web API key from the settings", async ({ page 
   });
 
   await page.goto("/settings?tab=integrations");
-  await page.getByRole("tab", { name: "Connections", exact: true }).click();
+  await openSettingsSection(page, "Connections");
   const card = page.locator("#steam-config");
   const input = card.getByLabel("Steam Web API key");
   const save = card.getByRole("button", { name: "Save key" });

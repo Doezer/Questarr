@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { seedGame, uniqueId } from "./helpers";
+import { seedGame, uniqueId, openSettingsSection } from "./helpers";
 
 test("creates a tag, puts it on a game and filters the library by it", async ({
   page,
@@ -11,7 +11,7 @@ test("creates a tag, puts it on a game and filters the library by it", async ({
 
   // 1. Create the tag in Settings.
   await page.goto("/settings?tab=appearance");
-  await page.getByRole("tab", { name: "General", exact: true }).click();
+  await openSettingsSection(page, "General");
   const card = page.locator("#tags-config");
   await card.getByLabel("New tag").fill(tagName);
   await card.getByRole("button", { name: "Add tag" }).click();
@@ -48,7 +48,7 @@ test("creates a tag, puts it on a game and filters the library by it", async ({
 
   // 4. Deleting the tag removes it everywhere.
   await page.goto("/settings?tab=appearance");
-  await page.getByRole("tab", { name: "General", exact: true }).click();
+  await openSettingsSection(page, "General");
   await card.getByRole("button", { name: `Delete tag ${tagName}` }).click();
   await page.getByRole("button", { name: "Delete tag", exact: true }).click();
   await expect(card.getByText(tagName)).toHaveCount(0);

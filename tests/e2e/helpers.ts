@@ -51,3 +51,32 @@ export async function patchUserSettings(
     throw new Error(`Updating settings failed: ${response.status()} ${await response.text()}`);
   }
 }
+
+const SETTINGS_SECTION_SLUGS: Record<string, string> = {
+  General: "general",
+  "Search & Downloads": "search-downloads",
+  "Release Scoring": "release-scoring",
+  Notifications: "notifications",
+  Connections: "connections",
+  Import: "import",
+  Security: "security",
+  System: "system",
+};
+
+/**
+ * Open a settings section by its title, the way a user does: through the sidebar. Without a
+ * sidebar (a phone) it goes to the section's page directly.
+ */
+export async function openSettingsSection(page: Page, title: string): Promise<void> {
+  const slug = SETTINGS_SECTION_SLUGS[title];
+  if (!slug) throw new Error(`Unknown settings section "${title}"`);
+  const path = `/settings/${slug}`;
+  if (new URL(page.url()).pathname === path) return;
+  const link = page.getByTestId(`nav-${title.toLowerCase().replace(/\s+/g, "-")}`);
+  if (await link.isVisible()) {
+    await link.click();
+  } else {
+    await page.goto(path);
+  }
+  await page.waitForURL((url) => url.pathname === path);
+}

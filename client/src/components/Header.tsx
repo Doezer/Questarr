@@ -243,7 +243,7 @@ export default function Header({ title = "Library" }: HeaderProps) {
           <AlertDescription className="flex items-center gap-2">
             IGDB credentials are required. The application will only function for existing games
             until configured.
-            <Link href="/settings?tab=integrations#igdb-config">
+            <Link href="/settings/connections#igdb-config">
               <span className="underline font-bold cursor-pointer hover:text-white">
                 Configure in Settings
               </span>

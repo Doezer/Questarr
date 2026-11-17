@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SettingRow } from "@/components/ui/setting-row";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -208,34 +209,22 @@ export default function ImportSettings() {
                       Processing
                     </p>
                     <div className="space-y-4 mb-6">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="import-auto-unpack">Auto-Unpack Archives</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Automatically extract zip, rar, and 7z archives before importing.
-                          </p>
-                        </div>
-                        <Switch
-                          id="import-auto-unpack"
-                          checked={localConfig.autoUnpack}
-                          onCheckedChange={(c) => setLocalConfig({ ...localConfig, autoUnpack: c })}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="import-overwrite">Overwrite Existing Files</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Replace files already present at the destination.
-                          </p>
-                        </div>
-                        <Switch
-                          id="import-overwrite"
-                          checked={localConfig.overwriteExisting}
-                          onCheckedChange={(c) =>
-                            setLocalConfig({ ...localConfig, overwriteExisting: c })
-                          }
-                        />
-                      </div>
+                      <SettingRow
+                        id="import-auto-unpack"
+                        label="Auto-Unpack Archives"
+                        description="Automatically extract zip, rar, and 7z archives before importing."
+                        checked={localConfig.autoUnpack}
+                        onCheckedChange={(c) => setLocalConfig({ ...localConfig, autoUnpack: c })}
+                      />
+                      <SettingRow
+                        id="import-overwrite"
+                        label="Overwrite Existing Files"
+                        description="Replace files already present at the destination."
+                        checked={localConfig.overwriteExisting}
+                        onCheckedChange={(c) =>
+                          setLocalConfig({ ...localConfig, overwriteExisting: c })
+                        }
+                      />
                       <div className="space-y-1.5">
                         <Label htmlFor="upgradeReplaceMode">
                           Previous version after an upgrade
@@ -342,24 +331,16 @@ export default function ImportSettings() {
                             </p>
                           )}
                       </div>
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="import-auto-delete">
-                            Auto-delete source after import
-                          </Label>
-                          <p className="text-xs text-muted-foreground">
-                            After a successful copy or move import, remove the download from the
-                            client and delete source files.
-                          </p>
-                        </div>
-                        <Switch
-                          id="import-auto-delete"
-                          checked={localConfig.autoDeleteAfterImport}
-                          onCheckedChange={(c) =>
-                            setLocalConfig({ ...localConfig, autoDeleteAfterImport: c })
-                          }
-                        />
-                      </div>
+                      <SettingRow
+                        id="import-auto-delete"
+                        label="Auto-delete source after import"
+                        description="After a successful copy or move import, remove the download from the
+                            client and delete source files."
+                        checked={localConfig.autoDeleteAfterImport}
+                        onCheckedChange={(c) =>
+                          setLocalConfig({ ...localConfig, autoDeleteAfterImport: c })
+                        }
+                      />
                       <div className="flex items-center justify-between">
                         <div className="space-y-0.5">
                           <Label htmlFor="sort-extras">Sort add-on files into subfolders</Label>

@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { SettingRow } from "@/components/ui/setting-row";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -83,9 +83,9 @@ const sameValue = (a: unknown, b: unknown) =>
 function LockedNote({ name }: Readonly<{ name: string | undefined }>) {
   if (!name) return null;
   return (
-    <p className="text-xs text-muted-foreground">
+    <span className="block text-xs text-muted-foreground">
       Fixed by the <code>{name}</code> environment variable. Unset it to change this here.
-    </p>
+    </span>
   );
 }
 
@@ -262,21 +262,18 @@ export default function ClassificationSettings() {
             </p>
             <LockedNote name={locked.localThreshold} />
           </div>
-          <div className="flex items-start justify-between gap-4 rounded-md border p-3">
-            <div className="space-y-1">
-              <Label htmlFor="classification-hold-unknown">Hold unclassifiable releases</Label>
-              <p className="text-xs text-muted-foreground">
-                Keep releases no layer could classify for review instead of downloading them.
-              </p>
-              <LockedNote name={locked.holdUnknown} />
-            </div>
-            <Switch
-              id="classification-hold-unknown"
-              checked={holdUnknown}
-              disabled={!!locked.holdUnknown}
-              onCheckedChange={setHoldUnknown}
-            />
-          </div>
+          <SettingRow
+            id="classification-hold-unknown"
+            label="Hold unclassifiable releases"
+            description={
+              <>Keep releases no layer could classify for review instead of downloading them.</>
+            }
+            extra={<LockedNote name={locked.holdUnknown} />}
+            checked={holdUnknown}
+            disabled={!!locked.holdUnknown}
+            onCheckedChange={setHoldUnknown}
+            className="rounded-md border p-3"
+          />
         </div>
 
         <fieldset className="space-y-4 rounded-md border p-4">
@@ -285,35 +282,29 @@ export default function ClassificationSettings() {
             Off by default. Keeps the releases the classifier was unsure about so you can label
             them. Nothing is retrained automatically.
           </p>
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <Label htmlFor="classification-collect">Collect uncertain releases</Label>
-              <LockedNote name={locked.collect} />
-            </div>
-            <Switch
-              id="classification-collect"
-              checked={collect}
-              disabled={!!locked.collect}
-              onCheckedChange={setCollect}
-            />
-          </div>
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <Label htmlFor="classification-cloud-suggest">Allow cloud suggestions</Label>
-              <p className="text-xs text-muted-foreground">
+          <SettingRow
+            id="classification-collect"
+            label="Collect uncertain releases"
+            extra={<LockedNote name={locked.collect} />}
+            checked={collect}
+            disabled={!!locked.collect}
+            onCheckedChange={setCollect}
+          />
+          <SettingRow
+            id="classification-cloud-suggest"
+            label="Allow cloud suggestions"
+            description={
+              <>
                 Adds an &quot;Ask the cloud model&quot; button per release. Each press is one paid
                 call, and a suggestion is never a verified label.
                 {!cloud.configured && " Needs a TypeSafe key."}
-              </p>
-              <LockedNote name={locked.cloudSuggest} />
-            </div>
-            <Switch
-              id="classification-cloud-suggest"
-              checked={cloudSuggest}
-              disabled={!!locked.cloudSuggest}
-              onCheckedChange={setCloudSuggest}
-            />
-          </div>
+              </>
+            }
+            extra={<LockedNote name={locked.cloudSuggest} />}
+            checked={cloudSuggest}
+            disabled={!!locked.cloudSuggest}
+            onCheckedChange={setCloudSuggest}
+          />
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="classification-low-confidence">Low-confidence below (%)</Label>

@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
+import { SettingRow } from "@/components/ui/setting-row";
 import { formatMinutes } from "@/lib/play-time";
 
 export interface SteamPlaytimeStatus {
@@ -85,17 +84,13 @@ export function SteamPlaytimeSync() {
         a saved Steam ID, a Steam Web API key, and public Steam Game details.
       </p>
 
-      <div className="flex items-center justify-between gap-4">
-        <Label htmlFor="steam-playtime-enabled" className="text-sm font-medium">
-          Sync Steam play time
-        </Label>
-        <Switch
-          id="steam-playtime-enabled"
-          checked={status?.enabled ?? false}
-          disabled={!status?.available || toggle.isPending}
-          onCheckedChange={(enabled) => toggle.mutate(enabled)}
-        />
-      </div>
+      <SettingRow
+        id="steam-playtime-enabled"
+        label="Sync Steam play time"
+        checked={status?.enabled ?? false}
+        disabled={!status?.available || toggle.isPending}
+        onCheckedChange={(enabled) => toggle.mutate(enabled)}
+      />
 
       {status && !status.available && (
         <p className="text-sm text-muted-foreground">

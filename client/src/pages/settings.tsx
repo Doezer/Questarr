@@ -40,6 +40,7 @@ import { Label } from "@/components/ui/label";
 import { PathBrowser } from "@/components/PathBrowser";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { stripRouterBase } from "@/lib/app-path";
 import { apiFetch, apiRequest, clearSearchCache } from "@/lib/queryClient";
 import {
   Select,
@@ -291,7 +292,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const follow = () => {
       const slug = legacySettingsSlug(window.location.search, window.location.hash);
-      if (slug && settingsPageFromPath(window.location.pathname)?.slug !== slug) {
+      if (slug && settingsPageFromPath(stripRouterBase(window.location.pathname))?.slug !== slug) {
         navigate(`${settingsPagePath(slug)}${window.location.hash}`, { replace: true });
       }
     };
@@ -304,12 +305,18 @@ export default function SettingsPage() {
   }, [search, navigate]);
   // /settings on its own is the list of sections on a phone; elsewhere it opens the first one
   useEffect(() => {
-    // Read the live URL: the effect above may just have moved an older link to its section
-    if (settingsPageFromPath(window.location.pathname)) return;
-    if (legacySettingsSlug(window.location.search, window.location.hash)) return;
-    const onPhone = globalThis.matchMedia?.("(max-width: 767px)").matches ?? false;
-    if (!onPhone)
+    const openFirstSection = () => {
+      // Read the live URL: the effect above may just have moved an older link to its section
+      if (settingsPageFromPath(stripRouterBase(window.location.pathname))) return;
+      if (legacySettingsSlug(window.location.search, window.location.hash)) return;
+      if (phoneQuery?.matches) return;
       navigate(settingsPagePath(SETTINGS_PAGES[0]?.slug ?? "general"), { replace: true });
+    };
+    const phoneQuery = globalThis.matchMedia?.("(max-width: 767px)");
+    openFirstSection();
+    // Widening past the breakpoint hides the section list: open the first section then
+    phoneQuery?.addEventListener?.("change", openFirstSection);
+    return () => phoneQuery?.removeEventListener?.("change", openFirstSection);
   }, [page, navigate]);
   const { toast } = useToast();
   const queryClient = useQueryClient();

@@ -741,6 +741,45 @@ export class ImportManager {
   }
 
   /**
+   * Where a new version goes, for replacing the old one. A wrapped single file replaces the
+   * whole game folder only when the game's entry is that folder (an earlier folder release);
+   * when it is a file, only that file is replaced and the rest of the folder (add-ons) stays.
+   */
+  private replacementTarget(
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    wrapperFolder: string | undefined,
+    proposedPath: string
+  ): string {
+    if (wrapperFolder && game.libraryPath) {
+      if (path.resolve(game.libraryPath) === path.resolve(wrapperFolder)) return wrapperFolder;
+    }
+    return proposedPath;
+  }
+
+  /**
+   * The game folder a single file was placed in when "folder for single-file releases" is on,
+   * for a path the user confirmed (the plan's own wrapperFolder is not echoed back by the client).
+   */
+  private async wrappedSingleFileFolder(
+    config: Awaited<ReturnType<IStorage["getImportConfig"]>>,
+    originalPath: string,
+    proposedPath: string
+  ): Promise<string | undefined> {
+    if (!config.folderForSingleFiles) return undefined;
+    const folder = path.dirname(proposedPath);
+    // the leaf without the source's own extension: a dotted title ("Game.v1") keeps its dots
+    const sourceExt = path.extname(originalPath);
+    const leaf = path.basename(proposedPath);
+    const name =
+      sourceExt && leaf.toLowerCase().endsWith(sourceExt.toLowerCase())
+        ? leaf.slice(0, -sourceExt.length)
+        : leaf;
+    if (path.basename(folder) !== name) return undefined;
+    const stats = await fs.stat(originalPath).catch(() => undefined);
+    return stats?.isFile() ? folder : undefined;
+  }
+
+  /**
    * Transfers and finalizes an import around a replacement: the old version is moved aside
    * first when it is in the way, put back if the transfer or the finalization fails, and
    * only cleaned up once the new version is recorded.
@@ -1316,7 +1355,7 @@ export class ImportManager {
         download,
         game,
         config,
-        plan.proposedPath,
+        this.replacementTarget(game, plan.wrapperFolder, plan.proposedPath),
         localPath
       );
 
@@ -1645,6 +1684,14 @@ export class ImportManager {
       const ext = path.extname(resolvedOriginalPath);
       if (ext && proposedPath.toLowerCase().endsWith(ext.toLowerCase())) {
         proposedPath = proposedPath.slice(0, -ext.length);
+        // a wrapper folder around the archive is the folder it unpacks into; only when the
+        // setting made one, or a game named like its platform folder would lose a level
+        if (
+          config.folderForSingleFiles &&
+          path.basename(path.dirname(proposedPath)) === path.basename(proposedPath)
+        ) {
+          proposedPath = path.dirname(proposedPath);
+        }
       }
     }
 
@@ -1667,6 +1714,9 @@ export class ImportManager {
       fileCategories: undefined,
       originalPath: resolvedOriginalPath,
       proposedPath,
+      // Derived here, never taken from the client: it ends up as the game's library entry
+      // and what a later upgrade replaces.
+      wrapperFolder: await this.wrappedSingleFileFolder(config, resolvedOriginalPath, proposedPath),
     };
 
     const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
@@ -1686,11 +1736,13 @@ export class ImportManager {
       // its version: plan the replacement on the game as it is now that the lock is held.
       const current = (await this.storage.getGame(game.id)) ?? game;
       // A confirmed import replaces the previous version the same way an automatic one does.
+      const importConfig = await this.storage.getImportConfig(current.userId ?? undefined);
       const replacement = await this.planReplacement(
         download,
         current,
-        await this.storage.getImportConfig(current.userId ?? undefined),
-        proposedPath,
+        importConfig,
+        // A single file wrapped in its game folder replaces the old version as that folder
+        this.replacementTarget(current, planToExecute.wrapperFolder, proposedPath),
         resolvedOriginalPath
       );
       const result = await this.importWithReplacement(

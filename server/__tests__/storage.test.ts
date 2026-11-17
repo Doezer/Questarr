@@ -1420,6 +1420,7 @@ describe("Import And Mapping Helpers", () => {
       autoDeleteAfterImport: false,
       sortExtras: false,
       upgradeReplaceMode: "off",
+      folderForSingleFiles: true,
     });
   });
 

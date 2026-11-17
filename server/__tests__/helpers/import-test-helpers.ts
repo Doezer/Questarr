@@ -68,6 +68,7 @@ export function makeImportConfig(overrides: Partial<ImportConfig> = {}): ImportC
     autoDeleteAfterImport: false,
     sortExtras: false,
     upgradeReplaceMode: "off",
+    folderForSingleFiles: false,
     ...overrides,
   };
 }

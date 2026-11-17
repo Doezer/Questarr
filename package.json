@@ -137,7 +137,7 @@
     "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.15",
+    "@electric-sql/pglite": "^0.5.16",
     "@eslint/js": "^10.0.1",
     "@lizenz/checker": "0.0.2",
     "@playwright/test": "^1.65.0",
@@ -186,8 +186,8 @@
     "supertest": "^7.3.2",
     "tailwindcss": "^4.0.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "8.72.1",
-    "vite": "8.3.6",
+    "typescript-eslint": "8.72.2",
+    "vite": "8.3.7",
     "vitest": "5.1.0"
   },
   "optionalDependencies": {

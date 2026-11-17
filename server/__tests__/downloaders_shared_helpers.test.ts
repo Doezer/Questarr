@@ -2,11 +2,47 @@ import { describe, expect, it } from "vitest";
 import {
   buildDownloaderBaseUrl,
   escapeXml,
+  getErrorMessage,
   maxTrackerSwarmCounts,
   normalizePeerCount,
+  runDownloaderAction,
 } from "../downloaders/utils.js";
 
 describe("downloader shared helpers", () => {
+  it("normalizes thrown values into user-facing messages", () => {
+    expect(getErrorMessage(new Error("boom"))).toBe("boom");
+    expect(getErrorMessage("plain string")).toBe("Unknown error");
+    expect(getErrorMessage(undefined)).toBe("Unknown error");
+  });
+
+  describe("runDownloaderAction", () => {
+    it.each([
+      ["pause", "Download paused successfully", "Failed to pause download: boom"],
+      ["resume", "Download resumed successfully", "Failed to resume download: boom"],
+      ["remove", "Download removed successfully", "Failed to remove download: boom"],
+    ] as const)("maps a %s outcome to a success/failure result", async (action, ok, fail) => {
+      await expect(runDownloaderAction(action, async () => {})).resolves.toEqual({
+        success: true,
+        message: ok,
+      });
+      await expect(
+        runDownloaderAction(action, async () => {
+          throw new Error("boom");
+        })
+      ).resolves.toEqual({ success: false, message: fail });
+    });
+
+    it("awaits the action before reporting success", async () => {
+      let finished = false;
+      const result = await runDownloaderAction("pause", async () => {
+        await Promise.resolve();
+        finished = true;
+      });
+      expect(finished).toBe(true);
+      expect(result.success).toBe(true);
+    });
+  });
+
   it("escapes XML special characters", () => {
     expect(escapeXml(`<&>"'`)).toBe("&lt;&amp;&gt;&quot;&apos;");
   });

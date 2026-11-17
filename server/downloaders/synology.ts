@@ -13,9 +13,11 @@ import {
   extractHashFromUrl,
   fetchWithMagnetDetection,
   findTorrentByTagNull,
+  getErrorMessage,
   isHttpsUrl,
   logDownloaderDebugResponse,
   maxTrackerSwarmCounts,
+  runDownloaderAction,
 } from "./utils.js";
 
 interface SynologyApiDescriptor {
@@ -890,7 +892,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       await this.logout();
       return { success: true, message: "Connected successfully to Synology Download Station" };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       return {
         success: false,
         message: `Failed to connect to Synology Download Station: ${errorMessage}`,
@@ -974,7 +976,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
 
       return this.addFileUpload(request, destination, apiName, fetchResult.response);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       return {
         success: false,
         message: `Failed to add download to Synology Download Station: ${errorMessage}`,
@@ -1093,49 +1095,37 @@ export class SynologyDownloadStationClient implements DownloaderClient {
   }
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
-      await this.requestTaskApi("pause", {
+    return runDownloaderAction("pause", () =>
+      this.requestTaskApi("pause", {
         httpMethod: "GET",
         params: { id },
-      });
-      return { success: true, message: "Download paused successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to pause download: ${errorMessage}` };
-    }
+      })
+    );
   }
 
   async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
-      await this.requestTaskApi("resume", {
+    return runDownloaderAction("resume", () =>
+      this.requestTaskApi("resume", {
         httpMethod: "GET",
         params: { id },
-      });
-      return { success: true, message: "Download resumed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to resume download: ${errorMessage}` };
-    }
+      })
+    );
   }
 
   async removeDownload(
     id: string,
     deleteFiles = false
   ): Promise<{ success: boolean; message: string }> {
-    try {
-      await this.requestTaskApi("delete", {
+    return runDownloaderAction("remove", () =>
+      this.requestTaskApi("delete", {
         httpMethod: "GET",
         params: {
           id,
           remove: deleteFiles,
           force_complete: deleteFiles,
         },
-      });
-      return { success: true, message: "Download removed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to remove download: ${errorMessage}` };
-    }
+      })
+    );
   }
 
   async getFreeSpace(): Promise<number> {

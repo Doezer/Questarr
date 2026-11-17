@@ -20,6 +20,27 @@ echo "────────────────────────�
 
 umask "$UMASK"
 
+# Started as a non-root user (e.g. TrueNAS Apps runs the container as uid 568, Kubernetes
+# runAsUser, `docker run --user`). usermod/chown/su-exec all need root and PUID/PGID cannot
+# apply, so skip them: the platform is responsible for making /app/data writable by that user.
+if [ "$(id -u)" != "0" ]; then
+  echo "Running as non-root user $(id -u):$(id -g); PUID/PGID are ignored."
+  mkdir -p /app/data 2>/dev/null || true
+  if [ ! -w /app/data ]; then
+    echo "ERROR: /app/data is not writable by uid $(id -u)."
+    echo "  Make the data volume writable by that user (e.g. chown $(id -u):$(id -g) on the host)."
+    exit 1
+  fi
+  if [ -z "$SQLITE_DB_PATH" ]; then
+    export SQLITE_DB_PATH="/app/data/sqlite.db"
+  fi
+  if [ -f "$SQLITE_DB_PATH" ] && [ ! -w "$SQLITE_DB_PATH" ]; then
+    echo "ERROR: existing database file ${SQLITE_DB_PATH} is not writable by uid $(id -u)."
+    exit 1
+  fi
+  exec "$@"
+fi
+
 # Adjust the questarr group GID if it differs from PGID
 CURRENT_GID=$(id -g questarr)
 if [ "$CURRENT_GID" != "$PGID" ]; then

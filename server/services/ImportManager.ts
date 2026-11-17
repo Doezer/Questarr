@@ -741,6 +741,22 @@ export class ImportManager {
   }
 
   /**
+   * The game folder a single file was placed in when "folder for single-file releases" is on,
+   * for a path the user confirmed (the plan's own wrapperFolder is not echoed back by the client).
+   */
+  private async wrappedSingleFileFolder(
+    config: Awaited<ReturnType<IStorage["getImportConfig"]>>,
+    originalPath: string,
+    proposedPath: string
+  ): Promise<string | undefined> {
+    if (!config.folderForSingleFiles) return undefined;
+    const folder = path.dirname(proposedPath);
+    if (path.basename(folder) !== path.parse(proposedPath).name) return undefined;
+    const stats = await fs.stat(originalPath).catch(() => undefined);
+    return stats?.isFile() ? folder : undefined;
+  }
+
+  /**
    * Transfers and finalizes an import around a replacement: the old version is moved aside
    * first when it is in the way, put back if the transfer or the finalization fails, and
    * only cleaned up once the new version is recorded.
@@ -1316,7 +1332,7 @@ export class ImportManager {
         download,
         game,
         config,
-        plan.proposedPath,
+        plan.wrapperFolder ?? plan.proposedPath,
         localPath
       );
 
@@ -1686,11 +1702,14 @@ export class ImportManager {
       // its version: plan the replacement on the game as it is now that the lock is held.
       const current = (await this.storage.getGame(game.id)) ?? game;
       // A confirmed import replaces the previous version the same way an automatic one does.
+      const importConfig = await this.storage.getImportConfig(current.userId ?? undefined);
       const replacement = await this.planReplacement(
         download,
         current,
-        await this.storage.getImportConfig(current.userId ?? undefined),
-        proposedPath,
+        importConfig,
+        // A single file wrapped in its game folder replaces the old version as that folder
+        (await this.wrappedSingleFileFolder(importConfig, resolvedOriginalPath, proposedPath)) ??
+          proposedPath,
         resolvedOriginalPath
       );
       const result = await this.importWithReplacement(

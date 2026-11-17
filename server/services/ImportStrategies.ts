@@ -35,6 +35,9 @@ export interface ImportReview {
   ignoredExtensions?: string[];
   fileCategories?: FileCategoryEntry[] | undefined;
   importResult?: ImportResult;
+  // The folder a single file was wrapped in (see folderForSingleFiles); the game's own entry
+  // in the library is then this folder, not the file inside it.
+  wrapperFolder?: string | undefined;
 }
 
 export interface FileCategoryEntry {
@@ -628,6 +631,7 @@ export class PCImportStrategy implements ImportStrategy {
       proposedPath: destination,
       strategy: "pc",
       fileCategories,
+      wrapperFolder: wrapInFolder ? path.dirname(destination) : undefined,
     };
   }
 

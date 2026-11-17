@@ -369,6 +369,8 @@ describe("ImportStrategies", () => {
 
       const filePlan = await strategy.planImport(single, game, lib, config, "Switch");
       expect(filePlan.proposedPath).toBe(path.join(lib, "Switch", "My Game", "My Game.nsp"));
+      // the game's own entry is the folder, which is what an upgrade replaces
+      expect(filePlan.wrapperFolder).toBe(path.join(lib, "Switch", "My Game"));
 
       // folders and archives that will be unpacked already get a folder of their own
       const dirPlan = await strategy.planImport(folder, game, lib, config, "Switch");
@@ -387,6 +389,7 @@ describe("ImportStrategies", () => {
         "Switch"
       );
       expect(off.proposedPath).toBe(path.join(lib, "Switch", "My Game.nsp"));
+      expect(off.wrapperFolder).toBeUndefined();
 
       const result = await strategy.executeImport(filePlan, "copy");
       expect(result.filesPlaced.length).toBe(1);

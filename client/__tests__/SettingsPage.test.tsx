@@ -291,6 +291,45 @@ describe("SettingsPage", () => {
       expect(closeTab()).toBe(true);
     });
 
+    it("Discard restores the saved value even when the refetch after a save fails", async () => {
+      const { apiRequest } = await import("@/lib/queryClient");
+      const saved = { ...defaultUserSettings, hideShelvedByDefault: false };
+      const respond = { headers: { get: () => null }, json: async () => ({}) };
+      vi.mocked(apiRequest).mockImplementation(((method: string) =>
+        Promise.resolve(
+          method === "PATCH" ? { headers: { get: () => null }, json: async () => saved } : respond
+        )) as never);
+      let settingsLoaded = false;
+      const baseFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/settings") && !url.includes("/api/settings/")) {
+          if (settingsLoaded) throw new Error("network down");
+          settingsLoaded = true;
+        }
+        return baseFetch(input, init);
+      }) as typeof fetch;
+      renderPage();
+      const toggle = await screen.findByLabelText("Hide shelved games by default");
+      fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole("button", { name: /save library filtering/i }));
+      // The PATCH succeeded; the refetch keeps failing (and retrying) in the background.
+      await waitFor(() => expect(settingsLoaded).toBe(true));
+      await waitFor(() =>
+        expect(screen.queryByTestId("unsaved-changes-bar")).not.toBeInTheDocument()
+      );
+
+      fireEvent.click(toggle); // edit the saved field again...
+      // Discard stays locked while the (failing) refetch is retried, then unlocks.
+      const discard = await screen.findByRole("button", { name: "Discard" });
+      await waitFor(() => expect(discard).toBeEnabled(), { timeout: 20000 });
+      fireEvent.click(discard);
+
+      // ...and Discard goes back to the saved value (false), not the stale cached true.
+      await waitFor(() => expect(toggle).not.toBeChecked());
+    }, 30000);
+
     it("keeps warning while a save is in flight even if the field is toggled back", async () => {
       const { apiRequest } = await import("@/lib/queryClient");
       const respond = { headers: { get: () => null }, json: async () => ({}) };

@@ -925,6 +925,11 @@ export default function SettingsPage() {
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      // The PATCH answers with the saved settings: make them the baseline right away so Discard
+      // never restores stale values, even if the refetch below fails.
+      if (data.data && typeof data.data === "object") {
+        queryClient.setQueryData<UserSettings>(["/api/settings"], data.data as UserSettings);
+      }
       // Returned so the mutation stays pending until the refetch lands: Save all / Discard stay
       // disabled and the unload guard stays on until the saved baseline is up to date.
       return queryClient.invalidateQueries({ queryKey: ["/api/settings"] });

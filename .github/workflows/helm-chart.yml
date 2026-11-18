@@ -5,11 +5,13 @@ on:
     branches: [main, release/*]
     paths:
       - "charts/**"
+      - "package.json"
       - ".github/workflows/helm-chart.yml"
   pull_request:
     branches: [main, release/*]
     paths:
       - "charts/**"
+      - "package.json"
       - ".github/workflows/helm-chart.yml"
   workflow_dispatch:
 
@@ -33,6 +35,16 @@ jobs:
       # action or download is needed. Fail loudly if that ever changes.
       - name: Show Helm version
         run: helm version
+
+      # The chart ships the Questarr version it installs by default, so it must follow package.json.
+      - name: Check appVersion matches package.json
+        run: |
+          app_version=$(sed -n 's/^appVersion: "\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' charts/questarr/Chart.yaml)
+          pkg_version=$(jq -r .version package.json)
+          if [ "$app_version" != "$pkg_version" ]; then
+            echo "::error::charts/questarr/Chart.yaml appVersion ($app_version) differs from package.json version ($pkg_version)"
+            exit 1
+          fi
 
       - name: Lint the chart with default values
         run: helm lint charts/questarr

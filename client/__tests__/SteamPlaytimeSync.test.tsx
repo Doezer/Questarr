@@ -88,3 +88,75 @@ describe("Steam play-time sync card", () => {
     await waitFor(() => expect(screen.getByText("Steam is unreachable")).toBeVisible());
   });
 });
+
+describe("Steam play-time history import", () => {
+  afterEach(cleanup);
+
+  it("previews, lets the user untick a game and imports the rest", async () => {
+    const posted: unknown[] = [];
+    apiRequest.mockImplementation(async (method: string, path: string, body?: unknown) => {
+      if (path.endsWith("/import/preview")) {
+        return respond({
+          skipped: 0,
+          candidates: [
+            {
+              gameId: "g1",
+              title: "Hades",
+              steamMinutes: 600,
+              recordedMinutes: 60,
+              importMinutes: 540,
+              lastPlayedAt: "2026-10-01T20:00:00.000Z",
+            },
+            {
+              gameId: "g2",
+              title: "Celeste",
+              steamMinutes: 120,
+              recordedMinutes: 0,
+              importMinutes: 120,
+              lastPlayedAt: null,
+            },
+          ],
+        });
+      }
+      if (method === "POST" && path.endsWith("/import")) {
+        posted.push(body);
+        return respond({ sessionsAdded: 1, minutesAdded: 540 });
+      }
+      return respond({
+        available: true,
+        enabled: false,
+        lastSyncAt: null,
+        lastSessionsAdded: 0,
+        lastMinutesAdded: 0,
+        lastError: null,
+      });
+    });
+    setup();
+    fireEvent.click(await screen.findByRole("button", { name: "Preview import" }));
+    expect(await screen.findByText("Hades")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Celeste/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Import 1 game/ }));
+    await waitFor(() => expect(posted).toEqual([{ gameIds: ["g1"] }]));
+    expect(await screen.findByText(/Imported 1 session/)).toBeTruthy();
+  });
+
+  it("says when nothing is missing", async () => {
+    apiRequest.mockImplementation(async (_method: string, path: string) =>
+      respond(
+        path.endsWith("/import/preview")
+          ? { candidates: [], skipped: 0 }
+          : {
+              available: true,
+              enabled: false,
+              lastSyncAt: null,
+              lastSessionsAdded: 0,
+              lastMinutesAdded: 0,
+              lastError: null,
+            }
+      )
+    );
+    setup();
+    fireEvent.click(await screen.findByRole("button", { name: "Preview import" }));
+    expect(await screen.findByText(/Nothing to import/)).toBeTruthy();
+  });
+});

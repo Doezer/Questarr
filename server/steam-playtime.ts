@@ -5,6 +5,7 @@ import { steamService } from "./steam.js";
 import { routesLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { sessionMinutes } from "../shared/play-stats.js";
+import { MIN_PLAYTIME_IMPORT_MINUTES, recordedMinutes } from "./play-status-sync.js";
 
 /**
  * Steam play-time sync.
@@ -203,7 +204,13 @@ export async function syncSteamPlaytime(
     // once: a per-game query for every unchanged game would cost one query per library entry.
     const recordedSince = new Set(
       (await storage.getUserPlaySessions(userId))
-        .filter((s) => s.source !== "steam" && s.endedAt && s.endedAt.getTime() > sinceMs)
+        .filter(
+          (s) =>
+            s.source !== "steam" &&
+            s.source !== "steam_import" &&
+            s.endedAt &&
+            s.endedAt.getTime() > sinceMs
+        )
         .map((s) => s.gameId)
     );
 
@@ -259,7 +266,8 @@ export async function syncSteamPlaytime(
       // Every session since the last saved sync counts, Steam's own too: a run that inserted one
       // and then failed before saving its baseline must not insert the same minutes again.
       const recorded = (await storage.getGamePlaySessions(game.id, userId))
-        .filter((s) => s.endedAt && s.endedAt.getTime() > from)
+        // The history import sets the baseline itself, so its session is never part of a window.
+        .filter((s) => s.source !== "steam_import" && s.endedAt && s.endedAt.getTime() > from)
         .reduce((sum, s) => {
           // A session only counts for its part inside the window [from, now]; the rest belongs to
           // the previous or the next window. Steam's own sessions are estimates ending at a sync
@@ -332,5 +340,148 @@ export async function runScheduledSteamPlaytimeSync(): Promise<void> {
       if (error instanceof SteamPlaytimeBusyError) continue;
       routesLogger.warn({ userId: user.id }, "Steam play-time sync failed");
     }
+  }
+}
+
+export interface SteamImportCandidate {
+  gameId: string;
+  title: string;
+  /** Total Steam reports for the game. */
+  steamMinutes: number;
+  /** Minutes already recorded in Questarr (timer, manual, Playnite, earlier syncs). */
+  recordedMinutes: number;
+  /** What the import would add: Steam's total minus the recorded time. */
+  importMinutes: number;
+  /** The imported session ends here: Steam's last-played time, or now when Steam has none. */
+  lastPlayedAt: string | null;
+}
+
+export interface SteamImportPreview {
+  candidates: SteamImportCandidate[];
+  /** Games already imported once, or with a timer running: left out. */
+  skipped: number;
+}
+
+interface Planned extends SteamImportCandidate {
+  appKey: string;
+  total: number;
+}
+
+/** Work out what an import would add. Nothing is written. */
+async function planSteamImport(userId: string): Promise<{ planned: Planned[]; skipped: number }> {
+  const user = await storage.getUser(userId);
+  if (!config.steam.isConfigured || !user?.steamId64) throw new SteamPlaytimeUnavailableError();
+  let totals;
+  try {
+    totals = await steamService.getOwnedPlaytimesDetailed(config.steam.apiKey!, user.steamId64);
+  } catch (error) {
+    // Do not log the error: Steam request URLs contain the API key.
+    const message =
+      error instanceof Error && error.message.startsWith("Steam library unavailable")
+        ? error.message
+        : "Could not read your Steam play time. Check the API key and make Game details public.";
+    throw new SteamPlaytimeUpstreamError(message, { cause: error });
+  }
+  const [games, runningTimer, sessions] = await Promise.all([
+    storage.getUserGames(userId, true),
+    storage.getRunningPlaySession(userId),
+    storage.getUserPlaySessions(userId),
+  ]);
+  const byGame = new Map<string, typeof sessions>();
+  for (const session of sessions) {
+    const list = byGame.get(session.gameId) ?? [];
+    list.push(session);
+    byGame.set(session.gameId, list);
+  }
+  const planned: Planned[] = [];
+  let skipped = 0;
+  for (const game of games) {
+    if (game.steamAppId == null) continue;
+    const steam = totals.get(game.steamAppId);
+    if (!steam || steam.minutes <= 0) continue;
+    const own = byGame.get(game.id) ?? [];
+    if (runningTimer?.gameId === game.id || own.some((s) => s.source === "steam_import")) {
+      skipped++;
+      continue;
+    }
+    const recorded = recordedMinutes(own);
+    const missing = steam.minutes - recorded;
+    if (missing < MIN_PLAYTIME_IMPORT_MINUTES) continue;
+    planned.push({
+      gameId: game.id,
+      title: game.title,
+      steamMinutes: steam.minutes,
+      recordedMinutes: recorded,
+      importMinutes: missing,
+      lastPlayedAt: steam.lastPlayedAt ? steam.lastPlayedAt.toISOString() : null,
+      appKey: String(game.steamAppId),
+      total: steam.minutes,
+    });
+  }
+  planned.sort((a, b) => b.importMinutes - a.importMinutes);
+  return { planned, skipped };
+}
+
+/** What importing the play time Steam already holds would add, per game. Writes nothing. */
+export async function previewSteamPlaytimeImport(userId: string): Promise<SteamImportPreview> {
+  const { planned, skipped } = await planSteamImport(userId);
+  return {
+    candidates: planned.map(({ appKey: _a, total: _t, ...candidate }) => candidate),
+    skipped,
+  };
+}
+
+/**
+ * Import the chosen games (all when `gameIds` is omitted) as one estimated `steam_import` session
+ * each, ending at Steam's last-played time. The plan is recomputed here, so the minutes never come
+ * from the client, and a game is imported only once. A game the live sync already tracks gets its
+ * baseline moved to Steam's total, so the next sync does not add the same minutes again.
+ */
+export async function importSteamPlaytime(
+  userId: string,
+  gameIds?: string[],
+  now: Date = new Date()
+): Promise<{ sessionsAdded: number; minutesAdded: number }> {
+  if (running.has(userId)) throw new SteamPlaytimeBusyError();
+  running.add(userId);
+  let sessionsAdded = 0;
+  let minutesAdded = 0;
+  try {
+    const { planned } = await planSteamImport(userId);
+    const wanted = gameIds ? new Set(gameIds) : null;
+    const moved: Planned[] = [];
+    for (const item of planned) {
+      if (wanted && !wanted.has(item.gameId)) continue;
+      const last = item.lastPlayedAt ? new Date(item.lastPlayedAt).getTime() : null;
+      const end = last !== null && last > 0 && last <= now.getTime() ? new Date(last) : now;
+      await storage.addGamePlaySession({
+        gameId: item.gameId,
+        userId,
+        startedAt: new Date(end.getTime() - item.importMinutes * 60_000),
+        endedAt: end,
+        source: "steam_import",
+      });
+      sessionsAdded++;
+      minutesAdded += item.importMinutes;
+      moved.push(item);
+    }
+    if (moved.length > 0) {
+      await withStateLock(userId, async () => {
+        const state = await readState(userId);
+        const baselines = { ...state.baselines };
+        let changed = false;
+        for (const item of moved) {
+          if (baselines[item.appKey] !== undefined) {
+            baselines[item.appKey] = item.total;
+            changed = true;
+          }
+        }
+        if (changed) await writeState(userId, { ...state, baselines });
+      });
+    }
+    return { sessionsAdded, minutesAdded };
+  } finally {
+    running.delete(userId);
+    if (sessionsAdded > 0) notifyUser("playSessionsUpdated", { source: "steam" }, userId);
   }
 }

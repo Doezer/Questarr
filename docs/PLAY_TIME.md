@@ -142,19 +142,30 @@ estimated"). It needs a saved Steam ID, a Steam Web API key (saved in **Settings
   long one sitting lasted. A sync that finds 90 new minutes adds one 90-minute session ending at the sync
   time, whatever the gap since the previous sync. Charts place it on its inferred start date, which can
   differ from the day you actually played, so read weekly and monthly totals with that in mind.
+- **Import play time from before tracking**: the same card has **Preview import**. It lists, per
+  game, what Steam holds (`playtime_forever`) minus what Questarr already recorded, and **Import**
+  turns the games you leave ticked into one estimated session each (source `steam_import`, shown as
+  "Steam · before tracking") ending on Steam's last-played date, or on the import time when Steam has
+  none. It never runs by itself, works whether or not the live sync is on, imports a game only once,
+  skips a game with a running timer, and ignores gaps under ten minutes. Minutes come from Steam at
+  import time, never from the browser. If the live sync already tracks the game, its baseline moves to
+  Steam's total so the next sync does not add the same minutes again. These sessions count in the
+  totals, most-played list, genre and platform figures, but stay out of the longest session, the
+  streaks and the weekly and monthly charts. When Playnite imports the same game, whichever runs
+  first wins: the other subtracts the time already recorded.
 - Other launchers (GOG, Epic, EA app, Ubisoft Connect) are not read directly. Play them through Playnite
   to get sessions from its extension.
 
 ## What is stored
 
 Each session records the game, when it started, when it ended (empty while the timer runs) and its
-source: `timer`, `manual`, `playnite`, `playnite_import` or `steam` (both estimated, see above). The Steam sync keeps its
+source: `timer`, `manual`, `playnite`, `playnite_import`, `steam_import` or `steam` (the last three are estimated, see above). The Steam sync keeps its
 last totals per game in a small per-user document in the system configuration, so it needs no table. Sessions are deleted with their game. They are included when you move from SQLite to
 Postgres (`scripts/sqlite-to-pg.ts`).
 
 A goal is one date (`finish_by`, `YYYY-MM-DD`) on the game itself, with no table of its own.
 
-Not included yet: importing historical playtime from Steam (the first sync only notes your totals) or Playnite (the extension only reports new sessions), weekly-hours goals and missed-goal notifications. See
+Not included yet: weekly-hours goals and missed-goal notifications. See
 [Questarr-mgmt#71](https://github.com/Doezer/Questarr-mgmt/issues/71).
 
 ## GOG play time from Playnite

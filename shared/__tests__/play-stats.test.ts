@@ -29,6 +29,20 @@ describe("sessionMinutes", () => {
 });
 
 describe("computePlayStats", () => {
+  it("counts steam_import in totals but not in streaks, longest session or weekly charts", () => {
+    const stats = computePlayStats(
+      [{ ...session("a", "2026-11-03T08:00:00Z", 600), source: "steam_import" }],
+      games,
+      NOW
+    );
+    expect(stats.totalMinutes).toBe(600);
+    expect(stats.topGames[0]).toMatchObject({ gameId: "a", minutes: 600 });
+    expect(stats.longestSession).toBeNull();
+    expect(stats.currentStreakDays).toBe(0);
+    expect(stats.perWeek.every((b) => b.minutes === 0)).toBe(true);
+    expect(stats.perMonth.every((b) => b.minutes === 0)).toBe(true);
+  });
+
   it("is empty without sessions", () => {
     const stats = computePlayStats([], games, NOW);
     expect(stats.totalMinutes).toBe(0);

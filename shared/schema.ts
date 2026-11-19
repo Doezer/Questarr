@@ -517,7 +517,7 @@ export const gamePlaySessions = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
     endedAt: integer("ended_at", { mode: "timestamp_ms" }),
-    source: text("source").notNull().default("manual"), // "manual" | "timer" | "steam" | "playnite"
+    source: text("source").notNull().default("manual"), // "manual" | "timer" | "steam" | "steam_import" | "playnite" | "playnite_import"
     createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
       sql`(strftime('%s', 'now') * 1000)`
     ),

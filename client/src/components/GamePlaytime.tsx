@@ -305,14 +305,18 @@ export default function GamePlaytime({
                       ? "Estimated from the growth of your Steam play time between two syncs"
                       : session.source === "playnite_import"
                         ? "Estimated from the total play time Playnite already held"
-                        : undefined
+                        : session.source === "steam_import"
+                          ? "Estimated from the total play time Steam already held before tracking"
+                          : undefined
                   }
                 >
                   {session.source === "steam"
                     ? "Steam · estimated"
                     : session.source === "playnite_import"
                       ? "Playnite · imported"
-                      : session.source}
+                      : session.source === "steam_import"
+                        ? "Steam · before tracking"
+                        : session.source}
                 </Badge>
                 {editable && (
                   <>

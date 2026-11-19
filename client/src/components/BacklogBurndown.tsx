@@ -73,8 +73,9 @@ export default function BacklogBurndown() {
 
   if (!data) return null;
   const { current, projection } = data;
-  // Nothing to burn down: no owned game now and none in the shown history.
-  const empty = current.backlog === 0 && chartData.every((b) => b.backlog === 0);
+  // Nothing to burn down: no game now and none in either series, whichever grain is shown.
+  const empty =
+    current.backlog === 0 && [...data.perWeek, ...data.perMonth].every((b) => b.backlog === 0);
 
   let projectionText: string;
   if (current.remainingHours <= 0) {

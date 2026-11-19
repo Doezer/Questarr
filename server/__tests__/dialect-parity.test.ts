@@ -295,6 +295,30 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(promoted?.status).toBe("owned");
     });
 
+    it("records a status event when a game is added and on every real status change", async () => {
+      const [user] = await storage().getAllUsers();
+      const game = await storage().addGame({
+        title: "Burn Down",
+        userId: user.id,
+        status: "owned",
+      } as Parameters<ReturnType<typeof storage>["addGame"]>[0]);
+      await storage().updateGameStatus(game.id, { status: "owned" }); // no change, no event
+      await storage().updateGameStatus(game.id, { status: "playing" });
+      await storage().updateGameStatus(game.id, { status: "completed" });
+
+      const events = (await storage().getUserGameStatusEvents(user.id)).filter(
+        (e) => e.gameId === game.id
+      );
+      expect(events.map((e) => e.status)).toEqual(["owned", "playing", "completed"]);
+      expect(events[0]?.createdAt).toBeInstanceOf(Date);
+      expect(await storage().getUserGameStatusEvents("someone-else")).toEqual([]);
+
+      // The history goes with the game.
+      await storage().removeGame(game.id);
+      const left = await storage().getUserGameStatusEvents(user.id);
+      expect(left.some((e) => e.gameId === game.id)).toBe(false);
+    });
+
     it("aggregates come back as numbers, not strings", async () => {
       const [user] = await storage().getAllUsers();
       const status = await storage().getDashboardStatus(user.id);

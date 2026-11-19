@@ -392,7 +392,16 @@ const RELEASE_TOKENS = new Set([
   "scene",
 ]);
 
-const METADATA_TOKENS = new Set([...EDITION_TOKENS, ...CONTENT_TOKENS, ...RELEASE_TOKENS]);
+// Standalone region markers ("Game EUR PS4-GROUP"), the plain-word counterpart of the bracketed
+// "(US)" tags. Only read after the game name, so a title that starts with one still matches.
+const REGION_TOKENS = new Set(["eur", "usa", "jpn", "pal", "ntsc"]);
+
+const METADATA_TOKENS = new Set([
+  ...EDITION_TOKENS,
+  ...CONTENT_TOKENS,
+  ...RELEASE_TOKENS,
+  ...REGION_TOKENS,
+]);
 
 const METADATA_TOKEN_PATTERNS = [
   /^v\d+$/, // v1, v2 (normalization splits v1.0 into "v1" "0")

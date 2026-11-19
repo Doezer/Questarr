@@ -34,6 +34,7 @@ const EXPECTED_TABLES = [
   "gameMilestones",
   "gamePlaySessions",
   "gameScreenshots",
+  "gameStatusEvents",
   "gameTags",
   "games",
   "importTaskItems",

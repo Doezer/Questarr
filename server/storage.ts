@@ -92,6 +92,7 @@ import {
   type UpgradePolicy,
   DEFAULT_UPGRADE_POLICY,
   type DetectedVersionSource,
+  type GameStatusEvent,
 } from "../shared/schema.js";
 import {
   users,
@@ -126,6 +127,7 @@ import {
   gameJournalEntries,
   gameMilestones,
   gamePlaySessions,
+  gameStatusEvents,
   gameScreenshots,
   classificationCache,
   classificationCandidates,
@@ -394,6 +396,8 @@ export interface IStorage {
   // Play session methods (time spent per game: manual entries and a start/stop timer)
   getGamePlaySessions(gameId: string, userId: string): Promise<GamePlaySession[]>;
   getUserPlaySessions(userId: string): Promise<GamePlaySession[]>;
+  /** The user's status history (one row per status change), oldest first. */
+  getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]>;
   /** The user's running timer (a session with no end), if any. */
   getRunningPlaySession(userId: string): Promise<GamePlaySession | undefined>;
   addGamePlaySession(
@@ -766,6 +770,7 @@ export class MemStorage implements IStorage {
   private gameJournalEntries: Map<string, GameJournalEntry>;
   private gameMilestones: Map<string, GameMilestone>;
   private gamePlaySessions: Map<string, GamePlaySession>;
+  private gameStatusEvents: GameStatusEvent[];
   private gameScreenshots: Map<string, GameScreenshot>;
 
   constructor() {
@@ -803,6 +808,7 @@ export class MemStorage implements IStorage {
     this.gameJournalEntries = new Map();
     this.gameMilestones = new Map();
     this.gamePlaySessions = new Map();
+    this.gameStatusEvents = [];
     this.gameScreenshots = new Map();
   }
 
@@ -975,7 +981,23 @@ export class MemStorage implements IStorage {
       completedAt: null,
     };
     this.games.set(id, game);
+    this.recordStatusEvent(game);
     return game;
+  }
+
+  private recordStatusEvent(game: Game): void {
+    if (!game.userId) return;
+    this.gameStatusEvents.push({
+      id: randomUUID(),
+      gameId: game.id,
+      userId: game.userId,
+      status: game.status,
+      createdAt: new Date(),
+    });
+  }
+
+  async getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]> {
+    return this.gameStatusEvents.filter((e) => e.userId === userId);
   }
 
   async updateGameStatus(
@@ -1009,6 +1031,7 @@ export class MemStorage implements IStorage {
     };
 
     this.games.set(id, updatedGame);
+    if (game.status !== updatedGame.status) this.recordStatusEvent(updatedGame);
     return updatedGame;
   }
 
@@ -3372,7 +3395,34 @@ export class DatabaseStorage implements IStorage {
     };
 
     const rows = await db.insert(games).values(gameWithId).returning();
-    return firstOrThrow(rows);
+    const created = firstOrThrow(rows);
+    await this.recordStatusEvent(created);
+    return created;
+  }
+
+  /** Writes one status-history row; a game with no owner has no history. */
+  private async recordStatusEvent(game: Game): Promise<void> {
+    if (!game.userId) return;
+    try {
+      await db.insert(gameStatusEvents).values({
+        id: randomUUID(),
+        gameId: game.id,
+        userId: game.userId,
+        status: game.status,
+        createdAt: new Date(),
+      });
+    } catch (error) {
+      // The history is a nice-to-have; never fail the status change because of it.
+      logger.warn({ error, gameId: game.id }, "Could not record the game status change");
+    }
+  }
+
+  async getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]> {
+    return db
+      .select()
+      .from(gameStatusEvents)
+      .where(eq(gameStatusEvents.userId, userId))
+      .orderBy(asc(gameStatusEvents.createdAt), asc(gameStatusEvents.id));
   }
 
   async updateGameStatus(
@@ -3422,6 +3472,9 @@ export class DatabaseStorage implements IStorage {
       .where(and(...guards))
       .returning();
 
+    if (updatedGame && existingGame?.status !== updatedGame.status) {
+      await this.recordStatusEvent(updatedGame);
+    }
     return updatedGame || undefined;
   }
 

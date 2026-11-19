@@ -14,7 +14,7 @@ export interface PlaySessionInput {
   /** `null` while the timer is still running; such sessions are left out of the totals. */
   endedAt: Date | null;
   /**
-   * Where the session came from. `steam` and `playnite_import` sessions are estimates built from
+   * Where the session came from. `steam`, `steam_import` and `playnite_import` sessions are estimates built from
    * playtime totals (Steam deltas, or the total Playnite already knew):
    * their minutes count in the totals, but they say nothing about when or how long one sitting
    * lasted, so they stay out of the longest session and the streaks.
@@ -57,7 +57,38 @@ export interface PlayTimeByGame {
   timeToBeatHours: number | null;
 }
 
+/** Inclusive local-day bounds (`YYYY-MM-DD`) for the range-aware part of the statistics. */
+export interface PlayStatsRange {
+  from?: string | null;
+  to?: string | null;
+}
+
+export interface PlayDurationBucket {
+  /** Readable label such as `30–60 min`. */
+  label: string;
+  count: number;
+}
+
+export interface PlaySessionDurationStats {
+  /** Finished sessions that are not estimates (timer, manual, Playnite). */
+  sampleSize: number;
+  averageMinutes: number;
+  medianMinutes: number;
+  buckets: PlayDurationBucket[];
+}
+
+export interface PlayHeatmap {
+  /** One entry per local day, oldest first, from the window's first day to its last. */
+  days: PlayTimeBucket[];
+  /** Minutes per weekday, Monday first. */
+  perWeekday: number[];
+  /** Minutes per local hour of the day the session started (0-23). */
+  perHour: number[];
+}
+
 export interface PlayTimeStats {
+  /** The local days the range-aware figures cover (`null` = unbounded). */
+  range: { from: string | null; to: string | null };
   totalMinutes: number;
   sessionCount: number;
   /** The single longest finished session, if any. */
@@ -70,9 +101,28 @@ export interface PlayTimeStats {
   goals: PlayGoalEntry[];
   topGenres: { name: string; minutes: number }[];
   topPlatforms: { name: string; minutes: number }[];
-  /** Oldest first, one entry per week/month including empty ones. */
+  /** Oldest first, one entry per week/month including empty ones. Not narrowed by the range. */
   perWeek: PlayTimeBucket[];
   perMonth: PlayTimeBucket[];
+  sessionStats: PlaySessionDurationStats;
+  heatmap: PlayHeatmap;
+}
+
+/** Longest window the heatmap draws, in weeks. */
+export const HEATMAP_WEEKS = 53;
+const DURATION_BUCKETS: { label: string; max: number }[] = [
+  { label: "Under 30 min", max: 30 },
+  { label: "30–60 min", max: 60 },
+  { label: "1–2 h", max: 120 },
+  { label: "2–4 h", max: 240 },
+  { label: "4 h or more", max: Number.POSITIVE_INFINITY },
+];
+
+/** True for a real calendar day written `YYYY-MM-DD`. */
+export function isValidDateString(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 const MINUTE_MS = 60_000;
@@ -201,39 +251,69 @@ export function computePlayStats(
   sessions: readonly PlaySessionInput[],
   games: readonly PlayGameInput[],
   now: Date,
-  zone: PlayStatsZone = 0
+  zone: PlayStatsZone = 0,
+  range: PlayStatsRange = {}
 ): PlayTimeStats {
   const toLocal = localizer(zone);
   const gameById = new Map(games.map((g) => [g.id, g]));
+  // `perGame` feeds the finish-by goals and so ignores the range; `rangeGame` feeds "most played".
   const perGame = new Map<string, { minutes: number; sessions: number }>();
+  const rangeGame = new Map<string, { minutes: number; sessions: number }>();
   const perGenre = new Map<string, number>();
   const perPlatform = new Map<string, number>();
   const weekMinutes = new Map<number, number>();
   const monthMinutes = new Map<number, number>();
   const activeDays = new Set<number>();
+  const dayMinutes = new Map<number, number>();
+  const perWeekday: number[] = new Array<number>(7).fill(0);
+  const perHour: number[] = new Array<number>(24).fill(0);
+  const realDurations: number[] = [];
+  const fromDay = range.from ? Date.parse(`${range.from}T00:00:00Z`) / DAY_MS : null;
+  const toDay = range.to ? Date.parse(`${range.to}T00:00:00Z`) / DAY_MS : null;
   let totalMinutes = 0;
   let sessionCount = 0;
   let longest: { gameId: string; minutes: number } | null = null;
 
   for (const session of sessions) {
     if (!session.endedAt) continue;
-    // Every finished session counts, even one that rounds to zero minutes...
-    sessionCount++;
     const minutes = sessionMinutes(session.startedAt, session.endedAt);
+    const local = toLocal(session.startedAt);
+    const day = dayNumber(local);
+    const inRange = (fromDay === null || day >= fromDay) && (toDay === null || day <= toDay);
+    // Every finished session counts, even one that rounds to zero minutes...
     const entry = perGame.get(session.gameId) ?? { minutes: 0, sessions: 0 };
     entry.sessions++;
     perGame.set(session.gameId, entry);
+    const rangeEntry = rangeGame.get(session.gameId) ?? { minutes: 0, sessions: 0 };
+    if (inRange) {
+      sessionCount++;
+      rangeEntry.sessions++;
+      rangeGame.set(session.gameId, rangeEntry);
+    }
     // ...but only real time feeds the time-based statistics.
+    const estimated =
+      session.source === "steam" ||
+      session.source === "playnite_import" ||
+      session.source === "steam_import";
+    // A short timer rounds to zero minutes but is still a sitting, so it counts as a sample.
+    if (inRange && !estimated) realDurations.push(minutes);
     if (minutes <= 0) continue;
-    const local = toLocal(session.startedAt);
-    const estimated = session.source === "steam" || session.source === "playnite_import";
 
+    entry.minutes += minutes;
+    // Hours played before tracking began belong to no particular week: they count in totals and
+    // per-game figures but stay out of the weekly and monthly charts.
+    if (session.source !== "steam_import") {
+      addToDays(weekMinutes, new Date(weekStart(local) * DAY_MS), minutes);
+      addToDays(monthMinutes, new Date(monthStart(local) * DAY_MS), minutes);
+    }
+    if (!estimated) activeDays.add(day);
+
+    if (!inRange) continue;
     totalMinutes += minutes;
+    rangeEntry.minutes += minutes;
     if (!estimated && (!longest || minutes > longest.minutes)) {
       longest = { gameId: session.gameId, minutes };
     }
-    entry.minutes += minutes;
-
     const game = gameById.get(session.gameId);
     for (const genre of game?.genres ?? []) {
       perGenre.set(genre, (perGenre.get(genre) ?? 0) + minutes);
@@ -241,10 +321,13 @@ export function computePlayStats(
     for (const platform of game?.platforms ?? []) {
       perPlatform.set(platform, (perPlatform.get(platform) ?? 0) + minutes);
     }
-
-    addToDays(weekMinutes, new Date(weekStart(local) * DAY_MS), minutes);
-    addToDays(monthMinutes, new Date(monthStart(local) * DAY_MS), minutes);
-    if (!estimated) activeDays.add(dayNumber(local));
+    // Estimates say nothing about when or how long one sitting lasted.
+    if (!estimated) {
+      dayMinutes.set(day, (dayMinutes.get(day) ?? 0) + minutes);
+      perWeekday[(day + 3) % 7] = (perWeekday[(day + 3) % 7] ?? 0) + minutes;
+      const hour = local.getUTCHours();
+      perHour[hour] = (perHour[hour] ?? 0) + minutes;
+    }
   }
 
   const localNow = toLocal(now);
@@ -261,7 +344,7 @@ export function computePlayStats(
     perMonth.push({ start: dayToDateString(first), minutes: monthMinutes.get(first) ?? 0 });
   }
 
-  const topGames: PlayTimeByGame[] = [...perGame.entries()]
+  const topGames: PlayTimeByGame[] = [...rangeGame.entries()]
     .filter(([, value]) => value.minutes > 0)
     .map(([gameId, value]) => {
       const game = gameById.get(gameId);
@@ -302,7 +385,32 @@ export function computePlayStats(
 
   const { current, longest: longestStreak } = streaks(activeDays, dayNumber(localNow));
 
+  const today = dayNumber(localNow);
+  const heatEnd = toDay === null ? today : Math.min(toDay, today);
+  const earliest = weekStart(new Date(heatEnd * DAY_MS)) - (HEATMAP_WEEKS - 1) * 7;
+  const heatStart = Math.max(fromDay ?? earliest, earliest);
+  const heatDays: PlayTimeBucket[] = [];
+  for (let d = heatStart; d <= heatEnd; d++) {
+    heatDays.push({ start: dayToDateString(d), minutes: dayMinutes.get(d) ?? 0 });
+  }
+
+  const sorted = [...realDurations].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  const median =
+    sorted.length === 0
+      ? 0
+      : sorted.length % 2
+        ? (sorted[middle] ?? 0)
+        : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
+  const buckets = DURATION_BUCKETS.map((b) => ({ label: b.label, count: 0 }));
+  for (const minutes of sorted) {
+    const index = DURATION_BUCKETS.findIndex((b) => minutes < b.max);
+    const bucket = buckets[index];
+    if (bucket) bucket.count++;
+  }
+
   return {
+    range: { from: range.from ?? null, to: range.to ?? null },
     totalMinutes,
     sessionCount,
     longestSession: longest
@@ -320,5 +428,54 @@ export function computePlayStats(
     topPlatforms: topEntries(perPlatform, TOP_TAGS),
     perWeek,
     perMonth,
+    sessionStats: {
+      sampleSize: sorted.length,
+      averageMinutes:
+        sorted.length === 0 ? 0 : Math.round(sorted.reduce((a, b) => a + b, 0) / sorted.length),
+      medianMinutes: Math.round(median),
+      buckets,
+    },
+    heatmap: { days: heatDays, perWeekday, perHour },
   };
+}
+
+/**
+ * The finished sessions that started inside `range`, in the viewer's time zone, for the export.
+ * A running timer has no end yet and is left out.
+ */
+export function sessionsInRange<T extends PlaySessionInput>(
+  sessions: readonly T[],
+  zone: PlayStatsZone,
+  range: PlayStatsRange
+): T[] {
+  const toLocal = localizer(zone);
+  const fromDay = range.from ? Date.parse(`${range.from}T00:00:00Z`) / DAY_MS : null;
+  const toDay = range.to ? Date.parse(`${range.to}T00:00:00Z`) / DAY_MS : null;
+  return sessions.filter((session) => {
+    if (!session.endedAt) return false;
+    const day = dayNumber(toLocal(session.startedAt));
+    return (fromDay === null || day >= fromDay) && (toDay === null || day <= toDay);
+  });
+}
+
+/** Maps an instant to its local calendar day number (days since the epoch) in the viewer's zone. */
+export function localDayNumber(zone: PlayStatsZone): (date: Date) => number {
+  const toLocal = localizer(zone);
+  return (date) => dayNumber(toLocal(date));
+}
+
+/** `YYYY-MM-DD` of a local day number. */
+export function formatDayNumber(day: number): string {
+  return dayToDateString(day);
+}
+
+/** Local Monday (day number) of the week containing the local day number. */
+export function weekStartOfDay(day: number): number {
+  return day - ((day + 3) % 7);
+}
+
+/** First day (day number) of the month containing the local day number. */
+export function monthStartOfDay(day: number): number {
+  const date = new Date(day * DAY_MS);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / DAY_MS;
 }

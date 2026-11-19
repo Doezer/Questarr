@@ -556,5 +556,107 @@ describe("Play session routes", () => {
       const response = await request(app).get("/api/stats/play-time?tz=abc");
       expect(response.status).toBe(400);
     });
+
+    it("narrows the figures to from/to and validates them", async () => {
+      vi.mocked(storage.getUserPlaySessions).mockResolvedValue([
+        makeSession({
+          startedAt: new Date("2026-01-10T10:00:00Z"),
+          endedAt: new Date("2026-01-10T11:00:00Z"),
+        }),
+        makeSession({
+          startedAt: new Date("2026-03-10T10:00:00Z"),
+          endedAt: new Date("2026-03-10T10:30:00Z"),
+        }),
+      ]);
+      vi.mocked(storage.getUserGames).mockResolvedValue([makeGame()]);
+      const ok = await request(app).get(
+        "/api/stats/play-time?timeZone=UTC&from=2026-03-01&to=2026-03-31"
+      );
+      expect(ok.status).toBe(200);
+      expect(ok.body.totalMinutes).toBe(30);
+      expect(ok.body.range).toEqual({ from: "2026-03-01", to: "2026-03-31" });
+      expect((await request(app).get("/api/stats/play-time?from=2026-02-30")).status).toBe(400);
+      expect(
+        (await request(app).get("/api/stats/play-time?from=2026-04-01&to=2026-03-01")).status
+      ).toBe(400);
+    });
+  });
+
+  describe("GET /api/stats/play-time/export", () => {
+    beforeEach(() => {
+      vi.mocked(storage.getUserPlaySessions).mockResolvedValue([
+        makeSession({
+          startedAt: new Date("2026-03-10T10:00:00Z"),
+          endedAt: new Date("2026-03-10T10:30:00Z"),
+          source: "timer",
+        }),
+        makeSession({ startedAt: new Date("2026-03-11T10:00:00Z"), endedAt: null }),
+      ]);
+      vi.mocked(storage.getUserGames).mockResolvedValue([
+        makeGame({ title: '=HYPERLINK("x"), y' }),
+      ]);
+    });
+
+    it("returns CSV with spreadsheet formulas neutralised and running timers left out", async () => {
+      const response = await request(app).get("/api/stats/play-time/export?timeZone=UTC");
+      expect(response.status).toBe(200);
+      expect(response.headers["content-type"]).toContain("text/csv");
+      expect(response.headers["content-disposition"]).toContain("attachment");
+      const lines = response.text.trim().split("\r\n");
+      expect(lines[0]).toBe("game,source,started_at,ended_at,minutes");
+      expect(lines).toHaveLength(2);
+      expect(lines[1]).toBe(
+        `"'=HYPERLINK(""x""), y",timer,2026-03-10T10:00:00.000Z,2026-03-10T10:30:00.000Z,30`
+      );
+    });
+
+    it("returns JSON and respects the range", async () => {
+      const json = await request(app).get("/api/stats/play-time/export?format=json&timeZone=UTC");
+      expect(json.status).toBe(200);
+      expect(json.body.sessions).toHaveLength(1);
+      expect(json.body.sessions[0]).toMatchObject({ source: "timer", minutes: 30 });
+      const empty = await request(app).get(
+        "/api/stats/play-time/export?format=json&timeZone=UTC&from=2026-04-01"
+      );
+      expect(empty.body.sessions).toEqual([]);
+      expect((await request(app).get("/api/stats/play-time/export?format=xml")).status).toBe(400);
+    });
+  });
+
+  describe("GET /api/stats/backlog", () => {
+    it("computes the burn-down from the status history, the sessions and the games", async () => {
+      vi.mocked(storage.getUserGameStatusEvents).mockResolvedValue([
+        {
+          id: "e1",
+          gameId,
+          userId: OWNER_ID,
+          status: "owned",
+          createdAt: new Date(Date.now() - 20 * 86_400_000),
+        },
+      ]);
+      vi.mocked(storage.getUserPlaySessions).mockResolvedValue([]);
+      vi.mocked(storage.getUserGames).mockResolvedValue([
+        makeGame({ status: "owned", timeToBeatNormally: 10 }),
+      ]);
+
+      const response = await request(app).get("/api/stats/backlog?timeZone=UTC");
+
+      expect(response.status).toBe(200);
+      expect(response.body.current).toEqual({
+        backlog: 1,
+        remainingHours: 10,
+        withoutEstimate: 0,
+      });
+      expect(response.body.perWeek).toHaveLength(12);
+      expect(response.body.perMonth).toHaveLength(12);
+      expect(response.body.perWeek.at(-1).backlog).toBe(1);
+      expect(response.body.projection.clearedOn).toBeNull();
+      expect(storage.getUserGameStatusEvents).toHaveBeenCalledWith(OWNER_ID);
+    });
+
+    it("rejects an invalid time zone", async () => {
+      expect((await request(app).get("/api/stats/backlog?timeZone=Not%2FAZone")).status).toBe(400);
+      expect((await request(app).get("/api/stats/backlog?tz=abc")).status).toBe(400);
+    });
   });
 });

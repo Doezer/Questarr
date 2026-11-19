@@ -64,10 +64,53 @@ The **Statistics** page has a **Play time** section with:
 - hours per **week** (last 12) or **month** (last 12)
 - your **most played** games, each against its IGDB estimate
 - time by **genre** and **platform**
+- a **heatmap** of play per day (the last 53 weeks at most), with the split by weekday and by time of day
+- **session length**: average, median and how many sessions fall in each length band
+- a **range** selector and **Export CSV / JSON** buttons (see below)
+
+### Range and export
+
+The **Range** selector (all time, last 7, 30 or 90 days, last 12 months, or a custom from/to day) narrows
+the total, session count, longest session, most played, genre, platform, heatmap and session-length
+figures. The weekly and monthly charts, the streaks and the finish-by goals always look at everything,
+because they are about the present. The days are your local days (see below).
+
+The heatmap, the weekday and time-of-day split and the session-length figures use only sessions with a
+real start and length (timer, manual, Playnite). Estimated Steam and imported sessions count in the totals
+but are left out of those, for the same reason as the longest session.
+
+**Export CSV** and **Export JSON** download the finished sessions of the selected range
+(times in UTC). The CSV columns are `game, source, started_at, ended_at, minutes`; the JSON file is
+`{ "sessions": [...] }` with the fields `game`, `source`, `startedAt`, `endedAt` and `minutes`. A timer still
+running is not included.
 
 Days, weeks (starting Monday) and months follow your browser's time zone (its IANA name, such as
 `Europe/Paris`, so daylight saving time is applied to each session on its own date). A session counts
 on the day it started. A timer that is still running is not counted until you stop it.
+
+## Backlog burn-down
+
+Below the play time figures, **Backlog burn-down** shows how the pile of games you own but have not
+finished shrinks over time. The **backlog** is every game that is **Owned** or **Playing**; a
+**Completed**, **Shelved**, **Wanted** or **Downloading** game is not in it.
+
+- **In Backlog**, **Time Left** (the IGDB "normally" Time to Beat of each backlog game minus the time
+  you played on it, never below zero; games with no estimate are counted separately and left out),
+  **Pace** (hours per day over the last 28 days, all games) and **Cleared By**.
+- A chart over the last 12 weeks or months: **Games** (the size of the backlog at the end of each week
+  or month, with the games completed in it as bars) or **Hours** (time still to play). Weeks start on
+  Monday and days follow your browser's time zone, like the other charts.
+- **Cleared By** divides the time left by your pace. It does not count games you add later, and it is
+  left out when there is no recent play or the date is more than ten years away.
+
+Questarr records each status change of a game (and the day it was added) to draw this. Games that
+already existed when the feature arrived got one starting point each from the day they were added
+(and the completion day for completed games), so the history before that is an estimate: a game you
+bought long after adding it to your wishlist counts from the day it was added. The history is deleted with its game and is included
+when you move from SQLite to Postgres.
+
+This shares the status history with any future weekly or monthly backlog goal
+([Questarr-mgmt#80](https://github.com/Doezer/Questarr-mgmt/issues/80)).
 
 ## Playnite
 
@@ -99,19 +142,30 @@ estimated"). It needs a saved Steam ID, a Steam Web API key (saved in **Settings
   long one sitting lasted. A sync that finds 90 new minutes adds one 90-minute session ending at the sync
   time, whatever the gap since the previous sync. Charts place it on its inferred start date, which can
   differ from the day you actually played, so read weekly and monthly totals with that in mind.
+- **Import play time from before tracking**: the same card has **Preview import**. It lists, per
+  game, what Steam holds (`playtime_forever`) minus what Questarr already recorded, and **Import**
+  turns the games you leave ticked into one estimated session each (source `steam_import`, shown as
+  "Steam · before tracking") ending on Steam's last-played date, or on the import time when Steam has
+  none. It never runs by itself, works whether or not the live sync is on, imports a game only once,
+  skips a game with a running timer, and ignores gaps under ten minutes. Minutes come from Steam at
+  import time, never from the browser. If the live sync already tracks the game, its baseline moves to
+  Steam's total so the next sync does not add the same minutes again. These sessions count in the
+  totals, most-played list, genre and platform figures, but stay out of the longest session, the
+  streaks and the weekly and monthly charts. When Playnite imports the same game, whichever runs
+  first wins: the other subtracts the time already recorded.
 - Other launchers (GOG, Epic, EA app, Ubisoft Connect) are not read directly. Play them through Playnite
   to get sessions from its extension.
 
 ## What is stored
 
 Each session records the game, when it started, when it ended (empty while the timer runs) and its
-source: `timer`, `manual`, `playnite`, `playnite_import` or `steam` (both estimated, see above). The Steam sync keeps its
+source: `timer`, `manual`, `playnite`, `playnite_import`, `steam_import` or `steam` (the last three are estimated, see above). The Steam sync keeps its
 last totals per game in a small per-user document in the system configuration, so it needs no table. Sessions are deleted with their game. They are included when you move from SQLite to
 Postgres (`scripts/sqlite-to-pg.ts`).
 
 A goal is one date (`finish_by`, `YYYY-MM-DD`) on the game itself, with no table of its own.
 
-Not included yet: importing historical playtime from Steam (the first sync only notes your totals) or Playnite (the extension only reports new sessions), weekly-hours goals and missed-goal notifications. See
+Not included yet: weekly-hours goals and missed-goal notifications. See
 [Questarr-mgmt#71](https://github.com/Doezer/Questarr-mgmt/issues/71).
 
 ## GOG play time from Playnite

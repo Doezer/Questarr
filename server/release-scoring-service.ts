@@ -267,7 +267,21 @@ export function trustFor(
 }
 
 /**
- * Whether auto-search may take a release (and the "results available" badge counts it): it is
+ * Whether a release counts as a result for the "results available" badge and its notification:
+ * accepted, and a clear title match or an ambiguous one (the title plus an unconfirmed group
+ * suffix, "Game-NEWGROUP"). Taking it unattended stays with {@link isAutoEligible}.
+ */
+export function isResultEligible(evaluation: ReleaseEvaluation): boolean {
+  return (
+    evaluation.accepted &&
+    (evaluation.titleMatch === "exact" ||
+      evaluation.titleMatch === "contains" ||
+      evaluation.titleMatch === "ambiguous")
+  );
+}
+
+/**
+ * Whether auto-search may take a release unattended: it is
  * accepted and a clear title match. "Game-NEWGROUP" reads as ambiguous when the group is not a
  * known one; a group the user explicitly preferred is a verified suffix, as it was for the old
  * preferred-groups filter.

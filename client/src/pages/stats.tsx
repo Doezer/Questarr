@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import ShareDiscordDialog from "@/components/ShareDiscordDialog";
 import DiscordWebhookSettings from "@/components/DiscordWebhookSettings";
 import PlayTimeStats from "@/components/PlayTimeStats";
+import BacklogBurndown from "@/components/BacklogBurndown";
 
 export default function StatsPage() {
   const [shareOpen, setShareOpen] = useState(false);
@@ -253,6 +254,8 @@ export default function StatsPage() {
       </div>
 
       <PlayTimeStats />
+
+      <BacklogBurndown />
     </div>
   );
 }

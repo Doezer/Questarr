@@ -19,7 +19,14 @@ import {
   type GamePlaySession,
   type User,
 } from "../shared/schema.js";
-import { computePlayStats, isValidTimeZone } from "../shared/play-stats.js";
+import {
+  computePlayStats,
+  isValidDateString,
+  isValidTimeZone,
+  sessionMinutes,
+  sessionsInRange,
+  type PlayStatsRange,
+} from "../shared/play-stats.js";
 
 const router = Router();
 
@@ -438,13 +445,8 @@ function hasValidOffset(value: unknown): boolean {
   return minutes >= -840 && minutes <= 840;
 }
 
-/**
- * Play-time analytics. Days follow the viewer's clock: `timeZone` (IANA name, DST-aware) wins over
- * `tz` (the browser's `getTimezoneOffset()`, kept for older clients).
- */
-router.get(
-  "/api/stats/play-time",
-  authenticateToken,
+/** Validators shared by the stats and export routes: viewer time zone and optional local-day range. */
+const zoneAndRangeValidators = [
   query("tz").optional().isInt({ min: -840, max: 840 }).withMessage("Invalid time zone offset"),
   query("timeZone")
     .optional()
@@ -453,21 +455,110 @@ router.get(
     // A zone this runtime does not know is tolerated when a valid `tz` offset comes along.
     .custom((value: string, { req }) => isValidTimeZone(value) || hasValidOffset(req.query?.tz))
     .withMessage("Invalid time zone"),
+  query("from")
+    .optional()
+    .custom((value: unknown) => typeof value === "string" && isValidDateString(value))
+    .withMessage("from must be a day written YYYY-MM-DD"),
+  query("to")
+    .optional()
+    .custom((value: unknown) => typeof value === "string" && isValidDateString(value))
+    .withMessage("to must be a day written YYYY-MM-DD")
+    .custom((value: string, { req }) => {
+      const from = req.query?.from;
+      return typeof from !== "string" || !isValidDateString(from) || from <= value;
+    })
+    .withMessage("from must not be after to"),
+];
+
+function viewerZone(req: Request): string | number {
+  const offset = typeof req.query.tz === "string" ? Number.parseInt(req.query.tz, 10) : 0;
+  const named = req.query.timeZone;
+  return typeof named === "string" && isValidTimeZone(named) ? named : offset;
+}
+
+function requestedRange(req: Request): PlayStatsRange {
+  return {
+    from: typeof req.query.from === "string" ? req.query.from : null,
+    to: typeof req.query.to === "string" ? req.query.to : null,
+  };
+}
+
+/**
+ * Play-time analytics. Days follow the viewer's clock: `timeZone` (IANA name, DST-aware) wins over
+ * `tz` (the browser's `getTimezoneOffset()`, kept for older clients). `from` and `to` (local days,
+ * inclusive) narrow the totals, most played, genre, platform, session and heatmap figures.
+ */
+router.get(
+  "/api/stats/play-time",
+  authenticateToken,
+  ...zoneAndRangeValidators,
   validateRequest,
   async (req: Request, res: Response) => {
     try {
       const user = req.user as User;
-      const offset = typeof req.query.tz === "string" ? Number.parseInt(req.query.tz, 10) : 0;
-      const named = req.query.timeZone;
-      const zone = typeof named === "string" && isValidTimeZone(named) ? named : offset;
       const [sessions, games] = await Promise.all([
         storage.getUserPlaySessions(user.id),
         storage.getUserGames(user.id, true),
       ]);
-      return res.json(computePlayStats(sessions, games, new Date(), zone));
+      return res.json(
+        computePlayStats(sessions, games, new Date(), viewerZone(req), requestedRange(req))
+      );
     } catch (error) {
       routesLogger.error({ error }, "Error computing play-time stats");
       return res.status(500).json({ error: "Failed to compute play-time stats" });
+    }
+  }
+);
+
+/** Cells starting with these characters are read as formulas by spreadsheet programs. */
+function csvCell(value: string | number): string {
+  let text = String(value);
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/**
+ * Downloads the finished sessions of the selected range as CSV (default) or JSON. Same `from`,
+ * `to` and time zone parameters as the statistics.
+ */
+router.get(
+  "/api/stats/play-time/export",
+  authenticateToken,
+  query("format").optional().isIn(["csv", "json"]).withMessage("format must be csv or json"),
+  ...zoneAndRangeValidators,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user as User;
+      const [sessions, games] = await Promise.all([
+        storage.getUserPlaySessions(user.id),
+        storage.getUserGames(user.id, true),
+      ]);
+      const titles = new Map(games.map((g) => [g.id, g.title]));
+      const rows = sessionsInRange(sessions, viewerZone(req), requestedRange(req))
+        .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime())
+        .map((s) => ({
+          game: titles.get(s.gameId) ?? "Unknown game",
+          source: s.source ?? "manual",
+          startedAt: s.startedAt.toISOString(),
+          endedAt: (s.endedAt as Date).toISOString(),
+          minutes: sessionMinutes(s.startedAt, s.endedAt as Date),
+        }));
+      res.setHeader("Cache-Control", "no-store");
+      if (req.query.format === "json") {
+        res.setHeader("Content-Disposition", 'attachment; filename="questarr-play-sessions.json"');
+        return res.json({ sessions: rows });
+      }
+      const header = "game,source,started_at,ended_at,minutes";
+      const lines = rows.map((r) =>
+        [r.game, r.source, r.startedAt, r.endedAt, r.minutes].map(csvCell).join(",")
+      );
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="questarr-play-sessions.csv"');
+      return res.send([header, ...lines].join("\r\n") + "\r\n");
+    } catch (error) {
+      routesLogger.error({ error }, "Error exporting play sessions");
+      return res.status(500).json({ error: "Failed to export play sessions" });
     }
   }
 );

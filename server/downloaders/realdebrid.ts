@@ -59,8 +59,14 @@ interface StagingJob {
   bytesDone: number;
   bytesTotal: number;
   startedAt: number;
+  attempts: number;
+  failedAt?: number;
   error?: string;
 }
+
+const MAX_STAGING_ATTEMPTS = 5;
+/** Wait before retry n (1-based): 1, 2, 4... minutes, capped at 10. */
+const retryDelayMs = (attempts: number) => Math.min(10, 2 ** (attempts - 1)) * 60_000;
 
 // Staging outlives any one client instance (the manager builds a fresh client per call),
 // so progress is tracked per process, keyed by downloader and torrent.
@@ -209,17 +215,26 @@ export class RealDebridClient implements DownloaderClient {
   private startStaging(torrent: RealDebridTorrent): StagingJob {
     const key = jobKey(this.downloader.id, torrent.id);
     const existing = stagingJobs.get(key);
-    if (existing) return existing;
+    if (existing) {
+      const retryable =
+        existing.state === "failed" &&
+        existing.attempts < MAX_STAGING_ATTEMPTS &&
+        Date.now() - (existing.failedAt ?? 0) >= retryDelayMs(existing.attempts);
+      if (!retryable) return existing;
+    }
 
+    // Retrying resumes: files already fully copied are skipped by downloadFile.
     const job: StagingJob = {
       state: "running",
       bytesDone: 0,
       bytesTotal: torrent.bytes,
       startedAt: Date.now(),
+      attempts: (existing?.attempts ?? 0) + 1,
     };
     stagingJobs.set(key, job);
     this.stageFiles(torrent, job).catch((error) => {
       job.state = "failed";
+      job.failedAt = Date.now();
       job.error = getErrorMessage(error);
       downloadersLogger.error(
         { error, downloaderId: this.downloader.id, torrentId: torrent.id },
@@ -352,7 +367,8 @@ export class RealDebridClient implements DownloaderClient {
     // The account may hold torrents Questarr never added: never copy those on its own.
     if (!tracked) return { ...base, status: "paused", progress: 50 };
     const job = this.startStaging(torrent);
-    if (job.state === "failed") {
+    // A failed copy is retried with a backoff, so a transient error stays "downloading".
+    if (job.state === "failed" && job.attempts >= MAX_STAGING_ATTEMPTS) {
       return { ...base, status: "error", progress: 50, error: job.error ?? "Staging failed" };
     }
     const fraction = job.bytesTotal > 0 ? Math.min(1, job.bytesDone / job.bytesTotal) : 0;

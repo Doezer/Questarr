@@ -198,6 +198,27 @@ describe("RealDebridClient", () => {
     await expect(fs.access(path.join(stagingRoot, "OTHER"))).rejects.toThrow();
   });
 
+  it("keeps a transiently failed copy as downloading instead of reporting an error", async () => {
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/torrents/info/T9")) {
+        return json({
+          id: "T9",
+          filename: "G",
+          bytes: 1,
+          progress: 100,
+          status: "downloaded",
+          files: [{ id: 1, path: "/g.bin", bytes: 1, selected: 1 }],
+          links: ["https://real-debrid.com/d/X"],
+        });
+      }
+      throw new Error("network blip");
+    });
+    const client = new RealDebridClient(createDownloader());
+    await client.getDownloadStatus("T9");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect((await client.getDownloadStatus("T9"))?.status).toBe("downloading");
+  });
+
   it("never writes outside the staging folder", async () => {
     safeFetchMock.mockImplementation(async (url: string) => {
       if (url.includes("/torrents/info/T2")) {

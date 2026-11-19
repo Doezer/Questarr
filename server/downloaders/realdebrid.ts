@@ -305,16 +305,19 @@ export class RealDebridClient implements DownloaderClient {
       );
       const segments = toSafeSegments(paths?.[index] ?? unrestricted.filename);
       if (segments.length === 0) throw new Error("Real-Debrid returned an empty file name");
-      const target = path.join(dir, ...segments);
+      let target = path.join(dir, ...segments);
       if (!target.startsWith(dir + path.sep)) {
         throw new Error(`Refusing to write outside the staging folder: ${target}`);
       }
-      // Two different remote files must never land on the same local path.
-      const collisionKey = target.toLowerCase();
-      if (used.has(collisionKey)) {
-        throw new Error(`Two files map to the same local path: ${segments.join("/")}`);
+      // Two different remote files must never land on the same local path, even on a
+      // case-insensitive filesystem: rename a case-only clash with a numeric suffix.
+      if (used.has(target.toLowerCase())) {
+        const { dir: parent, name, ext } = path.parse(target);
+        let n = 2;
+        while (used.has(path.join(parent, `${name} (${n})${ext}`).toLowerCase())) n++;
+        target = path.join(parent, `${name} (${n})${ext}`);
       }
-      used.add(collisionKey);
+      used.add(target.toLowerCase());
       await this.downloadFile(unrestricted, target, dir, job);
     }
 
@@ -585,7 +588,11 @@ export class RealDebridClient implements DownloaderClient {
 
   /** The list endpoint omits `files` and `links`; staging needs them, so fetch full info. */
   private async hydrate(torrent: RealDebridTorrent, tracked: boolean): Promise<DownloadStatus> {
-    if (torrent.status !== "downloaded") return this.toStatus(torrent, tracked);
+    // Untracked or already-staged torrents never use files/links: skip the per-torrent call so a
+    // large account cannot trigger a burst of requests (and 429s) on every poll.
+    if (torrent.status !== "downloaded" || !tracked || (await this.isStaged(torrent.id))) {
+      return this.toStatus(torrent, tracked);
+    }
     const full = await this.json<RealDebridTorrent>(
       `/torrents/info/${encodeURIComponent(torrent.id)}`
     );

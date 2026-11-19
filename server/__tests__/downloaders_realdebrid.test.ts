@@ -255,7 +255,7 @@ describe("RealDebridClient", () => {
     links: files.map((_f, i) => `https://real-debrid.com/d/${i}`),
   });
 
-  it("fails instead of completing when two files sanitize to the same path", async () => {
+  it("keeps both files when two files sanitize to the same path", async () => {
     const torrent = stagingFixture("T4", [
       { path: "/G/a?.bin", bytes: 1 },
       { path: "/G/a*.bin", bytes: 1 },
@@ -270,7 +270,9 @@ describe("RealDebridClient", () => {
     const client = new RealDebridClient(createDownloader());
     await client.getDownloadStatus("T4");
     await new Promise((resolve) => setTimeout(resolve, 50));
-    await expect(fs.access(path.join(stagingRoot, "T4", STAGING_MARKER))).rejects.toThrow();
+    await fs.access(path.join(stagingRoot, "T4", STAGING_MARKER));
+    const names = (await fs.readdir(path.join(stagingRoot, "T4", "G"))).sort();
+    expect(names).toHaveLength(2);
   });
 
   it("keeps a payload named like the marker from completing the download", async () => {

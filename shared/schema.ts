@@ -1133,6 +1133,10 @@ export const insertDownloaderSchema = createInsertSchema(downloaders, {
   .refine((data) => !(data.type === "sabnzbd" && !data.username), {
     message: "API key is required for SABnzbd",
     path: ["username"],
+  })
+  .refine((data) => !(data.type === "realdebrid" && !data.downloadPath), {
+    message: "A staging path is required for Real-Debrid",
+    path: ["downloadPath"],
   });
 
 export const insertGameDownloadSchema = createInsertSchema(gameDownloads).omit({

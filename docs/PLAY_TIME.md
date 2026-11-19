@@ -80,7 +80,9 @@ real start and length (timer, manual, Playnite). Estimated Steam and imported se
 but are left out of those, for the same reason as the longest session.
 
 **Export CSV** and **Export JSON** download the finished sessions of the selected range
-(`game, source, started_at, ended_at, minutes`, times in UTC). A timer still running is not included.
+(times in UTC). The CSV columns are `game, source, started_at, ended_at, minutes`; the JSON file is
+`{ "sessions": [...] }` with the fields `game`, `source`, `startedAt`, `endedAt` and `minutes`. A timer still
+running is not included.
 
 Days, weeks (starting Monday) and months follow your browser's time zone (its IANA name, such as
 `Europe/Paris`, so daylight saving time is applied to each session on its own date). A session counts

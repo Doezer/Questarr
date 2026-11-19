@@ -291,8 +291,10 @@ export function computePlayStats(
       rangeGame.set(session.gameId, rangeEntry);
     }
     // ...but only real time feeds the time-based statistics.
-    if (minutes <= 0) continue;
     const estimated = session.source === "steam" || session.source === "playnite_import";
+    // A short timer rounds to zero minutes but is still a sitting, so it counts as a sample.
+    if (inRange && !estimated) realDurations.push(minutes);
+    if (minutes <= 0) continue;
 
     entry.minutes += minutes;
     addToDays(weekMinutes, new Date(weekStart(local) * DAY_MS), minutes);
@@ -314,7 +316,6 @@ export function computePlayStats(
     }
     // Estimates say nothing about when or how long one sitting lasted.
     if (!estimated) {
-      realDurations.push(minutes);
       dayMinutes.set(day, (dayMinutes.get(day) ?? 0) + minutes);
       perWeekday[(day + 3) % 7] = (perWeekday[(day + 3) % 7] ?? 0) + minutes;
       const hour = local.getUTCHours();

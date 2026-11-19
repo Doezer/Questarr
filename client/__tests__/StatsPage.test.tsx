@@ -14,7 +14,10 @@ vi.mock("@/hooks/use-mobile", () => ({
 // Stub apiRequest so game and discord-config queries resolve without network
 vi.mock("@/lib/queryClient", () => ({
   apiRequest: vi.fn(async (_method: string, url: string) => ({
-    json: async () => (url.includes("/api/stats/play-time") ? { sessionCount: 0, goals: [] } : []),
+    json: async () =>
+      url.includes("/api/stats/play-time")
+        ? { sessionCount: 0, goals: [], range: { from: null, to: null } }
+        : [],
   })),
 }));
 

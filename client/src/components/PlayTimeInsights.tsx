@@ -110,7 +110,7 @@ export function PlayTimeHeatmap({ heatmap }: Readonly<{ heatmap: PlayHeatmap }>)
     return { labels, values };
   }, [heatmap.perHour]);
 
-  const hasPlay = max > 0;
+  const hasPlay = heatmap.perWeekday.some((minutes) => minutes > 0);
 
   return (
     <Card data-testid="play-heatmap">

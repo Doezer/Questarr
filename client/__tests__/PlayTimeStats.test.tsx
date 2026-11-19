@@ -161,4 +161,28 @@ describe("PlayTimeStats", () => {
     expect(String(fetchSpy.mock.calls[0]?.[0])).toContain("format=csv");
     fetchSpy.mockRestore();
   });
+
+  it("keeps the all-time charts when the selected range has no sessions", async () => {
+    renderStats({
+      ...empty,
+      range: { from: "2025-01-01", to: "2025-01-31" },
+      longestStreakDays: 4,
+      perWeek: [{ start: "2026-11-02", minutes: 120 }],
+    });
+    expect(await screen.findByText(/No play sessions in this range/)).toBeInTheDocument();
+    expect(screen.getByText("Hours played")).toBeInTheDocument();
+    expect(screen.getByText("best 4")).toBeInTheDocument();
+  });
+
+  it("keeps the range controls and offers a retry when the request fails", async () => {
+    apiRequest.mockRejectedValue(new Error("boom"));
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <PlayTimeStats />
+      </QueryClientProvider>
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Could not load/);
+    expect(screen.getByLabelText("Range")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
 });

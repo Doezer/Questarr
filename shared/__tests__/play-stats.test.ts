@@ -269,6 +269,16 @@ describe("computePlayStats range, heatmap and session statistics", () => {
     expect(stats.heatmap.perHour[10]).toBe(60);
   });
 
+  it("counts a timer that rounds to zero minutes as a duration sample", () => {
+    const stats = computePlayStats([session("a", "2026-11-04T10:00:00Z", 0.3)], games, NOW, 0, {
+      from: "2026-11-01",
+    });
+    expect(stats.sessionStats.sampleSize).toBe(1);
+    expect(stats.sessionStats.averageMinutes).toBe(0);
+    expect(stats.sessionStats.buckets[0]?.count).toBe(1);
+    expect(stats.totalMinutes).toBe(0);
+  });
+
   it("caps the heatmap at 53 weeks and ends today when the range is open", () => {
     const stats = computePlayStats(sessions, games, NOW);
     expect(stats.heatmap.days.at(-1)?.start).toBe("2026-11-05");

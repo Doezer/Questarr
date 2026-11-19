@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock, Download, Flame, Hourglass, Target, Timer } from "lucide-react";
 import { Link } from "wouter";
 import { apiFetch, apiRequest, throwIfResNotOk } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { PLAY_RANGE_LABELS, presetBounds, type PlayRangePreset } from "@/lib/play-range";
+import { localDay, PLAY_RANGE_LABELS, presetBounds, type PlayRangePreset } from "@/lib/play-range";
 import { PlayTimeHeatmap, PlaySessionLengths } from "@/components/PlayTimeInsights";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,11 +80,24 @@ export default function PlayTimeStats() {
   const { toast } = useToast();
   const [preset, setPreset] = useState<PlayRangePreset>("all");
   const [custom, setCustom] = useState({ from: "", to: "" });
+  // The presets end "today", so the window has to move when the local day rolls over.
+  const [today, setToday] = useState(() => localDay(new Date()));
+  useEffect(() => {
+    const refresh = () => setToday(localDay(new Date()));
+    const timer = setInterval(refresh, 60_000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
   const bounds = useMemo(
     () => presetBounds(preset, new Date(), custom),
-    // The window moves with the day, not with every render.
+    // `today` is not read inside, it only makes the window move at midnight.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [preset, custom.from, custom.to]
+    [preset, custom.from, custom.to, today]
   );
   const customInvalid =
     preset === "custom" && !!custom.from && !!custom.to && custom.from > custom.to;
@@ -97,7 +110,7 @@ export default function PlayTimeStats() {
     return params.toString();
   }, [tz, timeZone, bounds]);
 
-  const { data } = useQuery<PlayTimeStatsData>({
+  const { data, isPlaceholderData, isError, refetch } = useQuery<PlayTimeStatsData>({
     queryKey: ["/api/stats/play-time", tz, timeZone, bounds.from ?? null, bounds.to ?? null],
     queryFn: async () => (await apiRequest("GET", `/api/stats/play-time?${search}`)).json(),
     enabled: !customInvalid,
@@ -136,9 +149,8 @@ export default function PlayTimeStats() {
     }));
   }, [data, range]);
 
-  if (!data) return null;
-
-  const filtered = preset !== "all";
+  // Judge by the range the data was computed for, not by the selector, which may be ahead of it.
+  const filtered = data ? !!(data.range.from || data.range.to) : preset !== "all";
   const rangeBar = (
     <div className="flex flex-wrap items-end gap-3" data-testid="play-range">
       <div className="space-y-1">
@@ -206,6 +218,29 @@ export default function PlayTimeStats() {
     </div>
   );
 
+  if (!data) {
+    if (!isError) return null;
+    return (
+      <section
+        aria-labelledby="play-time-heading"
+        className="space-y-4"
+        data-testid="play-time-stats"
+      >
+        <h2 id="play-time-heading" className="flex items-center gap-2 text-xl font-semibold">
+          <Timer className="h-5 w-5 text-primary" />
+          Play time
+        </h2>
+        {rangeBar}
+        <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
+          Could not load the play time statistics.
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </div>
+      </section>
+    );
+  }
+
   const goalsCard =
     data.goals.length > 0 ? (
       <Card data-testid="play-goals">
@@ -263,17 +298,25 @@ export default function PlayTimeStats() {
 
       {rangeBar}
 
-      {data.sessionCount === 0 ? (
+      {data.sessionCount === 0 && !filtered ? (
         <>
           <p className="text-sm text-muted-foreground">
-            {filtered
-              ? "No play sessions in this range."
-              : "No play sessions yet. Start a timer on a game you are playing, or add the time on its page, and your hours show up here."}
+            No play sessions yet. Start a timer on a game you are playing, or add the time on its
+            page, and your hours show up here.
           </p>
           {goalsCard}
         </>
       ) : (
-        <>
+        <div
+          className={`space-y-4 transition-opacity ${isPlaceholderData ? "opacity-60" : ""}`}
+          aria-busy={isPlaceholderData}
+        >
+          {data.sessionCount === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No play sessions in this range. The weekly and monthly charts and the streaks below
+              still cover everything.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
             <StatsCard
               title="Time Played"
@@ -284,7 +327,11 @@ export default function PlayTimeStats() {
             <StatsCard
               title="Sessions"
               value={data.sessionCount}
-              subtitle={`avg ${formatMinutes(data.totalMinutes / data.sessionCount)}`}
+              subtitle={
+                data.sessionCount > 0
+                  ? `avg ${formatMinutes(data.totalMinutes / data.sessionCount)}`
+                  : ""
+              }
               icon={Hourglass}
             />
             <StatsCard
@@ -399,7 +446,7 @@ export default function PlayTimeStats() {
               </Card>
             </div>
           )}
-        </>
+        </div>
       )}
     </section>
   );

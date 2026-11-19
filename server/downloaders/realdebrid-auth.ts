@@ -6,7 +6,8 @@ export const REAL_DEBRID_API_BASE = "https://api.real-debrid.com/rest/1.0";
 const REAL_DEBRID_OAUTH_BASE = "https://api.real-debrid.com/oauth/v2";
 /** Public client id Real-Debrid documents for open-source applications. */
 export const REAL_DEBRID_OPEN_SOURCE_CLIENT_ID = "X245A4XAIBGVM";
-const DEVICE_GRANT_TYPE = "http://oauth.net/grant_type/device/1.0";
+// Fixed grant-type identifier defined by Real-Debrid (an opaque name, not a network request).
+const DEVICE_GRANT_TYPE = "http://oauth.net/grant_type/device/1.0"; // NOSONAR
 
 export interface RealDebridCredentials {
   accessToken: string;

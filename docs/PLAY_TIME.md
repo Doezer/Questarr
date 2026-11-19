@@ -64,6 +64,23 @@ The **Statistics** page has a **Play time** section with:
 - hours per **week** (last 12) or **month** (last 12)
 - your **most played** games, each against its IGDB estimate
 - time by **genre** and **platform**
+- a **heatmap** of play per day (the last 53 weeks at most), with the split by weekday and by time of day
+- **session length**: average, median and how many sessions fall in each length band
+- a **range** selector and **Export CSV / JSON** buttons (see below)
+
+### Range and export
+
+The **Range** selector (all time, last 7, 30 or 90 days, last 12 months, or a custom from/to day) narrows
+the total, session count, longest session, most played, genre, platform, heatmap and session-length
+figures. The weekly and monthly charts, the streaks and the finish-by goals always look at everything,
+because they are about the present. The days are your local days (see below).
+
+The heatmap, the weekday and time-of-day split and the session-length figures use only sessions with a
+real start and length (timer, manual, Playnite). Estimated Steam and imported sessions count in the totals
+but are left out of those, for the same reason as the longest session.
+
+**Export CSV** and **Export JSON** download the finished sessions of the selected range
+(`game, source, started_at, ended_at, minutes`, times in UTC). A timer still running is not included.
 
 Days, weeks (starting Monday) and months follow your browser's time zone (its IANA name, such as
 `Europe/Paris`, so daylight saving time is applied to each session on its own date). A session counts

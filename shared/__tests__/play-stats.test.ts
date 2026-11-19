@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   computePlayStats,
+  isValidDateString,
   isValidTimeZone,
+  sessionsInRange,
   sessionMinutes,
   type PlaySessionInput,
 } from "../play-stats.js";
@@ -218,5 +220,92 @@ describe("computePlayStats with estimated Steam sessions", () => {
       status: "behind",
     });
     expect(stats.goals[0]).toMatchObject({ status: "no-estimate", timeToBeatHours: null });
+  });
+});
+
+describe("computePlayStats range, heatmap and session statistics", () => {
+  const sessions = [
+    session("a", "2026-10-01T20:00:00Z", 30),
+    session("a", "2026-11-03T20:00:00Z", 90),
+    session("b", "2026-11-04T10:00:00Z", 60),
+    { ...session("a", "2026-11-04T12:00:00Z", 600), source: "steam" },
+  ];
+
+  it("narrows totals, most played and tags to the range but not goals or streaks", () => {
+    const all = computePlayStats(sessions, games, NOW);
+    const ranged = computePlayStats(sessions, games, NOW, 0, {
+      from: "2026-11-01",
+      to: "2026-11-30",
+    });
+    expect(all.totalMinutes).toBe(780);
+    expect(ranged.totalMinutes).toBe(750);
+    expect(ranged.sessionCount).toBe(3);
+    expect(ranged.topGames[0]).toMatchObject({ gameId: "a", minutes: 690 });
+    expect(ranged.range).toEqual({ from: "2026-11-01", to: "2026-11-30" });
+    expect(ranged.currentStreakDays).toBe(all.currentStreakDays);
+    expect(ranged.perWeek).toEqual(all.perWeek);
+  });
+
+  it("keeps estimated sessions out of the heatmap and session statistics", () => {
+    const stats = computePlayStats(sessions, games, NOW, 0, {
+      from: "2026-11-01",
+      to: "2026-11-05",
+    });
+    expect(stats.sessionStats.sampleSize).toBe(2);
+    expect(stats.sessionStats.averageMinutes).toBe(75);
+    expect(stats.sessionStats.medianMinutes).toBe(75);
+    expect(stats.sessionStats.buckets.map((b) => b.count)).toEqual([0, 0, 2, 0, 0]);
+    expect(stats.heatmap.days.map((d) => d.start)).toEqual([
+      "2026-11-01",
+      "2026-11-02",
+      "2026-11-03",
+      "2026-11-04",
+      "2026-11-05",
+    ]);
+    expect(stats.heatmap.days.find((d) => d.start === "2026-11-04")?.minutes).toBe(60);
+    // 3 Nov 2026 is a Tuesday, 4 Nov a Wednesday.
+    expect(stats.heatmap.perWeekday).toEqual([0, 90, 60, 0, 0, 0, 0]);
+    expect(stats.heatmap.perHour[20]).toBe(90);
+    expect(stats.heatmap.perHour[10]).toBe(60);
+  });
+
+  it("caps the heatmap at 53 weeks and ends today when the range is open", () => {
+    const stats = computePlayStats(sessions, games, NOW);
+    expect(stats.heatmap.days.at(-1)?.start).toBe("2026-11-05");
+    expect(stats.heatmap.days.length).toBeLessThanOrEqual(53 * 7);
+    expect(stats.heatmap.days.length).toBeGreaterThan(52 * 7);
+  });
+
+  it("buckets days in the viewer's time zone", () => {
+    const late = [session("a", "2026-11-03T23:30:00Z", 30)];
+    const paris = computePlayStats(late, games, NOW, "Europe/Paris", {
+      from: "2026-11-04",
+      to: "2026-11-04",
+    });
+    expect(paris.totalMinutes).toBe(30);
+    const utc = computePlayStats(late, games, NOW, "UTC", { from: "2026-11-04", to: "2026-11-04" });
+    expect(utc.totalMinutes).toBe(0);
+  });
+});
+
+describe("isValidDateString and sessionsInRange", () => {
+  it("accepts only real calendar days", () => {
+    expect(isValidDateString("2026-02-28")).toBe(true);
+    expect(isValidDateString("2026-02-30")).toBe(false);
+    expect(isValidDateString("2026-2-3")).toBe(false);
+  });
+
+  it("drops running timers and sessions outside the range", () => {
+    const running: PlaySessionInput = {
+      gameId: "a",
+      startedAt: at("2026-11-03T10:00:00Z"),
+      endedAt: null,
+    };
+    const kept = sessionsInRange(
+      [running, session("a", "2026-11-03T20:00:00Z", 10), session("a", "2026-10-01T20:00:00Z", 10)],
+      "UTC",
+      { from: "2026-11-01" }
+    );
+    expect(kept).toHaveLength(1);
   });
 });

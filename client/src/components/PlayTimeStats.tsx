@@ -1,9 +1,22 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Clock, Flame, Hourglass, Target, Timer } from "lucide-react";
+import { Clock, Download, Flame, Hourglass, Target, Timer } from "lucide-react";
 import { Link } from "wouter";
-import { apiRequest } from "@/lib/queryClient";
+import { apiFetch, apiRequest, throwIfResNotOk } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { PLAY_RANGE_LABELS, presetBounds, type PlayRangePreset } from "@/lib/play-range";
+import { PlayTimeHeatmap, PlaySessionLengths } from "@/components/PlayTimeInsights";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatDaysLeft, formatMinutes, GOAL_STATUS_STYLE } from "@/lib/play-time";
 import StatsCard from "@/components/StatsCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,16 +77,51 @@ export default function PlayTimeStats() {
     }
   }, []);
 
+  const { toast } = useToast();
+  const [preset, setPreset] = useState<PlayRangePreset>("all");
+  const [custom, setCustom] = useState({ from: "", to: "" });
+  const bounds = useMemo(
+    () => presetBounds(preset, new Date(), custom),
+    // The window moves with the day, not with every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [preset, custom.from, custom.to]
+  );
+  const customInvalid =
+    preset === "custom" && !!custom.from && !!custom.to && custom.from > custom.to;
+
   const search = useMemo(() => {
     const params = new URLSearchParams({ tz: String(tz) });
     if (timeZone) params.set("timeZone", timeZone);
+    if (bounds.from) params.set("from", bounds.from);
+    if (bounds.to) params.set("to", bounds.to);
     return params.toString();
-  }, [tz, timeZone]);
+  }, [tz, timeZone, bounds]);
 
   const { data } = useQuery<PlayTimeStatsData>({
-    queryKey: ["/api/stats/play-time", tz, timeZone],
+    queryKey: ["/api/stats/play-time", tz, timeZone, bounds.from ?? null, bounds.to ?? null],
     queryFn: async () => (await apiRequest("GET", `/api/stats/play-time?${search}`)).json(),
+    enabled: !customInvalid,
+    placeholderData: (previous) => previous,
   });
+
+  const exportSessions = async (format: "csv" | "json") => {
+    try {
+      const res = await apiFetch(`/api/stats/play-time/export?${search}&format=${format}`);
+      await throwIfResNotOk(res);
+      const url = URL.createObjectURL(await res.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `questarr-play-sessions.${format}`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast({
+        title: "Could not export play sessions",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  };
 
   const chartData = useMemo(() => {
     const buckets = range === "week" ? data?.perWeek : data?.perMonth;
@@ -86,6 +134,74 @@ export default function PlayTimeStats() {
   }, [data, range]);
 
   if (!data) return null;
+
+  const filtered = preset !== "all";
+  const rangeBar = (
+    <div className="flex flex-wrap items-end gap-3" data-testid="play-range">
+      <div className="space-y-1">
+        <Label htmlFor="play-range-select" className="text-xs text-muted-foreground">
+          Range
+        </Label>
+        <Select value={preset} onValueChange={(v) => setPreset(v as PlayRangePreset)}>
+          <SelectTrigger id="play-range-select" className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(PLAY_RANGE_LABELS) as PlayRangePreset[]).map((key) => (
+              <SelectItem key={key} value={key}>
+                {PLAY_RANGE_LABELS[key]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {preset === "custom" && (
+        <>
+          <div className="space-y-1">
+            <Label htmlFor="play-range-from" className="text-xs text-muted-foreground">
+              From
+            </Label>
+            <Input
+              id="play-range-from"
+              type="date"
+              value={custom.from}
+              max={custom.to || undefined}
+              onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))}
+              className="w-40"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="play-range-to" className="text-xs text-muted-foreground">
+              To
+            </Label>
+            <Input
+              id="play-range-to"
+              type="date"
+              value={custom.to}
+              min={custom.from || undefined}
+              onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))}
+              className="w-40"
+            />
+          </div>
+        </>
+      )}
+      <div className="ml-auto flex gap-2">
+        <Button variant="outline" size="sm" onClick={() => exportSessions("csv")}>
+          <Download className="mr-1 h-4 w-4" aria-hidden="true" />
+          Export CSV
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => exportSessions("json")}>
+          <Download className="mr-1 h-4 w-4" aria-hidden="true" />
+          Export JSON
+        </Button>
+      </div>
+      {customInvalid && (
+        <p role="alert" className="w-full text-sm text-destructive">
+          The start day must not be after the end day.
+        </p>
+      )}
+    </div>
+  );
 
   const goalsCard =
     data.goals.length > 0 ? (
@@ -142,11 +258,14 @@ export default function PlayTimeStats() {
         Play time
       </h2>
 
+      {rangeBar}
+
       {data.sessionCount === 0 ? (
         <>
           <p className="text-sm text-muted-foreground">
-            No play sessions yet. Start a timer on a game you are playing, or add the time on its
-            page, and your hours show up here.
+            {filtered
+              ? "No play sessions in this range."
+              : "No play sessions yet. Start a timer on a game you are playing, or add the time on its page, and your hours show up here."}
           </p>
           {goalsCard}
         </>
@@ -156,7 +275,7 @@ export default function PlayTimeStats() {
             <StatsCard
               title="Time Played"
               value={formatMinutes(data.totalMinutes)}
-              subtitle="all sessions"
+              subtitle={filtered ? "in this range" : "all sessions"}
               icon={Clock}
             />
             <StatsCard
@@ -250,6 +369,15 @@ export default function PlayTimeStats() {
                 </ol>
               </CardContent>
             </Card>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-7">
+            <div className="min-w-0 lg:col-span-4">
+              <PlayTimeHeatmap heatmap={data.heatmap} />
+            </div>
+            <div className="min-w-0 lg:col-span-3">
+              <PlaySessionLengths stats={data.sessionStats} />
+            </div>
           </div>
 
           {goalsCard}

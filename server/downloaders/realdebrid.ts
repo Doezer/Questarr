@@ -126,10 +126,12 @@ function resolveStagedPaths(rawPaths: string[]): string[][] {
   return rawPaths.map((raw, index) => {
     let segments = toSafeSegments(raw);
     if (segments.length === 0) segments = [`file-${index + 1}`];
+    const original = segments;
     for (let guard = 0; guard < 1000; guard++) {
       const at = conflictIndex(segments);
       if (at < 0) break;
-      const { name, ext } = path.parse(segments[at] ?? "");
+      // Always rename from the original name so suffixes never pile up ("a (2) (3).bin").
+      const { name, ext } = path.parse(original[at] ?? "");
       segments = segments.map((segment, i) =>
         i === at ? `${name} (${guard + 2})${ext}` : segment
       );

@@ -63,7 +63,7 @@ beforeEach(async () => {
   safeFetchMock.mockReset();
   getDownloadingMock.mockReset();
   getDownloadingMock.mockResolvedValue(
-    ["A", "B", "X", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10"].map(
+    ["A", "B", "X", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11"].map(
       (downloadHash) => ({
         downloaderId: "rd-1",
         downloadHash,
@@ -316,6 +316,30 @@ describe("RealDebridClient", () => {
     await vi.waitFor(() => fs.access(path.join(stagingRoot, "T10", STAGING_MARKER)));
     const details = await client.getDownloadDetails("T10");
     expect(details?.files.map((file) => file.name)).toEqual(["G/a_", "G/a_ (2)/b.bin"]);
+  });
+
+  it("numbers repeated name clashes without stacking suffixes", async () => {
+    const torrent = stagingFixture("T11", [
+      { path: "/G/a?.bin", bytes: 1 },
+      { path: "/G/a*.bin", bytes: 1 },
+      { path: "/G/a|.bin", bytes: 1 },
+    ]);
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/torrents/info/T11")) return json(torrent);
+      if (url.includes("/unrestrict/link")) {
+        return json({ filename: "x", filesize: 1, download: "https://cdn.example/x" });
+      }
+      return new Response("x");
+    });
+    const client = new RealDebridClient(createDownloader());
+    await client.getDownloadStatus("T11");
+    await vi.waitFor(() => fs.access(path.join(stagingRoot, "T11", STAGING_MARKER)));
+    const details = await client.getDownloadDetails("T11");
+    expect(details?.files.map((file) => file.name)).toEqual([
+      "G/a_.bin",
+      "G/a_ (2).bin",
+      "G/a_ (3).bin",
+    ]);
   });
 
   it("never publishes completion when links and selected files differ", async () => {

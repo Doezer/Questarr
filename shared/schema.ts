@@ -532,6 +532,30 @@ export const gamePlaySessions = sqliteTable(
   ]
 );
 
+// Status history of a game, one row each time its status changes (and one when it is added). It
+// feeds the backlog burn-down on the Stats page. Games that existed before the table did get one
+// row each, backfilled from the date they were added, so older history is approximate.
+export const gameStatusEvents = sqliteTable(
+  "game_status_events",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(strftime('%s', 'now') * 1000)`),
+  },
+  (t) => [
+    index("game_status_events_game_idx").on(t.gameId),
+    index("game_status_events_user_created_idx").on(t.userId, t.createdAt),
+  ]
+);
+
 // Outbound webhooks: external automation (n8n, Home Assistant, deployment scripts) subscribes to
 // Questarr events. Every request is signed with the subscription secret (HMAC-SHA256).
 export const WEBHOOK_EVENT_TYPES = [
@@ -1455,6 +1479,8 @@ export type UpdateTag = z.infer<typeof updateTagSchema>;
 
 export type GameTag = typeof gameTags.$inferSelect;
 export type InsertGameTag = z.infer<typeof insertGameTagSchema>;
+export type GameStatusEvent = typeof gameStatusEvents.$inferSelect;
+export type InsertGameStatusEvent = typeof gameStatusEvents.$inferInsert;
 export type GamePlaySession = typeof gamePlaySessions.$inferSelect;
 export type InsertGamePlaySession = typeof gamePlaySessions.$inferInsert;
 export type GameJournalEntry = typeof gameJournalEntries.$inferSelect;

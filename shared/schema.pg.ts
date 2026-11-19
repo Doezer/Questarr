@@ -481,6 +481,27 @@ export const gamePlaySessions = pgTable(
   ]
 );
 
+export const gameStatusEvents = pgTable(
+  "game_status_events",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    createdAt: timestampMs("created_at")
+      .notNull()
+      .default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [
+    index("game_status_events_game_idx").on(t.gameId),
+    index("game_status_events_user_created_idx").on(t.userId, t.createdAt),
+  ]
+);
+
 export const webhookSubscriptions = pgTable(
   "webhook_subscriptions",
   {

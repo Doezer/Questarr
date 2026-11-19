@@ -622,4 +622,41 @@ describe("Play session routes", () => {
       expect((await request(app).get("/api/stats/play-time/export?format=xml")).status).toBe(400);
     });
   });
+
+  describe("GET /api/stats/backlog", () => {
+    it("computes the burn-down from the status history, the sessions and the games", async () => {
+      vi.mocked(storage.getUserGameStatusEvents).mockResolvedValue([
+        {
+          id: "e1",
+          gameId,
+          userId: OWNER_ID,
+          status: "owned",
+          createdAt: new Date(Date.now() - 20 * 86_400_000),
+        },
+      ]);
+      vi.mocked(storage.getUserPlaySessions).mockResolvedValue([]);
+      vi.mocked(storage.getUserGames).mockResolvedValue([
+        makeGame({ status: "owned", timeToBeatNormally: 10 }),
+      ]);
+
+      const response = await request(app).get("/api/stats/backlog?timeZone=UTC");
+
+      expect(response.status).toBe(200);
+      expect(response.body.current).toEqual({
+        backlog: 1,
+        remainingHours: 10,
+        withoutEstimate: 0,
+      });
+      expect(response.body.perWeek).toHaveLength(12);
+      expect(response.body.perMonth).toHaveLength(12);
+      expect(response.body.perWeek.at(-1).backlog).toBe(1);
+      expect(response.body.projection.clearedOn).toBeNull();
+      expect(storage.getUserGameStatusEvents).toHaveBeenCalledWith(OWNER_ID);
+    });
+
+    it("rejects an invalid time zone", async () => {
+      expect((await request(app).get("/api/stats/backlog?timeZone=Not%2FAZone")).status).toBe(400);
+      expect((await request(app).get("/api/stats/backlog?tz=abc")).status).toBe(400);
+    });
+  });
 });

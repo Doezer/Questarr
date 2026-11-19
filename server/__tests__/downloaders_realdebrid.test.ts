@@ -352,11 +352,14 @@ describe("RealDebridClient", () => {
     );
     safeFetchMock.mockImplementation(async (url: string) => {
       if (url.includes("/torrents/info/T12")) return json(torrent);
+      if (url.includes("/unrestrict/link")) {
+        return json({ filename: "x", filesize: 1, download: "https://cdn.example/x" });
+      }
       return new Response("x");
     });
     const client = new RealDebridClient(createDownloader());
+    await expect(client.getDownloadDetails("T12")).rejects.toThrow(/unique local name/);
     await client.getDownloadStatus("T12");
-    await new Promise((resolve) => setTimeout(resolve, 50));
     await expect(fs.access(path.join(stagingRoot, "T12", STAGING_MARKER))).rejects.toThrow();
   });
 

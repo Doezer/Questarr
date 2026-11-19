@@ -1,9 +1,22 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Clock, Flame, Hourglass, Target, Timer } from "lucide-react";
+import { Clock, Download, Flame, Hourglass, Target, Timer } from "lucide-react";
 import { Link } from "wouter";
-import { apiRequest } from "@/lib/queryClient";
+import { apiFetch, apiRequest, throwIfResNotOk } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { localDay, PLAY_RANGE_LABELS, presetBounds, type PlayRangePreset } from "@/lib/play-range";
+import { PlayTimeHeatmap, PlaySessionLengths } from "@/components/PlayTimeInsights";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatDaysLeft, formatMinutes, GOAL_STATUS_STYLE } from "@/lib/play-time";
 import StatsCard from "@/components/StatsCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,16 +77,67 @@ export default function PlayTimeStats() {
     }
   }, []);
 
+  const { toast } = useToast();
+  const [preset, setPreset] = useState<PlayRangePreset>("all");
+  const [custom, setCustom] = useState({ from: "", to: "" });
+  // The presets end "today", so the window has to move when the local day rolls over.
+  const [today, setToday] = useState(() => localDay(new Date()));
+  useEffect(() => {
+    const refresh = () => setToday(localDay(new Date()));
+    const timer = setInterval(refresh, 60_000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+  const bounds = useMemo(
+    () => presetBounds(preset, new Date(), custom),
+    // `today` is not read inside, it only makes the window move at midnight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [preset, custom.from, custom.to, today]
+  );
+  const customInvalid =
+    preset === "custom" && !!custom.from && !!custom.to && custom.from > custom.to;
+
   const search = useMemo(() => {
     const params = new URLSearchParams({ tz: String(tz) });
     if (timeZone) params.set("timeZone", timeZone);
+    if (bounds.from) params.set("from", bounds.from);
+    if (bounds.to) params.set("to", bounds.to);
     return params.toString();
-  }, [tz, timeZone]);
+  }, [tz, timeZone, bounds]);
 
-  const { data } = useQuery<PlayTimeStatsData>({
-    queryKey: ["/api/stats/play-time", tz, timeZone],
+  const { data, isPlaceholderData, isError, refetch } = useQuery<PlayTimeStatsData>({
+    queryKey: ["/api/stats/play-time", tz, timeZone, bounds.from ?? null, bounds.to ?? null],
     queryFn: async () => (await apiRequest("GET", `/api/stats/play-time?${search}`)).json(),
+    enabled: !customInvalid,
+    placeholderData: (previous) => previous,
   });
+
+  const exportSessions = async (format: "csv" | "json") => {
+    try {
+      const res = await apiFetch(`/api/stats/play-time/export?${search}&format=${format}`);
+      await throwIfResNotOk(res);
+      const url = URL.createObjectURL(await res.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `questarr-play-sessions.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Some browsers start the download asynchronously, so keep the blob URL alive a moment.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      toast({
+        title: "Could not export play sessions",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    }
+  };
 
   const chartData = useMemo(() => {
     const buckets = range === "week" ? data?.perWeek : data?.perMonth;
@@ -85,7 +149,100 @@ export default function PlayTimeStats() {
     }));
   }, [data, range]);
 
-  if (!data) return null;
+  // Judge by the range the data was computed for, not by the selector, which may be ahead of it.
+  const filtered = data ? !!(data.range.from || data.range.to) : preset !== "all";
+  const rangeBar = (
+    <div className="flex flex-wrap items-end gap-3" data-testid="play-range">
+      <div className="space-y-1">
+        <Label htmlFor="play-range-select" className="text-xs text-muted-foreground">
+          Range
+        </Label>
+        <Select value={preset} onValueChange={(v) => setPreset(v as PlayRangePreset)}>
+          <SelectTrigger id="play-range-select" className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(PLAY_RANGE_LABELS) as PlayRangePreset[]).map((key) => (
+              <SelectItem key={key} value={key}>
+                {PLAY_RANGE_LABELS[key]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {preset === "custom" && (
+        <>
+          <div className="space-y-1">
+            <Label htmlFor="play-range-from" className="text-xs text-muted-foreground">
+              From
+            </Label>
+            <Input
+              id="play-range-from"
+              type="date"
+              value={custom.from}
+              max={custom.to || undefined}
+              onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))}
+              className="w-40"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="play-range-to" className="text-xs text-muted-foreground">
+              To
+            </Label>
+            <Input
+              id="play-range-to"
+              type="date"
+              value={custom.to}
+              min={custom.from || undefined}
+              onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))}
+              className="w-40"
+            />
+          </div>
+        </>
+      )}
+      <div className="ml-auto flex gap-2">
+        <Button variant="outline" size="sm" onClick={() => exportSessions("csv")}>
+          <Download className="mr-1 h-4 w-4" aria-hidden="true" />
+          Export CSV
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => exportSessions("json")}>
+          <Download className="mr-1 h-4 w-4" aria-hidden="true" />
+          Export JSON
+        </Button>
+      </div>
+      {customInvalid && (
+        <p role="alert" className="w-full text-sm text-destructive">
+          The start day must not be after the end day.
+        </p>
+      )}
+    </div>
+  );
+
+  if (!data) {
+    // A reversed custom range disables the query, so it never errors: keep the controls to fix it.
+    if (!isError && !customInvalid) return null;
+    return (
+      <section
+        aria-labelledby="play-time-heading"
+        className="space-y-4"
+        data-testid="play-time-stats"
+      >
+        <h2 id="play-time-heading" className="flex items-center gap-2 text-xl font-semibold">
+          <Timer className="h-5 w-5 text-primary" />
+          Play time
+        </h2>
+        {rangeBar}
+        {isError && (
+          <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
+            Could not load the play time statistics.
+            <Button variant="outline" size="sm" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          </div>
+        )}
+      </section>
+    );
+  }
 
   const goalsCard =
     data.goals.length > 0 ? (
@@ -142,7 +299,9 @@ export default function PlayTimeStats() {
         Play time
       </h2>
 
-      {data.sessionCount === 0 ? (
+      {rangeBar}
+
+      {data.sessionCount === 0 && !filtered ? (
         <>
           <p className="text-sm text-muted-foreground">
             No play sessions yet. Start a timer on a game you are playing, or add the time on its
@@ -151,18 +310,31 @@ export default function PlayTimeStats() {
           {goalsCard}
         </>
       ) : (
-        <>
+        <div
+          className={`space-y-4 transition-opacity ${isPlaceholderData ? "opacity-60" : ""}`}
+          aria-busy={isPlaceholderData}
+        >
+          {data.sessionCount === 0 && (
+            <p className="text-sm text-muted-foreground">
+              No play sessions in this range. The weekly and monthly charts and the streaks below
+              still cover everything.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
             <StatsCard
               title="Time Played"
               value={formatMinutes(data.totalMinutes)}
-              subtitle="all sessions"
+              subtitle={filtered ? "in this range" : "all sessions"}
               icon={Clock}
             />
             <StatsCard
               title="Sessions"
               value={data.sessionCount}
-              subtitle={`avg ${formatMinutes(data.totalMinutes / data.sessionCount)}`}
+              subtitle={
+                data.sessionCount > 0
+                  ? `avg ${formatMinutes(data.totalMinutes / data.sessionCount)}`
+                  : ""
+              }
               icon={Hourglass}
             />
             <StatsCard
@@ -252,6 +424,15 @@ export default function PlayTimeStats() {
             </Card>
           </div>
 
+          <div className="grid gap-4 lg:grid-cols-7">
+            <div className="min-w-0 lg:col-span-4">
+              <PlayTimeHeatmap heatmap={data.heatmap} />
+            </div>
+            <div className="min-w-0 lg:col-span-3">
+              <PlaySessionLengths stats={data.sessionStats} />
+            </div>
+          </div>
+
           {goalsCard}
 
           {(data.topGenres.length > 0 || data.topPlatforms.length > 0) && (
@@ -268,7 +449,7 @@ export default function PlayTimeStats() {
               </Card>
             </div>
           )}
-        </>
+        </div>
       )}
     </section>
   );

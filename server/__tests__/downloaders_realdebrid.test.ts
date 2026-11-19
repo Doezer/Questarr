@@ -63,7 +63,7 @@ beforeEach(async () => {
   safeFetchMock.mockReset();
   getDownloadingMock.mockReset();
   getDownloadingMock.mockResolvedValue(
-    ["A", "B", "X", "T1", "T2", "T3", "T4", "T5", "T6", "T9"].map((downloadHash) => ({
+    ["A", "B", "X", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9"].map((downloadHash) => ({
       downloaderId: "rd-1",
       downloadHash,
     }))
@@ -275,6 +275,46 @@ describe("RealDebridClient", () => {
     expect(names).toHaveLength(2);
   });
 
+  it("advertises the collision-resolved names it writes", async () => {
+    const torrent = stagingFixture("T7", [
+      { path: "/G/a?.bin", bytes: 1 },
+      { path: "/G/a*.bin", bytes: 1 },
+    ]);
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/torrents/info/T7")) return json(torrent);
+      if (url.includes("/unrestrict/link")) {
+        return json({ filename: "a.bin", filesize: 1, download: "https://cdn.example/a" });
+      }
+      return new Response("x");
+    });
+    const client = new RealDebridClient(createDownloader());
+    await client.getDownloadStatus("T7");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const details = await client.getDownloadDetails("T7");
+    const advertised = (details?.files ?? []).map((file) => file.name).sort();
+    const written = (await fs.readdir(path.join(stagingRoot, "T7", "G"))).sort();
+    expect(advertised).toEqual(written.map((name) => `G/${name}`));
+    expect(new Set(advertised).size).toBe(2);
+  });
+
+  it("never publishes completion when links and selected files differ", async () => {
+    const torrent = {
+      ...stagingFixture("T8", [
+        { path: "/a.bin", bytes: 1 },
+        { path: "/b.bin", bytes: 1 },
+      ]),
+      links: ["https://real-debrid.com/d/0"],
+    };
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/torrents/info/T8")) return json(torrent);
+      return new Response("x");
+    });
+    const client = new RealDebridClient(createDownloader());
+    await client.getDownloadStatus("T8");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect(fs.access(path.join(stagingRoot, "T8", STAGING_MARKER))).rejects.toThrow();
+  });
+
   it("keeps a payload named like the marker from completing the download", async () => {
     const torrent = stagingFixture("T5", [
       { path: `/${STAGING_MARKER}`, bytes: 1 },
@@ -365,11 +405,16 @@ describe("RealDebridClient", () => {
 
   it("stops an active copy before deleting its folder", async () => {
     const torrent = stagingFixture("T3", [{ path: "/g.bin", bytes: 1 }]);
+    let copyStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      copyStarted = resolve;
+    });
     safeFetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (url.includes("/torrents/info/T3")) return json(torrent);
       if (url.includes("/torrents/delete/")) return new Response(null, { status: 204 });
       if (url.includes("/unrestrict/link")) {
         // Never answers until aborted.
+        copyStarted();
         return new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
         });
@@ -378,6 +423,7 @@ describe("RealDebridClient", () => {
     });
     const client = new RealDebridClient(createDownloader());
     await client.getDownloadStatus("T3");
+    await started;
     const result = await client.removeDownload("T3", true);
     expect(result.success).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 20));

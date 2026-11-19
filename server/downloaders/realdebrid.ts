@@ -98,8 +98,34 @@ function toSafeSegments(rawPath: string): string[] {
     .split(/[\\/]+/)
     .filter((part) => part.length > 0)
     .map(sanitizeSegment);
-  if (segments[0]?.startsWith(".questarr-")) segments[0] = `_${segments[0]}`;
+  if (segments[0]?.toLowerCase().startsWith(".questarr-")) segments[0] = `_${segments[0]}`;
   return segments;
+}
+
+/**
+ * One distinct, safe relative path per selected file, in the same order. Paths that collide
+ * once sanitized (compared case-insensitively, as the staging folder may live on a
+ * case-insensitive filesystem) get a numeric suffix. Staging and the advertised file list
+ * both use this, so they always agree.
+ */
+function resolveStagedPaths(rawPaths: string[]): string[][] {
+  const used = new Set<string>();
+  return rawPaths.map((raw, index) => {
+    let segments = toSafeSegments(raw);
+    if (segments.length === 0) segments = [`file-${index + 1}`];
+    if (used.has(segments.join("/").toLowerCase())) {
+      const { name, ext } = path.parse(segments[segments.length - 1] ?? "");
+      let n = 2;
+      let candidate: string[];
+      do {
+        candidate = [...segments.slice(0, -1), `${name} (${n})${ext}`];
+        n++;
+      } while (used.has(candidate.join("/").toLowerCase()));
+      segments = candidate;
+    }
+    used.add(segments.join("/").toLowerCase());
+    return segments;
+  });
 }
 
 function selectedFiles(torrent: RealDebridTorrent) {
@@ -292,10 +318,15 @@ export class RealDebridClient implements DownloaderClient {
     const links = torrent.links ?? [];
     if (links.length === 0) throw new Error("Real-Debrid returned no download links");
     const files = selectedFiles(torrent);
-    // Links come back in the order of the selected files, so their paths can be restored.
-    const paths = files.length === links.length ? files.map((file) => file.path) : null;
+    // Links come back in the order of the selected files. If the counts differ that mapping
+    // cannot be trusted, and completion must never be published for a partial copy.
+    if (files.length !== links.length) {
+      throw new Error(
+        `Real-Debrid returned ${links.length} links for ${files.length} selected files`
+      );
+    }
+    const resolved = resolveStagedPaths(files.map((file) => file.path));
 
-    const used = new Set<string>();
     for (const [index, link] of links.entries()) {
       job.abort.signal.throwIfAborted();
       const unrestricted = await this.json<UnrestrictedLink>(
@@ -303,21 +334,10 @@ export class RealDebridClient implements DownloaderClient {
         this.form({ link }),
         job.abort.signal
       );
-      const segments = toSafeSegments(paths?.[index] ?? unrestricted.filename);
-      if (segments.length === 0) throw new Error("Real-Debrid returned an empty file name");
-      let target = path.join(dir, ...segments);
+      const target = path.join(dir, ...(resolved[index] ?? []));
       if (!target.startsWith(dir + path.sep)) {
         throw new Error(`Refusing to write outside the staging folder: ${target}`);
       }
-      // Two different remote files must never land on the same local path, even on a
-      // case-insensitive filesystem: rename a case-only clash with a numeric suffix.
-      if (used.has(target.toLowerCase())) {
-        const { dir: parent, name, ext } = path.parse(target);
-        let n = 2;
-        while (used.has(path.join(parent, `${name} (${n})${ext}`).toLowerCase())) n++;
-        target = path.join(parent, `${name} (${n})${ext}`);
-      }
-      used.add(target.toLowerCase());
       await this.downloadFile(unrestricted, target, dir, job);
     }
 
@@ -553,6 +573,7 @@ export class RealDebridClient implements DownloaderClient {
     const torrent = (await response.json()) as RealDebridTorrent;
     const status = await this.toStatus(torrent, await this.isTracked(torrent.id));
     const staged = status.status === "completed";
+    const resolvedPaths = resolveStagedPaths(selectedFiles(torrent).map((file) => file.path));
     return {
       ...status,
       hash: torrent.hash,
@@ -560,8 +581,8 @@ export class RealDebridClient implements DownloaderClient {
       completedDate: torrent.ended,
       // Only set once the files are really on disk, so nothing is imported half-copied.
       downloadDir: staged ? this.stagingDir(torrent.id) : undefined,
-      files: selectedFiles(torrent).map((file) => ({
-        name: toSafeSegments(file.path).join("/"),
+      files: selectedFiles(torrent).map((file, index) => ({
+        name: (resolvedPaths[index] ?? []).join("/"),
         size: file.bytes,
         progress: staged ? 100 : 0,
         priority: "normal" as const,

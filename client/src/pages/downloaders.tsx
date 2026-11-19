@@ -44,6 +44,8 @@ import { getDownloadTypeColor } from "@/lib/downloads-utils";
 import PageHeader from "@/components/PageHeader";
 
 const REAL_DEBRID_API_URL = "https://api.real-debrid.com";
+/** What the server echoes back instead of a stored password; sending it means "unchanged". */
+const SAVED_PASSWORD_PLACEHOLDER = "********";
 
 const downloaderTypes = [
   { value: "transmission", label: "Transmission", protocol: "torrent" },
@@ -552,7 +554,14 @@ export default function DownloadersPage() {
       // The form never holds the OAuth tokens: an empty password must not wipe the ones
       // stored by Connect (a connection made after the dialog opened included).
       const update: Partial<InsertDownloader> = { ...data };
-      if (isRealDebrid && !update.password) delete update.password;
+      if (isRealDebrid) {
+        if (editingDownloader.type === "realdebrid") {
+          if (!update.password) delete update.password;
+        } else if (!update.password || update.password === SAVED_PASSWORD_PLACEHOLDER) {
+          // Converting from another client: never let its old password become the token.
+          update.password = "";
+        }
+      }
       updateMutation.mutate({ id: editingDownloader.id, data: update });
     } else {
       addMutation.mutate(data);
@@ -1470,7 +1479,11 @@ export default function DownloadersPage() {
                     const formData = form.getValues();
                     // A connected Real-Debrid account lives server-side only: test the saved
                     // downloader (which has the OAuth tokens) unless a token was typed in.
-                    if (editingDownloader && isRealDebrid && !formData.password) {
+                    if (
+                      editingDownloader?.type === "realdebrid" &&
+                      isRealDebrid &&
+                      (!formData.password || formData.password === SAVED_PASSWORD_PLACEHOLDER)
+                    ) {
                       testConnectionMutation.mutate({ id: editingDownloader.id });
                       return;
                     }

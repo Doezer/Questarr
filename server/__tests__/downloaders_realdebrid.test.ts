@@ -63,7 +63,7 @@ beforeEach(async () => {
   safeFetchMock.mockReset();
   getDownloadingMock.mockReset();
   getDownloadingMock.mockResolvedValue(
-    ["A", "B", "X", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11"].map(
+    ["A", "B", "X", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12"].map(
       (downloadHash) => ({
         downloaderId: "rd-1",
         downloadHash,
@@ -340,6 +340,24 @@ describe("RealDebridClient", () => {
       "G/a_ (2).bin",
       "G/a_ (3).bin",
     ]);
+  });
+
+  it("refuses to stage when no unique local name can be found", async () => {
+    const torrent = stagingFixture(
+      "T12",
+      Array.from({ length: 1002 }, (_, i) => ({
+        path: `/G/a${i % 2 ? "?" : "*"}`,
+        bytes: 1,
+      }))
+    );
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/torrents/info/T12")) return json(torrent);
+      return new Response("x");
+    });
+    const client = new RealDebridClient(createDownloader());
+    await client.getDownloadStatus("T12");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect(fs.access(path.join(stagingRoot, "T12", STAGING_MARKER))).rejects.toThrow();
   });
 
   it("never publishes completion when links and selected files differ", async () => {

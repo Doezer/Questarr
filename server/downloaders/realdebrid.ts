@@ -136,6 +136,11 @@ function resolveStagedPaths(rawPaths: string[]): string[][] {
         i === at ? `${name} (${guard + 2})${ext}` : segment
       );
     }
+    // The last candidate is never re-checked by the loop above: refuse it rather than let two
+    // files share a path (the second would be skipped as "already copied").
+    if (conflictIndex(segments) >= 0) {
+      throw new Error(`Could not find a unique local name for Real-Debrid file "${raw}"`);
+    }
     files.add(key(segments));
     for (let i = 1; i < segments.length; i++) dirs.add(key(segments, i));
     return segments;

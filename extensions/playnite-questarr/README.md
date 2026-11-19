@@ -148,6 +148,8 @@ store (Steam, GOG or Epic) is sent along and recorded as where the status came f
 
 ## GOG library and play time
 
+Steam games need no extension command: Questarr reads their total itself (Settings → Steam → Steam play time → Preview import).
+
 Playnite's own GOG plugin reads the library; the extension never talks to GOG.
 
 - **Import GOG library into Questarr** asks for confirmation, then adds each GOG

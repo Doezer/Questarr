@@ -12,6 +12,8 @@ const ownedGamesResponse = z.object({
           name: z.string().min(1).max(500),
           // Cumulative minutes played; absent for games Steam has no playtime for.
           playtime_forever: z.number().int().nonnegative().optional(),
+          // Unix seconds of the last time the game was played; 0 or absent when unknown.
+          rtime_last_played: z.number().int().nonnegative().optional(),
         })
       )
       .max(20_000)
@@ -169,6 +171,24 @@ export const steamService = {
   async getOwnedPlaytimes(apiKey: string, steamId: string): Promise<Map<number, number>> {
     const games = await this.fetchOwnedGames(apiKey, steamId);
     return new Map(games.map((game) => [game.appid, game.playtime_forever ?? 0]));
+  },
+
+  /** Cumulative minutes and last-played time per app, for the one-time history import. */
+  async getOwnedPlaytimesDetailed(
+    apiKey: string,
+    steamId: string
+  ): Promise<Map<number, { title: string; minutes: number; lastPlayedAt: Date | null }>> {
+    const games = await this.fetchOwnedGames(apiKey, steamId);
+    return new Map(
+      games.map((game) => [
+        game.appid,
+        {
+          title: game.name,
+          minutes: game.playtime_forever ?? 0,
+          lastPlayedAt: game.rtime_last_played ? new Date(game.rtime_last_played * 1000) : null,
+        },
+      ])
+    );
   },
 
   async fetchOwnedGames(apiKey: string, steamId: string) {

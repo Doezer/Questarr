@@ -14,7 +14,7 @@ export interface PlaySessionInput {
   /** `null` while the timer is still running; such sessions are left out of the totals. */
   endedAt: Date | null;
   /**
-   * Where the session came from. `steam` and `playnite_import` sessions are estimates built from
+   * Where the session came from. `steam`, `steam_import` and `playnite_import` sessions are estimates built from
    * playtime totals (Steam deltas, or the total Playnite already knew):
    * their minutes count in the totals, but they say nothing about when or how long one sitting
    * lasted, so they stay out of the longest session and the streaks.
@@ -291,14 +291,21 @@ export function computePlayStats(
       rangeGame.set(session.gameId, rangeEntry);
     }
     // ...but only real time feeds the time-based statistics.
-    const estimated = session.source === "steam" || session.source === "playnite_import";
+    const estimated =
+      session.source === "steam" ||
+      session.source === "playnite_import" ||
+      session.source === "steam_import";
     // A short timer rounds to zero minutes but is still a sitting, so it counts as a sample.
     if (inRange && !estimated) realDurations.push(minutes);
     if (minutes <= 0) continue;
 
     entry.minutes += minutes;
-    addToDays(weekMinutes, new Date(weekStart(local) * DAY_MS), minutes);
-    addToDays(monthMinutes, new Date(monthStart(local) * DAY_MS), minutes);
+    // Hours played before tracking began belong to no particular week: they count in totals and
+    // per-game figures but stay out of the weekly and monthly charts.
+    if (session.source !== "steam_import") {
+      addToDays(weekMinutes, new Date(weekStart(local) * DAY_MS), minutes);
+      addToDays(monthMinutes, new Date(monthStart(local) * DAY_MS), minutes);
+    }
     if (!estimated) activeDays.add(day);
 
     if (!inRange) continue;

@@ -3412,6 +3412,16 @@ describe("release scoring in auto-search", () => {
     expect(scoreReleasesForGame([item(title)], game, scoring)).toHaveLength(0);
   });
 
+  it("keeps an unknown-group release for the badge only when ambiguous matches are included", () => {
+    const title = "Dishonored-NEWGROUP";
+    expect(scoreReleasesForGame([item(title)], game, scoring)).toHaveLength(0);
+    expect(
+      scoreReleasesForGame([item(title)], game, { ...scoring, includeAmbiguous: true }).map(
+        (i) => i.title
+      )
+    ).toEqual([title]);
+  });
+
   it("keeps a single preferred-group release as the only candidate (auto-download)", () => {
     const withFormat = {
       ...scoring,

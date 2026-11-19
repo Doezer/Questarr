@@ -327,7 +327,7 @@ import { releaseScoringRoutes } from "./release-scoring-routes.js";
 import { classificationCandidatesRoutes } from "./classification-candidates-routes.js";
 import { classificationSettingsRoutes } from "./classification-settings-routes.js";
 import {
-  isAutoEligible,
+  isResultEligible,
   loadScoringConfig,
   trustFor,
   type ScoringConfig,
@@ -875,7 +875,8 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
     // Update the "has results" flag only for canonical game-title searches so that
     // partial/custom user-typed queries in the download dialog don't flip the badge
     // based on a transient, narrow result set. Runs async to avoid blocking the response.
-    // Same rule as auto-search: an accepted release with a clear title match.
+    // Same rule as the auto-search badge: an accepted release whose title matches, even when
+    // its group suffix is not a known one.
     if (ownGame && normalizeTitle(query.trim()) === normalizeTitle(ownGame.title)) {
       // the game's own target platform wins over the account default, as in the scoring above
       const preferredPlatform = resolveGamePlatformPreference(
@@ -884,8 +885,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       );
       const usable = scoredItems.filter(
         ({ evaluation, blacklisted }) =>
-          !blacklisted &&
-          (evaluation && scoringConfig ? isAutoEligible(evaluation, scoringConfig) : true)
+          !blacklisted && (evaluation && scoringConfig ? isResultEligible(evaluation) : true)
       );
       const platformFiltered = preferredPlatform
         ? usable.filter((item) => {

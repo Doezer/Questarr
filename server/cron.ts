@@ -52,6 +52,7 @@ import { registerTask, startTaskScheduler, type TaskDefinition } from "./task-re
 import {
   activePreferredGroupFormat,
   isAutoEligible,
+  isResultEligible,
   trustFor,
   loadScoringConfig,
   type ScoringConfig,
@@ -521,6 +522,11 @@ export interface AutoSearchScoring {
   deferOnXrelUnavailable?: boolean;
   /** Oldest completed xREL result a slow lookup may fall back on (the auto-search interval). */
   xrelStaleMaxAgeMs?: number;
+  /**
+   * Also keep accepted "ambiguous" matches (an unconfirmed group suffix). For the badge and its
+   * notification only: the caller takes nothing unattended from them.
+   */
+  includeAmbiguous?: boolean;
 }
 
 /**
@@ -554,7 +560,11 @@ function keepEligibleEvaluations(
   scoring: AutoSearchScoring
 ): SearchItem[] {
   return evaluated
-    .filter(({ evaluation }) => isAutoEligible(evaluation, scoring.config))
+    .filter(({ evaluation }) =>
+      scoring.includeAmbiguous
+        ? isResultEligible(evaluation)
+        : isAutoEligible(evaluation, scoring.config)
+    )
     .map(({ item, evaluation }) => ({
       ...item,
       evaluation,
@@ -2345,8 +2355,12 @@ export async function checkAutoSearch() {
               settings.downloadRules,
               indexerPriorityMap,
               blacklistTerms,
-              scoring && settings.autoDownloadEnabled
-                ? { ...scoring, deferOnXrelUnavailable: true }
+              scoring
+                ? {
+                    ...scoring,
+                    includeAmbiguous: true,
+                    ...(settings.autoDownloadEnabled ? { deferOnXrelUnavailable: true } : {}),
+                  }
                 : scoring,
               (categorized) => selectMainItems(categorized.mainItems).length > 0
             );
@@ -2376,17 +2390,24 @@ export async function checkAutoSearch() {
 
             // The release auto-download may take: the only one left, or, when the user opted
             // in, the best-scored of several that has not already failed for this game.
+            // Ambiguous matches (unconfirmed group suffix) count for the badge, never for a grab.
+            const autoPool = scoring
+              ? mainItems.filter(
+                  (item) => item.evaluation && isAutoEligible(item.evaluation, scoring.config)
+                )
+              : mainItems;
             let autoCandidate: SearchItem | undefined =
-              mainItems.length === 1 ? mainItems[0] : undefined;
+              autoPool.length === 1 && mainItems.length === 1 ? autoPool[0] : undefined;
             // Set when every ranked release already failed and the user was not asked yet.
             let exhaustedSignature: string | undefined;
             if (
               mainItems.length > 1 &&
+              autoPool.length > 0 &&
               scoring &&
               settings.autoDownloadEnabled &&
               autoPickBestEnabled(settings.downloadRules)
             ) {
-              const ranked = rankAutoDownloadCandidates(mainItems, indexerPriorityMap);
+              const ranked = rankAutoDownloadCandidates(autoPool, indexerPriorityMap);
               for (const candidate of ranked) {
                 if (!(await releaseAlreadyFailedForGame(game.id, candidate.title))) {
                   autoCandidate = candidate;
@@ -2569,6 +2590,17 @@ export async function checkAutoSearch() {
                   if (prefs.gameAvailable.apprise) void appriseClient.send(notification);
                 }
               }
+            } else if (mainItems.length === 1 && !wasAvailable && prefs.gameAvailable.inApp) {
+              // a lone ambiguous match: nothing is taken, but the game does have a result
+              const notification = await storage.addNotification({
+                userId,
+                type: "success",
+                title: "Game Available",
+                message: `${game.title} is now available for download`,
+                link: `modal:game:${game.id}`,
+              });
+              notifyUser("notification", notification, notification.userId);
+              if (prefs.gameAvailable.apprise) void appriseClient.send(notification);
             } else if (
               mainItems.length > 1 &&
               (!wasAvailable || exhaustedSignature !== undefined) &&

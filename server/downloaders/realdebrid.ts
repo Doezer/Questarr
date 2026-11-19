@@ -303,7 +303,7 @@ export class RealDebridClient implements DownloaderClient {
 
   // -- Status mapping -----------------------------------------------------
 
-  private async toStatus(torrent: RealDebridTorrent): Promise<DownloadStatus> {
+  private async toStatus(torrent: RealDebridTorrent, tracked = true): Promise<DownloadStatus> {
     const base = {
       id: torrent.id,
       name: torrent.original_filename || torrent.filename,
@@ -325,10 +325,10 @@ export class RealDebridClient implements DownloaderClient {
           error: `Real-Debrid reported status "${torrent.status}"`,
         };
       case "waiting_files_selection":
-        await this.selectAllFiles(torrent.id);
+        if (tracked) await this.selectAllFiles(torrent.id);
         return { ...base, status: "downloading", progress: 0 };
       case "downloaded":
-        return this.stagingStatus(torrent, base);
+        return this.stagingStatus(torrent, base, tracked);
       default:
         return {
           ...base,
@@ -343,11 +343,14 @@ export class RealDebridClient implements DownloaderClient {
 
   private async stagingStatus(
     torrent: RealDebridTorrent,
-    base: Omit<DownloadStatus, "status" | "progress">
+    base: Omit<DownloadStatus, "status" | "progress">,
+    tracked: boolean
   ): Promise<DownloadStatus> {
     if (await this.isStaged(torrent.id)) {
       return { ...base, status: "completed", progress: 100, downloaded: torrent.bytes };
     }
+    // The account may hold torrents Questarr never added: never copy those on its own.
+    if (!tracked) return { ...base, status: "paused", progress: 50 };
     const job = this.startStaging(torrent);
     if (job.state === "failed") {
       return { ...base, status: "error", progress: 50, error: job.error ?? "Staging failed" };
@@ -487,7 +490,10 @@ export class RealDebridClient implements DownloaderClient {
   async getAllDownloads(options?: { throwOnError?: boolean }): Promise<DownloadStatus[]> {
     try {
       const torrents = await this.json<RealDebridTorrent[]>("/torrents?limit=100");
-      return await Promise.all(torrents.map((torrent) => this.hydrate(torrent)));
+      const tracked = await this.trackedTorrentIds();
+      return await Promise.all(
+        torrents.map((torrent) => this.hydrate(torrent, tracked.has(torrent.id)))
+      );
     } catch (error) {
       if (options?.throwOnError) throw error;
       downloadersLogger.warn({ error }, "Real-Debrid download list failed");
@@ -496,12 +502,21 @@ export class RealDebridClient implements DownloaderClient {
   }
 
   /** The list endpoint omits `files` and `links`; staging needs them, so fetch full info. */
-  private async hydrate(torrent: RealDebridTorrent): Promise<DownloadStatus> {
-    if (torrent.status !== "downloaded") return this.toStatus(torrent);
+  private async hydrate(torrent: RealDebridTorrent, tracked: boolean): Promise<DownloadStatus> {
+    if (torrent.status !== "downloaded") return this.toStatus(torrent, tracked);
     const full = await this.json<RealDebridTorrent>(
       `/torrents/info/${encodeURIComponent(torrent.id)}`
     );
-    return this.toStatus(full);
+    return this.toStatus(full, tracked);
+  }
+
+  /** Torrent ids Questarr itself is tracking on this downloader. */
+  private async trackedTorrentIds(): Promise<Set<string>> {
+    const { storage } = await import("../storage.js");
+    const rows = await storage.getDownloadingGameDownloads();
+    return new Set(
+      rows.filter((row) => row.downloaderId === this.downloader.id).map((row) => row.downloadHash)
+    );
   }
 
   async pauseDownload(_id: string): Promise<DownloaderActionResult> {

@@ -16,6 +16,14 @@ vi.mock("../ssrf.js", () => ({
   safeFetch: (...args: unknown[]) => safeFetchMock(...args),
 }));
 
+const getDownloadingMock = vi.fn();
+vi.mock("../storage.js", () => ({
+  storage: {
+    getDownloadingGameDownloads: (...args: unknown[]) => getDownloadingMock(...args),
+    updateDownloader: vi.fn(),
+  },
+}));
+
 const { RealDebridClient, STAGING_MARKER } = await import("../downloaders/realdebrid.js");
 const { parseRealDebridCredentials } = await import("../downloaders/realdebrid-auth.js");
 
@@ -161,6 +169,33 @@ describe("RealDebridClient", () => {
       downloadDir: path.join(stagingRoot, "T1"),
     });
     expect(details?.files.map((f) => f.name)).toEqual(["Game/data/a.bin"]);
+  });
+
+  it("lists untracked torrents without staging or selecting them", async () => {
+    getDownloadingMock.mockResolvedValue([{ downloaderId: "rd-1", downloadHash: "MINE" }]);
+    const done = (id: string) => ({
+      id,
+      filename: id,
+      bytes: 1,
+      progress: 100,
+      status: "downloaded",
+      files: [{ id: 1, path: `/${id}.bin`, bytes: 1, selected: 1 }],
+      links: ["https://real-debrid.com/d/X"],
+    });
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/torrents?limit")) return json([done("OTHER"), done("MINE")]);
+      if (url.includes("/torrents/info/")) return json(done(url.split("/").pop() as string));
+      if (url.includes("/unrestrict/link")) {
+        return json({ filename: "m.bin", filesize: 1, download: "https://cdn.example/m" });
+      }
+      return new Response("x");
+    });
+    const list = await new RealDebridClient(createDownloader()).getAllDownloads();
+    expect(list.find((d) => d.id === "OTHER")?.status).toBe("paused");
+    await vi.waitFor(async () => {
+      await fs.access(path.join(stagingRoot, "MINE", STAGING_MARKER));
+    });
+    await expect(fs.access(path.join(stagingRoot, "OTHER"))).rejects.toThrow();
   });
 
   it("never writes outside the staging folder", async () => {

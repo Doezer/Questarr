@@ -2397,12 +2397,11 @@ export async function checkAutoSearch() {
                 )
               : mainItems;
             let autoCandidate: SearchItem | undefined =
-              autoPool.length === 1 && mainItems.length === 1 ? autoPool[0] : undefined;
+              autoPool.length === 1 ? autoPool[0] : undefined;
             // Set when every ranked release already failed and the user was not asked yet.
             let exhaustedSignature: string | undefined;
             if (
-              mainItems.length > 1 &&
-              autoPool.length > 0 &&
+              autoPool.length > 1 &&
               scoring &&
               settings.autoDownloadEnabled &&
               autoPickBestEnabled(settings.downloadRules)

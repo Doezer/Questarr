@@ -2362,7 +2362,15 @@ export async function checkAutoSearch() {
                     ...(settings.autoDownloadEnabled ? { deferOnXrelUnavailable: true } : {}),
                   }
                 : scoring,
-              (categorized) => selectMainItems(categorized.mainItems).length > 0
+              (categorized) => {
+                const main = selectMainItems(categorized.mainItems);
+                // A grab needs a clear match: an ambiguous one alone must not stop the paging
+                return scoring && settings.autoDownloadEnabled
+                  ? main.some(
+                      (item) => item.evaluation && isAutoEligible(item.evaluation, scoring.config)
+                    )
+                  : main.length > 0;
+              }
             );
             if (searchResult === AUTO_SEARCH_DEFERRED) continue;
             if (!searchResult) {

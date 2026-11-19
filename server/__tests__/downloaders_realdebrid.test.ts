@@ -61,6 +61,13 @@ const createDownloader = (overrides: Partial<Downloader> = {}): Downloader =>
 
 beforeEach(async () => {
   safeFetchMock.mockReset();
+  getDownloadingMock.mockReset();
+  getDownloadingMock.mockResolvedValue(
+    ["A", "B", "X", "T1", "T2", "T3", "T4", "T5", "T6", "T9"].map((downloadHash) => ({
+      downloaderId: "rd-1",
+      downloadHash,
+    }))
+  );
   stagingRoot = await fs.mkdtemp(path.join(os.tmpdir(), "rd-staging-"));
 });
 
@@ -217,6 +224,162 @@ describe("RealDebridClient", () => {
     await client.getDownloadStatus("T9");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect((await client.getDownloadStatus("T9"))?.status).toBe("downloading");
+  });
+
+  it("does not stage an untracked torrent requested by id", async () => {
+    getDownloadingMock.mockResolvedValue([]);
+    safeFetchMock.mockResolvedValue(
+      json({
+        id: "U1",
+        filename: "g",
+        bytes: 1,
+        progress: 100,
+        status: "downloaded",
+        files: [{ id: 1, path: "/g.bin", bytes: 1, selected: 1 }],
+        links: ["https://real-debrid.com/d/X"],
+      })
+    );
+    const status = await new RealDebridClient(createDownloader()).getDownloadStatus("U1");
+    expect(status?.status).toBe("paused");
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
+    await expect(fs.access(path.join(stagingRoot, "U1"))).rejects.toThrow();
+  });
+
+  const stagingFixture = (id: string, files: Array<{ path: string; bytes: number }>) => ({
+    id,
+    filename: id,
+    bytes: files.reduce((sum, f) => sum + f.bytes, 0),
+    progress: 100,
+    status: "downloaded",
+    files: files.map((f, i) => ({ id: i + 1, path: f.path, bytes: f.bytes, selected: 1 })),
+    links: files.map((_f, i) => `https://real-debrid.com/d/${i}`),
+  });
+
+  it("fails instead of completing when two files sanitize to the same path", async () => {
+    const torrent = stagingFixture("T4", [
+      { path: "/G/a?.bin", bytes: 1 },
+      { path: "/G/a*.bin", bytes: 1 },
+    ]);
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/torrents/info/T4")) return json(torrent);
+      if (url.includes("/unrestrict/link")) {
+        return json({ filename: "a.bin", filesize: 1, download: "https://cdn.example/a" });
+      }
+      return new Response("x");
+    });
+    const client = new RealDebridClient(createDownloader());
+    await client.getDownloadStatus("T4");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect(fs.access(path.join(stagingRoot, "T4", STAGING_MARKER))).rejects.toThrow();
+  });
+
+  it("keeps a payload named like the marker from completing the download", async () => {
+    const torrent = stagingFixture("T5", [
+      { path: `/${STAGING_MARKER}`, bytes: 1 },
+      { path: "/b.bin", bytes: 1 },
+    ]);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/torrents/info/T5")) return json(torrent);
+      if (url.includes("/unrestrict/link")) {
+        const name = url.includes("/unrestrict") ? "x" : "y";
+        return json({ filename: name, filesize: 1, download: `https://cdn.example/${name}` });
+      }
+      await gate;
+      return new Response("x");
+    });
+    const client = new RealDebridClient(createDownloader());
+    await client.getDownloadStatus("T5");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Still copying: the renamed payload must not look like the completion marker.
+    expect((await client.getDownloadStatus("T5"))?.status).toBe("downloading");
+    release();
+    await vi.waitFor(async () => {
+      await fs.access(path.join(stagingRoot, "T5", STAGING_MARKER));
+    });
+    await fs.access(path.join(stagingRoot, "T5", `_${STAGING_MARKER}`));
+  });
+
+  it("rejects a truncated copy instead of publishing it", async () => {
+    const torrent = stagingFixture("T6", [{ path: "/g.bin", bytes: 5 }]);
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/torrents/info/T6")) return json(torrent);
+      if (url.includes("/unrestrict/link")) {
+        return json({ filename: "g.bin", filesize: 5, download: "https://cdn.example/g" });
+      }
+      return new Response("abc");
+    });
+    const client = new RealDebridClient(createDownloader());
+    await client.getDownloadStatus("T6");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect(fs.access(path.join(stagingRoot, "T6", "g.bin"))).rejects.toThrow();
+    await expect(fs.access(path.join(stagingRoot, "T6", STAGING_MARKER))).rejects.toThrow();
+  });
+
+  it("advertises the same sanitized file names it writes", async () => {
+    const torrent = stagingFixture("T1", [{ path: "/Game/a:b.bin", bytes: 5 }]);
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/torrents/info/T1")) return json(torrent);
+      if (url.includes("/unrestrict/link")) {
+        return json({ filename: "a.bin", filesize: 5, download: "https://cdn.example/a" });
+      }
+      return new Response("hello");
+    });
+    const client = new RealDebridClient(createDownloader());
+    await client.getDownloadStatus("T1");
+    await vi.waitFor(async () => {
+      await fs.access(path.join(stagingRoot, "T1", STAGING_MARKER));
+    });
+    const details = await client.getDownloadDetails("T1");
+    expect(details?.files.map((f) => f.name)).toEqual(["Game/a_b.bin"]);
+  });
+
+  it("reads every page of the torrent list", async () => {
+    getDownloadingMock.mockResolvedValue([]);
+    const row = (n: number) => ({
+      id: `P${n}`,
+      filename: "g",
+      bytes: 1,
+      progress: 10,
+      status: "downloading",
+    });
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("offset=0")) return json(Array.from({ length: 100 }, (_v, i) => row(i)));
+      if (url.includes("offset=100")) return json([row(100)]);
+      throw new Error(`unexpected ${url}`);
+    });
+    const list = await new RealDebridClient(createDownloader()).getAllDownloads();
+    expect(list).toHaveLength(101);
+  });
+
+  it("treats an empty account (204) as an empty list", async () => {
+    getDownloadingMock.mockResolvedValue([]);
+    safeFetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    expect(await new RealDebridClient(createDownloader()).getAllDownloads()).toEqual([]);
+  });
+
+  it("stops an active copy before deleting its folder", async () => {
+    const torrent = stagingFixture("T3", [{ path: "/g.bin", bytes: 1 }]);
+    safeFetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.includes("/torrents/info/T3")) return json(torrent);
+      if (url.includes("/torrents/delete/")) return new Response(null, { status: 204 });
+      if (url.includes("/unrestrict/link")) {
+        // Never answers until aborted.
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      }
+      return new Response("x");
+    });
+    const client = new RealDebridClient(createDownloader());
+    await client.getDownloadStatus("T3");
+    const result = await client.removeDownload("T3", true);
+    expect(result.success).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await expect(fs.access(path.join(stagingRoot, "T3"))).rejects.toThrow();
   });
 
   it("never writes outside the staging folder", async () => {

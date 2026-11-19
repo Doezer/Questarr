@@ -1,6 +1,7 @@
 import { createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
@@ -28,6 +29,7 @@ import {
 
 /** Written into a staged torrent's folder once every file has been fetched. */
 export const STAGING_MARKER = ".questarr-staged";
+const TEMP_DIR = ".questarr-tmp";
 const REFRESH_MARGIN_MS = 60_000;
 const STAGING_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 
@@ -62,6 +64,11 @@ interface StagingJob {
   attempts: number;
   failedAt?: number;
   error?: string;
+  /** Set by removeDownload: the job is being torn down and must not restart. */
+  cancelled: boolean;
+  abort: AbortController;
+  /** Settles (never rejects) once the copy has stopped. */
+  done: Promise<void>;
 }
 
 const MAX_STAGING_ATTEMPTS = 5;
@@ -81,12 +88,18 @@ function sanitizeSegment(segment: string): string {
   return cleaned === "." || cleaned === ".." ? "_" : cleaned;
 }
 
-/** Splits a Real-Debrid path ("/Folder/file.bin") into safe relative segments. */
+/**
+ * Splits a Real-Debrid path ("/Folder/file.bin") into safe relative segments. Names starting
+ * with ".questarr-" are reserved for the completion marker and temp folder, so a payload file
+ * can never be mistaken for them.
+ */
 function toSafeSegments(rawPath: string): string[] {
-  return rawPath
+  const segments = rawPath
     .split(/[\\/]+/)
     .filter((part) => part.length > 0)
     .map(sanitizeSegment);
+  if (segments[0]?.startsWith(".questarr-")) segments[0] = `_${segments[0]}`;
+  return segments;
 }
 
 function selectedFiles(torrent: RealDebridTorrent) {
@@ -107,11 +120,23 @@ export class RealDebridClient implements DownloaderClient {
 
   // -- HTTP ---------------------------------------------------------------
 
-  private async persistCredentials(credentials: RealDebridCredentials): Promise<void> {
+  private async persistCredentials(
+    previous: RealDebridCredentials,
+    credentials: RealDebridCredentials
+  ): Promise<void> {
     this.credentials = credentials;
     try {
       // Imported lazily: storage pulls in the whole database layer.
       const { storage } = await import("../storage.js");
+      // A reconnect may have stored new credentials while this refresh was in flight:
+      // never overwrite those with a token derived from the old connection.
+      const stored = parseRealDebridCredentials(
+        (await storage.getDownloader(this.downloader.id))?.password
+      );
+      if (stored && stored.accessToken !== previous.accessToken) {
+        this.credentials = stored;
+        return;
+      }
       await storage.updateDownloader(this.downloader.id, {
         password: serializeRealDebridCredentials(credentials),
       });
@@ -125,7 +150,8 @@ export class RealDebridClient implements DownloaderClient {
 
   private async refresh(): Promise<void> {
     if (!this.credentials) throw new Error("Real-Debrid is not connected");
-    await this.persistCredentials(await refreshRealDebridToken(this.credentials));
+    const previous = this.credentials;
+    await this.persistCredentials(previous, await refreshRealDebridToken(previous));
   }
 
   private async api(
@@ -175,8 +201,9 @@ export class RealDebridClient implements DownloaderClient {
     return response;
   }
 
-  private async json<T>(pathname: string, init?: RequestInit): Promise<T> {
-    return (await (await this.api(pathname, init)).json()) as T;
+  private async json<T>(pathname: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
+    const response = await this.api(pathname, signal ? { ...init, signal } : init);
+    return (await response.json()) as T;
   }
 
   private form(values: Record<string, string>): RequestInit {
@@ -225,6 +252,7 @@ export class RealDebridClient implements DownloaderClient {
     const key = jobKey(this.downloader.id, torrent.id);
     const existing = stagingJobs.get(key);
     if (existing) {
+      if (existing.cancelled) return existing;
       const retryable =
         existing.state === "failed" &&
         existing.attempts < MAX_STAGING_ATTEMPTS &&
@@ -239,9 +267,13 @@ export class RealDebridClient implements DownloaderClient {
       bytesTotal: torrent.bytes,
       startedAt: Date.now(),
       attempts: (existing?.attempts ?? 0) + 1,
+      cancelled: false,
+      abort: new AbortController(),
+      done: Promise.resolve(),
     };
     stagingJobs.set(key, job);
-    this.stageFiles(torrent, job).catch((error) => {
+    job.done = this.stageFiles(torrent, job).catch((error) => {
+      if (job.cancelled) return;
       job.state = "failed";
       job.failedAt = Date.now();
       job.error = getErrorMessage(error);
@@ -263,10 +295,13 @@ export class RealDebridClient implements DownloaderClient {
     // Links come back in the order of the selected files, so their paths can be restored.
     const paths = files.length === links.length ? files.map((file) => file.path) : null;
 
+    const used = new Set<string>();
     for (const [index, link] of links.entries()) {
+      job.abort.signal.throwIfAborted();
       const unrestricted = await this.json<UnrestrictedLink>(
         "/unrestrict/link",
-        this.form({ link })
+        this.form({ link }),
+        job.abort.signal
       );
       const segments = toSafeSegments(paths?.[index] ?? unrestricted.filename);
       if (segments.length === 0) throw new Error("Real-Debrid returned an empty file name");
@@ -274,9 +309,17 @@ export class RealDebridClient implements DownloaderClient {
       if (!target.startsWith(dir + path.sep)) {
         throw new Error(`Refusing to write outside the staging folder: ${target}`);
       }
-      await this.downloadFile(unrestricted, target, job);
+      // Two different remote files must never land on the same local path.
+      const collisionKey = target.toLowerCase();
+      if (used.has(collisionKey)) {
+        throw new Error(`Two files map to the same local path: ${segments.join("/")}`);
+      }
+      used.add(collisionKey);
+      await this.downloadFile(unrestricted, target, dir, job);
     }
 
+    job.abort.signal.throwIfAborted();
+    await fs.rm(path.join(dir, TEMP_DIR), { recursive: true, force: true });
     await fs.writeFile(
       path.join(dir, STAGING_MARKER),
       JSON.stringify({ torrentId: torrent.id, stagedAt: new Date().toISOString() })
@@ -287,6 +330,7 @@ export class RealDebridClient implements DownloaderClient {
   private async downloadFile(
     file: UnrestrictedLink,
     target: string,
+    dir: string,
     job: StagingJob
   ): Promise<void> {
     await fs.mkdir(path.dirname(target), { recursive: true });
@@ -300,14 +344,20 @@ export class RealDebridClient implements DownloaderClient {
       headers: { "User-Agent": DOWNLOAD_CLIENT_USER_AGENT },
       requireHttps: true,
       timeoutMs: STAGING_TIMEOUT_MS,
+      signal: job.abort.signal,
     });
     if (!response.ok || !response.body) {
       throw new Error(`Real-Debrid file download failed (HTTP ${response.status})`);
     }
 
-    const partial = `${target}.part`;
+    // The temp file lives outside the payload namespace so it can't clash with a real file.
+    const tempDir = path.join(dir, TEMP_DIR);
+    await fs.mkdir(tempDir, { recursive: true });
+    const partial = path.join(tempDir, randomUUID());
+    let copied = 0;
     const counter = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
+        copied += chunk.length;
         job.bytesDone += chunk.length;
         callback(null, chunk);
       },
@@ -316,8 +366,14 @@ export class RealDebridClient implements DownloaderClient {
       await pipeline(
         Readable.fromWeb(response.body as import("node:stream/web").ReadableStream),
         counter,
-        createWriteStream(partial)
+        createWriteStream(partial, { flags: "wx" }),
+        { signal: job.abort.signal }
       );
+      if (file.filesize > 0 && copied !== file.filesize) {
+        throw new Error(
+          `Incomplete copy of ${path.basename(target)}: ${copied}/${file.filesize} bytes`
+        );
+      }
       await fs.rename(partial, target);
     } catch (error) {
       await fs.rm(partial, { force: true });
@@ -475,7 +531,8 @@ export class RealDebridClient implements DownloaderClient {
         { allowStatus: [404] }
       );
       if (response.status === 404) return null;
-      return await this.toStatus((await response.json()) as RealDebridTorrent);
+      const torrent = (await response.json()) as RealDebridTorrent;
+      return await this.toStatus(torrent, await this.isTracked(torrent.id));
     } catch (error) {
       if (options?.throwOnError) throw error;
       downloadersLogger.warn({ error, id }, "Real-Debrid status lookup failed");
@@ -491,7 +548,7 @@ export class RealDebridClient implements DownloaderClient {
     );
     if (response.status === 404) return null;
     const torrent = (await response.json()) as RealDebridTorrent;
-    const status = await this.toStatus(torrent);
+    const status = await this.toStatus(torrent, await this.isTracked(torrent.id));
     const staged = status.status === "completed";
     return {
       ...status,
@@ -501,7 +558,7 @@ export class RealDebridClient implements DownloaderClient {
       // Only set once the files are really on disk, so nothing is imported half-copied.
       downloadDir: staged ? this.stagingDir(torrent.id) : undefined,
       files: selectedFiles(torrent).map((file) => ({
-        name: file.path.replace(/^[\\/]+/, ""),
+        name: toSafeSegments(file.path).join("/"),
         size: file.bytes,
         progress: staged ? 100 : 0,
         priority: "normal" as const,
@@ -514,7 +571,7 @@ export class RealDebridClient implements DownloaderClient {
 
   async getAllDownloads(options?: { throwOnError?: boolean }): Promise<DownloadStatus[]> {
     try {
-      const torrents = await this.json<RealDebridTorrent[]>("/torrents?limit=100");
+      const torrents = await this.listTorrents();
       const tracked = await this.trackedTorrentIds();
       return await Promise.all(
         torrents.map((torrent) => this.hydrate(torrent, tracked.has(torrent.id)))
@@ -535,6 +592,24 @@ export class RealDebridClient implements DownloaderClient {
     return this.toStatus(full, tracked);
   }
 
+  private async isTracked(id: string): Promise<boolean> {
+    return (await this.trackedTorrentIds()).has(id);
+  }
+
+  /** Every torrent in the account, page by page (the API caps a page at 100). */
+  private async listTorrents(): Promise<RealDebridTorrent[]> {
+    const pageSize = 100;
+    const all: RealDebridTorrent[] = [];
+    for (let page = 0; page < 50; page++) {
+      const response = await this.api(`/torrents?limit=${pageSize}&offset=${page * pageSize}`);
+      // 204 means an empty page.
+      const batch = response.status === 204 ? [] : ((await response.json()) as RealDebridTorrent[]);
+      all.push(...batch);
+      if (batch.length < pageSize) break;
+    }
+    return all;
+  }
+
   /** Torrent ids Questarr itself is tracking on this downloader. */
   private async trackedTorrentIds(): Promise<Set<string>> {
     const { storage } = await import("../storage.js");
@@ -553,8 +628,16 @@ export class RealDebridClient implements DownloaderClient {
   }
 
   async removeDownload(id: string, deleteFiles = false): Promise<DownloaderActionResult> {
+    const key = jobKey(this.downloader.id, id);
+    const job = stagingJobs.get(key);
     try {
-      stagingJobs.delete(jobKey(this.downloader.id, id));
+      // Stop an active copy first, and keep the job registered until cleanup is done so a
+      // poll can't start a replacement while the folder is being removed.
+      if (job) {
+        job.cancelled = true;
+        job.abort.abort();
+        await job.done;
+      }
       await this.api(
         `/torrents/delete/${encodeURIComponent(id)}`,
         { method: "DELETE" },
@@ -566,6 +649,8 @@ export class RealDebridClient implements DownloaderClient {
       return { success: true, message: "Download removed" };
     } catch (error) {
       return { success: false, message: `Failed to remove download: ${getErrorMessage(error)}` };
+    } finally {
+      if (job) stagingJobs.delete(key);
     }
   }
 

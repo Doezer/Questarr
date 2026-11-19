@@ -549,7 +549,11 @@ export default function DownloadersPage() {
 
   const onSubmit = (data: InsertDownloader) => {
     if (editingDownloader) {
-      updateMutation.mutate({ id: editingDownloader.id, data });
+      // The form never holds the OAuth tokens: an empty password must not wipe the ones
+      // stored by Connect (a connection made after the dialog opened included).
+      const update: Partial<InsertDownloader> = { ...data };
+      if (isRealDebrid && !update.password) delete update.password;
+      updateMutation.mutate({ id: editingDownloader.id, data: update });
     } else {
       addMutation.mutate(data);
     }
@@ -1464,6 +1468,12 @@ export default function DownloadersPage() {
                     }
 
                     const formData = form.getValues();
+                    // A connected Real-Debrid account lives server-side only: test the saved
+                    // downloader (which has the OAuth tokens) unless a token was typed in.
+                    if (editingDownloader && isRealDebrid && !formData.password) {
+                      testConnectionMutation.mutate({ id: editingDownloader.id });
+                      return;
+                    }
                     testConnectionMutation.mutate({ formData });
                   }}
                   disabled={testingDownloaderId !== null}

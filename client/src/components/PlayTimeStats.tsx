@@ -219,7 +219,8 @@ export default function PlayTimeStats() {
   );
 
   if (!data) {
-    if (!isError) return null;
+    // A reversed custom range disables the query, so it never errors: keep the controls to fix it.
+    if (!isError && !customInvalid) return null;
     return (
       <section
         aria-labelledby="play-time-heading"
@@ -231,12 +232,14 @@ export default function PlayTimeStats() {
           Play time
         </h2>
         {rangeBar}
-        <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
-          Could not load the play time statistics.
-          <Button variant="outline" size="sm" onClick={() => void refetch()}>
-            Retry
-          </Button>
-        </div>
+        {isError && (
+          <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
+            Could not load the play time statistics.
+            <Button variant="outline" size="sm" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          </div>
+        )}
       </section>
     );
   }

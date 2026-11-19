@@ -112,8 +112,11 @@ export default function PlayTimeStats() {
       const link = document.createElement("a");
       link.href = url;
       link.download = `questarr-play-sessions.${format}`;
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(url);
+      link.remove();
+      // Some browsers start the download asynchronously, so keep the blob URL alive a moment.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
       toast({
         title: "Could not export play sessions",

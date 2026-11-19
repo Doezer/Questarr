@@ -450,3 +450,25 @@ export function sessionsInRange<T extends PlaySessionInput>(
     return (fromDay === null || day >= fromDay) && (toDay === null || day <= toDay);
   });
 }
+
+/** Maps an instant to its local calendar day number (days since the epoch) in the viewer's zone. */
+export function localDayNumber(zone: PlayStatsZone): (date: Date) => number {
+  const toLocal = localizer(zone);
+  return (date) => dayNumber(toLocal(date));
+}
+
+/** `YYYY-MM-DD` of a local day number. */
+export function formatDayNumber(day: number): string {
+  return dayToDateString(day);
+}
+
+/** Local Monday (day number) of the week containing the local day number. */
+export function weekStartOfDay(day: number): number {
+  return day - ((day + 3) % 7);
+}
+
+/** First day (day number) of the month containing the local day number. */
+export function monthStartOfDay(day: number): number {
+  const date = new Date(day * DAY_MS);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1) / DAY_MS;
+}

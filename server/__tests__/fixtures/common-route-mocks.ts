@@ -88,6 +88,7 @@ export function createStorageMock() {
     deleteGameJournalEntry: vi.fn(),
     getGamePlaySessions: vi.fn().mockResolvedValue([]),
     getUserPlaySessions: vi.fn().mockResolvedValue([]),
+    getUserGameStatusEvents: vi.fn().mockResolvedValue([]),
     getRunningPlaySession: vi.fn().mockResolvedValue(undefined),
     addGamePlaySession: vi.fn(),
     stopGamePlaySession: vi.fn(),

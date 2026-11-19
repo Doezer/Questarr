@@ -211,6 +211,13 @@
       "when": 1794883942803,
       "tag": "0029_folder_for_single_files",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1795061144904,
+      "tag": "0030_game_status_events",
+      "breakpoints": true
     }
   ]
 }

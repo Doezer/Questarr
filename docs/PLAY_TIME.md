@@ -88,6 +88,30 @@ Days, weeks (starting Monday) and months follow your browser's time zone (its IA
 `Europe/Paris`, so daylight saving time is applied to each session on its own date). A session counts
 on the day it started. A timer that is still running is not counted until you stop it.
 
+## Backlog burn-down
+
+Below the play time figures, **Backlog burn-down** shows how the pile of games you own but have not
+finished shrinks over time. The **backlog** is every game that is **Owned** or **Playing**; a
+**Completed**, **Shelved**, **Wanted** or **Downloading** game is not in it.
+
+- **In Backlog**, **Time Left** (the IGDB "normally" Time to Beat of each backlog game minus the time
+  you played on it, never below zero; games with no estimate are counted separately and left out),
+  **Pace** (hours per day over the last 28 days, all games) and **Cleared By**.
+- A chart over the last 12 weeks or months: **Games** (the size of the backlog at the end of each week
+  or month, with the games completed in it as bars) or **Hours** (time still to play). Weeks start on
+  Monday and days follow your browser's time zone, like the other charts.
+- **Cleared By** divides the time left by your pace. It does not count games you add later, and it is
+  left out when there is no recent play or the date is more than ten years away.
+
+Questarr records each status change of a game (and the day it was added) to draw this. Games that
+already existed when the feature arrived got one starting point each from the day they were added
+(and the completion day for completed games), so the history before that is an estimate: a game you
+bought long after adding it to your wishlist counts from the day it was added. The history is deleted with its game and is included
+when you move from SQLite to Postgres.
+
+This shares the status history with any future weekly or monthly backlog goal
+([Questarr-mgmt#80](https://github.com/Doezer/Questarr-mgmt/issues/80)).
+
 ## Playnite
 
 The [Playnite extension](../extensions/playnite-questarr/README.md) can send each finished session

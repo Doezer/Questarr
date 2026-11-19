@@ -227,6 +227,18 @@ export type _InsertGamePlaySessions = Expect<
     typeof pgSchema.gamePlaySessions.$inferInsert
   >
 >;
+export type _SelectGameStatusEvents = Expect<
+  Equal<
+    typeof sqliteSchema.gameStatusEvents.$inferSelect,
+    typeof pgSchema.gameStatusEvents.$inferSelect
+  >
+>;
+export type _InsertGameStatusEvents = Expect<
+  Equal<
+    typeof sqliteSchema.gameStatusEvents.$inferInsert,
+    typeof pgSchema.gameStatusEvents.$inferInsert
+  >
+>;
 export type _SelectWebhookSubscriptions = Expect<
   Equal<
     typeof sqliteSchema.webhookSubscriptions.$inferSelect,

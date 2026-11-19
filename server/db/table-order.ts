@@ -35,6 +35,7 @@ export const TABLE_ORDER = [
   "gameJournalEntries",
   "gameMilestones",
   "gamePlaySessions",
+  "gameStatusEvents",
   "gameScreenshots",
   // References games and gameDownloads, so it goes last.
   "gameFiles",

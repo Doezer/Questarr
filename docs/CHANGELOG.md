@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Real-Debrid downloader**: **Downloaders → Add Downloader** has a new **Real-Debrid** type for premium accounts. Real-Debrid fetches the torrent on its servers, then Questarr copies the finished files to a local staging folder and runs the normal import on them. Connect with the device-code flow (**Connect Real-Debrid**, tokens stored encrypted on the server) or paste a private API token; expired tokens refresh by themselves. Pause and resume are not available (#1395). See [Real-Debrid](REAL-DEBRID.md).
 - **Backlog burn-down**: the **Statistics** page has a **Backlog burn-down** section for the games you own but have not finished (**Owned** or **Playing**). It shows the games left, the time left from the IGDB Time to Beat minus what you played, your pace over the last 28 days and the date the backlog would be cleared, with a chart per week or month of the backlog size and the games completed. Questarr now records each status change of a game to draw it, with a starting point for the games you already had (#1397). See [Play time](PLAY_TIME.md#backlog-burn-down).
 - **Play time statistics range and export**: the play time statistics gain a **Range** selector (all time, last 7, 30 or 90 days, last 12 months or custom days), a heatmap of play per day, the split by weekday and time of day, session length statistics (average, median and length bands) and **Export CSV / JSON** of the sessions of the selected range (#1396). See [Play time](PLAY_TIME.md#range-and-export).
 - **Import Steam play time from before tracking**: **Settings → Steam → Steam play time → Preview import** lists, per game, what Steam holds minus what Questarr already recorded, and **Import** records the games you leave ticked as one estimated session each (shown as "Steam · before tracking"). It never runs by itself and imports a game only once (#1398).
@@ -65,7 +66,7 @@ All notable changes to this project will be documented in this file.
 
 ### Vulnerabilities Addressed
 
-Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.dev (`v1.6.0` → `main`). The other 153 bumped packages matched no patched advisory.
+Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.dev (`v1.6.0` → `main`). The other 154 bumped packages matched no patched advisory.
 
 #### Production dependencies
 

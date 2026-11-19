@@ -172,6 +172,28 @@ describe.each(activeTestDialects())("Steam play-time history import (%s)", (dial
     expect((await sessions()).filter((s) => s.source === "steam")).toHaveLength(0);
   });
 
+  it("starts a fresh sync window at the import, so earlier timer sessions are not counted twice", async () => {
+    await mod.setSteamPlaytimeEnabled(userId, true);
+    fixtures.playtimes.mockResolvedValue(new Map([[1145360, 600]]));
+    await mod.syncSteamPlaytime(userId, { now: new Date("2026-11-19T08:00:00Z") });
+    // A 60 minute timer session after that sync, then Steam reports it (660) and the import runs.
+    await ctx.storage.addGamePlaySession({
+      gameId,
+      userId,
+      startedAt: new Date("2026-11-19T08:00:00Z"),
+      endedAt: new Date("2026-11-19T09:00:00Z"),
+      source: "timer",
+    });
+    owned(660);
+    await mod.importSteamPlaytime(userId, undefined, NOW);
+    // 30 more minutes played on Steam only: the next sync must add them.
+    fixtures.playtimes.mockResolvedValue(new Map([[1145360, 690]]));
+    const later = new Date("2026-11-19T12:00:00Z");
+    const result = await mod.syncSteamPlaytime(userId, { force: true, now: later });
+    expect(result.sessionsAdded).toBe(1);
+    expect(result.minutesAdded).toBe(30);
+  });
+
   describe("routes", () => {
     it("serves the preview and imports the chosen games", async () => {
       owned(600);

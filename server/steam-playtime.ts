@@ -469,14 +469,18 @@ export async function importSteamPlaytime(
       await withStateLock(userId, async () => {
         const state = await readState(userId);
         const baselines = { ...state.baselines };
+        const deferred = { ...state.deferred };
         let changed = false;
         for (const item of moved) {
           if (baselines[item.appKey] !== undefined) {
             baselines[item.appKey] = item.total;
+            // Sessions recorded so far are already inside the new baseline: the next window
+            // starts now, so the sync never counts them a second time.
+            deferred[item.appKey] = now.getTime();
             changed = true;
           }
         }
-        if (changed) await writeState(userId, { ...state, baselines });
+        if (changed) await writeState(userId, { ...state, baselines, deferred });
       });
     }
     return { sessionsAdded, minutesAdded };

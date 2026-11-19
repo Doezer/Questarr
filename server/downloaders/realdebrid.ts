@@ -200,7 +200,16 @@ export class RealDebridClient implements DownloaderClient {
   }
 
   private stagingDir(torrentId: string): string {
-    return path.join(this.stagingRoot(), sanitizeSegment(torrentId));
+    // Real-Debrid ids are plain alphanumerics; anything else is never a staging folder.
+    if (!/^[A-Za-z0-9]+$/.test(torrentId)) {
+      throw new Error("Invalid Real-Debrid torrent id");
+    }
+    const root = path.resolve(this.stagingRoot());
+    const dir = path.resolve(root, torrentId);
+    if (!dir.startsWith(root + path.sep)) {
+      throw new Error("Staging folder escapes the staging path");
+    }
+    return dir;
   }
 
   private async isStaged(torrentId: string): Promise<boolean> {

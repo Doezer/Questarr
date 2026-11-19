@@ -856,7 +856,15 @@ export default function DownloadersPage() {
                             previousType,
                             useSsl
                           );
-                          const nextDefaultPort = getDefaultDownloaderPort(nextType, useSsl);
+                          // Real-Debrid forces SSL on and leaving it forces SSL off, so the
+                          // default port must follow the resulting setting.
+                          const resultingSsl =
+                            nextType === "realdebrid"
+                              ? true
+                              : previousType === "realdebrid"
+                                ? false
+                                : useSsl;
+                          const nextDefaultPort = getDefaultDownloaderPort(nextType, resultingSsl);
 
                           field.onChange(nextType);
 

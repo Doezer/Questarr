@@ -109,21 +109,33 @@ function toSafeSegments(rawPath: string): string[] {
  * both use this, so they always agree.
  */
 function resolveStagedPaths(rawPaths: string[]): string[][] {
-  const used = new Set<string>();
+  const files = new Set<string>();
+  const dirs = new Set<string>();
+  const key = (segments: string[], length = segments.length) =>
+    segments.slice(0, length).join("/").toLowerCase();
+
+  /** Index of the first segment that clashes with an earlier file or folder, or -1. */
+  const conflictIndex = (segments: string[]): number => {
+    for (let i = 1; i < segments.length; i++) {
+      if (files.has(key(segments, i))) return i - 1; // a parent folder is already a file
+    }
+    const full = key(segments);
+    return files.has(full) || dirs.has(full) ? segments.length - 1 : -1;
+  };
+
   return rawPaths.map((raw, index) => {
     let segments = toSafeSegments(raw);
     if (segments.length === 0) segments = [`file-${index + 1}`];
-    if (used.has(segments.join("/").toLowerCase())) {
-      const { name, ext } = path.parse(segments[segments.length - 1] ?? "");
-      let n = 2;
-      let candidate: string[];
-      do {
-        candidate = [...segments.slice(0, -1), `${name} (${n})${ext}`];
-        n++;
-      } while (used.has(candidate.join("/").toLowerCase()));
-      segments = candidate;
+    for (let guard = 0; guard < 1000; guard++) {
+      const at = conflictIndex(segments);
+      if (at < 0) break;
+      const { name, ext } = path.parse(segments[at] ?? "");
+      segments = segments.map((segment, i) =>
+        i === at ? `${name} (${guard + 2})${ext}` : segment
+      );
     }
-    used.add(segments.join("/").toLowerCase());
+    files.add(key(segments));
+    for (let i = 1; i < segments.length; i++) dirs.add(key(segments, i));
     return segments;
   });
 }
@@ -657,15 +669,24 @@ export class RealDebridClient implements DownloaderClient {
 
   async removeDownload(id: string, deleteFiles = false): Promise<DownloaderActionResult> {
     const key = jobKey(this.downloader.id, id);
-    const job = stagingJobs.get(key);
+    // Reserve the key before the first await, even when nothing is running, so an overlapping
+    // status poll can't start a copy while the torrent and its folder are being removed.
+    const job: StagingJob = stagingJobs.get(key) ?? {
+      state: "running",
+      bytesDone: 0,
+      bytesTotal: 0,
+      startedAt: Date.now(),
+      attempts: 0,
+      cancelled: true,
+      abort: new AbortController(),
+      done: Promise.resolve(),
+    };
+    stagingJobs.set(key, job);
     try {
-      // Stop an active copy first, and keep the job registered until cleanup is done so a
-      // poll can't start a replacement while the folder is being removed.
-      if (job) {
-        job.cancelled = true;
-        job.abort.abort();
-        await job.done;
-      }
+      // Stop an active copy first, and keep the job registered until cleanup is done.
+      job.cancelled = true;
+      job.abort.abort();
+      await job.done;
       await this.api(
         `/torrents/delete/${encodeURIComponent(id)}`,
         { method: "DELETE" },
@@ -678,7 +699,7 @@ export class RealDebridClient implements DownloaderClient {
     } catch (error) {
       return { success: false, message: `Failed to remove download: ${getErrorMessage(error)}` };
     } finally {
-      if (job) stagingJobs.delete(key);
+      stagingJobs.delete(key);
     }
   }
 

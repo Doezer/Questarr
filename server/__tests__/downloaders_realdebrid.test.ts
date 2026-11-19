@@ -63,10 +63,12 @@ beforeEach(async () => {
   safeFetchMock.mockReset();
   getDownloadingMock.mockReset();
   getDownloadingMock.mockResolvedValue(
-    ["A", "B", "X", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9"].map((downloadHash) => ({
-      downloaderId: "rd-1",
-      downloadHash,
-    }))
+    ["A", "B", "X", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10"].map(
+      (downloadHash) => ({
+        downloaderId: "rd-1",
+        downloadHash,
+      })
+    )
   );
   stagingRoot = await fs.mkdtemp(path.join(os.tmpdir(), "rd-staging-"));
 });
@@ -289,12 +291,31 @@ describe("RealDebridClient", () => {
     });
     const client = new RealDebridClient(createDownloader());
     await client.getDownloadStatus("T7");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await vi.waitFor(() => fs.access(path.join(stagingRoot, "T7", STAGING_MARKER)));
     const details = await client.getDownloadDetails("T7");
     const advertised = (details?.files ?? []).map((file) => file.name).sort();
     const written = (await fs.readdir(path.join(stagingRoot, "T7", "G"))).sort();
     expect(advertised).toEqual(written.map((name) => `G/${name}`));
     expect(new Set(advertised).size).toBe(2);
+  });
+
+  it("resolves a file that clashes with another file's folder", async () => {
+    const torrent = stagingFixture("T10", [
+      { path: "/G/a?", bytes: 1 },
+      { path: "/G/a*/b.bin", bytes: 1 },
+    ]);
+    safeFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/torrents/info/T10")) return json(torrent);
+      if (url.includes("/unrestrict/link")) {
+        return json({ filename: "x", filesize: 1, download: "https://cdn.example/x" });
+      }
+      return new Response("x");
+    });
+    const client = new RealDebridClient(createDownloader());
+    await client.getDownloadStatus("T10");
+    await vi.waitFor(() => fs.access(path.join(stagingRoot, "T10", STAGING_MARKER)));
+    const details = await client.getDownloadDetails("T10");
+    expect(details?.files.map((file) => file.name)).toEqual(["G/a_", "G/a_ (2)/b.bin"]);
   });
 
   it("never publishes completion when links and selected files differ", async () => {

@@ -103,17 +103,26 @@ export async function readClamAvSettings(storage: SystemConfigReader): Promise<C
 /** Streaming SHA-256 of a single file's contents, without loading it into memory. */
 export async function computeFileSha256(
   filePath: string,
-  onProgress?: (bytesRead: number) => void
+  onProgress?: (bytesRead: number, totalBytes: number | null) => void
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash("sha256");
     const stream = fs.createReadStream(filePath);
     let bytesRead = 0;
+    let totalBytes: number | null = null;
+    // Size from the opened descriptor rather than a second path-based stat.
+    stream.on("open", (fd) => {
+      fs.fstat(fd)
+        .then((st) => {
+          totalBytes = st.size;
+        })
+        .catch(() => undefined);
+    });
     stream.on("error", reject);
     stream.on("data", (chunk) => {
       hash.update(chunk);
       bytesRead += chunk.length;
-      onProgress?.(bytesRead);
+      onProgress?.(bytesRead, totalBytes);
     });
     stream.on("end", () => resolve(hash.digest("hex")));
   });
@@ -421,9 +430,8 @@ export class SecurityScanService {
     if (!primaryFile) return null;
 
     hooks?.onPhase?.("hashing");
-    const totalBytes = (await fs.stat(primaryFile).catch(() => null))?.size ?? null;
-    const hash = await computeFileSha256(primaryFile, (read) =>
-      hooks?.onBytes?.(read, totalBytes)
+    const hash = await computeFileSha256(primaryFile, (read, total) =>
+      hooks?.onBytes?.(read, total)
     ).catch((err) => {
       securityScanLogger.warn({ err, primaryFile }, "Failed to hash file for VirusTotal");
       return null;

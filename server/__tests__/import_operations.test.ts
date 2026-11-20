@@ -68,11 +68,16 @@ describe("computeFileSha256 progress", () => {
     const file = path.join(dir, "data.bin");
     await fs.writeFile(file, Buffer.alloc(300_000, 1));
     const reads: number[] = [];
-    const hash = await computeFileSha256(file, (n) => reads.push(n));
+    const totals: Array<number | null> = [];
+    const hash = await computeFileSha256(file, (n, total) => {
+      reads.push(n);
+      totals.push(total);
+    });
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
     expect(reads.length).toBeGreaterThan(0);
     expect(reads.at(-1)).toBe(300_000);
     expect([...reads].sort((a, b) => a - b)).toEqual(reads);
+    expect(totals.at(-1)).toBe(300_000);
     await fs.remove(dir);
   });
 });

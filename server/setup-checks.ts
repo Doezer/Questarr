@@ -296,9 +296,12 @@ async function checkIndexer(indexer: Indexer): Promise<SetupCheck> {
         ...base,
         status: "fail",
         message: result.message,
-        fix: /40[13]|api key|unauthor/i.test(result.message)
-          ? "The indexer rejected the API key. Re-copy it without spaces or quotes."
-          : "Check the URL, that the indexer is up, and that Questarr can reach it (Docker network, TLS certificate, Prowlarr base URL).",
+        fix:
+          hint?.fix && !indexerAllowsApiKey(indexer)
+            ? hint.fix
+            : /40[13]|api key|unauthor/i.test(result.message)
+              ? "The indexer rejected the API key. Re-copy it without spaces or quotes."
+              : "Check the URL, that the indexer is up, and that Questarr can reach it (Docker network, TLS certificate, Prowlarr base URL).",
       };
     }
   } catch (error) {

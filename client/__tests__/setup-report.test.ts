@@ -30,3 +30,23 @@ describe("buildRedactedReport", () => {
     expect(text).toContain("1 failed");
   });
 });
+
+describe("hostname redaction", () => {
+  it("masks hostnames and URLs in messages", () => {
+    const text = buildRedactedReport({
+      ...report,
+      checks: [
+        {
+          id: "service-clamav",
+          group: "tools",
+          title: "ClamAV",
+          status: "fail",
+          message:
+            "Failed to resolve hostname: seedbox; GET https://tracker.example.org/api failed",
+        },
+      ],
+    });
+    expect(text).not.toContain("seedbox");
+    expect(text).not.toContain("tracker.example.org");
+  });
+});

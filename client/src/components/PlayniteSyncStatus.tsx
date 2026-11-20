@@ -96,7 +96,8 @@ export function PlayniteSyncStatus() {
                   </div>
                   {entry.at && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {entry.counts.received ?? 0} games in that request: {summary(entry.counts)}
+                      {entry.counts.received ?? 0} {entry.counts.received === 1 ? "game" : "games"}{" "}
+                      in that request: {summary(entry.counts)}
                     </p>
                   )}
                   {entry.error && (

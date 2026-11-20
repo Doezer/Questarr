@@ -107,6 +107,7 @@ import {
 import { resolveTargetPlatform } from "@shared/title-utils";
 import { type XrelGameStatus } from "@shared/xrel-types";
 import StatusBadge from "./StatusBadge";
+import { SyncedStatusNote } from "./SyncedStatusNote";
 import GameVideoCarousel from "./GameVideoCarousel";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
@@ -1134,6 +1135,11 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={game.status} />
+                  <SyncedStatusNote
+                    gameId={game.id}
+                    status={game.status}
+                    syncSource={game.statusSyncSource}
+                  />
                   {game.earlyAccess && (
                     <Badge className="gap-1 border-amber-600 bg-amber-500 text-xs text-white">
                       <FlaskConical className="h-3 w-3" />

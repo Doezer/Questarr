@@ -6,6 +6,7 @@ import {
   IncompleteScanError,
   ImportInProgressError,
 } from "../services/ImportManager.js";
+import { importOperations } from "../services/ImportOperations.js";
 import { ArchivePasswordRequiredError } from "../services/ArchiveService.js";
 import { routesLogger as logger } from "../logger.js";
 import { rescanAllEnabledRootFolders } from "../library-scanner.js";
@@ -635,6 +636,20 @@ importRouter.get("/:id/plan", async (req, res) => {
   }
 });
 
+// Status of a tracked manual import. Scoped to the caller: another user's id answers 404.
+importRouter.get("/operations/:operationId", (req, res) => {
+  const op = importOperations.get(req.params.operationId, res.locals.userId as string);
+  if (!op) return res.status(404).json({ error: "Operation not found" });
+  return res.json(op);
+});
+
+// Latest tracked import for a download, so the dialog can restore progress after a reload.
+importRouter.get("/:id/operation", (req, res) => {
+  const op = importOperations.latestForDownload(req.params.id, res.locals.userId as string);
+  if (!op) return res.status(404).json({ error: "No import operation for this download" });
+  return res.json(op);
+});
+
 importRouter.post("/:id/confirm", async (req, res) => {
   const { id } = req.params;
   try {
@@ -662,22 +677,49 @@ importRouter.post("/:id/confirm", async (req, res) => {
     const targetRoot = config.libraryRoot;
     const safeProposedPath = resolveProposedPathWithinRoot(targetRoot, body.proposedPath);
 
-    await importManager.confirmImport(
-      id,
-      {
-        strategy: body.strategy,
-        originalPath: body.originalPath ?? "",
-        proposedPath: safeProposedPath,
-        needsReview: false,
-        reviewReason: "Manual Confirmation",
-        transferMode: body.transferMode,
-        unpack: body.unpack,
-        password: body.password,
-      },
-      userId
-    );
+    // Validate the download up front so an unknown/foreign id still answers 404 at once;
+    // everything else (hash, scan, extraction, transfer) runs as a tracked background
+    // operation the client polls, since it can take minutes on large or slow storage.
+    const download = await storage.getGameDownload(id, userId);
+    if (!download) {
+      return res.status(404).json({ error: `Download ${id} not found` });
+    }
+    const running = importOperations.latestForDownload(id, userId);
+    if (running?.status === "running") {
+      return res
+        .status(409)
+        .json({ error: "An import of this download is already running", operationId: running.id });
+    }
 
-    return res.json({ success: true });
+    const operation = importOperations.create(id, userId ?? null);
+    const progress = importOperations.progressFor(operation.id);
+    void importManager
+      .confirmImport(
+        id,
+        {
+          strategy: body.strategy,
+          originalPath: body.originalPath ?? "",
+          proposedPath: safeProposedPath,
+          needsReview: false,
+          reviewReason: "Manual Confirmation",
+          transferMode: body.transferMode,
+          unpack: body.unpack,
+          password: body.password,
+        },
+        userId,
+        progress
+      )
+      .then(() => importOperations.complete(operation.id))
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Import failed";
+        importOperations.fail(operation.id, message, {
+          passwordRequired: error instanceof ArchivePasswordRequiredError,
+          incompleteScan: error instanceof IncompleteScanError,
+        });
+        logger.warn({ error, operationId: operation.id }, "Manual import operation failed");
+      });
+
+    return res.status(202).json({ success: true, operationId: operation.id });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.issues });

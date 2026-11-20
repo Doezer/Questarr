@@ -25,6 +25,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { FileBrowser } from "./FileBrowser";
+import ImportProgressPanel, { type ImportOperation } from "./ImportProgressPanel";
 
 interface ImportReviewModalProps {
   open: boolean;
@@ -59,13 +60,51 @@ export default function ImportReviewModal({
     "move"
   );
   const [unpackArchiveOverride, setUnpackArchiveOverride] = useState<boolean>();
-  const unpackArchive =
-    passwordRequired || (unpackArchiveOverride ?? importConfig?.autoUnpack ?? false);
   const [password, setPassword] = useState("");
   const [isSourceBrowserOpen, setIsSourceBrowserOpen] = useState(false);
   const [isDestBrowserOpen, setIsDestBrowserOpen] = useState(false);
 
   const planApplied = useRef(false);
+
+  // The confirm call returns at once with an operation id; hashing, scanning, extraction
+  // and transfer run server-side and are polled here. A reload restores a running one.
+  const [operationId, setOperationId] = useState<string | null>(null);
+  const [needsPassword, setNeedsPassword] = useState(false);
+  const mustHavePassword = passwordRequired || needsPassword;
+  const unpackArchive =
+    mustHavePassword || (unpackArchiveOverride ?? importConfig?.autoUnpack ?? false);
+  const handledFinish = useRef<string | null>(null);
+
+  // Declared before the restore effect below so a fresh open starts clean, then adopts.
+  useEffect(() => {
+    setOperationId(null);
+    setNeedsPassword(false);
+    handledFinish.current = null;
+  }, [open, downloadId]);
+
+  const { data: restoredOperation } = useQuery<ImportOperation | null>({
+    queryKey: [`/api/imports/${downloadId}/operation`],
+    enabled: open && !operationId,
+    retry: false,
+    staleTime: 0,
+  });
+  useEffect(() => {
+    if (
+      open &&
+      !operationId &&
+      restoredOperation?.status === "running" &&
+      handledFinish.current !== restoredOperation.id
+    ) {
+      setOperationId(restoredOperation.id);
+    }
+  }, [open, operationId, restoredOperation]);
+
+  const { data: operation } = useQuery<ImportOperation>({
+    queryKey: [`/api/imports/operations/${operationId}`],
+    enabled: open && !!operationId,
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.status === "running" ? 1000 : false),
+  });
 
   const planUrl = sourcePath
     ? `/api/imports/${downloadId}/plan?sourcePath=${encodeURIComponent(sourcePath)}`
@@ -125,7 +164,7 @@ export default function ImportReviewModal({
 
   const confirmMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", `/api/imports/${downloadId}/confirm`, {
+      const res = await apiRequest("POST", `/api/imports/${downloadId}/confirm`, {
         strategy,
         proposedPath: destinationPath,
         ...(sourcePath ? { originalPath: sourcePath } : {}),
@@ -133,25 +172,36 @@ export default function ImportReviewModal({
         unpack: unpackArchive,
         ...(unpackArchive && password ? { password } : {}),
       });
+      const body = (await res.json()) as { operationId: string };
+      return body.operationId;
     },
-    onSuccess: () => {
-      toast({
-        title: "Import Confirmed",
-        description: "The import has been queued for execution.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/imports/pending"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-      onOpenChange(false);
+    onSuccess: (id: string) => {
+      setOperationId(id);
     },
-    onError: (error: Error & { data?: { passwordRequired?: boolean } }) => {
-      toast({
-        title: error.data?.passwordRequired ? "Incorrect Password" : "Import Failed",
-        description: error.message,
-        variant: "destructive",
-      });
+    onError: (error: Error) => {
+      toast({ title: "Import Failed", description: error.message, variant: "destructive" });
     },
   });
+
+  // React once to a finished operation: close on success, otherwise stay on the failure
+  // so the user can read it and go back to adjust (password / confirm again).
+  useEffect(() => {
+    if (!operation || operation.status === "running" || handledFinish.current === operation.id) {
+      return;
+    }
+    handledFinish.current = operation.id;
+    queryClient.invalidateQueries({ queryKey: ["/api/imports/pending"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    if (operation.status === "completed") {
+      toast({ title: "Import Complete", description: `${downloadTitle} was imported.` });
+      onOpenChange(false);
+    } else if (operation.passwordRequired) {
+      setNeedsPassword(true);
+    }
+  }, [operation, queryClient, toast, downloadTitle, onOpenChange]);
+
+  const showProgress = !!operationId && !!operation && !confirmMutation.isPending;
 
   const handleConfirm = () => {
     if (!destinationPath) {
@@ -162,7 +212,7 @@ export default function ImportReviewModal({
       });
       return;
     }
-    if (passwordRequired && !password) {
+    if (mustHavePassword && !password) {
       toast({
         title: "Validation Error",
         description: "This archive is password-protected — enter a password to extract it.",
@@ -187,9 +237,9 @@ export default function ImportReviewModal({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{passwordRequired ? "Password Required" : "Review Import"}</DialogTitle>
+            <DialogTitle>{mustHavePassword ? "Password Required" : "Review Import"}</DialogTitle>
             <DialogDescription>
-              {passwordRequired ? (
+              {mustHavePassword ? (
                 <>
                   <strong>{downloadTitle}</strong> is a password-protected archive. Enter the
                   password to extract and import it.
@@ -202,171 +252,190 @@ export default function ImportReviewModal({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            {/* Source Path */}
-            <div className="space-y-2">
-              <Label htmlFor="import-review-source-path">
-                Source Path{" "}
-                <span className="text-xs text-muted-foreground font-normal">
-                  (optional — auto-resolved from download client)
-                </span>
-              </Label>
-              <div className="flex gap-2">
-                <Input
-                  id="import-review-source-path"
-                  value={sourcePath}
-                  onChange={(e) => setSourcePath(e.target.value)}
-                  placeholder="Auto-resolved from download client"
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Browse source directories"
-                  onClick={() => setIsSourceBrowserOpen(true)}
-                >
-                  <FolderOpen className="h-4 w-4" />
-                </Button>
-              </div>
+          {showProgress && operation ? (
+            <div className="py-4">
+              <ImportProgressPanel operation={operation} />
             </div>
-
-            {/* Destination Path */}
-            <div className="space-y-2">
-              <Label htmlFor="import-review-destination-path">Destination Path</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="import-review-destination-path"
-                  value={destinationPath}
-                  onChange={(e) => setDestinationPath(e.target.value)}
-                  placeholder="/path/to/library"
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Browse destination directories"
-                  onClick={() => setIsDestBrowserOpen(true)}
-                >
-                  <FolderOpen className="h-4 w-4" />
-                </Button>
+          ) : (
+            <div className="space-y-4 py-4">
+              {/* Source Path */}
+              <div className="space-y-2">
+                <Label htmlFor="import-review-source-path">
+                  Source Path{" "}
+                  <span className="text-xs text-muted-foreground font-normal">
+                    (optional — auto-resolved from download client)
+                  </span>
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="import-review-source-path"
+                    value={sourcePath}
+                    onChange={(e) => setSourcePath(e.target.value)}
+                    placeholder="Auto-resolved from download client"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Browse source directories"
+                    onClick={() => setIsSourceBrowserOpen(true)}
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-            </div>
 
-            {planData?.files && planData.files.length > 0 && (
-              <div className="space-y-1.5">
-                <Label>Download Contents</Label>
-                <ScrollArea className="h-32 rounded-md border p-2">
-                  <div className="space-y-0.5">
-                    {planData.files.map((f) => (
-                      <div key={f.name} className="flex items-center gap-1.5 text-xs">
-                        {f.isArchive ? (
-                          <Package className="h-3.5 w-3.5 shrink-0 text-amber-400" />
-                        ) : (
-                          <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        )}
-                        <span className={f.isArchive ? "text-amber-400" : "text-muted-foreground"}>
-                          {f.name}
-                        </span>
-                      </div>
-                    ))}
-                    {planData.totalCount > planData.files.length && (
-                      <p className="text-xs text-muted-foreground pt-0.5">
-                        …and {planData.totalCount - planData.files.length} more file
-                        {planData.totalCount - planData.files.length === 1 ? "" : "s"} not shown
-                      </p>
-                    )}
-                  </div>
-                </ScrollArea>
-                {planData.hasArchive && (
-                  <p className="text-xs text-amber-400/80">
-                    Archive files detected — consider enabling Unpack Archive below.
+              {/* Destination Path */}
+              <div className="space-y-2">
+                <Label htmlFor="import-review-destination-path">Destination Path</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="import-review-destination-path"
+                    value={destinationPath}
+                    onChange={(e) => setDestinationPath(e.target.value)}
+                    placeholder="/path/to/library"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Browse destination directories"
+                    onClick={() => setIsDestBrowserOpen(true)}
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {planData?.files && planData.files.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label>Download Contents</Label>
+                  <ScrollArea className="h-32 rounded-md border p-2">
+                    <div className="space-y-0.5">
+                      {planData.files.map((f) => (
+                        <div key={f.name} className="flex items-center gap-1.5 text-xs">
+                          {f.isArchive ? (
+                            <Package className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                          ) : (
+                            <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          )}
+                          <span
+                            className={f.isArchive ? "text-amber-400" : "text-muted-foreground"}
+                          >
+                            {f.name}
+                          </span>
+                        </div>
+                      ))}
+                      {planData.totalCount > planData.files.length && (
+                        <p className="text-xs text-muted-foreground pt-0.5">
+                          …and {planData.totalCount - planData.files.length} more file
+                          {planData.totalCount - planData.files.length === 1 ? "" : "s"} not shown
+                        </p>
+                      )}
+                    </div>
+                  </ScrollArea>
+                  {planData.hasArchive && (
+                    <p className="text-xs text-amber-400/80">
+                      Archive files detected — consider enabling Unpack Archive below.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Transfer Mode</Label>
+                <Select
+                  value={transferMode}
+                  onValueChange={(value) =>
+                    setTransferMode(value as "move" | "copy" | "hardlink" | "symlink")
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="move">Move</SelectItem>
+                    <SelectItem value="copy">Copy</SelectItem>
+                    <SelectItem value="hardlink">Hardlink</SelectItem>
+                    <SelectItem value="symlink">Symlink</SelectItem>
+                  </SelectContent>
+                </Select>
+                {transferMode === "hardlink" && (
+                  <p className="text-xs text-muted-foreground">
+                    Uses a hardlink when both folders are on the same volume and falls back to a
+                    copy otherwise. The imported file survives later source removal.
+                  </p>
+                )}
+                {transferMode === "symlink" && (
+                  <p className="text-xs text-muted-foreground">
+                    Works across different volumes, but the link breaks if the source file is later
+                    removed or moved.
                   </p>
                 )}
               </div>
-            )}
 
-            <div className="space-y-2">
-              <Label>Transfer Mode</Label>
-              <Select
-                value={transferMode}
-                onValueChange={(value) =>
-                  setTransferMode(value as "move" | "copy" | "hardlink" | "symlink")
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="move">Move</SelectItem>
-                  <SelectItem value="copy">Copy</SelectItem>
-                  <SelectItem value="hardlink">Hardlink</SelectItem>
-                  <SelectItem value="symlink">Symlink</SelectItem>
-                </SelectContent>
-              </Select>
-              {transferMode === "hardlink" && (
-                <p className="text-xs text-muted-foreground">
-                  Uses a hardlink when both folders are on the same volume and falls back to a copy
-                  otherwise. The imported file survives later source removal.
-                </p>
-              )}
-              {transferMode === "symlink" && (
-                <p className="text-xs text-muted-foreground">
-                  Works across different volumes, but the link breaks if the source file is later
-                  removed or moved.
-                </p>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Unpack Archive</Label>
-                <p className="text-xs text-muted-foreground">
-                  Extract .zip, .rar, .7z before placing files.
-                </p>
-              </div>
-              <Switch
-                checked={unpackArchive}
-                onCheckedChange={setUnpackArchiveOverride}
-                disabled={passwordRequired}
-              />
-            </div>
-
-            {unpackArchive && (
-              <div className="space-y-2">
-                <Label htmlFor="import-review-password">
-                  Archive Password{passwordRequired ? "" : " (optional)"}
-                </Label>
-                <Input
-                  id="import-review-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password"
-                  autoComplete="off"
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Unpack Archive</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Extract .zip, .rar, .7z before placing files.
+                  </p>
+                </div>
+                <Switch
+                  checked={unpackArchive}
+                  onCheckedChange={setUnpackArchiveOverride}
+                  disabled={mustHavePassword}
                 />
               </div>
-            )}
-          </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="ghost"
-              className="text-destructive hover:text-destructive"
-              onClick={() => skipMutation.mutate()}
-              disabled={skipMutation.isPending || confirmMutation.isPending}
-            >
-              {skipMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Skip Import
-            </Button>
-            <Button
-              onClick={handleConfirm}
-              disabled={confirmMutation.isPending || skipMutation.isPending}
-            >
-              {confirmMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Confirm Import
-            </Button>
-          </DialogFooter>
+              {unpackArchive && (
+                <div className="space-y-2">
+                  <Label htmlFor="import-review-password">
+                    Archive Password{mustHavePassword ? "" : " (optional)"}
+                  </Label>
+                  <Input
+                    id="import-review-password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Password"
+                    autoComplete="off"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {showProgress && operation ? (
+            <DialogFooter>
+              {operation.status === "failed" && (
+                <Button onClick={() => setOperationId(null)}>Back to review</Button>
+              )}
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                {operation.status === "running" ? "Close (keeps running)" : "Close"}
+              </Button>
+            </DialogFooter>
+          ) : (
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                onClick={() => skipMutation.mutate()}
+                disabled={skipMutation.isPending || confirmMutation.isPending}
+              >
+                {skipMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Skip Import
+              </Button>
+              <Button
+                onClick={handleConfirm}
+                disabled={confirmMutation.isPending || skipMutation.isPending}
+              >
+                {confirmMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Confirm Import
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
       <FileBrowser

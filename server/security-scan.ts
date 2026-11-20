@@ -101,12 +101,20 @@ export async function readClamAvSettings(storage: SystemConfigReader): Promise<C
 }
 
 /** Streaming SHA-256 of a single file's contents, without loading it into memory. */
-export async function computeFileSha256(filePath: string): Promise<string> {
+export async function computeFileSha256(
+  filePath: string,
+  onProgress?: (bytesRead: number) => void
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash("sha256");
     const stream = fs.createReadStream(filePath);
+    let bytesRead = 0;
     stream.on("error", reject);
-    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("data", (chunk) => {
+      hash.update(chunk);
+      bytesRead += chunk.length;
+      onProgress?.(bytesRead);
+    });
     stream.on("end", () => resolve(hash.digest("hex")));
   });
 }
@@ -369,6 +377,12 @@ async function connectableClamAvAddress(host: string): Promise<string> {
   return address;
 }
 
+/** Optional progress callbacks for a scan; hashing reports bytes read of the file. */
+export interface ScanProgressHooks {
+  onPhase?: (phase: "hashing" | "scanning") => void;
+  onBytes?: (processed: number, total: number | null) => void;
+}
+
 export interface SecurityScanServiceDeps {
   getSystemConfig(key: string): Promise<string | undefined>;
 }
@@ -384,10 +398,11 @@ export interface SecurityScanServiceDeps {
 export class SecurityScanService {
   constructor(private readonly storage: SecurityScanServiceDeps) {}
 
-  async scan(localPath: string): Promise<ScanResult> {
-    const vtResult = await this.runVirusTotalCheck(localPath);
+  async scan(localPath: string, hooks?: ScanProgressHooks): Promise<ScanResult> {
+    const vtResult = await this.runVirusTotalCheck(localPath, hooks);
     if (vtResult) return vtResult;
 
+    hooks?.onPhase?.("scanning");
     const clamAvResult = await this.runClamAvCheck(localPath);
     if (clamAvResult) return clamAvResult;
 
@@ -395,14 +410,21 @@ export class SecurityScanService {
   }
 
   /** Returns a blocking ScanResult, or null when VirusTotal is disabled or found nothing blocking. */
-  private async runVirusTotalCheck(localPath: string): Promise<ScanResult | null> {
+  private async runVirusTotalCheck(
+    localPath: string,
+    hooks?: ScanProgressHooks
+  ): Promise<ScanResult | null> {
     const vtSettings = await readVirusTotalSettings(this.storage);
     if (!vtSettings.enabled || !vtSettings.apiKey) return null;
 
     const primaryFile = await resolvePrimaryFile(localPath);
     if (!primaryFile) return null;
 
-    const hash = await computeFileSha256(primaryFile).catch((err) => {
+    hooks?.onPhase?.("hashing");
+    const totalBytes = (await fs.stat(primaryFile).catch(() => null))?.size ?? null;
+    const hash = await computeFileSha256(primaryFile, (read) =>
+      hooks?.onBytes?.(read, totalBytes)
+    ).catch((err) => {
       securityScanLogger.warn({ err, primaryFile }, "Failed to hash file for VirusTotal");
       return null;
     });

@@ -37,6 +37,7 @@ import { appriseClient } from "../apprise.js";
 import { isRommPlatformFoldersEnabled, requestRommScanAfterImport } from "../romm.js";
 import { isValidRommSlug, rommSlugForPlatformId } from "../../shared/romm-platforms.js";
 import { type SecurityScanService, type ScanResult } from "../security-scan.js";
+import type { ImportProgress } from "./ImportOperations.js";
 import { emitWebhookEvent } from "../webhooks.js";
 import {
   planUpgradeReplacement,
@@ -1562,14 +1563,15 @@ export class ImportManager {
   async confirmImport(
     downloadId: string,
     overridePlan?: ConfirmPlan,
-    callerUserId?: string
+    callerUserId?: string,
+    progress?: ImportProgress
   ): Promise<void> {
     if (this.importsInFlight.has(downloadId)) {
       throw new ImportInProgressError("An import of this download is already running");
     }
     this.importsInFlight.add(downloadId);
     try {
-      await this.runConfirmImport(downloadId, overridePlan, callerUserId);
+      await this.runConfirmImport(downloadId, overridePlan, callerUserId, progress);
     } finally {
       this.importsInFlight.delete(downloadId);
     }
@@ -1578,7 +1580,8 @@ export class ImportManager {
   private async runConfirmImport(
     downloadId: string,
     overridePlan?: ConfirmPlan,
-    callerUserId?: string
+    callerUserId?: string,
+    progress?: ImportProgress
   ): Promise<void> {
     const download = await this.storage.getGameDownload(downloadId, callerUserId);
 
@@ -1638,7 +1641,12 @@ export class ImportManager {
     // The same gate processImport runs before any automatic transfer — a manual
     // confirmation is still a transfer, so it must not be a way to route a
     // flagged file into the library without ever being scanned.
-    const scanResult = await this.securityScanService.scan(resolvedOriginalPath);
+    const scanResult = progress
+      ? await this.securityScanService.scan(resolvedOriginalPath, {
+          onPhase: (phase) => progress.setPhase(phase),
+          onBytes: (processed, total) => progress.setBytes(processed, total),
+        })
+      : await this.securityScanService.scan(resolvedOriginalPath);
     if (scanResult.blocked) {
       await this.quarantineDownload(
         downloadId,
@@ -1745,6 +1753,7 @@ export class ImportManager {
         this.replacementTarget(current, planToExecute.wrapperFolder, proposedPath),
         resolvedOriginalPath
       );
+      progress?.setPhase(needsExtraction ? "extracting" : "transferring");
       const result = await this.importWithReplacement(
         replacement,
         transferMode,

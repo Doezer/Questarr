@@ -442,7 +442,14 @@ export default function ImportReviewModal({
           {showProgress ? (
             <DialogFooter>
               {(operation?.status === "failed" || operationLost) && (
-                <Button onClick={() => setOperationId(null)}>Back to review</Button>
+                <Button
+                  onClick={() => {
+                    handledFinish.current = operationId;
+                    setOperationId(null);
+                  }}
+                >
+                  Back to review
+                </Button>
               )}
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 {!operationLost && (!operation || operation.status === "running")

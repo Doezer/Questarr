@@ -881,6 +881,16 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     const extras = suggestedExtras.filter((extra) => selectedExtraKeys.has(releaseKey(extra)));
     return [...updates, ...extras];
   };
+  // an extra that stops being offered (filters or downloaders changed) is also dropped from the
+  // selection, so it cannot come back ticked if it is offered again
+  const offeredExtraKeys = suggestedExtras.map(releaseKey).join("\n");
+  useEffect(() => {
+    const offered = new Set(offeredExtraKeys === "" ? [] : offeredExtraKeys.split("\n"));
+    setSelectedExtraKeys((prev) => {
+      const kept = new Set(Array.from(prev).filter((key) => offered.has(key)));
+      return kept.size === prev.size ? prev : kept;
+    });
+  }, [offeredExtraKeys]);
   // counted from the items that would really be sent, so a selection whose release is no
   // longer offered never inflates it
   const selectedBundleCount = selectedBundleItems().length;

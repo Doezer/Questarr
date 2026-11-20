@@ -27,11 +27,11 @@ describe("Playnite sync state", () => {
 
   it("keeps the last good counts next to a later failure, then clears it on success", async () => {
     await recordPlayniteSync("u1", "playStatus", { received: 3, updated: 2 });
-    await recordPlayniteSyncError("u1", "playStatus", "boom");
+    await recordPlayniteSyncError("u1", "playStatus");
     let state = await getPlayniteSyncState("u1");
     expect(state.playStatus.counts).toEqual({ received: 3, updated: 2 });
     expect(state.playStatus.at).not.toBeNull();
-    expect(state.playStatus.error?.message).toBe("boom");
+    expect(state.playStatus.error?.message).toMatch(/could not apply/);
 
     await recordPlayniteSync("u1", "playStatus", { received: 1 });
     state = await getPlayniteSyncState("u1");

@@ -48,17 +48,22 @@ export async function recordPlayniteSync(
   }
 }
 
-/** Remembers a failed request next to the last good one. The message is shown in the UI. */
+const FAILURE_MESSAGES: Record<PlayniteSyncKind, string> = {
+  playStatus: "The server could not apply the statuses.",
+  libraryImport: "The server could not import the library.",
+  playTime: "The server could not import the play time.",
+};
+
+/** Remembers a failed request next to the last good one; its message is shown in the UI. */
 export async function recordPlayniteSyncError(
   userId: string,
-  kind: PlayniteSyncKind,
-  message: string
+  kind: PlayniteSyncKind
 ): Promise<void> {
   try {
     const previous = await read(kind, userId);
     await write(kind, userId, {
       ...previous,
-      error: { at: new Date().toISOString(), message },
+      error: { at: new Date().toISOString(), message: FAILURE_MESSAGES[kind] },
     });
   } catch (error) {
     logger.warn({ error, kind }, "Could not record the Playnite sync failure");

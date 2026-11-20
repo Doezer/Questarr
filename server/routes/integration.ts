@@ -569,11 +569,7 @@ integrationRouter.post(
       return res.json({ received: incoming.length, ...counts, results });
     } catch (error) {
       logger.error({ error }, "Integration play status failed");
-      await recordPlayniteSyncError(
-        req.user!.id,
-        "playStatus",
-        "The server could not apply the statuses."
-      );
+      await recordPlayniteSyncError(req.user!.id, "playStatus");
       return res.status(500).json({ error: "Failed to sync play status" });
     }
   }
@@ -743,11 +739,7 @@ integrationRouter.post(
       });
     } catch (error) {
       logger.error({ error }, "Integration play time totals failed");
-      await recordPlayniteSyncError(
-        req.user!.id,
-        "playTime",
-        "The server could not import the play time."
-      );
+      await recordPlayniteSyncError(req.user!.id, "playTime");
       return res.status(500).json({ error: "Failed to import play time" });
     }
   }
@@ -845,11 +837,7 @@ integrationRouter.post(
       return res.json({ received: incoming.length, ...counts, results });
     } catch (error) {
       logger.error({ error }, "Integration library import failed");
-      await recordPlayniteSyncError(
-        req.user!.id,
-        "libraryImport",
-        "The server could not import the library."
-      );
+      await recordPlayniteSyncError(req.user!.id, "libraryImport");
       return res.status(500).json({ error: "Failed to import the library" });
     }
   }

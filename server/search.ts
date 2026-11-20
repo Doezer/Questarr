@@ -80,6 +80,20 @@ export interface AggregatedSearchResults {
 /** Variants tried after the original query: bounds the extra indexer load of a failed search. */
 export const MAX_FALLBACK_QUERIES = 3;
 
+/** True when a download link points at an .nzb file (`/get/abc.nzb`, `?t=get&id=1&file=x.nzb`). */
+function isNzbLink(link: string | undefined): boolean {
+  if (!link) return false;
+  try {
+    const url = new URL(link);
+    return (
+      url.pathname.toLowerCase().endsWith(".nzb") ||
+      [...url.searchParams.values()].some((value) => value.toLowerCase().endsWith(".nzb"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function searchAllIndexers(
   options: AggregatedSearchOptions
 ): Promise<AggregatedSearchResults> {
@@ -228,7 +242,8 @@ async function searchIndexersOnce(
           indexerUrl: item.indexerUrl,
           category: item.category ? item.category.split(",") : [],
           guid: item.guid || item.link,
-          downloadType: "torrent" as const,
+          // A usenet indexer added as Torznab still hands out .nzb files: trust the link
+          downloadType: isNzbLink(item.link) ? ("usenet" as const) : ("torrent" as const),
           seeders: item.seeders,
           leechers: item.leechers,
           downloadVolumeFactor: item.downloadVolumeFactor,

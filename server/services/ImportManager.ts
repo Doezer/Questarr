@@ -203,6 +203,9 @@ export class ImportManager {
         this.getReleasePlatformIgdbId(releaseKey) ??
         game.targetPlatformId ??
         this.getPrimaryPlatformId(game, allowed) ??
+        // The game's own platform wins over the "allowed platforms" filter, otherwise a platform
+        // the user has not enabled (e.g. Switch 2) is silently replaced by Windows.
+        this.getPrimaryPlatformId(game) ??
         6;
       const slug = rommSlugForPlatformId(platformId);
       if (slug && isValidRommSlug(slug)) return slug;

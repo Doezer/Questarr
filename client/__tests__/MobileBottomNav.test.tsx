@@ -20,6 +20,7 @@ vi.mock("lucide-react", () => {
     History: Icon,
     Timer: Icon,
     DatabaseBackup: Icon,
+    Stethoscope: Icon,
     MoreHorizontal: Icon,
     Calendar: Icon,
     Compass: Icon,

@@ -122,6 +122,11 @@ const resolveUnrarBinary = makeBinaryResolver("UNRAR_PATH", [
   "/usr/bin/unrar",
 ]);
 
+/** Resolved archive-extraction binaries (null when none is installed). Used by setup checks. */
+export function getArchiveToolPaths(): { sevenZip: string | null; unrar: string | null } {
+  return { sevenZip: resolveSevenZipBinary(), unrar: resolveUnrarBinary() };
+}
+
 function resolveTool(filePath: string): ArchiveTool {
   return path.extname(filePath).toLowerCase() === ".rar" ? "unrar" : "7zip";
 }

@@ -13,9 +13,22 @@ function storageWith(
 }
 
 describe("mainReleaseGate", () => {
-  it("never gates a main release itself", async () => {
-    const storage = storageWith([{ id: "m", category: "main", status: "downloading" }]);
+  it("never gates a main release when no other main is on its way", async () => {
+    const storage = storageWith([{ id: "m", category: "main", status: "failed" }]);
     expect(await mainReleaseGate(storage, { ...patch, category: "main" })).toBe("none");
+  });
+
+  it("waits for another main release still downloading, even for a main itself", async () => {
+    const storage = storageWith([{ id: "m", category: "main", status: "downloading" }]);
+    expect(await mainReleaseGate(storage, { ...patch, category: "main" })).toBe("active");
+    expect(
+      await mainReleaseGate(storage, {
+        id: "full",
+        gameId: "g1",
+        category: null,
+        downloadTitle: "Some.Game-GROUP",
+      })
+    ).toBe("active");
   });
 
   it("is active while a main release is on its way", async () => {

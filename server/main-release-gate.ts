@@ -4,8 +4,8 @@ import type { IStorage } from "./storage.js";
 
 /**
  * Whether the base release of a game stands in the way of a patch or extra turning the game
- * "owned": "none" when this is a main release itself, or a main release of the game was
- * delivered; "active" while one is still on its way; "failed" when every main release failed.
+ * "owned": "active" while another main release of the game is still on its way; "none" when this is a
+ * main release itself or one was delivered; "failed" when every other main release failed.
  * A game must not be owned with only a patch on disk: a failed base would never be searched for
  * again, since owned games keep their status.
  */
@@ -30,13 +30,14 @@ export async function mainReleaseGate(
   storage: Pick<IStorage, "getDownloadsByGameId">,
   download: GateDownload
 ): Promise<MainReleaseGate> {
-  if (resolvedCategory(download) === "main") return "none";
   const mains = (await storage.getDownloadsByGameId(download.gameId)).filter(
     (d) => d.id !== download.id && resolvedCategory(d) === "main"
   );
-  // A main release still on its way comes first: an older delivered one does not make the
-  // game complete while the newer one may yet fail.
+  // Another main release still on its way comes first, whether this download is a patch or a
+  // main itself: an older delivered main does not make the game complete while a newer one may
+  // yet fail.
   if (mains.some((d) => !DELIVERED.has(d.status) && !FAILED.has(d.status))) return "active";
+  if (resolvedCategory(download) === "main") return "none";
   if (mains.length === 0 || mains.some((d) => DELIVERED.has(d.status))) return "none";
   return "failed";
 }

@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import GameDownloadDialog from "../src/components/GameDownloadDialog";
@@ -686,6 +686,56 @@ describe("GameDownloadDialog", () => {
     await waitFor(() => {
       expect(screen.getByText("Download with Updates?")).toBeInTheDocument();
     });
+  });
+
+  it("offers only extras that are small next to the main release, unticked", async () => {
+    const mainItem = makeTorrentItem({
+      guid: "main-1",
+      title: "Test Game SKIDROW",
+      link: "http://test.com/main",
+      size: 1000 * 1024 * 1024,
+      seeders: 50,
+    });
+    const smallExtra = makeTorrentItem({
+      guid: "extra-small",
+      title: "Test Game Soundtrack OST",
+      link: "http://test.com/ost",
+      size: 100 * 1024 * 1024,
+    });
+    const bigDlc = makeTorrentItem({
+      guid: "dlc-big",
+      title: "Test Game DLC Expansion Pack",
+      link: "http://test.com/dlc",
+      size: 800 * 1024 * 1024,
+    });
+
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([mainItem, smallExtra, bigDlc]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game SKIDROW").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    fireEvent.click(screen.getAllByTestId("icon-download")[0].closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Download with Updates & Extras?")).toBeInTheDocument();
+    });
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByText("Test Game Soundtrack OST")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Test Game DLC Expansion Pack")).not.toBeInTheDocument();
+    const extraBox = within(dialog).getByRole("checkbox");
+    expect(extraBox).not.toBeChecked();
+    expect(within(dialog).getByText(/Download with 0 items/)).toBeInTheDocument();
+
+    fireEvent.click(extraBox);
+    expect(within(dialog).getByText(/Download with 1 item$/)).toBeInTheDocument();
   });
 
   it("does not tick a blacklisted update in the bundle dialog", async () => {

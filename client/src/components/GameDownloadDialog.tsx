@@ -85,6 +85,7 @@ import {
   type DownloadCategory,
 } from "@shared/download-categorizer";
 import { inferReleaseCategory } from "@shared/version-utils";
+import { DEFAULT_BUNDLE_EXTRA_MAX_PERCENT, suggestBundleExtras } from "@shared/bundle-suggestions";
 import type { ReleaseType } from "@shared/typesafe-types";
 import {
   parseReleaseMetadata,
@@ -321,6 +322,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const [selectedMainDownload, setSelectedMainDownload] = useState<DownloadItem | null>(null);
   const [isDirectDownloadMode, setIsDirectDownloadMode] = useState(false);
   const [selectedUpdateIndices, setSelectedUpdateIndices] = useState<Set<number>>(new Set());
+  // Optional extras offered with the main release, by release key; never ticked by default.
+  const [selectedExtraKeys, setSelectedExtraKeys] = useState<Set<string>>(new Set());
+  const [bundleExtraMaxPercent, setBundleExtraMaxPercent] = useState<number>(
+    DEFAULT_BUNDLE_EXTRA_MAX_PERCENT
+  );
 
   // Filter states
   const [minSeeders, setMinSeeders] = useState<number>(0);
@@ -354,6 +360,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setSelectedMainDownload(null);
     setIsDirectDownloadMode(false);
     setSelectedUpdateIndices(new Set());
+    setSelectedExtraKeys(new Set());
     setMinSeeders(0);
     setHideRejected(true);
     setSelectedIndexer("all");
@@ -381,6 +388,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         const rules = downloadRulesSchema.parse(JSON.parse(userSettings.downloadRules));
         setMinSeeders(rules.minSeeders);
         setHideRejected(rules.hideRejected);
+        setBundleExtraMaxPercent(rules.bundleExtraMaxPercent);
         setSortBy(rules.sortBy);
         setSortOrder("desc");
         if (rules.visibleCategories) {
@@ -851,6 +859,28 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       )
     );
 
+  // DLC and extras small enough next to the chosen main release to be offered with it
+  const suggestedExtrasFor = (main: DownloadItem | null): DownloadItem[] =>
+    main
+      ? suggestBundleExtras(
+          main.size,
+          [...filteredCategorizedDownloads.dlc, ...filteredCategorizedDownloads.extra].filter(
+            (extra) => !extra.blacklisted && !isUnsupportedRelease(extra)
+          ),
+          bundleExtraMaxPercent
+        )
+      : [];
+  const suggestedExtras = suggestedExtrasFor(selectedMainDownload);
+  const releaseKey = (item: DownloadItem) => item.guid || item.link;
+  const selectedBundleItems = (): DownloadItem[] => {
+    const updates = Array.from(selectedUpdateIndices)
+      .map((i) => filteredCategorizedDownloads.update[i])
+      .filter((d): d is DownloadItem => d !== undefined && !isUnsupportedRelease(d));
+    const extras = suggestedExtras.filter((extra) => selectedExtraKeys.has(releaseKey(extra)));
+    return [...updates, ...extras];
+  };
+  const selectedBundleCount = selectedUpdateIndices.size + selectedExtraKeys.size;
+
   // selections are index based: if fresh results replace the update list while the bundle
   // dialog is open, close it so an index can never point at a different (e.g. blacklisted) update
   const updateListRef = useRef(filteredCategorizedDownloads.update);
@@ -860,15 +890,17 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setShowBundleDialog(false);
     setSelectedMainDownload(null);
     setSelectedUpdateIndices(new Set());
+    setSelectedExtraKeys(new Set());
   }, [filteredCategorizedDownloads.update]);
 
   const handleDownload = (download: DownloadItem) => {
-    if (filteredCategorizedDownloads.update.length > 0) {
+    if (filteredCategorizedDownloads.update.length > 0 || suggestedExtrasFor(download).length > 0) {
       const downloadCategory = groupDownloadsByCategory([download]);
       if (downloadCategory.main.length > 0) {
         setSelectedMainDownload(download);
         setIsDirectDownloadMode(false);
         setSelectedUpdateIndices(selectableUpdateIndices());
+        setSelectedExtraKeys(new Set());
         setShowBundleDialog(true);
         return;
       }
@@ -881,11 +913,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     if (!selectedMainDownload) return;
     const guid = selectedMainDownload.guid || selectedMainDownload.link;
     setDownloadingGuid(guid);
-    if (includeUpdates && selectedUpdateIndices.size > 0) {
-      const selectedUpdates = Array.from(selectedUpdateIndices)
-        .map((i) => filteredCategorizedDownloads.update[i])
-        .filter((d): d is DownloadItem => d !== undefined && !isUnsupportedRelease(d));
-      downloadMutation.mutate([selectedMainDownload, ...selectedUpdates]);
+    if (includeUpdates && selectedBundleCount > 0) {
+      downloadMutation.mutate([selectedMainDownload, ...selectedBundleItems()]);
     } else {
       downloadMutation.mutate([selectedMainDownload]);
     }
@@ -904,11 +933,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   const handleBundleDirectDownload = async (includeUpdates: boolean) => {
     if (!selectedMainDownload) return;
-    if (includeUpdates && selectedUpdateIndices.size > 0) {
-      const selectedUpdates = Array.from(selectedUpdateIndices).map(
-        (i) => filteredCategorizedDownloads.update[i]
-      );
-      const downloads = [selectedMainDownload, ...selectedUpdates];
+    if (includeUpdates && selectedBundleCount > 0) {
+      const downloads = [selectedMainDownload, ...selectedBundleItems()];
       try {
         const response = await apiRequest("POST", "/api/downloads/bundle", { downloads });
         const blob = await response.blob();
@@ -946,6 +972,15 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       const next = new Set(prev);
       if (next.has(index)) next.delete(index);
       else next.add(index);
+      return next;
+    });
+  };
+
+  const toggleExtraSelection = (key: string) => {
+    setSelectedExtraKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -1710,10 +1745,18 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     <AlertDialog open={showBundleDialog} onOpenChange={setShowBundleDialog}>
       <AlertDialogContent className="max-w-2xl">
         <AlertDialogHeader>
-          <AlertDialogTitle>Download with Updates?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {suggestedExtras.length > 0
+              ? "Download with Updates & Extras?"
+              : "Download with Updates?"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            {filteredCategorizedDownloads.update.length} update(s) are available for this game.
-            Select which updates you want to download with the main game.
+            {filteredCategorizedDownloads.update.length > 0
+              ? `${filteredCategorizedDownloads.update.length} update(s) are available for this game. Select which updates you want to download with the main game.`
+              : "Smaller extras were found for this game. Tick the ones you want with the main game."}
+            {suggestedExtras.length > 0 && filteredCategorizedDownloads.update.length > 0
+              ? " Smaller extras are optional and unticked."
+              : ""}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -1783,6 +1826,45 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           </div>
         )}
 
+        {suggestedExtras.length > 0 && (
+          <div className="mb-4">
+            <div className="text-sm font-semibold mb-2">
+              Optional extras (up to {bundleExtraMaxPercent}% of the game's size):
+            </div>
+            <div className="border rounded-md p-3 space-y-3 max-h-[200px] overflow-y-auto">
+              {suggestedExtras.map((extra) => {
+                const key = releaseKey(extra);
+                const id = `extra-${key}`;
+                return (
+                  <div
+                    key={key}
+                    className="flex items-start gap-3 p-2 rounded hover:bg-muted/50 transition-colors"
+                  >
+                    <Checkbox
+                      id={id}
+                      checked={selectedExtraKeys.has(key)}
+                      onCheckedChange={() => toggleExtraSelection(key)}
+                      className="mt-1"
+                    />
+                    <label htmlFor={id} className="flex-1 cursor-pointer text-sm">
+                      <div className="font-medium flex flex-wrap items-center gap-2">
+                        {extra.title}
+                        {extra.trust && <ReleaseTrustBadge trust={extra.trust} />}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {extra.size ? formatBytes(extra.size) : null}
+                        {extra.size && selectedMainDownload?.size
+                          ? ` • ${Math.round((extra.size / selectedMainDownload.size) * 100)}% of the game`
+                          : null}
+                      </div>
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
@@ -1799,10 +1881,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               if (isDirectDownloadMode) void handleBundleDirectDownload(true);
               else handleBundleDownload(true);
             }}
-            disabled={selectedUpdateIndices.size === 0}
+            disabled={selectedBundleCount === 0}
           >
             <PackagePlus className="w-4 h-4 mr-2" />
-            Download with {selectedUpdateIndices.size} update(s)
+            Download with {selectedBundleCount} {selectedBundleCount === 1 ? "item" : "items"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

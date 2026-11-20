@@ -1544,7 +1544,10 @@ async function runDownloadStatusCheck() {
 
               // Update Game status to 'owned' (which means we have the files), unless
               // the user already moved it past that (e.g. an update for a game they're playing).
-              if (!isUserCuratedGameStatus(game?.status)) {
+              if (
+                !isUserCuratedGameStatus(game?.status) &&
+                !(await mainStillDownloading(download))
+              ) {
                 await storage.updateGameStatus(
                   download.gameId,
                   { status: "owned" },
@@ -1965,7 +1968,7 @@ async function handleProbablyFinishedDisappearance(
       download.downloadTitle,
       download.category
     );
-    if (!isUserCuratedGameStatus(game?.status)) {
+    if (!isUserCuratedGameStatus(game?.status) && !(await mainStillDownloading(download))) {
       await storage.updateGameStatus(
         download.gameId,
         { status: "owned" },
@@ -2019,6 +2022,23 @@ async function releaseAlreadyFailedForGame(gameId: string, releaseTitle: string)
  * unpacking, waiting for import or for a manual review) may still change what is installed, so
  * an automatic upgrade waits for it.
  */
+/**
+ * True when a finished patch or extra has a base release of the same game still downloading: the
+ * game must not turn "owned" with only a patch on disk (a failed base would then never be
+ * searched for again, since owned games keep their status).
+ */
+async function mainStillDownloading(download: {
+  id: string;
+  gameId: string;
+  category?: string | null;
+}): Promise<boolean> {
+  if (download.category === "main") return false;
+  const siblings = await storage.getDownloadsByGameId(download.gameId);
+  return siblings.some(
+    (s) => s.id !== download.id && s.category === "main" && ACTIVE_DOWNLOAD_STATUSES.has(s.status)
+  );
+}
+
 const SETTLED_DOWNLOAD_STATUSES = new Set(["completed", "imported", ...FAILED_DOWNLOAD_STATUSES]);
 
 /**

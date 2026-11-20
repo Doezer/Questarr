@@ -361,6 +361,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setIsDirectDownloadMode(false);
     setSelectedUpdateIndices(new Set());
     setSelectedExtraKeys(new Set());
+    setBundleExtraMaxPercent(DEFAULT_BUNDLE_EXTRA_MAX_PERCENT);
     setMinSeeders(0);
     setHideRejected(true);
     setSelectedIndexer("all");
@@ -871,7 +872,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         )
       : [];
   const suggestedExtras = suggestedExtrasFor(selectedMainDownload);
-  const releaseKey = (item: DownloadItem) => item.guid || item.link;
+  // guid alone is not unique across indexers
+  const releaseKey = (item: DownloadItem) => `${item.guid ?? ""}|${item.link}`;
   const selectedBundleItems = (): DownloadItem[] => {
     const updates = Array.from(selectedUpdateIndices)
       .map((i) => filteredCategorizedDownloads.update[i])
@@ -879,7 +881,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     const extras = suggestedExtras.filter((extra) => selectedExtraKeys.has(releaseKey(extra)));
     return [...updates, ...extras];
   };
-  const selectedBundleCount = selectedUpdateIndices.size + selectedExtraKeys.size;
+  // counted from the items that would really be sent, so a selection whose release is no
+  // longer offered never inflates it
+  const selectedBundleCount = selectedBundleItems().length;
 
   // selections are index based: if fresh results replace the update list while the bundle
   // dialog is open, close it so an index can never point at a different (e.g. blacklisted) update

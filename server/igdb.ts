@@ -1056,8 +1056,8 @@ class IGDBClient {
    */
   async hasRemake(igdbId: number): Promise<boolean | undefined> {
     if (!Number.isInteger(igdbId) || igdbId <= 0) return undefined;
-    if (!(await this.ensureConfigured())) return undefined;
     try {
+      if (!(await this.ensureConfigured())) return undefined;
       const rows = await this.makeRequest<Array<{ id: number; remakes?: number[] }>>(
         "games",
         `fields remakes; where id = ${igdbId};`,

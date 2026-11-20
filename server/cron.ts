@@ -684,7 +684,15 @@ export async function searchAndCategorizeItemsForGame(
     // IGDB's remake relation, once per game: "Remake" only names another game when one exists
     if (scoring && !remakeLookedUp) {
       remakeLookedUp = true;
-      if (game.igdbId) hasOwnRemake = await igdbClient.hasRemake(game.igdbId);
+      if (game.igdbId) {
+        // bounded like the xREL lookup: a slow IGDB queue must not stall the cycle
+        hasOwnRemake = await Promise.race([
+          igdbClient.hasRemake(game.igdbId),
+          new Promise<undefined>((resolve) =>
+            setTimeout(() => resolve(undefined), INTERACTIVE_LOOKUP_TIMEOUT_MS)
+          ),
+        ]);
+      }
     }
     const evaluated = scoring
       ? evaluateItemsForGame(

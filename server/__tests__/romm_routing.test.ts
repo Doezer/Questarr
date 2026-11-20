@@ -81,18 +81,18 @@ describe("RomM platform folders", () => {
     );
   });
 
-  it("puts Switch 2 games in switch2, not win (#1393)", async () => {
+  it("puts Switch 2 games in switch-2, not win (#1393)", async () => {
     expect((await planFor([{ id: 508, name: "Nintendo Switch 2" }])).proposedPath).toBe(
-      path.normalize("/roms/switch2/Some Game")
+      path.normalize("/roms/switch-2/Some Game")
     );
     expect((await planFor([6], "Some.Game.Switch.2-GRP")).proposedPath).toBe(
-      path.normalize("/roms/switch2/Some Game")
+      path.normalize("/roms/switch-2/Some Game")
     );
   });
 
   it("keeps the game's platform when it is outside the allowed platforms (#1393)", async () => {
     expect((await planFor([508], "Some.Game-GRP", null, [6])).proposedPath).toBe(
-      path.normalize("/roms/switch2/Some Game")
+      path.normalize("/roms/switch-2/Some Game")
     );
   });
 

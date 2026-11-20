@@ -351,6 +351,18 @@ function GetMainMenuItems {
     $gogTime.MenuSection = "@Questarr"
     $items += $gogTime
 
+    $importEpic = New-Object Playnite.SDK.Plugins.ScriptMainMenuItem
+    $importEpic.Description = "Import Epic library into Questarr"
+    $importEpic.FunctionName = "Invoke-QuestarrImportEpicLibrary"
+    $importEpic.MenuSection = "@Questarr"
+    $items += $importEpic
+
+    $epicTime = New-Object Playnite.SDK.Plugins.ScriptMainMenuItem
+    $epicTime.Description = "Import Epic play time into Questarr"
+    $epicTime.FunctionName = "Invoke-QuestarrImportEpicPlayTime"
+    $epicTime.MenuSection = "@Questarr"
+    $items += $epicTime
+
     return $items
 }
 
@@ -971,16 +983,26 @@ function Invoke-QuestarrSyncPlayStatus {
         "Questarr")
 }
 
-# ── GOG library and play time ────────────────────────────────────────────────
-# One-off imports, run by hand: the GOG library is read by Playnite's own GOG plugin, so
-# nothing here talks to GOG.
+# ── GOG and Epic library and play time ───────────────────────────────────────
+# One-off imports, run by hand: each library is read by Playnite's own store plugin, so
+# nothing here talks to GOG or Epic.
+
+# Stores with an import command: Questarr's name for the store, how it is shown, and the
+# Playnite library plugin that reads it.
+$script:ImportStores = @{
+    gog  = @{ Label = "GOG"; PluginId = $script:PluginIdGog }
+    epic = @{ Label = "Epic"; PluginId = $script:PluginIdEpic }
+}
 
 # The server looks each new title up on IGDB, so it takes few games per request.
 $script:ImportBatchSize = 25
 
-function Get-QuestarrGogGames {
+function Get-QuestarrStoreGames {
+    param([Parameter(Mandatory)] [string] $Store)
+
+    $pluginId = $script:ImportStores[$Store].PluginId
     @($PlayniteApi.Database.Games | Where-Object {
-            $_.PluginId -eq $script:PluginIdGog -and -not [string]::IsNullOrWhiteSpace($_.Name) -and $_.Name.Length -le 500
+            $_.PluginId -eq $pluginId -and -not [string]::IsNullOrWhiteSpace($_.Name) -and $_.Name.Length -le 500
         })
 }
 
@@ -989,47 +1011,49 @@ function Get-QuestarrGogGames {
     missing games) or "time" (send the play time totals). Returns the summed counters, or $null
     when it failed (already reported) or was cancelled.
 #>
-function Invoke-QuestarrGogBatchesWithProgress {
+function Invoke-QuestarrStoreBatchesWithProgress {
     param(
         [Parameter(Mandatory)] $Config,
         [Parameter(Mandatory)] $Entries,
         [Parameter(Mandatory)] [ValidateSet("library", "time")] [string] $Kind,
+        [Parameter(Mandatory)] [string] $Store,
         [switch] $FlushQueueFirst
     )
 
-    $script:GogConfig = $Config
-    $script:GogFlushFirst = [bool]$FlushQueueFirst
-    $script:GogQueuePending = $false
-    $script:GogEntries = $Entries
-    $script:GogKind = $Kind
-    $script:GogResult = $null
-    $script:GogError = $null
+    $script:StoreConfig = $Config
+    $script:StoreFlushFirst = [bool]$FlushQueueFirst
+    $script:StoreQueuePending = $false
+    $script:StoreEntries = $Entries
+    $script:StoreKind = $Kind
+    $script:StoreLabel = $script:ImportStores[$Store].Label
+    $script:StoreResult = $null
+    $script:StoreError = $null
 
-    $title = if ($Kind -eq "library") { "Importing the GOG library into Questarr..." } else { "Sending GOG play time to Questarr..." }
+    $title = if ($Kind -eq "library") { "Importing the $($script:StoreLabel) library into Questarr..." } else { "Sending $($script:StoreLabel) play time to Questarr..." }
     $options = New-Object Playnite.SDK.GlobalProgressOptions($title, $true)
     $options.IsIndeterminate = $false
 
     $PlayniteApi.Dialogs.ActivateGlobalProgress({
             param($progress)
-            $progress.ProgressMaxValue = $script:GogEntries.Count
+            $progress.ProgressMaxValue = $script:StoreEntries.Count
             try {
-                if ($script:GogFlushFirst) {
+                if ($script:StoreFlushFirst) {
                     # The flush is a network call: run here, off Playnite's main thread.
-                    Invoke-QuestarrFlushPlayQueue -Config $script:GogConfig
+                    Invoke-QuestarrFlushPlayQueue -Config $script:StoreConfig
                     if (@(Read-QuestarrPlayQueue).Count -gt 0) {
-                        $script:GogQueuePending = $true
+                        $script:StoreQueuePending = $true
                         return
                     }
                 }
-                $isLibrary = $script:GogKind -eq "library"
+                $isLibrary = $script:StoreKind -eq "library"
                 $size = if ($isLibrary) { $script:ImportBatchSize } else { $script:PlayStatusBatchSize }
                 $path = if ($isLibrary) { "/library/import" } else { "/play-time-totals" }
                 $totals = @{ Added = 0; Existing = 0; NotFound = 0; Imported = 0; Unchanged = 0; Skipped = 0; Unmatched = 0; Minutes = 0 }
-                for ($offset = 0; $offset -lt $script:GogEntries.Count; $offset += $size) {
+                for ($offset = 0; $offset -lt $script:StoreEntries.Count; $offset += $size) {
                     if ($progress.CancelToken.IsCancellationRequested) { return }
-                    $take = [Math]::Min($size, $script:GogEntries.Count - $offset)
-                    $batch = @($script:GogEntries.GetRange($offset, $take))
-                    $response = Invoke-QuestarrApi -Config $script:GogConfig -Path $path -Method "Post" `
+                    $take = [Math]::Min($size, $script:StoreEntries.Count - $offset)
+                    $batch = @($script:StoreEntries.GetRange($offset, $take))
+                    $response = Invoke-QuestarrApi -Config $script:StoreConfig -Path $path -Method "Post" `
                         -Body @{ games = $batch } -TimeoutSec 300
                     $totals.Added += [int]$response.added
                     $totals.Existing += [int]$response.existing
@@ -1041,43 +1065,44 @@ function Invoke-QuestarrGogBatchesWithProgress {
                     $totals.Minutes += [int]$response.minutesAdded
                     $progress.CurrentProgressValue = $offset + $take
                 }
-                $script:GogResult = [PSCustomObject]$totals
+                $script:StoreResult = [PSCustomObject]$totals
             }
             catch {
-                $script:GogError = Get-QuestarrErrorMessage $_
+                $script:StoreError = Get-QuestarrErrorMessage $_
             }
         }, $options) | Out-Null
 
-    if ($script:GogQueuePending) {
+    if ($script:StoreQueuePending) {
         $PlayniteApi.Dialogs.ShowMessage(
             "Some play sessions could not be sent to Questarr yet. Play time is not imported while they wait: " +
             "check that Questarr is reachable and try again.", "Questarr")
         return $null
     }
 
-    if ($null -ne $script:GogError) {
-        $__logger.Error("Questarr: GOG import failed: $($script:GogError)")
-        $PlayniteApi.Dialogs.ShowErrorMessage($script:GogError, "Questarr")
+    if ($null -ne $script:StoreError) {
+        $__logger.Error("Questarr: $($script:StoreLabel) import failed: $($script:StoreError)")
+        $PlayniteApi.Dialogs.ShowErrorMessage($script:StoreError, "Questarr")
         return $null
     }
 
-    return $script:GogResult
+    return $script:StoreResult
 }
 
-function Invoke-QuestarrImportGogLibrary {
-    param($scriptMainMenuItemActionArgs)
+function Invoke-QuestarrImportStoreLibrary {
+    param([Parameter(Mandatory)] [string] $Store)
 
     $config = Get-QuestarrConfigOrWarn
     if ($null -eq $config) { return }
 
-    $games = Get-QuestarrGogGames
+    $label = $script:ImportStores[$Store].Label
+    $games = Get-QuestarrStoreGames -Store $Store
     if ($games.Count -eq 0) {
-        $PlayniteApi.Dialogs.ShowMessage("No GOG game in this Playnite library.", "Questarr")
+        $PlayniteApi.Dialogs.ShowMessage("No $label game in this Playnite library.", "Questarr")
         return
     }
 
     $answer = $PlayniteApi.Dialogs.ShowMessage(
-        "Add the $($games.Count) GOG games of this library to Questarr as owned games?`n`n" +
+        "Add the $($games.Count) $label games of this library to Questarr as owned games?`n`n" +
         "Games already in Questarr are left alone. Each new title is looked up on IGDB, so a large " +
         "library takes a few minutes; a title IGDB cannot match to the same game is skipped.",
         "Questarr", [System.Windows.MessageBoxButton]::YesNo)
@@ -1085,30 +1110,42 @@ function Invoke-QuestarrImportGogLibrary {
 
     $entries = New-Object System.Collections.ArrayList
     foreach ($game in $games) {
-        [void]$entries.Add(@{ title = $game.Name; externalId = $game.Id.ToString(); platform = "gog" })
+        [void]$entries.Add(@{ title = $game.Name; externalId = $game.Id.ToString(); platform = $Store })
     }
 
-    $result = Invoke-QuestarrGogBatchesWithProgress -Config $config -Entries $entries -Kind "library"
+    $result = Invoke-QuestarrStoreBatchesWithProgress -Config $config -Entries $entries -Kind "library" -Store $Store
     if ($null -eq $result) { return }
 
     $PlayniteApi.Dialogs.ShowMessage(
-        (("Looked at {0} GOG games.`n`nAdded to Questarr: {1}`nAlready in Questarr: {2}`n" +
+        (("Looked at {0} $label games.`n`nAdded to Questarr: {1}`nAlready in Questarr: {2}`n" +
             "No matching game on IGDB (skipped): {3}") -f `
             $entries.Count, $result.Added, $result.Existing, $result.NotFound),
         "Questarr")
 }
 
-function Invoke-QuestarrImportGogPlayTime {
+function Invoke-QuestarrImportGogLibrary {
     param($scriptMainMenuItemActionArgs)
+    Invoke-QuestarrImportStoreLibrary -Store "gog"
+}
+
+function Invoke-QuestarrImportEpicLibrary {
+    param($scriptMainMenuItemActionArgs)
+    Invoke-QuestarrImportStoreLibrary -Store "epic"
+}
+
+function Invoke-QuestarrImportStorePlayTime {
+    param([Parameter(Mandatory)] [string] $Store)
 
     $config = Get-QuestarrConfigOrWarn
     if ($null -eq $config) { return }
+
+    $label = $script:ImportStores[$Store].Label
 
     # Playnite's total already holds the time of any session still waiting in the queue. Sent
     # first, the queued session would be counted a second time once it is flushed, so the
     # progress worker flushes the queue before sending totals and stops if sessions remain.
     $entries = New-Object System.Collections.ArrayList
-    foreach ($game in (Get-QuestarrGogGames)) {
+    foreach ($game in (Get-QuestarrStoreGames -Store $Store)) {
         # Playtime is in seconds. Less than ten minutes is below what the server imports.
         if ([uint64]$game.Playtime -lt 600) { continue }
         $entry = @{
@@ -1122,19 +1159,29 @@ function Invoke-QuestarrImportGogPlayTime {
         [void]$entries.Add($entry)
     }
     if ($entries.Count -eq 0) {
-        $PlayniteApi.Dialogs.ShowMessage("No GOG game with recorded play time in this library.", "Questarr")
+        $PlayniteApi.Dialogs.ShowMessage("No $label game with recorded play time in this library.", "Questarr")
         return
     }
 
-    $result = Invoke-QuestarrGogBatchesWithProgress -Config $config -Entries $entries -Kind "time" -FlushQueueFirst
+    $result = Invoke-QuestarrStoreBatchesWithProgress -Config $config -Entries $entries -Kind "time" -Store $Store -FlushQueueFirst
     if ($null -eq $result) { return }
 
     $hours = [Math]::Round($result.Minutes / 60, 1)
     $PlayniteApi.Dialogs.ShowMessage(
-        (("Sent the play time of {0} GOG games.`n`nImported: {1} ({2} h)`nAlready in Questarr: {3}`n" +
+        (("Sent the play time of {0} $label games.`n`nImported: {1} ({2} h)`nAlready in Questarr: {3}`n" +
             "Left alone (timer running): {4}`nNot in Questarr: {5}") -f `
             $entries.Count, $result.Imported, $hours, $result.Unchanged, $result.Skipped, $result.Unmatched),
         "Questarr")
+}
+
+function Invoke-QuestarrImportGogPlayTime {
+    param($scriptMainMenuItemActionArgs)
+    Invoke-QuestarrImportStorePlayTime -Store "gog"
+}
+
+function Invoke-QuestarrImportEpicPlayTime {
+    param($scriptMainMenuItemActionArgs)
+    Invoke-QuestarrImportStorePlayTime -Store "epic"
 }
 
 # ── Play time ────────────────────────────────────────────────────────────────

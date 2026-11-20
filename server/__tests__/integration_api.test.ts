@@ -891,6 +891,15 @@ describe("integration API", () => {
       );
     });
 
+    it("records an Epic game with epic as its source", async () => {
+      const res = await post({ games: [{ title: "Hades", platform: "Epic", externalId: "e1" }] });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ added: 1 });
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "owned", source: "epic", userId: USER.id })
+      );
+    });
+
     it("skips games already in the library and a title IGDB matches to another game", async () => {
       const res = await post({
         games: [

@@ -48,7 +48,7 @@ const KINDS: { kind: SyncKind; label: string; summary: (c: Record<string, number
     kind: "playTime",
     label: "Play time",
     summary: (c) =>
-      `${c.imported ?? 0} imported (${Math.round((c.minutesAdded ?? 0) / 6) / 10} h), ${c.unchanged ?? 0} unchanged, ${c.unmatched ?? 0} not in Questarr`,
+      `${c.imported ?? 0} imported (${Math.round((c.minutesAdded ?? 0) / 6) / 10} h), ${c.unchanged ?? 0} unchanged, ${c.skipped ?? 0} skipped, ${c.unmatched ?? 0} not in Questarr`,
   },
 ];
 
@@ -61,6 +61,8 @@ export function PlayniteSyncStatus() {
   const { data, isError } = useQuery<PlayniteSyncState>({
     queryKey: PLAYNITE_SYNC_KEY,
     queryFn: async () => (await apiRequest("GET", "/api/playnite/sync")).json(),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
   });
 
   const sources = Object.entries(data?.syncedStatuses ?? {}).sort(([a], [b]) => a.localeCompare(b));
@@ -72,7 +74,7 @@ export function PlayniteSyncStatus() {
       </h3>
       <p className="text-sm text-muted-foreground">
         What the Playnite extension last sent. Statuses it wrote show their store on the game page;
-        a status you set yourself is never overwritten by a sync.
+        a playing, shelved or completed status you set yourself is never overwritten by a sync.
       </p>
 
       {isError && (

@@ -31,6 +31,19 @@ async function read(kind: PlayniteSyncKind, userId: string): Promise<PlayniteSyn
   }
 }
 
+// Writes for one (user, kind) run one after the other, so a failure never overwrites a success
+// recorded at the same moment (read-modify-write on a single document).
+const queues = new Map<string, Promise<unknown>>();
+function serialized<T>(id: string, task: () => Promise<T>): Promise<T> {
+  const run = (queues.get(id) ?? Promise.resolve()).then(task, task);
+  const tail = run.catch(() => undefined);
+  queues.set(id, tail);
+  void tail.then(() => {
+    if (queues.get(id) === tail) queues.delete(id);
+  });
+  return run;
+}
+
 async function write(kind: PlayniteSyncKind, userId: string, entry: PlayniteSyncEntry) {
   await storage.setSystemConfig(key(kind, userId), JSON.stringify(entry));
 }
@@ -42,7 +55,9 @@ export async function recordPlayniteSync(
   counts: Record<string, number>
 ): Promise<void> {
   try {
-    await write(kind, userId, { at: new Date().toISOString(), counts, error: null });
+    await serialized(key(kind, userId), () =>
+      write(kind, userId, { at: new Date().toISOString(), counts, error: null })
+    );
   } catch (error) {
     logger.warn({ error, kind }, "Could not record the Playnite sync state");
   }
@@ -60,10 +75,12 @@ export async function recordPlayniteSyncError(
   kind: PlayniteSyncKind
 ): Promise<void> {
   try {
-    const previous = await read(kind, userId);
-    await write(kind, userId, {
-      ...previous,
-      error: { at: new Date().toISOString(), message: FAILURE_MESSAGES[kind] },
+    await serialized(key(kind, userId), async () => {
+      const previous = await read(kind, userId);
+      await write(kind, userId, {
+        ...previous,
+        error: { at: new Date().toISOString(), message: FAILURE_MESSAGES[kind] },
+      });
     });
   } catch (error) {
     logger.warn({ error, kind }, "Could not record the Playnite sync failure");

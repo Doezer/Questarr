@@ -12,12 +12,14 @@ const {
   mockApiRequest,
   mockImportConfig,
   mockOperation,
+  mockRestored,
 } = vi.hoisted(() => ({
   mockInvalidateQueries: vi.fn(),
   mockToast: vi.fn(),
   mockFileBrowser: vi.fn(),
   mockApiRequest: vi.fn(),
   mockOperation: { current: undefined as Record<string, unknown> | undefined },
+  mockRestored: { current: undefined as Record<string, unknown> | undefined },
   mockImportConfig: {
     current: undefined as
       { transferMode: string; libraryRoot: string; autoUnpack?: boolean } | undefined,
@@ -26,6 +28,15 @@ const {
 
 vi.mock("@/lib/queryClient", () => ({
   apiRequest: mockApiRequest,
+  ApiError: class ApiError extends Error {
+    constructor(
+      public status: number,
+      message: string,
+      public data?: unknown
+    ) {
+      super(message);
+    }
+  },
 }));
 
 // Real react-query's useMutation wraps mutationFn in an internal cache/state machine that
@@ -41,10 +52,11 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
       data:
         queryKey[0] === "/api/imports/config"
           ? mockImportConfig.current
-          : queryKey[0] === "/api/imports/operations/op-1" ||
-              queryKey[0] === "/api/imports/download-1/operation"
+          : queryKey[0] === "/api/imports/operations/op-1"
             ? mockOperation.current
-            : undefined,
+            : queryKey[0] === "/api/imports/download-1/operation"
+              ? mockRestored.current
+              : undefined,
       isLoading: false,
       error: null,
     }),
@@ -110,6 +122,7 @@ describe("ImportReviewModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockOperation.current = undefined;
+    mockRestored.current = undefined;
     mockApiRequest.mockResolvedValue({ json: async () => ({ operationId: "op-1" }) });
     mockImportConfig.current = { transferMode: "move", libraryRoot: "/games/library" };
   });
@@ -350,6 +363,7 @@ describe("ImportReviewModal", () => {
 
     it("restores a running operation after a reload and shows phase and bytes", async () => {
       mockOperation.current = running;
+      mockRestored.current = running;
       renderModal();
 
       expect(await screen.findByText(/Computing file hash/)).toBeInTheDocument();
@@ -377,6 +391,41 @@ describe("ImportReviewModal", () => {
       fireEvent.click(screen.getByRole("button", { name: "Back to review" }));
       expect(await screen.findByText("Password Required")).toBeInTheDocument();
       expect(screen.getByLabelText("Archive Password")).toBeInTheDocument();
+    });
+
+    it("restores a retained failure after a reload so the user can go back to review", async () => {
+      mockOperation.current = {
+        ...running,
+        status: "failed",
+        phase: "failed",
+        error: "ClamAV did not scan this download.",
+        incompleteScan: true,
+      };
+      mockRestored.current = mockOperation.current;
+      renderModal();
+
+      expect(await screen.findByText("ClamAV did not scan this download.")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Back to review" }));
+      expect(await screen.findByLabelText("Destination Path")).toBeInTheDocument();
+    });
+
+    it("follows the running operation when confirm answers 409 with its id", async () => {
+      const { ApiError } = await import("@/lib/queryClient");
+      mockOperation.current = running;
+      mockApiRequest.mockRejectedValueOnce(
+        new ApiError(409, "An import of this download is already running", {
+          operationId: "op-1",
+        })
+      );
+      renderModal();
+      fireEvent.change(screen.getByLabelText("Destination Path"), {
+        target: { value: "/games/library/PC/X" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+      expect(await screen.findByText(/Computing file hash/)).toBeInTheDocument();
+      expect(mockToast).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Import Failed" })
+      );
     });
 
     it("toasts and closes when the operation completes", async () => {

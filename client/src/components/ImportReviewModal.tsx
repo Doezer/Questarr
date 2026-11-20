@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { ApiError, apiRequest } from "@/lib/queryClient";
 import type { ImportConfig } from "@shared/schema";
 import {
   Dialog,
@@ -82,7 +82,7 @@ export default function ImportReviewModal({
     handledFinish.current = null;
   }, [open, downloadId]);
 
-  const { data: restoredOperation } = useQuery<ImportOperation | null>({
+  const { data: restoredOperation, isLoading: isRestoring } = useQuery<ImportOperation | null>({
     queryKey: [`/api/imports/${downloadId}/operation`],
     enabled: open && !operationId,
     retry: false,
@@ -92,19 +92,29 @@ export default function ImportReviewModal({
     if (
       open &&
       !operationId &&
-      restoredOperation?.status === "running" &&
+      restoredOperation &&
+      restoredOperation.status !== "completed" &&
       handledFinish.current !== restoredOperation.id
     ) {
       setOperationId(restoredOperation.id);
     }
   }, [open, operationId, restoredOperation]);
 
-  const { data: operation } = useQuery<ImportOperation>({
+  // Keep polling through transient failures; only a terminal result or a 404 (the server
+  // forgot the operation, e.g. after a restart) stops it.
+  const { data: operation, error: operationError } = useQuery<ImportOperation>({
     queryKey: [`/api/imports/operations/${operationId}`],
     enabled: open && !!operationId,
     retry: false,
-    refetchInterval: (query) => (query.state.data?.status === "running" ? 1000 : false),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data && data.status !== "running") return false;
+      const err = query.state.error;
+      if (err instanceof ApiError && err.status === 404) return false;
+      return 1500;
+    },
   });
+  const operationLost = operationError instanceof ApiError && operationError.status === 404;
 
   const planUrl = sourcePath
     ? `/api/imports/${downloadId}/plan?sourcePath=${encodeURIComponent(sourcePath)}`
@@ -179,6 +189,15 @@ export default function ImportReviewModal({
       setOperationId(id);
     },
     onError: (error: Error) => {
+      // Another request already started this import: follow that one instead of failing.
+      const conflictId =
+        error instanceof ApiError && error.status === 409
+          ? (error.data as { operationId?: unknown } | undefined)?.operationId
+          : undefined;
+      if (typeof conflictId === "string") {
+        setOperationId(conflictId);
+        return;
+      }
       toast({ title: "Import Failed", description: error.message, variant: "destructive" });
     },
   });
@@ -201,7 +220,8 @@ export default function ImportReviewModal({
     }
   }, [operation, queryClient, toast, downloadTitle, onOpenChange]);
 
-  const showProgress = !!operationId && !!operation && !confirmMutation.isPending;
+  const showProgress = !!operationId && !confirmMutation.isPending;
+  const actionsLocked = confirmMutation.isPending || skipMutation.isPending || isRestoring;
 
   const handleConfirm = () => {
     if (!destinationPath) {
@@ -252,9 +272,24 @@ export default function ImportReviewModal({
             </DialogDescription>
           </DialogHeader>
 
-          {showProgress && operation ? (
+          {showProgress ? (
             <div className="py-4">
-              <ImportProgressPanel operation={operation} />
+              {operation ? (
+                <ImportProgressPanel operation={operation} />
+              ) : operationLost ? (
+                <div role="alert" className="rounded-md border border-amber-500/50 p-3 text-sm">
+                  This import is no longer tracked (the server may have restarted). Check the
+                  library or the pending imports list before trying again.
+                </div>
+              ) : (
+                <div
+                  role="status"
+                  className="flex items-center gap-3 rounded-md border p-3 text-sm"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  Loading import progress…
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-4 py-4">
@@ -404,13 +439,15 @@ export default function ImportReviewModal({
             </div>
           )}
 
-          {showProgress && operation ? (
+          {showProgress ? (
             <DialogFooter>
-              {operation.status === "failed" && (
+              {(operation?.status === "failed" || operationLost) && (
                 <Button onClick={() => setOperationId(null)}>Back to review</Button>
               )}
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {operation.status === "running" ? "Close (keeps running)" : "Close"}
+                {!operationLost && (!operation || operation.status === "running")
+                  ? "Close (keeps running)"
+                  : "Close"}
               </Button>
             </DialogFooter>
           ) : (
@@ -422,15 +459,12 @@ export default function ImportReviewModal({
                 variant="ghost"
                 className="text-destructive hover:text-destructive"
                 onClick={() => skipMutation.mutate()}
-                disabled={skipMutation.isPending || confirmMutation.isPending}
+                disabled={actionsLocked}
               >
                 {skipMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Skip Import
               </Button>
-              <Button
-                onClick={handleConfirm}
-                disabled={confirmMutation.isPending || skipMutation.isPending}
-              >
+              <Button onClick={handleConfirm} disabled={actionsLocked}>
                 {confirmMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Confirm Import
               </Button>

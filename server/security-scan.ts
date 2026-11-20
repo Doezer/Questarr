@@ -438,6 +438,7 @@ export class SecurityScanService {
     });
     if (!hash) return null;
 
+    hooks?.onPhase?.("scanning");
     const verdict = await checkVirusTotalHash(hash, vtSettings.apiKey);
     if (verdict.status === "flagged" && verdict.positives > vtSettings.threshold) {
       return {

@@ -337,11 +337,13 @@ export class ImportManager {
     resolution: ArchiveResolution | null,
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     password: string | undefined,
-    sortExtras: boolean
+    sortExtras: boolean,
+    progress?: ImportProgress
   ): Promise<ImportResult> {
     const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
 
     if (!resolution || resolution.alreadyExtracted) {
+      progress?.setPhase("transferring");
       return strategy.executeImport(plan, transferMode, resolution?.excludePaths);
     }
 
@@ -352,7 +354,8 @@ export class ImportManager {
         resolution,
         strategy,
         password,
-        sortExtras
+        sortExtras,
+        progress
       );
     }
 
@@ -363,7 +366,8 @@ export class ImportManager {
       strategy,
       game,
       password,
-      sortExtras
+      sortExtras,
+      progress
     );
   }
 
@@ -375,14 +379,17 @@ export class ImportManager {
     resolution: ArchiveResolution,
     strategy: PCImportStrategy,
     password: string | undefined,
-    sortExtras: boolean
+    sortExtras: boolean,
+    progress?: ImportProgress
   ): Promise<ImportResult> {
     const destDir = plan.proposedPath;
     await fs.ensureDir(destDir);
+    progress?.setPhase("extracting");
     await this.archiveService.extract(resolution.archivePath, destDir, password);
 
     let modeUsed = transferMode;
     if (resolution.isDirectorySource && resolution.hasRemainingFiles) {
+      progress?.setPhase("transferring");
       modeUsed = (await strategy.executeImport(plan, transferMode, resolution.excludePaths))
         .modeUsed;
     }
@@ -409,9 +416,11 @@ export class ImportManager {
     strategy: PCImportStrategy,
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     password: string | undefined,
-    sortExtras: boolean
+    sortExtras: boolean,
+    progress?: ImportProgress
   ): Promise<ImportResult> {
     const destDir = plan.proposedPath;
+    progress?.setPhase("transferring");
     const { archiveInDest, siblingsInDest } = await this.relocateArchiveToDest(
       transferMode,
       resolution,
@@ -419,6 +428,7 @@ export class ImportManager {
     );
 
     try {
+      progress?.setPhase("extracting");
       await this.archiveService.extract(archiveInDest, destDir, password);
     } catch (err) {
       await this.notifyStrandedImport(game, archiveInDest, err);
@@ -432,6 +442,7 @@ export class ImportManager {
     let modeUsed = transferMode;
     if (resolution.isDirectorySource) {
       if (resolution.hasRemainingFiles) {
+        progress?.setPhase("transferring");
         modeUsed = (await strategy.executeImport(plan, transferMode, resolution.excludePaths))
           .modeUsed;
       } else if (transferMode === "move") {
@@ -1753,7 +1764,6 @@ export class ImportManager {
         this.replacementTarget(current, planToExecute.wrapperFolder, proposedPath),
         resolvedOriginalPath
       );
-      progress?.setPhase(needsExtraction ? "extracting" : "transferring");
       const result = await this.importWithReplacement(
         replacement,
         transferMode,
@@ -1766,7 +1776,8 @@ export class ImportManager {
             archiveResolution,
             current,
             overridePlan.password,
-            config.sortExtras
+            config.sortExtras,
+            progress
           )
       );
       await this.reportLeftoverArchives(current, result.destDir, {

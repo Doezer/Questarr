@@ -9,6 +9,7 @@ import { routesLogger as logger } from "../logger.js";
 import { normalizeTitle } from "../../shared/title-utils.js";
 import { quickAddGameByTitle } from "../game-quick-add.js";
 import { notifyUser } from "../socket.js";
+import { recordPlayniteSync, recordPlayniteSyncError } from "../playnite-sync-state.js";
 import {
   decidePlayStatus,
   libraryTitlesAgree,
@@ -564,9 +565,11 @@ integrationRouter.post(
         { userId, received: incoming.length, ...counts },
         "Play status received through the integration API"
       );
+      await recordPlayniteSync(userId, "playStatus", { received: incoming.length, ...counts });
       return res.json({ received: incoming.length, ...counts, results });
     } catch (error) {
       logger.error({ error }, "Integration play status failed");
+      await recordPlayniteSyncError(req.user!.id, "playStatus");
       return res.status(500).json({ error: "Failed to sync play status" });
     }
   }
@@ -717,6 +720,14 @@ integrationRouter.post(
         "Play time totals received through the integration API"
       );
       if (imported > 0) notifyUser("playSessionsUpdated", { source: "playnite" }, userId);
+      await recordPlayniteSync(userId, "playTime", {
+        received: incoming.length,
+        imported,
+        unchanged,
+        skipped,
+        unmatched,
+        minutesAdded,
+      });
       return res.json({
         received: incoming.length,
         imported,
@@ -728,6 +739,7 @@ integrationRouter.post(
       });
     } catch (error) {
       logger.error({ error }, "Integration play time totals failed");
+      await recordPlayniteSyncError(req.user!.id, "playTime");
       return res.status(500).json({ error: "Failed to import play time" });
     }
   }
@@ -821,9 +833,11 @@ integrationRouter.post(
         { userId, received: incoming.length, ...counts },
         "Library import received through the integration API"
       );
+      await recordPlayniteSync(userId, "libraryImport", { received: incoming.length, ...counts });
       return res.json({ received: incoming.length, ...counts, results });
     } catch (error) {
       logger.error({ error }, "Integration library import failed");
+      await recordPlayniteSyncError(req.user!.id, "libraryImport");
       return res.status(500).json({ error: "Failed to import the library" });
     }
   }

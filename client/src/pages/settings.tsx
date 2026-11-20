@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { SteamLibraryImport } from "@/components/SteamLibraryImport";
 import { SteamPlaytimeSync } from "@/components/SteamPlaytimeSync";
+import { PlayniteSyncStatus } from "@/components/PlayniteSyncStatus";
 import { Link, useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/react-query";
 import {
@@ -2421,6 +2422,8 @@ export default function SettingsPage() {
           <SteamLibraryImport />
 
           <SteamPlaytimeSync />
+
+          <PlayniteSyncStatus />
 
           {/* Nexus Mods Card */}
           <Card id="nexusmods-config">

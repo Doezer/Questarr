@@ -69,15 +69,19 @@ type Limiter = <T>(task: () => Promise<T>) => Promise<T>;
 function createLimiter(limit: number): Limiter {
   let active = 0;
   const waiting: Array<() => void> = [];
+  // A finishing task hands its slot straight to the next waiter, so `active` never dips
+  // below what is really running and a late caller cannot slip past the limit.
   const release = (): void => {
-    active--;
-    waiting.shift()?.();
+    const next = waiting.shift();
+    if (next) next();
+    else active--;
   };
   return async <T>(task: () => Promise<T>): Promise<T> => {
     if (active >= limit) {
       await new Promise<void>((resolve) => waiting.push(resolve));
+    } else {
+      active++;
     }
-    active++;
     try {
       return await task();
     } finally {

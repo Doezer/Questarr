@@ -3002,6 +3002,20 @@ describe("Cron - checkAutoSearch", () => {
         expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
       });
 
+      it("still takes the patch when the notification about the main download fails", async () => {
+        withUpdates(true);
+        mockSearchAllIndexers.mockResolvedValue({
+          items: [MAIN_V10, PATCH_V11],
+          errors: [],
+          total: 2,
+        });
+        mockAddNotification.mockRejectedValueOnce(new Error("notification store down"));
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(2);
+      });
+
       it("takes nothing when no patch proves it starts from the grabbed version", async () => {
         withUpdates(true);
         mockSearchAllIndexers.mockResolvedValue({

@@ -2695,15 +2695,24 @@ export async function checkAutoSearch() {
                           // Notify success
                           const groupSuffix = item.group ? ` [${item.group}]` : "";
                           if (prefs.autoDownload.inApp) {
-                            const notification = await storage.addNotification({
-                              userId,
-                              type: "success",
-                              title: "Download Started",
-                              message: `Started downloading ${game.title}${groupSuffix} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
-                              link: `/games/${encodeURIComponent(game.id)}`,
-                            });
-                            notifyUser("notification", notification, notification.userId);
-                            if (prefs.autoDownload.apprise) void appriseClient.send(notification);
+                            // The download is started and tracked: a failed notification must
+                            // neither report otherwise nor skip the matching update below.
+                            try {
+                              const notification = await storage.addNotification({
+                                userId,
+                                type: "success",
+                                title: "Download Started",
+                                message: `Started downloading ${game.title}${groupSuffix} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
+                                link: `/games/${encodeURIComponent(game.id)}`,
+                              });
+                              notifyUser("notification", notification, notification.userId);
+                              if (prefs.autoDownload.apprise) void appriseClient.send(notification);
+                            } catch (error) {
+                              igdbLogger.warn(
+                                { gameTitle: game.title, error },
+                                "Failed to notify about the started download"
+                              );
+                            }
                           }
 
                           igdbLogger.info(
@@ -2723,15 +2732,23 @@ export async function checkAutoSearch() {
                                 userId,
                                 mainItem: item,
                                 updateItems: deduplicateByTitle(
-                                  applyPreferredPlatformFilter(
-                                    searchResult.updateItems,
-                                    effectivePlatform
-                                  ).filter(
-                                    (update) =>
-                                      !scoring ||
-                                      (update.evaluation &&
-                                        isAutoEligible(update.evaluation, scoring.config))
-                                  ),
+                                  scoring
+                                    ? applyPreferredPlatformFilter(
+                                        searchResult.updateItems,
+                                        effectivePlatform
+                                      ).filter(
+                                        (update) =>
+                                          update.evaluation &&
+                                          isAutoEligible(update.evaluation, scoring.config)
+                                      )
+                                    : applyPreferredGroupsFilter(
+                                        applyPreferredPlatformFilter(
+                                          searchResult.updateItems,
+                                          effectivePlatform
+                                        ),
+                                        preferredGroups,
+                                        settings.filterByPreferredGroups ?? false
+                                      ),
                                   indexerPriorityMap
                                 ),
                                 platform: effectivePlatform,

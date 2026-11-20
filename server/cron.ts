@@ -1664,15 +1664,23 @@ async function runDownloadStatusCheck() {
               );
 
               if (prefs.downloadFailed.inApp) {
-                const notification = await storage.addNotification({
-                  type: "error",
-                  title: "Download Aborted",
-                  message,
-                  link: `modal:game:${download.gameId}`,
-                  userId: game?.userId ?? undefined,
-                });
-                notifyUser("notification", notification, notification.userId);
-                if (prefs.downloadFailed.apprise) void appriseClient.send(notification);
+                // A failing notification must not skip the game-status settlement below.
+                try {
+                  const notification = await storage.addNotification({
+                    type: "error",
+                    title: "Download Aborted",
+                    message,
+                    link: `modal:game:${download.gameId}`,
+                    userId: game?.userId ?? undefined,
+                  });
+                  notifyUser("notification", notification, notification.userId);
+                  if (prefs.downloadFailed.apprise) void appriseClient.send(notification);
+                } catch (notifyError) {
+                  igdbLogger.warn(
+                    { err: notifyError, downloadId: download.id },
+                    "Failed to send download aborted notification"
+                  );
+                }
               }
             }
 
@@ -1698,11 +1706,16 @@ async function runDownloadStatusCheck() {
               game.status !== newGameStatus &&
               !keepsStatusDuringDownloads(game.status)
             ) {
-              await storage.updateGameStatus(
-                download.gameId,
-                { status: newGameStatus },
-                { preserveCurated: true }
-              );
+              if (newGameStatus === "wanted") {
+                // A main release delivered meanwhile keeps the game owned instead.
+                await applyFailureStatus(storage, download, game);
+              } else {
+                await storage.updateGameStatus(
+                  download.gameId,
+                  { status: newGameStatus },
+                  { preserveCurated: true }
+                );
+              }
               igdbLogger.debug(
                 { gameId: download.gameId, oldStatus: game.status, newStatus: newGameStatus },
                 "Updated game status"

@@ -3,7 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockStorage, testDownloader, testIndexer, getCategories } = vi.hoisted(() => ({
+const { mockStorage, testDownloader, testIndexer, getCategories, readClamAv } = vi.hoisted(() => ({
+  readClamAv: vi.fn(),
   mockStorage: {
     getImportConfig: vi.fn(),
     getAllRootFolders: vi.fn(),
@@ -29,7 +30,7 @@ vi.mock("../services/ArchiveService.js", () => ({
   getArchiveToolPaths: () => ({ sevenZip: "/usr/bin/7zz", unrar: null }),
 }));
 vi.mock("../security-scan.js", () => ({
-  readClamAvSettings: vi.fn().mockResolvedValue({ enabled: false, host: null, port: 3310 }),
+  readClamAvSettings: readClamAv,
   testClamAvConnectivity: vi.fn(),
 }));
 vi.mock("../apprise.js", () => ({
@@ -43,6 +44,7 @@ describe("runSetupChecks", () => {
   let dir: string;
   beforeEach(() => {
     vi.clearAllMocks();
+    readClamAv.mockResolvedValue({ enabled: false, host: null, port: 3310 });
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "setup-checks-"));
     mockStorage.getImportConfig.mockResolvedValue({ libraryRoot: dir, transferMode: "hardlink" });
     mockStorage.getAllRootFolders.mockResolvedValue([]);
@@ -122,5 +124,50 @@ describe("runSetupChecks", () => {
     ]);
     const report = await runSetupChecks();
     expect(report.checks.find((c) => c.id === "path-mapping-m")?.status).toBe("fail");
+  });
+
+  it("fails when ClamAV is enabled without a host", async () => {
+    readClamAv.mockResolvedValue({ enabled: true, host: null, port: 3310 });
+    const report = await runSetupChecks();
+    const check = report.checks.find((c) => c.id === "service-clamav");
+    expect(check?.status).toBe("fail");
+    expect(check?.fix).toMatch(/host/i);
+  });
+
+  it("never runs more than 4 probes at once across indexers and downloaders", async () => {
+    let active = 0;
+    let peak = 0;
+    const probe = async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 10));
+      active--;
+      return { success: true, message: "ok" };
+    };
+    testIndexer.mockImplementation(probe);
+    testDownloader.mockImplementation(probe);
+    getCategories.mockResolvedValue([{ id: "4050", name: "PC > Games" }]);
+    mockStorage.getAllIndexers.mockResolvedValue(
+      Array.from({ length: 6 }, (_, i) => ({
+        id: `i${i}`,
+        name: `I${i}`,
+        url: "https://idx.example/api",
+        apiKey: "k",
+        protocol: "torznab",
+        enabled: true,
+      }))
+    );
+    mockStorage.getAllDownloaders.mockResolvedValue(
+      Array.from({ length: 6 }, (_, i) => ({
+        id: `d${i}`,
+        name: `D${i}`,
+        url: "https://dl.example",
+        enabled: true,
+        downloadPath: null,
+        username: null,
+      }))
+    );
+    await runSetupChecks();
+    expect(peak).toBeLessThanOrEqual(4);
   });
 });

@@ -63,21 +63,27 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-async function mapLimit<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = new Array<R>(items.length);
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await fn(items[index] as T);
+/** One shared pool so indexer, downloader and ClamAV probes never exceed CONCURRENCY together. */
+type Limiter = <T>(task: () => Promise<T>) => Promise<T>;
+
+function createLimiter(limit: number): Limiter {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  const release = (): void => {
+    active--;
+    waiting.shift()?.();
+  };
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    if (active >= limit) {
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    }
+    active++;
+    try {
+      return await task();
+    } finally {
+      release();
     }
   };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
 }
 
 const errText = (error: unknown): string =>
@@ -400,7 +406,9 @@ async function checkDownloader(
   }
 }
 
-export async function checkTools(): Promise<SetupCheck[]> {
+export async function checkTools(
+  limit: Limiter = createLimiter(CONCURRENCY)
+): Promise<SetupCheck[]> {
   const checks: SetupCheck[] = [];
   const tools = getArchiveToolPaths();
   checks.push(
@@ -428,7 +436,7 @@ export async function checkTools(): Promise<SetupCheck[]> {
 
   try {
     const clamav = await readClamAvSettings(storage);
-    if (!clamav.enabled || !clamav.host) {
+    if (!clamav.enabled) {
       checks.push({
         id: "service-clamav",
         group: "tools",
@@ -436,10 +444,19 @@ export async function checkTools(): Promise<SetupCheck[]> {
         status: "skip",
         message: "Not enabled.",
       });
+    } else if (!clamav.host) {
+      checks.push({
+        id: "service-clamav",
+        group: "tools",
+        title: "ClamAV",
+        status: "fail",
+        message: "ClamAV scanning is enabled but no host is configured.",
+        fix: "Set the ClamAV host and port in Settings > Security, or turn ClamAV off.",
+      });
     } else {
       try {
         const { address } = await resolveSafeAddress(normalizeHostname(clamav.host), true);
-        const ping = await testClamAvConnectivity(address, clamav.port);
+        const ping = await limit(() => testClamAvConnectivity(address, clamav.port));
         checks.push(
           ping.success
             ? {
@@ -503,19 +520,14 @@ export async function runSetupChecks(): Promise<SetupCheckReport> {
   ]);
   const pathService = new PathMappingService(storage);
 
+  const limit = createLimiter(CONCURRENCY);
   const [paths, indexerChecks, downloaderChecks, tools] = await Promise.all([
     checkPaths(),
-    mapLimit(
-      indexers.filter((i) => i.enabled),
-      CONCURRENCY,
-      checkIndexer
+    Promise.all(indexers.filter((i) => i.enabled).map((i) => limit(() => checkIndexer(i)))),
+    Promise.all(
+      downloaders.filter((d) => d.enabled).map((d) => limit(() => checkDownloader(d, pathService)))
     ),
-    mapLimit(
-      downloaders.filter((d) => d.enabled),
-      CONCURRENCY,
-      (d) => checkDownloader(d, pathService)
-    ),
-    checkTools(),
+    checkTools(limit),
   ]);
 
   const checks = [...paths, ...indexerChecks, ...downloaderChecks, ...tools];

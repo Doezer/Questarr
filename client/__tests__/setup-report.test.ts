@@ -49,4 +49,21 @@ describe("hostname redaction", () => {
     expect(text).not.toContain("seedbox");
     expect(text).not.toContain("tracker.example.org");
   });
+
+  it("masks single-label hosts in resolver errors and path-mapping titles", () => {
+    const text = buildRedactedReport({
+      ...report,
+      checks: [
+        {
+          id: "path-mapping-1",
+          group: "paths",
+          title: "Path mapping //nas.example/downloads → /data",
+          status: "fail",
+          message: "getaddrinfo ENOTFOUND seedbox",
+        },
+      ],
+    });
+    expect(text).not.toContain("seedbox");
+    expect(text).not.toContain("nas.example");
+  });
 });

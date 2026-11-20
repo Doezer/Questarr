@@ -29,8 +29,15 @@ export const GROUP_LABELS: Record<SetupCheck["group"], string> = {
 const URL_OR_HOST_RE = /\b(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/\S*)?/gi;
 const NAMED_HOST_RE = /\b(host(?:name)?\s*[:=]?\s*)[^\s,;'")]+/gi;
 
+// Node resolver errors name single-label hosts too: "getaddrinfo ENOTFOUND seedbox".
+const RESOLVER_ERROR_RE =
+  /\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH)\s+[^\s,;'")]+/g;
+
 export function redactHosts(text: string): string {
-  return text.replace(URL_OR_HOST_RE, "[host]").replace(NAMED_HOST_RE, "$1[host]");
+  return text
+    .replace(RESOLVER_ERROR_RE, "$1 [host]")
+    .replace(URL_OR_HOST_RE, "[host]")
+    .replace(NAMED_HOST_RE, "$1[host]");
 }
 
 const STATUS_LABELS: Record<CheckStatus, string> = {
@@ -60,7 +67,7 @@ export function buildRedactedReport(report: SetupCheckReport): string {
       const title =
         group === "indexers" || group === "downloaders"
           ? `${group === "indexers" ? "Indexer" : "Download client"} #${index + 1}`
-          : check.title;
+          : redactHosts(check.title);
       lines.push(`[${STATUS_LABELS[check.status]}] ${title}: ${redactHosts(check.message)}`);
       if (check.fix) lines.push(`    Fix: ${redactHosts(check.fix)}`);
     });

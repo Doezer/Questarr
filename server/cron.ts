@@ -2124,6 +2124,102 @@ export async function decideAutoUpgrade({
 }
 
 /**
+ * Shared by the upgrade grabs: the stored hold check (a release held once must not go through
+ * on a later cycle when the AI check fails open), the download itself, and its tracking. A patch
+ * is meant to be a patch, so only the other hold reasons apply to it. Returns the downloader's
+ * name, or null when nothing was started.
+ */
+async function startHeldChecksGrab(input: {
+  game: Pick<Game, "id" | "title">;
+  item: SearchItem;
+  platform: string | null;
+  category: "main" | "update";
+  label: string;
+}): Promise<{ downloaderName: string | null } | null> {
+  const { game, item, label } = input;
+  const releaseKey = normalizeTitle(item.title);
+  if (await storage.hasAiAutoDownloadHold(game.id, releaseKey)) {
+    igdbLogger.debug(
+      { gameTitle: game.title, releaseTitle: item.title },
+      `${label} skipped: release already held for review`
+    );
+    return null;
+  }
+  const holdReason = await getAiAutoDownloadHoldReason(item, input.platform, game.title, {
+    allowPatch: input.category === "update",
+  });
+  if (holdReason) {
+    await storage.recordAiAutoDownloadHold({
+      gameId: game.id,
+      releaseTitle: releaseKey,
+      reason: holdReason,
+    });
+    igdbLogger.info(
+      { gameTitle: game.title, releaseTitle: item.title, reason: holdReason },
+      `${label} held back for review`
+    );
+    return null;
+  }
+
+  const downloaders = await storage.getEnabledDownloaders();
+  if (downloaders.length === 0) return null;
+  const result = await DownloaderManager.addDownloadWithFallback(downloaders, {
+    url: item.link,
+    title: item.title,
+  });
+  if (!result?.success || !result.id || !result.downloaderId) return null;
+
+  try {
+    await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId: result.downloaderId,
+      downloadHash: result.id,
+      downloadTitle: item.title,
+      status: "downloading",
+      downloadType: item.downloadType,
+      category: input.category,
+    });
+  } catch (error) {
+    // An untracked job would be invisible to the "already grabbed" check and downloaded again
+    // next cycle, so it is cancelled; the release is tried again then.
+    const downloader = downloaders.find((d) => d.id === result.downloaderId);
+    const removed = downloader
+      ? await DownloaderManager.removeDownload(downloader, result.id, true)
+      : { success: false, message: "downloader not found" };
+    igdbLogger.error(
+      { gameTitle: game.title, releaseTitle: item.title, error, cancelled: removed.success },
+      `${label} could not be tracked, download cancelled`
+    );
+    return null;
+  }
+  return { downloaderName: downloaders.find((d) => d.id === result.downloaderId)?.name ?? null };
+}
+
+/** In-app and Apprise notification for a started upgrade grab; a failure is only logged. */
+async function notifyGrabStarted(
+  prefs: NotificationPreferences,
+  userId: string,
+  game: Pick<Game, "id" | "title">,
+  title: string,
+  message: string
+): Promise<void> {
+  if (!prefs.autoDownload.inApp) return;
+  try {
+    const notification = await storage.addNotification({
+      userId,
+      type: "success",
+      title,
+      message,
+      link: `/games/${encodeURIComponent(game.id)}`,
+    });
+    notifyUser("notification", notification, notification.userId);
+    if (prefs.autoDownload.apprise) void appriseClient.send(notification);
+  } catch (error) {
+    igdbLogger.warn({ gameTitle: game.title, error }, "Failed to notify about the upgrade");
+  }
+}
+
+/**
  * "auto" upgrade policy: downloads the release decideUpgrade picks for an owned game, records
  * why in Activity > History and notifies. Returns true when a download was started. The game
  * keeps its status: it is still owned while the newer version downloads.
@@ -2150,64 +2246,15 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
   }
 
   const item = decision.candidate.item;
-  // As for wanted games, a hold is stored: the check can fail open on a later cycle, and a
-  // release held once must not go through then.
-  const releaseKey = normalizeTitle(item.title);
-  if (await storage.hasAiAutoDownloadHold(game.id, releaseKey)) {
-    igdbLogger.debug(
-      { gameTitle: game.title, releaseTitle: item.title },
-      "Auto-upgrade skipped: release already held for review"
-    );
-    return false;
-  }
-  // A patch decideUpgrade picked is meant to be a patch: only the other hold reasons apply.
-  const holdReason = await getAiAutoDownloadHoldReason(item, input.platform, game.title, {
-    allowPatch: decision.patch,
+  const grab = await startHeldChecksGrab({
+    game,
+    item,
+    platform: input.platform,
+    category: decision.patch ? "update" : "main",
+    label: "Auto-upgrade",
   });
-  if (holdReason) {
-    await storage.recordAiAutoDownloadHold({
-      gameId: game.id,
-      releaseTitle: releaseKey,
-      reason: holdReason,
-    });
-    igdbLogger.info(
-      { gameTitle: game.title, releaseTitle: item.title, reason: holdReason },
-      "Auto-upgrade held back for review"
-    );
-    return false;
-  }
-
-  const downloaders = await storage.getEnabledDownloaders();
-  if (downloaders.length === 0) return false;
-  const result = await DownloaderManager.addDownloadWithFallback(downloaders, {
-    url: item.link,
-    title: item.title,
-  });
-  if (!result?.success || !result.id || !result.downloaderId) return false;
-
-  try {
-    await storage.addGameDownload({
-      gameId: game.id,
-      downloaderId: result.downloaderId,
-      downloadHash: result.id,
-      downloadTitle: item.title,
-      status: "downloading",
-      downloadType: item.downloadType,
-      category: decision.patch ? "update" : "main",
-    });
-  } catch (error) {
-    // An untracked job would be invisible to the "already grabbed" check and downloaded again
-    // next cycle, so it is cancelled; the release is tried again then.
-    const downloader = downloaders.find((d) => d.id === result.downloaderId);
-    const removed = downloader
-      ? await DownloaderManager.removeDownload(downloader, result.id, true)
-      : { success: false, message: "downloader not found" };
-    igdbLogger.error(
-      { gameTitle: game.title, releaseTitle: item.title, error, cancelled: removed.success },
-      "Auto-upgrade could not be tracked, download cancelled"
-    );
-    return false;
-  }
+  if (!grab) return false;
+  const { downloaderName } = grab;
 
   const what = decision.patch ? "update patch" : "full release";
   const score = decision.candidate.score;
@@ -2222,7 +2269,7 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
       gameTitle: game.title,
       eventType: "upgrade",
       releaseTitle: item.title,
-      downloaderName: downloaders.find((d) => d.id === result.downloaderId)?.name ?? null,
+      downloaderName,
       message,
     });
   } catch (error) {
@@ -2230,24 +2277,15 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
   }
 
   // The download is started and tracked: a failed notification must not report otherwise.
-  if (prefs.autoDownload.inApp) {
-    try {
-      const notification = await storage.addNotification({
-        userId,
-        type: "success",
-        title: "Upgrade Started",
-        message:
-          decision.kind === "quality"
-            ? `${game.title}: downloading a better-scored release of ${decision.toVersion}`
-            : `${game.title}: downloading ${decision.toVersion} (installed: ${decision.fromVersion})`,
-        link: `/games/${encodeURIComponent(game.id)}`,
-      });
-      notifyUser("notification", notification, notification.userId);
-      if (prefs.autoDownload.apprise) void appriseClient.send(notification);
-    } catch (error) {
-      igdbLogger.warn({ gameTitle: game.title, error }, "Failed to notify about the upgrade");
-    }
-  }
+  await notifyGrabStarted(
+    prefs,
+    userId,
+    game,
+    "Upgrade Started",
+    decision.kind === "quality"
+      ? `${game.title}: downloading a better-scored release of ${decision.toVersion}`
+      : `${game.title}: downloading ${decision.toVersion} (installed: ${decision.fromVersion})`
+  );
 
   igdbLogger.info(
     {
@@ -2295,47 +2333,14 @@ async function tryGrabCompanionUpdate(input: {
   if (decision.action !== "grab") return false;
 
   const item = decision.candidate.item;
-  const releaseKey = normalizeTitle(item.title);
-  if (await storage.hasAiAutoDownloadHold(game.id, releaseKey)) return false;
-  const holdReason = await getAiAutoDownloadHoldReason(item, input.platform, game.title, {
-    allowPatch: true,
+  const grab = await startHeldChecksGrab({
+    game,
+    item,
+    platform: input.platform,
+    category: "update",
+    label: "Companion update",
   });
-  if (holdReason) {
-    await storage.recordAiAutoDownloadHold({
-      gameId: game.id,
-      releaseTitle: releaseKey,
-      reason: holdReason,
-    });
-    return false;
-  }
-
-  const downloaders = await storage.getEnabledDownloaders();
-  if (downloaders.length === 0) return false;
-  const result = await DownloaderManager.addDownloadWithFallback(downloaders, {
-    url: item.link,
-    title: item.title,
-  });
-  if (!result?.success || !result.id || !result.downloaderId) return false;
-
-  try {
-    await storage.addGameDownload({
-      gameId: game.id,
-      downloaderId: result.downloaderId,
-      downloadHash: result.id,
-      downloadTitle: item.title,
-      status: "downloading",
-      downloadType: item.downloadType,
-      category: "update",
-    });
-  } catch (error) {
-    const downloader = downloaders.find((d) => d.id === result.downloaderId);
-    if (downloader) await DownloaderManager.removeDownload(downloader, result.id, true);
-    igdbLogger.error(
-      { gameTitle: game.title, releaseTitle: item.title, error },
-      "Companion update could not be tracked, download cancelled"
-    );
-    return false;
-  }
+  if (!grab) return false;
 
   try {
     await storage.addDownloadEvent({
@@ -2344,27 +2349,19 @@ async function tryGrabCompanionUpdate(input: {
       gameTitle: game.title,
       eventType: "upgrade",
       releaseTitle: item.title,
-      downloaderName: downloaders.find((d) => d.id === result.downloaderId)?.name ?? null,
+      downloaderName: grab.downloaderName,
       message: `Update patch taken with the release (${decision.fromVersion} to ${decision.toVersion}): "include updates automatically" is on.`,
     });
   } catch (error) {
     igdbLogger.warn({ gameTitle: game.title, error }, "Failed to record the companion update");
   }
-  if (prefs.autoDownload.inApp) {
-    try {
-      const notification = await storage.addNotification({
-        userId,
-        type: "success",
-        title: "Update Started",
-        message: `${game.title}: also downloading the update to ${decision.toVersion}`,
-        link: `/games/${encodeURIComponent(game.id)}`,
-      });
-      notifyUser("notification", notification, notification.userId);
-      if (prefs.autoDownload.apprise) void appriseClient.send(notification);
-    } catch (error) {
-      igdbLogger.warn({ gameTitle: game.title, error }, "Failed to notify about the update");
-    }
-  }
+  await notifyGrabStarted(
+    prefs,
+    userId,
+    game,
+    "Update Started",
+    `${game.title}: also downloading the update to ${decision.toVersion}`
+  );
   igdbLogger.info(
     { gameTitle: game.title, releaseTitle: item.title, to: decision.toVersion },
     "Took a matching update patch with the auto-downloaded release"

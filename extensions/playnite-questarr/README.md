@@ -165,7 +165,7 @@ Playnite's own GOG and Epic plugins read the libraries; the extension never talk
   game's last activity, so running it again changes nothing. A game with a timer
   running is skipped. Run the library import first: a game missing from Questarr
   is reported as not found.
-- Epic does not report play time itself: Playnite only knows the time of sessions it launched, so an Epic game played outside Playnite has none to import. The games are recorded with source `epic` (GOG ones with `gog`).
+- The play time sent is whatever total Playnite holds for each game; a game with none recorded there is left out. The games are recorded with source `epic` (GOG ones with `gog`).
 - All of them need Questarr 1.7 and the **Playnite extension** access.
 
 ## Troubleshooting

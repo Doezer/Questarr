@@ -170,7 +170,7 @@ Not included yet: weekly-hours goals and missed-goal notifications. See
 
 ## GOG and Epic play time from Playnite
 
-Playnite already knows how long each GOG or Epic game was played through it. **Import GOG play time into Questarr** or **Import Epic play time into Questarr**
+Playnite already knows how long each GOG or Epic game was played. **Import GOG play time into Questarr** or **Import Epic play time into Questarr**
 (Playnite extension 1.3.0 for GOG, 1.4.0 for Epic, `POST /api/integration/play-time-totals`) sends that total once; Questarr
 subtracts the time it already recorded for the game and stores the difference as one estimated
 `playnite_import` session ending at the game's last activity. Like Steam estimates, it counts in the

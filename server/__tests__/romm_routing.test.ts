@@ -25,7 +25,8 @@ import { makeImportConfig } from "./helpers/import-test-helpers.js";
 function planFor(
   platforms: unknown[],
   downloadTitle = "Some.Game-GRP",
-  targetPlatformId: number | null = null
+  targetPlatformId: number | null = null,
+  importPlatformIds: number[] = []
 ) {
   const storage = {
     getGameDownload: vi.fn().mockResolvedValue({
@@ -42,7 +43,9 @@ function planFor(
       platforms,
       targetPlatformId,
     }),
-    getImportConfig: vi.fn().mockResolvedValue(makeImportConfig({ libraryRoot: "/roms" })),
+    getImportConfig: vi
+      .fn()
+      .mockResolvedValue(makeImportConfig({ libraryRoot: "/roms", importPlatformIds })),
     getDownloader: vi.fn().mockResolvedValue(undefined),
   };
   const manager = new ImportManager(
@@ -75,6 +78,21 @@ describe("RomM platform folders", () => {
   it("uses the chosen target platform before defaulting to win", async () => {
     expect((await planFor(["Super Nintendo"], "Some.Game-GRP", 19)).proposedPath).toBe(
       path.normalize("/roms/snes/Some Game")
+    );
+  });
+
+  it("puts Switch 2 games in switch2, not win (#1393)", async () => {
+    expect((await planFor([{ id: 508, name: "Nintendo Switch 2" }])).proposedPath).toBe(
+      path.normalize("/roms/switch2/Some Game")
+    );
+    expect((await planFor([6], "Some.Game.Switch.2-GRP")).proposedPath).toBe(
+      path.normalize("/roms/switch2/Some Game")
+    );
+  });
+
+  it("keeps the game's platform when it is outside the allowed platforms (#1393)", async () => {
+    expect((await planFor([508], "Some.Game-GRP", null, [6])).proposedPath).toBe(
+      path.normalize("/roms/switch2/Some Game")
     );
   });
 

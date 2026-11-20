@@ -50,6 +50,7 @@ export const ROMM_SLUG_BY_IGDB_PLATFORM_ID: Readonly<Record<number, string>> = {
   119: "neo-geo-pocket",
   120: "neo-geo-pocket-color",
   130: "switch",
+  508: "switch2",
   167: "ps5",
   169: "series-x-s",
 };

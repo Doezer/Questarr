@@ -93,7 +93,7 @@ export function PlayniteSyncStatus() {
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
                     <span className="font-medium">{label}</span>
                     <span className="text-xs text-muted-foreground">
-                      {entry.at ? `Last received ${formatWhen(entry.at)}` : "Never received"}
+                      {entry.at ? `Last successful ${formatWhen(entry.at)}` : "Never succeeded"}
                     </span>
                   </div>
                   {entry.at && (

@@ -45,7 +45,7 @@ describe("PlayniteSyncStatus", () => {
     wrap(<PlayniteSyncStatus />);
 
     expect(await screen.findByText(/5 games in that request: 2 updated/)).toBeInTheDocument();
-    expect(screen.getAllByText("Never received")).toHaveLength(2);
+    expect(screen.getAllByText("Never succeeded")).toHaveLength(2);
     expect(screen.getByRole("alert")).toHaveTextContent("The server could not import.");
     expect(screen.getByTestId("playnite-sync-sources")).toHaveTextContent("Epic 1, Steam 3");
   });

@@ -27,6 +27,7 @@ interface TorznabItem {
   size?: number | undefined;
   seeders?: number;
   leechers?: number;
+  grabs?: number;
   downloadVolumeFactor?: number;
   uploadVolumeFactor?: number;
   guid?: string;
@@ -543,6 +544,9 @@ export class TorznabClient {
               break;
             case "seeders":
               torznabItem.seeders = parseInt(value);
+              break;
+            case "grabs":
+              torznabItem.grabs = parseInt(value);
               break;
             case "peers":
             case "leechers":

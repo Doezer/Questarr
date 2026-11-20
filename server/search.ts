@@ -246,6 +246,7 @@ async function searchIndexersOnce(
           downloadType: isNzbLink(item.link) ? ("usenet" as const) : ("torrent" as const),
           seeders: item.seeders,
           leechers: item.leechers,
+          grabs: item.grabs,
           downloadVolumeFactor: item.downloadVolumeFactor,
           uploadVolumeFactor: item.uploadVolumeFactor,
           group: parseReleaseMetadata(item.title).group,

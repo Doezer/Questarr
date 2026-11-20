@@ -282,12 +282,17 @@ export function autoPickBestEnabled(downloadRules: string | null): boolean {
 export function upgradeSwapRules(downloadRules: string | null): {
   cutoffScore: number | null;
   minScoreGain: number;
+  preferPatches: boolean;
 } {
-  const off = { cutoffScore: null, minScoreGain: 10 };
+  const off = { cutoffScore: null, minScoreGain: 10, preferPatches: false };
   if (!downloadRules) return off;
   try {
     const rules = downloadRulesSchema.parse(JSON.parse(downloadRules));
-    return { cutoffScore: rules.upgradeCutoffScore, minScoreGain: rules.upgradeMinScoreGain };
+    return {
+      cutoffScore: rules.upgradeCutoffScore,
+      minScoreGain: rules.upgradeMinScoreGain,
+      preferPatches: rules.upgradePreferPatches,
+    };
   } catch {
     return off;
   }
@@ -2103,6 +2108,7 @@ export async function decideAutoUpgrade({
     installedScore,
     cutoffScore: swap.cutoffScore,
     minScoreGain: swap.minScoreGain,
+    preferPatches: swap.preferPatches,
   });
   return { ...decision, installedScore };
 }

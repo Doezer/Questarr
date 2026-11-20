@@ -13,6 +13,8 @@ const BASE_RULES: DownloadRules = {
   autoPickBest: false,
   upgradeCutoffScore: 150,
   upgradeMinScoreGain: 10,
+  upgradePreferPatches: false,
+  bundleExtraMaxPercent: 25,
 };
 
 /** Feeds the rules back in as the settings page does, and exposes the latest ones. */

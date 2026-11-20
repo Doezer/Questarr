@@ -14,6 +14,7 @@ const BASE_RULES: DownloadRules = {
   upgradeCutoffScore: 150,
   upgradeMinScoreGain: 10,
   upgradePreferPatches: false,
+  autoIncludeUpdates: false,
   bundleExtraMaxPercent: 25,
 };
 

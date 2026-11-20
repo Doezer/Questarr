@@ -278,6 +278,16 @@ export function autoPickBestEnabled(downloadRules: string | null): boolean {
   }
 }
 
+/** Whether auto-download should also take a matching update patch with a wanted game's release. */
+export function autoIncludeUpdatesEnabled(downloadRules: string | null): boolean {
+  if (!downloadRules) return false;
+  try {
+    return downloadRulesSchema.parse(JSON.parse(downloadRules)).autoIncludeUpdates;
+  } catch {
+    return false;
+  }
+}
+
 /** The user's settings for same-version swaps of the "auto" upgrade policy (off by default). */
 export function upgradeSwapRules(downloadRules: string | null): {
   cutoffScore: number | null;
@@ -2254,6 +2264,115 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
 }
 
 /**
+ * With "include updates automatically" on, the update patch that goes with a release just taken
+ * for a wanted game: the newest one that provably starts from that release's version (so it
+ * cannot break the install) and leads to a newer one. Same hold checks as any auto-grab.
+ * Returns true when the patch download was started; a failure here never affects the main grab.
+ */
+async function tryGrabCompanionUpdate(input: {
+  game: Pick<Game, "id" | "title">;
+  userId: string;
+  mainItem: SearchItem;
+  updateItems: SearchItem[];
+  platform: string | null;
+  prefs: NotificationPreferences;
+}): Promise<boolean> {
+  const { game, userId, mainItem, updateItems, prefs } = input;
+  const mainVersion = extractVersionFromReleaseName(mainItem.title);
+  if (!mainVersion || updateItems.length === 0) return false;
+
+  const candidates = [];
+  for (const item of updateItems) {
+    if (await releaseAlreadyGrabbedForGame(game.id, item.title)) continue;
+    candidates.push({
+      item,
+      title: item.title,
+      category: "update" as const,
+      score: item.evaluation?.score ?? 0,
+    });
+  }
+  const decision = decideUpgrade(candidates, { installedVersion: mainVersion });
+  if (decision.action !== "grab") return false;
+
+  const item = decision.candidate.item;
+  const releaseKey = normalizeTitle(item.title);
+  if (await storage.hasAiAutoDownloadHold(game.id, releaseKey)) return false;
+  const holdReason = await getAiAutoDownloadHoldReason(item, input.platform, game.title, {
+    allowPatch: true,
+  });
+  if (holdReason) {
+    await storage.recordAiAutoDownloadHold({
+      gameId: game.id,
+      releaseTitle: releaseKey,
+      reason: holdReason,
+    });
+    return false;
+  }
+
+  const downloaders = await storage.getEnabledDownloaders();
+  if (downloaders.length === 0) return false;
+  const result = await DownloaderManager.addDownloadWithFallback(downloaders, {
+    url: item.link,
+    title: item.title,
+  });
+  if (!result?.success || !result.id || !result.downloaderId) return false;
+
+  try {
+    await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId: result.downloaderId,
+      downloadHash: result.id,
+      downloadTitle: item.title,
+      status: "downloading",
+      downloadType: item.downloadType,
+      category: "update",
+    });
+  } catch (error) {
+    const downloader = downloaders.find((d) => d.id === result.downloaderId);
+    if (downloader) await DownloaderManager.removeDownload(downloader, result.id, true);
+    igdbLogger.error(
+      { gameTitle: game.title, releaseTitle: item.title, error },
+      "Companion update could not be tracked, download cancelled"
+    );
+    return false;
+  }
+
+  try {
+    await storage.addDownloadEvent({
+      userId,
+      gameId: game.id,
+      gameTitle: game.title,
+      eventType: "upgrade",
+      releaseTitle: item.title,
+      downloaderName: downloaders.find((d) => d.id === result.downloaderId)?.name ?? null,
+      message: `Update patch taken with the release (${decision.fromVersion} to ${decision.toVersion}): "include updates automatically" is on.`,
+    });
+  } catch (error) {
+    igdbLogger.warn({ gameTitle: game.title, error }, "Failed to record the companion update");
+  }
+  if (prefs.autoDownload.inApp) {
+    try {
+      const notification = await storage.addNotification({
+        userId,
+        type: "success",
+        title: "Update Started",
+        message: `${game.title}: also downloading the update to ${decision.toVersion}`,
+        link: `/games/${encodeURIComponent(game.id)}`,
+      });
+      notifyUser("notification", notification, notification.userId);
+      if (prefs.autoDownload.apprise) void appriseClient.send(notification);
+    } catch (error) {
+      igdbLogger.warn({ gameTitle: game.title, error }, "Failed to notify about the update");
+    }
+  }
+  igdbLogger.info(
+    { gameTitle: game.title, releaseTitle: item.title, to: decision.toVersion },
+    "Took a matching update patch with the auto-downloaded release"
+  );
+  return true;
+}
+
+/**
  * Runs the scheduled auto-search for every user's wanted and owned games, applying the
  * user's release filters (global blacklist, preferred groups, platform, download rules)
  * before notifying or auto-downloading.
@@ -2579,6 +2698,35 @@ export async function checkAutoSearch() {
                             },
                             "Auto-downloaded result"
                           );
+
+                          if (autoIncludeUpdatesEnabled(settings.downloadRules)) {
+                            try {
+                              await tryGrabCompanionUpdate({
+                                game,
+                                userId,
+                                mainItem: item,
+                                updateItems: deduplicateByTitle(
+                                  applyPreferredPlatformFilter(
+                                    searchResult.updateItems,
+                                    effectivePlatform
+                                  ).filter(
+                                    (update) =>
+                                      !scoring ||
+                                      (update.evaluation &&
+                                        isAutoEligible(update.evaluation, scoring.config))
+                                  ),
+                                  indexerPriorityMap
+                                ),
+                                platform: effectivePlatform,
+                                prefs,
+                              });
+                            } catch (error) {
+                              igdbLogger.warn(
+                                { gameTitle: game.title, error },
+                                "Failed to take the matching update"
+                              );
+                            }
+                          }
                         }
                       } catch (error) {
                         igdbLogger.error(

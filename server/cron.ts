@@ -1,4 +1,4 @@
-import { applyDeliveredStatus } from "./main-release-gate.js";
+import { applyDeliveredStatus, applyFailureStatus } from "./main-release-gate.js";
 import { storage } from "./storage.js";
 import { normalizeDownloadHash } from "./download-hash.js";
 import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
@@ -1360,11 +1360,7 @@ async function runDownloadStatusCheck() {
                   failedGame.status !== "wanted" &&
                   !keepsStatusDuringDownloads(failedGame.status)
                 ) {
-                  await storage.updateGameStatus(
-                    download.gameId,
-                    { status: "wanted" },
-                    { preserveCurated: true }
-                  );
+                  await applyFailureStatus(storage, download, failedGame);
                   igdbLogger.debug(
                     { gameId: download.gameId, oldStatus: failedGame.status, newStatus: "wanted" },
                     "Reset game status after async tag resolution failure"
@@ -1836,11 +1832,7 @@ async function runDownloadStatusCheck() {
           );
 
           if (willResetGame) {
-            await storage.updateGameStatus(
-              download.gameId,
-              { status: "wanted" },
-              { preserveCurated: true }
-            );
+            await applyFailureStatus(storage, download, game);
           }
 
           if (missedPrefs.downloadFailed.inApp || missedPrefs.downloadFailed.apprise) {

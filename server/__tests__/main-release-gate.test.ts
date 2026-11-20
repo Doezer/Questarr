@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyDeliveredStatus, mainReleaseGate } from "../main-release-gate.js";
+import { applyDeliveredStatus, applyFailureStatus, mainReleaseGate } from "../main-release-gate.js";
 
 const patch = { id: "patch", gameId: "g1", category: "update" };
 
@@ -113,5 +113,40 @@ describe("applyDeliveredStatus", () => {
     const storage = storageWith([]);
     await applyDeliveredStatus(storage, patch, { status: "playing" });
     expect(storage.updateGameStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyFailureStatus", () => {
+  const failed = { id: "f", gameId: "g1", category: "main" };
+
+  it("owns the game when another main release was delivered", async () => {
+    const storage = storageWith([{ id: "m", category: "main", status: "completed" }]);
+    await applyFailureStatus(storage, failed, { status: "downloading" });
+    expect(storage.updateGameStatus).toHaveBeenCalledWith(
+      "g1",
+      { status: "owned" },
+      { preserveCurated: true }
+    );
+  });
+
+  it("goes back to wanted when no main release was delivered", async () => {
+    const storage = storageWith([{ id: "p", category: "update", status: "completed" }]);
+    await applyFailureStatus(storage, failed, { status: "downloading" });
+    expect(storage.updateGameStatus).toHaveBeenCalledWith(
+      "g1",
+      { status: "wanted" },
+      { preserveCurated: true }
+    );
+  });
+
+  it("leaves user-curated statuses alone", async () => {
+    const storage = storageWith([]);
+    await applyFailureStatus(storage, failed, { status: "playing" });
+    expect(storage.updateGameStatus).not.toHaveBeenCalled();
+  });
+
+  it("does not let a main parked for review block another delivered main", async () => {
+    const storage = storageWith([{ id: "m", category: "main", status: "manual_review_required" }]);
+    expect(await mainReleaseGate(storage, { ...patch, category: "main" })).toBe("none");
   });
 });

@@ -11,8 +11,16 @@ import type { IStorage } from "./storage.js";
  */
 export type MainReleaseGate = "none" | "active" | "failed";
 
-const DELIVERED = new Set(["completed", "imported"]);
-const FAILED = new Set(["failed", "error"]);
+const DELIVERED = new Set(["completed", "imported", "seeding"]);
+// Only releases still on their way count as active: a main parked for review or quarantined is
+// not coming by itself and must not keep another delivered main from owning the game.
+const IN_FLIGHT = new Set([
+  "downloading",
+  "paused",
+  "repairing",
+  "unpacking",
+  "completed_pending_import",
+]);
 
 type GateDownload = {
   id: string;
@@ -36,7 +44,7 @@ export async function mainReleaseGate(
   // Another main release still on its way comes first, whether this download is a patch or a
   // main itself: an older delivered main does not make the game complete while a newer one may
   // yet fail.
-  if (mains.some((d) => !DELIVERED.has(d.status) && !FAILED.has(d.status))) return "active";
+  if (mains.some((d) => IN_FLIGHT.has(d.status))) return "active";
   if (resolvedCategory(download) === "main") return "none";
   if (mains.length === 0 || mains.some((d) => DELIVERED.has(d.status))) return "none";
   return "failed";
@@ -67,4 +75,25 @@ export async function applyDeliveredStatus(
     return;
   }
   await storage.updateGameStatus(download.gameId, { status: "owned" }, { preserveCurated: true });
+}
+
+/**
+ * Game status once a download failed and no other download of the game is in flight: "owned"
+ * when a main release of it was delivered meanwhile (the install on disk must not be searched
+ * for again), otherwise "wanted". Statuses the user chose and "owned" are left alone.
+ */
+export async function applyFailureStatus(
+  storage: Pick<IStorage, "getDownloadsByGameId" | "updateGameStatus">,
+  download: GateDownload,
+  game: { status: string | null } | null | undefined
+): Promise<void> {
+  if (isUserCuratedGameStatus(game?.status)) return;
+  const deliveredMain = (await storage.getDownloadsByGameId(download.gameId)).some(
+    (d) => d.id !== download.id && DELIVERED.has(d.status) && resolvedCategory(d) === "main"
+  );
+  await storage.updateGameStatus(
+    download.gameId,
+    { status: deliveredMain ? "owned" : "wanted" },
+    { preserveCurated: true }
+  );
 }

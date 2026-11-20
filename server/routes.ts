@@ -751,6 +751,7 @@ async function scoreManualSearchResults(
       ? resolveGamePlatformPreference(ownGame, preferredPlatform)
       : preferredPlatform;
     const gameTitle = fallbackTitle ?? ownGame?.title ?? query;
+    const hasOwnRemake = ownGame?.igdbId ? await igdbClient.hasRemake(ownGame.igdbId) : undefined;
     // a slow xREL must not hold up the result list; the lookup finishes in the background
     let xrelUnavailable = false;
     const xrelReleases = await getXrelPredb(gameTitle, xrelTypes, {
@@ -766,6 +767,7 @@ async function scoreManualSearchResults(
         platform,
         ...(xrelReleases ? { xrelReleases } : {}),
         ...(xrelUnavailable ? { xrelUnavailable } : {}),
+        ...(hasOwnRemake !== undefined ? { hasOwnRemake } : {}),
       },
       config.profile,
       config.formats

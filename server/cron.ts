@@ -544,7 +544,8 @@ function evaluateItemsForGame(
   game: Pick<Game, "title" | "targetPlatformId" | "targetPlatformName">,
   scoring: AutoSearchScoring,
   xrelReleases?: XrelPredbEntry[],
-  xrelUnavailable = false
+  xrelUnavailable = false,
+  hasOwnRemake?: boolean
 ): { item: SearchItem; evaluation: ReleaseEvaluation }[] {
   const platform = resolveGamePlatformPreference(game, scoring.preferredPlatform);
   return evaluateReleases(
@@ -554,6 +555,7 @@ function evaluateItemsForGame(
       platform,
       ...(xrelReleases ? { xrelReleases } : {}),
       ...(xrelUnavailable ? { xrelUnavailable } : {}),
+      ...(hasOwnRemake !== undefined ? { hasOwnRemake } : {}),
     },
     scoring.config.profile,
     scoring.config.formats
@@ -600,7 +602,9 @@ export const AUTO_SEARCH_DEFERRED = Symbol("auto-search-deferred");
  * release is found.
  */
 export async function searchAndCategorizeItemsForGame(
-  game: Pick<Game, "id" | "title" | "targetPlatformId" | "targetPlatformName">,
+  game: Pick<Game, "id" | "title" | "targetPlatformId" | "targetPlatformName"> & {
+    igdbId?: number | null;
+  },
   downloadRules: string | null,
   indexerPriorityMap?: Map<string, number>,
   blacklistTerms: string[] = [],
@@ -626,6 +630,8 @@ export async function searchAndCategorizeItemsForGame(
   let xrelLookedUp = false;
   let xrelReleases: XrelPredbEntry[] | undefined;
   let xrelUnavailable = false;
+  let remakeLookedUp = false;
+  let hasOwnRemake: boolean | undefined;
 
   for (let page = 0; page < AUTO_SEARCH_MAX_PAGES; page++) {
     const { items, errors, queryUsed } = await searchAllIndexers({
@@ -675,13 +681,19 @@ export async function searchAndCategorizeItemsForGame(
         return AUTO_SEARCH_DEFERRED;
       }
     }
+    // IGDB's remake relation, once per game: "Remake" only names another game when one exists
+    if (scoring && !remakeLookedUp) {
+      remakeLookedUp = true;
+      if (game.igdbId) hasOwnRemake = await igdbClient.hasRemake(game.igdbId);
+    }
     const evaluated = scoring
       ? evaluateItemsForGame(
           items,
           { ...game, title: matchTitle },
           scoring,
           xrelReleases,
-          xrelUnavailable
+          xrelUnavailable,
+          hasOwnRemake
         )
       : null;
     matchedItems =

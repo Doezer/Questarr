@@ -124,6 +124,7 @@ vi.mock("../downloaders.js", () => ({
 vi.mock("../igdb.js", () => ({
   igdbClient: {
     getGamesByIds: vi.fn(),
+    hasRemake: vi.fn().mockResolvedValue(undefined),
   },
 }));
 

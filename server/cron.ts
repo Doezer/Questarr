@@ -1,3 +1,4 @@
+import { applyDeliveredStatus } from "./main-release-gate.js";
 import { storage } from "./storage.js";
 import { normalizeDownloadHash } from "./download-hash.js";
 import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
@@ -1544,16 +1545,7 @@ async function runDownloadStatusCheck() {
 
               // Update Game status to 'owned' (which means we have the files), unless
               // the user already moved it past that (e.g. an update for a game they're playing).
-              if (
-                !isUserCuratedGameStatus(game?.status) &&
-                !(await mainStillDownloading(download))
-              ) {
-                await storage.updateGameStatus(
-                  download.gameId,
-                  { status: "owned" },
-                  { preserveCurated: true }
-                );
-              }
+              await applyDeliveredStatus(storage, download, game);
 
               igdbLogger.info(
                 { gameId: download.gameId, downloadId: download.id },
@@ -1968,13 +1960,7 @@ async function handleProbablyFinishedDisappearance(
       download.downloadTitle,
       download.category
     );
-    if (!isUserCuratedGameStatus(game?.status) && !(await mainStillDownloading(download))) {
-      await storage.updateGameStatus(
-        download.gameId,
-        { status: "owned" },
-        { preserveCurated: true }
-      );
-    }
+    await applyDeliveredStatus(storage, download, game);
     notifyUser("downloadUpdate", download.gameId);
     emitDownloadCompleted(download, gameTitle, game?.userId);
     return;
@@ -2022,23 +2008,6 @@ async function releaseAlreadyFailedForGame(gameId: string, releaseTitle: string)
  * unpacking, waiting for import or for a manual review) may still change what is installed, so
  * an automatic upgrade waits for it.
  */
-/**
- * True when a finished patch or extra has a base release of the same game still downloading: the
- * game must not turn "owned" with only a patch on disk (a failed base would then never be
- * searched for again, since owned games keep their status).
- */
-async function mainStillDownloading(download: {
-  id: string;
-  gameId: string;
-  category?: string | null;
-}): Promise<boolean> {
-  if (download.category === "main") return false;
-  const siblings = await storage.getDownloadsByGameId(download.gameId);
-  return siblings.some(
-    (s) => s.id !== download.id && s.category === "main" && ACTIVE_DOWNLOAD_STATUSES.has(s.status)
-  );
-}
-
 const SETTLED_DOWNLOAD_STATUSES = new Set(["completed", "imported", ...FAILED_DOWNLOAD_STATUSES]);
 
 /**

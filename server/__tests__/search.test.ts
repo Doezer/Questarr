@@ -148,7 +148,8 @@ describe("Search Module - searchAllIndexers", () => {
       makeTorznabResponse([
         {
           title: "Usenet Game",
-          link: "http://indexer.example.com/api?t=get&id=abc&file=Usenet.Game.nzb",
+          link: "http://indexer.example.com/api?t=get&id=abc",
+          isNzb: true,
           pubDate: "2024-01-01T00:00:00Z",
           size: 1000000,
           category: "4000",

@@ -13,6 +13,7 @@ const {
   mockImportConfig,
   mockOperation,
   mockRestored,
+  mockRestoreError,
 } = vi.hoisted(() => ({
   mockInvalidateQueries: vi.fn(),
   mockToast: vi.fn(),
@@ -20,6 +21,7 @@ const {
   mockApiRequest: vi.fn(),
   mockOperation: { current: undefined as Record<string, unknown> | undefined },
   mockRestored: { current: undefined as Record<string, unknown> | undefined },
+  mockRestoreError: { current: null as Error | null },
   mockImportConfig: {
     current: undefined as
       { transferMode: string; libraryRoot: string; autoUnpack?: boolean } | undefined,
@@ -58,7 +60,9 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
               ? mockRestored.current
               : undefined,
       isLoading: false,
-      error: null,
+      isFetching: false,
+      error: queryKey[0] === "/api/imports/download-1/operation" ? mockRestoreError.current : null,
+      refetch: vi.fn(),
     }),
     useMutation: (options: {
       mutationFn: () => Promise<unknown>;
@@ -123,6 +127,7 @@ describe("ImportReviewModal", () => {
     vi.clearAllMocks();
     mockOperation.current = undefined;
     mockRestored.current = undefined;
+    mockRestoreError.current = null;
     mockApiRequest.mockResolvedValue({ json: async () => ({ operationId: "op-1" }) });
     mockImportConfig.current = { transferMode: "move", libraryRoot: "/games/library" };
   });
@@ -360,6 +365,17 @@ describe("ImportReviewModal", () => {
       passwordRequired: false,
       incompleteScan: false,
     };
+
+    it("locks the review actions and offers a retry when the restore check fails", async () => {
+      mockRestoreError.current = new Error("Service unavailable");
+      renderModal();
+
+      expect(
+        await screen.findByText(/Could not check whether this import is already running/)
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Confirm Import/ })).toBeDisabled();
+    });
 
     it("restores a running operation after a reload and shows phase and bytes", async () => {
       mockOperation.current = running;

@@ -82,7 +82,12 @@ export default function ImportReviewModal({
     handledFinish.current = null;
   }, [open, downloadId]);
 
-  const { data: restoredOperation, isFetching: isRestoring } = useQuery<ImportOperation | null>({
+  const {
+    data: restoredOperation,
+    isFetching: isRestoring,
+    error: restoreError,
+    refetch: refetchRestore,
+  } = useQuery<ImportOperation | null>({
     queryKey: [`/api/imports/${downloadId}/operation`],
     enabled: open && !operationId,
     retry: false,
@@ -117,6 +122,10 @@ export default function ImportReviewModal({
       return 1500;
     },
   });
+  // A 404 just means "nothing to restore"; anything else leaves us unsure whether an import is
+  // already running, so review actions stay locked until the check succeeds.
+  const restoreFailed =
+    !!restoreError && !(restoreError instanceof ApiError && restoreError.status === 404);
   const operationLost = operationError instanceof ApiError && operationError.status === 404;
 
   const planUrl = sourcePath
@@ -224,7 +233,8 @@ export default function ImportReviewModal({
   }, [operation, queryClient, toast, downloadTitle, onOpenChange]);
 
   const showProgress = !!operationId && !confirmMutation.isPending;
-  const actionsLocked = confirmMutation.isPending || skipMutation.isPending || isRestoring;
+  const actionsLocked =
+    confirmMutation.isPending || skipMutation.isPending || isRestoring || restoreFailed;
 
   // A lost operation wins over cached progress: polling has stopped, so the cache is stale.
   let progressBody: ReactNode;
@@ -299,6 +309,17 @@ export default function ImportReviewModal({
             <div className="py-4">{progressBody}</div>
           ) : (
             <div className="space-y-4 py-4">
+              {restoreFailed && (
+                <div
+                  role="alert"
+                  className="flex items-center justify-between gap-3 rounded-md border border-destructive/50 p-3 text-sm"
+                >
+                  <span>Could not check whether this import is already running.</span>
+                  <Button size="sm" variant="outline" onClick={() => void refetchRestore()}>
+                    Retry
+                  </Button>
+                </div>
+              )}
               {/* Source Path */}
               <div className="space-y-2">
                 <Label htmlFor="import-review-source-path">

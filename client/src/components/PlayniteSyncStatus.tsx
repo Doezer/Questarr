@@ -81,7 +81,7 @@ export function PlayniteSyncStatus() {
         </p>
       )}
 
-      {data && (
+      {data?.playStatus && (
         <>
           <ul className="space-y-2" data-testid="playnite-sync-list">
             {KINDS.map(({ kind, label, summary }) => {

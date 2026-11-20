@@ -872,4 +872,28 @@ describe("remake in release titles (#1365)", () => {
       ])
     ).toBe("exact");
   });
+
+  it("treats Remake as a label when IGDB knows no remake of the game", () => {
+    expect(
+      classifyTitleMatch(
+        "The Legend of Zelda Ocarina of Time Remake",
+        "The Legend of Zelda: Ocarina of Time",
+        [],
+        false
+      )
+    ).toBe("exact");
+    expect(classifyTitleMatch("Some.Game.Remake-CODEX", "Some Game", [], false)).toBe("exact");
+  });
+
+  it("keeps Remake a different game when IGDB lists one, or does not say", () => {
+    for (const hasOwnRemake of [true, undefined]) {
+      expect(
+        classifyTitleMatch("Final Fantasy VII Remake", "Final Fantasy VII", [], hasOwnRemake)
+      ).not.toBe("exact");
+    }
+  });
+
+  it("does not read a leading Remake as a label", () => {
+    expect(classifyTitleMatch("Remake Some Game", "Some Game", [], false)).not.toBe("exact");
+  });
 });

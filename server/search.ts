@@ -228,9 +228,11 @@ async function searchIndexersOnce(
           indexerUrl: item.indexerUrl,
           category: item.category ? item.category.split(",") : [],
           guid: item.guid || item.link,
-          downloadType: "torrent" as const,
+          // A usenet indexer added as Torznab still hands out .nzb files: trust the link
+          downloadType: item.isNzb ? ("usenet" as const) : ("torrent" as const),
           seeders: item.seeders,
           leechers: item.leechers,
+          grabs: item.grabs,
           downloadVolumeFactor: item.downloadVolumeFactor,
           uploadVolumeFactor: item.uploadVolumeFactor,
           group: parseReleaseMetadata(item.title).group,

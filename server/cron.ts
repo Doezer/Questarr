@@ -2172,6 +2172,7 @@ async function tryAutoUpgrade(input: AutoUpgradeInput): Promise<boolean> {
   const result = await DownloaderManager.addDownloadWithFallback(downloaders, {
     url: item.link,
     title: item.title,
+    ...(item.downloadType === "usenet" ? { downloadType: "usenet" as const } : {}),
   });
   if (!result?.success || !result.id || !result.downloaderId) return false;
 
@@ -2532,6 +2533,9 @@ export async function checkAutoSearch() {
                           {
                             url: item.link,
                             title: item.title,
+                            ...(item.downloadType === "usenet"
+                              ? { downloadType: "usenet" as const }
+                              : {}),
                           }
                         );
 

@@ -1,3 +1,4 @@
+import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isUserCuratedGameStatus } from "../shared/schema.js";
 import type { IStorage } from "./storage.js";
 
@@ -13,16 +14,31 @@ export type MainReleaseGate = "none" | "active" | "failed";
 const DELIVERED = new Set(["completed", "imported"]);
 const FAILED = new Set(["failed", "error"]);
 
+type GateDownload = {
+  id: string;
+  gameId: string;
+  category?: string | null;
+  downloadTitle?: string | null;
+};
+
+/** The stored category, or the one the release name says when a client left it out. */
+function resolvedCategory(download: Pick<GateDownload, "category" | "downloadTitle">): string {
+  return download.category ?? categorizeDownload(download.downloadTitle ?? "").category;
+}
+
 export async function mainReleaseGate(
   storage: Pick<IStorage, "getDownloadsByGameId">,
-  download: { id: string; gameId: string; category?: string | null }
+  download: GateDownload
 ): Promise<MainReleaseGate> {
-  if (download.category === "main") return "none";
+  if (resolvedCategory(download) === "main") return "none";
   const mains = (await storage.getDownloadsByGameId(download.gameId)).filter(
-    (d) => d.id !== download.id && d.category === "main"
+    (d) => d.id !== download.id && resolvedCategory(d) === "main"
   );
+  // A main release still on its way comes first: an older delivered one does not make the
+  // game complete while the newer one may yet fail.
+  if (mains.some((d) => !DELIVERED.has(d.status) && !FAILED.has(d.status))) return "active";
   if (mains.length === 0 || mains.some((d) => DELIVERED.has(d.status))) return "none";
-  return mains.some((d) => !FAILED.has(d.status)) ? "active" : "failed";
+  return "failed";
 }
 
 /**
@@ -33,7 +49,7 @@ export async function mainReleaseGate(
  */
 export async function applyDeliveredStatus(
   storage: Pick<IStorage, "getDownloadsByGameId" | "updateGameStatus">,
-  download: { id: string; gameId: string; category?: string | null },
+  download: GateDownload,
   game: { status: string | null } | null | undefined
 ): Promise<void> {
   if (isUserCuratedGameStatus(game?.status)) return;

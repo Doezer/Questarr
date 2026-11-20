@@ -683,7 +683,12 @@ export class ImportManager {
   }
 
   private async finalizeImport(
-    download: { id: string; gameId: string; category?: string | null },
+    download: {
+      id: string;
+      gameId: string;
+      category?: string | null;
+      downloadTitle?: string | null;
+    },
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     libraryPath: string
   ): Promise<void> {

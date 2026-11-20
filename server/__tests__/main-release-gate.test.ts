@@ -3,7 +3,9 @@ import { applyDeliveredStatus, mainReleaseGate } from "../main-release-gate.js";
 
 const patch = { id: "patch", gameId: "g1", category: "update" };
 
-function storageWith(siblings: { id: string; category: string; status: string }[]) {
+function storageWith(
+  siblings: { id: string; category: string | null; status: string; downloadTitle?: string }[]
+) {
   return {
     getDownloadsByGameId: vi.fn().mockResolvedValue(siblings),
     updateGameStatus: vi.fn().mockResolvedValue(undefined),
@@ -27,6 +29,30 @@ describe("mainReleaseGate", () => {
       { id: "m2", category: "main", status: "error" },
     ]);
     expect(await mainReleaseGate(storage, patch)).toBe("failed");
+  });
+
+  it("stays active while a newer main release is on its way, even after an older one was delivered", async () => {
+    const storage = storageWith([
+      { id: "m1", category: "main", status: "imported" },
+      { id: "m2", category: "main", status: "downloading" },
+    ]);
+    expect(await mainReleaseGate(storage, patch)).toBe("active");
+  });
+
+  it("classifies a download without a stored category by its release name", async () => {
+    const storage = storageWith([
+      { id: "old", category: "main", status: "failed" },
+      { id: "full", category: null, status: "downloading", downloadTitle: "Some.Game-GROUP" },
+    ]);
+    expect(await mainReleaseGate(storage, patch)).toBe("active");
+    expect(
+      await mainReleaseGate(storage, {
+        id: "full",
+        gameId: "g1",
+        category: null,
+        downloadTitle: "Some.Game-GROUP",
+      })
+    ).toBe("none");
   });
 
   it("is none once a main release was delivered, or when the game has none", async () => {

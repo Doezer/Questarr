@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, apiRequest } from "@/lib/queryClient";
 import type { ImportConfig } from "@shared/schema";
@@ -82,23 +82,26 @@ export default function ImportReviewModal({
     handledFinish.current = null;
   }, [open, downloadId]);
 
-  const { data: restoredOperation, isLoading: isRestoring } = useQuery<ImportOperation | null>({
+  const { data: restoredOperation, isFetching: isRestoring } = useQuery<ImportOperation | null>({
     queryKey: [`/api/imports/${downloadId}/operation`],
     enabled: open && !operationId,
     retry: false,
     staleTime: 0,
   });
+  // Adopt only once the fresh response is in: a cached result for an earlier attempt must not
+  // override the operation the latest confirmation started.
   useEffect(() => {
     if (
       open &&
       !operationId &&
+      !isRestoring &&
       restoredOperation &&
       restoredOperation.status !== "completed" &&
       handledFinish.current !== restoredOperation.id
     ) {
       setOperationId(restoredOperation.id);
     }
-  }, [open, operationId, restoredOperation]);
+  }, [open, operationId, isRestoring, restoredOperation]);
 
   // Keep polling through transient failures; only a terminal result or a 404 (the server
   // forgot the operation, e.g. after a restart) stops it.
@@ -223,6 +226,26 @@ export default function ImportReviewModal({
   const showProgress = !!operationId && !confirmMutation.isPending;
   const actionsLocked = confirmMutation.isPending || skipMutation.isPending || isRestoring;
 
+  // A lost operation wins over cached progress: polling has stopped, so the cache is stale.
+  let progressBody: ReactNode;
+  if (operationLost) {
+    progressBody = (
+      <div role="alert" className="rounded-md border border-amber-500/50 p-3 text-sm">
+        This import is no longer tracked (the server may have restarted). Check the library or the
+        pending imports list before trying again.
+      </div>
+    );
+  } else if (operation) {
+    progressBody = <ImportProgressPanel operation={operation} />;
+  } else {
+    progressBody = (
+      <div role="status" className="flex items-center gap-3 rounded-md border p-3 text-sm">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        Loading import progress…
+      </div>
+    );
+  }
+
   const handleConfirm = () => {
     if (!destinationPath) {
       toast({
@@ -273,24 +296,7 @@ export default function ImportReviewModal({
           </DialogHeader>
 
           {showProgress ? (
-            <div className="py-4">
-              {operation ? (
-                <ImportProgressPanel operation={operation} />
-              ) : operationLost ? (
-                <div role="alert" className="rounded-md border border-amber-500/50 p-3 text-sm">
-                  This import is no longer tracked (the server may have restarted). Check the
-                  library or the pending imports list before trying again.
-                </div>
-              ) : (
-                <div
-                  role="status"
-                  className="flex items-center gap-3 rounded-md border p-3 text-sm"
-                >
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  Loading import progress…
-                </div>
-              )}
-            </div>
+            <div className="py-4">{progressBody}</div>
           ) : (
             <div className="space-y-4 py-4">
               {/* Source Path */}

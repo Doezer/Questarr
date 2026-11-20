@@ -711,7 +711,18 @@ importRouter.post("/:id/confirm", async (req, res) => {
       )
       .then(() => importOperations.complete(operation.id))
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "Import failed";
+        // Only messages written for the user are forwarded; anything else (fs errors with
+        // server paths, driver output) stays in the log and the operation gets a generic text.
+        const userFacing =
+          error instanceof ArchivePasswordRequiredError ||
+          error instanceof IncompleteScanError ||
+          error instanceof ImportInProgressError ||
+          (error instanceof Error &&
+            /^(Source path could not be resolved|This download was flagged)/.test(error.message));
+        const message =
+          userFacing && error instanceof Error
+            ? error.message
+            : "Import failed. See the pending import or the server logs for details.";
         importOperations.fail(operation.id, message, {
           passwordRequired: error instanceof ArchivePasswordRequiredError,
           incompleteScan: error instanceof IncompleteScanError,

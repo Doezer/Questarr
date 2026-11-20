@@ -541,6 +541,16 @@ describe("POST /api/imports/:id/confirm — tracked operation", () => {
     });
   });
 
+  it("hides unexpected error details (paths, driver output) behind a generic message", async () => {
+    mockImportManager.confirmImport.mockRejectedValue(
+      new Error("ENOENT: no such file or directory, open '/srv/secret/path'")
+    );
+    const res = await confirm("dl-1");
+    const op = await finalOperation(res.body.operationId);
+    expect(op.status).toBe("failed");
+    expect(String(op.error)).not.toMatch(/secret/);
+  });
+
   it("returns 404 when the download does not exist", async () => {
     mockStorage.getGameDownload.mockResolvedValue(undefined);
     const res = await confirm("dl-x");

@@ -333,25 +333,6 @@ describe("ImportReviewModal", () => {
         )
       );
     });
-
-    it("keeps the dialog on the failure and asks for the password again when the operation fails with passwordRequired", () => {
-      mockOperation.current = {
-        id: "op-1",
-        downloadId: "download-1",
-        status: "failed",
-        phase: "failed",
-        bytesProcessed: null,
-        bytesTotal: null,
-        error: "The provided password was rejected — it may be incorrect.",
-        passwordRequired: true,
-        incompleteScan: false,
-      };
-      renderModal();
-      fireEvent.change(screen.getByLabelText("Destination Path"), {
-        target: { value: "/games/library/PC/Encrypted" },
-      });
-      fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
-    });
   });
 
   describe("Import progress", () => {

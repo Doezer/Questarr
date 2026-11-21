@@ -3515,7 +3515,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       // Nothing to learn from yet: the Discover page keeps its generic rows.
       if (profile.empty) {
-        res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
+        res.set("Cache-Control", CC_NO_STORE);
         return res.json([]);
       }
 
@@ -3558,7 +3558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const flags = await getContentFilterFlags(userId);
       const visible = excludeFilteredContent(formatted, flags).slice(0, limit);
-      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
+      res.set("Cache-Control", CC_NO_STORE);
       return res.json(visible);
     } catch (error) {
       routesLogger.error({ error }, "error getting library recommendations");

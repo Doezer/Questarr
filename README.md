@@ -209,7 +209,7 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
    that second mount, add a matching entry under **Settings → Path Mappings**.
 
 The store is maintained in [Doezer/questarr-zimaos-store](https://github.com/Doezer/questarr-zimaos-store).
-On older CasaOS releases (the former name of ZimaOS), use the legacy AppFile below instead.
+On CasaOS (the predecessor of ZimaOS), use the legacy AppFile below instead.
 
 </details>
 
@@ -218,7 +218,7 @@ On older CasaOS releases (the former name of ZimaOS), use the legacy AppFile bel
 <details>
 <summary><b>Install via Custom Install (AppFile)</b></summary>
 
-CasaOS is the former name of ZimaOS. Prefer the ZimaOS store above on any current release.
+ZimaOS is the successor of CasaOS, and the ZimaOS store above is the maintained option. Use this AppFile only on a CasaOS install.
 
 1. Open the **App Store** and click **Custom Install**.
 2. Click the **import** icon (top right) and paste this URL:

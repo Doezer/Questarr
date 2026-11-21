@@ -40,9 +40,8 @@ once it is merged there, this section will say so.
 
 ## CasaOS (legacy)
 
-CasaOS is the former name of ZimaOS: use the [ZimaOS store](#zimaos) on any current release. The
-AppFile below is kept only for installs that still run an older CasaOS and cannot add a store
-source, and it is not updated with each release. It is a Compose file carrying `x-casaos` metadata.
+ZimaOS is the successor of CasaOS, and the [ZimaOS store](#zimaos) is the maintained option. The
+AppFile below is for installs that still run CasaOS itself, and it is not updated with each release. It is a Compose file carrying `x-casaos` metadata.
 
 1. Open the **App Store** and click **Custom Install**.
 2. Click the **import** icon (top right) and paste:

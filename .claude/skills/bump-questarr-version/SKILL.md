@@ -29,3 +29,8 @@ separate `Doezer/questarr-zimaos-store` repo: in `Apps/Questarr/docker-compose.y
 `x-casaos.version`, `update_at` and the `x-casaos.release_notes.en_US` link (`.../releases/tag/vNEW`).
 Pushing to its `main` republishes the store immediately, so do this only when the image exists; otherwise
 installs of the new entry fail until it does.
+jsDelivr caches branch URLs (`@gh-pages`) for up to 12 hours, so the new version may not show up right away:
+once the store's `Publish store` run is green, check that
+`https://cdn.jsdelivr.net/gh/Doezer/questarr-zimaos-store@gh-pages/index.json` lists NEW, and if it does not, purge
+`https://purge.jsdelivr.net/gh/Doezer/questarr-zimaos-store@gh-pages/index.json` (and `store.json`) before
+treating the update as available.

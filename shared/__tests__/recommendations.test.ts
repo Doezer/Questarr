@@ -46,6 +46,17 @@ describe("buildTasteProfile", () => {
     expect(buildTasteProfile([]).empty).toBe(true);
   });
 
+  it("is not empty when only developers or themes carry a positive signal", () => {
+    const profile = buildTasteProfile([
+      { title: "No id", status: "completed", themes: ["Fantasy"], developers: ["Supergiant"] },
+    ]);
+    expect(profile.anchors).toEqual([]);
+    expect(profile.empty).toBe(false);
+    expect(
+      buildTasteProfile([{ title: "Meh", status: "owned", userRating: 5, genres: ["A"] }]).empty
+    ).toBe(true);
+  });
+
   it("normalizes affinities, keeps anchors and pushes disliked features negative", () => {
     const profile = buildTasteProfile([hades, sims]);
     expect(profile.genres.get("Roguelike")).toBe(1);

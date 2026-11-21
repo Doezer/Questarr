@@ -17,6 +17,8 @@ import { type GameStatus } from "./StatusBadge";
 
 interface GameCarouselSectionProps {
   title: string;
+  /** Short line under the title, e.g. to say where the row comes from. */
+  subtitle?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   queryKey: any[];
   queryFn: () => Promise<Game[]>;
@@ -37,6 +39,7 @@ interface GameCarouselSectionProps {
 // functions (via useCallback), preventing unnecessary re-renders for the entire section.
 const GameCarouselSection = ({
   title,
+  subtitle,
   queryKey,
   queryFn,
   staleTime,
@@ -150,7 +153,17 @@ const GameCarouselSection = ({
       data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, "-")}`}
     >
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">{title}</h2>
+        <div>
+          <h2 className="text-xl font-semibold">{title}</h2>
+          {subtitle && (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid={`carousel-subtitle-${title.toLowerCase().replace(/\s+/g, "-")}`}
+            >
+              {subtitle}
+            </p>
+          )}
+        </div>
         <div className="flex gap-2">
           <Tooltip>
             <TooltipTrigger asChild>

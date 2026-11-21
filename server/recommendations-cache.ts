@@ -12,7 +12,18 @@ const MAX_CACHED_USERS = 200;
  */
 export function recommendationLibrarySignature(
   games: Array<
-    Pick<Game, "id" | "igdbId" | "status" | "userRating" | "hidden" | "genres" | "themes">
+    Pick<
+      Game,
+      | "id"
+      | "igdbId"
+      | "status"
+      | "userRating"
+      | "hidden"
+      | "genres"
+      | "themes"
+      | "developers"
+      | "gameModes"
+    >
   >
 ): string {
   const hash = createHash("sha256");
@@ -26,6 +37,8 @@ export function recommendationLibrarySignature(
         g.hidden ? 1 : 0,
         (g.genres ?? []).join("+"),
         (g.themes ?? []).join("+"),
+        (g.developers ?? []).join("+"),
+        (g.gameModes ?? []).join("+"),
       ].join("|")
     )
     .sort((a, b) => a.localeCompare(b));

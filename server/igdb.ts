@@ -207,6 +207,20 @@ const igdbWebsiteSchema = z.object({
 const SPECIAL_CHARS_REGEX = /['"`;|&*()<>[\]]/g;
 const WHITESPACE_REGEX = /\s+/g;
 
+/**
+ * Value for an exact-equality match inside a double-quoted IGDB string literal. Unlike
+ * `sanitizeIgdbInput` it keeps punctuation ("Role-playing (RPG)", "Hack and slash/Beat 'em up"),
+ * which is harmless inside quotes; only what could end the literal or the query is removed.
+ */
+function exactIgdbStringValue(input: string): string {
+  return [...input]
+    .filter((ch) => ch !== '"' && ch !== "\\" && ch !== ";" && ch.charCodeAt(0) > 0x1f)
+    .join("")
+    .replace(WHITESPACE_REGEX, " ")
+    .trim()
+    .slice(0, 100);
+}
+
 function sanitizeIgdbInput(input: string): string {
   return input
     .replace(SPECIAL_CHARS_REGEX, "") // Remove special characters including square brackets
@@ -1420,7 +1434,7 @@ class IGDBClient {
     const names = (list: string[]) =>
       list
         .slice(0, 4)
-        .map((n) => sanitizeIgdbInput(n))
+        .map((n) => exactIgdbStringValue(n))
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b))
         .map((n) => `"${n}"`)

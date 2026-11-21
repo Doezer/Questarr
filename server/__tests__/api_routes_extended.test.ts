@@ -344,10 +344,15 @@ describe("API Routes - Additional Coverage", () => {
         { game: { id: 99, name: "Owned", genres: [{ id: 1, name: "Roguelike" }] }, similarTo: [] },
       ] as never);
 
+      vi.mocked(igdbClient.formatGameData).mockImplementation(
+        (game) => ({ id: `igdb-${game.id}`, igdbId: game.id, title: game.name }) as never
+      );
+
       const res = await request(app).get("/api/games/recommendations?limit=5");
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
-      expect(res.body[0].name).toBe("Dead Cells");
+      expect(res.body[0]).toMatchObject({ igdbId: 20, title: "Dead Cells" });
+      expect(res.headers["cache-control"]).toBe("no-store");
       expect(res.body[0].recommendation.reasons[0]).toMatchObject({
         kind: "similar",
         label: "Hades",

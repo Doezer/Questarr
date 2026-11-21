@@ -142,6 +142,28 @@ describe("IGDBClient - extended coverage", { timeout: 20000 }, () => {
     expect(results.find((r) => r.game.id === 50)?.similarTo).toEqual([1]);
   });
 
+  it("getRecommendationCandidates keeps punctuation in exact genre names but drops quotes", async () => {
+    const queries: string[] = [];
+    fetchMock.mockImplementation(async (_url: unknown, init?: { body?: unknown }) => {
+      const body = String(init?.body ?? "");
+      if (!body) return authResponse;
+      if (body.includes("fields")) queries.push(body);
+      return gamesResponse([]);
+    });
+
+    const { igdbClient } = await import("../igdb.js");
+    await igdbClient.getRecommendationCandidates({
+      anchorIgdbIds: [],
+      genres: ['Role-playing (RPG)", id > 0 | name = "'],
+      themes: [],
+      developers: [],
+      excludeIgdbIds: [],
+    });
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain('genres.name = ("Role-playing (RPG), id > 0 | name =")');
+  });
+
   it("getRecommendations falls back to popular games when the user has no games", async () => {
     fetchMock
       .mockResolvedValueOnce(authResponse)

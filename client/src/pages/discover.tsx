@@ -32,6 +32,19 @@ import { primaryRecommendationReason } from "@/lib/recommendation-reasons";
 
 type RecommendedGame = Game & { recommendation?: Recommendation };
 
+// The recommendations row lives under the "/api/games" key prefix, so every library mutation that
+// invalidates ["/api/games"] also refreshes it.
+const RECOMMENDATIONS_QUERY_KEY = ["/api/games", "recommendations"] as const;
+
+/** Cached carousels holding discovery games: the IGDB lists and the recommendations row. */
+function isDiscoveryGamesQuery(queryKey: readonly unknown[]): boolean {
+  const [first, second] = queryKey;
+  return (
+    (typeof first === "string" && first.startsWith("/api/igdb/")) ||
+    (first === RECOMMENDATIONS_QUERY_KEY[0] && second === RECOMMENDATIONS_QUERY_KEY[1])
+  );
+}
+
 const EMPTY_GAMES: Game[] = [];
 
 interface Genre {
@@ -415,9 +428,7 @@ export default function DiscoverPage() {
 
         const allQueries = queryClient.getQueriesData<Game[]>({
           predicate: (query) => {
-            const key = query.queryKey[0] as string;
-
-            return key.startsWith("/api/igdb/");
+            return isDiscoveryGamesQuery(query.queryKey);
           },
         });
 
@@ -633,7 +644,8 @@ export default function DiscoverPage() {
             {/* Recommended for you: only shown once the library says something about the taste */}
             <GameCarouselSection
               title="Recommended for You"
-              queryKey={["/api/games/recommendations", ...carouselFilterKey]}
+              subtitle="Picked by Questarr from your own library, not an IGDB list"
+              queryKey={[...RECOMMENDATIONS_QUERY_KEY, ...carouselFilterKey]}
               queryFn={fetchRecommendedGames}
               staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}

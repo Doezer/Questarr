@@ -57,6 +57,7 @@ const DEFAULT_RULES: DownloadRules = {
   upgradeCutoffScore: null,
   upgradeMinScoreGain: 10,
   upgradePreferPatches: false,
+  autoIncludeUpdates: false,
   bundleExtraMaxPercent: 25,
 };
 
@@ -102,6 +103,9 @@ export default function AutoDownloadRulesSettings({
   );
   const [upgradePreferPatches, setUpgradePreferPatches] = useState<boolean>(
     rules?.upgradePreferPatches ?? false
+  );
+  const [autoIncludeUpdates, setAutoIncludeUpdates] = useState<boolean>(
+    rules?.autoIncludeUpdates ?? false
   );
   const [bundleExtraMaxPercent, setBundleExtraMaxPercent] = useState<number>(
     rules?.bundleExtraMaxPercent ?? 25
@@ -165,6 +169,7 @@ export default function AutoDownloadRulesSettings({
     }
     setGainText((prev) => syncedText(prev, source.upgradeMinScoreGain ?? 10, GAIN_RANGE));
     setUpgradePreferPatches(source.upgradePreferPatches ?? false);
+    setAutoIncludeUpdates(source.autoIncludeUpdates ?? false);
     setBundleExtraMaxPercent(source.bundleExtraMaxPercent ?? 25);
     setBundlePercentText((prev) =>
       syncedText(prev, source.bundleExtraMaxPercent ?? 25, BUNDLE_PERCENT_RANGE)
@@ -191,6 +196,7 @@ export default function AutoDownloadRulesSettings({
       upgradeCutoffScore,
       upgradeMinScoreGain,
       upgradePreferPatches,
+      autoIncludeUpdates,
       bundleExtraMaxPercent,
     }),
     [
@@ -202,6 +208,7 @@ export default function AutoDownloadRulesSettings({
       upgradeCutoffScore,
       upgradeMinScoreGain,
       upgradePreferPatches,
+      autoIncludeUpdates,
       bundleExtraMaxPercent,
     ]
   );
@@ -404,6 +411,27 @@ export default function AutoDownloadRulesSettings({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Update patch taken with an auto-downloaded release */}
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id="autoIncludeUpdates"
+              checked={autoIncludeUpdates}
+              onCheckedChange={(checked) => setAutoIncludeUpdates(checked === true)}
+              className="mt-1"
+            />
+            <label
+              htmlFor="autoIncludeUpdates"
+              className="flex-1 cursor-pointer text-sm leading-tight"
+            >
+              <div className="font-medium">Include updates automatically</div>
+              <div className="text-xs text-muted-foreground">
+                When auto-download takes a release for a wanted game, also take the newest update
+                patch that names that release's version as its starting point. Off: only the game
+                itself is downloaded.
+              </div>
+            </label>
           </div>
 
           {/* Update-only patches for the "Download automatically" update policy */}

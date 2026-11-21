@@ -47,6 +47,7 @@ function makeStorage() {
     getDownloader: vi.fn().mockResolvedValue(undefined),
     updateGameDownloadStatus: vi.fn().mockResolvedValue(undefined),
     updateGameStatus: vi.fn().mockResolvedValue(undefined),
+    getDownloadsByGameId: vi.fn().mockResolvedValue([]),
     updateGame: vi.fn().mockResolvedValue(undefined),
     addNotification: vi.fn().mockResolvedValue(undefined),
   };

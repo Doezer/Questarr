@@ -140,7 +140,8 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
     remoteId: string | null;
     remoteStatus?: string;
     remoteProgress?: number;
-    siblings?: { id: string; status: string }[];
+    siblings?: { id: string; status: string; category?: string }[];
+    category?: "main" | "update" | "dlc" | "extra";
   }) {
     const asyncDownload = {
       id: opts.gdId,
@@ -152,6 +153,7 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       downloadType: "torrent" as const,
+      ...(opts.category ? { category: opts.category } : {}),
     };
     mockGetDownloadingGameDownloads.mockResolvedValue([asyncDownload]);
     mockGetDownloader.mockResolvedValue(qbDownloader);
@@ -416,5 +418,28 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
       { preserveCurated: true }
     );
     expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", "game-1");
+  });
+
+  it("keeps the game status while the main release is still downloading after a patch finishes", async () => {
+    mockTagScenario({
+      gdId: "gd-patch-1",
+      tag: "questarr-add-patch",
+      title: "Game Update v1.1",
+      resolvedHash: "patchhash",
+      remoteId: "patchhash",
+      remoteStatus: "completed",
+      remoteProgress: 100,
+      category: "update",
+      siblings: [{ id: "gd-main-1", status: "downloading", category: "main" }],
+    });
+
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith("gd-patch-1", "completed");
+    expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(
+      "game-1",
+      { status: "owned" },
+      { preserveCurated: true }
+    );
   });
 });

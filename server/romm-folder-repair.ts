@@ -142,8 +142,20 @@ async function moveOne(
     await fs.ensureDir(path.dirname(proposal.to));
     // fs-extra renames on one filesystem and copies then removes across filesystems.
     await fs.move(proposal.from, proposal.to, { overwrite: false });
-    await storage.updateGame(game.id, { libraryPath: proposal.to });
-    await replaceGameFilesFromPath(game.id, proposal.to, proposal.from);
+    try {
+      await storage.updateGame(game.id, { libraryPath: proposal.to });
+      await replaceGameFilesFromPath(game.id, proposal.to, proposal.from);
+    } catch (dbError) {
+      // Keep files and database in agreement: put everything back where it was.
+      await storage.updateGame(game.id, { libraryPath: proposal.from }).catch(() => undefined);
+      await fs
+        .move(proposal.to, proposal.from, { overwrite: false })
+        .then(() => replaceGameFilesFromPath(game.id, proposal.from, proposal.to))
+        .catch((rollbackError) =>
+          logger.error({ error: rollbackError, gameId }, "Could not roll back a RomM folder move")
+        );
+      throw dbError;
+    }
     return { gameId, title: game.title, moved: true, to: proposal.to };
   } catch (error) {
     logger.error({ error, gameId }, "RomM folder repair failed for a game");

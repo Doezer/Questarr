@@ -109,6 +109,15 @@ describe("RomM folder repair", () => {
     expect(rommMock.requestRommScanAfterImport).toHaveBeenCalledOnce();
   });
 
+  it("puts the files back when the database update fails", async () => {
+    storageMock.updateGame.mockRejectedValueOnce(new Error("db down"));
+    const [r] = await applyRommFolderRepair("u1", ["g1"]);
+    expect(r).toMatchObject({ moved: false, error: "db down" });
+    expect(await fs.pathExists(path.join(root, "win", "Pokopia", "a.nup"))).toBe(true);
+    expect(await fs.pathExists(path.join(root, "switch-2", "Pokopia"))).toBe(false);
+    expect(rommMock.requestRommScanAfterImport).not.toHaveBeenCalled();
+  });
+
   it("never overwrites an existing destination", async () => {
     await fs.ensureDir(path.join(root, "switch-2", "Pokopia"));
     const [r] = await applyRommFolderRepair("u1", ["g1"]);

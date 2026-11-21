@@ -892,6 +892,18 @@ export default function DownloadersPage() {
 
                           field.onChange(nextType);
 
+                          // Another client's password must never become this one's credential (a
+                          // TorBox API key is sent to api.torbox.app, also by Test Connection).
+                          // Going back to the edited downloader's own type restores its saved value.
+                          if (nextType !== previousType) {
+                            form.setValue(
+                              "password",
+                              editingDownloader && nextType === editingDownloader.type
+                                ? (editingDownloader.password ?? "")
+                                : ""
+                            );
+                          }
+
                           // Cloud services are fixed endpoints: no host or port to enter.
                           if (nextEndpoint) {
                             form.setValue("url", nextEndpoint);

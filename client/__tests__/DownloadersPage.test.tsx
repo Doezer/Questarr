@@ -403,6 +403,24 @@ describe("DownloadersPage", () => {
       expect(requestsTo("PATCH", "/api/downloaders/tr")).toHaveLength(0);
     });
 
+    it("clears the carried-over password when the type changes and restores it on return", async () => {
+      const dialog = within(
+        await openEditDialog(
+          makeDownloader({ id: "tr", type: "transmission", port: 9091, password: "********" })
+        )
+      );
+      const password = dialog.getByTestId("input-downloader-password");
+      expect(password).toHaveValue("********");
+
+      const typeSelect = dialog.getByRole("option", { name: "TorBox" })
+        .parentElement as HTMLSelectElement;
+      fireEvent.change(typeSelect, { target: { value: "torbox" } });
+      expect(dialog.getByTestId("input-downloader-password")).toHaveValue("");
+
+      fireEvent.change(typeSelect, { target: { value: "transmission" } });
+      expect(dialog.getByTestId("input-downloader-password")).toHaveValue("********");
+    });
+
     it("qBittorrent stores the chosen initial state in the settings JSON", async () => {
       downloaders = [makeDownloader({ id: "qb", name: "qBit", type: "qbittorrent", port: 8080 })];
       renderPage();

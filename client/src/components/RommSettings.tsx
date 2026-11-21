@@ -156,7 +156,9 @@ export function RommSettings() {
   });
 
   const repairFolders = useMutation({
-    mutationFn: async (gameIds: string[]) => {
+    mutationFn: async (toMove: RepairProposal[]) => {
+      const gameIds = toMove.map((p) => p.gameId);
+      const titleOf = new Map(toMove.map((p) => [p.gameId, p.title]));
       // The server takes at most 500 games per call. If a later call fails, what the earlier
       // ones moved is kept and the games that were not reached are reported as failures.
       const results: RepairOutcome[] = [];
@@ -170,7 +172,12 @@ export function RommSettings() {
           if (i === 0) throw error;
           const message = await errorMessage(error);
           for (const gameId of gameIds.slice(i)) {
-            results.push({ gameId, title: gameId, moved: false, error: message });
+            results.push({
+              gameId,
+              title: titleOf.get(gameId) ?? gameId,
+              moved: false,
+              error: message,
+            });
           }
           break;
         }
@@ -366,7 +373,7 @@ export function RommSettings() {
                 ))}
               </ul>
               <Button
-                onClick={() => repairFolders.mutate(proposals.map((p) => p.gameId))}
+                onClick={() => repairFolders.mutate(proposals)}
                 disabled={repairFolders.isPending}
               >
                 {repairFolders.isPending && (

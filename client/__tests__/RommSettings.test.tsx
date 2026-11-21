@@ -167,7 +167,7 @@ describe("RommSettings", () => {
       fireEvent.click(screen.getByRole("button", { name: /check library folders/i }));
       await screen.findByText("Game 0");
       fireEvent.click(screen.getByRole("button", { name: /move 501 games/i }));
-      expect(await screen.findByText(/g500: .*network down/)).toBeInTheDocument();
+      expect(await screen.findByText(/Game 500: .*network down/)).toBeInTheDocument();
       expect(screen.queryByText("Game 0")).not.toBeInTheDocument();
     });
 

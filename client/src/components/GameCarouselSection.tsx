@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo } from "react";
+import React, { useState, useEffect, memo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,10 @@ interface GameCarouselSectionProps {
   onTrackGame?: (game: Game) => void;
   onToggleHidden?: (gameId: string, hidden: boolean) => void;
   isDiscovery?: boolean;
+  /** Extra line under each card (e.g. why a game is recommended). */
+  renderCaption?: (game: Game) => ReactNode;
+  /** Render nothing, instead of an empty-state box, when the section has no games. */
+  hideWhenEmpty?: boolean;
 }
 
 // ⚡ Bolt: Using React.memo to prevent this component from re-rendering if its props
@@ -41,6 +45,8 @@ const GameCarouselSection = ({
   onTrackGame,
   onToggleHidden,
   isDiscovery = true,
+  renderCaption,
+  hideWhenEmpty = false,
 }: GameCarouselSectionProps) => {
   const [api, setApi] = useState<CarouselApi>();
   const [canScrollPrev, setCanScrollPrev] = useState(false);
@@ -121,6 +127,7 @@ const GameCarouselSection = ({
   }
 
   if (games.length === 0) {
+    if (hideWhenEmpty) return null;
     return (
       <div
         className="space-y-4"
@@ -235,14 +242,19 @@ const GameCarouselSection = ({
                 key={game.id}
                 className="pl-4 basis-1/3 sm:basis-1/5 md:basis-1/6 lg:basis-[12.5%] xl:basis-[10%]"
               >
-                <GameCard
-                  game={game}
-                  onStatusChange={onStatusChange}
-                  onViewDetails={onViewDetails}
-                  onTrackGame={onTrackGame}
-                  onToggleHidden={onToggleHidden}
-                  isDiscovery={isDiscovery}
-                />
+                <div className={renderCaption ? "flex h-full flex-col" : "h-full"}>
+                  <div className="min-h-0 flex-1">
+                    <GameCard
+                      game={game}
+                      onStatusChange={onStatusChange}
+                      onViewDetails={onViewDetails}
+                      onTrackGame={onTrackGame}
+                      onToggleHidden={onToggleHidden}
+                      isDiscovery={isDiscovery}
+                    />
+                  </div>
+                  {renderCaption?.(game)}
+                </div>
               </CarouselItem>
             ))}
           </CarouselContent>

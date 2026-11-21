@@ -310,6 +310,51 @@ describe("API Routes - Additional Coverage", () => {
     });
   });
 
+  describe("GET /api/games/recommendations", () => {
+    it("returns nothing while the library says nothing about the user's taste", async () => {
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      const res = await request(app).get("/api/games/recommendations");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+      expect(igdbClient.getRecommendationCandidates).not.toHaveBeenCalled();
+    });
+
+    it("ranks candidates by taste, skips library games and explains each pick", async () => {
+      vi.mocked(storage.getUserGames).mockResolvedValue([
+        {
+          id: "g1",
+          igdbId: 10,
+          title: "Hades",
+          status: "completed",
+          userRating: 9,
+          hidden: false,
+          genres: ["Roguelike"],
+          themes: ["Fantasy"],
+          developers: ["Supergiant"],
+          gameModes: ["Single player"],
+        },
+        { id: "g2", igdbId: 99, title: "Owned", status: "wanted", hidden: true },
+      ] as unknown as Game[]);
+      vi.mocked(igdbClient.getRecommendationCandidates).mockResolvedValue([
+        {
+          game: { id: 20, name: "Dead Cells", genres: [{ id: 1, name: "Roguelike" }] },
+          similarTo: [10],
+        },
+        { game: { id: 30, name: "Unrelated", genres: [{ id: 2, name: "Sports" }] }, similarTo: [] },
+        { game: { id: 99, name: "Owned", genres: [{ id: 1, name: "Roguelike" }] }, similarTo: [] },
+      ] as never);
+
+      const res = await request(app).get("/api/games/recommendations?limit=5");
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].name).toBe("Dead Cells");
+      expect(res.body[0].recommendation.reasons[0]).toMatchObject({
+        kind: "similar",
+        label: "Hades",
+      });
+    });
+  });
+
   describe("GET /api/igdb/genre/:genre", () => {
     it("rejects an overly long genre parameter", async () => {
       const res = await request(app).get(`/api/igdb/genre/${"a".repeat(101)}`);

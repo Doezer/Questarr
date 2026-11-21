@@ -1402,6 +1402,96 @@ class IGDBClient {
     }
   }
 
+  /**
+   * Candidate pool for library-driven recommendations: games IGDB lists as similar to the
+   * user's favourite games, plus well-rated games sharing their genres, themes or developers.
+   * Each source fails on its own (an IGDB error just shrinks the pool). The caller scores and
+   * filters the candidates; `similarTo` says which anchor games listed a candidate as similar.
+   */
+  async getRecommendationCandidates(seed: {
+    anchorIgdbIds: number[];
+    genres: string[];
+    themes: string[];
+    developers: string[];
+    excludeIgdbIds: number[];
+  }): Promise<Array<{ game: IGDBGame; similarTo: number[] }>> {
+    if (!(await this.ensureConfigured())) return [];
+
+    const names = (list: string[]) =>
+      list
+        .slice(0, 4)
+        .map((n) => sanitizeIgdbInput(n))
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b))
+        .map((n) => `"${n}"`)
+        .join(",");
+    const anchors = [...new Set(seed.anchorIgdbIds.filter((id) => Number.isInteger(id)))]
+      .sort((a, b) => a - b)
+      .slice(0, 10);
+    const exclude = [...new Set(seed.excludeIgdbIds.filter((id) => Number.isInteger(id)))].sort(
+      (a, b) => a - b
+    );
+    const excludeCondition = exclude.length > 0 ? ` & id != (${exclude.join(",")})` : "";
+    const quality = `rating > ${HIGH_RATING_THRESHOLD} & rating_count > ${HIGH_RATING_COUNT}`;
+    const ttl = HOUR_IN_SECONDS * 1000;
+
+    const byName = async (field: string, list: string[]): Promise<IGDBGame[]> => {
+      const values = names(list);
+      if (!values) return [];
+      try {
+        return await this.makeRequest<IGDBGame[]>(
+          "games",
+          `fields ${IGDB_GAME_FIELDS}; where ${field} = (${values}) & ${quality}${excludeCondition}; sort rating desc; limit 40;`,
+          ttl
+        );
+      } catch {
+        igdbLogger.warn({ field }, "recommendation candidate query failed");
+        return [];
+      }
+    };
+
+    const similarFields = IGDB_GAME_FIELDS.split(", ")
+      .map((f) => `similar_games.${f}`)
+      .join(", ");
+    const similarSource = async (): Promise<Array<{ game: IGDBGame; similarTo: number[] }>> => {
+      if (anchors.length === 0) return [];
+      try {
+        const rows = await this.makeRequest<Array<{ id: number; similar_games?: IGDBGame[] }>>(
+          "games",
+          `fields ${similarFields}; where id = (${anchors.join(",")}); limit ${anchors.length};`,
+          ttl
+        );
+        return rows.flatMap((row) =>
+          (row.similar_games ?? []).map((game) => ({ game, similarTo: [row.id] }))
+        );
+      } catch {
+        igdbLogger.warn("similar games query failed");
+        return [];
+      }
+    };
+
+    const [similar, byGenre, byTheme, byDeveloper] = await Promise.all([
+      similarSource(),
+      byName("genres.name", seed.genres),
+      byName("themes.name", seed.themes),
+      byName("involved_companies.company.name", seed.developers),
+    ]);
+
+    // Merge duplicates across sources, remembering every anchor that listed the game as similar.
+    const merged = new Map<number, { game: IGDBGame; similarTo: Set<number> }>();
+    const add = (game: IGDBGame, similarTo: number[]) => {
+      const entry = merged.get(game.id) ?? { game, similarTo: new Set<number>() };
+      for (const id of similarTo) entry.similarTo.add(id);
+      merged.set(game.id, entry);
+    };
+    for (const { game, similarTo } of similar) add(game, similarTo);
+    for (const game of [...byGenre, ...byTheme, ...byDeveloper]) add(game, []);
+    return [...merged.values()].map(({ game, similarTo }) => ({
+      game,
+      similarTo: [...similarTo],
+    }));
+  }
+
   async getGamesByGenre(
     genre: string,
     limit: number = 20,

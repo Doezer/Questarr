@@ -110,6 +110,38 @@ describe("IGDBClient - extended coverage", { timeout: 20000 }, () => {
     expect(results).toEqual([]);
   });
 
+  it("getRecommendationCandidates merges similar games and name matches, tracking the anchors", async () => {
+    fetchMock.mockImplementation(async (_url: unknown, init?: { body?: unknown }) => {
+      const body = String(init?.body ?? "");
+      if (!body) return authResponse;
+      if (body.includes("similar_games")) {
+        return gamesResponse([
+          {
+            id: 1,
+            similar_games: [
+              { id: 50, name: "Similar" },
+              { id: 51, name: "Both" },
+            ],
+          },
+        ]);
+      }
+      if (body.includes("genres.name")) return gamesResponse([{ id: 51, name: "Both" }]);
+      return gamesResponse([]);
+    });
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.getRecommendationCandidates({
+      anchorIgdbIds: [1],
+      genres: ["Roguelike"],
+      themes: [],
+      developers: [],
+      excludeIgdbIds: [1],
+    });
+
+    expect(results.map((r) => r.game.id).sort()).toEqual([50, 51]);
+    expect(results.find((r) => r.game.id === 50)?.similarTo).toEqual([1]);
+  });
+
   it("getRecommendations falls back to popular games when the user has no games", async () => {
     fetchMock
       .mockResolvedValueOnce(authResponse)

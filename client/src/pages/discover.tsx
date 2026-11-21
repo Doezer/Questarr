@@ -27,6 +27,10 @@ import { Rss } from "lucide-react";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { ACQUIRED_GAME_STATUSES, type Game, type Config, type UserSettings } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
+import type { Recommendation } from "@shared/recommendations";
+import { primaryRecommendationReason } from "@/lib/recommendation-reasons";
+
+type RecommendedGame = Game & { recommendation?: Recommendation };
 
 const EMPTY_GAMES: Game[] = [];
 
@@ -494,6 +498,24 @@ export default function DiscoverPage() {
     return filterGames(games);
   }, [filterGames]);
 
+  const fetchRecommendedGames = useCallback(async (): Promise<Game[]> => {
+    const response = await apiRequest("GET", "/api/games/recommendations?limit=20");
+    const games = await response.json();
+    return filterGames(games);
+  }, [filterGames]);
+
+  const renderRecommendationCaption = useCallback((game: Game) => {
+    const reason = primaryRecommendationReason((game as RecommendedGame).recommendation);
+    return reason ? (
+      <p
+        className="mt-1 line-clamp-2 text-xs text-muted-foreground"
+        data-testid={`recommendation-reason-${game.id}`}
+      >
+        {reason}
+      </p>
+    ) : null;
+  }, []);
+
   const fetchRecentGames = useCallback(async (): Promise<Game[]> => {
     const response = await apiRequest("GET", "/api/igdb/recent?limit=20");
     const games = await response.json();
@@ -606,6 +628,20 @@ export default function DiscoverPage() {
               onHideOwnedChange={setHideOwned}
               hideWanted={hideWanted}
               onHideWantedChange={setHideWanted}
+            />
+
+            {/* Recommended for you: only shown once the library says something about the taste */}
+            <GameCarouselSection
+              title="Recommended for You"
+              queryKey={["/api/games/recommendations", ...carouselFilterKey]}
+              queryFn={fetchRecommendedGames}
+              staleTime={DISCOVERY_STALE_TIME}
+              onStatusChange={handleStatusChange}
+              onTrackGame={handleTrackGame}
+              onToggleHidden={handleToggleHidden}
+              isDiscovery={true}
+              renderCaption={renderRecommendationCaption}
+              hideWhenEmpty
             />
 
             {/* Popular Games Section */}

@@ -210,6 +210,7 @@ export default function RssSettings() {
                         onCheckedChange={(c) =>
                           toggleFeedMutation.mutate({ id: feed.id, enabled: c })
                         }
+                        aria-label={`Enable feed ${feed.name}`}
                       />
                     </TableCell>
                     <TableCell className="text-right">

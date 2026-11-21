@@ -45,16 +45,13 @@ describe("extractItemLinks", () => {
     ).toEqual(["https://www.mega.nz/file/x"]);
   });
 
-  it("keeps every non-blog link when the host list cannot be read", async () => {
+  it("returns null (nothing to store yet) and asks only once when the host list cannot be read", async () => {
     mocks.safeFetch.mockRejectedValue(new Error("offline"));
     const { extractItemLinks: extract } = await import("../ddl-feed.js");
-    expect(
-      await extract(
-        { content: "https://host.example/f1 https://blog.example/x" },
-        "https://blog.example/feed",
-        "https://blog.example/x"
-      )
-    ).toEqual(["https://host.example/f1"]);
+    const item = { content: "https://host.example/f1 https://blog.example/x" };
+    expect(await extract(item, "https://blog.example/feed", "https://blog.example/x")).toBeNull();
+    expect(await extract(item, "https://blog.example/feed", "https://blog.example/x")).toBeNull();
+    expect(mocks.safeFetch).toHaveBeenCalledTimes(1);
   });
 
   it("finds links in a real parsed RSS item (content:encoded)", async () => {

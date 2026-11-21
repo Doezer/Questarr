@@ -118,7 +118,7 @@ export class RssService {
             feed.url,
             normalized.link
           );
-          await storage.updateRssFeedItem(String(existing.id), { links });
+          if (links) await storage.updateRssFeedItem(String(existing.id), { links });
         }
         continue;
       }

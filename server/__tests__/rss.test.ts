@@ -303,9 +303,9 @@ describe("RssService", () => {
       mapping: null,
       extractLinks: true,
     } as unknown as import("../../shared/schema").RssFeed;
-    // Host list unreachable: every link that is not the blog's own is kept.
+    // Real-Debrid supports host.example; the blog's own links are dropped.
     mocks.safeFetch.mockImplementation(async (url: string) => {
-      if (url.includes("real-debrid")) throw new Error("offline");
+      if (url.includes("real-debrid")) return { ok: true, json: async () => ["host.example"] };
       return { ok: true, text: vi.fn().mockResolvedValue("<xml></xml>") };
     });
     mocks.parseString.mockResolvedValue({

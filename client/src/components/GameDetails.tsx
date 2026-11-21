@@ -45,6 +45,7 @@ import {
   Gamepad2,
   Tag,
   Download,
+  Link2,
   Eye,
   EyeOff,
   X,
@@ -98,6 +99,7 @@ import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   type Game,
+  type Downloader,
   type GameDownload,
   type ScannedGameFile,
   type UserSettings,
@@ -115,6 +117,7 @@ import { addDiscoveryGameToLibrary, hideDiscoveryGame } from "@/lib/discover-hid
 import { carriesBaseGameVersion } from "@shared/version-utils";
 
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
+const AddDdlLinksDialog = lazy(() => import("./AddDdlLinksDialog"));
 
 /** Derives the target-platform Select value, falling back to "default" for malformed or unsupported saved pairs. */
 function getTargetPlatformSelectValue(
@@ -556,6 +559,12 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
   const isMobile = useIsMobile();
   const [selectedScreenshotIndex, setSelectedScreenshotIndex] = useState<number | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [ddlOpen, setDdlOpen] = useState(false);
+  // Pasting direct links needs a Real-Debrid downloader to hand them to.
+  const { data: enabledDownloaders } = useQuery<Downloader[]>({
+    queryKey: ["/api/downloaders/enabled"],
+  });
+  const hasRealDebrid = enabledDownloaders?.some((d) => d.type === "realdebrid") ?? false;
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [targetPlatformValue, setTargetPlatformValue] = useState("default");
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
@@ -1195,6 +1204,17 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                     <Download className="h-4 w-4" />
                     Download
                   </Button>
+                  {hasRealDebrid && (
+                    <Button
+                      variant="secondary"
+                      className="h-10 flex-1 gap-2 sm:h-9 sm:flex-none"
+                      onClick={() => setDdlOpen(true)}
+                      data-testid="button-add-ddl-links"
+                    >
+                      <Link2 className="h-4 w-4" />
+                      Add links
+                    </Button>
+                  )}
                   <Button
                     variant="secondary"
                     onClick={handleToggleHidden}
@@ -2127,6 +2147,12 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
       {downloadOpen && (
         <Suspense fallback={null}>
           <GameDownloadDialog game={game} open={downloadOpen} onOpenChange={setDownloadOpen} />
+        </Suspense>
+      )}
+
+      {ddlOpen && (
+        <Suspense fallback={null}>
+          <AddDdlLinksDialog game={game} open={ddlOpen} onOpenChange={setDdlOpen} />
         </Suspense>
       )}
 

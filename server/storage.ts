@@ -93,6 +93,8 @@ import {
   DEFAULT_UPGRADE_POLICY,
   type DetectedVersionSource,
   type GameStatusEvent,
+  type DdlJob,
+  type InsertDdlJob,
 } from "../shared/schema.js";
 import {
   users,
@@ -128,6 +130,7 @@ import {
   gameMilestones,
   gamePlaySessions,
   gameStatusEvents,
+  ddlJobs,
   gameScreenshots,
   classificationCache,
   classificationCandidates,
@@ -398,6 +401,12 @@ export interface IStorage {
   getUserPlaySessions(userId: string): Promise<GamePlaySession[]>;
   /** The user's status history (one row per status change), oldest first. */
   getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]>;
+
+  // Direct-download (DDL) jobs
+  addDdlJob(job: InsertDdlJob): Promise<DdlJob>;
+  getDdlJob(id: string): Promise<DdlJob | undefined>;
+  getDdlJobsByDownloader(downloaderId: string): Promise<DdlJob[]>;
+  deleteDdlJob(id: string): Promise<void>;
   /** The user's running timer (a session with no end), if any. */
   getRunningPlaySession(userId: string): Promise<GamePlaySession | undefined>;
   addGamePlaySession(
@@ -771,6 +780,7 @@ export class MemStorage implements IStorage {
   private gameMilestones: Map<string, GameMilestone>;
   private gamePlaySessions: Map<string, GamePlaySession>;
   private gameStatusEvents: GameStatusEvent[];
+  private ddlJobs = new Map<string, DdlJob>();
   private gameScreenshots: Map<string, GameScreenshot>;
 
   constructor() {
@@ -998,6 +1008,32 @@ export class MemStorage implements IStorage {
 
   async getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]> {
     return this.gameStatusEvents.filter((e) => e.userId === userId);
+  }
+
+  async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {
+    const created: DdlJob = {
+      id: job.id,
+      downloaderId: job.downloaderId,
+      gameId: job.gameId,
+      title: job.title,
+      links: job.links,
+      password: job.password ?? null,
+      createdAt: job.createdAt ?? new Date(),
+    };
+    this.ddlJobs.set(created.id, created);
+    return created;
+  }
+
+  async getDdlJob(id: string): Promise<DdlJob | undefined> {
+    return this.ddlJobs.get(id);
+  }
+
+  async getDdlJobsByDownloader(downloaderId: string): Promise<DdlJob[]> {
+    return [...this.ddlJobs.values()].filter((j) => j.downloaderId === downloaderId);
+  }
+
+  async deleteDdlJob(id: string): Promise<void> {
+    this.ddlJobs.delete(id);
   }
 
   async updateGameStatus(
@@ -3423,6 +3459,23 @@ export class DatabaseStorage implements IStorage {
       .from(gameStatusEvents)
       .where(eq(gameStatusEvents.userId, userId))
       .orderBy(asc(gameStatusEvents.createdAt), asc(gameStatusEvents.id));
+  }
+
+  async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {
+    return firstOrThrow(await db.insert(ddlJobs).values(job).returning());
+  }
+
+  async getDdlJob(id: string): Promise<DdlJob | undefined> {
+    const rows = await db.select().from(ddlJobs).where(eq(ddlJobs.id, id)).limit(1);
+    return rows[0];
+  }
+
+  async getDdlJobsByDownloader(downloaderId: string): Promise<DdlJob[]> {
+    return db.select().from(ddlJobs).where(eq(ddlJobs.downloaderId, downloaderId));
+  }
+
+  async deleteDdlJob(id: string): Promise<void> {
+    await db.delete(ddlJobs).where(eq(ddlJobs.id, id));
   }
 
   async updateGameStatus(

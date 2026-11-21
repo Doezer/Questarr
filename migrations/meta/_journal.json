@@ -477,6 +477,13 @@
       "when": 1795061144127,
       "tag": "0066_game_status_events",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "6",
+      "when": 1795270289748,
+      "tag": "0067_ddl_jobs",
+      "breakpoints": true
     }
   ]
 }

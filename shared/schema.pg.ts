@@ -502,6 +502,29 @@ export const gameStatusEvents = pgTable(
   ]
 );
 
+// Direct-download (DDL) jobs: a list of file-hoster links a debrid downloader fetches into local
+// staging. Progress lives on disk and in memory; this row only keeps what a restart needs to
+// resume (the links and the archive password).
+export const ddlJobs = pgTable(
+  "ddl_jobs",
+  {
+    id: text("id").primaryKey(),
+    downloaderId: text("downloader_id")
+      .notNull()
+      .references(() => downloaders.id, { onDelete: "cascade" }),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    links: jsonb("links").$type<string[]>().notNull(),
+    password: text("password"),
+    createdAt: timestampMs("created_at")
+      .notNull()
+      .default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("ddl_jobs_downloader_idx").on(t.downloaderId)]
+);
+
 export const webhookSubscriptions = pgTable(
   "webhook_subscriptions",
   {

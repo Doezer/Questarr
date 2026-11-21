@@ -162,6 +162,24 @@ describe("applyFailureStatus", () => {
     expect(recordVersion).toHaveBeenCalledWith(storage, "g1", "Game.Update.v1.1-GRP", "update");
   });
 
+  it("skips a waiting patch whose named base is not the installed version", async () => {
+    recordVersion.mockClear();
+    const storage = storageWith([
+      {
+        id: "p",
+        category: "update",
+        status: "completed",
+        downloadTitle: "Game.Update.v1.0.to.v1.1-GRP",
+      },
+    ]);
+    storage.getGame.mockResolvedValue({ status: "owned", installedVersion: "v0.9" });
+    await replayAfterMainFailure(storage, failed);
+    expect(recordVersion).not.toHaveBeenCalled();
+    storage.getGame.mockResolvedValue({ status: "owned", installedVersion: "v1.0" });
+    await replayAfterMainFailure(storage, failed);
+    expect(recordVersion).toHaveBeenCalledTimes(1);
+  });
+
   it("does not replay patches when the failed main leaves the game without a base", async () => {
     recordVersion.mockClear();
     const storage = storageWith([

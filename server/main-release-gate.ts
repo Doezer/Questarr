@@ -1,5 +1,7 @@
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isUserCuratedGameStatus } from "../shared/schema.js";
+import { extractPatchBaseVersion } from "../shared/upgrade-decision.js";
+import { compareVersions, extractVersionFromReleaseName } from "../shared/version-utils.js";
 import { recordVersionFromCompletedDownload } from "./game-version.js";
 import type { IStorage } from "./storage.js";
 
@@ -135,7 +137,19 @@ async function replayPatchVersions(
     const game = await storage.getGame(download.gameId);
     if (!game?.installedVersion?.trim() && game?.status !== "owned") return;
   }
+  // Oldest first, so a chain of patches (1.0 to 1.1, then 1.1 to 1.2) lands in order.
+  waiting.sort((a, b) => {
+    const va = extractVersionFromReleaseName(a.downloadTitle ?? "");
+    const vb = extractVersionFromReleaseName(b.downloadTitle ?? "");
+    return (va && vb ? compareVersions(va, vb) : 0) ?? 0;
+  });
   for (const patch of waiting) {
+    // A patch that names its base only describes the install when that base is the one on disk.
+    const base = extractPatchBaseVersion(patch.downloadTitle ?? "");
+    if (base) {
+      const installed = (await storage.getGame(download.gameId))?.installedVersion?.trim();
+      if (installed && compareVersions(base, installed) !== 0) continue;
+    }
     await recordVersionFromCompletedDownload(
       storage,
       download.gameId,

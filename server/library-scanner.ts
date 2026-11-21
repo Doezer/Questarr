@@ -521,6 +521,7 @@ export async function replaceGameFilesFromPath(
   // Categories the user set by hand are kept, matched by path relative to the old location.
   const overrides = new Map<string, GameFile["category"]>();
   const nameOverrides = new Map<string, GameFile["category"] | undefined>();
+  const stale: string[] = [];
   for (const file of await storage.getGameFiles(gameId)) {
     const filePath = path.resolve(file.filePath);
     if (filePath === previous || isStrictlyInside(previous, filePath)) {
@@ -530,14 +531,17 @@ export async function replaceGameFilesFromPath(
         // A name shared by several overridden files is ambiguous: drop it.
         nameOverrides.set(name, nameOverrides.has(name) ? undefined : file.category);
       }
-      await storage.removeGameFile(file.id);
+      stale.push(file.id);
     }
   }
   const stat = await fs.promises.stat(absolutePath);
   const files = stat.isFile()
     ? [{ absolutePath, size: stat.size }]
     : await listFiles(absolutePath, Number.POSITIVE_INFINITY);
+  // The new records go in before the old ones are removed: if recording fails, the old records
+  // (and the categories set by hand on them) are still there.
   const added = await assignFilesToGame(gameId, files);
+  for (const id of stale) await storage.removeGameFile(id);
   if (overrides.size > 0) {
     const destination = path.resolve(absolutePath);
     const inside = (await storage.getGameFiles(gameId)).filter((file) => {

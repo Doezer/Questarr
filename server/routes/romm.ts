@@ -5,6 +5,11 @@ import { routesLogger as logger } from "../logger.js";
 import { sensitiveEndpointLimiter } from "../middleware.js";
 import { readRommSettings, rommClient, writeRommSettings, ROMM_CONFIG_KEYS } from "../romm.js";
 import { syncFromRomm } from "../romm-sync.js";
+import {
+  applyRommFolderRepair,
+  previewRommFolderRepair,
+  RommFolderRepairError,
+} from "../romm-folder-repair.js";
 
 export const rommRouter = Router();
 
@@ -125,5 +130,39 @@ rommRouter.post("/sync", sensitiveEndpointLimiter, async (_req, res) => {
   } catch (error) {
     logger.warn({ error }, "RomM sync failed");
     res.status(502).json({ error: error instanceof Error ? error.message : "RomM sync failed" });
+  }
+});
+
+rommRouter.get("/folder-repair", async (_req, res) => {
+  try {
+    const proposals = await previewRommFolderRepair(res.locals.userId);
+    return res.json({ proposals });
+  } catch (error) {
+    if (error instanceof RommFolderRepairError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    logger.error({ error }, "Failed to scan for misplaced RomM folders");
+    return res.status(500).json({ error: "Failed to scan the library" });
+  }
+});
+
+const folderRepairSchema = z
+  .object({ gameIds: z.array(z.string().min(1)).min(1).max(500) })
+  .strict();
+
+rommRouter.post("/folder-repair", sensitiveEndpointLimiter, async (req, res) => {
+  try {
+    const { gameIds } = folderRepairSchema.parse(req.body ?? {});
+    const results = await applyRommFolderRepair(res.locals.userId, gameIds);
+    return res.json({ results });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.issues.map((i) => i.message).join(", ") });
+    }
+    if (error instanceof RommFolderRepairError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    logger.error({ error }, "RomM folder repair failed");
+    return res.status(500).json({ error: "Folder repair failed" });
   }
 });

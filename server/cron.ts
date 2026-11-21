@@ -129,6 +129,7 @@ function keepsStatusDuringDownloads(status: string | null | undefined): boolean 
 const ACTIVE_DOWNLOAD_STATUSES = new Set([
   "downloading",
   "paused",
+  "repairing",
   "unpacking",
   "completed_pending_import",
 ]);
@@ -1692,7 +1693,7 @@ async function runDownloadStatusCheck() {
             if (newGameStatus === "wanted") {
               const siblings = await storage.getDownloadsByGameId(download.gameId);
               const hasActiveDownload = siblings.some(
-                (s) => s.id !== download.id && s.status === "downloading"
+                (s) => s.id !== download.id && ACTIVE_DOWNLOAD_STATUSES.has(s.status)
               );
               if (hasActiveDownload) {
                 skipGameStatusUpdate = true;

@@ -4,7 +4,14 @@ export const DDL_MAX_LINKS = 500;
 // Square brackets end a match so BBCode ([url=LINK]label[/url]) never leaks into a link.
 const URL_PATTERN = /https?:\/\/[^\s<>"'`[\]]+/gi;
 // Punctuation that ends a sentence or closes a bracket around a pasted link, not part of it.
-const TRAILING_PUNCTUATION = /[.,;:!?)\]}>]+$/;
+const TRAILING_PUNCTUATION = new Set([".", ",", ";", ":", "!", "?", ")", "]", "}", ">"]);
+
+/** Linear-time trim (a `+$` regex backtracks quadratically on long runs of punctuation). */
+function trimTrailingPunctuation(value: string): string {
+  let end = value.length;
+  while (end > 0 && TRAILING_PUNCTUATION.has(value.charAt(end - 1))) end--;
+  return value.slice(0, end);
+}
 
 /**
  * Pulls every http(s) link out of pasted text (one per line, a forum post, BBCode, HTML...),
@@ -14,7 +21,7 @@ export function extractHosterLinks(text: string): string[] {
   const seen = new Set<string>();
   const links: string[] = [];
   for (const match of text.matchAll(URL_PATTERN)) {
-    const candidate = match[0].replace(TRAILING_PUNCTUATION, "").replace(/&amp;/g, "&");
+    const candidate = trimTrailingPunctuation(match[0]).replace(/&amp;/g, "&");
     let url: URL;
     try {
       url = new URL(candidate);

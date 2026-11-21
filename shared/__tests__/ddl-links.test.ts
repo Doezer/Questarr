@@ -35,6 +35,14 @@ describe("extractHosterLinks", () => {
     ]);
   });
 
+  it("handles a very long run of punctuation quickly", () => {
+    const started = Date.now();
+    expect(extractHosterLinks(`https://host.example/a${"!".repeat(200_000)}`)).toEqual([
+      "https://host.example/a",
+    ]);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
   it("ignores text without links and non-http schemes", () => {
     expect(extractHosterLinks("nothing here ftp://example.com/x magnet:?xt=urn:btih:1")).toEqual(
       []

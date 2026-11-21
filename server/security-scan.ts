@@ -555,3 +555,49 @@ export class SecurityScanService {
     return null;
   }
 }
+
+// Pings a ClamAV daemon over its INSTREAM protocol and reports whether it
+// responded with PONG before the deadline. Extracted from the settings-test
+// route so that route stays a simple dispatcher over provider name.
+export async function testClamAvConnectivity(
+  address: string,
+  port: number
+): Promise<{ success: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let settled = false;
+    const finish = (outcome: { success: boolean; error?: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      socket.destroy();
+      resolve(outcome);
+    };
+    // An absolute deadline, not an idle timeout — matches security-scan.ts's
+    // scanFileWithClamAv, so a connection that stays open without ever
+    // closing can't hang this check forever.
+    const deadline = setTimeout(
+      () => finish({ success: false, error: "Connection to ClamAV timed out" }),
+      10_000
+    );
+    socket.once("error", (err) => finish({ success: false, error: err.message }));
+    let data = "";
+    socket.connect(port, address, () => {
+      socket.write("zPING\0");
+    });
+    socket.on("data", (chunk) => {
+      data += chunk.toString("utf8");
+      // Accept PONG as soon as it arrives, rather than waiting for the socket
+      // to close — clamd isn't guaranteed to close the connection after
+      // replying, which would otherwise stall this check until the deadline
+      // even though the ping already succeeded.
+      if (data.includes("PONG")) {
+        finish({ success: true });
+      }
+    });
+    socket.on("close", () => {
+      const reply = data.replaceAll("\0", "").trim();
+      finish({ success: false, error: reply || "No PONG reply from ClamAV" });
+    });
+  });
+}

@@ -25,6 +25,7 @@ export const routePaths = {
   activityBlocklist: "/activity/blocklist",
   systemTasks: "/system/tasks",
   systemBackups: "/system/backups",
+  systemDiagnostics: "/system/diagnostics",
 } as const;
 
 /** Wouter pattern for the settings page and its sections (/settings/<section>). */
@@ -69,4 +70,5 @@ export const appRoutePaths = [
   routePaths.activityBlocklist,
   routePaths.systemTasks,
   routePaths.systemBackups,
+  routePaths.systemDiagnostics,
 ] as const;

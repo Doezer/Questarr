@@ -1,7 +1,8 @@
 /** Most links one direct-download job may hold (a big repack is rarely over 100 parts). */
 export const DDL_MAX_LINKS = 500;
 
-const URL_PATTERN = /https?:\/\/[^\s<>"'`]+/gi;
+// Square brackets end a match so BBCode ([url=LINK]label[/url]) never leaks into a link.
+const URL_PATTERN = /https?:\/\/[^\s<>"'`[\]]+/gi;
 // Punctuation that ends a sentence or closes a bracket around a pasted link, not part of it.
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}>]+$/;
 
@@ -13,11 +14,7 @@ export function extractHosterLinks(text: string): string[] {
   const seen = new Set<string>();
   const links: string[] = [];
   for (const match of text.matchAll(URL_PATTERN)) {
-    // BBCode ([url]...[/url]) leaves the closing tag glued to the link.
-    const candidate = match[0]
-      .replace(/\[\/?[a-z]+\]?.*$/i, "")
-      .replace(TRAILING_PUNCTUATION, "")
-      .replace(/&amp;/g, "&");
+    const candidate = match[0].replace(TRAILING_PUNCTUATION, "").replace(/&amp;/g, "&");
     let url: URL;
     try {
       url = new URL(candidate);

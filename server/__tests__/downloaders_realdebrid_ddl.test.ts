@@ -17,9 +17,13 @@ vi.mock("../ssrf.js", () => ({
 }));
 
 const jobs = new Map<string, DdlJob>();
+const untracked = new Set<string>();
 vi.mock("../storage.js", () => ({
   storage: {
-    getDownloadingGameDownloads: vi.fn().mockResolvedValue([]),
+    getDownloadingGameDownloads: async () =>
+      [...jobs.keys()]
+        .filter((id) => !untracked.has(id))
+        .map((downloadHash) => ({ downloaderId: "rd-1", downloadHash })),
     updateDownloader: vi.fn(),
     addDdlJob: async (job: Omit<DdlJob, "createdAt"> & { createdAt?: Date }) => {
       const created = { ...job, password: job.password ?? null, createdAt: new Date() } as DdlJob;
@@ -94,6 +98,7 @@ async function waitFor<T>(fn: () => Promise<T | null | false>): Promise<T> {
 beforeEach(async () => {
   safeFetchMock.mockReset();
   jobs.clear();
+  untracked.clear();
   stagingRoot = await fs.mkdtemp(path.join(os.tmpdir(), "rd-ddl-"));
 });
 
@@ -204,6 +209,25 @@ describe("Real-Debrid direct links", () => {
       "https://host.example/z",
       "https://host.example/c",
     ]);
+  });
+
+  it("never restarts a finished job that nothing tracks any more", async () => {
+    mockRealDebrid();
+    const client = new RealDebridClient(createDownloader());
+    const added = await client.addLinks({ gameId: "g1", title: "X", links: Object.keys(FILES) });
+    await waitFor(async () => (await client.getDownloadStatus(added.id!))?.status === "completed");
+
+    // An import moved the staged folder away (marker included) and the game download is gone.
+    await fs.rm(path.join(stagingRoot, added.id!), { recursive: true, force: true });
+    untracked.add(added.id!);
+    safeFetchMock.mockClear();
+
+    const [status] = (await client.getAllDownloads()).filter((d) => d.id === added.id);
+    expect(status?.status).toBe("paused");
+    expect(await client.getDownloadStatus(added.id!)).toMatchObject({ status: "paused" });
+    expect(safeFetchMock.mock.calls.some(([url]) => String(url).includes("/unrestrict/"))).toBe(
+      false
+    );
   });
 
   it("removing a job stops it, forgets it and deletes the staged files on request", async () => {

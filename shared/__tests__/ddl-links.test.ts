@@ -25,6 +25,16 @@ describe("extractHosterLinks", () => {
     ]);
   });
 
+  it("reads every BBCode link form without the label or tags", () => {
+    const text =
+      "[url=https://host.example/a]Part 1[/url] [url=https://host.example/b]https://host.example/b[/url] [url]https://host.example/c[/url]";
+    expect(extractHosterLinks(text)).toEqual([
+      "https://host.example/a",
+      "https://host.example/b",
+      "https://host.example/c",
+    ]);
+  });
+
   it("ignores text without links and non-http schemes", () => {
     expect(extractHosterLinks("nothing here ftp://example.com/x magnet:?xt=urn:btih:1")).toEqual(
       []

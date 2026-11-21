@@ -753,7 +753,7 @@ export class RealDebridClient implements DownloaderClient {
     }
   }
 
-  private async ddlStatus(ddl: DdlJob): Promise<DownloadStatus> {
+  private async ddlStatus(ddl: DdlJob, tracked = true): Promise<DownloadStatus> {
     const base = {
       id: ddl.id,
       name: ddl.title,
@@ -769,6 +769,11 @@ export class RealDebridClient implements DownloaderClient {
         size: marker.bytes,
         downloaded: marker.bytes,
       };
+    }
+    // As for torrents, a job nothing tracks any more (its game download was removed, or an import
+    // moved the staged folder away) is never fetched again by a mere status poll.
+    if (!tracked && !stagingJobs.has(jobKey(this.downloader.id, ddl.id))) {
+      return { ...base, status: "paused", progress: 0 };
     }
     const job = this.startJob(ddl.id, 0, (staging) => this.stageLinks(ddl, staging));
     if (job.state === "failed" && job.attempts >= MAX_STAGING_ATTEMPTS) {
@@ -791,8 +796,8 @@ export class RealDebridClient implements DownloaderClient {
     };
   }
 
-  private async ddlDetails(ddl: DdlJob): Promise<DownloadDetails> {
-    const status = await this.ddlStatus(ddl);
+  private async ddlDetails(ddl: DdlJob, tracked = true): Promise<DownloadDetails> {
+    const status = await this.ddlStatus(ddl, tracked);
     const staged = status.status === "completed";
     const dir = this.stagingDir(ddl.id);
     const entries = staged ? await fs.readdir(dir, { withFileTypes: true }).catch(() => []) : [];
@@ -893,7 +898,9 @@ export class RealDebridClient implements DownloaderClient {
       if (isDdlJobId(id)) {
         const { storage } = await import("../storage.js");
         const ddl = await storage.getDdlJob(id);
-        return ddl && ddl.downloaderId === this.downloader.id ? await this.ddlStatus(ddl) : null;
+        return ddl && ddl.downloaderId === this.downloader.id
+          ? await this.ddlStatus(ddl, await this.isTracked(id))
+          : null;
       }
       const response = await this.api(
         `/torrents/info/${encodeURIComponent(id)}`,
@@ -914,7 +921,9 @@ export class RealDebridClient implements DownloaderClient {
     if (isDdlJobId(id)) {
       const { storage } = await import("../storage.js");
       const ddl = await storage.getDdlJob(id);
-      return ddl && ddl.downloaderId === this.downloader.id ? this.ddlDetails(ddl) : null;
+      return ddl && ddl.downloaderId === this.downloader.id
+        ? this.ddlDetails(ddl, await this.isTracked(id))
+        : null;
     }
     const response = await this.api(
       `/torrents/info/${encodeURIComponent(id)}`,
@@ -954,7 +963,10 @@ export class RealDebridClient implements DownloaderClient {
       );
       const { storage } = await import("../storage.js");
       const ddlJobs = await storage.getDdlJobsByDownloader(this.downloader.id);
-      return [...statuses, ...(await Promise.all(ddlJobs.map((ddl) => this.ddlStatus(ddl))))];
+      return [
+        ...statuses,
+        ...(await Promise.all(ddlJobs.map((ddl) => this.ddlStatus(ddl, tracked.has(ddl.id))))),
+      ];
     } catch (error) {
       if (options?.throwOnError) throw error;
       downloadersLogger.warn({ error }, "Real-Debrid download list failed");

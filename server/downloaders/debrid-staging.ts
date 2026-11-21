@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import type { DownloadStatus } from "../../shared/schema.js";
 import { downloadersLogger } from "../logger.js";
 import { safeFetch } from "../ssrf.js";
 import { DOWNLOAD_CLIENT_USER_AGENT, getErrorMessage } from "./utils.js";
@@ -212,4 +213,186 @@ export async function copyRemoteFile(
     await fs.rm(partial, { force: true });
     throw error;
   }
+}
+
+export const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true }
+    );
+  });
+
+/**
+ * Answers a 429 by waiting (the server's Retry-After, else an exponential backoff) and sending
+ * again, up to `maxRetries` times. Refused calls count against the provider's budget, so this
+ * backs off instead of hammering. `beforeRetry` runs after the wait (e.g. to pace the next call).
+ */
+export async function retryOnRateLimit(
+  first: Response,
+  send: () => Promise<Response>,
+  options: {
+    signal?: AbortSignal | undefined;
+    baseDelayMs: number;
+    maxRetries: number;
+    beforeRetry?: () => Promise<void>;
+  }
+): Promise<Response> {
+  let response = first;
+  for (let retry = 1; response.status === 429 && retry <= options.maxRetries; retry++) {
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const wait =
+      Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(retryAfter * 1000, 30_000)
+        : options.baseDelayMs * 2 ** (retry - 1);
+    await response.body?.cancel().catch(() => undefined);
+    await sleep(wait, options.signal);
+    await options.beforeRetry?.();
+    response = await send();
+  }
+  return response;
+}
+
+/**
+ * The staging folder of one item: `<root>/<id>`. Ids must match `idPattern`, and the result can
+ * never leave the staging root.
+ */
+export function resolveStagingDir(
+  stagingRoot: string,
+  id: string,
+  idPattern: RegExp,
+  label: string
+): string {
+  if (!idPattern.test(id)) throw new Error(`Invalid ${label} torrent id`);
+  const root = path.resolve(stagingRoot);
+  const dir = path.resolve(root, id);
+  if (!dir.startsWith(root + path.sep)) {
+    throw new Error("Staging folder escapes the staging path");
+  }
+  return dir;
+}
+
+/** Whether every file of the item has been copied (the completion marker exists). */
+export async function hasStagingMarker(dir: string): Promise<boolean> {
+  try {
+    await fs.access(path.join(dir, STAGING_MARKER));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Publishes completion: drops the temp folder, writes the marker, forgets the job. */
+export async function finishStaging(
+  dir: string,
+  downloaderId: string,
+  id: string,
+  marker: Record<string, unknown>
+): Promise<void> {
+  await fs.rm(path.join(dir, TEMP_DIR), { recursive: true, force: true });
+  await fs.writeFile(
+    path.join(dir, STAGING_MARKER),
+    JSON.stringify({ ...marker, stagedAt: new Date().toISOString() })
+  );
+  stagingJobs.delete(jobKey(downloaderId, id));
+}
+
+/** The "second half" of the progress bar: what a running copy reports. */
+export function stagingProgress(job: StagingJob) {
+  const fraction = job.bytesTotal > 0 ? Math.min(1, job.bytesDone / job.bytesTotal) : 0;
+  const elapsed = Math.max(1, (Date.now() - job.startedAt) / 1000);
+  const speed = job.bytesDone / elapsed;
+  return {
+    progress: Math.min(99, 50 + Math.round(fraction * 50)),
+    downloaded: job.bytesDone,
+    downloadSpeed: Math.round(speed),
+    eta: speed > 0 ? Math.round((job.bytesTotal - job.bytesDone) / speed) : undefined,
+  };
+}
+
+/**
+ * Removes an item: reserves its job key before the first await (even when nothing is running) so
+ * an overlapping status poll can't start a copy while it is torn down, stops an active copy, then
+ * runs `cleanup`. The key stays reserved until cleanup is done.
+ */
+export async function removeWithCleanup(
+  downloaderId: string,
+  id: string,
+  cleanup: () => Promise<void>
+): Promise<{ success: boolean; message: string }> {
+  const key = jobKey(downloaderId, id);
+  const job: StagingJob = stagingJobs.get(key) ?? {
+    state: "running",
+    bytesDone: 0,
+    bytesTotal: 0,
+    startedAt: Date.now(),
+    attempts: 0,
+    cancelled: true,
+    abort: new AbortController(),
+    done: Promise.resolve(),
+  };
+  stagingJobs.set(key, job);
+  try {
+    job.cancelled = true;
+    job.abort.abort();
+    await job.done;
+    await cleanup();
+    return { success: true, message: "Download removed" };
+  } catch (error) {
+    return { success: false, message: `Failed to remove download: ${getErrorMessage(error)}` };
+  } finally {
+    stagingJobs.delete(key);
+  }
+}
+
+/** Free bytes on the staging volume, 0 when it cannot be read. */
+export async function stagingFreeSpace(root: string): Promise<number> {
+  try {
+    const stats = await fs.statfs(root);
+    return Number(stats.bavail) * Number(stats.bsize);
+  } catch {
+    return 0;
+  }
+}
+
+/** Ids (download hashes) Questarr itself is tracking on this downloader. */
+export async function trackedDownloadIds(downloaderId: string): Promise<Set<string>> {
+  // Imported lazily: storage pulls in the whole database layer.
+  const { storage } = await import("../storage.js");
+  const rows = await storage.getDownloadingGameDownloads();
+  return new Set(
+    rows.filter((row) => row.downloaderId === downloaderId).map((row) => row.downloadHash)
+  );
+}
+
+/**
+ * Status of an item the provider has finished fetching: completed once it is staged locally,
+ * otherwise the state of the local copy (started on first call, retried with a backoff after a
+ * failure, an error only once the attempts are used up).
+ */
+export async function stagedStatus(
+  base: Omit<DownloadStatus, "status" | "progress">,
+  item: {
+    size: number;
+    tracked: boolean;
+    isStaged: () => Promise<boolean>;
+    startStaging: () => StagingJob;
+  }
+): Promise<DownloadStatus> {
+  if (await item.isStaged()) {
+    return { ...base, status: "completed", progress: 100, downloaded: item.size };
+  }
+  // The account may hold items Questarr never added: never copy those on its own.
+  if (!item.tracked) return { ...base, status: "paused", progress: 50 };
+  const job = item.startStaging();
+  if (job.state === "failed" && job.attempts >= MAX_STAGING_ATTEMPTS) {
+    return { ...base, status: "error", progress: 50, error: job.error ?? "Staging failed" };
+  }
+  return { ...base, status: "downloading", ...stagingProgress(job) };
 }

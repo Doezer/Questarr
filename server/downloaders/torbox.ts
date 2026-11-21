@@ -16,14 +16,18 @@ import {
   getErrorMessage,
 } from "./utils.js";
 import {
-  MAX_STAGING_ATTEMPTS,
-  STAGING_MARKER,
-  TEMP_DIR,
   beginStagingJob,
   copyRemoteFile,
-  jobKey,
+  finishStaging,
+  hasStagingMarker,
+  removeWithCleanup,
   resolveStagedPaths,
-  stagingJobs,
+  resolveStagingDir,
+  retryOnRateLimit,
+  sleep,
+  stagingFreeSpace,
+  stagedStatus,
+  trackedDownloadIds,
   type StagingJob,
 } from "./debrid-staging.js";
 
@@ -66,20 +70,6 @@ interface TorBoxReply<T = unknown> {
   status: number;
   body: TorBoxEnvelope<T> | null;
 }
-
-const sleep = (ms: number, signal?: AbortSignal) =>
-  new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) return reject(signal.reason);
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        reject(signal.reason);
-      },
-      { once: true }
-    );
-  });
 
 const nextRequestSlot = new Map<string, number>();
 
@@ -141,17 +131,11 @@ export class TorBoxClient implements DownloaderClient {
       });
     };
 
-    let response = await send();
-    for (let retry = 1; response.status === 429 && retry <= MAX_RATE_LIMIT_RETRIES; retry++) {
-      const retryAfter = Number(response.headers.get("retry-after"));
-      const wait =
-        Number.isFinite(retryAfter) && retryAfter > 0
-          ? Math.min(retryAfter * 1000, 30_000)
-          : RATE_LIMIT_BACKOFF_MS * 2 ** (retry - 1);
-      await response.body?.cancel().catch(() => undefined);
-      await sleep(wait, options.signal);
-      response = await send();
-    }
+    const response = await retryOnRateLimit(await send(), send, {
+      signal: options.signal,
+      baseDelayMs: RATE_LIMIT_BACKOFF_MS,
+      maxRetries: MAX_RATE_LIMIT_RETRIES,
+    });
 
     if (response.status === 401 || response.status === 403) {
       await response.body?.cancel().catch(() => undefined);
@@ -206,19 +190,12 @@ export class TorBoxClient implements DownloaderClient {
 
   private stagingDir(torrentId: string): string {
     // TorBox ids are plain integers; anything else is never a staging folder.
-    if (!/^[0-9]+$/.test(torrentId)) throw new Error("Invalid TorBox torrent id");
-    const root = path.resolve(this.stagingRoot());
-    const dir = path.resolve(root, torrentId);
-    if (!dir.startsWith(root + path.sep)) {
-      throw new Error("Staging folder escapes the staging path");
-    }
-    return dir;
+    return resolveStagingDir(this.stagingRoot(), torrentId, /^[0-9]+$/, "TorBox");
   }
 
   private async isStaged(torrentId: string): Promise<boolean> {
     try {
-      await fs.access(path.join(this.stagingDir(torrentId), STAGING_MARKER));
-      return true;
+      return await hasStagingMarker(this.stagingDir(torrentId));
     } catch {
       return false;
     }
@@ -265,12 +242,7 @@ export class TorBoxClient implements DownloaderClient {
     }
 
     job.abort.signal.throwIfAborted();
-    await fs.rm(path.join(dir, TEMP_DIR), { recursive: true, force: true });
-    await fs.writeFile(
-      path.join(dir, STAGING_MARKER),
-      JSON.stringify({ torrentId: id, stagedAt: new Date().toISOString() })
-    );
-    stagingJobs.delete(jobKey(this.downloader.id, id));
+    await finishStaging(dir, this.downloader.id, id, { torrentId: id });
   }
 
   // -- Status mapping -----------------------------------------------------
@@ -315,33 +287,17 @@ export class TorBoxClient implements DownloaderClient {
     };
   }
 
-  private async stagingStatus(
+  private stagingStatus(
     torrent: TorBoxTorrent,
     base: Omit<DownloadStatus, "status" | "progress">,
     tracked: boolean
   ): Promise<DownloadStatus> {
-    const id = String(torrent.id);
-    if (await this.isStaged(id)) {
-      return { ...base, status: "completed", progress: 100, downloaded: torrent.size };
-    }
-    // The account may hold torrents Questarr never added: never copy those on its own.
-    if (!tracked) return { ...base, status: "paused", progress: 50 };
-    const job = this.startStaging(torrent);
-    // A failed copy is retried with a backoff, so a transient error stays "downloading".
-    if (job.state === "failed" && job.attempts >= MAX_STAGING_ATTEMPTS) {
-      return { ...base, status: "error", progress: 50, error: job.error ?? "Staging failed" };
-    }
-    const fraction = job.bytesTotal > 0 ? Math.min(1, job.bytesDone / job.bytesTotal) : 0;
-    const elapsed = Math.max(1, (Date.now() - job.startedAt) / 1000);
-    const speed = job.bytesDone / elapsed;
-    return {
-      ...base,
-      status: "downloading",
-      progress: Math.min(99, 50 + Math.round(fraction * 50)),
-      downloaded: job.bytesDone,
-      downloadSpeed: Math.round(speed),
-      eta: speed > 0 ? Math.round((job.bytesTotal - job.bytesDone) / speed) : undefined,
-    };
+    return stagedStatus(base, {
+      size: torrent.size,
+      tracked,
+      isStaged: () => this.isStaged(String(torrent.id)),
+      startStaging: () => this.startStaging(torrent),
+    });
   }
 
   // -- DownloaderClient ---------------------------------------------------
@@ -504,13 +460,8 @@ export class TorBoxClient implements DownloaderClient {
   }
 
   /** Torrent ids Questarr itself is tracking on this downloader. */
-  private async trackedTorrentIds(): Promise<Set<string>> {
-    // Imported lazily: storage pulls in the whole database layer.
-    const { storage } = await import("../storage.js");
-    const rows = await storage.getDownloadingGameDownloads();
-    return new Set(
-      rows.filter((row) => row.downloaderId === this.downloader.id).map((row) => row.downloadHash)
-    );
+  private trackedTorrentIds(): Promise<Set<string>> {
+    return trackedDownloadIds(this.downloader.id);
   }
 
   async pauseDownload(_id: string): Promise<DownloaderActionResult> {
@@ -521,58 +472,25 @@ export class TorBoxClient implements DownloaderClient {
     return { success: false, message: "TorBox does not support resuming downloads" };
   }
 
-  async removeDownload(id: string, deleteFiles = false): Promise<DownloaderActionResult> {
-    const key = jobKey(this.downloader.id, id);
-    // Reserve the key before the first await, even when nothing is running, so an overlapping
-    // status poll can't start a copy while the torrent and its folder are being removed.
-    const job: StagingJob = stagingJobs.get(key) ?? {
-      state: "running",
-      bytesDone: 0,
-      bytesTotal: 0,
-      startedAt: Date.now(),
-      attempts: 0,
-      cancelled: true,
-      abort: new AbortController(),
-      done: Promise.resolve(),
-    };
-    stagingJobs.set(key, job);
-    try {
+  removeDownload(id: string, deleteFiles = false): Promise<DownloaderActionResult> {
+    return removeWithCleanup(this.downloader.id, id, async () => {
       if (!/^[0-9]+$/.test(id)) throw new Error("Invalid TorBox torrent id");
-      // Stop an active copy first, and keep the job registered until cleanup is done.
-      job.cancelled = true;
-      job.abort.abort();
-      await job.done;
       const reply = await this.request("/torrents/controltorrent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ operation: "delete", torrent_id: Number(id) }),
       });
       // A torrent TorBox no longer has is already gone.
-      if (
-        !reply.body?.success &&
-        !NOT_FOUND.test(`${reply.body?.error ?? ""}`) &&
-        reply.status !== 404
-      ) {
-        throw new Error(this.describeFailure(reply));
-      }
+      const gone = reply.status === 404 || NOT_FOUND.test(`${reply.body?.error ?? ""}`);
+      if (!reply.body?.success && !gone) throw new Error(this.describeFailure(reply));
       if (deleteFiles) {
         await fs.rm(this.stagingDir(id), { recursive: true, force: true });
       }
-      return { success: true, message: "Download removed" };
-    } catch (error) {
-      return { success: false, message: `Failed to remove download: ${getErrorMessage(error)}` };
-    } finally {
-      stagingJobs.delete(key);
-    }
+    });
   }
 
-  async getFreeSpace(): Promise<number> {
-    try {
-      const stats = await fs.statfs(this.stagingRoot());
-      return Number(stats.bavail) * Number(stats.bsize);
-    } catch {
-      return 0;
-    }
+  getFreeSpace(): Promise<number> {
+    return stagingFreeSpace(this.stagingRoot());
   }
 
   findTorrentByTag = findTorrentByTagNull;

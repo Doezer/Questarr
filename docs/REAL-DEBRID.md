@@ -13,7 +13,7 @@ folder** and runs the normal import pipeline on them. A premium Real-Debrid acco
    the code, and approve. Questarr stores the resulting tokens encrypted on the server; they never
    reach the browser.
 4. Optional: instead of Connect, paste a private API token from
-   <https://real-debrid.com/apitoken> into the password field.
+   [https://real-debrid.com/apitoken](https://real-debrid.com/apitoken) into the password field.
 
 ## How it behaves
 

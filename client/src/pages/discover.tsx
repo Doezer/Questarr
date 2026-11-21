@@ -472,11 +472,7 @@ export default function DiscoverPage() {
           // Search in all cached query data
 
           const allQueries = queryClient.getQueriesData<Game[]>({
-            predicate: (query) => {
-              const key = query.queryKey[0] as string;
-
-              return key.startsWith("/api/igdb/");
-            },
+            predicate: (query) => isDiscoveryGamesQuery(query.queryKey),
           });
 
           for (const [, data] of allQueries) {

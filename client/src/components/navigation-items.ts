@@ -20,6 +20,7 @@ import {
   Search,
   Settings,
   Star,
+  Stethoscope,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { SETTINGS_PAGES, settingsPagePath } from "@/lib/settings-pages";
@@ -89,6 +90,7 @@ export const activityNavigation: AppNavItem[] = [
   { title: "Import History", url: "/activity/imports", icon: ClipboardList },
   { title: "System Tasks", url: "/system/tasks", icon: Timer },
   { title: "Backups", url: "/system/backups", icon: DatabaseBackup },
+  { title: "Diagnostics", url: "/system/diagnostics", icon: Stethoscope },
 ];
 
 export const mobileBottomNavigation: AppNavItem[] = [

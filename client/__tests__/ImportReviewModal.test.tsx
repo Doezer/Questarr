@@ -5,20 +5,40 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ImportReviewModal from "../src/components/ImportReviewModal";
 
-const { mockInvalidateQueries, mockToast, mockFileBrowser, mockApiRequest, mockImportConfig } =
-  vi.hoisted(() => ({
-    mockInvalidateQueries: vi.fn(),
-    mockToast: vi.fn(),
-    mockFileBrowser: vi.fn(),
-    mockApiRequest: vi.fn().mockResolvedValue(undefined),
-    mockImportConfig: {
-      current: undefined as
-        { transferMode: string; libraryRoot: string; autoUnpack?: boolean } | undefined,
-    },
-  }));
+const {
+  mockInvalidateQueries,
+  mockToast,
+  mockFileBrowser,
+  mockApiRequest,
+  mockImportConfig,
+  mockOperation,
+  mockRestored,
+  mockRestoreError,
+} = vi.hoisted(() => ({
+  mockInvalidateQueries: vi.fn(),
+  mockToast: vi.fn(),
+  mockFileBrowser: vi.fn(),
+  mockApiRequest: vi.fn(),
+  mockOperation: { current: undefined as Record<string, unknown> | undefined },
+  mockRestored: { current: undefined as Record<string, unknown> | undefined },
+  mockRestoreError: { current: null as Error | null },
+  mockImportConfig: {
+    current: undefined as
+      { transferMode: string; libraryRoot: string; autoUnpack?: boolean } | undefined,
+  },
+}));
 
 vi.mock("@/lib/queryClient", () => ({
   apiRequest: mockApiRequest,
+  ApiError: class ApiError extends Error {
+    constructor(
+      public status: number,
+      message: string,
+      public data?: unknown
+    ) {
+      super(message);
+    }
+  },
 }));
 
 // Real react-query's useMutation wraps mutationFn in an internal cache/state machine that
@@ -31,19 +51,28 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
   return {
     ...actual,
     useQuery: ({ queryKey }: { queryKey: string[] }) => ({
-      data: queryKey[0] === "/api/imports/config" ? mockImportConfig.current : undefined,
+      data:
+        queryKey[0] === "/api/imports/config"
+          ? mockImportConfig.current
+          : queryKey[0] === "/api/imports/operations/op-1"
+            ? mockOperation.current
+            : queryKey[0] === "/api/imports/download-1/operation"
+              ? mockRestored.current
+              : undefined,
       isLoading: false,
-      error: null,
+      isFetching: false,
+      error: queryKey[0] === "/api/imports/download-1/operation" ? mockRestoreError.current : null,
+      refetch: vi.fn(),
     }),
     useMutation: (options: {
       mutationFn: () => Promise<unknown>;
-      onSuccess?: () => void;
+      onSuccess?: (result: unknown) => void;
       onError?: (error: unknown) => void;
     }) => ({
       mutate: () => {
         options
           .mutationFn()
-          .then(() => options.onSuccess?.())
+          .then((result) => options.onSuccess?.(result))
           .catch((error: unknown) => options.onError?.(error));
       },
       isPending: false,
@@ -96,6 +125,10 @@ function fillAndSubmitPassword(password: string): void {
 describe("ImportReviewModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockOperation.current = undefined;
+    mockRestored.current = undefined;
+    mockRestoreError.current = null;
+    mockApiRequest.mockResolvedValue({ json: async () => ({ operationId: "op-1" }) });
     mockImportConfig.current = { transferMode: "move", libraryRoot: "/games/library" };
   });
 
@@ -317,31 +350,115 @@ describe("ImportReviewModal", () => {
           expect.objectContaining({ unpack: true, password: "hunter2" })
         )
       );
-      await waitFor(() =>
-        expect(mockToast).toHaveBeenCalledWith(
-          expect.objectContaining({ title: "Import Confirmed" })
-        )
+    });
+  });
+
+  describe("Import progress", () => {
+    const running = {
+      id: "op-1",
+      downloadId: "download-1",
+      status: "running",
+      phase: "hashing",
+      bytesProcessed: 5 * 1024 ** 3,
+      bytesTotal: 20 * 1024 ** 3,
+      error: null,
+      passwordRequired: false,
+      incompleteScan: false,
+    };
+
+    it("locks the review actions and offers a retry when the restore check fails", async () => {
+      mockRestoreError.current = new Error("Service unavailable");
+      renderModal();
+
+      expect(
+        await screen.findByText(/Could not check whether this import is already running/)
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Confirm Import/ })).toBeDisabled();
+    });
+
+    it("restores a running operation after a reload and shows phase and bytes", async () => {
+      mockOperation.current = running;
+      mockRestored.current = running;
+      renderModal();
+
+      expect(await screen.findByText(/Computing file hash/)).toBeInTheDocument();
+      expect(screen.getByText(/25%/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Close (keeps running)" })).toBeInTheDocument();
+      expect(screen.queryByLabelText("Destination Path")).not.toBeInTheDocument();
+    });
+
+    it("shows a failure with a way back to the review form, and requires the password after a password failure", async () => {
+      mockOperation.current = {
+        ...running,
+        status: "failed",
+        phase: "failed",
+        error: "Wrong password",
+        passwordRequired: true,
+      };
+      renderModal();
+      // Not adopted automatically (only a running operation is restored); drive it via confirm.
+      fireEvent.change(screen.getByLabelText("Destination Path"), {
+        target: { value: "/games/library/PC/Encrypted" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+
+      expect(await screen.findByText("Wrong password")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Back to review" }));
+      expect(await screen.findByText("Password Required")).toBeInTheDocument();
+      expect(screen.getByLabelText("Archive Password")).toBeInTheDocument();
+    });
+
+    it("restores a retained failure after a reload so the user can go back to review", async () => {
+      mockOperation.current = {
+        ...running,
+        status: "failed",
+        phase: "failed",
+        error: "ClamAV did not scan this download.",
+        incompleteScan: true,
+      };
+      mockRestored.current = mockOperation.current;
+      renderModal();
+
+      expect(await screen.findByText("ClamAV did not scan this download.")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Back to review" }));
+      expect(await screen.findByLabelText("Destination Path")).toBeInTheDocument();
+    });
+
+    it("follows the running operation when confirm answers 409 with its id", async () => {
+      const { ApiError } = await import("@/lib/queryClient");
+      mockOperation.current = running;
+      mockApiRequest.mockRejectedValueOnce(
+        new ApiError(409, "An import of this download is already running", {
+          operationId: "op-1",
+        })
+      );
+      renderModal();
+      fireEvent.change(screen.getByLabelText("Destination Path"), {
+        target: { value: "/games/library/PC/X" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
+      expect(await screen.findByText(/Computing file hash/)).toBeInTheDocument();
+      expect(mockToast).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Import Failed" })
       );
     });
 
-    it("shows an Incorrect Password toast when the confirm request rejects with passwordRequired", async () => {
-      mockApiRequest.mockRejectedValueOnce(
-        Object.assign(new Error("The provided password was rejected — it may be incorrect."), {
-          data: { passwordRequired: true },
-        })
-      );
-
-      renderModal({ passwordRequired: true });
-      fillAndSubmitPassword("wrongpass");
+    it("toasts and closes when the operation completes", async () => {
+      const onOpenChange = vi.fn();
+      mockOperation.current = { ...running, status: "completed", phase: "complete" };
+      renderModal({ onOpenChange });
+      fireEvent.change(screen.getByLabelText("Destination Path"), {
+        target: { value: "/games/library/PC/Encrypted" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm Import" }));
 
       await waitFor(() =>
         expect(mockToast).toHaveBeenCalledWith(
-          expect.objectContaining({
-            title: "Incorrect Password",
-            description: "The provided password was rejected — it may be incorrect.",
-          })
+          expect.objectContaining({ title: "Import Complete" })
         )
       );
+      expect(onOpenChange).toHaveBeenCalledWith(false);
     });
   });
 });

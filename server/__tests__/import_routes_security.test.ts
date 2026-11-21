@@ -5,6 +5,7 @@ import request from "supertest";
 const { mockStorage, mockImportManager } = vi.hoisted(() => ({
   mockStorage: {
     getImportConfig: vi.fn(),
+    getGameDownload: vi.fn(),
   },
   mockImportManager: {
     confirmImport: vi.fn(),
@@ -28,6 +29,8 @@ import { makeImportConfig, createImportTestApp } from "./helpers/import-test-hel
 describe("importRouter confirmImport security", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStorage.getGameDownload.mockResolvedValue({ id: "dl" });
+    mockImportManager.confirmImport.mockResolvedValue(undefined);
     mockStorage.getImportConfig.mockResolvedValue(
       makeImportConfig({ renamePattern: "{Title} ({Region})" })
     );
@@ -57,14 +60,15 @@ describe("importRouter confirmImport security", () => {
       transferMode: "hardlink",
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     expect(mockImportManager.confirmImport).toHaveBeenCalledWith(
       "dl-2",
       expect.objectContaining({
         strategy: "pc",
         proposedPath: expect.stringMatching(/PC[\\/]game$/),
       }),
-      "user-1"
+      "user-1",
+      expect.anything()
     );
   });
 
@@ -82,7 +86,7 @@ describe("importRouter confirmImport security", () => {
       expect(response.body.error).toMatch(/invalid proposed path/i);
       expect(mockImportManager.confirmImport).not.toHaveBeenCalled();
     } else {
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(202);
       const libraryRoot = path.resolve("/data");
       const called = mockImportManager.confirmImport.mock.calls[0];
       const resolvedPath: string = called[1].proposedPath;
@@ -109,7 +113,7 @@ describe("importRouter confirmImport security", () => {
       expect(response.body.error).toMatch(/invalid proposed path/i);
       expect(mockImportManager.confirmImport).not.toHaveBeenCalled();
     } else {
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(202);
       const libraryRoot = path.resolve("/data");
       const called = mockImportManager.confirmImport.mock.calls[0];
       const resolvedPath: string = called[1].proposedPath;
@@ -145,7 +149,7 @@ describe("importRouter confirmImport security", () => {
       proposedPath: longSegment,
     });
 
-    expect([200, 400]).toContain(response.status);
+    expect([202, 400]).toContain(response.status);
     expect(response.status).not.toBe(500);
   });
 });

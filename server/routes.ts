@@ -131,6 +131,7 @@ import {
   readVirusTotalSettings,
   readClamAvSettings,
   checkVirusTotalHash,
+  testClamAvConnectivity,
 } from "./security-scan.js";
 
 // SHA-256 of the standard EICAR antivirus test file — a publicly known,
@@ -138,7 +139,6 @@ import {
 // guaranteed to return a verdict, giving a stable way to confirm an API key
 // authenticates without needing a real sample or hardcoding it in a URL path.
 const EICAR_TEST_FILE_SHA256 = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
-import net from "node:net";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -356,9 +356,11 @@ import { importRouter } from "./routes/import.js";
 import { rommRouter } from "./routes/romm.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
+import { setupChecksRouter } from "./routes/setup-checks.js";
 import { backupsRouter } from "./routes/backups.js";
 import { activityRouter } from "./routes/activity.js";
 import { realDebridRouter } from "./routes/realdebrid.js";
+import { ddlRouter } from "./routes/ddl.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 import {
   listExternalGames,
@@ -480,52 +482,6 @@ async function applyClamAvSettingsUpdate(
   }
 
   return null;
-}
-
-// Pings a ClamAV daemon over its INSTREAM protocol and reports whether it
-// responded with PONG before the deadline. Extracted from the settings-test
-// route so that route stays a simple dispatcher over provider name.
-async function testClamAvConnectivity(
-  address: string,
-  port: number
-): Promise<{ success: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    let settled = false;
-    const finish = (outcome: { success: boolean; error?: string }) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(deadline);
-      socket.destroy();
-      resolve(outcome);
-    };
-    // An absolute deadline, not an idle timeout — matches security-scan.ts's
-    // scanFileWithClamAv, so a connection that stays open without ever
-    // closing can't hang this check forever.
-    const deadline = setTimeout(
-      () => finish({ success: false, error: "Connection to ClamAV timed out" }),
-      10_000
-    );
-    socket.once("error", (err) => finish({ success: false, error: err.message }));
-    let data = "";
-    socket.connect(port, address, () => {
-      socket.write("zPING\0");
-    });
-    socket.on("data", (chunk) => {
-      data += chunk.toString("utf8");
-      // Accept PONG as soon as it arrives, rather than waiting for the socket
-      // to close — clamd isn't guaranteed to close the connection after
-      // replying, which would otherwise stall this check until the deadline
-      // even though the ping already succeeded.
-      if (data.includes("PONG")) {
-        finish({ success: true });
-      }
-    });
-    socket.on("close", () => {
-      const reply = data.replaceAll("\0", "").trim();
-      finish({ success: false, error: reply || "No PONG reply from ClamAV" });
-    });
-  });
 }
 
 // Validates that a Discord webhook URL uses HTTPS and points at a genuine
@@ -1858,9 +1814,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/settings/romm", rommRouter);
   app.use("/api/import-tasks", importTasksRouter);
   app.use("/api/system/backups", backupsRouter);
+  app.use("/api/system/setup-checks", setupChecksRouter);
   app.use("/api/system", systemRouter);
   app.use("/api/activity", activityRouter);
   app.use("/api/downloaders/:id/realdebrid", realDebridRouter);
+  app.use("/api/games/:gameId/ddl", ddlRouter);
   // Authenticated by the /api gate above (JWT or integration API key); same
   // reasoning as the mounts above.
   app.use("/api/integration", integrationRateLimiter, integrationRouter);

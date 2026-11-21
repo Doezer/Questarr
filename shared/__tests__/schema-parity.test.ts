@@ -26,6 +26,7 @@ const EXPECTED_TABLES = [
   "collectionGames",
   "collections",
   "customFormats",
+  "ddlJobs",
   "downloadEvents",
   "downloaders",
   "gameDownloads",

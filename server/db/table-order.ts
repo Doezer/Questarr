@@ -23,6 +23,7 @@ export const TABLE_ORDER = [
   "customFormats",
   // Reference games / downloaders / importTasks.
   "gameDownloads",
+  "ddlJobs",
   "xrelNotifiedReleases",
   "releaseBlacklist",
   "downloadEvents",

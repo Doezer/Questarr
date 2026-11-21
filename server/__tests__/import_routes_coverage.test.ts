@@ -497,60 +497,105 @@ describe("DELETE /api/imports/:id", () => {
 
 // ─── POST /:id/confirm — additional coverage ──────────────────────────────────
 
-describe("POST /api/imports/:id/confirm — Source path error", () => {
-  it("returns 400 when source path cannot be resolved", async () => {
+describe("POST /api/imports/:id/confirm — tracked operation", () => {
+  beforeEach(() => {
+    mockStorage.getGameDownload.mockResolvedValue({ id: "dl-1" });
+  });
+
+  const confirm = (id: string) =>
+    request(createApp()).post(`/api/imports/${id}/confirm`).send({
+      strategy: "pc",
+      proposedPath: "/data/PC/game",
+    });
+
+  const finalOperation = async (operationId: string) => {
+    let body: Record<string, unknown> = {};
+    await vi.waitFor(async () => {
+      const res = await request(createApp()).get(`/api/imports/operations/${operationId}`);
+      expect(res.status).toBe(200);
+      expect(res.body.status).not.toBe("running");
+      body = res.body;
+    });
+    return body;
+  };
+
+  it("returns 202 with an operation id and records completion", async () => {
+    const res = await confirm("dl-1");
+    expect(res.status).toBe(202);
+    expect(await finalOperation(res.body.operationId)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      downloadId: "dl-1",
+    });
+  });
+
+  it("records an unresolved source path as a failed operation", async () => {
     mockImportManager.confirmImport.mockRejectedValue(
-      new Error(
-        "Source path could not be resolved — the download may no longer be tracked by the download client. Please specify the source path manually."
-      )
+      new Error("Source path could not be resolved — specify the source path manually.")
     );
-
-    const res = await request(createApp()).post("/api/imports/dl-1/confirm").send({
-      strategy: "pc",
-      proposedPath: "/data/PC/game",
+    const res = await confirm("dl-1");
+    expect(res.status).toBe(202);
+    expect(await finalOperation(res.body.operationId)).toMatchObject({
+      status: "failed",
+      error: expect.stringMatching(/source path could not be resolved/i),
     });
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/source path could not be resolved/i);
   });
 
-  it("returns 404 when download not found during confirm", async () => {
-    mockImportManager.confirmImport.mockRejectedValue(new Error("Download dl-x not found"));
+  it("hides unexpected error details (paths, driver output) behind a generic message", async () => {
+    mockImportManager.confirmImport.mockRejectedValue(
+      new Error("ENOENT: no such file or directory, open '/srv/secret/path'")
+    );
+    const res = await confirm("dl-1");
+    const op = await finalOperation(res.body.operationId);
+    expect(op.status).toBe("failed");
+    expect(String(op.error)).not.toMatch(/secret/);
+  });
 
-    const res = await request(createApp()).post("/api/imports/dl-x/confirm").send({
-      strategy: "pc",
-      proposedPath: "/data/PC/game",
-    });
-
+  it("returns 404 when the download does not exist", async () => {
+    mockStorage.getGameDownload.mockResolvedValue(undefined);
+    const res = await confirm("dl-x");
     expect(res.status).toBe(404);
-    expect(res.body.error).toMatch(/not found/i);
+    expect(mockImportManager.confirmImport).not.toHaveBeenCalled();
   });
 
-  it("returns the incomplete-scan reason so the user can see it before confirming again", async () => {
+  it("flags an incomplete scan on the failed operation so the user can confirm again", async () => {
     mockImportManager.confirmImport.mockRejectedValue(
       new IncompleteScanError(
         "ClamAV did not scan this download. Confirm again to import it anyway."
       )
     );
-
-    const res = await request(createApp()).post("/api/imports/dl-1/confirm").send({
-      strategy: "pc",
-      proposedPath: "/data/PC/game",
+    const res = await confirm("dl-1");
+    expect(await finalOperation(res.body.operationId)).toMatchObject({
+      status: "failed",
+      incompleteScan: true,
+      error: expect.stringMatching(/ClamAV did not scan/),
     });
-
-    expect(res.status).toBe(409);
-    expect(res.body.error).toMatch(/ClamAV did not scan/);
   });
 
-  it("returns 500 on unexpected confirm error", async () => {
-    mockImportManager.confirmImport.mockRejectedValue(new Error("Something exploded"));
+  it("refuses a second confirmation while one is running", async () => {
+    let release: () => void = () => {};
+    mockImportManager.confirmImport.mockReturnValue(
+      new Promise<void>((resolve) => {
+        release = resolve;
+      })
+    );
+    const first = await confirm("dl-1");
+    const second = await confirm("dl-1");
+    expect(second.status).toBe(409);
+    expect(second.body.operationId).toBe(first.body.operationId);
+    release();
+    await finalOperation(first.body.operationId);
+  });
 
-    const res = await request(createApp()).post("/api/imports/dl-err/confirm").send({
-      strategy: "pc",
-      proposedPath: "/data/PC/game",
-    });
+  it("restores the latest operation for a download and hides it from other users", async () => {
+    const res = await confirm("dl-1");
+    await finalOperation(res.body.operationId);
+    const latest = await request(createApp()).get("/api/imports/dl-1/operation");
+    expect(latest.status).toBe(200);
+    expect(latest.body.id).toBe(res.body.operationId);
 
-    expect(res.status).toBe(500);
+    const missing = await request(createApp()).get("/api/imports/operations/nope");
+    expect(missing.status).toBe(404);
   });
 });
 

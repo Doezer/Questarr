@@ -1,7 +1,7 @@
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isUserCuratedGameStatus } from "../shared/schema.js";
 import { extractPatchBaseVersion } from "../shared/upgrade-decision.js";
-import { compareVersions, extractVersionFromReleaseName } from "../shared/version-utils.js";
+import { compareVersions } from "../shared/version-utils.js";
 import { recordVersionFromCompletedDownload } from "./game-version.js";
 import type { IStorage } from "./storage.js";
 
@@ -116,6 +116,18 @@ type VersionStorage = Pick<
   "getGame" | "replaceGameInstalledVersion" | "getDownloadsByGameId"
 >;
 
+/** False when the patch names a base version that is not the one installed. */
+async function baseMatchesInstall(
+  storage: Pick<IStorage, "getGame">,
+  gameId: string,
+  title: string
+): Promise<boolean> {
+  const base = extractPatchBaseVersion(title);
+  if (!base) return true;
+  const installed = (await storage.getGame(gameId))?.installedVersion?.trim();
+  return !installed || compareVersions(base, installed) === 0;
+}
+
 /**
  * Records the versions of delivered patches that waited for a base. Nothing happens while a main
  * release is still in flight; without a delivered main the game must already have its base (a
@@ -137,25 +149,28 @@ async function replayPatchVersions(
     const game = await storage.getGame(download.gameId);
     if (!game?.installedVersion?.trim() && game?.status !== "owned") return;
   }
-  // Oldest first, so a chain of patches (1.0 to 1.1, then 1.1 to 1.2) lands in order.
-  waiting.sort((a, b) => {
-    const va = extractVersionFromReleaseName(a.downloadTitle ?? "");
-    const vb = extractVersionFromReleaseName(b.downloadTitle ?? "");
-    return (va && vb ? compareVersions(va, vb) : 0) ?? 0;
-  });
-  for (const patch of waiting) {
-    // A patch that names its base only describes the install when that base is the one on disk.
-    const base = extractPatchBaseVersion(patch.downloadTitle ?? "");
-    if (base) {
-      const installed = (await storage.getGame(download.gameId))?.installedVersion?.trim();
-      if (installed && compareVersions(base, installed) !== 0) continue;
+  // A patch that names its base only describes the install when that base is the one on disk.
+  // Passes repeat while one applies, so a chain (1.0 to 1.1, then 1.1 to 1.2) lands in order
+  // whatever order the rows come in.
+  let pending = waiting;
+  let progressed = true;
+  while (pending.length > 0 && progressed) {
+    progressed = false;
+    const skipped: typeof pending = [];
+    for (const patch of pending) {
+      if (!(await baseMatchesInstall(storage, download.gameId, patch.downloadTitle ?? ""))) {
+        skipped.push(patch);
+        continue;
+      }
+      await recordVersionFromCompletedDownload(
+        storage,
+        download.gameId,
+        patch.downloadTitle,
+        patch.category ?? null
+      );
+      progressed = true;
     }
-    await recordVersionFromCompletedDownload(
-      storage,
-      download.gameId,
-      patch.downloadTitle,
-      patch.category ?? null
-    );
+    pending = skipped;
   }
 }
 
@@ -190,6 +205,7 @@ export async function recordDeliveredVersion(
       const game = await storage.getGame(download.gameId);
       if (!game?.installedVersion?.trim() && game?.status !== "owned") return false;
     }
+    if (!(await baseMatchesInstall(storage, download.gameId, download.downloadTitle))) return false;
     await recordVersionFromCompletedDownload(
       storage,
       download.gameId,

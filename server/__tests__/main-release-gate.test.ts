@@ -180,6 +180,27 @@ describe("applyFailureStatus", () => {
     expect(recordVersion).toHaveBeenCalledTimes(1);
   });
 
+  it("applies a chain of patches whatever order the rows come in", async () => {
+    recordVersion.mockClear();
+    const storage = storageWith([
+      { id: "b", category: "update", status: "completed", downloadTitle: "G.Update.v1.1.to.v1.2" },
+      { id: "x", category: "dlc", status: "completed", downloadTitle: "Game.DLC-GRP" },
+      { id: "a", category: "update", status: "completed", downloadTitle: "G.Update.v1.0.to.v1.1" },
+    ]);
+    let installed = "v1.0";
+    storage.getGame.mockImplementation(async () => ({
+      status: "owned",
+      installedVersion: installed,
+    }));
+    recordVersion.mockImplementation(async (_s: unknown, _g: string, title: string) => {
+      if (title.endsWith("v1.1")) installed = "v1.1";
+      if (title.endsWith("v1.2")) installed = "v1.2";
+    });
+    await replayAfterMainFailure(storage, failed);
+    expect(installed).toBe("v1.2");
+    recordVersion.mockReset();
+  });
+
   it("does not replay patches when the failed main leaves the game without a base", async () => {
     recordVersion.mockClear();
     const storage = storageWith([
@@ -245,6 +266,15 @@ describe("recordDeliveredVersion", () => {
     ]);
     expect(await recordDeliveredVersion(store, patchDownload)).toBe(true);
     expect(recordVersion).toHaveBeenCalledWith(store, "g1", "Game.Update.v1.1-GRP", "update");
+  });
+
+  it("holds back a patch whose named base is not the installed version", async () => {
+    recordVersion.mockClear();
+    const store = withStore([{ id: "m", category: "main", status: "completed" }]);
+    store.getGame.mockResolvedValue({ status: "owned", installedVersion: "v0.9" });
+    const named = { ...patchDownload, downloadTitle: "Game.Update.v1.0.to.v1.1-GRP" };
+    expect(await recordDeliveredVersion(store, named)).toBe(false);
+    expect(recordVersion).not.toHaveBeenCalled();
   });
 
   it("replays the patches delivered before the main release", async () => {

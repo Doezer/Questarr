@@ -324,10 +324,10 @@ export function RommSettings() {
             {scanFolders.isPending && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
             Check library folders
           </Button>
-          {proposals && proposals.length === 0 && failures.length === 0 && (
-            <p className="text-sm text-muted-foreground" role="status">
+          {proposals?.length === 0 && failures.length === 0 && (
+            <output className="block text-sm text-muted-foreground">
               No misplaced folders found.
-            </p>
+            </output>
           )}
           {proposals && proposals.length > 0 && (
             <>

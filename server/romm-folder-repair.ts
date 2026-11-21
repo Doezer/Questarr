@@ -113,6 +113,47 @@ export async function previewRommFolderRepair(userId: string): Promise<FolderRep
   return proposals.sort((a, b) => a.title.localeCompare(b.title));
 }
 
+async function moveOne(
+  userId: string,
+  gameId: string,
+  libraryRoot: string,
+  allowed: number[]
+): Promise<FolderRepairOutcome> {
+  const game = await storage.getGame(gameId);
+  if (game?.userId !== userId) {
+    return { gameId, title: gameId, moved: false, error: "Game not found" };
+  }
+  const fail = (error: string): FolderRepairOutcome => ({
+    gameId,
+    title: game.title,
+    moved: false,
+    error,
+  });
+  if (inFlight.has(gameId)) return fail("Already being moved");
+  inFlight.add(gameId);
+  try {
+    const proposal = await buildProposal(game, libraryRoot, allowed);
+    if (!proposal) return fail("This game is no longer in a wrong folder");
+    if (await isSensitivePath(proposal.from)) {
+      return fail("Refusing to process a sensitive system path");
+    }
+    if (!(await fs.pathExists(proposal.from))) return fail("The game's files are missing");
+    if (proposal.destinationExists) return fail(`Destination already exists: ${proposal.to}`);
+    await fs.ensureDir(path.dirname(proposal.to));
+    // fs-extra renames on one filesystem and copies then removes across filesystems.
+    await fs.move(proposal.from, proposal.to, { overwrite: false });
+    await storage.updateGame(game.id, { libraryPath: proposal.to });
+    await replaceGameFilesFromPath(game.id, proposal.to, proposal.from);
+    return { gameId, title: game.title, moved: true, to: proposal.to };
+  } catch (error) {
+    logger.error({ error, gameId }, "RomM folder repair failed for a game");
+    return fail(error instanceof Error ? error.message : "Move failed");
+  } finally {
+    inFlight.delete(gameId);
+  }
+}
+
+// Games are moved one at a time on purpose: parallel moves would fight over the disk.
 export async function applyRommFolderRepair(
   userId: string,
   gameIds: string[]
@@ -120,51 +161,7 @@ export async function applyRommFolderRepair(
   const { libraryRoot, allowed } = await context(userId);
   const outcomes: FolderRepairOutcome[] = [];
   for (const gameId of new Set(gameIds)) {
-    const game = await storage.getGame(gameId);
-    if (!game || game.userId !== userId) {
-      outcomes.push({ gameId, title: gameId, moved: false, error: "Game not found" });
-      continue;
-    }
-    if (inFlight.has(gameId)) {
-      outcomes.push({ gameId, title: game.title, moved: false, error: "Already being moved" });
-      continue;
-    }
-    inFlight.add(gameId);
-    try {
-      const proposal = await buildProposal(game, libraryRoot, allowed);
-      if (!proposal) {
-        outcomes.push({
-          gameId,
-          title: game.title,
-          moved: false,
-          error: "This game is no longer in a wrong folder",
-        });
-        continue;
-      }
-      if (await isSensitivePath(proposal.from)) {
-        throw new Error("Refusing to process a sensitive system path");
-      }
-      if (!(await fs.pathExists(proposal.from))) throw new Error("The game's files are missing");
-      if (proposal.destinationExists) {
-        throw new Error(`Destination already exists: ${proposal.to}`);
-      }
-      await fs.ensureDir(path.dirname(proposal.to));
-      // fs-extra renames on one filesystem and copies then removes across filesystems.
-      await fs.move(proposal.from, proposal.to, { overwrite: false });
-      await storage.updateGame(game.id, { libraryPath: proposal.to });
-      await replaceGameFilesFromPath(game.id, proposal.to, proposal.from);
-      outcomes.push({ gameId, title: game.title, moved: true, to: proposal.to });
-    } catch (error) {
-      logger.error({ error, gameId }, "RomM folder repair failed for a game");
-      outcomes.push({
-        gameId,
-        title: game.title,
-        moved: false,
-        error: error instanceof Error ? error.message : "Move failed",
-      });
-    } finally {
-      inFlight.delete(gameId);
-    }
+    outcomes.push(await moveOne(userId, gameId, libraryRoot, allowed));
   }
   if (outcomes.some((o) => o.moved)) requestRommScanAfterImport();
   return outcomes;

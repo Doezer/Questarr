@@ -11,7 +11,7 @@ Files to update to the new version (OLD -> NEW):
 2. `Dockerfile`: `LABEL org.opencontainers.image.version="NEW"`.
 3. Home Assistant add-on: `questarr/config.yaml` (`version`) and `questarr/Dockerfile` (`ARG QUESTARR_VERSION`).
 4. Umbrel: `doezer-questarr/umbrel-app.yml` (`version`).
-5. CasaOS: `casaos/docker-compose.yml` (`x-casaos.version`). ZimaOS store: in the separate `Doezer/questarr-zimaos-store` repo, bump `Apps/Questarr/docker-compose.yml` (image tag, `x-casaos.version`, `update_at`); pushing to its `main` republishes the store.
+5. CasaOS: `casaos/docker-compose.yml` (`x-casaos.version`). The ZimaOS store is a separate step (see "After the tag" below).
 6. Helm: `charts/questarr/Chart.yaml` `appVersion` = NEW and chart `version` patch bump (0.1.x -> 0.1.x+1, required on every chart change; `helm-publish.yml` publishes a new chart version to GHCR on merge and `helm-chart.yml` fails if `appVersion` differs from `package.json`); example tag in `charts/questarr/README.md` (`v` + NEW).
 7. `docs/PRD.md`: the `**Version:**` line.
 
@@ -23,3 +23,9 @@ Check, don't blindly change:
 - Finish with `grep -rIn "OLD" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude=package-lock.json --exclude=CHANGELOG.md .` to catch stragglers.
 
 Run `npx prettier --check` on the touched files, commit ("Bump version to NEW ..."), open a PR. The tag `vNEW` is pushed from Vincent's PC (cloud sessions cannot push tags).
+
+After the tag, once the `vNEW` Docker image is published (`deploy.yml`), update the ZimaOS store in the
+separate `Doezer/questarr-zimaos-store` repo: in `Apps/Questarr/docker-compose.yml` bump the image tag,
+`x-casaos.version`, `update_at` and the `x-casaos.release_notes.en_US` link (`.../releases/tag/vNEW`).
+Pushing to its `main` republishes the store immediately, so do this only when the image exists; otherwise
+installs of the new entry fail until it does.

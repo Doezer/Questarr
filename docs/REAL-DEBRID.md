@@ -27,6 +27,14 @@ folder** and runs the normal import pipeline on them. A premium Real-Debrid acco
 - Expired access tokens are refreshed automatically. If Real-Debrid rejects the credentials, use
   **Reconnect**.
 
+## Direct-download links
+
+Real-Debrid can also fetch file-hoster links, not only torrents. On a game, open the **Download** menu and choose **Add download links**:
+
+- Paste the links, one per line or a whole post (forum text and BBCode are fine): Questarr keeps the http(s) links, drops the duplicates and the trailing punctuation.
+- Or attach a DLC, CCF or RSDF container file.
+- Up to 500 links per job. Real-Debrid fetches them, then Questarr copies the files to the staging folder and imports them like a torrent.
+
 ## Notes
 
 - The staging folder must be reachable by the import pipeline like any download folder; no path

@@ -218,7 +218,10 @@ export class TorBoxClient implements DownloaderClient {
 
     const files = torrent.files ?? [];
     if (files.length === 0) throw new Error("TorBox returned no files for this torrent");
-    const resolved = resolveStagedPaths(files.map((file) => file.name));
+    const resolved = resolveStagedPaths(
+      files.map((file) => file.name),
+      "TorBox"
+    );
 
     for (const [index, file] of files.entries()) {
       job.abort.signal.throwIfAborted();
@@ -403,7 +406,10 @@ export class TorBoxClient implements DownloaderClient {
     const status = await this.toStatus(torrent, await this.isTracked(String(torrent.id)));
     const staged = status.status === "completed";
     const files = torrent.files ?? [];
-    const resolvedPaths = resolveStagedPaths(files.map((file) => file.name));
+    const resolvedPaths = resolveStagedPaths(
+      files.map((file) => file.name),
+      "TorBox"
+    );
     return {
       ...status,
       hash: torrent.hash,

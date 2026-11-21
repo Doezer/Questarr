@@ -74,7 +74,7 @@ export function toSafeSegments(rawPath: string): string[] {
  * case-insensitive filesystem) get a numeric suffix. Staging and the advertised file list
  * both use this, so they always agree.
  */
-export function resolveStagedPaths(rawPaths: string[]): string[][] {
+export function resolveStagedPaths(rawPaths: string[], label = "Real-Debrid"): string[][] {
   const files = new Set<string>();
   const dirs = new Set<string>();
   const key = (segments: string[], length = segments.length) =>
@@ -105,7 +105,7 @@ export function resolveStagedPaths(rawPaths: string[]): string[][] {
     // The last candidate is never re-checked by the loop above: refuse it rather than let two
     // files share a path (the second would be skipped as "already copied").
     if (conflictIndex(segments) >= 0) {
-      throw new Error(`Could not find a unique local name for Real-Debrid file "${raw}"`);
+      throw new Error(`Could not find a unique local name for ${label} file "${raw}"`);
     }
     files.add(key(segments));
     for (let i = 1; i < segments.length; i++) dirs.add(key(segments, i));

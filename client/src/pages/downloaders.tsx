@@ -573,6 +573,19 @@ export default function DownloadersPage() {
           update.password = "";
         }
       }
+      if (
+        isTorBox &&
+        editingDownloader.type !== "torbox" &&
+        (!update.password || update.password === SAVED_PASSWORD_PLACEHOLDER)
+      ) {
+        // Converting from another client: its old password must never become the API key (it
+        // would be sent to TorBox). Ask for a real key instead of saving.
+        form.setError("password", {
+          type: "required",
+          message: "An API key is required for TorBox",
+        });
+        return;
+      }
       updateMutation.mutate({ id: editingDownloader.id, data: update });
     } else {
       addMutation.mutate(data);

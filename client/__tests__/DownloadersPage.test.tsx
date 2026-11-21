@@ -349,6 +349,20 @@ describe("DownloadersPage", () => {
       expect(dialog.queryByTestId("input-downloader-path")).not.toBeInTheDocument();
     });
 
+    it("refuses to convert a downloader to TorBox without a new API key", async () => {
+      const dialog = within(
+        await openEditDialog(makeDownloader({ id: "qb", type: "qbittorrent", port: 8080 }))
+      );
+
+      const typeSelect = dialog.getByRole("option", { name: "TorBox" })
+        .parentElement as HTMLSelectElement;
+      fireEvent.change(typeSelect, { target: { value: "torbox" } });
+      fireEvent.click(dialog.getByTestId("button-save-downloader"));
+
+      expect(await dialog.findByText("An API key is required for TorBox")).toBeInTheDocument();
+      expect(requestsTo("PATCH", "/api/downloaders/qb")).toHaveLength(0);
+    });
+
     it("qBittorrent stores the chosen initial state in the settings JSON", async () => {
       downloaders = [makeDownloader({ id: "qb", name: "qBit", type: "qbittorrent", port: 8080 })];
       renderPage();

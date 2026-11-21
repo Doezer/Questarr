@@ -464,6 +464,7 @@ describe("importRouter additional coverage", () => {
 
   it("POST /:id/confirm forwards the password to confirmImport when unpack is requested", async () => {
     mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/data" }));
+    mockStorage.getGameDownload.mockResolvedValue({ id: "dl-1" });
     mockImportManager.confirmImport.mockResolvedValue(undefined);
 
     const app = createApp();
@@ -474,17 +475,20 @@ describe("importRouter additional coverage", () => {
       password: "hunter2",
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
+    expect(response.body.operationId).toEqual(expect.any(String));
     expect(mockImportManager.confirmImport).toHaveBeenCalledWith(
       "dl-1",
       expect.objectContaining({ unpack: true, password: "hunter2" }),
-      "user-1"
+      "user-1",
+      expect.anything()
     );
   });
 
-  it("POST /:id/confirm returns 400 with passwordRequired when confirmImport rejects with a password error", async () => {
+  it("POST /:id/confirm reports passwordRequired on the operation when confirmImport rejects with a password error", async () => {
     const { ArchivePasswordRequiredError } = await import("../services/ArchiveService.js");
     mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/data" }));
+    mockStorage.getGameDownload.mockResolvedValue({ id: "dl-1" });
     mockImportManager.confirmImport.mockRejectedValue(
       new ArchivePasswordRequiredError("The provided password was rejected — it may be incorrect.")
     );
@@ -497,10 +501,14 @@ describe("importRouter additional coverage", () => {
       password: "wrongpass",
     });
 
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({
-      error: "The provided password was rejected — it may be incorrect.",
-      passwordRequired: true,
+    expect(response.status).toBe(202);
+    await vi.waitFor(async () => {
+      const op = await request(app).get(`/api/imports/operations/${response.body.operationId}`);
+      expect(op.body).toMatchObject({
+        status: "failed",
+        error: "The provided password was rejected — it may be incorrect.",
+        passwordRequired: true,
+      });
     });
   });
 

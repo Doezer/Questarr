@@ -721,7 +721,7 @@ export class ImportManager {
   }
 
   /** Waits for the game's running import, if any; the returned function lets the next one in. */
-  private async acquireGameLock(gameId: string): Promise<() => void> {
+  async acquireGameLock(gameId: string): Promise<() => void> {
     const previous = this.gameImportQueues.get(gameId) ?? Promise.resolve();
     let open!: () => void;
     const held = new Promise<void>((resolve) => {

@@ -3,7 +3,8 @@ import fs from "fs-extra";
 import os from "node:os";
 import path from "node:path";
 
-const { storageMock, managerMock, rommMock, scannerMock } = vi.hoisted(() => ({
+const { storageMock, managerMock, rommMock, scannerMock, pathSecurityMock } = vi.hoisted(() => ({
+  pathSecurityMock: { isSensitivePath: vi.fn<(p: string) => Promise<boolean>>() },
   storageMock: {
     getImportConfig: vi.fn(),
     getUserGames: vi.fn(),
@@ -13,6 +14,7 @@ const { storageMock, managerMock, rommMock, scannerMock } = vi.hoisted(() => ({
   managerMock: {
     getGamePlatformIds: vi.fn(),
     resolveLibraryPlatformFolder: vi.fn(),
+    acquireGameLock: vi.fn(async () => () => undefined),
   },
   rommMock: {
     isRommPlatformFoldersEnabled: vi.fn<() => Promise<boolean>>(),
@@ -25,7 +27,7 @@ vi.mock("../storage.js", () => ({ storage: storageMock }));
 vi.mock("../services/index.js", () => ({ importManager: managerMock }));
 vi.mock("../romm.js", () => rommMock);
 vi.mock("../library-scanner.js", () => scannerMock);
-vi.mock("../path-security.js", () => ({ isSensitivePath: vi.fn().mockResolvedValue(false) }));
+vi.mock("../path-security.js", () => pathSecurityMock);
 
 import { applyRommFolderRepair, previewRommFolderRepair } from "../romm-folder-repair.js";
 
@@ -49,6 +51,7 @@ describe("RomM folder repair", () => {
     await fs.ensureDir(path.join(root, "win", "Pokopia"));
     await fs.writeFile(path.join(root, "win", "Pokopia", "a.nup"), "x");
     vi.clearAllMocks();
+    pathSecurityMock.isSensitivePath.mockResolvedValue(false);
     rommMock.isRommPlatformFoldersEnabled.mockResolvedValue(true);
     storageMock.getImportConfig.mockResolvedValue({ libraryRoot: root, importPlatformIds: [] });
     storageMock.getUserGames.mockResolvedValue([game()]);
@@ -131,5 +134,26 @@ describe("RomM folder repair", () => {
     storageMock.getGame.mockResolvedValue(game({ userId: "someone-else" }));
     const [r] = await applyRommFolderRepair("u1", ["g1"]);
     expect(r).toMatchObject({ moved: false, error: "Game not found" });
+  });
+
+  it("records a failed lookup for that game and keeps going", async () => {
+    storageMock.getGame
+      .mockRejectedValueOnce(new Error("db busy"))
+      .mockImplementation(async () => game({ id: "g2" }));
+    const results = await applyRommFolderRepair("u1", ["g1", "g2"]);
+    expect(results[0]).toMatchObject({ gameId: "g1", moved: false, error: "db busy" });
+    expect(results[1]).toMatchObject({ gameId: "g2", moved: true });
+    expect(rommMock.requestRommScanAfterImport).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a sensitive destination and takes the game lock", async () => {
+    const release = vi.fn();
+    managerMock.acquireGameLock.mockResolvedValueOnce(release);
+    pathSecurityMock.isSensitivePath.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const [r] = await applyRommFolderRepair("u1", ["g1"]);
+    expect(r?.error).toMatch(/sensitive/);
+    expect(managerMock.acquireGameLock).toHaveBeenCalledWith("g1");
+    expect(release).toHaveBeenCalledOnce();
+    expect(await fs.pathExists(path.join(root, "win", "Pokopia", "a.nup"))).toBe(true);
   });
 });

@@ -119,22 +119,22 @@ async function moveOne(
   libraryRoot: string,
   allowed: number[]
 ): Promise<FolderRepairOutcome> {
-  const game = await storage.getGame(gameId);
-  if (game?.userId !== userId) {
-    return { gameId, title: gameId, moved: false, error: "Game not found" };
-  }
-  const fail = (error: string): FolderRepairOutcome => ({
-    gameId,
-    title: game.title,
-    moved: false,
-    error,
-  });
-  if (inFlight.has(gameId)) return fail("Already being moved");
+  if (inFlight.has(gameId))
+    return { gameId, title: gameId, moved: false, error: "Already being moved" };
   inFlight.add(gameId);
+  let title = gameId;
+  // The same lock an import of this game takes, so a move never runs under a running import.
+  let release: (() => void) | undefined;
   try {
+    release = await importManager.acquireGameLock(gameId);
+    // Read after the lock: an import that just finished may have changed the game's path.
+    const game = await storage.getGame(gameId);
+    if (game?.userId !== userId) return { gameId, title, moved: false, error: "Game not found" };
+    title = game.title;
+    const fail = (error: string): FolderRepairOutcome => ({ gameId, title, moved: false, error });
     const proposal = await buildProposal(game, libraryRoot, allowed);
     if (!proposal) return fail("This game is no longer in a wrong folder");
-    if (await isSensitivePath(proposal.from)) {
+    if ((await isSensitivePath(proposal.from)) || (await isSensitivePath(proposal.to))) {
       return fail("Refusing to process a sensitive system path");
     }
     if (!(await fs.pathExists(proposal.from))) return fail("The game's files are missing");
@@ -156,11 +156,17 @@ async function moveOne(
         );
       throw dbError;
     }
-    return { gameId, title: game.title, moved: true, to: proposal.to };
+    return { gameId, title, moved: true, to: proposal.to };
   } catch (error) {
     logger.error({ error, gameId }, "RomM folder repair failed for a game");
-    return fail(error instanceof Error ? error.message : "Move failed");
+    return {
+      gameId,
+      title,
+      moved: false,
+      error: error instanceof Error ? error.message : "Move failed",
+    };
   } finally {
+    release?.();
     inFlight.delete(gameId);
   }
 }

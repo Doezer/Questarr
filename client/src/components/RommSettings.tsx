@@ -27,6 +27,8 @@ interface SyncSummary {
   notInLibrary: number;
 }
 
+const REPAIR_BATCH_SIZE = 500;
+
 interface RepairProposal {
   gameId: string;
   title: string;
@@ -155,8 +157,15 @@ export function RommSettings() {
 
   const repairFolders = useMutation({
     mutationFn: async (gameIds: string[]) => {
-      const res = await apiRequest("POST", "/api/settings/romm/folder-repair", { gameIds });
-      return (await res.json()) as { results: RepairOutcome[] };
+      // The server takes at most 500 games per call.
+      const results: RepairOutcome[] = [];
+      for (let i = 0; i < gameIds.length; i += REPAIR_BATCH_SIZE) {
+        const res = await apiRequest("POST", "/api/settings/romm/folder-repair", {
+          gameIds: gameIds.slice(i, i + REPAIR_BATCH_SIZE),
+        });
+        results.push(...((await res.json()) as { results: RepairOutcome[] }).results);
+      }
+      return { results };
     },
     onSuccess: (result) => {
       const moved = result.results.filter((r) => r.moved).length;

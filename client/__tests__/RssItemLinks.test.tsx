@@ -39,7 +39,7 @@ describe("RssItemLinks", () => {
       },
       item({})
     );
-    expect(screen.getByTestId("button-rss-links-i1")).toBeEnabled();
+    expect(screen.getByTestId("button-rss-links-i1")).not.toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText("2 links")).toBeInTheDocument();
   });
 
@@ -48,6 +48,8 @@ describe("RssItemLinks", () => {
       { "/api/games": [], "/api/downloaders/enabled": [{ id: "d", type: "realdebrid" }] },
       item({})
     );
-    expect(screen.getByTestId("button-rss-links-i1")).toBeDisabled();
+    const button = screen.getByTestId("button-rss-links-i1");
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).toHaveAccessibleDescription("Add the matched game to your library first");
   });
 });

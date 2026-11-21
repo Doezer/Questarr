@@ -322,6 +322,12 @@ describe("RssService", () => {
           guid: "old",
           content: "https://host.example/b",
         },
+        {
+          title: "Foreign",
+          link: "https://blog.example/foreign",
+          guid: "foreign",
+          content: "https://host.example/c",
+        },
       ],
     });
     vi.mocked(storage.getAllRssFeeds).mockResolvedValue([feed]);
@@ -330,9 +336,17 @@ describe("RssService", () => {
         ? ({
             id: "old-id",
             guid: "old",
+            feedId: "feed-ddl",
             links: null,
           } as unknown as import("../../shared/schema").RssFeedItem)
-        : undefined
+        : guid === "foreign"
+          ? ({
+              id: "foreign-id",
+              guid: "foreign",
+              feedId: "another-feed",
+              links: null,
+            } as unknown as import("../../shared/schema").RssFeedItem)
+          : undefined
     );
     vi.mocked(storage.addRssFeedItem).mockResolvedValue({
       id: "new-id",
@@ -346,5 +360,7 @@ describe("RssService", () => {
     expect(storage.updateRssFeedItem).toHaveBeenCalledWith("old-id", {
       links: ["https://host.example/b"],
     });
+    // A GUID shared with another feed's item is never filled in from this feed.
+    expect(storage.updateRssFeedItem).not.toHaveBeenCalledWith("foreign-id", expect.anything());
   });
 });

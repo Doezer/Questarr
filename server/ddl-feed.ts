@@ -22,7 +22,8 @@ async function loadSupportedDomains(): Promise<string[] | null> {
   if (supportedHosts && Date.now() - supportedHosts.at < HOSTS_TTL_MS) {
     return supportedHosts.domains;
   }
-  if (Date.now() - failedAt < FAILURE_TTL_MS) return supportedHosts?.domains ?? null;
+  // Past the success TTL the cached list is stale: report "unknown" so items stay retryable.
+  if (Date.now() - failedAt < FAILURE_TTL_MS) return null;
   inflight ??= (async () => {
     try {
       const response = await safeFetch(HOSTS_URL, { timeoutMs: HOSTS_TIMEOUT_MS });
@@ -35,7 +36,7 @@ async function loadSupportedDomains(): Promise<string[] | null> {
     } catch (error) {
       failedAt = Date.now();
       ddlFeedLogger.warn({ error }, "Could not load the Real-Debrid host list");
-      return supportedHosts?.domains ?? null;
+      return null;
     } finally {
       inflight = null;
     }
@@ -55,27 +56,24 @@ function itemText(item: Record<string, unknown>): string {
 }
 
 /**
- * Hoster links found in a feed item: the blog's own pages (the feed host and the item link) are
- * left out and so is everything Real-Debrid cannot unrestrict. Returns null when its host list is
- * unreachable: the caller then stores nothing, so the item is tried again on the next refresh
- * instead of keeping unfiltered links.
+ * Hoster links found in a feed item: links on the feed's own host (the blog) are left out and so
+ * is everything Real-Debrid cannot unrestrict. A hoster used as the item's main link is kept when
+ * Real-Debrid supports it. Returns null when its host list is unreachable: the caller then stores
+ * nothing, so the item is tried again on the next refresh instead of keeping unfiltered links.
  */
 export async function extractItemLinks(
   item: Record<string, unknown>,
-  feedUrl: string,
-  itemLink: string
+  feedUrl: string
 ): Promise<string[] | null> {
-  const own = new Set<string>();
-  for (const url of [feedUrl, itemLink]) {
-    try {
-      own.add(new URL(url).hostname.toLowerCase());
-    } catch {
-      // not a URL: nothing to exclude
-    }
+  let blogHost: string | undefined;
+  try {
+    blogHost = new URL(feedUrl).hostname.toLowerCase();
+  } catch {
+    // not a URL: nothing to exclude
   }
   const candidates = extractHosterLinks(itemText(item)).filter((link) => {
     try {
-      return !own.has(new URL(link).hostname.toLowerCase());
+      return new URL(link).hostname.toLowerCase() !== blogHost;
     } catch {
       return false;
     }

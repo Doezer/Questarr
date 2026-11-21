@@ -24,8 +24,7 @@ describe("extractItemLinks", () => {
           <a href="https://rapidgator.net/file/1/game.part1.rar.html">p2</a>
           <a href="https://www.youtube.com/watch?v=1">trailer</a>`,
       },
-      "https://blog.example/feed/",
-      "https://blog.example/game"
+      "https://blog.example/feed/"
     );
     expect(links).toEqual([
       "https://1fichier.com/?abc",
@@ -37,11 +36,7 @@ describe("extractItemLinks", () => {
     mocks.safeFetch.mockResolvedValue(hostList(["mega.nz"]));
     const { extractItemLinks: extract } = await import("../ddl-feed.js");
     expect(
-      await extract(
-        { description: "https://www.mega.nz/file/x" },
-        "https://a.b/feed",
-        "https://a.b/p"
-      )
+      await extract({ description: "https://www.mega.nz/file/x" }, "https://a.b/feed")
     ).toEqual(["https://www.mega.nz/file/x"]);
   });
 
@@ -49,8 +44,8 @@ describe("extractItemLinks", () => {
     mocks.safeFetch.mockRejectedValue(new Error("offline"));
     const { extractItemLinks: extract } = await import("../ddl-feed.js");
     const item = { content: "https://host.example/f1 https://blog.example/x" };
-    expect(await extract(item, "https://blog.example/feed", "https://blog.example/x")).toBeNull();
-    expect(await extract(item, "https://blog.example/feed", "https://blog.example/x")).toBeNull();
+    expect(await extract(item, "https://blog.example/feed")).toBeNull();
+    expect(await extract(item, "https://blog.example/feed")).toBeNull();
     expect(mocks.safeFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -64,13 +59,36 @@ describe("extractItemLinks", () => {
       <content:encoded><![CDATA[<a href="https://1fichier.com/?z">dl</a>]]></content:encoded>
       </item></channel></rss>`);
     const [item] = feed.items;
+    expect(await extract(item as Record<string, unknown>, "https://blog.example/feed")).toEqual([
+      "https://1fichier.com/?z",
+    ]);
+  });
+
+  it("keeps a supported hoster even when it is the item's own link host", async () => {
+    mocks.safeFetch.mockResolvedValue(hostList(["1fichier.com"]));
+    const { extractItemLinks: extract } = await import("../ddl-feed.js");
     expect(
       await extract(
-        item as Record<string, unknown>,
-        "https://blog.example/feed",
-        "https://blog.example/g"
+        { content: "https://1fichier.com/?a https://blog.example/x" },
+        "https://blog.example/feed"
       )
-    ).toEqual(["https://1fichier.com/?z"]);
+    ).toEqual(["https://1fichier.com/?a"]);
+  });
+
+  it("reports unknown, not the stale list, when an expired host list cannot be refreshed", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.safeFetch.mockResolvedValueOnce(hostList(["1fichier.com"]));
+      const { extractItemLinks: extract } = await import("../ddl-feed.js");
+      const item = { content: "https://1fichier.com/?a" };
+      expect(await extract(item, "https://blog.example/feed")).toEqual(["https://1fichier.com/?a"]);
+      vi.setSystemTime(Date.now() + 25 * 60 * 60 * 1000);
+      mocks.safeFetch.mockRejectedValue(new Error("offline"));
+      expect(await extract(item, "https://blog.example/feed")).toBeNull();
+      expect(await extract(item, "https://blog.example/feed")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("is exported", () => expect(typeof extractItemLinks).toBe("function"));

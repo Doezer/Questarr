@@ -112,12 +112,9 @@ export class RssService {
       const existing = await storage.getRssFeedItemByGuid(normalized.guid);
       if (existing) {
         // A feed switched to link extraction later: fill in the items it already holds.
-        if (feed.extractLinks && existing.links == null) {
-          const links = await extractItemLinks(
-            item as Record<string, unknown>,
-            feed.url,
-            normalized.link
-          );
+        // (GUIDs are looked up across feeds: never fill in another feed's item.)
+        if (feed.extractLinks && existing.feedId === feed.id && existing.links == null) {
+          const links = await extractItemLinks(item as Record<string, unknown>, feed.url);
           if (links) await storage.updateRssFeedItem(String(existing.id), { links });
         }
         continue;
@@ -136,7 +133,7 @@ export class RssService {
         igdbGameName: null,
         coverUrl: null,
         links: feed.extractLinks
-          ? await extractItemLinks(item as Record<string, unknown>, feed.url, normalized.link)
+          ? await extractItemLinks(item as Record<string, unknown>, feed.url)
           : null,
       };
 

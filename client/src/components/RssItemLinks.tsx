@@ -33,22 +33,32 @@ export default function RssItemLinks({ item }: { item: RssFeedItem }) {
       ? "Add the matched game to your library first"
       : undefined;
 
+  const reasonId = `rss-links-reason-${item.id}`;
+
   return (
     <>
-      <span title={reason}>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 gap-2"
-          disabled={reason !== undefined}
-          onClick={() => setOpen(true)}
-          aria-label={`Send ${links.length} download links for ${item.title} to Real-Debrid`}
-          data-testid={`button-rss-links-${item.id}`}
-        >
-          <Download className="h-4 w-4" aria-hidden="true" />
-          {links.length} link{links.length === 1 ? "" : "s"}
-        </Button>
-      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-8 gap-2 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+        // aria-disabled (not disabled) keeps the button focusable so its reason can be read.
+        aria-disabled={reason !== undefined}
+        aria-describedby={reason ? reasonId : undefined}
+        title={reason}
+        onClick={() => {
+          if (!reason) setOpen(true);
+        }}
+        aria-label={`Send ${links.length} download links for ${item.title} to Real-Debrid`}
+        data-testid={`button-rss-links-${item.id}`}
+      >
+        <Download className="h-4 w-4" aria-hidden="true" />
+        {links.length} link{links.length === 1 ? "" : "s"}
+      </Button>
+      {reason && (
+        <span id={reasonId} className="sr-only">
+          {reason}
+        </span>
+      )}
       {open && game && (
         <Suspense fallback={null}>
           <AddDdlLinksDialog game={game} open={open} onOpenChange={setOpen} initialLinks={links} />

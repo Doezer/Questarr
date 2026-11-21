@@ -114,6 +114,36 @@ describe("TorznabClient — download link rewriting", () => {
     expect(result.items[0].link).toBe("https://my-indexer.com:8080/download/file.torrent");
   });
 
+  it("flags an NZB link before Prowlarr wraps it, and leaves torrents alone (#1233)", async () => {
+    const prowlarrIndexer = makeIndexer({
+      url: "https://prowlarr:9696/5/api",
+      apiKey: "prowlarr-api-key",
+    });
+    mockFetchResponse(makeTorznabXml("https://usenet.example.com/get/some-game.nzb"));
+    const nzb = await client.searchGames(prowlarrIndexer, { query: "game" });
+    expect(nzb.items[0].isNzb).toBe(true);
+    expect(nzb.items[0].link).not.toContain(".nzb");
+
+    mockFetchResponse(makeTorznabXml("https://limetorrents.info/download/8/some-game.torrent"));
+    const torrent = await client.searchGames(prowlarrIndexer, { query: "game" });
+    expect(torrent.items[0].isNzb).toBeUndefined();
+  });
+
+  it("keeps a numeric grabs attribute and drops an invalid one", async () => {
+    const indexer = makeIndexer({ url: "http://indexer.example.com/api" });
+    const withGrabs = (value: string) =>
+      makeTorznabXml("http://indexer.example.com/download/file.torrent").replace(
+        "</item>",
+        `<torznab:attr name="grabs" value="${value}"/></item>`
+      );
+
+    mockFetchResponse(withGrabs("12"));
+    expect((await client.searchGames(indexer, { query: "game" })).items[0].grabs).toBe(12);
+
+    mockFetchResponse(withGrabs("N/A"));
+    expect((await client.searchGames(indexer, { query: "game" })).items[0].grabs).toBeUndefined();
+  });
+
   it("builds a Prowlarr proxy URL when a Prowlarr indexer returns a raw external download URL", async () => {
     const prowlarrIndexer = makeIndexer({
       url: "https://prowlarr:9696/5/api",

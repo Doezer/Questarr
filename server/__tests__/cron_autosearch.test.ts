@@ -124,6 +124,7 @@ vi.mock("../downloaders.js", () => ({
 vi.mock("../igdb.js", () => ({
   igdbClient: {
     getGamesByIds: vi.fn(),
+    hasRemake: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -2946,6 +2947,87 @@ describe("Cron - checkAutoSearch", () => {
         items: [SINGLE_MAIN_ITEM],
         errors: [],
         total: 1,
+      });
+    });
+
+    describe("include updates automatically", () => {
+      const MAIN_V10 = { ...SINGLE_MAIN_ITEM, title: "Test.Game.v1.0-GROUP" };
+      const PATCH_V11 = {
+        ...SINGLE_MAIN_ITEM,
+        title: "Test.Game.Update.v1.0.to.v1.1-GROUP",
+        link: "https://example.com/patch-v11",
+      };
+      const PATCH_OTHER_BASE = {
+        ...SINGLE_MAIN_ITEM,
+        title: "Test.Game.Update.v0.9.to.v1.2-GROUP",
+        link: "https://example.com/patch-other",
+      };
+      const withUpdates = (on: boolean) =>
+        mockGetUserSettings.mockResolvedValue({
+          ...baseSettings,
+          autoDownloadEnabled: true,
+          downloadRules: JSON.stringify({ autoIncludeUpdates: on }),
+        });
+
+      it("takes the patch that starts from the grabbed version", async () => {
+        withUpdates(true);
+        mockSearchAllIndexers.mockResolvedValue({
+          items: [MAIN_V10, PATCH_V11, PATCH_OTHER_BASE],
+          errors: [],
+          total: 3,
+        });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(2);
+        expect(mockAddDownloadWithFallback).toHaveBeenNthCalledWith(
+          2,
+          expect.anything(),
+          expect.objectContaining({ url: PATCH_V11.link })
+        );
+        expect(mockAddGameDownload).toHaveBeenLastCalledWith(
+          expect.objectContaining({ downloadTitle: PATCH_V11.title, category: "update" })
+        );
+      });
+
+      it("is off by default", async () => {
+        withUpdates(false);
+        mockSearchAllIndexers.mockResolvedValue({
+          items: [MAIN_V10, PATCH_V11],
+          errors: [],
+          total: 2,
+        });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+      });
+
+      it("still takes the patch when the notification about the main download fails", async () => {
+        withUpdates(true);
+        mockSearchAllIndexers.mockResolvedValue({
+          items: [MAIN_V10, PATCH_V11],
+          errors: [],
+          total: 2,
+        });
+        mockAddNotification.mockRejectedValueOnce(new Error("notification store down"));
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(2);
+      });
+
+      it("takes nothing when no patch proves it starts from the grabbed version", async () => {
+        withUpdates(true);
+        mockSearchAllIndexers.mockResolvedValue({
+          items: [MAIN_V10, PATCH_OTHER_BASE],
+          errors: [],
+          total: 2,
+        });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
       });
     });
 

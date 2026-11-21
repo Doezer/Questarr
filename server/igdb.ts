@@ -1051,6 +1051,28 @@ class IGDBClient {
   }
 
   /**
+   * Whether IGDB lists a remake of this game as a game of its own. `undefined` when it cannot
+   * be told (not configured, request failed): callers then keep their default behavior.
+   */
+  async hasRemake(igdbId: number): Promise<boolean | undefined> {
+    if (!Number.isInteger(igdbId) || igdbId <= 0) return undefined;
+    try {
+      if (!(await this.ensureConfigured())) return undefined;
+      const rows = await this.makeRequest<Array<{ id: number; remakes?: number[] }>>(
+        "games",
+        `fields remakes; where id = ${igdbId};`,
+        24 * 60 * 60 * 1000
+      );
+      const row = rows[0];
+      if (!row) return undefined;
+      return (row.remakes?.length ?? 0) > 0;
+    } catch (error) {
+      igdbLogger.warn({ igdbId, error }, "Failed to look up IGDB remake relations");
+      return undefined;
+    }
+  }
+
+  /**
    * Fetch community-submitted completion-time estimates from IGDB's own
    * `game_time_to_beats` endpoint (hastily/normally/completely, in hours).
    * Coverage is best-effort: a game with no IGDB submissions is simply

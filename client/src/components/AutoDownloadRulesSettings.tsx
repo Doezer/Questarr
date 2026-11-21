@@ -56,6 +56,9 @@ const DEFAULT_RULES: DownloadRules = {
   autoPickBest: false,
   upgradeCutoffScore: null,
   upgradeMinScoreGain: 10,
+  upgradePreferPatches: false,
+  autoIncludeUpdates: false,
+  bundleExtraMaxPercent: 25,
 };
 
 // Shown when the swap is first turned on: the built-in rules put a clean scene or GOG release
@@ -64,6 +67,7 @@ const DEFAULT_UPGRADE_CUTOFF = 150;
 
 const CUTOFF_RANGE = { min: -10000, max: 10000 } as const;
 const GAIN_RANGE = { min: 1, max: 10000 } as const;
+const BUNDLE_PERCENT_RANGE = { min: 1, max: 100 } as const;
 
 /** The integer a field holds, clamped to its range; null while it is empty or just a sign. */
 function parseClampedInt(value: string, range: { min: number; max: number }): number | null {
@@ -96,6 +100,18 @@ export default function AutoDownloadRulesSettings({
   );
   const [upgradeMinScoreGain, setUpgradeMinScoreGain] = useState<number>(
     rules?.upgradeMinScoreGain ?? 10
+  );
+  const [upgradePreferPatches, setUpgradePreferPatches] = useState<boolean>(
+    rules?.upgradePreferPatches ?? false
+  );
+  const [autoIncludeUpdates, setAutoIncludeUpdates] = useState<boolean>(
+    rules?.autoIncludeUpdates ?? false
+  );
+  const [bundleExtraMaxPercent, setBundleExtraMaxPercent] = useState<number>(
+    rules?.bundleExtraMaxPercent ?? 25
+  );
+  const [bundlePercentText, setBundlePercentText] = useState<string>(
+    String(rules?.bundleExtraMaxPercent ?? 25)
   );
   // What is typed in the two number fields: kept apart from the values so a field can be
   // emptied, or start with a minus sign, without snapping back to a default mid-edit.
@@ -152,6 +168,12 @@ export default function AutoDownloadRulesSettings({
       setCutoffText((prev) => syncedText(prev, cutoff, CUTOFF_RANGE));
     }
     setGainText((prev) => syncedText(prev, source.upgradeMinScoreGain ?? 10, GAIN_RANGE));
+    setUpgradePreferPatches(source.upgradePreferPatches ?? false);
+    setAutoIncludeUpdates(source.autoIncludeUpdates ?? false);
+    setBundleExtraMaxPercent(source.bundleExtraMaxPercent ?? 25);
+    setBundlePercentText((prev) =>
+      syncedText(prev, source.bundleExtraMaxPercent ?? 25, BUNDLE_PERCENT_RANGE)
+    );
 
     // Only update set if the content has changed to avoid infinite loop
     setVisibleCategories((prev) => {
@@ -173,6 +195,9 @@ export default function AutoDownloadRulesSettings({
       autoPickBest,
       upgradeCutoffScore,
       upgradeMinScoreGain,
+      upgradePreferPatches,
+      autoIncludeUpdates,
+      bundleExtraMaxPercent,
     }),
     [
       minSeeders,
@@ -182,6 +207,9 @@ export default function AutoDownloadRulesSettings({
       autoPickBest,
       upgradeCutoffScore,
       upgradeMinScoreGain,
+      upgradePreferPatches,
+      autoIncludeUpdates,
+      bundleExtraMaxPercent,
     ]
   );
 
@@ -383,6 +411,74 @@ export default function AutoDownloadRulesSettings({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Update patch taken with an auto-downloaded release */}
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id="autoIncludeUpdates"
+              checked={autoIncludeUpdates}
+              onCheckedChange={(checked) => setAutoIncludeUpdates(checked === true)}
+              className="mt-1"
+            />
+            <label
+              htmlFor="autoIncludeUpdates"
+              className="flex-1 cursor-pointer text-sm leading-tight"
+            >
+              <div className="font-medium">Include updates automatically</div>
+              <div className="text-xs text-muted-foreground">
+                When auto-download takes a release for a wanted game, also take the newest update
+                patch that names that release's version as its starting point. Off: only the game
+                itself is downloaded.
+              </div>
+            </label>
+          </div>
+
+          {/* Update-only patches for the "Download automatically" update policy */}
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id="upgradePreferPatches"
+              checked={upgradePreferPatches}
+              onCheckedChange={(checked) => setUpgradePreferPatches(checked === true)}
+              className="mt-1"
+            />
+            <label
+              htmlFor="upgradePreferPatches"
+              className="flex-1 cursor-pointer text-sm leading-tight"
+            >
+              <div className="font-medium">Prefer update-only releases</div>
+              <div className="text-xs text-muted-foreground">
+                For owned games set to Download automatically: when a patch names the installed
+                version as its starting point, take it over a full release of the same new version
+                (a much smaller download). Off: full releases come first.
+              </div>
+            </label>
+          </div>
+
+          {/* Size-aware extras in the manual download dialog */}
+          <div className="space-y-2">
+            <Label htmlFor="bundleExtraMaxPercent" className="text-sm font-medium">
+              Suggest extras up to (% of the game's size)
+            </Label>
+            <Input
+              id="bundleExtraMaxPercent"
+              type="number"
+              inputMode="numeric"
+              min="1"
+              max="100"
+              value={bundlePercentText}
+              onChange={(e) => {
+                setBundlePercentText(e.target.value);
+                const parsed = parseClampedInt(e.target.value, BUNDLE_PERCENT_RANGE);
+                if (parsed !== null) setBundleExtraMaxPercent(parsed);
+              }}
+              onBlur={() => setBundlePercentText(String(bundleExtraMaxPercent))}
+              className="h-10 w-full sm:h-9 sm:w-40"
+            />
+            <p className="text-xs text-muted-foreground">
+              When you download a game, DLC and extras this small next to it are offered as optional
+              choices (never ticked). Larger ones, or ones with no known size, are not suggested.
+            </p>
           </div>
 
           {/* Categories */}

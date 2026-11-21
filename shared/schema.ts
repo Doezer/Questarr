@@ -1225,6 +1225,16 @@ export const downloadRulesSchema = z.object({
   upgradeCutoffScore: z.number().int().min(-10000).max(10000).nullable().default(null),
   // how many points better a same-version release must score to be worth the swap
   upgradeMinScoreGain: z.number().int().min(1).max(10000).default(10),
+  // "auto" upgrade policy: take an update-only patch (one that names the installed version as
+  // its starting point) over a full release of the same version. Off: full releases first.
+  upgradePreferPatches: z.boolean().default(false),
+  // auto-download of a wanted game: also take the newest update patch that provably starts from
+  // the version of the release just grabbed (the "bundle" of the manual dialog, without the
+  // extras). Off by default.
+  autoIncludeUpdates: z.boolean().default(false),
+  // manual download dialog: a DLC or extra is offered with the main release only when its size
+  // is at most this percentage of the main release's (unknown sizes are never offered)
+  bundleExtraMaxPercent: z.number().int().min(1).max(100).default(25),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;

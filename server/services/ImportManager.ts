@@ -1,4 +1,5 @@
 import { type IStorage } from "../storage.js";
+import { applyDeliveredStatus, recordDeliveredVersion } from "../main-release-gate.js";
 import { PathMappingService } from "./PathMappingService.js";
 import { PlatformMappingService } from "./PlatformMappingService.js";
 import { ArchiveService, ArchivePasswordRequiredError } from "./ArchiveService.js";
@@ -17,21 +18,13 @@ import { resolveRemoteImportPath } from "../downloaders/utils.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { parseReleaseMetadata, PLATFORM_CATALOG } from "../../shared/title-utils.js";
-import {
-  GAME_LINK_REQUIRED_STATUS,
-  QUARANTINED_STATUS,
-  isUserCuratedGameStatus,
-  type Game,
-} from "../../shared/schema.js";
+import { GAME_LINK_REQUIRED_STATUS, QUARANTINED_STATUS, type Game } from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { notifyUser } from "../socket.js";
 import { carriesBaseGameVersion, inferReleaseCategory } from "../../shared/version-utils.js";
-import {
-  recordVersionFromCompletedDownload,
-  recordVersionFromInstallFolder,
-} from "../game-version.js";
+import { recordVersionFromInstallFolder } from "../game-version.js";
 import { resolvePrefs } from "../notification-prefs.js";
 import { appriseClient } from "../apprise.js";
 import { isRommPlatformFoldersEnabled, requestRommScanAfterImport } from "../romm.js";
@@ -203,6 +196,9 @@ export class ImportManager {
         this.getReleasePlatformIgdbId(releaseKey) ??
         game.targetPlatformId ??
         this.getPrimaryPlatformId(game, allowed) ??
+        // The game's own platform wins over the "allowed platforms" filter, otherwise a platform
+        // the user has not enabled (e.g. Switch 2) is silently replaced by Windows.
+        this.getPrimaryPlatformId(game) ??
         6;
       const slug = rommSlugForPlatformId(platformId);
       if (slug && isValidRommSlug(slug)) return slug;
@@ -684,19 +680,23 @@ export class ImportManager {
   }
 
   private async finalizeImport(
-    downloadId: string,
+    download: {
+      id: string;
+      gameId: string;
+      category?: string | null;
+      downloadTitle?: string | null;
+    },
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     libraryPath: string
   ): Promise<void> {
     // null clears an error left by an earlier failed attempt.
-    await this.storage.updateGameDownloadStatus(downloadId, "imported", null);
+    await this.storage.updateGameDownloadStatus(download.id, "imported", null);
     await this.storage.updateGame(game.id, { libraryPath });
-    if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
-      await this.storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
-    }
+    // The import is marked above, so it no longer counts as unfinished for a patch's gate.
+    if (game.status !== "owned") await applyDeliveredStatus(this.storage, download, game);
     // Last, and it never throws: a write that fails above puts the previous version back, and
     // the new version must not stay recorded for it.
-    await this.recordInstalledVersion(downloadId, game, libraryPath);
+    await this.recordInstalledVersion(download.id, game, libraryPath);
     requestRommScanAfterImport();
   }
 
@@ -797,7 +797,7 @@ export class ImportManager {
     try {
       result = await transfer();
       transferred = true;
-      await this.finalizeImport(download.id, game, result.destDir);
+      await this.finalizeImport(download, game, result.destDir);
     } catch (err) {
       if (replacement) {
         // Recording the import may have stopped halfway: the game must keep pointing at the
@@ -930,15 +930,11 @@ export class ImportManager {
     try {
       const download = await this.storage.getGameDownload(downloadId);
       if (download) {
-        await recordVersionFromCompletedDownload(
-          this.storage,
-          game.id,
-          download.downloadTitle,
-          download.category
-        );
+        // A patch waits for its base release: the files of a patch alone say nothing yet.
+        const recorded = await recordDeliveredVersion(this.storage, download);
         // The files now in the library are the better source: they replace the release's
         // version. A DLC or extras pack's version.txt says nothing about the base game.
-        if (carriesBaseGameVersion(download.downloadTitle, download.category)) {
+        if (recorded && carriesBaseGameVersion(download.downloadTitle, download.category)) {
           await recordVersionFromInstallFolder(this.storage, game.id, libraryPath);
         }
       }

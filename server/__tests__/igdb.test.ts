@@ -590,6 +590,40 @@ describe("IGDBClient - Batch Operations", () => {
     // 1 auth call + 2 chunk calls
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  describe("hasRemake", () => {
+    it("is true when IGDB lists a remake of the game", async () => {
+      fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ id: 100, remakes: [555] }],
+      });
+      const { igdbClient } = await import("../igdb.js");
+      expect(await igdbClient.hasRemake(100)).toBe(true);
+    });
+
+    it("is false when the game has no remakes field", async () => {
+      fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ id: 101 }],
+      });
+      const { igdbClient } = await import("../igdb.js");
+      expect(await igdbClient.hasRemake(101)).toBe(false);
+    });
+
+    it("is undefined when the game is unknown, the request fails or the id is invalid", async () => {
+      fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce({
+        ok: true,
+        json: async () => [],
+      });
+      const { igdbClient } = await import("../igdb.js");
+      expect(await igdbClient.hasRemake(102)).toBeUndefined();
+
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
+      expect(await igdbClient.hasRemake(103)).toBeUndefined();
+
+      expect(await igdbClient.hasRemake(0)).toBeUndefined();
+    });
+  });
 });
 
 describe("IGDBClient - canonicalizeVersionedGames (edition/version dedup)", () => {

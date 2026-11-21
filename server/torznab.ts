@@ -27,6 +27,9 @@ interface TorznabItem {
   size?: number | undefined;
   seeders?: number;
   leechers?: number;
+  grabs?: number;
+  /** The original (pre-rewrite) link or enclosure type says this is an NZB file. */
+  isNzb?: boolean;
   downloadVolumeFactor?: number;
   uploadVolumeFactor?: number;
   guid?: string;
@@ -56,6 +59,20 @@ interface TorznabResponse {
 interface TorznabServerInfo {
   title?: string | undefined;
   version?: string | undefined;
+}
+
+/** True when a download link points at an .nzb file (`/get/abc.nzb`, `?t=get&file=x.nzb`). */
+export function isNzbLink(link: string | undefined): boolean {
+  if (!link) return false;
+  try {
+    const url = new URL(link);
+    return (
+      url.pathname.toLowerCase().endsWith(".nzb") ||
+      [...url.searchParams.values()].some((value) => value.toLowerCase().endsWith(".nzb"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 export class TorznabClient {
@@ -450,6 +467,13 @@ export class TorznabClient {
       torznabItem.size = parseInt(item.enclosure["@_length"]) || undefined;
     }
 
+    // A usenet indexer added as Torznab still hands out .nzb files. Decide before the link is
+    // rewritten: a Prowlarr proxy link wraps the original in base64.
+    const enclosureType = String(item.enclosure?.["@_type"] ?? "").toLowerCase();
+    if (enclosureType.includes("nzb") || isNzbLink(torznabItem.link)) {
+      torznabItem.isNzb = true;
+    }
+
     // Rewrite link to use indexer's configured URL (fix for proxies/seedboxes)
     if (torznabItem.link && indexerUrl) {
       try {
@@ -544,6 +568,11 @@ export class TorznabClient {
             case "seeders":
               torznabItem.seeders = parseInt(value);
               break;
+            case "grabs": {
+              const grabs = Number.parseInt(value, 10);
+              if (Number.isFinite(grabs)) torznabItem.grabs = grabs;
+              break;
+            }
             case "peers":
             case "leechers":
               torznabItem.leechers = parseInt(value);

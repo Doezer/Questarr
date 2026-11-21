@@ -751,14 +751,26 @@ async function scoreManualSearchResults(
       ? resolveGamePlatformPreference(ownGame, preferredPlatform)
       : preferredPlatform;
     const gameTitle = fallbackTitle ?? ownGame?.title ?? query;
+    // the remake lookup shares the xREL time budget and runs beside it; unknown keeps today's scoring
+    const remakeLookup = ownGame?.igdbId
+      ? Promise.race([
+          igdbClient.hasRemake(ownGame.igdbId),
+          new Promise<undefined>((resolve) =>
+            setTimeout(() => resolve(undefined), INTERACTIVE_LOOKUP_TIMEOUT_MS)
+          ),
+        ])
+      : Promise.resolve(undefined);
     // a slow xREL must not hold up the result list; the lookup finishes in the background
     let xrelUnavailable = false;
-    const xrelReleases = await getXrelPredb(gameTitle, xrelTypes, {
-      timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
-      onUnavailable: () => {
-        xrelUnavailable = true;
-      },
-    });
+    const [hasOwnRemake, xrelReleases] = await Promise.all([
+      remakeLookup,
+      getXrelPredb(gameTitle, xrelTypes, {
+        timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
+        onUnavailable: () => {
+          xrelUnavailable = true;
+        },
+      }),
+    ]);
     const scored = evaluateReleases(
       items,
       {
@@ -766,6 +778,7 @@ async function scoreManualSearchResults(
         platform,
         ...(xrelReleases ? { xrelReleases } : {}),
         ...(xrelUnavailable ? { xrelUnavailable } : {}),
+        ...(hasOwnRemake !== undefined ? { hasOwnRemake } : {}),
       },
       config.profile,
       config.formats

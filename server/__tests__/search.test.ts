@@ -142,6 +142,30 @@ describe("Search Module - searchAllIndexers", () => {
     expect(result.errors).toHaveLength(0);
   });
 
+  it("treats a Torznab result whose link is an .nzb file as usenet (#1233)", async () => {
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([makeTorznabIndexer()]);
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeTorznabResponse([
+        {
+          title: "Usenet Game",
+          link: "http://indexer.example.com/api?t=get&id=abc",
+          isNzb: true,
+          pubDate: "2024-01-01T00:00:00Z",
+          size: 1000000,
+          category: "4000",
+          guid: "guid-nzb",
+          indexerId: "torznab-1",
+          indexerName: "Torznab Indexer",
+          indexerUrl: "http://torznab.example.com",
+        },
+      ])
+    );
+
+    const result = await searchAllIndexers({ query: "usenet game" });
+
+    expect(result.items[0]?.downloadType).toBe("usenet");
+  });
+
   it("should search newznab indexers and return formatted results", async () => {
     const newznabIndexer = makeNewznabIndexer();
 

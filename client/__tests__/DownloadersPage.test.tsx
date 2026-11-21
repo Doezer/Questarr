@@ -363,6 +363,46 @@ describe("DownloadersPage", () => {
       expect(requestsTo("PATCH", "/api/downloaders/qb")).toHaveLength(0);
     });
 
+    it("tests the saved TorBox key when the dialog still holds the masked password", async () => {
+      const dialog = within(
+        await openEditDialog(
+          makeDownloader({
+            id: "tb",
+            type: "torbox",
+            password: "********",
+            downloadPath: "/staging",
+          })
+        )
+      );
+
+      fireEvent.click(dialog.getByTestId("button-test-connection-dialog"));
+
+      await waitFor(() => expect(requestsTo("POST", "/api/downloaders/tb/test")).toHaveLength(1));
+      expect(requestsTo("POST", "/api/downloaders/test")).toHaveLength(0);
+    });
+
+    it("refuses to convert a downloader to TorBox when the masked password is still set", async () => {
+      const dialog = within(
+        await openEditDialog(
+          makeDownloader({
+            id: "tr",
+            type: "transmission",
+            port: 9091,
+            password: "********",
+            downloadPath: "/staging",
+          })
+        )
+      );
+
+      const typeSelect = dialog.getByRole("option", { name: "TorBox" })
+        .parentElement as HTMLSelectElement;
+      fireEvent.change(typeSelect, { target: { value: "torbox" } });
+      fireEvent.click(dialog.getByTestId("button-save-downloader"));
+
+      expect(await dialog.findByText("An API key is required for TorBox")).toBeInTheDocument();
+      expect(requestsTo("PATCH", "/api/downloaders/tr")).toHaveLength(0);
+    });
+
     it("qBittorrent stores the chosen initial state in the settings JSON", async () => {
       downloaders = [makeDownloader({ id: "qb", name: "qBit", type: "qbittorrent", port: 8080 })];
       renderPage();

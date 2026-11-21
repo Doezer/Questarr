@@ -1517,11 +1517,11 @@ export default function DownloadersPage() {
                     }
 
                     const formData = form.getValues();
-                    // A connected Real-Debrid account lives server-side only: test the saved
+                    // A saved Real-Debrid account or TorBox key lives server-side only: test the saved
                     // downloader (which has the OAuth tokens) unless a token was typed in.
                     if (
-                      editingDownloader?.type === "realdebrid" &&
-                      isRealDebrid &&
+                      ((editingDownloader?.type === "realdebrid" && isRealDebrid) ||
+                        (editingDownloader?.type === "torbox" && isTorBox)) &&
                       (!formData.password || formData.password === SAVED_PASSWORD_PLACEHOLDER)
                     ) {
                       testConnectionMutation.mutate({ id: editingDownloader.id });

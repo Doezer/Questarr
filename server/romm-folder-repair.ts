@@ -58,6 +58,31 @@ function platformIdsOfFolder(folder: string): number[] {
 
 const inFlight = new Set<string>();
 
+/** Real location of a path, resolving links through its nearest existing ancestor. */
+async function realLocation(target: string): Promise<string> {
+  const missing: string[] = [];
+  let current = path.resolve(target);
+  for (;;) {
+    try {
+      return path.join(await fs.realpath(current), ...missing.reverse());
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(target);
+      missing.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/** A linked platform folder must not lead the move outside the library. */
+async function staysInLibrary(libraryRoot: string, from: string, to: string): Promise<boolean> {
+  const root = await realLocation(libraryRoot);
+  return (
+    isStrictlyInside(root, await realLocation(from)) &&
+    isStrictlyInside(root, await realLocation(to))
+  );
+}
+
 async function buildProposal(
   game: Awaited<ReturnType<typeof storage.getGame>>,
   libraryRoot: string,
@@ -136,6 +161,9 @@ async function moveOne(
     if (!proposal) return fail("This game is no longer in a wrong folder");
     if ((await isSensitivePath(proposal.from)) || (await isSensitivePath(proposal.to))) {
       return fail("Refusing to process a sensitive system path");
+    }
+    if (!(await staysInLibrary(libraryRoot, proposal.from, proposal.to))) {
+      return fail("The game's folder leads outside the library");
     }
     if (!(await fs.pathExists(proposal.from))) return fail("The game's files are missing");
     if (proposal.destinationExists) return fail(`Destination already exists: ${proposal.to}`);

@@ -157,13 +157,23 @@ export function RommSettings() {
 
   const repairFolders = useMutation({
     mutationFn: async (gameIds: string[]) => {
-      // The server takes at most 500 games per call.
+      // The server takes at most 500 games per call. If a later call fails, what the earlier
+      // ones moved is kept and the games that were not reached are reported as failures.
       const results: RepairOutcome[] = [];
       for (let i = 0; i < gameIds.length; i += REPAIR_BATCH_SIZE) {
-        const res = await apiRequest("POST", "/api/settings/romm/folder-repair", {
-          gameIds: gameIds.slice(i, i + REPAIR_BATCH_SIZE),
-        });
-        results.push(...((await res.json()) as { results: RepairOutcome[] }).results);
+        try {
+          const res = await apiRequest("POST", "/api/settings/romm/folder-repair", {
+            gameIds: gameIds.slice(i, i + REPAIR_BATCH_SIZE),
+          });
+          results.push(...((await res.json()) as { results: RepairOutcome[] }).results);
+        } catch (error) {
+          if (i === 0) throw error;
+          const message = await errorMessage(error);
+          for (const gameId of gameIds.slice(i)) {
+            results.push({ gameId, title: gameId, moved: false, error: message });
+          }
+          break;
+        }
       }
       return { results };
     },

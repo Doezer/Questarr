@@ -156,4 +156,20 @@ describe("RomM folder repair", () => {
     expect(release).toHaveBeenCalledOnce();
     expect(await fs.pathExists(path.join(root, "win", "Pokopia", "a.nup"))).toBe(true);
   });
+
+  it("refuses a platform folder that is a link leading outside the library", async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "romm-outside-"));
+    try {
+      await fs.symlink(outside, path.join(root, "switch-2"));
+      const [r] = await applyRommFolderRepair("u1", ["g1"]);
+      expect(r).toMatchObject({
+        moved: false,
+        error: "The game's folder leads outside the library",
+      });
+      expect(await fs.pathExists(path.join(root, "win", "Pokopia", "a.nup"))).toBe(true);
+      expect(await fs.readdir(outside)).toEqual([]);
+    } finally {
+      await fs.remove(outside);
+    }
+  });
 });

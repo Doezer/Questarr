@@ -143,6 +143,34 @@ describe("RommSettings", () => {
       expect(await screen.findByText("No misplaced folders found.")).toBeInTheDocument();
     });
 
+    it("keeps what moved when a later batch of games fails", async () => {
+      const many = Array.from({ length: 501 }, (_, i) => ({
+        ...proposal,
+        gameId: `g${i}`,
+        title: `Game ${i}`,
+      }));
+      let posts = 0;
+      apiRequest.mockImplementation(async (method: string, _url: string, body?: unknown) => {
+        if (method === "GET") return { json: async () => ({ proposals: many }) };
+        posts += 1;
+        if (posts > 1) throw new Error("network down");
+        const ids = (body as { gameIds: string[] }).gameIds;
+        expect(ids).toHaveLength(500);
+        return {
+          json: async () => ({
+            results: ids.map((gameId) => ({ gameId, title: gameId, moved: true })),
+          }),
+        };
+      });
+      renderComponent();
+      await screen.findByDisplayValue("http://romm.lan:8080");
+      fireEvent.click(screen.getByRole("button", { name: /check library folders/i }));
+      await screen.findByText("Game 0");
+      fireEvent.click(screen.getByRole("button", { name: /move 501 games/i }));
+      expect(await screen.findByText(/g500: .*network down/)).toBeInTheDocument();
+      expect(screen.queryByText("Game 0")).not.toBeInTheDocument();
+    });
+
     it("keeps a game that could not be moved and shows why", async () => {
       apiRequest.mockImplementation(async (method: string) => ({
         json: async () =>

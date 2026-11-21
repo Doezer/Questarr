@@ -175,6 +175,9 @@ describe("applyFailureStatus", () => {
     storage.getGame.mockResolvedValue({ status: "owned", installedVersion: "v0.9" });
     await replayAfterMainFailure(storage, failed);
     expect(recordVersion).not.toHaveBeenCalled();
+    storage.getGame.mockResolvedValue({ status: "owned", installedVersion: null });
+    await replayAfterMainFailure(storage, failed);
+    expect(recordVersion).not.toHaveBeenCalled();
     storage.getGame.mockResolvedValue({ status: "owned", installedVersion: "v1.0" });
     await replayAfterMainFailure(storage, failed);
     expect(recordVersion).toHaveBeenCalledTimes(1);

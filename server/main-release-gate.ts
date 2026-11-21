@@ -116,7 +116,7 @@ type VersionStorage = Pick<
   "getGame" | "replaceGameInstalledVersion" | "getDownloadsByGameId"
 >;
 
-/** False when the patch names a base version that is not the one installed. */
+/** False when the patch names a base version that is not the installed one (or none is known). */
 async function baseMatchesInstall(
   storage: Pick<IStorage, "getGame">,
   gameId: string,
@@ -125,7 +125,7 @@ async function baseMatchesInstall(
   const base = extractPatchBaseVersion(title);
   if (!base) return true;
   const installed = (await storage.getGame(gameId))?.installedVersion?.trim();
-  return !installed || compareVersions(base, installed) === 0;
+  return !!installed && compareVersions(base, installed) === 0;
 }
 
 /**

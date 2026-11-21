@@ -556,6 +556,29 @@ export const gameStatusEvents = sqliteTable(
   ]
 );
 
+// Direct-download (DDL) jobs: a list of file-hoster links a debrid downloader fetches into local
+// staging. Progress lives on disk and in memory; this row only keeps what a restart needs to
+// resume (the links and the archive password).
+export const ddlJobs = sqliteTable(
+  "ddl_jobs",
+  {
+    id: text("id").primaryKey(),
+    downloaderId: text("downloader_id")
+      .notNull()
+      .references(() => downloaders.id, { onDelete: "cascade" }),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    links: text("links", { mode: "json" }).$type<string[]>().notNull(),
+    password: text("password"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(strftime('%s', 'now') * 1000)`),
+  },
+  (t) => [index("ddl_jobs_downloader_idx").on(t.downloaderId)]
+);
+
 // Outbound webhooks: external automation (n8n, Home Assistant, deployment scripts) subscribes to
 // Questarr events. Every request is signed with the subscription secret (HMAC-SHA256).
 export const WEBHOOK_EVENT_TYPES = [
@@ -1493,6 +1516,8 @@ export type UpdateTag = z.infer<typeof updateTagSchema>;
 
 export type GameTag = typeof gameTags.$inferSelect;
 export type InsertGameTag = z.infer<typeof insertGameTagSchema>;
+export type DdlJob = typeof ddlJobs.$inferSelect;
+export type InsertDdlJob = typeof ddlJobs.$inferInsert;
 export type GameStatusEvent = typeof gameStatusEvents.$inferSelect;
 export type InsertGameStatusEvent = typeof gameStatusEvents.$inferInsert;
 export type GamePlaySession = typeof gamePlaySessions.$inferSelect;

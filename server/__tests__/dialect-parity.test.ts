@@ -319,6 +319,50 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(left.some((e) => e.gameId === game.id)).toBe(false);
     });
 
+    it("stores a direct-download job with its links as JSON and cascades with the game", async () => {
+      const [user] = await storage().getAllUsers();
+      const game = await storage().addGame({
+        title: "Linked",
+        userId: user.id,
+        status: "wanted",
+      } as Parameters<ReturnType<typeof storage>["addGame"]>[0]);
+      const downloader = await storage().addDownloader({
+        name: "rd",
+        type: "realdebrid",
+        url: "https://api.real-debrid.com",
+        downloadPath: "/tmp/rd",
+      } as never);
+      const links = ["https://host.example/a", "https://host.example/b"];
+
+      const job = await storage().addDdlJob({
+        id: "ddl-job-1",
+        downloaderId: downloader!.id,
+        gameId: game.id,
+        title: "Linked",
+        links,
+        password: "pw",
+      });
+      expect(job.createdAt).toBeInstanceOf(Date);
+      expect((await storage().getDdlJob("ddl-job-1"))?.links).toEqual(links);
+      expect((await storage().getDdlJobsByDownloader(downloader!.id)).map((j) => j.id)).toEqual([
+        "ddl-job-1",
+      ]);
+      expect(await storage().getDdlJob("missing")).toBeUndefined();
+
+      await storage().deleteDdlJob("ddl-job-1");
+      expect(await storage().getDdlJob("ddl-job-1")).toBeUndefined();
+
+      await storage().addDdlJob({
+        id: "ddl-job-2",
+        downloaderId: downloader!.id,
+        gameId: game.id,
+        title: "Linked",
+        links,
+      });
+      await storage().removeGame(game.id);
+      expect(await storage().getDdlJob("ddl-job-2")).toBeUndefined();
+    });
+
     it("aggregates come back as numbers, not strings", async () => {
       const [user] = await storage().getAllUsers();
       const status = await storage().getDashboardStatus(user.id);

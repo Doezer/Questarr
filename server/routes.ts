@@ -360,6 +360,7 @@ import { setupChecksRouter } from "./routes/setup-checks.js";
 import { backupsRouter } from "./routes/backups.js";
 import { activityRouter } from "./routes/activity.js";
 import { realDebridRouter } from "./routes/realdebrid.js";
+import { ddlRouter } from "./routes/ddl.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 import {
   listExternalGames,
@@ -1817,6 +1818,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/system", systemRouter);
   app.use("/api/activity", activityRouter);
   app.use("/api/downloaders/:id/realdebrid", realDebridRouter);
+  app.use("/api/games/:gameId/ddl", ddlRouter);
   // Authenticated by the /api gate above (JWT or integration API key); same
   // reasoning as the mounts above.
   app.use("/api/integration", integrationRateLimiter, integrationRouter);

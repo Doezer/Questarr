@@ -183,6 +183,22 @@ describe("recordDeliveredVersion", () => {
     expect(recordVersion).not.toHaveBeenCalled();
   });
 
+  it("records a patch for a game that already has its base although every main failed", async () => {
+    recordVersion.mockClear();
+    const store = withStore([{ id: "m", category: "main", status: "failed" }]);
+    store.getGame.mockResolvedValue({ status: "owned", installedVersion: null });
+    expect(await recordDeliveredVersion(store, patchDownload)).toBe(true);
+    expect(recordVersion).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds a patch back when every main failed and the game has no base", async () => {
+    recordVersion.mockClear();
+    const store = withStore([{ id: "m", category: "main", status: "failed" }]);
+    store.getGame.mockResolvedValue({ status: "downloading", installedVersion: null });
+    expect(await recordDeliveredVersion(store, patchDownload)).toBe(false);
+    expect(recordVersion).not.toHaveBeenCalled();
+  });
+
   it("records a patch once a main release was delivered", async () => {
     recordVersion.mockClear();
     const store = withStore([

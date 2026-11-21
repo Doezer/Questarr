@@ -121,7 +121,14 @@ export async function recordDeliveredVersion(
   download: GateDownload & { downloadTitle: string }
 ): Promise<boolean> {
   if (resolvedCategory(download) !== "main") {
-    if ((await mainReleaseGate(storage, download)) !== "none") return false;
+    const gate = await mainReleaseGate(storage, download);
+    if (gate === "active") return false;
+    if (gate === "failed") {
+      // Every main row failed: a game that already has its base (it is owned, or has a version)
+      // still takes the patch's version; otherwise there is no base for the version to describe.
+      const game = await storage.getGame(download.gameId);
+      if (!game?.installedVersion?.trim() && game?.status !== "owned") return false;
+    }
     await recordVersionFromCompletedDownload(
       storage,
       download.gameId,

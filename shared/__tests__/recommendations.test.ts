@@ -53,6 +53,9 @@ describe("buildTasteProfile", () => {
     expect(profile.anchors).toEqual([]);
     expect(profile.empty).toBe(false);
     expect(
+      buildTasteProfile([{ title: "Modes", status: "completed", gameModes: ["Co-op"] }]).empty
+    ).toBe(true);
+    expect(
       buildTasteProfile([{ title: "Meh", status: "owned", userRating: 5, genres: ["A"] }]).empty
     ).toBe(true);
   });

@@ -165,10 +165,12 @@ export function buildTasteProfile(games: TasteGame[]): TasteProfile {
   return {
     ...normalized,
     anchors: anchors.slice(0, MAX_ANCHORS),
+    // Game modes only refine a score: they cannot seed candidate queries (anchors, genres, themes
+    // and developers do), so a profile holding nothing else counts as empty.
     empty:
       anchors.length === 0 &&
-      ![normalized.genres, normalized.themes, normalized.developers, normalized.gameModes].some(
-        (map) => [...map.values()].some((v) => v > 0)
+      ![normalized.genres, normalized.themes, normalized.developers].some((map) =>
+        [...map.values()].some((v) => v > 0)
       ),
   };
 }

@@ -68,10 +68,39 @@ const SCENE: Case[] = [
   { name: "Game.Name.Build.1491.50-FLT", version: null },
 ];
 
+const OTHER_REPACKERS: Case[] = [
+  { name: "Elden Ring v1.10.1 [GOG] (ElAmigos)", version: "v1.10.1" },
+  { name: "Game.v1.2.3.4.Multi10-ELAMIGOS", version: "v1.2.3.4" },
+  { name: "Elden Ring (v1.10.1) [Steam Rip] [KaOs Repack]", version: "v1.10.1" },
+  { name: "Hollow Knight v1.5.78.11833 (GOG) [Gnarly Repacks]", version: "v1.5.78.11833" },
+  { name: "Terraria v1.4.4.9 [GOG-Games]", version: "v1.4.4.9" },
+  { name: "Game Name v1.2.3 + 5 DLCs, Windows 10 [Xatab]", version: "v1.2.3" },
+  { name: "Game.Name.v1.0.0.12345.Linux-GOG", version: "v1.0.0.12345" },
+  { name: "Fallout 4 v1.10.163 + GOTY", version: "v1.10.163" },
+  { name: "Game Name 2 v1.0-RUNE", version: "v1.0" },
+  // A version and a build number side by side: the version wins.
+  { name: "Game Name (v1.0.5 build 123456) [FitGirl Repack]", version: "v1.0.5" },
+];
+
+// Names where the version can't be trusted: extraction must stay null so the auto-grab never
+// compares against a guess.
+const UNTRUSTWORTHY: Case[] = [
+  { name: "Elden Ring [Repack by Xatab]", version: null },
+  { name: "Stardew Valley v1.6.15 hotfix", version: null },
+  { name: "Game Name v2.0 Hotfix 3 [DODI Repack]", version: null },
+  { name: "Game v1.2a-GOG", version: null },
+  { name: "Game Name Version 1.2.3 [Portable]", version: null },
+  { name: "Game Name Update 3 + DLC [FitGirl]", version: null },
+  { name: "Game Name v0.9.1 Early Access (Build 12345) [KaOs]", version: null },
+  { name: "Game Name 1.2.3.4-I_KnoW", version: null },
+];
+
 describe.each([
   ["FitGirl", FITGIRL],
   ["DODI", DODI],
   ["scene", SCENE],
+  ["other repackers", OTHER_REPACKERS],
+  ["untrustworthy", UNTRUSTWORTHY],
 ])("version extraction: %s releases", (_group, cases) => {
   it.each(cases)("reads $name", ({ name, version }) => {
     expect(extractVersionFromReleaseName(name)).toBe(version);

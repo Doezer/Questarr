@@ -59,7 +59,7 @@ test.describe("v1.5 changes since RC1", () => {
     ).toHaveAttribute("href", "https://feed.example/portal");
     await page.getByRole("button", { name: "Manage Feeds", exact: true }).click();
     const row = page.getByRole("dialog").getByRole("row").filter({ hasText: feed.name });
-    await expect(row.getByRole("switch")).toBeChecked();
+    await expect(row.getByRole("switch", { name: `Enable feed ${feed.name}` })).toBeChecked();
   });
 
   test.describe("viewer timezone", () => {

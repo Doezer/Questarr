@@ -84,12 +84,10 @@ export async function applyDeliveredStatus(
  * for again), otherwise "wanted". Statuses the user chose and "owned" are left alone.
  */
 export async function applyFailureStatus(
-  storage: Pick<IStorage, "updateGameStatus"> & VersionStorage,
+  storage: Pick<IStorage, "updateGameStatus" | "getDownloadsByGameId">,
   download: GateDownload,
   game: { status: string | null } | null | undefined
 ): Promise<void> {
-  // A failing last main may release patch versions that waited for it (when a base exists).
-  if (resolvedCategory(download) === "main") await replayPatchVersions(storage, download);
   if (isUserCuratedGameStatus(game?.status)) return;
   const deliveredMain = (await storage.getDownloadsByGameId(download.gameId)).some(
     (d) => d.id !== download.id && DELIVERED.has(d.status) && resolvedCategory(d) === "main"
@@ -145,6 +143,17 @@ async function replayPatchVersions(
       patch.category ?? null
     );
   }
+}
+
+/**
+ * Call when a main release failed, whatever the game's status: patch versions that waited for
+ * it are recorded if no other main is in flight and the game already has its base.
+ */
+export async function replayAfterMainFailure(
+  storage: VersionStorage,
+  download: GateDownload
+): Promise<void> {
+  if (resolvedCategory(download) === "main") await replayPatchVersions(storage, download);
 }
 
 /**

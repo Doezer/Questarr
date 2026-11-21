@@ -1,6 +1,7 @@
 import {
   applyDeliveredStatus,
   applyFailureStatus,
+  replayAfterMainFailure,
   hasMainReleaseInFlight,
   recordDeliveredVersion,
 } from "./main-release-gate.js";
@@ -1354,6 +1355,7 @@ async function runDownloadStatusCheck() {
               // Mirror the normal error path: reset the game to "wanted"
               // only when no sibling download for the same game is still
               // actively downloading.
+              await replayAfterMainFailure(storage, download);
               const siblings = await storage.getDownloadsByGameId(download.gameId);
               const hasActiveSibling = siblings.some(
                 (s) => s.id !== download.id && ACTIVE_DOWNLOAD_STATUSES.has(s.status)
@@ -1697,6 +1699,7 @@ async function runDownloadStatusCheck() {
               }
             }
 
+            if (newGameStatus === "wanted") await replayAfterMainFailure(storage, download);
             const game = await storage.getGame(download.gameId);
             if (
               !skipGameStatusUpdate &&
@@ -1842,6 +1845,7 @@ async function runDownloadStatusCheck() {
             game?.userId
           );
 
+          await replayAfterMainFailure(storage, download);
           if (willResetGame) {
             await applyFailureStatus(storage, download, game);
           }

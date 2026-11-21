@@ -9,6 +9,7 @@ import {
   hasMainReleaseInFlight,
   mainReleaseGate,
   recordDeliveredVersion,
+  replayAfterMainFailure,
 } from "../main-release-gate.js";
 
 const patch = { id: "patch", gameId: "g1", category: "update" };
@@ -157,7 +158,7 @@ describe("applyFailureStatus", () => {
       { id: "p", category: "update", status: "completed", downloadTitle: "Game.Update.v1.1-GRP" },
     ]);
     storage.getGame.mockResolvedValue({ status: "owned", installedVersion: "1.0" });
-    await applyFailureStatus(storage, failed, { status: "owned" });
+    await replayAfterMainFailure(storage, failed);
     expect(recordVersion).toHaveBeenCalledWith(storage, "g1", "Game.Update.v1.1-GRP", "update");
   });
 
@@ -167,7 +168,7 @@ describe("applyFailureStatus", () => {
       { id: "p", category: "update", status: "completed", downloadTitle: "Game.Update.v1.1-GRP" },
     ]);
     storage.getGame.mockResolvedValue({ status: "downloading", installedVersion: null });
-    await applyFailureStatus(storage, failed, { status: "downloading" });
+    await replayAfterMainFailure(storage, failed);
     expect(recordVersion).not.toHaveBeenCalled();
   });
 

@@ -33,6 +33,7 @@ jsDelivr caches branch URLs (`@gh-pages`) for up to 12 hours, so the new version
 once the store's `Publish store` run is green, check that
 `https://cdn.jsdelivr.net/gh/Doezer/questarr-zimaos-store@gh-pages/index.json` lists NEW, and that the compose
 file and metadata files it points to (under `apps/`) also serve NEW. If any is stale, purge the app files first, then
-`index.json` and `store.json`, by swapping `cdn.jsdelivr.net` for `purge.jsdelivr.net` in the same path. Reread each
-URL afterwards: a purge can be throttled, so wait and retry until all of them serve NEW before treating the update
-as available.
+`index.json` (and `store.json` if it changed), by swapping `cdn.jsdelivr.net` for `purge.jsdelivr.net` in the same
+path. Reread each URL afterward: a purge can be throttled, so wait and retry until `index.json` and the app files
+serve NEW before treating the update as available. `store.json` holds the store identity, not the Questarr version,
+so only check that it is served and unchanged.

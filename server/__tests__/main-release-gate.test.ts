@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyDeliveredStatus, applyFailureStatus, mainReleaseGate } from "../main-release-gate.js";
+
+const { recordVersion } = vi.hoisted(() => ({ recordVersion: vi.fn() }));
+vi.mock("../game-version.js", () => ({ recordVersionFromCompletedDownload: recordVersion }));
+
+import {
+  applyDeliveredStatus,
+  applyFailureStatus,
+  hasMainReleaseInFlight,
+  mainReleaseGate,
+  recordDeliveredVersion,
+} from "../main-release-gate.js";
 
 const patch = { id: "patch", gameId: "g1", category: "update" };
 
@@ -148,5 +158,73 @@ describe("applyFailureStatus", () => {
   it("does not let a main parked for review block another delivered main", async () => {
     const storage = storageWith([{ id: "m", category: "main", status: "manual_review_required" }]);
     expect(await mainReleaseGate(storage, { ...patch, category: "main" })).toBe("none");
+  });
+});
+
+describe("recordDeliveredVersion", () => {
+  const withStore = (siblings: Parameters<typeof storageWith>[0]) => ({
+    ...storageWith(siblings),
+    getGame: vi.fn(),
+    replaceGameInstalledVersion: vi.fn(),
+  });
+  const patchDownload = {
+    id: "patch",
+    gameId: "g1",
+    category: "update",
+    downloadTitle: "Game.Update.v1.1-GRP",
+  };
+
+  it("keeps a patch's version back while its base release is still on its way", async () => {
+    recordVersion.mockClear();
+    const store = withStore([
+      { id: "m", category: "main", status: "downloading", downloadTitle: "Game.v1.0-GRP" },
+    ]);
+    expect(await recordDeliveredVersion(store, patchDownload)).toBe(false);
+    expect(recordVersion).not.toHaveBeenCalled();
+  });
+
+  it("records a patch once a main release was delivered", async () => {
+    recordVersion.mockClear();
+    const store = withStore([
+      { id: "m", category: "main", status: "completed", downloadTitle: "Game.v1.0-GRP" },
+    ]);
+    expect(await recordDeliveredVersion(store, patchDownload)).toBe(true);
+    expect(recordVersion).toHaveBeenCalledWith(store, "g1", "Game.Update.v1.1-GRP", "update");
+  });
+
+  it("replays the patches delivered before the main release", async () => {
+    recordVersion.mockClear();
+    const store = withStore([
+      {
+        id: "patch",
+        category: "update",
+        status: "completed",
+        downloadTitle: "Game.Update.v1.1-GRP",
+      },
+    ]);
+    const main = { id: "m", gameId: "g1", category: "main", downloadTitle: "Game.v1.0-GRP" };
+    expect(await recordDeliveredVersion(store, main)).toBe(true);
+    expect(recordVersion.mock.calls.map((c) => c[2])).toEqual([
+      "Game.v1.0-GRP",
+      "Game.Update.v1.1-GRP",
+    ]);
+  });
+});
+
+describe("hasMainReleaseInFlight", () => {
+  it("ignores a paused patch but not a paused main release", async () => {
+    const download = { id: "x", gameId: "g1", category: "main" };
+    expect(
+      await hasMainReleaseInFlight(
+        storageWith([{ id: "p", category: "update", status: "paused" }]),
+        download
+      )
+    ).toBe(false);
+    expect(
+      await hasMainReleaseInFlight(
+        storageWith([{ id: "m", category: "main", status: "paused" }]),
+        download
+      )
+    ).toBe(true);
   });
 });

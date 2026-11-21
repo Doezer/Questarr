@@ -1,5 +1,5 @@
 import { type IStorage } from "../storage.js";
-import { applyDeliveredStatus } from "../main-release-gate.js";
+import { applyDeliveredStatus, recordDeliveredVersion } from "../main-release-gate.js";
 import { PathMappingService } from "./PathMappingService.js";
 import { PlatformMappingService } from "./PlatformMappingService.js";
 import { ArchiveService, ArchivePasswordRequiredError } from "./ArchiveService.js";
@@ -24,10 +24,7 @@ import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { notifyUser } from "../socket.js";
 import { carriesBaseGameVersion, inferReleaseCategory } from "../../shared/version-utils.js";
-import {
-  recordVersionFromCompletedDownload,
-  recordVersionFromInstallFolder,
-} from "../game-version.js";
+import { recordVersionFromInstallFolder } from "../game-version.js";
 import { resolvePrefs } from "../notification-prefs.js";
 import { appriseClient } from "../apprise.js";
 import { isRommPlatformFoldersEnabled, requestRommScanAfterImport } from "../romm.js";
@@ -933,15 +930,11 @@ export class ImportManager {
     try {
       const download = await this.storage.getGameDownload(downloadId);
       if (download) {
-        await recordVersionFromCompletedDownload(
-          this.storage,
-          game.id,
-          download.downloadTitle,
-          download.category
-        );
+        // A patch waits for its base release: the files of a patch alone say nothing yet.
+        const recorded = await recordDeliveredVersion(this.storage, download);
         // The files now in the library are the better source: they replace the release's
         // version. A DLC or extras pack's version.txt says nothing about the base game.
-        if (carriesBaseGameVersion(download.downloadTitle, download.category)) {
+        if (recorded && carriesBaseGameVersion(download.downloadTitle, download.category)) {
           await recordVersionFromInstallFolder(this.storage, game.id, libraryPath);
         }
       }

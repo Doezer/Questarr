@@ -1,4 +1,9 @@
-import { applyDeliveredStatus, applyFailureStatus } from "./main-release-gate.js";
+import {
+  applyDeliveredStatus,
+  applyFailureStatus,
+  hasMainReleaseInFlight,
+  recordDeliveredVersion,
+} from "./main-release-gate.js";
 import { storage } from "./storage.js";
 import { normalizeDownloadHash } from "./download-hash.js";
 import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
@@ -47,7 +52,6 @@ import {
   isReleasePossiblyNewer,
 } from "../shared/version-utils.js";
 import { decideUpgrade, type UpgradeDecision } from "../shared/upgrade-decision.js";
-import { recordVersionFromCompletedDownload } from "./game-version.js";
 import { rssService } from "./rss.js";
 import { registerTask, startTaskScheduler, type TaskDefinition } from "./task-registry.js";
 import {
@@ -1533,12 +1537,7 @@ async function runDownloadStatusCheck() {
               // Update DB - mark as completed
               await storage.updateGameDownloadStatus(download.id, "completed");
               // With post-processing on, the import records it once the files are in place.
-              await recordVersionFromCompletedDownload(
-                storage,
-                download.gameId,
-                download.downloadTitle,
-                download.category
-              );
+              await recordDeliveredVersion(storage, download);
 
               // Update Game status to 'owned' (which means we have the files), unless
               // the user already moved it past that (e.g. an update for a game they're playing).
@@ -1691,11 +1690,9 @@ async function runDownloadStatusCheck() {
             // If so, leave the game status as-is to avoid a false regression.
             let skipGameStatusUpdate = false;
             if (newGameStatus === "wanted") {
-              const siblings = await storage.getDownloadsByGameId(download.gameId);
-              const hasActiveDownload = siblings.some(
-                (s) => s.id !== download.id && ACTIVE_DOWNLOAD_STATUSES.has(s.status)
-              );
-              if (hasActiveDownload) {
+              // Only another main release still on its way keeps the status: a paused patch
+              // has no bearing on whether the base game arrived.
+              if (await hasMainReleaseInFlight(storage, download)) {
                 skipGameStatusUpdate = true;
               }
             }
@@ -1960,12 +1957,7 @@ async function handleProbablyFinishedDisappearance(
 
   if (!importConfig.enablePostProcessing) {
     await storage.updateGameDownloadStatus(download.id, "completed");
-    await recordVersionFromCompletedDownload(
-      storage,
-      download.gameId,
-      download.downloadTitle,
-      download.category
-    );
+    await recordDeliveredVersion(storage, download);
     await applyDeliveredStatus(storage, download, game);
     notifyUser("downloadUpdate", download.gameId);
     emitDownloadCompleted(download, gameTitle, game?.userId);

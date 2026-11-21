@@ -1,5 +1,6 @@
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { isUserCuratedGameStatus } from "../shared/schema.js";
+import { recordVersionFromCompletedDownload } from "./game-version.js";
 import type { IStorage } from "./storage.js";
 
 /**
@@ -96,4 +97,55 @@ export async function applyFailureStatus(
     { status: deliveredMain ? "owned" : "wanted" },
     { preserveCurated: true }
   );
+}
+
+/** Whether another main release of the download's game is still on its way. */
+export async function hasMainReleaseInFlight(
+  storage: Pick<IStorage, "getDownloadsByGameId">,
+  download: GateDownload
+): Promise<boolean> {
+  return (await storage.getDownloadsByGameId(download.gameId)).some(
+    (d) => d.id !== download.id && resolvedCategory(d) === "main" && IN_FLIGHT.has(d.status)
+  );
+}
+
+/**
+ * Records the version a delivered download carries. A patch does not move the installed version
+ * until a main release of the game was delivered: its base may still fail, and the version
+ * would then describe files that are not there. A main release records its own version and
+ * then the versions of the patches that were delivered before it (the version only ever moves
+ * forward). Returns false when the patch had to wait.
+ */
+export async function recordDeliveredVersion(
+  storage: Pick<IStorage, "getGame" | "replaceGameInstalledVersion" | "getDownloadsByGameId">,
+  download: GateDownload & { downloadTitle: string }
+): Promise<boolean> {
+  if (resolvedCategory(download) !== "main") {
+    if ((await mainReleaseGate(storage, download)) !== "none") return false;
+    await recordVersionFromCompletedDownload(
+      storage,
+      download.gameId,
+      download.downloadTitle,
+      download.category ?? null
+    );
+    return true;
+  }
+  await recordVersionFromCompletedDownload(
+    storage,
+    download.gameId,
+    download.downloadTitle,
+    download.category ?? null
+  );
+  const waiting = (await storage.getDownloadsByGameId(download.gameId)).filter(
+    (d) => d.id !== download.id && DELIVERED.has(d.status) && resolvedCategory(d) !== "main"
+  );
+  for (const patch of waiting) {
+    await recordVersionFromCompletedDownload(
+      storage,
+      download.gameId,
+      patch.downloadTitle,
+      patch.category ?? null
+    );
+  }
+  return true;
 }

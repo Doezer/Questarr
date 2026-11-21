@@ -27,6 +27,25 @@ interface SyncSummary {
   notInLibrary: number;
 }
 
+const REPAIR_BATCH_SIZE = 500;
+
+interface RepairProposal {
+  gameId: string;
+  title: string;
+  from: string;
+  to: string;
+  currentFolder: string;
+  expectedFolder: string;
+  destinationExists: boolean;
+}
+
+interface RepairOutcome {
+  gameId: string;
+  title: string;
+  moved: boolean;
+  error?: string;
+}
+
 const EMPTY: RommSettingsView = {
   enabled: false,
   url: "",
@@ -55,6 +74,8 @@ export function RommSettings() {
   const { data, isLoading } = useQuery<RommSettingsView>({ queryKey: ["/api/settings/romm"] });
   const [form, setForm] = useState<RommSettingsView>(EMPTY);
   const [summary, setSummary] = useState<SyncSummary | null>(null);
+  const [proposals, setProposals] = useState<RepairProposal[] | null>(null);
+  const [failures, setFailures] = useState<RepairOutcome[]>([]);
 
   useEffect(() => {
     if (data) setForm({ ...EMPTY, ...data });
@@ -112,6 +133,73 @@ export function RommSettings() {
     onError: async (error) =>
       toast({
         title: "RomM sync failed",
+        description: await errorMessage(error),
+        variant: "destructive",
+      }),
+  });
+
+  const scanFolders = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", "/api/settings/romm/folder-repair");
+      return (await res.json()) as { proposals: RepairProposal[] };
+    },
+    onSuccess: (result) => {
+      setProposals(result.proposals);
+      setFailures([]);
+    },
+    onError: async (error) =>
+      toast({
+        title: "Could not scan the library",
+        description: await errorMessage(error),
+        variant: "destructive",
+      }),
+  });
+
+  const repairFolders = useMutation({
+    mutationFn: async (toMove: RepairProposal[]) => {
+      const gameIds = toMove.map((p) => p.gameId);
+      const titleOf = new Map(toMove.map((p) => [p.gameId, p.title]));
+      // The server takes at most 500 games per call. If a later call fails, what the earlier
+      // ones moved is kept and the games that were not reached are reported as failures.
+      const results: RepairOutcome[] = [];
+      for (let i = 0; i < gameIds.length; i += REPAIR_BATCH_SIZE) {
+        try {
+          const res = await apiRequest("POST", "/api/settings/romm/folder-repair", {
+            gameIds: gameIds.slice(i, i + REPAIR_BATCH_SIZE),
+          });
+          results.push(...((await res.json()) as { results: RepairOutcome[] }).results);
+        } catch (error) {
+          if (i === 0) throw error;
+          const message = await errorMessage(error);
+          for (const gameId of gameIds.slice(i)) {
+            results.push({
+              gameId,
+              title: titleOf.get(gameId) ?? gameId,
+              moved: false,
+              error: message,
+            });
+          }
+          break;
+        }
+      }
+      return { results };
+    },
+    onSuccess: (result) => {
+      const moved = result.results.filter((r) => r.moved).length;
+      const failed = result.results.filter((r) => !r.moved);
+      setFailures(failed);
+      setProposals((current) =>
+        (current ?? []).filter((p) => failed.some((f) => f.gameId === p.gameId))
+      );
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      toast({
+        title: `${moved} game(s) moved`,
+        description: failed.length > 0 ? `${failed.length} could not be moved.` : undefined,
+      });
+    },
+    onError: async (error) =>
+      toast({
+        title: "Could not move the games",
         description: await errorMessage(error),
         variant: "destructive",
       }),
@@ -242,6 +330,68 @@ export function RommSettings() {
             {sync.isPending && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
             Sync now
           </Button>
+        </div>
+
+        <div className="space-y-3 border-t pt-5">
+          <div>
+            <p className="text-sm font-medium">Fix misplaced platform folders</p>
+            <p className="text-xs text-muted-foreground">
+              Finds games stored in the wrong RomM folder (for example a Switch 2 game in{" "}
+              <code>win</code>) and moves them to the right one. Nothing moves until you confirm,
+              and an existing folder is never overwritten. Requires RomM platform folders to be
+              saved as on.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => scanFolders.mutate()}
+            disabled={scanFolders.isPending || !data?.platformFolders}
+          >
+            {scanFolders.isPending && <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />}
+            Check library folders
+          </Button>
+          {proposals?.length === 0 && failures.length === 0 && (
+            <output className="block text-sm text-muted-foreground">
+              No misplaced folders found.
+            </output>
+          )}
+          {proposals && proposals.length > 0 && (
+            <>
+              <ul className="space-y-2" aria-label="Folders to move">
+                {proposals.map((p) => (
+                  <li key={p.gameId} className="rounded-md border p-3 text-sm">
+                    <p className="font-medium">{p.title}</p>
+                    <p className="text-xs text-muted-foreground break-all">
+                      <code>{p.currentFolder}</code> → <code>{p.expectedFolder}</code>
+                    </p>
+                    {p.destinationExists && (
+                      <p className="text-xs text-amber-500">
+                        The destination already exists, so this one will be skipped.
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <Button
+                onClick={() => repairFolders.mutate(proposals)}
+                disabled={repairFolders.isPending}
+              >
+                {repairFolders.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 motion-safe:animate-spin" />
+                )}
+                Move {proposals.length} game{proposals.length === 1 ? "" : "s"}
+              </Button>
+            </>
+          )}
+          {failures.length > 0 && (
+            <ul className="space-y-1 text-xs text-destructive" role="alert">
+              {failures.map((f) => (
+                <li key={f.gameId}>
+                  {f.title}: {f.error}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {summary && (

@@ -151,6 +151,14 @@ export class ImportManager {
     return undefined;
   }
 
+  /** IGDB platform ids a game lists, whatever shape the stored platforms are in. */
+  getGamePlatformIds(game: { platforms?: unknown }): number[] {
+    if (!Array.isArray(game.platforms)) return [];
+    return game.platforms
+      .map((p) => this.extractPlatformIdFromElement(p))
+      .filter((id): id is number => id !== undefined);
+  }
+
   private getPrimaryPlatformId(
     game: { platforms?: unknown },
     allowed: number[] = []
@@ -713,7 +721,7 @@ export class ImportManager {
   }
 
   /** Waits for the game's running import, if any; the returned function lets the next one in. */
-  private async acquireGameLock(gameId: string): Promise<() => void> {
+  async acquireGameLock(gameId: string): Promise<() => void> {
     const previous = this.gameImportQueues.get(gameId) ?? Promise.resolve();
     let open!: () => void;
     const held = new Promise<void>((resolve) => {

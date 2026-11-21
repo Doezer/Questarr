@@ -292,4 +292,59 @@ describe("RssService", () => {
     await Promise.all([all, single]);
     expect(mocks.safeFetch).toHaveBeenCalledTimes(1);
   });
+
+  it("stores hoster links for a direct-download feed and fills in older items", async () => {
+    const feed = {
+      id: "feed-ddl",
+      name: "DDL",
+      url: "https://blog.example/feed",
+      enabled: true,
+      type: "custom",
+      mapping: null,
+      extractLinks: true,
+    } as unknown as import("../../shared/schema").RssFeed;
+    // Host list unreachable: every link that is not the blog's own is kept.
+    mocks.safeFetch.mockImplementation(async (url: string) => {
+      if (url.includes("real-debrid")) throw new Error("offline");
+      return { ok: true, text: vi.fn().mockResolvedValue("<xml></xml>") };
+    });
+    mocks.parseString.mockResolvedValue({
+      items: [
+        {
+          title: "New",
+          link: "https://blog.example/new",
+          guid: "new",
+          content: "https://host.example/a https://blog.example/new",
+        },
+        {
+          title: "Old",
+          link: "https://blog.example/old",
+          guid: "old",
+          content: "https://host.example/b",
+        },
+      ],
+    });
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([feed]);
+    vi.mocked(storage.getRssFeedItemByGuid).mockImplementation(async (guid: string) =>
+      guid === "old"
+        ? ({
+            id: "old-id",
+            guid: "old",
+            links: null,
+          } as unknown as import("../../shared/schema").RssFeedItem)
+        : undefined
+    );
+    vi.mocked(storage.addRssFeedItem).mockResolvedValue({
+      id: "new-id",
+    } as unknown as import("../../shared/schema").RssFeedItem);
+
+    await rssService.refreshFeeds();
+
+    expect(storage.addRssFeedItem).toHaveBeenCalledWith(
+      expect.objectContaining({ guid: "new", links: ["https://host.example/a"] })
+    );
+    expect(storage.updateRssFeedItem).toHaveBeenCalledWith("old-id", {
+      links: ["https://host.example/b"],
+    });
+  });
 });

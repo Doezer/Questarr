@@ -1728,6 +1728,8 @@ export const rssFeeds = sqliteTable("rss_feeds", {
   type: text("type").notNull().default("custom"), // 'preset' or 'custom'
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   mapping: text("mapping", { mode: "json" }).$type<{ titleField?: string; linkField?: string }>(),
+  // Direct-download feed: pull file-hoster links out of each item's content.
+  extractLinks: integer("extract_links", { mode: "boolean" }).notNull().default(false),
   lastCheck: integer("last_check", { mode: "timestamp_ms" }),
   status: text("status").default("ok"), // 'ok' or 'error'
   errorMessage: text("error_message"),
@@ -1752,6 +1754,8 @@ export const rssFeedItems = sqliteTable("rss_feed_items", {
   igdbGameId: integer("igdb_game_id"),
   igdbGameName: text("igdb_game_name"),
   coverUrl: text("cover_url"),
+  // Hoster links found in the item content (direct-download feeds only).
+  links: text("links", { mode: "json" }).$type<string[]>(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),

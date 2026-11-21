@@ -31,6 +31,8 @@ interface AddDdlLinksDialogProps {
   game: Pick<Game, "id" | "title">;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Links to start with (e.g. the ones a feed item carried). */
+  initialLinks?: string[];
 }
 
 const formatSize = (bytes?: number) =>
@@ -46,11 +48,16 @@ async function toBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
-export default function AddDdlLinksDialog({ game, open, onOpenChange }: AddDdlLinksDialogProps) {
+export default function AddDdlLinksDialog({
+  game,
+  open,
+  onOpenChange,
+  initialLinks,
+}: AddDdlLinksDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => initialLinks?.join("\n") ?? "");
   const [password, setPassword] = useState("");
   const [container, setContainer] = useState<File | null>(null);
   const [checks, setChecks] = useState<LinkCheck[] | null>(null);

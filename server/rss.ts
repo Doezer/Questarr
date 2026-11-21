@@ -4,6 +4,7 @@ import { igdbClient } from "./igdb.js";
 import { logger } from "./logger.js";
 import { RssFeed, InsertRssFeedItem } from "../shared/schema.js";
 import { safeFetch } from "./ssrf.js";
+import { extractItemLinks } from "./ddl-feed.js";
 
 const rssLogger = logger.child({ module: "rss" });
 
@@ -110,7 +111,15 @@ export class RssService {
       // 2. Check if exists
       const existing = await storage.getRssFeedItemByGuid(normalized.guid);
       if (existing) {
-        // Optionally update fields if needed, but usually GUID implies identity
+        // A feed switched to link extraction later: fill in the items it already holds.
+        if (feed.extractLinks && existing.links == null) {
+          const links = await extractItemLinks(
+            item as Record<string, unknown>,
+            feed.url,
+            normalized.link
+          );
+          await storage.updateRssFeedItem(String(existing.id), { links });
+        }
         continue;
       }
 
@@ -126,6 +135,9 @@ export class RssService {
         igdbGameId: null,
         igdbGameName: null,
         coverUrl: null,
+        links: feed.extractLinks
+          ? await extractItemLinks(item as Record<string, unknown>, feed.url, normalized.link)
+          : null,
       };
 
       const created = await storage.addRssFeedItem(newItem);

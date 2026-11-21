@@ -5,6 +5,7 @@ import { formatDistanceToNow } from "date-fns";
 import { RssFeedItem } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { safeUrl } from "@/lib/utils";
+import RssItemLinks from "./RssItemLinks";
 
 interface CompactRssFeedItemProps {
   item: RssFeedItem;
@@ -64,6 +65,7 @@ const CompactRssFeedItem = ({ item }: CompactRssFeedItemProps) => {
 
       {/* Actions */}
       <div className="flex items-center gap-2 self-center">
+        <RssItemLinks item={item} />
         <Button variant="outline" size="sm" className="h-8 gap-2" asChild>
           <a
             href={safeUrl(item.link)}

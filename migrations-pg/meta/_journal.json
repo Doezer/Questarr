@@ -225,6 +225,13 @@
       "when": 1795270290414,
       "tag": "0031_ddl_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795286679900,
+      "tag": "0032_ddl_feeds",
+      "breakpoints": true
     }
   ]
 }

@@ -613,6 +613,7 @@ export const rssFeeds = pgTable("rss_feeds", {
   type: text("type").notNull().default("custom"), // 'preset' or 'custom'
   enabled: boolean("enabled").notNull().default(true),
   mapping: jsonb("mapping").$type<{ titleField?: string; linkField?: string }>(),
+  extractLinks: boolean("extract_links").notNull().default(false),
   lastCheck: timestampMs("last_check"),
   status: text("status").default("ok"), // 'ok' or 'error'
   errorMessage: text("error_message"),
@@ -633,6 +634,7 @@ export const rssFeedItems = pgTable("rss_feed_items", {
   igdbGameId: integer("igdb_game_id"),
   igdbGameName: text("igdb_game_name"),
   coverUrl: text("cover_url"),
+  links: jsonb("links").$type<string[]>(),
   createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
 });
 

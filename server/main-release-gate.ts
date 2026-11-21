@@ -84,10 +84,12 @@ export async function applyDeliveredStatus(
  * for again), otherwise "wanted". Statuses the user chose and "owned" are left alone.
  */
 export async function applyFailureStatus(
-  storage: Pick<IStorage, "getDownloadsByGameId" | "updateGameStatus">,
+  storage: Pick<IStorage, "updateGameStatus"> & VersionStorage,
   download: GateDownload,
   game: { status: string | null } | null | undefined
 ): Promise<void> {
+  // A failing last main may release patch versions that waited for it (when a base exists).
+  if (resolvedCategory(download) === "main") await replayPatchVersions(storage, download);
   if (isUserCuratedGameStatus(game?.status)) return;
   const deliveredMain = (await storage.getDownloadsByGameId(download.gameId)).some(
     (d) => d.id !== download.id && DELIVERED.has(d.status) && resolvedCategory(d) === "main"
@@ -109,15 +111,51 @@ export async function hasMainReleaseInFlight(
   );
 }
 
+type VersionStorage = Pick<
+  IStorage,
+  "getGame" | "replaceGameInstalledVersion" | "getDownloadsByGameId"
+>;
+
+/**
+ * Records the versions of delivered patches that waited for a base. Nothing happens while a main
+ * release is still in flight; without a delivered main the game must already have its base (a
+ * version, or the owned status). The version only ever moves forward.
+ */
+async function replayPatchVersions(
+  storage: VersionStorage,
+  download: GateDownload,
+  mainDelivered = false
+): Promise<void> {
+  const siblings = (await storage.getDownloadsByGameId(download.gameId)).filter(
+    (d) => d.id !== download.id
+  );
+  const mains = siblings.filter((d) => resolvedCategory(d) === "main");
+  if (mains.some((d) => IN_FLIGHT.has(d.status))) return;
+  const waiting = siblings.filter((d) => DELIVERED.has(d.status) && resolvedCategory(d) !== "main");
+  if (waiting.length === 0) return;
+  if (!mainDelivered && !mains.some((d) => DELIVERED.has(d.status))) {
+    const game = await storage.getGame(download.gameId);
+    if (!game?.installedVersion?.trim() && game?.status !== "owned") return;
+  }
+  for (const patch of waiting) {
+    await recordVersionFromCompletedDownload(
+      storage,
+      download.gameId,
+      patch.downloadTitle,
+      patch.category ?? null
+    );
+  }
+}
+
 /**
  * Records the version a delivered download carries. A patch does not move the installed version
  * until a main release of the game was delivered: its base may still fail, and the version
  * would then describe files that are not there. A main release records its own version and
- * then the versions of the patches that were delivered before it (the version only ever moves
- * forward). Returns false when the patch had to wait.
+ * then the versions of the patches that were delivered before it, unless another main is still
+ * in flight (the version only ever moves forward). Returns false when the patch had to wait.
  */
 export async function recordDeliveredVersion(
-  storage: Pick<IStorage, "getGame" | "replaceGameInstalledVersion" | "getDownloadsByGameId">,
+  storage: VersionStorage,
   download: GateDownload & { downloadTitle: string }
 ): Promise<boolean> {
   if (resolvedCategory(download) !== "main") {
@@ -143,16 +181,6 @@ export async function recordDeliveredVersion(
     download.downloadTitle,
     download.category ?? null
   );
-  const waiting = (await storage.getDownloadsByGameId(download.gameId)).filter(
-    (d) => d.id !== download.id && DELIVERED.has(d.status) && resolvedCategory(d) !== "main"
-  );
-  for (const patch of waiting) {
-    await recordVersionFromCompletedDownload(
-      storage,
-      download.gameId,
-      patch.downloadTitle,
-      patch.category ?? null
-    );
-  }
+  await replayPatchVersions(storage, download, true);
   return true;
 }

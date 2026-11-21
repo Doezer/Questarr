@@ -19,6 +19,8 @@ function storageWith(
   return {
     getDownloadsByGameId: vi.fn().mockResolvedValue(siblings),
     updateGameStatus: vi.fn().mockResolvedValue(undefined),
+    getGame: vi.fn().mockResolvedValue(undefined),
+    replaceGameInstalledVersion: vi.fn(),
   };
 }
 
@@ -149,6 +151,26 @@ describe("applyFailureStatus", () => {
     );
   });
 
+  it("replays a delivered patch's version when the last main fails and a base exists", async () => {
+    recordVersion.mockClear();
+    const storage = storageWith([
+      { id: "p", category: "update", status: "completed", downloadTitle: "Game.Update.v1.1-GRP" },
+    ]);
+    storage.getGame.mockResolvedValue({ status: "owned", installedVersion: "1.0" });
+    await applyFailureStatus(storage, failed, { status: "owned" });
+    expect(recordVersion).toHaveBeenCalledWith(storage, "g1", "Game.Update.v1.1-GRP", "update");
+  });
+
+  it("does not replay patches when the failed main leaves the game without a base", async () => {
+    recordVersion.mockClear();
+    const storage = storageWith([
+      { id: "p", category: "update", status: "completed", downloadTitle: "Game.Update.v1.1-GRP" },
+    ]);
+    storage.getGame.mockResolvedValue({ status: "downloading", installedVersion: null });
+    await applyFailureStatus(storage, failed, { status: "downloading" });
+    expect(recordVersion).not.toHaveBeenCalled();
+  });
+
   it("leaves user-curated statuses alone", async () => {
     const storage = storageWith([]);
     await applyFailureStatus(storage, failed, { status: "playing" });
@@ -164,8 +186,6 @@ describe("applyFailureStatus", () => {
 describe("recordDeliveredVersion", () => {
   const withStore = (siblings: Parameters<typeof storageWith>[0]) => ({
     ...storageWith(siblings),
-    getGame: vi.fn(),
-    replaceGameInstalledVersion: vi.fn(),
   });
   const patchDownload = {
     id: "patch",
@@ -224,6 +244,19 @@ describe("recordDeliveredVersion", () => {
       "Game.v1.0-GRP",
       "Game.Update.v1.1-GRP",
     ]);
+  });
+});
+
+describe("recordDeliveredVersion with several mains", () => {
+  it("defers the patch replay while another main is still in flight", async () => {
+    recordVersion.mockClear();
+    const store = storageWith([
+      { id: "m2", category: "main", status: "downloading", downloadTitle: "Game.v2.0-GRP" },
+      { id: "p", category: "update", status: "completed", downloadTitle: "Game.Update.v1.1-GRP" },
+    ]);
+    const main = { id: "m1", gameId: "g1", category: "main", downloadTitle: "Game.v1.0-GRP" };
+    expect(await recordDeliveredVersion(store, main)).toBe(true);
+    expect(recordVersion.mock.calls.map((c) => c[2])).toEqual(["Game.v1.0-GRP"]);
   });
 });
 

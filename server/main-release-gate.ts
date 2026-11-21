@@ -212,6 +212,9 @@ export async function recordDeliveredVersion(
       download.downloadTitle,
       download.category ?? null
     );
+    // The new version may make a patch that was rejected earlier (its base was not installed
+    // yet) eligible: 1.1 to 1.2 finishing before 1.0 to 1.1.
+    await replayPatchVersions(storage, download);
     return true;
   }
   await recordVersionFromCompletedDownload(

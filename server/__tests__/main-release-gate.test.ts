@@ -280,6 +280,27 @@ describe("recordDeliveredVersion", () => {
     expect(recordVersion).not.toHaveBeenCalled();
   });
 
+  it("replays an earlier-rejected patch once another patch advanced the version", async () => {
+    recordVersion.mockReset();
+    const store = withStore([
+      { id: "m", category: "main", status: "completed" },
+      { id: "b", category: "update", status: "completed", downloadTitle: "G.Update.v1.1.to.v1.2" },
+    ]);
+    let installed = "v1.0";
+    store.getGame.mockImplementation(async () => ({
+      status: "owned",
+      installedVersion: installed,
+    }));
+    recordVersion.mockImplementation(async (_s: unknown, _g: string, title: string) => {
+      if (title.endsWith("v1.1")) installed = "v1.1";
+      if (title.endsWith("v1.2")) installed = "v1.2";
+    });
+    const first = { ...patchDownload, id: "a", downloadTitle: "G.Update.v1.0.to.v1.1" };
+    expect(await recordDeliveredVersion(store, first)).toBe(true);
+    expect(installed).toBe("v1.2");
+    recordVersion.mockReset();
+  });
+
   it("replays the patches delivered before the main release", async () => {
     recordVersion.mockClear();
     const store = withStore([

@@ -7,6 +7,7 @@ export const TORRENT_DOWNLOADER_TYPES = [
   "synology",
   "deluge",
   "realdebrid",
+  "torbox",
 ] as const;
 
 export function isUsenetDownloaderType(type: string): boolean {

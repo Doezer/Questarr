@@ -1184,6 +1184,14 @@ export const insertDownloaderSchema = createInsertSchema(downloaders, {
   .refine((data) => !(data.type === "realdebrid" && !data.downloadPath), {
     message: "A staging path is required for Real-Debrid",
     path: ["downloadPath"],
+  })
+  .refine((data) => !(data.type === "torbox" && !data.downloadPath), {
+    message: "A staging path is required for TorBox",
+    path: ["downloadPath"],
+  })
+  .refine((data) => !(data.type === "torbox" && !data.password), {
+    message: "An API key is required for TorBox",
+    path: ["password"],
   });
 
 export const insertGameDownloadSchema = createInsertSchema(gameDownloads).omit({

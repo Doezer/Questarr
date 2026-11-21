@@ -15,7 +15,7 @@ export function recommendationLibrarySignature(
     Pick<Game, "id" | "igdbId" | "status" | "userRating" | "hidden" | "genres" | "themes">
   >
 ): string {
-  const hash = createHash("sha1");
+  const hash = createHash("sha256");
   const rows = games
     .map((g) =>
       [
@@ -28,7 +28,7 @@ export function recommendationLibrarySignature(
         (g.themes ?? []).join("+"),
       ].join("|")
     )
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
   for (const row of rows) hash.update(row).update("\n");
   return hash.digest("hex");
 }
@@ -51,7 +51,7 @@ export async function getCachedRecommendations(
   compute: () => Promise<Array<Record<string, unknown>>>
 ): Promise<Array<Record<string, unknown>>> {
   const hit = cache.get(userId);
-  if (hit && hit.signature === signature && hit.expiresAt > Date.now()) return hit.value;
+  if (hit?.signature === signature && hit.expiresAt > Date.now()) return hit.value;
 
   const value = await compute();
   // An empty list usually means IGDB was unreachable: do not pin it for an hour.

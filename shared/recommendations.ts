@@ -200,7 +200,8 @@ function featureContribution(
     category === "developers"
       ? Math.max(0, ...affinities.map(([, a]) => a)) + negative.reduce((s, [, a]) => s + a, 0)
       : sum / affinities.length;
-  const best = positive.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  positive.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const best = positive[0];
   return {
     value: value * CATEGORY_FACTOR[category],
     reason: best ? { kind, label: best[0] } : null,

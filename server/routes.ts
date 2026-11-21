@@ -3494,7 +3494,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/games/recommendations", igdbRateLimiter, async (req, res) => {
     try {
       const rawLimit = req.query.limit;
-      const parsedLimit = typeof rawLimit === "string" ? parseInt(rawLimit, 10) : NaN;
+      const parsedLimit = typeof rawLimit === "string" ? Number.parseInt(rawLimit, 10) : Number.NaN;
       const limit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(parsedLimit, 50);
       const userId = req.user!.id;
 

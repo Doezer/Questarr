@@ -31,6 +31,8 @@ Pushing to its `main` republishes the store immediately, so do this only when th
 installs of the new entry fail until it does.
 jsDelivr caches branch URLs (`@gh-pages`) for up to 12 hours, so the new version may not show up right away:
 once the store's `Publish store` run is green, check that
-`https://cdn.jsdelivr.net/gh/Doezer/questarr-zimaos-store@gh-pages/index.json` lists NEW, and if it does not, purge
-`https://purge.jsdelivr.net/gh/Doezer/questarr-zimaos-store@gh-pages/index.json` (and `store.json`) before
-treating the update as available.
+`https://cdn.jsdelivr.net/gh/Doezer/questarr-zimaos-store@gh-pages/index.json` lists NEW, and that the compose
+file and metadata files it points to (under `apps/`) also serve NEW. If any is stale, purge the app files first, then
+`index.json` and `store.json`, by swapping `cdn.jsdelivr.net` for `purge.jsdelivr.net` in the same path. Reread each
+URL afterwards: a purge can be throttled, so wait and retry until all of them serve NEW before treating the update
+as available.

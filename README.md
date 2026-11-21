@@ -75,11 +75,11 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 - Sync indexers from [Prowlarr](docs/INDEXERS.md).
 - G4u.to: the site offers an API to VIP members, which can be used in Questarr.
 
-| Indexers                   | Downloaders                                                                             |
-| -------------------------- | --------------------------------------------------------------------------------------- |
+| Indexers                   | Downloaders                                                                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | Torznab protocol (Torrent) | - qBittorent<br>- Transmission<br>- rTorrent<br>- Deluge<br>- Synology Download Station<br>- Real-Debrid ([docs](docs/REAL-DEBRID.md)) |
-| Newznab protocol (Usenet)  | - Sabnzbd<br>- Nzbget                                                                   |
-| G4U.to                     | Same as Newznab                                                                         |
+| Newznab protocol (Usenet)  | - Sabnzbd<br>- Nzbget                                                                                                                  |
+| G4U.to                     | Same as Newznab                                                                                                                        |
 
 ## Installation
 
@@ -209,14 +209,16 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
    that second mount, add a matching entry under **Settings → Path Mappings**.
 
 The store is maintained in [Doezer/questarr-zimaos-store](https://github.com/Doezer/questarr-zimaos-store).
-On older CasaOS releases, use the AppFile below instead.
+On older CasaOS releases (the former name of ZimaOS), use the legacy AppFile below instead.
 
 </details>
 
-### CasaOS
+### CasaOS (legacy)
 
 <details>
 <summary><b>Install via Custom Install (AppFile)</b></summary>
+
+CasaOS is the former name of ZimaOS. Prefer the ZimaOS store above on any current release.
 
 1. Open the **App Store** and click **Custom Install**.
 2. Click the **import** icon (top right) and paste this URL:

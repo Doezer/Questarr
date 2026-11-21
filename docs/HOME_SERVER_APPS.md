@@ -15,12 +15,12 @@ Leave it unmounted if you import manually.
 
 | File                                       | Platform                        |
 | ------------------------------------------ | ------------------------------- |
-| `casaos/docker-compose.yml`                | CasaOS (AppFile)                |
 | `Doezer/questarr-zimaos-store` (own repo)  | ZimaOS (third-party store)      |
 | `umbrel-app-store.yml`, `doezer-questarr/` | Umbrel (community app store)    |
 | `cosmos/questarr.cosmos-compose.json`      | Cosmos Cloud (ServApp)          |
 | `unraid/questarr.xml`                      | Unraid (Community Applications) |
 | `questarr/config.yaml`                     | Home Assistant add-on           |
+| `casaos/docker-compose.yml`                | CasaOS (legacy AppFile)         |
 
 ## ZimaOS
 
@@ -38,9 +38,11 @@ The store pins the image to a Questarr release tag (not `:latest`), so ZimaOS sh
 and offers updates when the store is bumped. Questarr is also proposed to the official ZimaOS store;
 once it is merged there, this section will say so.
 
-## CasaOS
+## CasaOS (legacy)
 
-CasaOS installs custom apps from an AppFile — a Compose file carrying `x-casaos` metadata.
+CasaOS is the former name of ZimaOS: use the [ZimaOS store](#zimaos) on any current release. The
+AppFile below is kept only for installs that still run an older CasaOS and cannot add a store
+source, and it is not updated with each release. It is a Compose file carrying `x-casaos` metadata.
 
 1. Open the **App Store** and click **Custom Install**.
 2. Click the **import** icon (top right) and paste:

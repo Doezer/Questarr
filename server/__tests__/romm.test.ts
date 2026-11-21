@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 
+const repairMock = vi.hoisted(() => ({ preview: vi.fn(), apply: vi.fn() }));
+
 const { store, mockStorage, safeFetchMock } = vi.hoisted(() => {
   const store = new Map<string, string>();
   return {
@@ -27,6 +29,21 @@ vi.mock("../credential-crypto.js", () => ({
   encryptCredential: async (value: string) => `enc:${value}`,
   decryptCredential: async (value: string) => value.replace(/^enc:/, ""),
 }));
+vi.mock("../romm-folder-repair.js", () => {
+  class RommFolderRepairError extends Error {
+    constructor(
+      message: string,
+      readonly status: 400 | 409 = 409
+    ) {
+      super(message);
+    }
+  }
+  return {
+    RommFolderRepairError,
+    previewRommFolderRepair: repairMock.preview,
+    applyRommFolderRepair: repairMock.apply,
+  };
+});
 vi.mock("../middleware.js", () => ({
   sensitiveEndpointLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
@@ -432,5 +449,52 @@ describe("RomM routes", () => {
     safeFetchMock.mockResolvedValueOnce(json({ items: [], total: 0 }));
     const sync = await request(app()).post("/api/settings/romm/sync");
     expect(sync.body.summary.totalRoms).toBe(0);
+  });
+
+  describe("folder repair", () => {
+    it("lists the proposals for the signed-in user", async () => {
+      repairMock.preview.mockResolvedValue([{ gameId: "g1", title: "Pokopia" }]);
+      const res = await request(app()).get("/api/settings/romm/folder-repair");
+      expect(res.status).toBe(200);
+      expect(res.body.proposals).toEqual([{ gameId: "g1", title: "Pokopia" }]);
+      expect(repairMock.preview).toHaveBeenCalledWith("user-1");
+    });
+
+    it("reports a refusal as its own status and any other failure as 500", async () => {
+      const { RommFolderRepairError } = await import("../romm-folder-repair.js");
+      repairMock.preview.mockRejectedValueOnce(new RommFolderRepairError("Turn on folders"));
+      const refused = await request(app()).get("/api/settings/romm/folder-repair");
+      expect(refused.status).toBe(409);
+      expect(refused.body.error).toBe("Turn on folders");
+
+      repairMock.preview.mockRejectedValueOnce(new Error("boom"));
+      expect((await request(app()).get("/api/settings/romm/folder-repair")).status).toBe(500);
+    });
+
+    it("moves only the game ids it is given", async () => {
+      repairMock.apply.mockResolvedValue([{ gameId: "g1", title: "Pokopia", moved: true }]);
+      const res = await request(app())
+        .post("/api/settings/romm/folder-repair")
+        .send({ gameIds: ["g1"] });
+      expect(res.status).toBe(200);
+      expect(res.body.results[0].moved).toBe(true);
+      expect(repairMock.apply).toHaveBeenCalledWith("user-1", ["g1"]);
+    });
+
+    it("rejects an empty list, paths and unknown fields", async () => {
+      for (const body of [{ gameIds: [] }, { gameIds: ["g1"], to: "/etc" }, {}]) {
+        const res = await request(app()).post("/api/settings/romm/folder-repair").send(body);
+        expect(res.status).toBe(400);
+      }
+      expect(repairMock.apply).not.toHaveBeenCalled();
+    });
+
+    it("turns a failed apply into 500", async () => {
+      repairMock.apply.mockRejectedValue(new Error("boom"));
+      const res = await request(app())
+        .post("/api/settings/romm/folder-repair")
+        .send({ gameIds: ["g1"] });
+      expect(res.status).toBe(500);
+    });
   });
 });

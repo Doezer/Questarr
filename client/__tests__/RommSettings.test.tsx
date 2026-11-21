@@ -80,4 +80,91 @@ describe("RommSettings", () => {
       "10 ROMs in RomM: 4 matched, 3 marked as owned"
     );
   });
+
+  describe("folder repair", () => {
+    const proposal = {
+      gameId: "g1",
+      title: "Pokémon Pokopia",
+      from: "/roms/win/Pokopia",
+      to: "/roms/switch-2/Pokopia",
+      currentFolder: "win",
+      expectedFolder: "switch-2",
+      destinationExists: false,
+    };
+    const platformFoldersSaved = { ...saved, platformFolders: true };
+
+    beforeEach(() => {
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
+        const body = getRequestUrl(url).includes("/api/settings/romm") ? platformFoldersSaved : {};
+        return { ok: true, json: async () => body } as Response;
+      });
+    });
+
+    it("needs RomM platform folders to be saved as on", async () => {
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        async () => ({ ok: true, json: async () => saved }) as Response
+      );
+      renderComponent();
+      await screen.findByDisplayValue("http://romm.lan:8080");
+      expect(screen.getByRole("button", { name: /check library folders/i })).toBeDisabled();
+    });
+
+    it("lists the misplaced folders, then moves them after confirmation", async () => {
+      apiRequest.mockImplementation(async (method: string) => ({
+        json: async () =>
+          method === "GET"
+            ? { proposals: [proposal] }
+            : { results: [{ gameId: "g1", title: proposal.title, moved: true }] },
+      }));
+      renderComponent();
+      await screen.findByDisplayValue("http://romm.lan:8080");
+      fireEvent.click(screen.getByRole("button", { name: /check library folders/i }));
+      expect(await screen.findByText("Pokémon Pokopia")).toBeInTheDocument();
+      expect(apiRequest).not.toHaveBeenCalledWith(
+        "POST",
+        "/api/settings/romm/folder-repair",
+        expect.anything()
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /move 1 game$/i }));
+      await waitFor(() =>
+        expect(apiRequest).toHaveBeenCalledWith("POST", "/api/settings/romm/folder-repair", {
+          gameIds: ["g1"],
+        })
+      );
+      expect(await screen.findByText("No misplaced folders found.")).toBeInTheDocument();
+    });
+
+    it("says so when nothing is misplaced", async () => {
+      apiRequest.mockResolvedValue({ json: async () => ({ proposals: [] }) });
+      renderComponent();
+      await screen.findByDisplayValue("http://romm.lan:8080");
+      fireEvent.click(screen.getByRole("button", { name: /check library folders/i }));
+      expect(await screen.findByText("No misplaced folders found.")).toBeInTheDocument();
+    });
+
+    it("keeps a game that could not be moved and shows why", async () => {
+      apiRequest.mockImplementation(async (method: string) => ({
+        json: async () =>
+          method === "GET"
+            ? { proposals: [{ ...proposal, destinationExists: true }] }
+            : {
+                results: [
+                  {
+                    gameId: "g1",
+                    title: proposal.title,
+                    moved: false,
+                    error: "Destination exists",
+                  },
+                ],
+              },
+      }));
+      renderComponent();
+      await screen.findByDisplayValue("http://romm.lan:8080");
+      fireEvent.click(screen.getByRole("button", { name: /check library folders/i }));
+      expect(await screen.findByText(/destination already exists/i)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /move 1 game$/i }));
+      expect(await screen.findByText(/Pokémon Pokopia: Destination exists/)).toBeInTheDocument();
+    });
+  });
 });

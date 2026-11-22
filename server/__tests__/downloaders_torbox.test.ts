@@ -311,4 +311,79 @@ describe("TorBoxClient", () => {
     expect((await client.pauseDownload("7")).success).toBe(false);
     expect((await client.resumeDownload("7")).success).toBe(false);
   });
+  describe("link-only mode", () => {
+    const linkOnly = () =>
+      createDownloader({
+        downloadPath: null,
+        settings: JSON.stringify({ fetchMode: "linkOnly" }),
+      });
+    const ready = (files: Array<{ id: number; name: string; size: number }>) =>
+      torrent({
+        download_state: "cached",
+        download_finished: true,
+        download_present: true,
+        progress: 1,
+        files,
+      });
+
+    it("works without a staging path", async () => {
+      safeFetchMock.mockResolvedValue(reply({ torrent_id: 7 }));
+      const client = new TorBoxClient(linkOnly());
+      expect((await client.addDownload({ url: MAGNET, title: "My Game" })).success).toBe(true);
+      safeFetchMock.mockResolvedValue(reply({}));
+      expect((await client.testConnection()).success).toBe(true);
+    });
+
+    it("reports a ready torrent as completed without copying anything", async () => {
+      safeFetchMock.mockImplementation(async () =>
+        reply(ready([{ id: 1, name: "a.bin", size: 5 }]))
+      );
+      const client = new TorBoxClient(linkOnly());
+      const status = await client.getDownloadStatus("7");
+      expect(status).toMatchObject({ status: "completed", progress: 100, linkOnly: true });
+      // Only the status lookup: no requestdl, no file copy.
+      expect(safeFetchMock).toHaveBeenCalledTimes(1);
+      const details = await client.getDownloadDetails("7");
+      expect(details?.downloadDir).toBeUndefined();
+    });
+
+    it("keeps the local flow when the setting is absent", async () => {
+      const client = new TorBoxClient(createDownloader());
+      safeFetchMock.mockResolvedValue(reply(torrent({ download_state: "downloading" })));
+      expect((await client.getDownloadStatus("7"))?.linkOnly).toBeUndefined();
+    });
+
+    it("requests a direct link for one file and a zip for several", async () => {
+      const client = new TorBoxClient(linkOnly());
+      safeFetchMock.mockImplementation(async (url: string) =>
+        url.includes("/torrents/mylist")
+          ? reply(ready([{ id: 4, name: "a.bin", size: 5 }]))
+          : reply("https://cdn.example/one")
+      );
+      expect(await client.getRemoteDownloadUrl("7")).toBe("https://cdn.example/one");
+      const single = new URL(safeFetchMock.mock.calls.at(-1)?.[0] as string);
+      expect(single.searchParams.get("file_id")).toBe("4");
+      expect(single.searchParams.get("zip_link")).toBeNull();
+
+      safeFetchMock.mockImplementation(async (url: string) =>
+        url.includes("/torrents/mylist")
+          ? reply(
+              ready([
+                { id: 1, name: "a.bin", size: 5 },
+                { id: 2, name: "b.bin", size: 5 },
+              ])
+            )
+          : reply("https://cdn.example/zip")
+      );
+      expect(await client.getRemoteDownloadUrl("7")).toBe("https://cdn.example/zip");
+      const zip = new URL(safeFetchMock.mock.calls.at(-1)?.[0] as string);
+      expect(zip.searchParams.get("zip_link")).toBe("true");
+      expect(zip.searchParams.get("file_id")).toBeNull();
+    });
+
+    it("gives no link while the torrent is not ready", async () => {
+      safeFetchMock.mockResolvedValue(reply(torrent()));
+      expect(await new TorBoxClient(linkOnly()).getRemoteDownloadUrl("7")).toBeNull();
+    });
+  });
 });

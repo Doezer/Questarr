@@ -41,7 +41,7 @@ import {
   resolveUpgradePolicy,
   OWNED_GAME_STATUSES,
 } from "../shared/schema.js";
-import { isUsenetDownloaderType } from "../shared/downloader-types.js";
+import { isLinkOnlyDownloader, isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { parseJsonObject } from "../shared/json-object-utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient, type NewznabResult } from "./newznab.js";
@@ -3878,7 +3878,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(storageCache.data);
       }
 
-      const enabledDownloaders = await storage.getEnabledDownloaders();
+      // Link-only downloaders keep nothing on this server, so there is no space to report.
+      const enabledDownloaders = (await storage.getEnabledDownloaders()).filter(
+        (downloader) => !isLinkOnlyDownloader(downloader)
+      );
       routesLogger.debug(
         { count: enabledDownloaders.length },
         "fetching storage info for downloaders"
@@ -4387,6 +4390,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting download details:", error);
       return res.status(500).json({ error: "Failed to get download details" });
+    }
+  });
+
+  // A fresh download link for a finished link-only download (e.g. TorBox). Requested on
+  // demand, never stored: such links are short-lived.
+  app.get("/api/downloaders/:id/downloads/:downloadId/link", async (req, res) => {
+    try {
+      const { id, downloadId } = req.params as { id: string; downloadId: string };
+      const downloader = await storage.getDownloader(id);
+
+      if (!downloader) {
+        return res.status(404).json({ error: "Downloader not found" });
+      }
+      if (!isLinkOnlyDownloader(downloader)) {
+        return res.status(400).json({ error: "This downloader does not provide download links" });
+      }
+
+      const url = await DownloaderManager.getRemoteDownloadUrl(downloader, downloadId);
+      if (!url) {
+        return res.status(404).json({ error: "No download link is available yet" });
+      }
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ url });
+    } catch (error) {
+      routesLogger.error({ error }, "error getting download link");
+      return res.status(500).json({ error: "Failed to get download link" });
     }
   });
 

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { isLinkOnlyDownloader } from "../../shared/downloader-types.js";
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
 import { downloadersLogger } from "../logger.js";
 import { safeFetch } from "../ssrf.js";
@@ -176,6 +177,31 @@ export class TorBoxClient implements DownloaderClient {
     return data;
   }
 
+  /** Link-only mode: files stay on TorBox and are fetched by the user through a link. */
+  private get linkOnly(): boolean {
+    return isLinkOnlyDownloader(this.downloader);
+  }
+
+  /**
+   * A fresh download link, requested on demand because TorBox links are short-lived: one file's
+   * direct link, or a zip of the whole torrent when it holds several files.
+   */
+  async getRemoteDownloadUrl(id: string): Promise<string | null> {
+    if (!/^[0-9]+$/.test(id)) return null;
+    const torrent = await this.fetchTorrent(id);
+    if (!torrent || !this.isReady(torrent)) return null;
+    const files = torrent.files ?? [];
+    const query: Record<string, string> = {
+      // requestdl takes the key as a query parameter instead of a header.
+      token: this.apiKey(),
+      torrent_id: id,
+    };
+    if (files.length === 1 && files[0]) query.file_id = String(files[0].id);
+    else query.zip_link = "true";
+    const link = await this.call<string>("/torrents/requestdl", undefined, { query });
+    return typeof link === "string" && link.length > 0 ? link : null;
+  }
+
   // -- Staging ------------------------------------------------------------
 
   private stagingRoot(): string {
@@ -275,15 +301,24 @@ export class TorBoxClient implements DownloaderClient {
         error: `TorBox reported status "${torrent.download_state}"`,
       };
     }
-    if (this.isReady(torrent)) return this.stagingStatus(torrent, base, tracked);
+    if (this.isReady(torrent)) {
+      // Link-only: ready on TorBox is as done as it gets, nothing is copied or imported.
+      if (this.linkOnly) return { ...base, status: "completed", progress: 100, linkOnly: true };
+      return this.stagingStatus(torrent, base, tracked);
+    }
     if (state.startsWith("paused")) {
-      return { ...base, status: "paused", progress: Math.min(50, Math.round(percent / 2)) };
+      return {
+        ...base,
+        status: "paused",
+        progress: this.linkOnly ? percent : Math.min(50, Math.round(percent / 2)),
+      };
     }
     return {
       ...base,
       status: "downloading",
-      // TorBox's own phase fills the first half of the bar, local staging the rest.
-      progress: Math.min(50, Math.round(percent / 2)),
+      // TorBox's own phase fills the first half of the bar, local staging the rest (the whole
+      // bar when nothing is staged).
+      progress: this.linkOnly ? percent : Math.min(50, Math.round(percent / 2)),
       downloadSpeed: torrent.download_speed,
       downloaded: Math.round(torrent.size * (torrent.progress ?? 0)),
       eta: torrent.eta && torrent.eta > 0 ? torrent.eta : undefined,
@@ -307,7 +342,7 @@ export class TorBoxClient implements DownloaderClient {
 
   async testConnection(): Promise<DownloaderActionResult> {
     try {
-      this.stagingRoot();
+      if (!this.linkOnly) this.stagingRoot();
       await this.call("/user/me");
       return { success: true, message: "Connected to TorBox" };
     } catch (error) {
@@ -325,7 +360,7 @@ export class TorBoxClient implements DownloaderClient {
 
   async addDownload(request: DownloadRequest): Promise<DownloadResult> {
     try {
-      this.stagingRoot();
+      if (!this.linkOnly) this.stagingRoot();
       const fields: Record<string, string> = { as_queued: "false" };
       let body: FormData;
 
@@ -416,7 +451,7 @@ export class TorBoxClient implements DownloaderClient {
       addedDate: torrent.created_at,
       completedDate: staged ? torrent.updated_at : undefined,
       // Only set once the files are really on disk, so nothing is imported half-copied.
-      downloadDir: staged ? this.stagingDir(String(torrent.id)) : undefined,
+      downloadDir: staged && !this.linkOnly ? this.stagingDir(String(torrent.id)) : undefined,
       files: files.map((file, index) => ({
         name: (resolvedPaths[index] ?? []).join("/"),
         size: file.size,
@@ -489,13 +524,15 @@ export class TorBoxClient implements DownloaderClient {
       // A torrent TorBox no longer has is already gone.
       const gone = reply.status === 404 || NOT_FOUND.test(`${reply.body?.error ?? ""}`);
       if (!reply.body?.success && !gone) throw new Error(this.describeFailure(reply));
-      if (deleteFiles) {
+      if (deleteFiles && !this.linkOnly) {
         await fs.rm(this.stagingDir(id), { recursive: true, force: true });
       }
     });
   }
 
   getFreeSpace(): Promise<number> {
+    // Link-only keeps nothing on this server.
+    if (this.linkOnly) return Promise.resolve(0);
     return stagingFreeSpace(this.stagingRoot());
   }
 

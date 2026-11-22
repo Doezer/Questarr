@@ -32,6 +32,7 @@ import {
   RefreshCw,
   Info,
   Download,
+  Copy,
   Newspaper,
   Tag,
   ScanLine,
@@ -87,6 +88,8 @@ interface DownloadStatus {
   trackedByQuestarr?: boolean;
   gameStatus?: GameStatus;
   downloaderCategory?: string;
+  /** Finished on a cloud client and kept there: fetched through a link, never imported. */
+  linkOnly?: boolean;
 }
 
 interface DownloaderError {
@@ -321,6 +324,48 @@ export default function Downloads() {
       toast({ title: "Failed to remove download", variant: "destructive" });
     },
   });
+
+  const [linkBusyId, setLinkBusyId] = useState<string | null>(null);
+
+  // Links are short-lived, so one is requested each time rather than stored.
+  const requestDownloadLink = async (download: DownloadStatus): Promise<string | null> => {
+    setLinkBusyId(download.id);
+    try {
+      const res = await apiFetch(
+        `/api/downloaders/${download.downloaderId}/downloads/${encodeURIComponent(download.id)}/link`
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not get a download link");
+      }
+      return ((await res.json()) as { url: string }).url;
+    } catch (error) {
+      toast({
+        title: "Download link unavailable",
+        description: error instanceof Error ? error.message : "Could not get a download link",
+        variant: "destructive",
+      });
+      return null;
+    } finally {
+      setLinkBusyId(null);
+    }
+  };
+
+  const handleOpenLink = async (download: DownloadStatus) => {
+    const url = await requestDownloadLink(download);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleCopyLink = async (download: DownloadStatus) => {
+    const url = await requestDownloadLink(download);
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Link copied", description: "The download link is on your clipboard." });
+    } catch {
+      toast({ title: "Copy failed", description: url });
+    }
+  };
 
   const handlePause = (download: DownloadStatus) => {
     pauseMutation.mutate({
@@ -885,28 +930,54 @@ export default function Downloads() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span data-testid={`text-progress-label-${download.id}`}>Progress</span>
-                    <span data-testid={`text-progress-value-${download.id}`}>
-                      {download.progress.toFixed(1)}%
-                    </span>
-                  </div>
-                  <Progress
-                    value={download.progress}
-                    className="h-2"
-                    aria-label={`Download progress: ${download.progress.toFixed(1)}%`}
-                    data-testid={`progress-bar-${download.id}`}
-                  />
-                  {download.error && (
-                    <div
-                      className="text-sm text-destructive mt-2"
-                      data-testid={`text-error-${download.id}`}
+                {download.linkOnly && download.status === "completed" ? (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      className="min-h-11 flex-1 sm:flex-none"
+                      onClick={() => handleOpenLink(download)}
+                      disabled={linkBusyId === download.id}
+                      aria-label={`Download ${download.name || "files"} from the cloud`}
+                      data-testid={`button-download-link-${download.id}`}
                     >
-                      Error: {download.error}
+                      <Download className="h-4 w-4 mr-2" />
+                      Download
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="min-h-11 flex-1 sm:flex-none"
+                      onClick={() => handleCopyLink(download)}
+                      disabled={linkBusyId === download.id}
+                      aria-label={`Copy download link for ${download.name || "files"}`}
+                      data-testid={`button-copy-link-${download.id}`}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy link
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span data-testid={`text-progress-label-${download.id}`}>Progress</span>
+                      <span data-testid={`text-progress-value-${download.id}`}>
+                        {download.progress.toFixed(1)}%
+                      </span>
                     </div>
-                  )}
-                </div>
+                    <Progress
+                      value={download.progress}
+                      className="h-2"
+                      aria-label={`Download progress: ${download.progress.toFixed(1)}%`}
+                      data-testid={`progress-bar-${download.id}`}
+                    />
+                    {download.error && (
+                      <div
+                        className="text-sm text-destructive mt-2"
+                        data-testid={`text-error-${download.id}`}
+                      >
+                        Error: {download.error}
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))

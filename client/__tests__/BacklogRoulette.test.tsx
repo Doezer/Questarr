@@ -163,21 +163,74 @@ describe("Backlog roulette", () => {
     expect(save).toHaveBeenCalledTimes(2);
   });
 
-  it("rejects the biased tail of a random uint32 draw", () => {
-    vi.mocked(crypto.getRandomValues).mockImplementationOnce((array) => {
+  it("maps the top of the random range to the last game", () => {
+    vi.mocked(crypto.getRandomValues).mockImplementation((array) => {
       if (array instanceof Uint32Array) array[0] = 2 ** 32 - 1;
       return array;
     });
+    render(<BacklogRoulette games={[game("a"), game("b"), game("c")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest c");
+  });
+
+  it("does not offer a skipped game again until the draw runs dry", () => {
+    render(<BacklogRoulette games={[game("a"), game("b"), game("c")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    const seen: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      seen.push(screen.getByTestId("roulette-title").textContent ?? "");
+      fireEvent.click(screen.getByRole("button", { name: "Roll again" }));
+    }
+    expect(new Set(seen).size).toBe(3);
+  });
+
+  it("favours quick wins when asked", async () => {
     render(
       <BacklogRoulette
-        games={[game("a"), game("b"), game("c")]}
+        games={[
+          { ...game("long"), timeToBeatNormally: 90 },
+          { ...game("quick"), timeToBeatNormally: 1 },
+        ]}
         loading={false}
-        onStartPlaying={vi.fn()}
       />
     );
     fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
-    expect(crypto.getRandomValues).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest a");
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Favour" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "Quick wins" }));
+    // Halfway through the cumulative weights is still inside the quick game (~99% of the weight).
+    vi.mocked(crypto.getRandomValues).mockImplementation((array) => {
+      if (array instanceof Uint32Array) array[0] = Math.floor(0.5 * 2 ** 32);
+      return array;
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Roll again" }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest quick");
+  });
+
+  it("filters by installed games and snoozes a game with Not now", async () => {
+    localStorage.clear();
+    render(
+      <BacklogRoulette
+        games={[
+          game("a"),
+          { ...game("b"), libraryPath: "/games/b" },
+          { ...game("c"), libraryPath: "/games/c" },
+        ]}
+        loading={false}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Only installed games" }));
+    expect(screen.getByText("Chosen from 2 matching games.")).toBeVisible();
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest b");
+    fireEvent.click(screen.getByRole("button", { name: /Not now/ }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest c");
+    expect(screen.getByText("Chosen from 1 matching game.")).toBeVisible();
+    expect(JSON.parse(localStorage.getItem("questarr:roulette-snoozed") ?? "{}")).toHaveProperty(
+      "b"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Bring them back" }));
+    expect(screen.getByText("Chosen from 2 matching games.")).toBeVisible();
+    localStorage.clear();
   });
 
   it("draws within the completion budget and keeps unknown lengths in Any length", async () => {

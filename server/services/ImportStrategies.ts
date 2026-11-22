@@ -342,9 +342,12 @@ async function removeSourceUnlessNested(source: string, destination: string): Pr
   const resolvedSource = path.resolve(source);
   const resolvedDestination = path.resolve(destination);
   const destinationInsideSource = resolvedDestination.startsWith(resolvedSource + path.sep);
-  if (resolvedSource !== resolvedDestination && !destinationInsideSource) {
-    await fs.remove(source).catch(() => undefined);
-  }
+  if (resolvedSource === resolvedDestination || destinationInsideSource) return;
+  // Re-checked here, at the point of deletion, rather than relying only on the check made
+  // when the import was planned: the tree has been moved since, and a recursive delete of a
+  // system directory must never be possible from this helper.
+  if (await isSensitivePath(resolvedSource)) return;
+  await fs.remove(resolvedSource).catch(() => undefined);
 }
 
 // Hardlinks can't target a directory as one call, and excluding specific

@@ -206,6 +206,18 @@ describe("Backlog roulette", () => {
     expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest quick");
   });
 
+  it("keeps games snoozed in an earlier visit out of the opening draw", () => {
+    localStorage.setItem(
+      "questarr:roulette-snoozed",
+      JSON.stringify({ a: Date.now() + 86_400_000 })
+    );
+    render(<BacklogRoulette games={[game("a"), game("b")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest b");
+    expect(screen.getByText("Chosen from 1 matching game.")).toBeVisible();
+    localStorage.clear();
+  });
+
   it("filters by installed games and snoozes a game with Not now", async () => {
     localStorage.clear();
     render(

@@ -43,6 +43,9 @@ interface DrawOverrides {
   genre?: string;
   platform?: string;
   installedOnly?: boolean;
+  /** Fresh values for state that was just set and is not visible to this render yet. */
+  snoozed?: Record<string, number>;
+  skipped?: Set<string>;
 }
 
 type Pool = "owned" | "playing" | "all";
@@ -143,7 +146,8 @@ export default function BacklogRoulette({
     return filterRouletteGames(games, filters).filter(
       (game) =>
         // While a tag's games are unavailable the draw is empty rather than unfiltered.
-        (tagId === "all" || tagGameIds?.has(game.id) === true) && !((snoozed[game.id] ?? 0) > now)
+        (tagId === "all" || tagGameIds?.has(game.id) === true) &&
+        !(((overrides.snoozed ?? snoozed)[game.id] ?? 0) > now)
     );
   }
   const candidates = eligibleGames(pool, maxHours);
@@ -167,7 +171,7 @@ export default function BacklogRoulette({
     skipCurrent = true
   ) {
     const eligible = eligibleGames(nextPool, nextMaxHours, overrides);
-    const skipped = new Set(skippedIds);
+    const skipped = new Set(overrides.skipped ?? skippedIds);
     if (skipCurrent && selectedId) skipped.add(selectedId);
     let choices = eligible.filter((game) => !skipped.has(game.id));
     if (!choices.length) {
@@ -227,9 +231,9 @@ export default function BacklogRoulette({
         onOpenChange={(value) => {
           if (starting) return;
           if (value) {
-            setSnoozed(loadSnoozed());
-            setSkippedIds(new Set());
-            roll(pool, maxHours, {}, false);
+            const freshSnoozed = loadSnoozed();
+            setSnoozed(freshSnoozed);
+            roll(pool, maxHours, { snoozed: freshSnoozed, skipped: new Set() }, false);
           }
           setOpen(value);
         }}
@@ -495,7 +499,7 @@ export default function BacklogRoulette({
                 className="underline underline-offset-2 hover:text-foreground"
                 onClick={() => {
                   clearSnoozed();
-                  roll(pool, maxHours, {}, false);
+                  roll(pool, maxHours, { snoozed: {} }, false);
                 }}
               >
                 Bring them back

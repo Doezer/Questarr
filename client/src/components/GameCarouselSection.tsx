@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo } from "react";
+import React, { useState, useEffect, memo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ import { type GameStatus } from "./StatusBadge";
 
 interface GameCarouselSectionProps {
   title: string;
+  /** Short line under the title, e.g. to say where the row comes from. */
+  subtitle?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   queryKey: any[];
   queryFn: () => Promise<Game[]>;
@@ -26,6 +28,10 @@ interface GameCarouselSectionProps {
   onTrackGame?: (game: Game) => void;
   onToggleHidden?: (gameId: string, hidden: boolean) => void;
   isDiscovery?: boolean;
+  /** Extra line under each card (e.g. why a game is recommended). */
+  renderCaption?: (game: Game) => ReactNode;
+  /** Render nothing, instead of an empty-state box, when the section has no games. */
+  hideWhenEmpty?: boolean;
 }
 
 // ⚡ Bolt: Using React.memo to prevent this component from re-rendering if its props
@@ -33,6 +39,7 @@ interface GameCarouselSectionProps {
 // functions (via useCallback), preventing unnecessary re-renders for the entire section.
 const GameCarouselSection = ({
   title,
+  subtitle,
   queryKey,
   queryFn,
   staleTime,
@@ -41,6 +48,8 @@ const GameCarouselSection = ({
   onTrackGame,
   onToggleHidden,
   isDiscovery = true,
+  renderCaption,
+  hideWhenEmpty = false,
 }: GameCarouselSectionProps) => {
   const [api, setApi] = useState<CarouselApi>();
   const [canScrollPrev, setCanScrollPrev] = useState(false);
@@ -121,6 +130,7 @@ const GameCarouselSection = ({
   }
 
   if (games.length === 0) {
+    if (hideWhenEmpty) return null;
     return (
       <div
         className="space-y-4"
@@ -143,7 +153,17 @@ const GameCarouselSection = ({
       data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, "-")}`}
     >
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">{title}</h2>
+        <div>
+          <h2 className="text-xl font-semibold">{title}</h2>
+          {subtitle && (
+            <p
+              className="text-sm text-muted-foreground"
+              data-testid={`carousel-subtitle-${title.toLowerCase().replace(/\s+/g, "-")}`}
+            >
+              {subtitle}
+            </p>
+          )}
+        </div>
         <div className="flex gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -235,14 +255,19 @@ const GameCarouselSection = ({
                 key={game.id}
                 className="pl-4 basis-1/3 sm:basis-1/5 md:basis-1/6 lg:basis-[12.5%] xl:basis-[10%]"
               >
-                <GameCard
-                  game={game}
-                  onStatusChange={onStatusChange}
-                  onViewDetails={onViewDetails}
-                  onTrackGame={onTrackGame}
-                  onToggleHidden={onToggleHidden}
-                  isDiscovery={isDiscovery}
-                />
+                <div className={renderCaption ? "flex h-full flex-col" : "h-full"}>
+                  <div className="min-h-0 flex-1">
+                    <GameCard
+                      game={game}
+                      onStatusChange={onStatusChange}
+                      onViewDetails={onViewDetails}
+                      onTrackGame={onTrackGame}
+                      onToggleHidden={onToggleHidden}
+                      isDiscovery={isDiscovery}
+                    />
+                  </div>
+                  {renderCaption?.(game)}
+                </div>
               </CarouselItem>
             ))}
           </CarouselContent>

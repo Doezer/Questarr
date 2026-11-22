@@ -27,6 +27,23 @@ import { Rss } from "lucide-react";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { ACQUIRED_GAME_STATUSES, type Game, type Config, type UserSettings } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
+import type { Recommendation } from "@shared/recommendations";
+import { primaryRecommendationReason } from "@/lib/recommendation-reasons";
+
+type RecommendedGame = Game & { recommendation?: Recommendation };
+
+// The recommendations row lives under the "/api/games" key prefix, so every library mutation that
+// invalidates ["/api/games"] also refreshes it.
+const RECOMMENDATIONS_QUERY_KEY = ["/api/games", "recommendations"] as const;
+
+/** Cached carousels holding discovery games: the IGDB lists and the recommendations row. */
+function isDiscoveryGamesQuery(queryKey: readonly unknown[]): boolean {
+  const [first, second] = queryKey;
+  return (
+    (typeof first === "string" && first.startsWith("/api/igdb/")) ||
+    (first === RECOMMENDATIONS_QUERY_KEY[0] && second === RECOMMENDATIONS_QUERY_KEY[1])
+  );
+}
 
 const EMPTY_GAMES: Game[] = [];
 
@@ -411,9 +428,7 @@ export default function DiscoverPage() {
 
         const allQueries = queryClient.getQueriesData<Game[]>({
           predicate: (query) => {
-            const key = query.queryKey[0] as string;
-
-            return key.startsWith("/api/igdb/");
+            return isDiscoveryGamesQuery(query.queryKey);
           },
         });
 
@@ -457,11 +472,7 @@ export default function DiscoverPage() {
           // Search in all cached query data
 
           const allQueries = queryClient.getQueriesData<Game[]>({
-            predicate: (query) => {
-              const key = query.queryKey[0] as string;
-
-              return key.startsWith("/api/igdb/");
-            },
+            predicate: (query) => isDiscoveryGamesQuery(query.queryKey),
           });
 
           for (const [, data] of allQueries) {
@@ -493,6 +504,24 @@ export default function DiscoverPage() {
     const games = await response.json();
     return filterGames(games);
   }, [filterGames]);
+
+  const fetchRecommendedGames = useCallback(async (): Promise<Game[]> => {
+    const response = await apiRequest("GET", "/api/games/recommendations?limit=20");
+    const games = await response.json();
+    return filterGames(games);
+  }, [filterGames]);
+
+  const renderRecommendationCaption = useCallback((game: Game) => {
+    const reason = primaryRecommendationReason((game as RecommendedGame).recommendation);
+    return reason ? (
+      <p
+        className="mt-1 line-clamp-2 text-xs text-muted-foreground"
+        data-testid={`recommendation-reason-${game.id}`}
+      >
+        {reason}
+      </p>
+    ) : null;
+  }, []);
 
   const fetchRecentGames = useCallback(async (): Promise<Game[]> => {
     const response = await apiRequest("GET", "/api/igdb/recent?limit=20");
@@ -606,6 +635,21 @@ export default function DiscoverPage() {
               onHideOwnedChange={setHideOwned}
               hideWanted={hideWanted}
               onHideWantedChange={setHideWanted}
+            />
+
+            {/* Recommended for you: only shown once the library says something about the taste */}
+            <GameCarouselSection
+              title="Recommended for You"
+              subtitle="Picked by Questarr from your own library, not an IGDB list"
+              queryKey={[...RECOMMENDATIONS_QUERY_KEY, ...carouselFilterKey]}
+              queryFn={fetchRecommendedGames}
+              staleTime={DISCOVERY_STALE_TIME}
+              onStatusChange={handleStatusChange}
+              onTrackGame={handleTrackGame}
+              onToggleHidden={handleToggleHidden}
+              isDiscovery={true}
+              renderCaption={renderRecommendationCaption}
+              hideWhenEmpty
             />
 
             {/* Popular Games Section */}

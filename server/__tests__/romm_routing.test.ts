@@ -139,6 +139,23 @@ describe("RomM platform folders in the naming preview", () => {
   });
 });
 
+describe("game platform ids", () => {
+  it("reads ids, numeric strings, names and objects, and ignores the rest", () => {
+    const manager = new ImportManager(
+      {} as never, // NOSONAR
+      {} as never, // NOSONAR
+      {} as never, // NOSONAR
+      {} as never // NOSONAR
+    );
+    expect(
+      manager.getGamePlatformIds({
+        platforms: [6, "130", "Nintendo Switch 2", { id: 19 }, { id: "20" }, "unknown", null],
+      })
+    ).toEqual([6, 130, 508, 19, 20]);
+    expect(manager.getGamePlatformIds({ platforms: undefined })).toEqual([]);
+  });
+});
+
 describe("RomM platform table", () => {
   it("uses RomM's universal slugs, which differ from IGDB's for a few platforms", () => {
     expect(ROMM_SLUG_BY_IGDB_PLATFORM_ID[7]).toBe("psx");

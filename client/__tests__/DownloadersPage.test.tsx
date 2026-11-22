@@ -349,6 +349,78 @@ describe("DownloadersPage", () => {
       expect(dialog.queryByTestId("input-downloader-path")).not.toBeInTheDocument();
     });
 
+    it("refuses to convert a downloader to TorBox without a new API key", async () => {
+      const dialog = within(
+        await openEditDialog(makeDownloader({ id: "qb", type: "qbittorrent", port: 8080 }))
+      );
+
+      const typeSelect = dialog.getByRole("option", { name: "TorBox" })
+        .parentElement as HTMLSelectElement;
+      fireEvent.change(typeSelect, { target: { value: "torbox" } });
+      fireEvent.click(dialog.getByTestId("button-save-downloader"));
+
+      expect(await dialog.findByText("An API key is required for TorBox")).toBeInTheDocument();
+      expect(requestsTo("PATCH", "/api/downloaders/qb")).toHaveLength(0);
+    });
+
+    it("tests the saved TorBox key when the dialog still holds the masked password", async () => {
+      const dialog = within(
+        await openEditDialog(
+          makeDownloader({
+            id: "tb",
+            type: "torbox",
+            password: "********",
+            downloadPath: "/staging",
+          })
+        )
+      );
+
+      fireEvent.click(dialog.getByTestId("button-test-connection-dialog"));
+
+      await waitFor(() => expect(requestsTo("POST", "/api/downloaders/tb/test")).toHaveLength(1));
+      expect(requestsTo("POST", "/api/downloaders/test")).toHaveLength(0);
+    });
+
+    it("refuses to convert a downloader to TorBox when the masked password is still set", async () => {
+      const dialog = within(
+        await openEditDialog(
+          makeDownloader({
+            id: "tr",
+            type: "transmission",
+            port: 9091,
+            password: "********",
+            downloadPath: "/staging",
+          })
+        )
+      );
+
+      const typeSelect = dialog.getByRole("option", { name: "TorBox" })
+        .parentElement as HTMLSelectElement;
+      fireEvent.change(typeSelect, { target: { value: "torbox" } });
+      fireEvent.click(dialog.getByTestId("button-save-downloader"));
+
+      expect(await dialog.findByText("An API key is required for TorBox")).toBeInTheDocument();
+      expect(requestsTo("PATCH", "/api/downloaders/tr")).toHaveLength(0);
+    });
+
+    it("clears the carried-over password when the type changes and restores it on return", async () => {
+      const dialog = within(
+        await openEditDialog(
+          makeDownloader({ id: "tr", type: "transmission", port: 9091, password: "********" })
+        )
+      );
+      const password = dialog.getByTestId("input-downloader-password");
+      expect(password).toHaveValue("********");
+
+      const typeSelect = dialog.getByRole("option", { name: "TorBox" })
+        .parentElement as HTMLSelectElement;
+      fireEvent.change(typeSelect, { target: { value: "torbox" } });
+      expect(dialog.getByTestId("input-downloader-password")).toHaveValue("");
+
+      fireEvent.change(typeSelect, { target: { value: "transmission" } });
+      expect(dialog.getByTestId("input-downloader-password")).toHaveValue("********");
+    });
+
     it("qBittorrent stores the chosen initial state in the settings JSON", async () => {
       downloaders = [makeDownloader({ id: "qb", name: "qBit", type: "qbittorrent", port: 8080 })];
       renderPage();

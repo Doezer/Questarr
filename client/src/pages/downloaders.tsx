@@ -44,6 +44,14 @@ import { getDownloadTypeColor } from "@/lib/downloads-utils";
 import PageHeader from "@/components/PageHeader";
 
 const REAL_DEBRID_API_URL = "https://api.real-debrid.com";
+const TORBOX_API_URL = "https://api.torbox.app";
+
+/** Cloud services have one fixed endpoint: no host or port to enter. */
+function getFixedEndpoint(type: string): string | undefined {
+  if (type === "realdebrid") return REAL_DEBRID_API_URL;
+  if (type === "torbox") return TORBOX_API_URL;
+  return undefined;
+}
 /** What the server echoes back instead of a stored password; sending it means "unchanged". */
 const SAVED_PASSWORD_PLACEHOLDER = "********";
 
@@ -54,6 +62,7 @@ const downloaderTypes = [
   { value: "synology", label: "Synology Download Station", protocol: "torrent" },
   { value: "deluge", label: "Deluge", protocol: "torrent" },
   { value: "realdebrid", label: "Real-Debrid", protocol: "torrent" },
+  { value: "torbox", label: "TorBox", protocol: "torrent" },
   { value: "sabnzbd", label: "SABnzbd", protocol: "usenet" },
   { value: "nzbget", label: "NZBGet", protocol: "usenet" },
 ] as const;
@@ -548,6 +557,8 @@ export default function DownloadersPage() {
   });
 
   const isRealDebrid = form.watch("type") === "realdebrid";
+  const isTorBox = form.watch("type") === "torbox";
+  const isCloud = isRealDebrid || isTorBox;
 
   const onSubmit = (data: InsertDownloader) => {
     if (editingDownloader) {
@@ -561,6 +572,19 @@ export default function DownloadersPage() {
           // Converting from another client: never let its old password become the token.
           update.password = "";
         }
+      }
+      if (
+        isTorBox &&
+        editingDownloader.type !== "torbox" &&
+        (!update.password || update.password === SAVED_PASSWORD_PLACEHOLDER)
+      ) {
+        // Converting from another client: its old password must never become the API key (it
+        // would be sent to TorBox). Ask for a real key instead of saving.
+        form.setError("password", {
+          type: "required",
+          message: "An API key is required for TorBox",
+        });
+        return;
       }
       updateMutation.mutate({ id: editingDownloader.id, data: update });
     } else {
@@ -856,24 +880,36 @@ export default function DownloadersPage() {
                             previousType,
                             useSsl
                           );
-                          // Real-Debrid forces SSL on and leaving it forces SSL off, so the
+                          // A cloud service forces SSL on and leaving it forces SSL off, so the
                           // default port must follow the resulting setting.
-                          const resultingSsl =
-                            nextType === "realdebrid"
-                              ? true
-                              : previousType === "realdebrid"
-                                ? false
-                                : useSsl;
+                          const nextEndpoint = getFixedEndpoint(nextType);
+                          const resultingSsl = nextEndpoint
+                            ? true
+                            : getFixedEndpoint(previousType)
+                              ? false
+                              : useSsl;
                           const nextDefaultPort = getDefaultDownloaderPort(nextType, resultingSsl);
 
                           field.onChange(nextType);
 
-                          // Real-Debrid is a fixed cloud endpoint: no host or port to enter.
-                          if (nextType === "realdebrid") {
-                            form.setValue("url", REAL_DEBRID_API_URL);
+                          // Another client's password must never become this one's credential (a
+                          // TorBox API key is sent to api.torbox.app, also by Test Connection).
+                          // Going back to the edited downloader's own type restores its saved value.
+                          if (nextType !== previousType) {
+                            form.setValue(
+                              "password",
+                              editingDownloader && nextType === editingDownloader.type
+                                ? (editingDownloader.password ?? "")
+                                : ""
+                            );
+                          }
+
+                          // Cloud services are fixed endpoints: no host or port to enter.
+                          if (nextEndpoint) {
+                            form.setValue("url", nextEndpoint);
                             form.setValue("useSsl", true);
                             form.setValue("port", undefined);
-                          } else if (previousType === "realdebrid") {
+                          } else if (getFixedEndpoint(previousType)) {
                             form.setValue("url", "");
                             form.setValue("useSsl", false);
                           }
@@ -917,7 +953,7 @@ export default function DownloadersPage() {
                     </FormItem>
                   )}
                 />
-                {!isRealDebrid && (
+                {!isCloud && (
                   <>
                     <FormField
                       control={form.control}
@@ -1170,7 +1206,8 @@ export default function DownloadersPage() {
                           form.watch("type") === "synology" ||
                           form.watch("type") === "qbittorrent" ||
                           form.watch("type") === "transmission" ||
-                          form.watch("type") === "nzbget"
+                          form.watch("type") === "nzbget" ||
+                          isTorBox
                         }
                       >
                         {form.watch("type") === "qbittorrent" ||
@@ -1178,15 +1215,21 @@ export default function DownloadersPage() {
                         form.watch("type") === "nzbget" ||
                         form.watch("type") === "synology"
                           ? "Password"
-                          : isRealDebrid
-                            ? "Private API token (optional)"
-                            : "Password (Optional)"}
+                          : isTorBox
+                            ? "API key"
+                            : isRealDebrid
+                              ? "Private API token (optional)"
+                              : "Password (Optional)"}
                       </RequiredFormLabel>
                       <FormControl>
                         <Input
                           type="password"
                           placeholder={
-                            isRealDebrid ? "Only if not using Connect" : "Enter password"
+                            isTorBox
+                              ? "TorBox API key"
+                              : isRealDebrid
+                                ? "Only if not using Connect"
+                                : "Enter password"
                           }
                           {...field}
                           value={field.value || ""}
@@ -1220,14 +1263,14 @@ export default function DownloadersPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          {isRealDebrid ? "Staging Path" : "Download Path (Optional)"}
+                          {isCloud ? "Staging Path" : "Download Path (Optional)"}
                         </FormLabel>
                         <FormControl>
                           <Input
                             placeholder={
                               form.watch("type") === "synology"
                                 ? "video/downloads"
-                                : isRealDebrid
+                                : isCloud
                                   ? "/data/debrid-staging"
                                   : "/home/downloads/games"
                             }
@@ -1236,10 +1279,11 @@ export default function DownloadersPage() {
                             data-testid="input-downloader-path"
                           />
                         </FormControl>
-                        {isRealDebrid && (
+                        {isCloud && (
                           <FormDescription className="text-xs">
-                            Required. Completed files are copied here from Real-Debrid, then
-                            imported like any other download.
+                            Required. Completed files are copied here from{" "}
+                            {isTorBox ? "TorBox" : "Real-Debrid"}, then imported like any other
+                            download.
                           </FormDescription>
                         )}
                         {form.watch("type") === "synology" && (
@@ -1485,11 +1529,11 @@ export default function DownloadersPage() {
                     }
 
                     const formData = form.getValues();
-                    // A connected Real-Debrid account lives server-side only: test the saved
+                    // A saved Real-Debrid account or TorBox key lives server-side only: test the saved
                     // downloader (which has the OAuth tokens) unless a token was typed in.
                     if (
-                      editingDownloader?.type === "realdebrid" &&
-                      isRealDebrid &&
+                      ((editingDownloader?.type === "realdebrid" && isRealDebrid) ||
+                        (editingDownloader?.type === "torbox" && isTorBox)) &&
                       (!formData.password || formData.password === SAVED_PASSWORD_PLACEHOLDER)
                     ) {
                       testConnectionMutation.mutate({ id: editingDownloader.id });

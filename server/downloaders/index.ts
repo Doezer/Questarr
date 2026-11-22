@@ -8,3 +8,4 @@ export { NZBGetClient } from "./nzbget.js";
 export { SynologyDownloadStationClient } from "./synology.js";
 export { DelugeClient } from "./deluge.js";
 export { RealDebridClient } from "./realdebrid.js";
+export { TorBoxClient } from "./torbox.js";

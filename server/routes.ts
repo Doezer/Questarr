@@ -340,6 +340,12 @@ import {
   type XrelPredbTypes,
 } from "./xrel-predb.js";
 import { evaluateReleases } from "../shared/release-scoring.js";
+import { buildTasteProfile, rankRecommendations, topFeatures } from "../shared/recommendations.js";
+import {
+  MAX_RECOMMENDATIONS,
+  getCachedRecommendations,
+  recommendationLibrarySignature,
+} from "./recommendations-cache.js";
 import { collectionRoutes } from "./collection-routes.js";
 import { gameJournalRoutes, screenshotDirForGame } from "./game-journal-routes.js";
 import { playSessionRoutes } from "./play-session-routes.js";
@@ -3481,6 +3487,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "error getting game recommendations");
       res.status(500).json({ error: "Failed to get recommendations" });
+    }
+  });
+
+  // Library-driven recommendations ("Recommended for you"), each with the reasons behind it.
+  app.get("/api/games/recommendations", igdbRateLimiter, async (req, res) => {
+    try {
+      const rawLimit = req.query.limit;
+      const parsedLimit = typeof rawLimit === "string" ? Number.parseInt(rawLimit, 10) : Number.NaN;
+      const limit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(parsedLimit, 50);
+      const userId = req.user!.id;
+
+      const userGames = await storage.getUserGames(userId, true);
+      const profile = buildTasteProfile(
+        userGames
+          .filter((g) => !g.hidden)
+          .map((g) => ({
+            igdbId: g.igdbId,
+            title: g.title,
+            status: g.status,
+            userRating: g.userRating,
+            genres: g.genres,
+            themes: g.themes,
+            developers: g.developers,
+            gameModes: g.gameModes,
+          }))
+      );
+      // Nothing to learn from yet: the Discover page keeps its generic rows.
+      if (profile.empty) {
+        res.set("Cache-Control", CC_NO_STORE);
+        return res.json([]);
+      }
+
+      // Every game already in the library (owned, wishlisted or hidden) is never recommended.
+      const excludeIgdbIds = new Set<number>();
+      for (const g of userGames) if (g.igdbId != null) excludeIgdbIds.add(g.igdbId);
+
+      const signature = recommendationLibrarySignature(userGames);
+      const formatted = await getCachedRecommendations(userId, signature, async () => {
+        const candidates = await igdbClient.getRecommendationCandidates({
+          anchorIgdbIds: profile.anchors.map((a) => a.igdbId),
+          genres: topFeatures(profile, "genres", 3),
+          themes: topFeatures(profile, "themes", 3),
+          developers: topFeatures(profile, "developers", 3),
+          excludeIgdbIds: [...excludeIgdbIds],
+        });
+        const similarTo = new Map(candidates.map((c) => [c.game.id, c.similarTo]));
+        const ranked = rankRecommendations(
+          candidates.map(({ game }) => ({
+            igdbId: game.id,
+            title: game.name,
+            genres: game.genres?.map((x) => x.name),
+            themes: game.themes?.map((x) => x.name),
+            developers: game.involved_companies
+              ?.filter((c) => c.developer)
+              .map((c) => c.company.name),
+            gameModes: game.game_modes?.map((x) => x.name),
+            aggregatedRating: game.aggregated_rating,
+            similarToIgdbIds: similarTo.get(game.id),
+            game,
+          })),
+          profile,
+          { excludeIgdbIds, limit: MAX_RECOMMENDATIONS }
+        );
+        return ranked.map(({ candidate, recommendation }) => ({
+          ...igdbClient.formatGameData(candidate.game),
+          recommendation,
+        }));
+      });
+
+      const flags = await getContentFilterFlags(userId);
+      const visible = excludeFilteredContent(formatted, flags).slice(0, limit);
+      res.set("Cache-Control", CC_NO_STORE);
+      return res.json(visible);
+    } catch (error) {
+      routesLogger.error({ error }, "error getting library recommendations");
+      return res.status(500).json({ error: "Failed to get recommendations" });
     }
   });
 

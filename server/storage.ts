@@ -2149,6 +2149,7 @@ export class MemStorage implements IStorage {
       errorMessage: null,
       type: feed.type || "custom",
       enabled: feed.enabled ?? true,
+      extractLinks: feed.extractLinks ?? false,
       mapping: feed.mapping || null,
     };
     this.rssFeeds.set(id, newFeed);
@@ -2192,6 +2193,7 @@ export class MemStorage implements IStorage {
       igdbGameId: item.igdbGameId ?? null,
       igdbGameName: item.igdbGameName ?? null,
       coverUrl: item.coverUrl ?? null,
+      links: item.links ?? null,
       pubDate: item.pubDate ?? null,
       sourceName: item.sourceName ?? null,
     };

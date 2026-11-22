@@ -55,22 +55,20 @@ export interface SteamAchievementsResult {
 export class SteamAchievementsUnavailableError extends Error {}
 export class SteamAchievementsBusyError extends Error {}
 
-const key = (userId: string) => `steam.achievements.${userId}`;
 const running = new Set<string>();
 
+/** The user's saved switch and last-run status, read leniently: damaged JSON means defaults. */
 async function readState(userId: string): Promise<State> {
-  const raw = await storage.getSystemConfig(key(userId));
-  if (!raw) return stateSchema.parse({});
+  const raw = await storage.getSystemConfig(`steam.achievements.${userId}`);
   try {
-    return stateSchema.parse(JSON.parse(raw));
+    return stateSchema.parse(raw ? JSON.parse(raw) : {});
   } catch {
     return stateSchema.parse({});
   }
 }
 
-async function writeState(userId: string, state: State): Promise<void> {
-  await storage.setSystemConfig(key(userId), JSON.stringify(state));
-}
+const writeState = (userId: string, state: State) =>
+  storage.setSystemConfig(`steam.achievements.${userId}`, JSON.stringify(state));
 
 export async function getSteamAchievementsStatus(userId: string): Promise<SteamAchievementsStatus> {
   const [state, user] = await Promise.all([readState(userId), storage.getUser(userId)]);

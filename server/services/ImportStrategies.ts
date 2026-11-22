@@ -352,11 +352,16 @@ async function removeSourceUnlessNested(
   // system directory must never be possible from this helper.
   if (await isSensitivePath(resolvedSource)) return;
   // The same containment check planImport and executeImport already applied to this path.
-  await assertWithinRoots(
-    resolvedSource,
-    sourceRoots,
-    "Refusing to process a path outside the configured downloader roots"
-  );
+  // The transfer has already succeeded, so refuse only the delete, not the import.
+  try {
+    await assertWithinRoots(
+      resolvedSource,
+      sourceRoots,
+      "Refusing to process a path outside the configured downloader roots"
+    );
+  } catch {
+    return;
+  }
   await fs.remove(resolvedSource).catch(() => undefined);
 }
 

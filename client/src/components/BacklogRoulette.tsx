@@ -77,6 +77,18 @@ function loadSnoozed(): Record<string, number> {
   }
 }
 
+/** Merge snooze maps, keeping the later return time and dropping expired entries. */
+function mergeSnoozed(...maps: Record<string, number>[]): Record<string, number> {
+  const now = Date.now();
+  const merged: Record<string, number> = {};
+  for (const map of maps) {
+    for (const [id, until] of Object.entries(map)) {
+      if (until > now && until > (merged[id] ?? 0)) merged[id] = until;
+    }
+  }
+  return merged;
+}
+
 function saveSnoozed(snoozed: Record<string, number>) {
   try {
     localStorage.setItem(SNOOZE_STORAGE_KEY, JSON.stringify(snoozed));
@@ -193,7 +205,10 @@ export default function BacklogRoulette({
   /** Hide the current game from the roulette for a while and draw another one. */
   function snoozeSelected() {
     if (!selected) return;
-    const next = { ...loadSnoozed(), [selected.id]: Date.now() + SNOOZE_DAYS * DAY_MS };
+    // Keep this session's snoozes even when storage cannot be read or written.
+    const next = mergeSnoozed(snoozed, loadSnoozed(), {
+      [selected.id]: Date.now() + SNOOZE_DAYS * DAY_MS,
+    });
     saveSnoozed(next);
     setSnoozed(next);
     // The state update is not visible to roll() yet, so draw around the snoozed game explicitly.
@@ -231,7 +246,7 @@ export default function BacklogRoulette({
         onOpenChange={(value) => {
           if (starting) return;
           if (value) {
-            const freshSnoozed = loadSnoozed();
+            const freshSnoozed = mergeSnoozed(snoozed, loadSnoozed());
             setSnoozed(freshSnoozed);
             roll(pool, maxHours, { snoozed: freshSnoozed, skipped: new Set() }, false);
           }
@@ -496,7 +511,8 @@ export default function BacklogRoulette({
               {SNOOZE_DAYS} days.{" "}
               <button
                 type="button"
-                className="underline underline-offset-2 hover:text-foreground"
+                disabled={starting || loading}
+                className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
                 onClick={() => {
                   clearSnoozed();
                   roll(pool, maxHours, { snoozed: {} }, false);

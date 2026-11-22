@@ -206,14 +206,14 @@ describe("Backlog roulette", () => {
       />
     );
     fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
-    fireEvent.keyDown(screen.getByRole("combobox", { name: "Favour" }), { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("option", { name: "Quick wins" }));
-    // Halfway through the cumulative weights is still inside the quick game (~99% of the weight).
+    // Ticket 500: "long" under equal weights, "quick" under Quick wins weights.
     vi.mocked(crypto.getRandomValues).mockImplementation((array) => {
-      if (array instanceof Uint32Array) array[0] = Math.floor(0.5 * 2 ** 32);
+      if (array instanceof Uint32Array) array[0] = 500;
       return array;
     });
-    fireEvent.click(screen.getByRole("button", { name: "Roll again" }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest long");
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Favour" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "Quick wins" }));
     expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest quick");
   });
 
@@ -227,6 +227,20 @@ describe("Backlog roulette", () => {
     expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest b");
     expect(screen.getByText("Chosen from 1 matching game.")).toBeVisible();
     localStorage.clear();
+  });
+
+  it("keeps earlier snoozes in the session when storage cannot be written", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    render(<BacklogRoulette games={[game("a"), game("b"), game("c")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    fireEvent.click(screen.getByRole("button", { name: /Not now/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Not now/ }));
+    expect(
+      screen.getByText("2 snoozed games are resting for up to 7 days.", { exact: false })
+    ).toBeVisible();
+    expect(screen.getByText("Chosen from 1 matching game.")).toBeVisible();
   });
 
   it("filters by installed games and snoozes a game with Not now", async () => {

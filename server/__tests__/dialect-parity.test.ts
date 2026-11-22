@@ -330,10 +330,12 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
         storage().updateGameStatus(game.id, { status: "playing" }),
         storage().updateGameStatus(game.id, { status: "completed" }),
       ]);
-      const times = (await storage().getUserGameStatusEvents(user.id))
+      const events = (await storage().getUserGameStatusEvents(user.id))
         .filter((e) => e.gameId === game.id)
-        .map((e) => e.createdAt.getTime());
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      const times = events.map((e) => e.createdAt.getTime());
       expect(times).toHaveLength(3);
+      expect(events.map((e) => e.status)).toEqual(["owned", "playing", "completed"]);
       expect(new Set(times).size).toBe(times.length);
       expect(times).toEqual([...times].sort((a, b) => a - b));
       await storage().removeGame(game.id);

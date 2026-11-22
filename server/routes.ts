@@ -61,9 +61,11 @@ function applyStagingMode(downloaderId: string): Promise<void> {
       else setStagingBlocked(downloaderId, false);
     });
   stagingModeQueue.set(downloaderId, run);
-  void run.finally(() => {
-    if (stagingModeQueue.get(downloaderId) === run) stagingModeQueue.delete(downloaderId);
-  });
+  void run
+    .finally(() => {
+      if (stagingModeQueue.get(downloaderId) === run) stagingModeQueue.delete(downloaderId);
+    })
+    .catch(() => undefined);
   return run;
 }
 import {

@@ -1199,6 +1199,7 @@ export default function SettingsPage() {
         description: "Your Steam ID has been saved.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/steam/achievements"] });
     },
     onError: (error: Error) => {
       toast({
